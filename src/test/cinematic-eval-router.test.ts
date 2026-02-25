@@ -150,7 +150,7 @@ describe("model router", () => {
 });
 
 /**
- * Quality History Persistence Tests
+ * Quality History Persistence Tests — Phase 1 Slice 5 hardened
  */
 import {
   persistCinematicQualityRun,
@@ -213,6 +213,49 @@ describe("persistCinematicQualityRun", () => {
     expect(capturedArgs.args.p_attempt1.attempt_index).toBe(1);
   });
 
+  it("p_run includes all required fields", async () => {
+    let capturedArgs: any = null;
+    const mockDb = {
+      rpc: async (_: string, args: any) => {
+        capturedArgs = args;
+        return { data: "uuid", error: null };
+      },
+    };
+
+    await persistCinematicQualityRun(mockDb, baseParams);
+    const run = capturedArgs.p_run;
+    expect(run.project_id).toBe("00000000-0000-0000-0000-000000000001");
+    expect(run.doc_id).toBeNull();
+    expect(run.run_source).toBe("trailer-engine");
+    expect(run.lane).toBe("feature_film");
+    expect(run.adapter_mode).toBe("explicit");
+    expect(run.strictness_mode).toBe("standard");
+    expect(run.final_pass).toBe(true);
+    expect(run.final_score).toBe(0.88);
+    expect(run.hard_failures).toEqual([]);
+    expect(run.diagnostic_flags).toEqual([]);
+    expect(run.metrics_json).toEqual({ arc_peak: 0.92 });
+    expect(run.attempt_count).toBe(2);
+  });
+
+  it("p_attempt0 includes model and output_json", async () => {
+    let capturedArgs: any = null;
+    const mockDb = {
+      rpc: async (_: string, args: any) => {
+        capturedArgs = args;
+        return { data: "uuid", error: null };
+      },
+    };
+
+    await persistCinematicQualityRun(mockDb, baseParams);
+    const a0 = capturedArgs.p_attempt0;
+    expect(a0.attempt_index).toBe(0);
+    expect(a0.model).toBe("balanced");
+    expect(a0.output_json).toBeDefined();
+    expect(a0.score).toBe(0.72);
+    expect(a0.pass).toBe(false);
+  });
+
   it("stores repair_instruction in attempt1.input_summary_json", async () => {
     let capturedArgs: any = null;
     const mockDb = {
@@ -226,7 +269,6 @@ describe("persistCinematicQualityRun", () => {
 
     expect(capturedArgs.p_attempt1.input_summary_json.repair_instruction)
       .toBe("Raise arc peak in last 25%");
-    // attempt0 should NOT have repair_instruction
     expect(capturedArgs.p_attempt0.input_summary_json.repair_instruction).toBeUndefined();
   });
 
@@ -237,7 +279,6 @@ describe("persistCinematicQualityRun", () => {
       },
     };
 
-    // Must not throw
     const result = await persistCinematicQualityRun(mockDb, baseParams);
     expect(result).toBeNull();
   });
@@ -299,6 +340,30 @@ describe("persistCinematicQualityRun", () => {
 
     await persistCinematicQualityRun(mockDb, { ...baseParams, runSource: "storyboard-engine" });
     expect(capturedArgs.p_run.engine).toBe("storyboard");
+  });
+
+  it("user-facing result unchanged when logging fails", async () => {
+    const mockDb = {
+      rpc: async () => { throw new Error("Connection refused"); },
+    };
+    const result = await persistCinematicQualityRun(mockDb, baseParams);
+    expect(result).toBeNull();
+  });
+
+  it("documentId is passed through when provided", async () => {
+    let capturedArgs: any = null;
+    const mockDb = {
+      rpc: async (_: string, args: any) => {
+        capturedArgs = args;
+        return { data: "uuid", error: null };
+      },
+    };
+
+    await persistCinematicQualityRun(mockDb, {
+      ...baseParams,
+      documentId: "00000000-0000-0000-0000-000000000099",
+    });
+    expect(capturedArgs.p_run.doc_id).toBe("00000000-0000-0000-0000-000000000099");
   });
 });
 

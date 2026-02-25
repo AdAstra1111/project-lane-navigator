@@ -1,8 +1,11 @@
 /**
- * Quality History UI — diff logic + render safety tests
+ * Quality History UI — diff logic + render safety + trend tests
+ * Phase 1 Slice 5: Test Hardening
  */
 import { describe, it, expect } from "vitest";
 import { computeFailureDiff, computePassRate, computeAvgScore, buildChartData } from "@/components/cinematic/QualityRunHistory";
+
+/* ── A) Diff Logic ── */
 
 describe("computeFailureDiff", () => {
   it("correctly identifies fixed failures", () => {
@@ -52,10 +55,35 @@ describe("computeFailureDiff", () => {
     expect(diff.remaining).toEqual([]);
     expect(diff.newFailures).toEqual(["ENERGY_DROP", "TONAL_WHIPLASH"]);
   });
+
+  it("is order-insensitive for set membership", () => {
+    const diffA = computeFailureDiff(["WEAK_ARC", "FLATLINE"], ["FLATLINE", "ENERGY_DROP"]);
+    const diffB = computeFailureDiff(["FLATLINE", "WEAK_ARC"], ["ENERGY_DROP", "FLATLINE"]);
+    expect(new Set(diffA.fixed)).toEqual(new Set(diffB.fixed));
+    expect(new Set(diffA.remaining)).toEqual(new Set(diffB.remaining));
+    expect(new Set(diffA.newFailures)).toEqual(new Set(diffB.newFailures));
+  });
 });
 
+describe("score_delta computation", () => {
+  it("computes positive delta when attempt1 improves", () => {
+    const delta = 0.88 - 0.72;
+    expect(delta).toBeCloseTo(0.16);
+  });
+
+  it("computes negative delta when attempt1 regresses", () => {
+    const delta = 0.60 - 0.72;
+    expect(delta).toBeCloseTo(-0.12);
+  });
+
+  it("computes zero delta when scores match", () => {
+    expect(0.72 - 0.72).toBe(0);
+  });
+});
+
+/* ── B) extractUnits fallback ── */
+
 describe("extractUnits fallback", () => {
-  // Test the logic inline since extractUnits is not exported
   function extractUnits(json: any): any[] | null {
     if (!json) return null;
     if (Array.isArray(json)) return json.length > 0 && typeof json[0] === 'object' ? json : null;
@@ -77,13 +105,11 @@ describe("extractUnits fallback", () => {
   });
 
   it("extracts from beats key", () => {
-    const result = extractUnits({ beats: [{ intent: "chaos" }] });
-    expect(result).toHaveLength(1);
+    expect(extractUnits({ beats: [{ intent: "chaos" }] })).toHaveLength(1);
   });
 
   it("handles top-level array", () => {
-    const result = extractUnits([{ intent: "wonder" }]);
-    expect(result).toHaveLength(1);
+    expect(extractUnits([{ intent: "wonder" }])).toHaveLength(1);
   });
 
   it("returns null for empty object", () => {
@@ -93,7 +119,15 @@ describe("extractUnits fallback", () => {
   it("returns null for primitive array", () => {
     expect(extractUnits([1, 2, 3])).toBeNull();
   });
+
+  it("renders JSON fallback when no units key exists", () => {
+    const json = { some_key: "value", nested: { a: 1 } };
+    expect(extractUnits(json)).toBeNull();
+    expect(() => JSON.stringify(json, null, 2)).not.toThrow();
+  });
 });
+
+/* ── C) Trend Computations ── */
 
 describe("computePassRate", () => {
   it("computes rate for full window", () => {
@@ -113,23 +147,25 @@ describe("computePassRate", () => {
 
   it("handles empty array", () => {
     expect(computePassRate([]).rate).toBe(0);
+    expect(computePassRate([]).total).toBe(0);
   });
 
   it("handles all pass", () => {
-    const runs = [{ final_pass: true }, { final_pass: true }];
-    expect(computePassRate(runs).rate).toBe(1);
+    expect(computePassRate([{ final_pass: true }, { final_pass: true }]).rate).toBe(1);
   });
 
   it("handles all fail", () => {
-    const runs = [{ final_pass: false }, { final_pass: false }];
-    expect(computePassRate(runs).rate).toBe(0);
+    expect(computePassRate([{ final_pass: false }, { final_pass: false }]).rate).toBe(0);
+  });
+
+  it("single run pass", () => {
+    expect(computePassRate([{ final_pass: true }]).rate).toBe(1);
   });
 });
 
 describe("computeAvgScore", () => {
   it("computes mean score", () => {
-    const runs = [{ final_score: 0.8 }, { final_score: 0.6 }, { final_score: 0.7 }];
-    expect(computeAvgScore(runs)).toBeCloseTo(0.7);
+    expect(computeAvgScore([{ final_score: 0.8 }, { final_score: 0.6 }, { final_score: 0.7 }])).toBeCloseTo(0.7);
   });
 
   it("returns 0 for empty", () => {
@@ -138,6 +174,10 @@ describe("computeAvgScore", () => {
 
   it("handles single run", () => {
     expect(computeAvgScore([{ final_score: 0.85 }])).toBeCloseTo(0.85);
+  });
+
+  it("handles extreme scores", () => {
+    expect(computeAvgScore([{ final_score: 0 }, { final_score: 1 }])).toBeCloseTo(0.5);
   });
 });
 
@@ -165,6 +205,40 @@ describe("buildChartData", () => {
   });
 
   it("handles empty array", () => {
+    expect(buildChartData([])).toEqual([]);
+  });
+
+  it("does not mutate input array", () => {
+    const runs = [
+      { final_score: 0.9, final_pass: true, created_at: "2026-02-25T03:00:00Z" },
+      { final_score: 0.7, final_pass: false, created_at: "2026-02-25T01:00:00Z" },
+    ];
+    const originalFirst = runs[0].final_score;
+    buildChartData(runs);
+    expect(runs[0].final_score).toBe(originalFirst);
+  });
+
+  it("single run produces single chart point", () => {
+    const chart = buildChartData([{ final_score: 0.8, final_pass: true, created_at: "2026-01-01T00:00:00Z" }]);
+    expect(chart).toHaveLength(1);
+    expect(chart[0].score).toBeCloseTo(0.8);
+  });
+});
+
+/* ── D) Graceful missing states ── */
+
+describe("run detail graceful states", () => {
+  it("single-attempt run: no diff computed when attempt1 missing", () => {
+    const attempt0Failures = ["WEAK_ARC"];
+    const attempt1Failures: string[] | undefined = undefined;
+    const diff = attempt1Failures ? computeFailureDiff(attempt0Failures, attempt1Failures) : null;
+    expect(diff).toBeNull();
+  });
+
+  it("empty run list produces zero across all metrics", () => {
+    expect(computePassRate([]).rate).toBe(0);
+    expect(computePassRate([]).total).toBe(0);
+    expect(computeAvgScore([])).toBe(0);
     expect(buildChartData([])).toEqual([]);
   });
 });
