@@ -611,6 +611,43 @@ export function NoteWritersRoomDrawer({
                     : <><Lightbulb className="h-3 w-3" /> Find other solutions</>
                   }
                 </Button>
+
+                {/* Apply selected option */}
+                {selectedOption && (
+                  <div className="space-y-1.5 border border-primary/30 rounded-lg p-2.5 bg-primary/5">
+                    <p className="text-[10px] text-muted-foreground">Selected: <span className="font-medium text-foreground">{selectedOption.pitch}</span></p>
+                    {currentPlan?.status === 'confirmed' ? (
+                      <Button
+                        size="sm" className="w-full text-xs h-8 gap-1.5"
+                        onClick={() => applyChangePlan.mutate({ planId: currentPlan.id })}
+                        disabled={applyChangePlan.isPending}
+                      >
+                        {applyChangePlan.isPending
+                          ? <><Loader2 className="h-3 w-3 animate-spin" /> Applying...</>
+                          : <><Check className="h-3 w-3" /> Apply Selected Option</>
+                        }
+                      </Button>
+                    ) : currentPlan?.status === 'draft' ? (
+                      <Button
+                        size="sm" variant="secondary" className="w-full text-xs h-8 gap-1.5"
+                        onClick={() => { setShowPlan(true); setTab('plan'); }}
+                      >
+                        <FileEdit className="h-3 w-3" /> Review & Confirm Plan
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm" className="w-full text-xs h-8 gap-1.5"
+                        onClick={() => proposeChangePlan.mutate(contextPack || undefined)}
+                        disabled={proposeChangePlan.isPending}
+                      >
+                        {proposeChangePlan.isPending
+                          ? <><Loader2 className="h-3 w-3 animate-spin" /> Creating plan...</>
+                          : <><Zap className="h-3 w-3" /> Apply Selected Option</>
+                        }
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             </TabsContent>
 
