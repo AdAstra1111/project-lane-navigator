@@ -3,7 +3,7 @@
  * deferral status, and due_when for notes.
  * 
  * Uses Pipeline Brain as the authoritative pipeline source.
- * Uses documentLadders for canonical normalization.
+ * Uses documentLadders for canonical lane-aware normalization.
  */
 
 import ladderData from '../../supabase/_shared/stage-ladders.json';
@@ -21,12 +21,13 @@ export function getPipelineForFormat(format: string): string[] {
 }
 
 /**
- * Normalize a doc type using the alias map.
+ * Normalize a doc type using canonical ladder aliases + stage-ladders aliases.
+ * Now lane-aware: pass format to get correct alias resolution.
  */
-export function normalizeDocType(docType: string): string {
+export function normalizeDocType(docType: string, format?: string | null): string {
   if (!docType) return docType;
-  // First apply canonical ladder aliases, then fall back to stage-ladders aliases
-  const canonical = normalizeDocTypeCanonical(docType);
+  // First apply canonical ladder aliases (lane-aware), then fall back to stage-ladders aliases
+  const canonical = normalizeDocTypeCanonical(docType, null, format);
   const lower = canonical.toLowerCase().replace(/[\s-]+/g, '_');
   return DOC_TYPE_ALIASES[lower] || lower;
 }
@@ -36,7 +37,7 @@ export function normalizeDocType(docType: string): string {
  */
 export function isDocTypeInPipeline(docType: string, format: string): boolean {
   const pipeline = getPipelineForFormat(format);
-  const normalized = normalizeDocType(docType);
+  const normalized = normalizeDocType(docType, format);
   return pipeline.includes(normalized);
 }
 
@@ -45,7 +46,7 @@ export function isDocTypeInPipeline(docType: string, format: string): boolean {
  */
 export function getStageIndex(docType: string, format: string): number {
   const pipeline = getPipelineForFormat(format);
-  return pipeline.indexOf(normalizeDocType(docType));
+  return pipeline.indexOf(normalizeDocType(docType, format));
 }
 
 /**
@@ -58,8 +59,8 @@ export function shouldDefer(params: {
 }): { defer: boolean; reason: string | null } {
   const { targetDocType, currentDocType, format } = params;
   const pipeline = getPipelineForFormat(format);
-  const normalizedTarget = normalizeDocType(targetDocType);
-  const normalizedCurrent = normalizeDocType(currentDocType);
+  const normalizedTarget = normalizeDocType(targetDocType, format);
+  const normalizedCurrent = normalizeDocType(currentDocType, format);
 
   // Not in pipeline at all
   if (!pipeline.includes(normalizedTarget)) {
@@ -80,9 +81,9 @@ export function shouldDefer(params: {
 /**
  * Compute the due_when resurfacing rule for a deferred note.
  */
-export function computeDueWhen(targetDocType: string): Record<string, unknown> {
+export function computeDueWhen(targetDocType: string, format?: string | null): Record<string, unknown> {
   return {
-    when_doc_type_active: normalizeDocType(targetDocType),
+    when_doc_type_active: normalizeDocType(targetDocType, format),
   };
 }
 
@@ -91,16 +92,19 @@ export function computeDueWhen(targetDocType: string): Record<string, unknown> {
  */
 export function findNearestEquivalent(docType: string, format: string): string | null {
   const pipeline = getPipelineForFormat(format);
-  const normalized = normalizeDocType(docType);
+  const normalized = normalizeDocType(docType, format);
 
   // Direct alias resolution
   if (pipeline.includes(normalized)) return normalized;
 
-  // Blueprint → beat_sheet for formats without blueprint
+  // Remap legacy keys to pipeline equivalents
   const REMAP: Record<string, string[]> = {
+    treatment: ['beat_sheet', 'season_arc', 'concept_brief'],
+    story_outline: ['treatment', 'beat_sheet', 'season_arc'],
+    beat_sheet: ['treatment', 'season_arc'],
+    // Legacy keys that may still appear after normalization in stage-ladders context
     blueprint: ['beat_sheet', 'season_arc', 'concept_brief'],
     architecture: ['blueprint', 'beat_sheet', 'season_arc'],
-    beat_sheet: ['blueprint', 'season_arc'],
   };
 
   const candidates = REMAP[normalized] || [];

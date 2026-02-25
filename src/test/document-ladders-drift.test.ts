@@ -11,6 +11,7 @@ import {
   BASE_DOC_TYPES as FE_BASE,
   LANE_DOC_LADDERS as FE_LADDERS,
   DOC_LABEL_ALIASES as FE_ALIASES,
+  DOC_LABEL_ALIASES_BY_LANE as FE_LANE_ALIASES,
   normalizeDocType as feNormalize,
   getLaneLadder as feGetLadder,
   isDocTypeAllowedInLane as feAllowed,
@@ -21,6 +22,7 @@ import {
   BASE_DOC_TYPES as BE_BASE,
   LANE_DOC_LADDERS as BE_LADDERS,
   DOC_LABEL_ALIASES as BE_ALIASES,
+  DOC_LABEL_ALIASES_BY_LANE as BE_LANE_ALIASES,
   normalizeDocType as beNormalize,
   getLaneLadder as beGetLadder,
   isDocTypeAllowedInLane as beAllowed,
@@ -55,19 +57,44 @@ describe('Document ladders drift guard', () => {
   it('DOC_LABEL_ALIASES match', () => {
     expect(FE_ALIASES).toEqual(BE_ALIASES);
   });
+
+  it('DOC_LABEL_ALIASES_BY_LANE match', () => {
+    expect(FE_LANE_ALIASES).toEqual(BE_LANE_ALIASES);
+  });
+
+  it('blueprint and architecture are NOT in BASE_DOC_TYPES (they are aliases)', () => {
+    expect(FE_BASE).not.toHaveProperty('blueprint');
+    expect(FE_BASE).not.toHaveProperty('architecture');
+    expect(BE_BASE).not.toHaveProperty('blueprint');
+    expect(BE_BASE).not.toHaveProperty('architecture');
+  });
+
+  it('treatment and story_outline ARE in BASE_DOC_TYPES', () => {
+    expect(FE_BASE).toHaveProperty('treatment');
+    expect(FE_BASE).toHaveProperty('story_outline');
+  });
 });
 
-/* ── B) Function parity ── */
+/* ── B) Function parity (lane-aware) ── */
 
 describe('Document ladders function parity', () => {
-  const testInputs = [
-    'Blueprint', 'architecture', 'SCRIPT', 'treatment', 'Series Bible',
-    'episode_beats', 'draft', 'concept_brief', 'unknown_thing',
+  const testInputs: [string, string | null][] = [
+    ['Blueprint', null],
+    ['architecture', null],
+    ['SCRIPT', null],
+    ['treatment', null],
+    ['Series Bible', null],
+    ['draft', null],
+    ['concept_brief', null],
+    ['unknown_thing', null],
+    ['episode_beats', 'series'],
+    ['episode_beats', 'vertical_drama'],
+    ['Blueprint', 'feature_film'],
   ];
 
-  for (const input of testInputs) {
-    it(`normalizeDocType("${input}") matches FE/BE`, () => {
-      expect(feNormalize(input)).toBe(beNormalize(input));
+  for (const [input, lane] of testInputs) {
+    it(`normalizeDocType("${input}", "${lane}") matches FE/BE`, () => {
+      expect(feNormalize(input, lane)).toBe(beNormalize(input, lane));
     });
   }
 
@@ -89,8 +116,8 @@ describe('Document ladders function parity', () => {
 
   it('isDocTypeAllowedInLane matches FE/BE for sample cases', () => {
     const cases: [string | null, string][] = [
+      ['feature_film', 'treatment'],
       ['feature_film', 'blueprint'],
-      ['vertical_drama', 'blueprint'],
       ['vertical_drama', 'format_rules'],
       ['documentary', 'feature_script'],
       ['series', 'treatment'],
