@@ -20,6 +20,7 @@ import {
   History,
 } from 'lucide-react';
 import { useNoteWritersRoom, type ContextPack, type ProjectDocInfo } from '@/hooks/useNoteWritersRoom';
+import { useDocSets, docSetItemOrder, type DocSet, type DocSetWithItems } from '@/hooks/useDocSets';
 import { noteFingerprint } from '@/lib/decisions/fingerprint';
 import { ChangePlanPanel } from './ChangePlanPanel';
 import { ChangesetTimeline } from './ChangesetTimeline';
@@ -101,6 +102,11 @@ export function NoteWritersRoomDrawer({
   const [customVersionPref, setCustomVersionPref] = useState('current');
   const [customMode, setCustomMode] = useState('end');
 
+  // Doc sets integration
+  const docSets = useDocSets(projectId);
+  const docSetsList = docSets.listQuery.data || [];
+  const defaultDocSet = docSetsList.find(s => s.is_default);
+
   const data = query.data;
   const state = data?.state;
   const messages = data?.messages || [];
@@ -110,6 +116,30 @@ export function NoteWritersRoomDrawer({
   const pins = state?.pinned_constraints || [];
   const currentPlan = planQuery.data;
   const projectDocs = docsQuery.data || [];
+
+  // ── Load doc set as context ──
+  const loadDocSetContext = useCallback(async (docSetId: string) => {
+    setContextLoading(true);
+    setContextError(null);
+    try {
+      const full = await docSets.fetchDocSet(docSetId);
+      const ids = docSetItemOrder(full.items);
+      if (ids.length === 0) {
+        setContextError('Doc set has no documents');
+        return;
+      }
+      const result = await loadContextPack.mutateAsync({ includeDocumentIds: ids, mode: 'end' });
+      if (result.ok && result.contextPack) {
+        setContextPack({ ...result.contextPack, presetKey: `docset:${full.name}` });
+      } else {
+        setContextError('Failed to load doc set context');
+      }
+    } catch (e: any) {
+      setContextError(e.message);
+    } finally {
+      setContextLoading(false);
+    }
+  }, [docSets, loadContextPack]);
 
   // ── Auto-load context on drawer open ──
   const loadPreset = useCallback(async (presetKey: string, mode = 'end') => {
@@ -142,10 +172,14 @@ export function NoteWritersRoomDrawer({
   useEffect(() => {
     if (open && !autoLoaded && !contextPack) {
       setAutoLoaded(true);
-      // Default to script_pack
-      loadPreset('script_pack', 'end');
+      // If default doc set exists, use it; otherwise fall back to script_pack
+      if (defaultDocSet) {
+        loadDocSetContext(defaultDocSet.id);
+      } else {
+        loadPreset('script_pack', 'end');
+      }
     }
-  }, [open, autoLoaded, contextPack, loadPreset]);
+  }, [open, autoLoaded, contextPack, loadPreset, defaultDocSet, loadDocSetContext]);
 
   // Reset auto-loaded when drawer closes
   useEffect(() => {
@@ -657,6 +691,39 @@ export function NoteWritersRoomDrawer({
                 ))}
               </div>
             </div>
+
+            {/* Doc Sets */}
+            {docSetsList.length > 0 && (
+              <>
+                <Separator />
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    Doc Sets
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {docSetsList.map(ds => (
+                      <Button
+                        key={ds.id}
+                        variant="outline"
+                        size="sm"
+                        className="h-auto py-2 px-3 text-left flex flex-col items-start gap-0.5"
+                        disabled={contextLoading}
+                        onClick={() => {
+                          setShowContextModal(false);
+                          loadDocSetContext(ds.id);
+                        }}
+                      >
+                        <span className="text-xs font-medium flex items-center gap-1">
+                          {ds.name}
+                          {ds.is_default && <Badge variant="secondary" className="text-[7px] px-1 py-0">Default</Badge>}
+                        </span>
+                        {ds.description && <span className="text-[9px] text-muted-foreground">{ds.description}</span>}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
 
             <Separator />
 
