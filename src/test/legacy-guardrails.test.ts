@@ -13,17 +13,26 @@ const readSrc = (path: string) => readFileSync(resolve(__dirname, '..', path), '
 describe('Legacy routes are removed or redirect', () => {
   const appSource = readSrc('App.tsx');
 
-  it('/quick-review redirects to /dashboard', () => {
+  it('/quick-review uses ReviewRedirect (preserves projectId)', () => {
     expect(appSource).toContain('path="/quick-review"');
-    expect(appSource).toContain('Navigate to="/dashboard"');
-    // Must NOT render QuickReview component
+    expect(appSource).toContain('ReviewRedirect');
+    // Must NOT render old QuickReview/DeepReview page components
     expect(appSource).not.toMatch(/<QuickReview\s*\/>/);
   });
 
-  it('/deep-review redirects to /dashboard', () => {
+  it('/deep-review uses ReviewRedirect (preserves projectId)', () => {
     expect(appSource).toContain('path="/deep-review"');
-    expect(appSource).toContain('Navigate to="/dashboard"');
+    expect(appSource).toContain('ReviewRedirect');
     expect(appSource).not.toMatch(/<DeepReview\s*\/>/);
+  });
+
+  it('ReviewRedirect redirects to canonical analysis when projectId present', () => {
+    // ReviewRedirect must contain the canonical analysis path
+    expect(appSource).toContain('/script?drawer=open&drawerTab=analysis');
+  });
+
+  it('ReviewRedirect falls back to /dashboard without projectId', () => {
+    expect(appSource).toContain('Navigate to="/dashboard"');
   });
 
   it('/ai-trailer redirects to canonical trailer', () => {
