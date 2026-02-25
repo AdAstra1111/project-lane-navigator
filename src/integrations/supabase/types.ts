@@ -1632,6 +1632,133 @@ export type Database = {
           },
         ]
       }
+      comparable_candidates: {
+        Row: {
+          confidence: number
+          created_at: string
+          created_by: string
+          format: string
+          genres: Json
+          id: string
+          lane: string
+          project_id: string
+          query: Json
+          rationale: string
+          region: string | null
+          source_urls: Json
+          title: string
+          year: number | null
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          created_by: string
+          format?: string
+          genres?: Json
+          id?: string
+          lane: string
+          project_id: string
+          query?: Json
+          rationale?: string
+          region?: string | null
+          source_urls?: Json
+          title: string
+          year?: number | null
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          created_by?: string
+          format?: string
+          genres?: Json
+          id?: string
+          lane?: string
+          project_id?: string
+          query?: Json
+          rationale?: string
+          region?: string | null
+          source_urls?: Json
+          title?: string
+          year?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comparable_candidates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "comparable_candidates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      comparable_influencers: {
+        Row: {
+          avoid_tags: Json
+          candidate_id: string
+          created_at: string
+          created_by: string
+          emulate_tags: Json
+          id: string
+          influence_dimensions: Json
+          influencer_weight: number
+          lane: string
+          project_id: string
+        }
+        Insert: {
+          avoid_tags?: Json
+          candidate_id: string
+          created_at?: string
+          created_by: string
+          emulate_tags?: Json
+          id?: string
+          influence_dimensions?: Json
+          influencer_weight?: number
+          lane: string
+          project_id: string
+        }
+        Update: {
+          avoid_tags?: Json
+          candidate_id?: string
+          created_at?: string
+          created_by?: string
+          emulate_tags?: Json
+          id?: string
+          influence_dimensions?: Json
+          influencer_weight?: number
+          lane?: string
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comparable_influencers_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "comparable_candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comparable_influencers_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "comparable_influencers_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       concept_expansions: {
         Row: {
           arc_map: string
@@ -4460,6 +4587,114 @@ export type Database = {
           },
           {
             foreignKeyName: "edit_versions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      engine_overrides: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          lane: string
+          patch: Json
+          patch_summary: string
+          project_id: string
+          scope: string
+          target_run_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          lane: string
+          patch: Json
+          patch_summary?: string
+          project_id: string
+          scope?: string
+          target_run_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          lane?: string
+          patch?: Json
+          patch_summary?: string
+          project_id?: string
+          scope?: string
+          target_run_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engine_overrides_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "engine_overrides_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      engine_profiles: {
+        Row: {
+          conflicts: Json
+          created_at: string
+          created_by: string
+          derived_from_influencers: Json
+          id: string
+          is_active: boolean
+          lane: string
+          name: string
+          project_id: string
+          rules: Json
+          rules_summary: string
+        }
+        Insert: {
+          conflicts?: Json
+          created_at?: string
+          created_by: string
+          derived_from_influencers?: Json
+          id?: string
+          is_active?: boolean
+          lane: string
+          name?: string
+          project_id: string
+          rules: Json
+          rules_summary?: string
+        }
+        Update: {
+          conflicts?: Json
+          created_at?: string
+          created_by?: string
+          derived_from_influencers?: Json
+          id?: string
+          is_active?: boolean
+          lane?: string
+          name?: string
+          project_id?: string
+          rules?: Json
+          rules_summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engine_profiles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "engine_profiles_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -15916,6 +16151,101 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      story_rulesets: {
+        Row: {
+          attempt: number
+          created_at: string
+          created_by: string
+          engine_profile_id: string | null
+          fingerprint: Json
+          id: string
+          lane: string
+          melodrama_score: number
+          nuance_gate: Json
+          nuance_metrics: Json
+          nuance_score: number
+          override_ids: Json
+          project_id: string
+          repaired_from_ruleset_id: string | null
+          resolved_rules: Json
+          resolved_summary: string
+          run_id: string
+          run_type: string
+          similarity_risk: number
+        }
+        Insert: {
+          attempt?: number
+          created_at?: string
+          created_by: string
+          engine_profile_id?: string | null
+          fingerprint?: Json
+          id?: string
+          lane: string
+          melodrama_score?: number
+          nuance_gate?: Json
+          nuance_metrics?: Json
+          nuance_score?: number
+          override_ids?: Json
+          project_id: string
+          repaired_from_ruleset_id?: string | null
+          resolved_rules: Json
+          resolved_summary?: string
+          run_id: string
+          run_type: string
+          similarity_risk?: number
+        }
+        Update: {
+          attempt?: number
+          created_at?: string
+          created_by?: string
+          engine_profile_id?: string | null
+          fingerprint?: Json
+          id?: string
+          lane?: string
+          melodrama_score?: number
+          nuance_gate?: Json
+          nuance_metrics?: Json
+          nuance_score?: number
+          override_ids?: Json
+          project_id?: string
+          repaired_from_ruleset_id?: string | null
+          resolved_rules?: Json
+          resolved_summary?: string
+          run_id?: string
+          run_type?: string
+          similarity_risk?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "story_rulesets_engine_profile_id_fkey"
+            columns: ["engine_profile_id"]
+            isOneToOne: false
+            referencedRelation: "engine_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "story_rulesets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "story_rulesets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "story_rulesets_repaired_from_ruleset_id_fkey"
+            columns: ["repaired_from_ruleset_id"]
+            isOneToOne: false
+            referencedRelation: "story_rulesets"
             referencedColumns: ["id"]
           },
         ]
