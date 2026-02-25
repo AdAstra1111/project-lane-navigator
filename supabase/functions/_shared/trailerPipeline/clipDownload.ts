@@ -1,6 +1,6 @@
 /**
  * Clip Download — Filename builder and URL accessor
- * ⚠️ DRIFT-LOCKED: Must stay identical to supabase/functions/_shared/trailerPipeline/clipDownload.ts
+ * ⚠️ DRIFT-LOCKED: Must stay identical to src/lib/trailerPipeline/clipDownload.ts
  * A vitest drift-lock test enforces this automatically.
  */
 

@@ -1,6 +1,6 @@
 /**
  * Clip Enqueue — Upsert options builder
- * ⚠️ DRIFT-LOCKED: Must stay identical to supabase/functions/_shared/trailerPipeline/clipEnqueue.ts
+ * ⚠️ DRIFT-LOCKED: Must stay identical to src/lib/trailerPipeline/clipEnqueue.ts
  * A vitest drift-lock test enforces this automatically.
  */
 
