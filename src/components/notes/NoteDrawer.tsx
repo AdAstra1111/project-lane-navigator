@@ -256,7 +256,7 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+      <DialogContent className="max-w-xl h-[85vh] flex flex-col p-0 overflow-hidden">
         {/* 1. Header */}
         <DialogHeader className="px-4 pt-4 pb-2 border-b border-border/30">
           <DialogTitle className="text-sm flex items-center gap-2">
