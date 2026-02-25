@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Film, Sparkles, Music, Camera, Archive, Clapperboard, Wand2, Paintbrush, Video } from 'lucide-react';
+import { ArrowLeft, Film, Sparkles, Music, Camera, Clapperboard, Wand2, Paintbrush, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -16,10 +16,10 @@ import { AutoAssemblyPanel } from '@/components/trailer/cinematic/AutoAssemblyPa
 import { ContinuityPanel } from '@/components/trailer/cinematic/ContinuityPanel';
 import { StudioFinishPanel } from '@/components/trailer/cinematic/StudioFinishPanel';
 import { LearningBiasIndicator } from '@/components/trailer/cinematic/LearningBiasIndicator';
-import { LegacyBlueprintTab } from '@/components/trailer/cinematic/LegacyBlueprintTab';
+// LegacyBlueprintTab removed — canonical cinematic pipeline only
 import { CanonPackManager } from '@/components/trailer/cinematic/CanonPackManager';
 import VideoPlanViewer from '@/components/cinematic/VideoPlanViewer';
-import { useBlueprints } from '@/lib/trailerPipeline/useTrailerPipeline';
+// useBlueprints removed — legacy blueprint queries no longer needed
 import { useScriptRuns } from '@/lib/trailerPipeline/cinematicHooks';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -50,8 +50,7 @@ export default function TrailerPipelinePage() {
 
   const [canonPackId, setCanonPackId] = useState<string>();
   const { data: scriptRuns } = useScriptRuns(projectId);
-  const { data: bpListData } = useBlueprints(projectId);
-  const hasLegacyBlueprints = (bpListData?.blueprints || []).length > 0;
+  // Legacy blueprint tab removed
   const queryClient = useQueryClient();
 
   const createPackMutation = useMutation({
@@ -164,11 +163,7 @@ export default function TrailerPipelinePage() {
             <TabsTrigger value="finish" className="text-xs gap-1.5">
               <Paintbrush className="h-3.5 w-3.5" /> Studio Finish
             </TabsTrigger>
-            {hasLegacyBlueprints && (
-              <TabsTrigger value="legacy" className="text-xs gap-1.5">
-                <Archive className="h-3.5 w-3.5" /> Legacy (Blueprint v1)
-              </TabsTrigger>
-            )}
+            {/* Legacy blueprint tab removed */}
           </TabsList>
 
           <TabsContent value="script">
@@ -209,11 +204,7 @@ export default function TrailerPipelinePage() {
             />
           </TabsContent>
 
-          {hasLegacyBlueprints && (
-            <TabsContent value="legacy">
-              <LegacyBlueprintTab projectId={projectId!} />
-            </TabsContent>
-          )}
+          {/* Legacy blueprint tab content removed */}
         </Tabs>
       </div>
     </div>

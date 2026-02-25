@@ -8,14 +8,12 @@ import { updateSearchParams } from '@/lib/searchParams';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Clapperboard, Scissors, Music,
-  ChevronRight, Sparkles, Archive, Loader2,
+  ChevronRight, Sparkles, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useBlueprints } from '@/lib/trailerPipeline/useTrailerPipeline';
-import { LegacyBlueprintTab } from '@/components/trailer/cinematic/LegacyBlueprintTab';
 
 const TrailerPipeline = lazy(() => import('./TrailerPipeline'));
 const ClipCandidatesStudio = lazy(() => import('./ClipCandidatesStudio'));
@@ -73,8 +71,7 @@ export default function TrailerHub() {
   // ⚠ Do not use setSearchParams({ ... }) — it wipes drawer/drawerTab. Use updateSearchParams().
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const { data: bpListData } = useBlueprints(projectId);
-  const hasLegacyBlueprints = (bpListData?.blueprints || []).length > 0;
+  // Legacy blueprint tab removed — canonical cinematic pipeline only
 
   // Coerce missing/invalid tab to 'blueprints', preserving all other params
   useEffect(() => {
@@ -109,53 +106,32 @@ export default function TrailerHub() {
   // Default: show hub overview
   return (
     <div className="max-w-[1000px] mx-auto px-4 py-6">
-      <Tabs defaultValue="cinematic">
-        <TabsList className="mb-3">
-          <TabsTrigger value="cinematic" className="text-xs gap-1.5">
-            <Sparkles className="h-3 w-3" /> Pipeline
-          </TabsTrigger>
-          {hasLegacyBlueprints && (
-            <TabsTrigger value="legacy" className="text-xs gap-1.5 text-muted-foreground">
-              <Archive className="h-3 w-3" /> v1 Blueprints
-            </TabsTrigger>
-          )}
-        </TabsList>
-
-        <TabsContent value="cinematic">
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-px rounded-md border border-border/15 overflow-hidden"
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-px rounded-md border border-border/15 overflow-hidden"
+      >
+        {STEPS.map((step, idx) => (
+          <button
+            key={step.step}
+            className={`w-full text-left flex items-center gap-3 px-3.5 py-3 transition-colors hover:bg-muted/25 cursor-pointer${idx < STEPS.length - 1 ? ' border-b border-border/10' : ''}`}
+            onClick={() => updateSearchParams(setSearchParams, p => p.set('tab', step.tab))}
           >
-            {STEPS.map((step, idx) => (
-              <button
-                key={step.step}
-                className={`w-full text-left flex items-center gap-3 px-3.5 py-3 transition-colors hover:bg-muted/25 cursor-pointer${idx < STEPS.length - 1 ? ' border-b border-border/10' : ''}`}
-                onClick={() => updateSearchParams(setSearchParams, p => p.set('tab', step.tab))}
-              >
-                <span className="flex-shrink-0 text-[11px] font-medium text-muted-foreground/50 w-4 text-right tabular-nums">
-                  {step.step}
-                </span>
-                <step.icon className="h-4 w-4 text-muted-foreground/60 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground/90">{step.title}</p>
-                  <p className="text-[11px] text-muted-foreground/70 line-clamp-1 max-w-md">{step.description}</p>
-                </div>
-                <span className="flex items-center text-[11px] text-muted-foreground hover:text-foreground/80 gap-0.5 flex-shrink-0 transition-colors">
-                  {step.cta}
-                  <ChevronRight className="h-3 w-3" />
-                </span>
-              </button>
-            ))}
-          </motion.div>
-        </TabsContent>
-
-        {hasLegacyBlueprints && (
-          <TabsContent value="legacy">
-            <LegacyBlueprintTab projectId={projectId!} />
-          </TabsContent>
-        )}
-      </Tabs>
+            <span className="flex-shrink-0 text-[11px] font-medium text-muted-foreground/50 w-4 text-right tabular-nums">
+              {step.step}
+            </span>
+            <step.icon className="h-4 w-4 text-muted-foreground/60 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground/90">{step.title}</p>
+              <p className="text-[11px] text-muted-foreground/70 line-clamp-1 max-w-md">{step.description}</p>
+            </div>
+            <span className="flex items-center text-[11px] text-muted-foreground hover:text-foreground/80 gap-0.5 flex-shrink-0 transition-colors">
+              {step.cta}
+              <ChevronRight className="h-3 w-3" />
+            </span>
+          </button>
+        ))}
+      </motion.div>
 
       <Separator className="my-6" />
       <div className="flex flex-wrap gap-2">

@@ -67,11 +67,10 @@ const StoryboardsPage = lazy(() => import("./pages/StoryboardsPage"));
 const VisualReferencesPage = lazy(() => import("./pages/VisualReferencesPage"));
 const ScriptIntakePage = lazy(() => import("./pages/ScriptIntakePage"));
 const Processing = lazy(() => import("./pages/Processing"));
-const QuickReview = lazy(() => import("./pages/QuickReview"));
-const DeepReview = lazy(() => import("./pages/DeepReview"));
+// QuickReview / DeepReview kept as thin redirects to canonical workspace analysis
 const NotFound = lazy(() => import("./pages/NotFound"));
 const NotesInbox = lazy(() => import("./pages/NotesInbox"));
-const AiTrailerBuilder = lazy(() => import("./pages/AiTrailerBuilder"));
+// AiTrailerBuilder removed — canonical Trailer Intelligence pipeline only
 const VisualUnits = lazy(() => import("./pages/VisualUnits"));
 const StoryboardPipeline = lazy(() => import("./pages/StoryboardPipeline"));
 const TrailerPipeline = lazy(() => import("./pages/TrailerPipeline"));
@@ -167,7 +166,8 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/storyboards" element={<ProtectedRoute><StoryboardsPage /></ProtectedRoute>} />
           <Route path="/projects/:id/visual-references" element={<ProtectedRoute><VisualReferencesPage /></ProtectedRoute>} />
           <Route path="/projects/:id/script-intake" element={<ProtectedRoute><ScriptIntakePage /></ProtectedRoute>} />
-          <Route path="/projects/:id/ai-trailer" element={<ProtectedRoute><AiTrailerBuilder /></ProtectedRoute>} />
+          {/* /ai-trailer removed — redirects to canonical trailer */}
+          <Route path="/projects/:id/ai-trailer" element={<ProtectedRoute><TrailerRedirect /></ProtectedRoute>} />
           <Route path="/projects/:id/visual-units" element={<ProtectedRoute><VisualUnits /></ProtectedRoute>} />
           <Route path="/projects/:id/storyboard-pipeline" element={<ProtectedRoute><StoryboardPipeline /></ProtectedRoute>} />
           <Route path="/projects/:id/trailer-pipeline" element={<ProtectedRoute><TrailerRedirect tab="blueprints" /></ProtectedRoute>} />
@@ -185,8 +185,9 @@ const AnimatedRoutes = () => {
           <Route path="/showcase" element={<ProtectedRoute><Showcase /></ProtectedRoute>} />
 
           <Route path="/processing" element={<Processing />} />
-          <Route path="/quick-review" element={<QuickReview />} />
-          <Route path="/deep-review" element={<DeepReview />} />
+          {/* Quick/Deep review routes redirect to dashboard (no project context) */}
+          <Route path="/quick-review" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/deep-review" element={<Navigate to="/dashboard" replace />} />
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="/share/pack/:token" element={<SharePackView />} />
           <Route path="*" element={<NotFound />} />
