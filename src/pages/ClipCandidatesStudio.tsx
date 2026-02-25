@@ -26,6 +26,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { toast } from 'sonner';
 import type { EDLBeat, TrailerClip } from '@/lib/trailerPipeline/types';
 import { isReadyStatus } from '@/lib/trailerPipeline/constants';
+import { clipCandidateComparator } from '@/lib/trailerPipeline/clipSorting';
+import { buildClipFilename, getDownloadUrl } from '@/lib/trailerPipeline/clipDownload';
 
 const ROLE_COLORS: Record<string, string> = {
   hook: 'bg-red-500/20 text-red-300',
@@ -125,17 +127,9 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
       if (!map[c.beat_index]) map[c.beat_index] = [];
       map[c.beat_index].push(c);
     }
-    // Deterministic sort: selected first, then technical_score desc, candidate_index asc, id asc (stable tie-breaker)
+    // Deterministic sort using shared comparator (clipSorting.ts)
     for (const key of Object.keys(map)) {
-      map[parseInt(key)].sort((a: any, b: any) => {
-        if (a.selected && !b.selected) return -1;
-        if (!a.selected && b.selected) return 1;
-        const scoreDiff = (b.technical_score ?? 0) - (a.technical_score ?? 0);
-        if (scoreDiff !== 0) return scoreDiff;
-        const ciDiff = (a.candidate_index ?? 0) - (b.candidate_index ?? 0);
-        if (ciDiff !== 0) return ciDiff;
-        return (a.id || '').localeCompare(b.id || '');
-      });
+      map[parseInt(key)].sort(clipCandidateComparator as any);
     }
     return map;
   }, [clips, showRejected]);
@@ -737,12 +731,13 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
                                               onClick={async (e) => {
                                                 e.stopPropagation();
                                                 try {
-                                                  const res = await fetch(clip.public_url);
+                                                  const downloadUrl = getDownloadUrl(clip)!;
+                                                  const res = await fetch(downloadUrl);
                                                   const blob = await res.blob();
                                                   const url = URL.createObjectURL(blob);
                                                   const a = document.createElement('a');
                                                   a.href = url;
-                                                  a.download = `clip-beat${clip.beat_index}-${clip.candidate_index || 1}.mp4`;
+                                                  a.download = buildClipFilename(clip);
                                                   document.body.appendChild(a);
                                                   a.click();
                                                   a.remove();
