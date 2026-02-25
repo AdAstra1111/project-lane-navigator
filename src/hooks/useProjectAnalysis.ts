@@ -197,3 +197,113 @@ export const LANE_LABELS: Record<string, string> = {
   'prestige-awards': 'Prestige / Awards',
   'fast-turnaround': 'Fast-Turnaround',
 };
+
+/* ── Pure helpers (exported for tests) ── */
+
+export interface AnalyzeProjectPayloadParams {
+  project: {
+    id: string;
+    title: string;
+    format: string;
+    genres: string[] | null;
+    budget_range: string;
+    target_audience: string | null;
+    tone: string | null;
+    comparable_titles: string[] | null;
+  };
+  documentPaths: string[];
+}
+
+/**
+ * buildAnalyzeProjectPayload — deterministic payload assembly for analyze-project.
+ */
+export function buildAnalyzeProjectPayload(params: AnalyzeProjectPayloadParams) {
+  return {
+    projectInput: {
+      id: params.project.id,
+      title: params.project.title,
+      format: params.project.format,
+      genres: params.project.genres,
+      budget_range: params.project.budget_range,
+      target_audience: params.project.target_audience,
+      tone: params.project.tone,
+      comparable_titles: params.project.comparable_titles,
+    },
+    documentPaths: params.documentPaths,
+  };
+}
+
+/**
+ * parseAnalysisResponse — extract ProjectAnalysis from raw DB row.
+ * Returns null if data is null/undefined.
+ */
+export function parseAnalysisResponse(data: {
+  id: string;
+  title: string;
+  format: string;
+  genres: string[] | null;
+  budget_range: string;
+  assigned_lane: string | null;
+  confidence: number | null;
+  reasoning: string | null;
+  analysis_passes: unknown;
+} | null): ProjectAnalysis | null {
+  if (!data) return null;
+  return {
+    projectId: data.id,
+    title: data.title,
+    format: data.format,
+    genres: data.genres || [],
+    budgetRange: data.budget_range,
+    assignedLane: data.assigned_lane,
+    confidence: data.confidence,
+    reasoning: data.reasoning,
+    analysis: data.analysis_passes as AnalysisPasses | null,
+  };
+}
+
+export interface AnalysisRun {
+  id: string;
+  created_at: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * selectCanonicalAnalysisRun — deterministically pick the "current" analysis run.
+ * 1. Prefer latest successful/complete run (status === 'complete' or 'success')
+ * 2. Otherwise latest by created_at
+ * 3. Tiebreak: id ascending for stability
+ */
+export function selectCanonicalAnalysisRun(runs: AnalysisRun[]): AnalysisRun | undefined {
+  if (runs.length === 0) return undefined;
+
+  const stableSort = (a: AnalysisRun, b: AnalysisRun): number => {
+    const timeDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  };
+
+  const successStatuses = ['complete', 'success'];
+  const successful = runs
+    .filter(r => r.status && successStatuses.includes(r.status))
+    .sort(stableSort);
+
+  if (successful.length > 0) return successful[0];
+
+  return [...runs].sort(stableSort)[0];
+}
+
+/**
+ * filterDocumentPathsByDocSet — given all docs and a doc set's document IDs,
+ * return only the paths for docs in the doc set, preserving doc set order.
+ */
+export function filterDocumentPathsByDocSet(
+  allDocs: Array<{ id: string; file_path: string | null }>,
+  docSetDocIds: string[]
+): string[] {
+  const docMap = new Map(allDocs.map(d => [d.id, d.file_path]));
+  return docSetDocIds
+    .map(id => docMap.get(id))
+    .filter((p): p is string => !!p && p.trim() !== '');
+}
