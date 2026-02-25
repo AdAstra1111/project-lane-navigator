@@ -81,6 +81,7 @@ const VisualDevHub = lazy(() => import("./pages/VisualDevHub"));
 const TrailerHub = lazy(() => import("./pages/TrailerHub"));
 const Showcase = lazy(() => import("./pages/Showcase"));
 const CanonPlaceholder = lazy(() => import("./pages/CanonPlaceholder"));
+const DemoDashboard = lazy(() => import("./pages/DemoDashboard"));
 
 // ProjectShell — new unified workspace frame (Week 1 refactor)
 import { ProjectShell } from "@/components/project/ProjectShell";
@@ -154,6 +155,7 @@ const AnimatedRoutes = () => {
           <Route path="/demo/cinematic" element={<CinematicDemo />} />
           <Route path="/demo/interactive" element={<InteractiveDemo />} />
           <Route path="/demo/executive" element={<ExecutiveDemo />} />
+          <Route path="/demo/run" element={<ProtectedRoute><DemoDashboard /></ProtectedRoute>} />
           <Route path="/investor" element={<ProtectedRoute><InvestorPresentation /></ProtectedRoute>} />
           <Route path="/development-engine" element={<ProtectedRoute><DevelopmentEngine /></ProtectedRoute>} />
           <Route path="/projects/:id/development" element={<ProtectedRoute><ProjectDevelopmentEngine /></ProtectedRoute>} />
