@@ -100,7 +100,7 @@ export interface ScoringContext {
 export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): CinematicScore {
   const T = getCinematicThresholds(ctx?.lane);
   const failures: CinematicFailureCode[] = [];
-  const features = extractFeatures(units, T.min_arc_peak_in_last_n);
+  const features = extractFeatures(units, T.min_arc_peak_in_last_n, ctx?.lane);
 
   const n = units.length;
   const energies = units.map(u => u.energy);
