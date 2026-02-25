@@ -15,6 +15,7 @@
 
 import { callLLM, MODELS } from "./llm.ts";
 
+const BATCH_SIZE = 8;
 const MAX_REPAIR_ATTEMPTS = 2;
 
 interface EpisodeBeatsOpts {
