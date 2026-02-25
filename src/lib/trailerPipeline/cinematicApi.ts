@@ -3,26 +3,48 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 
+// Actions that chain multiple LLM calls and need extended timeouts
+const LONG_RUNNING_ACTIONS = new Set([
+  'run_trailer_pipeline_v1',
+  'create_full_cinematic_trailer_plan',
+  'create_script_variants_v1',
+]);
+
 async function callCinematicEngine(action: string, payload: Record<string, any>) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
-  const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/trailer-cinematic-engine`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify({ action, ...payload }),
-  });
-  if (!resp.ok) {
-    const text = await resp.text();
-    let msg = 'Cinematic engine error';
-    try { msg = JSON.parse(text).error || msg; } catch {}
-    if (resp.status === 429) msg = 'Rate limit exceeded. Try again shortly.';
-    if (resp.status === 402) msg = 'AI credits exhausted.';
-    throw new Error(msg);
+
+  const timeoutMs = LONG_RUNNING_ACTIONS.has(action) ? 300_000 : 120_000; // 5min for pipelines, 2min for single steps
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/trailer-cinematic-engine`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action, ...payload }),
+      signal: controller.signal,
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      let msg = 'Cinematic engine error';
+      try { msg = JSON.parse(text).error || msg; } catch {}
+      if (resp.status === 429) msg = 'Rate limit exceeded. Try again shortly.';
+      if (resp.status === 402) msg = 'AI credits exhausted.';
+      throw new Error(msg);
+    }
+    return resp.json();
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw new Error('Pipeline timed out — the server may still be processing. Check back in a moment.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return resp.json();
 }
 
 export interface TrailerStyleOptions {
