@@ -258,6 +258,32 @@ export function ChangePlanPanel({
               </div>
             </>
           )}
+
+          {/* Verification checklist */}
+          {editedPlan.verification?.length > 0 && (
+            <>
+              <Separator />
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    Verification Checks
+                  </span>
+                </div>
+                <ul className="list-disc pl-4 text-[9px] text-muted-foreground space-y-0.5">
+                  {editedPlan.verification.map((v, i) => <li key={i}>{v}</li>)}
+                </ul>
+              </div>
+            </>
+          )}
+
+          {/* Rollback support indicator */}
+          {editedPlan.rollback_supported && (
+            <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
+              <Shield className="h-3 w-3 text-emerald-500" />
+              <span>Rollback supported — changes can be undone from History tab</span>
+            </div>
+          )}
         </div>
       </ScrollArea>
 

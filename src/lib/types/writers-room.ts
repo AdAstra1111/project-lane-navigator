@@ -118,6 +118,8 @@ export interface ChangePlan {
   changes: ChangePlanChange[];
   impacts: ChangePlanImpact[];
   rewrite_payload: ChangePlanRewritePayload;
+  verification: string[];
+  rollback_supported: boolean;
 }
 
 export interface ChangePlanRow {
@@ -131,4 +133,89 @@ export interface ChangePlanRow {
   created_by: string;
   created_at: string;
   updated_at: string;
+}
+
+/* ── Changeset types ── */
+
+export interface ChangesetDiffSummary {
+  before_length: number;
+  after_length: number;
+  length_delta: number;
+  length_delta_pct: number;
+  affected_scene_count: number;
+  affected_scenes: number[];
+  changes_applied: number;
+}
+
+export interface WritersRoomChangeset {
+  id: string;
+  project_id: string;
+  document_id: string;
+  thread_id: string | null;
+  plan_id: string | null;
+  plan_json: ChangePlan;
+  before_version_id: string;
+  after_version_id: string;
+  diff_summary: ChangesetDiffSummary;
+  quality_run_id: string | null;
+  rolled_back: boolean;
+  rolled_back_at: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+/** Shrink guard threshold: block if text shrinks more than this fraction unless plan has explicit deletions */
+export const SHRINK_GUARD_THRESHOLD = 0.3;
+
+/** Validates a change plan has required fields */
+export function validateChangePlan(plan: Partial<ChangePlan>): string[] {
+  const errors: string[] = [];
+  if (!plan.direction_summary) errors.push('Missing direction_summary');
+  if (!plan.changes || !Array.isArray(plan.changes) || plan.changes.length === 0) errors.push('No changes defined');
+  if (plan.changes) {
+    plan.changes.forEach((c, i) => {
+      if (!c.id) errors.push(`Change ${i}: missing id`);
+      if (!c.type) errors.push(`Change ${i}: missing type`);
+      if (!c.instructions) errors.push(`Change ${i}: missing instructions`);
+    });
+  }
+  return errors;
+}
+
+/** Check if plan has explicit deletions (scene_delete type or structure changes that remove content) */
+export function planHasExplicitDeletions(plan: ChangePlan): boolean {
+  return plan.changes.some(c =>
+    c.type === 'structure' && c.instructions.toLowerCase().includes('delet') ||
+    c.type === 'structure' && c.instructions.toLowerCase().includes('remov') ||
+    c.instructions.toLowerCase().includes('cut scene') ||
+    c.instructions.toLowerCase().includes('remove scene')
+  );
+}
+
+/** Compute diff summary deterministically */
+export function computeDiffSummary(
+  beforeText: string,
+  afterText: string,
+  enabledChanges: ChangePlanChange[],
+): ChangesetDiffSummary {
+  const beforeLen = beforeText.length;
+  const afterLen = afterText.length;
+  const delta = afterLen - beforeLen;
+  const deltaPct = beforeLen > 0 ? delta / beforeLen : 0;
+
+  // Collect affected scenes from change targets
+  const affectedScenes = new Set<number>();
+  enabledChanges.forEach(c => {
+    (c.target?.scene_numbers || []).forEach(sn => affectedScenes.add(sn));
+  });
+
+  return {
+    before_length: beforeLen,
+    after_length: afterLen,
+    length_delta: delta,
+    length_delta_pct: Math.round(deltaPct * 100) / 100,
+    affected_scene_count: affectedScenes.size,
+    affected_scenes: [...affectedScenes].sort((a, b) => a - b),
+    changes_applied: enabledChanges.length,
+  };
 }

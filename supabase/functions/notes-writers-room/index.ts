@@ -974,7 +974,7 @@ Generate a Change Plan with atomic, testable changes.`;
 
     // ── ACTION: apply_change_plan ──
     if (action === "apply_change_plan") {
-      const { planId } = body;
+      const { planId, forceShrink } = body;
       if (!planId) return err("Missing planId");
 
       const { data: plan, error: pErr } = await admin.from("note_change_plans").select("*").eq("id", planId).single();
@@ -1022,14 +1022,54 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
 
       const rewrittenText = result.content;
 
+      // ── Shrink guard ──
+      const SHRINK_GUARD_THRESHOLD = 0.3;
       const verification: any = { ok: true, checks: [], warnings: [] };
       if (!rewrittenText || rewrittenText.trim().length < 50) {
         verification.ok = false;
         verification.warnings.push("Rewritten text is suspiciously short or empty");
       }
+
+      const shrinkFraction = scriptText.length > 0
+        ? (scriptText.length - rewrittenText.length) / scriptText.length
+        : 0;
+
+      if (shrinkFraction > SHRINK_GUARD_THRESHOLD) {
+        // Check if plan has explicit deletions
+        const hasDeletions = enabledChanges.some((c: any) =>
+          (c.type === 'structure' && /delet|remov/i.test(c.instructions)) ||
+          /cut scene|remove scene/i.test(c.instructions)
+        );
+
+        if (!hasDeletions && !forceShrink) {
+          return ok({
+            blocked: true,
+            reason: "shrink_guard",
+            shrink_pct: Math.round(shrinkFraction * 100),
+            message: `Text would shrink by ${Math.round(shrinkFraction * 100)}% which exceeds the ${Math.round(SHRINK_GUARD_THRESHOLD * 100)}% safety threshold. No explicit deletions found in the plan. Set forceShrink=true to override.`,
+          });
+        }
+        verification.warnings.push(`Text shrunk by ${Math.round(shrinkFraction * 100)}% (threshold: ${Math.round(SHRINK_GUARD_THRESHOLD * 100)}%)`);
+      }
+
       if (rewrittenText.length < scriptText.length * 0.3) {
         verification.warnings.push("Rewritten text is significantly shorter than original");
       }
+
+      // ── Compute diff summary ──
+      const affectedScenes = new Set<number>();
+      enabledChanges.forEach((c: any) => {
+        (c.target?.scene_numbers || []).forEach((sn: number) => affectedScenes.add(sn));
+      });
+      const diffSummary = {
+        before_length: scriptText.length,
+        after_length: rewrittenText.length,
+        length_delta: rewrittenText.length - scriptText.length,
+        length_delta_pct: scriptText.length > 0 ? Math.round(((rewrittenText.length - scriptText.length) / scriptText.length) * 100) / 100 : 0,
+        affected_scene_count: affectedScenes.size,
+        affected_scenes: [...affectedScenes].sort((a, b) => a - b),
+        changes_applied: enabledChanges.length,
+      };
 
       const { data: maxVer } = await admin.from("project_document_versions")
         .select("version_number")
@@ -1063,10 +1103,23 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
         console.warn("set_current_version failed, falling back:", e.message);
       }
 
+      // ── Record changeset ──
+      await admin.from("writers_room_changesets").insert({
+        project_id: plan.project_id,
+        document_id: plan.document_id,
+        thread_id: plan.thread_id,
+        plan_id: planId,
+        plan_json: changePlan,
+        before_version_id: plan.version_id,
+        after_version_id: newVer.id,
+        diff_summary: diffSummary,
+        created_by: user.id,
+      });
+
       await admin.from("note_change_plans").update({ status: "applied" }).eq("id", planId);
       await admin.from("note_threads").update({ status: "applied" }).eq("id", plan.thread_id);
 
-      return ok({ newVersionId: newVer.id, verification });
+      return ok({ newVersionId: newVer.id, verification, diffSummary });
     }
 
     return err(`Unknown action: ${action}`);

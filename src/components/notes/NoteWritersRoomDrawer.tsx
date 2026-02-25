@@ -17,10 +17,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import {
   Loader2, Send, Pin, X, Sparkles, Check, CheckCircle2,
   AlertTriangle, Lightbulb, Layers, Zap, FileEdit, FileText, Settings2, Trash2,
+  History,
 } from 'lucide-react';
 import { useNoteWritersRoom, type ContextPack, type ProjectDocInfo } from '@/hooks/useNoteWritersRoom';
 import { noteFingerprint } from '@/lib/decisions/fingerprint';
 import { ChangePlanPanel } from './ChangePlanPanel';
+import { ChangesetTimeline } from './ChangesetTimeline';
 import type { NoteOption, NoteOptionSet, NoteThreadSynthesis, ChangePlan } from '@/lib/types/writers-room';
 import ReactMarkdown from 'react-markdown';
 
@@ -216,7 +218,7 @@ export function NoteWritersRoomDrawer({
   }
 
   function handleApplyPlan(planId: string) {
-    applyChangePlan.mutate(planId);
+    applyChangePlan.mutate({ planId });
   }
 
   function handleRevisePlan(summary: string) {
@@ -369,6 +371,9 @@ export function NoteWritersRoomDrawer({
                   <FileEdit className="h-3 w-3 mr-1" />Plan
                 </TabsTrigger>
               )}
+              <TabsTrigger value="history" className="text-xs">
+                <History className="h-3 w-3 mr-1" />History
+              </TabsTrigger>
             </TabsList>
 
             {/* ── DISCUSS TAB ── */}
@@ -613,6 +618,11 @@ export function NoteWritersRoomDrawer({
                 />
               </TabsContent>
             )}
+
+            {/* ── HISTORY TAB ── */}
+            <TabsContent value="history" className="flex-1 min-h-0 m-0 px-4 py-2">
+              <ChangesetTimeline projectId={projectId} documentId={documentId} />
+            </TabsContent>
           </Tabs>
         )}
       </SheetContent>
