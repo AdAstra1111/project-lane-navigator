@@ -113,7 +113,7 @@ async function handleCreateCut(db: any, body: any, userId: string) {
   }
 
   const edl = bp.edl || [];
-  const textCardPlan = bp.text_card_plan || [];
+  const textCardPlan = Array.isArray(bp.text_card_plan) ? bp.text_card_plan : [];
   const textCardBeats = new Set(textCardPlan.map((tc: any) => tc.beat_index));
 
   let timeline = edl.map((beat: any, idx: number) => {
@@ -1013,7 +1013,7 @@ async function handleAutoAssembleCut(db: any, body: any, userId: string) {
 
   // 3) Load EDL beats
   const edl = bp.edl || [];
-  const textCardPlan = bp.text_card_plan || [];
+  const textCardPlan = Array.isArray(bp.text_card_plan) ? bp.text_card_plan : [];
   const textCardBeats = new Set(textCardPlan.map((tc: any) => tc.beat_index));
 
   // 4) Load all clips for this blueprint, excluding rejected
