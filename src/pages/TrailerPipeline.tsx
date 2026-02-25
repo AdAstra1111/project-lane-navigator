@@ -1,11 +1,11 @@
 /**
  * Trailer Pipeline v2 — Cinematic Intelligence Studio
- * Tabbed layout: Script Studio, Rhythm Grid, Shot Design, Legacy Blueprint
+ * Tabbed layout: Script Studio, Rhythm Grid, Shot Design, Plans, etc.
  */
-import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
-import { ArrowLeft, Film, Sparkles, Music, Camera, Clapperboard, Wand2, Paintbrush, Video, Loader2 } from 'lucide-react';
+import { ArrowLeft, Film, Sparkles, Music, Camera, Clapperboard, Wand2, Paintbrush, Video, Loader2, LayoutList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -17,11 +17,10 @@ import { AutoAssemblyPanel } from '@/components/trailer/cinematic/AutoAssemblyPa
 import { ContinuityPanel } from '@/components/trailer/cinematic/ContinuityPanel';
 import { StudioFinishPanel } from '@/components/trailer/cinematic/StudioFinishPanel';
 import { LearningBiasIndicator } from '@/components/trailer/cinematic/LearningBiasIndicator';
-// LegacyBlueprintTab removed — canonical cinematic pipeline only
 import { CanonPackManager } from '@/components/trailer/cinematic/CanonPackManager';
+import { TrailerPlansPanel, useAutoSelectPlan } from '@/components/trailer/cinematic/TrailerPlansPanel';
 const LazyClipCandidatesStudio = lazy(() => import('./ClipCandidatesStudio'));
 import VideoPlanViewer from '@/components/cinematic/VideoPlanViewer';
-// useBlueprints removed — legacy blueprint queries no longer needed
 import { useScriptRuns } from '@/lib/trailerPipeline/cinematicHooks';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -29,11 +28,24 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import { updateSearchParams } from '@/lib/searchParams';
+import { useUIMode } from '@/hooks/useUIMode';
 
 export default function TrailerPipelinePage() {
   const { id: projectId } = useParams<{ id: string }>();
-  const [activeTab, setActiveTab] = useState('script');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'script');
   const [selectedScriptRunId, setSelectedScriptRunId] = useState<string>();
+  const { mode } = useUIMode();
+
+  // Active plan from URL or auto-select
+  const blueprintIdParam = searchParams.get('blueprintId') || undefined;
+  const autoSelectedPlanId = useAutoSelectPlan(projectId);
+  const activePlanId = blueprintIdParam || autoSelectedPlanId;
+
+  const handleSelectPlan = (id: string) => {
+    updateSearchParams(setSearchParams, (next) => next.set('blueprintId', id), { replace: true });
+  };
 
   // Fetch trailer definition packs for the project
   const { data: canonPacks } = useQuery({
@@ -140,7 +152,7 @@ export default function TrailerPipelinePage() {
       </header>
 
       <div className="max-w-[1600px] mx-auto p-4">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); updateSearchParams(setSearchParams, (n) => n.set('tab', v), { replace: true }); }}>
           <TabsList className="mb-4">
             <TabsTrigger value="script" className="text-xs gap-1.5">
               <Sparkles className="h-3.5 w-3.5" /> Script Studio
@@ -151,6 +163,11 @@ export default function TrailerPipelinePage() {
             <TabsTrigger value="shots" className="text-xs gap-1.5">
               <Camera className="h-3.5 w-3.5" /> Shot Design
             </TabsTrigger>
+            {mode === 'advanced' && (
+              <TabsTrigger value="plans" className="text-xs gap-1.5">
+                <LayoutList className="h-3.5 w-3.5" /> Trailer Plans
+              </TabsTrigger>
+            )}
             <TabsTrigger value="assembly" className="text-xs gap-1.5">
               <Wand2 className="h-3.5 w-3.5" /> Auto Assembly
             </TabsTrigger>
@@ -192,6 +209,16 @@ export default function TrailerPipelinePage() {
             </div>
           </TabsContent>
 
+          {mode === 'advanced' && (
+            <TabsContent value="plans">
+              <TrailerPlansPanel
+                projectId={projectId!}
+                activePlanId={activePlanId}
+                onSelectPlan={handleSelectPlan}
+              />
+            </TabsContent>
+          )}
+
           <TabsContent value="videoplan">
             <VideoPlanViewer projectId={projectId!} />
           </TabsContent>
@@ -212,8 +239,6 @@ export default function TrailerPipelinePage() {
               <LazyClipCandidatesStudio embedded />
             </Suspense>
           </TabsContent>
-
-          {/* Legacy blueprint tab content removed */}
         </Tabs>
       </div>
     </div>

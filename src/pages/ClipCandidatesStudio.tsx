@@ -74,7 +74,7 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
 
   // Queries
   const { data: bpListData } = useBlueprints(projectId);
-  const blueprints = useMemo(() => (bpListData?.blueprints || []).filter((bp: any) => bp.status === 'complete'), [bpListData]);
+  const blueprints = useMemo(() => (bpListData?.blueprints || []).filter((bp: any) => bp.status === 'complete' || bp.status === 'v2_shim'), [bpListData]);
 
   // Auto-select latest blueprint if none specified
   const blueprintId = blueprintIdParam || (blueprints.length > 0 ? blueprints[0].id : undefined);
