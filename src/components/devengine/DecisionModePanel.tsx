@@ -258,6 +258,9 @@ export function DecisionModePanel({
               <Info className="h-2.5 w-2.5 shrink-0" />
               Canon: {canonSourceLabel}
               {canonSource === 'unknown' && ' — engines will not assert canonical facts'}
+              <a href="#" className="ml-auto underline hover:text-foreground" onClick={e => { e.preventDefault(); document.querySelector('[data-canon-facts-trigger]')?.dispatchEvent(new Event('click')); }}>
+                View Facts
+              </a>
             </div>
             {/* Global Directions */}
             {globalDirections.length > 0 && (
