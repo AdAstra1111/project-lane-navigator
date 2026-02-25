@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap, FlaskConical, Lightbulb, Film, Zap, Search as SearchIcon, Sparkles, ArrowLeft } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap, FlaskConical, Lightbulb, Film, Zap, Search as SearchIcon, Sparkles } from 'lucide-react';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
@@ -45,15 +45,6 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/20 bg-background/70 backdrop-blur-2xl">
       <div className="container flex h-14 items-center justify-between gap-4">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
-          onClick={() => navigate(-1)}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-
         <Link to="/" className="flex items-center gap-2.5 shrink-0 group">
           <img src={iffyLogo} alt="IFFY logo" className="h-9 w-9 rounded-lg ring-1 ring-border/30 group-hover:ring-primary/40 transition-all" />
           <div className="flex flex-col leading-none">
