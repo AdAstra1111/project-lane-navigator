@@ -7,6 +7,7 @@
  * Features: autosave (debounced), version history, approve canon snapshot.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { CanonFactsManager } from '@/components/canon/CanonFactsManager';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -177,6 +178,7 @@ export function CanonicalEditor({ projectId }: Props) {
   // Local draft state for controlled inputs
   const [draft, setDraft] = useState<CanonJson>({});
   const [showVersions, setShowVersions] = useState(false);
+  const [showFactsManager, setShowFactsManager] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
   // Sync from server on load
@@ -274,6 +276,14 @@ export function CanonicalEditor({ projectId }: Props) {
             variant="ghost"
             size="sm"
             className="h-6 text-[10px] gap-1 px-2"
+            onClick={() => setShowFactsManager(!showFactsManager)}
+          >
+            <ShieldCheck className="h-3 w-3" /> Facts
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-[10px] gap-1 px-2"
             onClick={() => setShowVersions(!showVersions)}
           >
             <History className="h-3 w-3" /> Versions ({versions.length})
@@ -343,6 +353,11 @@ export function CanonicalEditor({ projectId }: Props) {
           <span className="text-amber-600">Active Approved Canon:</span>
           <span className="text-muted-foreground">{new Date(activeApproved.approved_at || activeApproved.created_at).toLocaleString()}</span>
         </div>
+      )}
+
+      {/* Canon Facts Manager */}
+      {showFactsManager && (
+        <CanonFactsManager projectId={projectId} />
       )}
 
       {/* Version history (collapsible) */}
