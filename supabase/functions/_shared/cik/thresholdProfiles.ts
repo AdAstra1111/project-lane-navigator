@@ -9,11 +9,17 @@ import { applyStrictness, parseStrictnessMode, type StrictnessMode } from "./str
 /** Mutable version of the threshold shape (the source uses `as const` literals). */
 export type CinematicThresholds = { -readonly [K in keyof typeof CINEMATIC_THRESHOLDS]: number };
 
-export type ProductLane = "feature_film" | "series" | "vertical_drama" | "documentary" | "advertising" | "music_video";
+export type ProductLane = "feature_film" | "independent_film" | "series" | "vertical_drama" | "documentary" | "advertising" | "music_video";
 
 const KNOWN_LANES: ReadonlySet<string> = new Set<ProductLane>([
-  "feature_film", "series", "vertical_drama", "documentary", "advertising", "music_video",
+  "feature_film", "independent_film", "series", "vertical_drama", "documentary", "advertising", "music_video",
 ]);
+
+/** Normalize lane strings: trim, lowercase, replace hyphens with underscores. */
+function normalizeLane(lane?: string | null): string | undefined {
+  if (!lane) return undefined;
+  return lane.trim().toLowerCase().replace(/-/g, "_");
+}
 
 /**
  * Lane-specific overrides (shallow merge on top of defaults).
@@ -21,6 +27,18 @@ const KNOWN_LANES: ReadonlySet<string> = new Set<ProductLane>([
  */
 const LANE_OVERRIDES: Record<ProductLane, Partial<CinematicThresholds>> = {
   feature_film: {},
+
+  independent_film: {
+    max_tonal_flips: 3,
+    max_direction_reversals: 4,
+    min_arc_mid_energy: 0.50,
+    energy_drop_threshold: 0.12,
+    penalty_tonal_whiplash: 0.06,
+    penalty_direction_reversal: 0.05,
+    penalty_weak_arc: 0.08,
+    penalty_pacing_mismatch: 0.04,
+    penalty_energy_drop: 0.06,
+  },
 
   series: {
     min_arc_peak_in_last_n: 3,
@@ -68,11 +86,12 @@ const LANE_OVERRIDES: Record<ProductLane, Partial<CinematicThresholds>> = {
  * Standard strictness returns lane thresholds unchanged (identity).
  */
 export function getCinematicThresholds(lane?: string, strictness?: StrictnessMode | string): CinematicThresholds {
+  const normalized = normalizeLane(lane);
   let base: CinematicThresholds;
-  if (!lane || !KNOWN_LANES.has(lane)) {
+  if (!normalized || !KNOWN_LANES.has(normalized)) {
     base = { ...CINEMATIC_THRESHOLDS };
   } else {
-    const overrides = LANE_OVERRIDES[lane as ProductLane];
+    const overrides = LANE_OVERRIDES[normalized as ProductLane];
     base = { ...CINEMATIC_THRESHOLDS, ...overrides };
   }
   const mode = parseStrictnessMode(strictness);
