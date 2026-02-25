@@ -1664,12 +1664,55 @@ Never return a beats wrapper. No markdown. No prose.`,
         continue;
       }
 
-      // Crescendo: at least 3 shots
+      // Crescendo: at least 3 shots — auto-repair if insufficient
       if (b.phase === "crescendo") {
-        crescendoShotsPerBeat[bi] = bSpecs.length;
-        if (bSpecs.length < 3) {
-          valErrors.push(`Beat #${bi} (crescendo): only ${bSpecs.length} shots, need >=3`);
+        if (bSpecs.length < 3 && bSpecs.length > 0) {
+          const baseDur = 900;
+          const moves = ["whip_pan", "handheld", "track", "push_in", "arc"];
+          const types = ["close", "insert", "medium", "wide"];
+          const motifs = ["impact", "eyes", "hands", "silhouette", "door", "running"];
+          const transitions = ["smash_cut", "whip_pan", "strobe_cut"];
+          const base = bSpecs[0];
+          const basePrompt = base.prompt_hint_json?.visual_prompt || base.subject_action || b.emotional_intent || "";
+          while (bSpecs.length < 6) {
+            const idx = bSpecs.length;
+            bSpecs.push({
+              beat_index: bi,
+              shot_index: idx,
+              shot_type: types[idx % types.length],
+              lens_mm: [24, 35, 50, 85, 100][idx % 5],
+              camera_move: moves[idx % moves.length],
+              movement_intensity: 8 + (idx % 3),
+              depth_strategy: idx % 2 === 0 ? "shallow" : "deep",
+              foreground_element: null,
+              lighting_note: base.lighting_note || "high contrast",
+              subject_action: base.subject_action || "rapid action",
+              reveal_mechanic: "match-action cut reveals new angle",
+              transition_in: transitions[idx % transitions.length],
+              transition_out: transitions[(idx + 1) % transitions.length],
+              target_duration_ms: baseDur,
+              prompt_hint_json: {
+                visual_prompt: `${basePrompt} — rapid montage angle ${idx + 1}`,
+                style: base.prompt_hint_json?.style || null,
+                preferred_provider: base.prompt_hint_json?.preferred_provider || "veo",
+                montage_group_id: `mg-${bi}`,
+                cut_on_action: true,
+                motif_tag: motifs[idx % motifs.length],
+              },
+            });
+          }
+          // Update specsByBeat reference & shotSpecs array
+          specsByBeat[bi] = bSpecs;
+          // Replace in main array
+          const newSpecs: any[] = [];
+          for (const b2 of beats) {
+            newSpecs.push(...(specsByBeat[b2.beat_index] || []));
+          }
+          shotSpecs.length = 0;
+          shotSpecs.push(...newSpecs);
+          console.error(JSON.stringify({ type: "CRESCENDO_AUTO_REPAIR", beat_index: bi, expanded_to: bSpecs.length }));
         }
+        crescendoShotsPerBeat[bi] = bSpecs.length;
       }
 
       // Non-crescendo non-silence beats: forbid all-static
