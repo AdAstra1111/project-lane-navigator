@@ -6572,6 +6572,117 @@ export type Database = {
           },
         ]
       }
+      nuance_runs: {
+        Row: {
+          anti_tropes: Json
+          attempt: number
+          causal_grammar: string
+          constraint_pack: Json
+          created_at: string
+          doc_type: string
+          document_id: string | null
+          drama_budget: number
+          fingerprint: Json
+          id: string
+          melodrama_score: number
+          nuance_gate: Json
+          nuance_metrics: Json
+          nuance_score: number
+          project_id: string
+          repaired_from_run_id: string | null
+          restraint: number
+          similarity_risk: number
+          story_engine: string
+          updated_at: string
+          user_id: string
+          version_id: string | null
+        }
+        Insert: {
+          anti_tropes?: Json
+          attempt?: number
+          causal_grammar?: string
+          constraint_pack?: Json
+          created_at?: string
+          doc_type?: string
+          document_id?: string | null
+          drama_budget?: number
+          fingerprint?: Json
+          id?: string
+          melodrama_score?: number
+          nuance_gate?: Json
+          nuance_metrics?: Json
+          nuance_score?: number
+          project_id: string
+          repaired_from_run_id?: string | null
+          restraint?: number
+          similarity_risk?: number
+          story_engine?: string
+          updated_at?: string
+          user_id: string
+          version_id?: string | null
+        }
+        Update: {
+          anti_tropes?: Json
+          attempt?: number
+          causal_grammar?: string
+          constraint_pack?: Json
+          created_at?: string
+          doc_type?: string
+          document_id?: string | null
+          drama_budget?: number
+          fingerprint?: Json
+          id?: string
+          melodrama_score?: number
+          nuance_gate?: Json
+          nuance_metrics?: Json
+          nuance_score?: number
+          project_id?: string
+          repaired_from_run_id?: string | null
+          restraint?: number
+          similarity_risk?: number
+          story_engine?: string
+          updated_at?: string
+          user_id?: string
+          version_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nuance_runs_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nuance_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "nuance_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nuance_runs_repaired_from_run_id_fkey"
+            columns: ["repaired_from_run_id"]
+            isOneToOne: false
+            referencedRelation: "nuance_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nuance_runs_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       outcome_deltas: {
         Row: {
           actual_budget_range: string | null
