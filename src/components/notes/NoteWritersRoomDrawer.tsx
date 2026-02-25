@@ -523,77 +523,75 @@ export function NoteWritersRoomDrawer({
             </TabsContent>
 
             {/* ── OPTIONS TAB ── */}
-            <TabsContent value="options" className="flex-1 flex flex-col min-h-0 m-0 px-4 py-2">
-              <ScrollArea className="flex-1 min-h-0">
-                <div className="space-y-4 pr-2">
-                  {optionSets.map((set: NoteOptionSet) => (
-                    <div key={set.id} className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-[9px]">Set #{set.option_set_index}</Badge>
-                        <span className="text-[9px] text-muted-foreground">{new Date(set.created_at).toLocaleString()}</span>
-                      </div>
-                      {(set.options || []).map((opt: NoteOption) => {
-                        const isSelected = selectedOption?.id === opt.id;
-                        return (
-                          <div key={opt.id} className={`rounded border p-2 space-y-1 transition-colors ${
-                            isSelected ? 'border-primary/60 bg-primary/5' : 'border-border/40 hover:border-border/60'
-                          }`}>
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => handleSelectOption(opt)}
-                                className={`h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                                  isSelected ? 'border-primary bg-primary' : 'border-muted-foreground/40'
-                                }`}>
-                                {isSelected && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
-                              </button>
-                              <p className="text-xs font-medium text-foreground flex-1">{opt.pitch}</p>
-                              <Badge variant="outline" className="text-[8px] px-1">{opt.scope_estimate}</Badge>
+            <TabsContent value="options" className="flex-1 min-h-0 m-0 px-4 py-2 overflow-y-auto overscroll-contain">
+              <div className="space-y-4 pr-2 pb-4">
+                {optionSets.map((set: NoteOptionSet) => (
+                  <div key={set.id} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[9px]">Set #{set.option_set_index}</Badge>
+                      <span className="text-[9px] text-muted-foreground">{new Date(set.created_at).toLocaleString()}</span>
+                    </div>
+                    {(set.options || []).map((opt: NoteOption) => {
+                      const isSelected = selectedOption?.id === opt.id;
+                      return (
+                        <div key={opt.id} className={`rounded border p-2 space-y-1 transition-colors ${
+                          isSelected ? 'border-primary/60 bg-primary/5' : 'border-border/40 hover:border-border/60'
+                        }`}>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => handleSelectOption(opt)}
+                              className={`h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                isSelected ? 'border-primary bg-primary' : 'border-muted-foreground/40'
+                              }`}>
+                              {isSelected && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+                            </button>
+                            <p className="text-xs font-medium text-foreground flex-1">{opt.pitch}</p>
+                            <Badge variant="outline" className="text-[8px] px-1">{opt.scope_estimate}</Badge>
+                          </div>
+                          <div className="pl-6 space-y-0.5">
+                            <div className="flex flex-wrap gap-0.5">
+                              {opt.what_changes?.map((c, i) => (
+                                <Badge key={i} variant="outline" className="text-[7px] px-1 py-0">{c}</Badge>
+                              ))}
                             </div>
-                            <div className="pl-6 space-y-0.5">
+                            {opt.pros?.length > 0 && (
+                              <p className="text-[9px] text-emerald-500">✓ {opt.pros.join(' • ')}</p>
+                            )}
+                            {opt.cons?.length > 0 && (
+                              <p className="text-[9px] text-amber-500">⚠ {opt.cons.join(' • ')}</p>
+                            )}
+                            {opt.risk_flags?.length > 0 && (
                               <div className="flex flex-wrap gap-0.5">
-                                {opt.what_changes?.map((c, i) => (
-                                  <Badge key={i} variant="outline" className="text-[7px] px-1 py-0">{c}</Badge>
+                                {opt.risk_flags.map((r, i) => (
+                                  <Badge key={i} variant="outline" className="text-[7px] px-1 py-0 border-destructive/30 text-destructive">
+                                    <AlertTriangle className="h-2 w-2 mr-0.5" />{r}
+                                  </Badge>
                                 ))}
                               </div>
-                              {opt.pros?.length > 0 && (
-                                <p className="text-[9px] text-emerald-500">✓ {opt.pros.join(' • ')}</p>
-                              )}
-                              {opt.cons?.length > 0 && (
-                                <p className="text-[9px] text-amber-500">⚠ {opt.cons.join(' • ')}</p>
-                              )}
-                              {opt.risk_flags?.length > 0 && (
-                                <div className="flex flex-wrap gap-0.5">
-                                  {opt.risk_flags.map((r, i) => (
-                                    <Badge key={i} variant="outline" className="text-[7px] px-1 py-0 border-destructive/30 text-destructive">
-                                      <AlertTriangle className="h-2 w-2 mr-0.5" />{r}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              )}
-                              {opt.rewrite_instructions?.length > 0 && (
-                                <div className="text-[9px] text-muted-foreground mt-1">
-                                  <span className="font-medium">Rewrite:</span>
-                                  <ul className="list-disc pl-3 mt-0.5">
-                                    {opt.rewrite_instructions.map((r, i) => <li key={i}>{r}</li>)}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
+                            )}
+                            {opt.rewrite_instructions?.length > 0 && (
+                              <div className="text-[9px] text-muted-foreground mt-1">
+                                <span className="font-medium">Rewrite:</span>
+                                <ul className="list-disc pl-3 mt-0.5">
+                                  {opt.rewrite_instructions.map((r, i) => <li key={i}>{r}</li>)}
+                                </ul>
+                              </div>
+                            )}
                           </div>
-                        );
-                      })}
-                    </div>
-                  ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
 
-                  <Button variant="outline" className="w-full text-xs h-8 gap-1"
-                    onClick={() => generateOptions.mutate(contextPack || undefined)}
-                    disabled={generateOptions.isPending}>
-                    {generateOptions.isPending
-                      ? <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
-                      : <><Lightbulb className="h-3 w-3" /> Find other solutions</>
-                    }
-                  </Button>
-                </div>
-              </ScrollArea>
+                <Button variant="outline" className="w-full text-xs h-8 gap-1"
+                  onClick={() => generateOptions.mutate(contextPack || undefined)}
+                  disabled={generateOptions.isPending}>
+                  {generateOptions.isPending
+                    ? <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
+                    : <><Lightbulb className="h-3 w-3" /> Find other solutions</>
+                  }
+                </Button>
+              </div>
             </TabsContent>
 
             {/* ── SYNTHESIS TAB ── */}
