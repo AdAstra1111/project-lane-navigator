@@ -90,6 +90,18 @@ export function buildChartData(runs: { final_score: number; final_pass: boolean;
     .map(r => ({ score: Number(r.final_score), pass: r.final_pass, time: r.created_at }));
 }
 
+/** Deterministic normalization: scores already in [0,1] stay as-is; otherwise min-max normalize. */
+export function normalizeScores(scores: number[]): { normalized: number[]; min: number; max: number; avg: number } {
+  if (scores.length === 0) return { normalized: [], min: 0, max: 0, avg: 0 };
+  const min = Math.min(...scores);
+  const max = Math.max(...scores);
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const allInUnit = min >= 0 && max <= 1;
+  const range = max - min || 1;
+  const normalized = allInUnit ? scores : scores.map(s => (s - min) / range);
+  return { normalized, min, max, avg };
+}
+
 /* ── Main Component ── */
 
 export default function QualityRunHistory({ projectId }: { projectId: string }) {
@@ -641,38 +653,51 @@ function fmtNum(v: any): string {
   return isNaN(n) ? '—' : n.toFixed(2);
 }
 
-/* ── Sparkline (inline SVG) ── */
+/* ── Sparkline (inline SVG with min/max/avg labels) ── */
 
 function Sparkline({ data }: { data: { score: number; pass: boolean }[] }) {
   const w = 300;
-  const h = 40;
+  const h = 52;
   const pad = 2;
+  const labelW = 36;
+  const chartW = w - labelW;
 
   const scores = data.map(d => d.score);
-  const min = Math.min(...scores);
-  const max = Math.max(...scores);
-  const range = max - min || 1;
+  const { normalized, min, max, avg } = normalizeScores(scores);
 
-  const points = data.map((d, i) => {
-    const x = pad + (i / (data.length - 1)) * (w - pad * 2);
-    const y = h - pad - ((d.score - min) / range) * (h - pad * 2);
-    return { x, y, pass: d.pass };
+  const points = normalized.map((n, i) => {
+    const x = labelW + pad + (i / (data.length - 1)) * (chartW - pad * 2);
+    const y = h - pad - n * (h - pad * 2);
+    return { x, y, pass: data[i].pass };
   });
 
   const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 
+  // Avg line y position
+  const avgNorm = (max - min) > 0 && !(min >= 0 && max <= 1) ? (avg - min) / (max - min) : avg;
+  const avgY = h - pad - avgNorm * (h - pad * 2);
+
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-10" preserveAspectRatio="none">
-      <path d={pathD} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-      {points.map((p, i) => (
-        <circle
-          key={i}
-          cx={p.x}
-          cy={p.y}
-          r={1.5}
-          fill={p.pass ? 'hsl(var(--primary))' : 'hsl(var(--destructive))'}
-        />
-      ))}
-    </svg>
+    <div className="space-y-1">
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-14" preserveAspectRatio="none">
+        {/* Avg dashed line */}
+        <line x1={labelW} y1={avgY} x2={w} y2={avgY} stroke="hsl(var(--muted-foreground))" strokeWidth="0.5" strokeDasharray="3,3" vectorEffect="non-scaling-stroke" />
+        {/* Score path */}
+        <path d={pathD} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+        {/* Dots */}
+        {points.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r={1.5} fill={p.pass ? 'hsl(var(--primary))' : 'hsl(var(--destructive))'} />
+        ))}
+        {/* Y-axis labels */}
+        <text x={labelW - 3} y={pad + 4} textAnchor="end" fontSize="7" fill="hsl(var(--muted-foreground))" style={{ fontFamily: 'monospace' }}>{max.toFixed(2)}</text>
+        <text x={labelW - 3} y={h - pad + 1} textAnchor="end" fontSize="7" fill="hsl(var(--muted-foreground))" style={{ fontFamily: 'monospace' }}>{min.toFixed(2)}</text>
+        <text x={labelW - 3} y={avgY + 3} textAnchor="end" fontSize="6" fill="hsl(var(--muted-foreground))" style={{ fontFamily: 'monospace' }}>avg</text>
+      </svg>
+      <div className="flex gap-3 text-[9px] text-muted-foreground font-mono">
+        <span>Min: {min.toFixed(3)}</span>
+        <span>Avg: {avg.toFixed(3)}</span>
+        <span>Max: {max.toFixed(3)}</span>
+      </div>
+    </div>
   );
 }
