@@ -1374,4 +1374,79 @@ describe("engine boundary: assigned_lane → opts.lane → repair laneArg", () =
     expect(noLaneOpts.lane).toBeUndefined();
   });
 });
+
+describe("storyboard engine boundary: assigned_lane → opts.lane → repair laneArg", () => {
+  it("buildEngineOpts (isStoryboard) reads project.assigned_lane and kernel threads it into storyboard repair instruction", async () => {
+    const { enforceCinematicQuality } = await import("../../supabase/functions/_shared/cinematic-kernel");
+
+    // 8 storyboard panels designed to fail WEAK_ARC
+    const failingPanels = [
+      makeUnit({ id: "p0", energy: 0.30, tension: 0.30, density: 0.30, tonal_polarity: -0.3, intent: "intrigue" }),
+      makeUnit({ id: "p1", energy: 0.40, tension: 0.40, density: 0.35, tonal_polarity: -0.2, intent: "wonder" }),
+      makeUnit({ id: "p2", energy: 0.50, tension: 0.50, density: 0.40, tonal_polarity: -0.1, intent: "threat" }),
+      makeUnit({ id: "p3", energy: 0.60, tension: 0.60, density: 0.50, tonal_polarity: 0.0, intent: "chaos" }),
+      makeUnit({ id: "p4", energy: 0.70, tension: 0.70, density: 0.55, tonal_polarity: 0.1, intent: "chaos" }),
+      makeUnit({ id: "p5", energy: 0.92, tension: 0.92, density: 0.70, tonal_polarity: 0.2, intent: "emotion" }),
+      makeUnit({ id: "p6", energy: 0.88, tension: 0.88, density: 0.72, tonal_polarity: 0.3, intent: "emotion" }),
+      makeUnit({ id: "p7", energy: 0.89, tension: 0.89, density: 0.75, tonal_polarity: 0.4, intent: "release" }),
+    ];
+    const rawOutput = { panels: failingPanels };
+
+    const project = { id: "test-project", assigned_lane: "vertical_drama" };
+
+    let capturedLaneArg: string | undefined;
+    let capturedInstruction = "";
+
+    const opts = buildEngineOpts({
+      handler: "storyboard-engine",
+      phase: "storyboard_boundary_test",
+      model: "test",
+      project,
+      rawOutput,
+      adapter: (raw: any) => ({
+        units: raw.panels as any[],
+        mode: "explicit" as const,
+      }),
+      buildRepairInstruction: (score, unitCount, laneArg) => {
+        capturedLaneArg = laneArg;
+        capturedInstruction = buildStoryboardRepairInstruction(score, unitCount, laneArg);
+        return capturedInstruction;
+      },
+      regenerateOnce: async () => rawOutput,
+      expected_unit_count: 8,
+      isStoryboard: true,
+    });
+
+    // Assert: opts correctly extracted lane and set isStoryboard
+    expect(opts.lane).toBe("vertical_drama");
+    expect(opts.isStoryboard).toBe(true);
+
+    opts.telemetry = () => {};
+    try {
+      await enforceCinematicQuality(opts);
+    } catch (err: any) {
+      expect(err.type).toBe("AI_CINEMATIC_QUALITY_FAIL");
+    }
+
+    // Assert: kernel passed lane into buildRepairInstruction
+    expect(capturedLaneArg).toBe("vertical_drama");
+
+    // vertical_drama lateStart = floor(0.65*8) = 5 → "Peak units 6–8"
+    expect(capturedInstruction).toContain("Peak units 6");
+
+    // Assert: null lane → undefined
+    const noLaneOpts = buildEngineOpts({
+      handler: "test",
+      phase: "test",
+      model: "test",
+      project: { assigned_lane: null },
+      rawOutput,
+      adapter: (raw: any) => ({ units: raw.panels as any[], mode: "explicit" as const }),
+      buildRepairInstruction: buildStoryboardRepairInstruction,
+      regenerateOnce: async () => rawOutput,
+      isStoryboard: true,
+    });
+    expect(noLaneOpts.lane).toBeUndefined();
+  });
+});
 });
