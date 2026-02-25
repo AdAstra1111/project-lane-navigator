@@ -151,6 +151,17 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
       if (seq.excessOscillation && !failures.includes("PACING_MISMATCH")) {
         failures.push("PACING_MISMATCH");
       }
+
+      // CIK v4.3 — Button Ending (lane-aware, no new codes)
+      if (!failures.includes("WEAK_ARC")) {
+        const lane = ctx?.lane;
+        if (lane === "vertical_drama" || lane === "series") {
+          if (!seq.finalIsButton) failures.push("WEAK_ARC");
+        } else if (lane === "feature_film" || lane === "documentary") {
+          if (seq.finalIntentClass === "early") failures.push("WEAK_ARC");
+        }
+        // unknown/missing lane: no button rule (unchanged default)
+      }
     }
   }
 

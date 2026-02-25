@@ -4,10 +4,14 @@
  */
 import type { CinematicUnit } from "./cinematic-model.ts";
 
+export type IntentClass = "early" | "mid" | "late" | "other";
+
 export interface IntentSequencing {
-  earlyLateInversion: boolean;   // late dominated by early intents OR early by late intents
-  excessOscillation: boolean;    // intent changes in >80% adjacent transitions
-  intentFlipRate: number;        // fraction of adjacent transitions that change intent
+  earlyLateInversion: boolean;
+  excessOscillation: boolean;
+  intentFlipRate: number;
+  finalIntentClass: IntentClass;
+  finalIsButton: boolean;
 }
 
 export interface CinematicFeatures {
@@ -198,26 +202,46 @@ export function extractFeatures(units: CinematicUnit[], lateN?: number, lane?: s
 const EARLY_INTENTS: ReadonlySet<string> = new Set(["intrigue", "wonder", "setup"]);
 const LATE_INTENTS: ReadonlySet<string> = new Set(["release", "climax", "emotion", "reveal"]);
 
+// ─── Intent Classification (deterministic, no regex) ───
+
+const EARLY_KEYWORDS = ["setup", "intrigu", "wonder", "mystery"];
+const MID_KEYWORDS = ["threat", "complic", "chaos", "pressure", "pursuit"];
+const LATE_KEYWORDS = ["climax", "reveal", "emotion", "release", "payoff", "resolution", "button"];
+
+function normalizeIntent(raw: string): string {
+  return raw.toLowerCase().trim().replace(/ /g, "_");
+}
+
+export function classifyIntent(raw: string): IntentClass {
+  const norm = normalizeIntent(raw);
+  for (const kw of LATE_KEYWORDS) { if (norm.includes(kw)) return "late"; }
+  for (const kw of MID_KEYWORDS) { if (norm.includes(kw)) return "mid"; }
+  for (const kw of EARLY_KEYWORDS) { if (norm.includes(kw)) return "early"; }
+  return "other";
+}
+
 export function analyzeIntentSequencing(units: CinematicUnit[], lane?: string): IntentSequencing {
   const n = units.length;
-  if (n < 4) return { earlyLateInversion: false, excessOscillation: false, intentFlipRate: 0 };
+  const defaultResult: IntentSequencing = {
+    earlyLateInversion: false, excessOscillation: false, intentFlipRate: 0,
+    finalIntentClass: n > 0 ? classifyIntent(units[n - 1].intent) : "other",
+    finalIsButton: n > 0 ? classifyIntent(units[n - 1].intent) === "late" : false,
+  };
+  if (n < 4) return defaultResult;
 
   const domThreshold = lane === "documentary" ? 0.6 : 0.5;
 
   // Deterministic window boundaries (all units included)
-  const earlyEnd = Math.max(1, Math.ceil(n * 0.3));        // first 30%
-  const lateStart = Math.max(earlyEnd, n - Math.ceil(n * 0.3)); // final 30%
+  const earlyEnd = Math.max(1, Math.ceil(n * 0.3));
+  const lateStart = Math.max(earlyEnd, n - Math.ceil(n * 0.3));
 
   const earlyIntents = units.slice(0, earlyEnd).map(u => u.intent);
   const lateIntents = units.slice(lateStart).map(u => u.intent);
 
-  // Late window dominated by early/setup intents
   const lateDomByEarly = lateIntents.filter(i => EARLY_INTENTS.has(i)).length / lateIntents.length >= domThreshold;
-  // Early window dominated by late/climax intents
   const earlyDomByLate = earlyIntents.filter(i => LATE_INTENTS.has(i)).length / earlyIntents.length >= domThreshold;
   const earlyLateInversion = lateDomByEarly || earlyDomByLate;
 
-  // Intent oscillation: back-and-forth patterns (A→B→A) not just progressive changes
   let flips = 0;
   let backAndForth = 0;
   for (let i = 1; i < n; i++) {
@@ -227,8 +251,10 @@ export function analyzeIntentSequencing(units: CinematicUnit[], lane?: string): 
     }
   }
   const intentFlipRate = n >= 2 ? flips / (n - 1) : 0;
-  // Excess oscillation requires both high flip rate AND actual back-and-forth patterns
   const excessOscillation = intentFlipRate > 0.8 && backAndForth >= 2;
 
-  return { earlyLateInversion, excessOscillation, intentFlipRate };
+  const finalIntentClass = classifyIntent(units[n - 1].intent);
+  const finalIsButton = finalIntentClass === "late";
+
+  return { earlyLateInversion, excessOscillation, intentFlipRate, finalIntentClass, finalIsButton };
 }
