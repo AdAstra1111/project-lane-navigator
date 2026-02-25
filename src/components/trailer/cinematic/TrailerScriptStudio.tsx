@@ -27,6 +27,7 @@ import {
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import { warningActionFor } from '@/lib/warningActions';
 import { dedupeWarningsStable } from '@/lib/warningUtils';
+import { buildWarningsReport, copyTextToClipboard } from '@/lib/warningsReport';
 import {
   useScriptRuns, useScriptBeats, useRhythmRuns, useShotDesignRuns,
   useJudgeRuns, useCinematicMutations,
@@ -441,6 +442,21 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
               <div className="flex items-center gap-1.5 text-xs">
                 <AlertTriangle className="h-3 w-3 text-muted-foreground" />
                 <span className="text-muted-foreground">{warningsCount} warning{warningsCount > 1 ? 's' : ''}</span>
+                <button
+                  type="button"
+                  className="ml-1 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/80"
+                  onClick={() => {
+                    const report = buildWarningsReport({
+                      kind: "trailer",
+                      runId: (activeRun as any)?.id ?? null,
+                      status: activeRun?.status ?? null,
+                      warnings: warningsDeduped,
+                    });
+                    void copyTextToClipboard(report);
+                  }}
+                >
+                  Copy
+                </button>
                 <div className="flex flex-wrap gap-1 ml-1">
                   {warningsPreview.map((w, i) => {
                     const label = w.length > 40 ? w.slice(0, 37) + '…' : w;
