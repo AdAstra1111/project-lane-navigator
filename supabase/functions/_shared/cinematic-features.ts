@@ -4,6 +4,12 @@
  */
 import type { CinematicUnit } from "./cinematic-model.ts";
 
+export interface IntentSequencing {
+  earlyLateInversion: boolean;   // late dominated by early intents OR early by late intents
+  excessOscillation: boolean;    // intent changes in >80% adjacent transitions
+  intentFlipRate: number;        // fraction of adjacent transitions that change intent
+}
+
 export interface CinematicFeatures {
   unitCount: number;
   intentsDistinctCount: number;
@@ -23,6 +29,7 @@ export interface CinematicFeatures {
 
   directionReversalCount: number;
   pacingMismatch: boolean;
+  intentSequencing: IntentSequencing;
 }
 
 export interface SignalSummary {
@@ -174,6 +181,7 @@ export function extractFeatures(units: CinematicUnit[], lateN?: number): Cinemat
   coherenceScore = clamp(coherenceScore, 0, 1);
 
   const pacingMismatch = detectPacingMismatch(density, energy, n, densities, energies);
+  const intentSequencing = analyzeIntentSequencing(units);
 
   return {
     unitCount: n,
@@ -181,6 +189,44 @@ export function extractFeatures(units: CinematicUnit[], lateN?: number): Cinemat
     energy, tension, density, tonal_polarity,
     peakIndex, peakIsLate,
     escalationScore, contrastScore, coherenceScore,
-    directionReversalCount, pacingMismatch,
+    directionReversalCount, pacingMismatch, intentSequencing,
   };
+}
+
+// ─── CIK v3.14 Intent Sequencing ───
+
+const EARLY_INTENTS: ReadonlySet<string> = new Set(["intrigue", "wonder", "setup"]);
+const LATE_INTENTS: ReadonlySet<string> = new Set(["release", "climax", "emotion", "reveal"]);
+
+export function analyzeIntentSequencing(units: CinematicUnit[]): IntentSequencing {
+  const n = units.length;
+  if (n < 4) return { earlyLateInversion: false, excessOscillation: false, intentFlipRate: 0 };
+
+  // Deterministic window boundaries (all units included)
+  const earlyEnd = Math.max(1, Math.ceil(n * 0.3));        // first 30%
+  const lateStart = Math.max(earlyEnd, n - Math.ceil(n * 0.3)); // final 30%
+
+  const earlyIntents = units.slice(0, earlyEnd).map(u => u.intent);
+  const lateIntents = units.slice(lateStart).map(u => u.intent);
+
+  // Late window dominated (>=50%) by early/setup intents
+  const lateDomByEarly = lateIntents.filter(i => EARLY_INTENTS.has(i)).length / lateIntents.length >= 0.5;
+  // Early window dominated (>=50%) by late/climax intents
+  const earlyDomByLate = earlyIntents.filter(i => LATE_INTENTS.has(i)).length / earlyIntents.length >= 0.5;
+  const earlyLateInversion = lateDomByEarly || earlyDomByLate;
+
+  // Intent oscillation: back-and-forth patterns (A→B→A) not just progressive changes
+  let flips = 0;
+  let backAndForth = 0;
+  for (let i = 1; i < n; i++) {
+    if (units[i].intent !== units[i - 1].intent) flips++;
+    if (i >= 2 && units[i].intent === units[i - 2].intent && units[i].intent !== units[i - 1].intent) {
+      backAndForth++;
+    }
+  }
+  const intentFlipRate = n >= 2 ? flips / (n - 1) : 0;
+  // Excess oscillation requires both high flip rate AND actual back-and-forth patterns
+  const excessOscillation = intentFlipRate > 0.8 && backAndForth >= 2;
+
+  return { earlyLateInversion, excessOscillation, intentFlipRate };
 }

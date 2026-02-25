@@ -137,7 +137,18 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
   if (flips >= T.max_tonal_flips) failures.push("TONAL_WHIPLASH");
 
   if (n >= T.min_units) {
-    if (features.intentsDistinctCount < T.min_intent_distinct) failures.push("LOW_INTENT_DIVERSITY");
+    if (features.intentsDistinctCount < T.min_intent_distinct) {
+      failures.push("LOW_INTENT_DIVERSITY");
+    } else {
+      // CIK v3.14 — Intent Sequencing Lock
+      const seq = features.intentSequencing;
+      if (seq.earlyLateInversion && !failures.includes("WEAK_ARC")) {
+        failures.push("WEAK_ARC");
+      }
+      if (seq.excessOscillation && !failures.includes("PACING_MISMATCH")) {
+        failures.push("PACING_MISMATCH");
+      }
+    }
   }
 
   if (n >= T.min_units) {

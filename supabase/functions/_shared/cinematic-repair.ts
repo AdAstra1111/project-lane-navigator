@@ -308,10 +308,10 @@ Maintain all existing required fields and overall structure.`;
   const procedureBlock = hasLadderFailure ? baseProcedure + LADDER_LOCK_SUFFIX : baseProcedure;
 
   // Optional sections
+  // CIK v3.14: compact intent sequencing target when WEAK_ARC present and diversity ok
+  const hasIntentSeqTarget = score.failures.includes("WEAK_ARC") && !score.failures.includes("LOW_INTENT_DIVERSITY");
   const intentHint = (score.failures.includes("LOW_INTENT_DIVERSITY") || score.failures.includes("WEAK_ARC"))
-    ? `\nINTENT ARC SUGGESTION (REPAIR ONLY):
-- Early: intrigue/wonder; Mid: threat/chaos; Late: emotion/release.
-- ≥3 distinct intents; peak intensity in final 2 units.`
+    ? `\nINTENT SEQUENCING${hasIntentSeqTarget ? ": early=setup/intrigue, mid=threat/chaos, late=emotion/release; reorder/delete first; keep exact unitCount; no new intents." : " (REPAIR ONLY):\n- Early: intrigue/wonder; Mid: threat/chaos; Late: emotion/release.\n- ≥3 distinct intents; peak intensity in final 2 units."}`
     : "";
 
   const polarityLock = (score.failures.includes("TONAL_WHIPLASH") || score.failures.includes("WEAK_ARC"))
