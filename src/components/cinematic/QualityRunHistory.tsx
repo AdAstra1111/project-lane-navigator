@@ -236,6 +236,11 @@ export default function QualityRunHistory({ projectId }: { projectId: string }) 
                       {run.lane && run.lane !== 'unknown' && (
                         <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{run.lane}</Badge>
                       )}
+                      {run.strictness_mode && run.strictness_mode !== 'standard' && (
+                        <Badge variant={run.strictness_mode === 'strict' ? 'destructive' : 'outline'} className="text-[10px] px-1.5 py-0">
+                          {run.strictness_mode}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   <span className="text-xs font-mono tabular-nums">{Number(run.final_score).toFixed(2)}</span>

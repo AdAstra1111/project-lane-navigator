@@ -48,6 +48,8 @@ export interface CinematicQualityOpts<T> {
   expected_unit_count?: number;
   /** Product lane for lane-aware CIK checks (e.g. "feature_film", "vertical_drama") */
   lane?: string;
+  /** Strictness mode for threshold adjustment ("lenient" | "standard" | "strict") */
+  strictness?: string;
   /** Supabase client for quality history persistence (optional; no-op if omitted) */
   db?: any;
   /** Project ID for quality history (required if db is set) */
@@ -137,8 +139,9 @@ function recordTelemetryAtFinal(
 export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>): Promise<T> {
   const { handler, phase, model, adapter, buildRepairInstruction, regenerateOnce } = opts;
   const log = opts.telemetry || defaultTelemetry;
-  const scoringCtx: ScoringContext = { isStoryboard: opts.isStoryboard, lane: opts.lane };
+  const scoringCtx: ScoringContext = { isStoryboard: opts.isStoryboard, lane: opts.lane, strictness: opts.strictness };
   const runSource = opts.isStoryboard ? "storyboard-engine" : "trailer-engine";
+  const strictnessMode = opts.strictness || "standard";
 
   // Build model_router telemetry shape from opts (if provided)
   const routerTelemetry = opts.modelRouter
@@ -198,6 +201,8 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
         runSource,
         lane: opts.lane || "unknown",
         adapterMode: mode0,
+        strictnessMode,
+        settingsJson: { strictness_mode: strictnessMode, lane: opts.lane },
         attempt0: buildAttemptPayload(score0, mode0, sanitized0.quality, opts.modelRouter?.attempt0?.model),
         final: { pass: true, finalScore: score0.score, hardFailures: score0.hard_failures, diagnosticFlags: score0.diagnostic_flags, metricsJson: metricsWithRouter },
       }).catch(() => {}); // fire-and-forget
@@ -302,6 +307,8 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
       runSource,
       lane: opts.lane || "unknown",
       adapterMode: mode1,
+      strictnessMode,
+      settingsJson: { strictness_mode: strictnessMode, lane: opts.lane },
       attempt0: buildAttemptPayload(score0, mode0, sanitized0.quality, opts.modelRouter?.attempt0?.model),
       repairInstruction: instruction,
       attempt1: attempt1Payload,

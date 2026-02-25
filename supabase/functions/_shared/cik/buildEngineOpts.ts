@@ -31,6 +31,8 @@ export interface BuildEngineOptsArgs<T> {
   isStoryboard?: boolean;
   modelRouter?: { attempt0: CikModelSelection; attempt1?: CikModelSelection };
   promptVersion?: string;
+  /** Strictness mode override ("lenient" | "standard" | "strict") */
+  strictness?: string;
 }
 
 /**
@@ -50,6 +52,7 @@ export function buildEngineOpts<T>(args: BuildEngineOptsArgs<T>): CinematicQuali
     expected_unit_count: args.expected_unit_count,
     isStoryboard: args.isStoryboard,
     lane,
+    strictness: args.strictness,
     modelRouter: args.modelRouter,
     promptVersion: args.promptVersion,
   };

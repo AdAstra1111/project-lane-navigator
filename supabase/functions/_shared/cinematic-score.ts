@@ -95,10 +95,12 @@ export interface ScoringContext {
   adapterMode?: string;
   /** Product lane for threshold selection (e.g. "documentary", "vertical_drama") */
   lane?: string;
+  /** Strictness mode for threshold adjustment */
+  strictness?: string;
 }
 
 export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): CinematicScore {
-  const T = getCinematicThresholds(ctx?.lane);
+  const T = getCinematicThresholds(ctx?.lane, ctx?.strictness);
   const failures: CinematicFailureCode[] = [];
   const features = extractFeatures(units, T.min_arc_peak_in_last_n, ctx?.lane);
 
