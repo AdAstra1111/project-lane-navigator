@@ -36,6 +36,7 @@ import {
   useJudgeRuns, useCinematicMutations,
 } from '@/lib/trailerPipeline/cinematicHooks';
 import type { TrailerStyleOptions } from '@/lib/trailerPipeline/cinematicApi';
+import { useWorkflowDocSets } from '@/hooks/useWorkflowDocSets';
 import { toast } from 'sonner';
 
 const PHASE_COLORS: Record<string, string> = {
@@ -210,6 +211,12 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const [inspirationTrailers, setInspirationTrailers] = useState<{ title: string; url?: string; notes?: string }[]>([]);
   const [fullPlanStage, setFullPlanStage] = useState(0);
   const [criteriaAutofilled, setCriteriaAutofilled] = useState(false);
+  const [selectedDocSetId, setSelectedDocSetId] = useState<string | null>(null);
+
+  // Doc set resolution — deterministic context assembly
+  const { docSetsList, resolved: docSetResolved } = useWorkflowDocSets(
+    projectId, 'trailer', selectedDocSetId,
+  );
 
   const { data: projectProfile } = useQuery({
     queryKey: ['cinematic-project-profile', projectId],
@@ -440,6 +447,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
     avoidNotes: avoidNotes || undefined,
     strictCanonMode,
     targetLengthMs: targetLengthSeconds ? Math.round(Number(targetLengthSeconds) * 1000) : undefined,
+    includeDocumentIds: docSetResolved.includeDocumentIds || undefined,
   };
 
   const handleGenerateFullPlan = () => {
@@ -743,6 +751,31 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
           )}
         </CardContent>
       </Card>
+
+      {/* Context Doc Set Selector */}
+      {docSetsList.length > 0 && (
+        <div className="flex items-center gap-2 px-1">
+          <Label className="text-[9px] text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+            <Layers className="h-2.5 w-2.5 inline mr-1" />Context Set
+          </Label>
+          <Select
+            value={selectedDocSetId || '__default__'}
+            onValueChange={v => setSelectedDocSetId(v === '__default__' ? null : v)}
+          >
+            <SelectTrigger className="h-7 text-[11px] flex-1">
+              <SelectValue placeholder="Project Default" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__default__" className="text-xs">Project Default</SelectItem>
+              {docSetsList.map(ds => (
+                <SelectItem key={ds.id} value={ds.id} className="text-xs">
+                  {ds.name}{ds.is_default ? ' ★' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* Style Options Panel — pacing + tone controls */}
       <Collapsible open={optionsOpen} onOpenChange={setOptionsOpen} id="iffy-section-pacing">

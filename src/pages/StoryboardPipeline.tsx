@@ -2,6 +2,7 @@
  * Storyboard Pipeline v1 — Main page
  */
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useWorkflowDocSets } from '@/hooks/useWorkflowDocSets';
 import { warningActionFor as sbWarningActionFor } from '@/lib/warningActions';
 import { dedupeWarningsStable } from '@/lib/warningUtils';
 import { buildWarningsReport, copyTextToClipboard, buildPageLinkWithAnchor } from '@/lib/warningsReport';
@@ -39,6 +40,12 @@ export default function StoryboardPipeline() {
   const [selectedSBWarning, setSelectedSBWarning] = useState<string | null>(null);
   const [animaticDuration, setAnimaticDuration] = useState(900);
   const [animaticCaption, setAnimaticCaption] = useState(true);
+  const [selectedDocSetId, setSelectedDocSetId] = useState<string | null>(null);
+
+  // Doc set resolution — deterministic context assembly
+  const { docSetsList, resolved: docSetResolved } = useWorkflowDocSets(
+    projectId, 'storyboard', selectedDocSetId,
+  );
 
   const { data: unitsData, isLoading: unitsLoading } = useCanonicalUnits(projectId);
   const { data: runsData } = useStoryboardRuns(projectId);
@@ -172,6 +179,7 @@ export default function StoryboardPipeline() {
       unitKeys: selectedUnits.size > 0 ? Array.from(selectedUnits) : undefined,
       stylePreset,
       aspectRatio,
+      includeDocumentIds: docSetResolved.includeDocumentIds || undefined,
     });
   };
 
@@ -283,6 +291,27 @@ export default function StoryboardPipeline() {
                   <SelectItem value="2.39:1">2.39:1 (Scope)</SelectItem>
                 </SelectContent>
               </Select>
+              {docSetsList.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-[9px] text-muted-foreground uppercase tracking-wider">Context Set</Label>
+                  <Select
+                    value={selectedDocSetId || '__default__'}
+                    onValueChange={v => setSelectedDocSetId(v === '__default__' ? null : v)}
+                  >
+                    <SelectTrigger className="h-7 text-[11px]">
+                      <SelectValue placeholder="Project Default" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__default__" className="text-xs">Project Default</SelectItem>
+                      {docSetsList.map(ds => (
+                        <SelectItem key={ds.id} value={ds.id} className="text-xs">
+                          {ds.name}{ds.is_default ? ' ★' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <Button
                 size="sm"
                 className="w-full"
