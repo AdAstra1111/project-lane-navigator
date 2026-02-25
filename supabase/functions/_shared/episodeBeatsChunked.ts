@@ -21,7 +21,7 @@ import {
 } from "./episodeScope.ts";
 
 const BATCH_SIZE = 6;
-const MAX_REPAIR_CYCLES = 2;
+const MAX_REPAIR_CYCLES = 4;
 const MAX_RETRIES_PER_BATCH = 3;
 
 export interface EpisodeBeatsOpts {
@@ -50,6 +50,9 @@ Rules:
 - Every requested episode MUST appear as its own key in the JSON object.
 - Do NOT reference other episodes by range or shorthand (e.g., "Eps 1–7…") anywhere inside an episode block.
 - Do NOT include meta commentary about the season structure.
+- NEVER write "PHASE", "ANCHORS", or "PRESERVED".
+- NEVER describe other episodes (no "episodes 1–8 preserved", "earlier episodes", etc).
+- Each requested episode must be written fully as its own episode.
 - Every beat must describe THIS episode's unique events — no "same as above" or "continues the pattern".`;
 
 function buildBatchUserPrompt(
@@ -152,12 +155,8 @@ async function generateBatch(
         return replacements;
       }
 
-      // If some missing, try to use what we got + retry for missing on next attempt
-      if (Object.keys(replacements).length > 0 && attempt < MAX_RETRIES_PER_BATCH - 1) {
-        // Partial success — we'll merge what we have and the outer loop will repair missing
-        if (gotEpisodes.length >= episodes.length / 2) {
-          return replacements; // Good enough, repair loop handles the rest
-        }
+      if (missingFromBatch.length > 0 && attempt === MAX_RETRIES_PER_BATCH - 1) {
+        throw new Error(`Episode batch incomplete after ${MAX_RETRIES_PER_BATCH} retries for episodes ${episodes.join(', ')}. Missing: ${missingFromBatch.join(', ')}`);
       }
     } catch (err) {
       console.error(JSON.stringify({
@@ -229,27 +228,40 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
   for (let cycle = 0; cycle < MAX_REPAIR_CYCLES; cycle++) {
     const extracted = extractEpisodeNumbersFromOutput(masterText);
     const missing = allEpisodes.filter(n => !extracted.includes(n));
-    const hasCollapse = detectCollapsedRangeSummaries(masterText);
+    const globalCollapse = detectCollapsedRangeSummaries(masterText);
 
     // Attribute collapse to specific episode blocks (not always batch 1)
     const collapseEpisodes = findEpisodesWithCollapse(masterText);
+    const hasCollapse = globalCollapse || collapseEpisodes.length > 0;
 
     // Check for scaffold stubs still present (episodes that weren't replaced)
     const blocks = parseEpisodeBlocks(masterText);
-    const STUB_BODY_RE = /^\s*1\.\s*\n\s*2\.\s*\n\s*3\.\s*\n\s*4\.\s*\n\s*5\.\s*$/m;
+    const STUB_BODY_RE = /\n1\.\s*\n2\.\s*\n3\.\s*\n4\.\s*\n5\.\s*$/m;
     const stubEpisodes = blocks
-      .filter(b => b.rawBlock.includes('(Title TBD)') || STUB_BODY_RE.test(b.bodyText.trim()))
+      .filter(b => {
+        const raw = b.rawBlock || '';
+        return raw.includes('(Title TBD)') || STUB_BODY_RE.test(raw);
+      })
       .map(b => b.episodeNumber);
 
-    const needsRepair = [...new Set([...missing, ...stubEpisodes, ...collapseEpisodes])].sort((a, b) => a - b);
+    const needsRepairSet = new Set<number>([...missing, ...stubEpisodes, ...collapseEpisodes]);
 
-    if (collapseEpisodes.length > 0) {
+    if (globalCollapse && collapseEpisodes.length === 0) {
+      const forced = Array.from({ length: Math.min(BATCH_SIZE, episodeCount) }, (_, i) => i + 1);
+      for (const ep of forced) needsRepairSet.add(ep);
+    }
+
+    const needsRepair = [...needsRepairSet].sort((a, b) => a - b);
+
+    if (collapseEpisodes.length > 0 || globalCollapse) {
       console.error(JSON.stringify({
         diag: "EPISODE_COLLAPSE_ATTRIBUTION",
         requestId,
         cycle,
+        collapse_detected: hasCollapse,
+        global_collapse: globalCollapse,
         collapse_episodes: collapseEpisodes,
-        message: `Collapse patterns found inside episode blocks: [${collapseEpisodes.join(', ')}] — will re-generate these`,
+        message: `Collapse patterns found${collapseEpisodes.length ? ` inside episode blocks: [${collapseEpisodes.join(', ')}]` : ' outside episode blocks'} — will re-generate episode set`,
       }));
     }
 
@@ -263,6 +275,7 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
       stub_episodes: stubEpisodes,
       collapse_episodes: collapseEpisodes,
       collapse_detected: hasCollapse,
+      global_collapse: globalCollapse,
       needs_repair: needsRepair,
     }));
 

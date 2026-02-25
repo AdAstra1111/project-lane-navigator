@@ -314,7 +314,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
     // Fires for: episode_grid, episode_beats, vertical_episode_beats
     // ─────────────────────────────────────────────────────────────
     const requestId = crypto.randomUUID();
-    const isEpisodeDocType = EPISODE_DOC_TYPES.has(docType) && !!resolvedQuals.is_series;
+    const isEpisodeDocType = EPISODE_DOC_TYPES.has(docType);
 
     // Episode count: prefer client override, then qualifiers, NO fallback
     const finalEpisodeCount: number | null =

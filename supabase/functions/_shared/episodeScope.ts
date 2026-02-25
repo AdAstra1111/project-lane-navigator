@@ -65,16 +65,21 @@ const EPISODE_HEADER_RE = /^(?:#{1,3}\s+|\*{2})?(?:EPISODE\s+|EP\.?\s*)(\d+)\b[^
 const COLLAPSE_PATTERNS: RegExp[] = [
   /\bEps?\s*\d+\s*[-–—]\s*\d+\b/i,              // "Eps 1–7", "Ep 2-5"
   /\bEpisodes?\s*\d+\s*[-–—]\s*\d+\b/i,          // "Episodes 1–7"
-  /follow(?:s)?\s+(?:the\s+)?established\s+structure/i, // "follows established structure"
-  /remain(?:s)?\s+high[- ]density/i,              // "remain high-density"
-  /\btemplate(?:s)?\b/i,                           // "templates"
-  /\bsame\s+structure\s+as\s+(?:above|previous)/i, // "same structure as above"
-  /\bcontinue(?:s)?\s+(?:the\s+)?pattern/i,        // "continues the pattern"
-  /\brepeat(?:s)?\s+(?:the\s+)?format/i,           // "repeats the format"
-  /\buse(?:s)?\s+the\s+(?:same\s+)?structure/i,    // "uses the same structure"
-  /\bremain(?:s)?\s+the\s+same\b/i,                // "remains the same"
-  /\bhigh[- ]?level\s+summary\b/i,                 // "high-level summary"
+  /\(Episodes?\s*\d+\s*[-–—]\s*\d+.*\)/i,        // "(Episodes 1–8 ... )"
+  /follow(?:s)?\s+(?:the\s+)?established\s+structure/i,
+  /\btemplate(?:s)?\b/i,
+  /\bsame\s+structure\s+as\s+(?:above|previous)\b/i,
+  /\bcontinue(?:s)?\s+(?:the\s+)?pattern\b/i,
+  /\brepeat(?:s)?\s+(?:the\s+)?format\b/i,
+  /\buse(?:s)?\s+the\s+(?:same\s+)?structure\b/i,
+  /\bremain(?:s)?\s+the\s+same\b/i,
+  /\bhigh[- ]?level\s+summary\b/i,
+  /\bepisodes?\s*\d+\s*[-–—]\s*\d+.*\bpreserved\b/i,
+  /\bpreserved\b.*\bepisodes?\s*\d+/i,
 ];
+
+const RANGE_PATTERN = /\bEpisodes?\s*\d+\s*[-–—]\s*\d+\b/i;
+const PRESERVED_PATTERN = /\bpreserved\b|\banchors?\b/i;
 
 // ─── Parsing ───
 
@@ -247,7 +252,8 @@ export function extractEpisodeNumbersFromOutput(text: string): number[] {
  * Returns true if ANY collapse pattern is detected.
  */
 export function detectCollapsedRangeSummaries(text: string): boolean {
-  return COLLAPSE_PATTERNS.some(p => p.test(text));
+  if (!text) return false;
+  return COLLAPSE_PATTERNS.some(p => p.test(text)) || (RANGE_PATTERN.test(text) && PRESERVED_PATTERN.test(text));
 }
 
 /**
@@ -260,7 +266,9 @@ export function findEpisodesWithCollapse(text: string): number[] {
 
   for (const block of blocks) {
     const searchText = block.bodyText || block.rawBlock;
-    if (COLLAPSE_PATTERNS.some(p => p.test(searchText))) {
+    const hasPatternMatch = COLLAPSE_PATTERNS.some(p => p.test(searchText));
+    const hasRangeAndPreserved = RANGE_PATTERN.test(searchText) && PRESERVED_PATTERN.test(searchText);
+    if (hasPatternMatch || hasRangeAndPreserved) {
       collapsed.push(block.episodeNumber);
     }
   }
