@@ -304,7 +304,7 @@ export function NoteWritersRoomDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-0 overflow-y-auto overscroll-contain">
+      <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-0 overflow-y-auto overscroll-contain scrollbar-hide [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <SheetHeader className="px-4 pt-4 pb-2">
           <SheetTitle className="text-sm flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
