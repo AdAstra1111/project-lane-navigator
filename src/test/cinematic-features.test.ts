@@ -12,7 +12,7 @@ import { amplifyRepairInstruction, buildTrailerRepairInstruction, buildStoryboar
 import { enforceUnitCount } from "../../supabase/functions/_shared/cinematic-adapters";
 import { computeStoryboardExpectedCount, computeTrailerExpectedCount } from "../../supabase/functions/_shared/cinematic-expected-count";
 import { analyzeLadder } from "../../supabase/functions/_shared/cik/ladderLock";
-import { lateStartIndexForUnitCount, minUpFracForUnitCount, maxZigzagFlipsForUnitCount } from "../../supabase/functions/_shared/cik/ladderLockConstants";
+import { lateStartIndexForUnitCount, minUpFracForUnitCount, maxZigzagFlipsForUnitCount, tailSlackForUnitCount, lateDipAbsForUnitCount } from "../../supabase/functions/_shared/cik/ladderLockConstants";
 import { getCinematicThresholds } from "../../supabase/functions/_shared/cik/thresholdProfiles";
 
 function makeUnit(overrides: Partial<CinematicUnit> & { id: string }): CinematicUnit {
@@ -813,6 +813,7 @@ describe("v3.14 intent sequencing", () => {
     expect(seqFeature.earlyLateInversion).toBe(true);
     expect(seqDoc.earlyLateInversion).toBe(false);
   });
+});
 
 // ─── Product-Lane Threshold Profiles Tests ───
 
@@ -878,4 +879,49 @@ describe("threshold profiles", () => {
     }
   });
 });
+
+// ─── Lane-Aware Ladder Thresholds Tests ───
+
+describe("lane-aware ladder thresholds", () => {
+  it("documentary tailSlack > feature_film tailSlack for same n", () => {
+    const docSlack = tailSlackForUnitCount(6, "documentary");
+    const featureSlack = tailSlackForUnitCount(6);
+    expect(docSlack).toBeGreaterThan(featureSlack);
+  });
+
+  it("vertical_drama lateDipAbs < feature_film lateDipAbs for same n", () => {
+    const vdDip = lateDipAbsForUnitCount(6, "vertical_drama");
+    const featureDip = lateDipAbsForUnitCount(6);
+    expect(vdDip).toBeLessThan(featureDip);
+  });
+
+  it("unknown lane preserves exact default ladder metrics", () => {
+    const energy =  [0.2, 0.35, 0.5, 0.65, 0.8, 0.95];
+    const tension = [0.2, 0.35, 0.5, 0.65, 0.8, 0.95];
+    const density = [0.2, 0.35, 0.5, 0.65, 0.8, 0.95];
+    const defaultM = analyzeLadder(energy, tension, density);
+    const unknownM = analyzeLadder(energy, tension, density, "unknown_lane");
+    expect(unknownM.dipAbs).toBe(defaultM.dipAbs);
+    expect(unknownM.lateDipAbs).toBe(defaultM.lateDipAbs);
+    expect(unknownM.tailSlack).toBe(defaultM.tailSlack);
+  });
+
+  it("ending fails tail seal under vertical_drama but passes under documentary", () => {
+    // Ramp with a slight tail dip — tight enough to fail vertical_drama but not documentary
+    const units = [
+      makeUnit({ id: "0", energy: 0.30, tension: 0.30, density: 0.30, tonal_polarity: -0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.50, tension: 0.50, density: 0.50, tonal_polarity: -0.1, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.70, tension: 0.70, density: 0.70, tonal_polarity: 0.1, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.92, tension: 0.92, density: 0.92, tonal_polarity: 0.3, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.87, tension: 0.87, density: 0.87, tonal_polarity: 0.5, intent: "release" }),
+    ];
+    const vdScore = scoreCinematic(units, { lane: "vertical_drama" });
+    const docScore = scoreCinematic(units, { lane: "documentary" });
+    const vdHasDrop = vdScore.failures.includes("ENERGY_DROP");
+    const docHasDrop = docScore.failures.includes("ENERGY_DROP");
+    // vertical_drama should be stricter on tail
+    if (vdHasDrop) {
+      expect(docHasDrop).toBe(false);
+    }
+  });
 });

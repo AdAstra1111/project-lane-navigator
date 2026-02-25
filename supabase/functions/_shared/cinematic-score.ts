@@ -187,7 +187,7 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
     }
 
     // ─── CIK v3.12 Ladder Lock checks ───
-    const ladder = analyzeLadder(energies, units.map(u => u.tension), units.map(u => u.density));
+    const ladder = analyzeLadder(energies, units.map(u => u.tension), units.map(u => u.density), ctx?.lane);
     if (ladder.n >= 3) {
       if (ladder.meaningfulDownSteps > 1 && !failures.includes("DIRECTION_REVERSAL")) {
         failures.push("DIRECTION_REVERSAL");
