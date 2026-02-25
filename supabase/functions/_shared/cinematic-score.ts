@@ -334,8 +334,11 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
   score += coherenceIndex * 0.05;
   score = clamp(score, 0, 1);
 
-  // Pass is determined by hard_failures only
-  const pass = hard_failures.length === 0;
+  // Pass is determined by hard_failures only, with a score-based override
+  // for lanes that are naturally more tonal/complex.
+  const SCORE_PASS_LANES = new Set(["independent_film", "music_video"]);
+  const scorePassThreshold = 0.75;
+  const pass = hard_failures.length === 0 || (score >= scorePassThreshold && SCORE_PASS_LANES.has(rawLane || ""));
 
   return { pass, score, failures, hard_failures, diagnostic_flags, penalty_breakdown, metrics };
 }
