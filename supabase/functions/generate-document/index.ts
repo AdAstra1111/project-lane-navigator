@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
+import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -301,7 +302,20 @@ D) OUTPUT CONTRACT — At the top of your response, print:
     }
 
     // 5) Generate content
-    let content = await callLLM(apiKey, system, userPrompt);
+    let content: string;
+
+    // ── Special path for vertical_episode_beats: chunked generation with completeness guard ──
+    if (docType === "vertical_episode_beats" && resolvedQuals.is_series && resolvedQuals.season_episode_count) {
+      content = await generateEpisodeBeatsChunked({
+        apiKey,
+        episodeCount: resolvedQuals.season_episode_count,
+        systemPrompt: system,
+        upstreamContent,
+        projectTitle: project.title || "Untitled",
+      });
+    } else {
+      content = await callLLM(apiKey, system, userPrompt);
+    }
 
     // 6a) Topline placeholder validator (hard gate — never save template)
     if (isTopline) {
