@@ -9640,6 +9640,7 @@ export type Database = {
           is_current: boolean
           is_stale: boolean | null
           label: string | null
+          meta_json: Json | null
           parent_version_id: string | null
           plaintext: string
           source_decision_ids: Json | null
@@ -9676,6 +9677,7 @@ export type Database = {
           is_current?: boolean
           is_stale?: boolean | null
           label?: string | null
+          meta_json?: Json | null
           parent_version_id?: string | null
           plaintext?: string
           source_decision_ids?: Json | null
@@ -9712,6 +9714,7 @@ export type Database = {
           is_current?: boolean
           is_stale?: boolean | null
           label?: string | null
+          meta_json?: Json | null
           parent_version_id?: string | null
           plaintext?: string
           source_decision_ids?: Json | null
