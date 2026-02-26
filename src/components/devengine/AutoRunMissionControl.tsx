@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { getLadderForFormat } from '@/lib/stages/registry';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -83,6 +84,7 @@ interface ProjectDocument {
 }
 
 interface ProjectData {
+  format?: string | null;
   assigned_lane?: string | null;
   budget_range?: string | null;
   genres?: string[] | null;
@@ -95,6 +97,11 @@ interface ProjectData {
   pitchLogline?: string | null;
   pitchPremise?: string | null;
 }
+
+const SEED_DOC_TYPES = ['project_overview', 'creative_brief', 'market_positioning', 'canon', 'nec'];
+const SEED_LABELS: Record<string, string> = {
+  project_overview: 'Overview', creative_brief: 'Brief', market_positioning: 'Market', canon: 'Canon', nec: 'NEC',
+};
 
 interface AutoRunMissionControlProps {
   projectId: string;
@@ -269,7 +276,31 @@ export function AutoRunMissionControl({
   const [showPreflight, setShowPreflight] = useState(false);
   const [preflightErrors, setPreflightErrors] = useState<string[]>([]);
 
-  // Pre-fill from project data (runs once on mount or when project loads)
+  // ── Seed Pack + Pipeline Progress (computed from availableDocuments + ladder) ──
+  const projectFormat = (project?.format || 'film').toLowerCase().replace(/_/g, '-');
+  const ladder = useMemo(() => getLadderForFormat(projectFormat), [projectFormat]);
+  const finalStage = ladder[ladder.length - 1];
+
+  const existingDocTypes = useMemo(
+    () => new Set((availableDocuments || []).map(d => d.doc_type)),
+    [availableDocuments],
+  );
+
+  const seedStatus = useMemo(() => {
+    const present = SEED_DOC_TYPES.filter(dt => existingDocTypes.has(dt));
+    const missing = SEED_DOC_TYPES.filter(dt => !existingDocTypes.has(dt));
+    return { present, missing, allPresent: missing.length === 0 };
+  }, [existingDocTypes]);
+
+  const pipelineProgress = useMemo(() => {
+    const satisfied = ladder.filter(stage => existingDocTypes.has(stage));
+    return { satisfied: satisfied.length, total: ladder.length, stages: ladder, existingDocTypes };
+  }, [ladder, existingDocTypes]);
+
+  const handlePerfectPackage = useCallback(() => {
+    onSaveStorySetup(storySetup).then(() => onStart(mode, startDocument));
+  }, [storySetup, mode, startDocument, onSaveStorySetup, onStart]);
+
   const [projectPreFilled, setProjectPreFilled] = useState(false);
   useEffect(() => {
     if (projectPreFilled || !project) return;
@@ -528,7 +559,66 @@ export function AutoRunMissionControl({
             </div>
           )}
 
-          {/* ── Story Setup prefill (always visible before launch) ── */}
+          {/* ── Seed Pack Status ── */}
+          <div className={`p-2.5 rounded-md border text-xs space-y-1.5 ${
+            seedStatus.allPresent
+              ? 'bg-emerald-500/5 border-emerald-500/20'
+              : 'bg-amber-500/5 border-amber-500/20'
+          }`}>
+            <div className="flex items-center gap-1.5">
+              {seedStatus.allPresent
+                ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /><span className="text-emerald-400 font-medium">Seed Pack Ready</span></>
+                : <><AlertTriangle className="h-3.5 w-3.5 text-amber-400" /><span className="text-amber-400 font-medium">Seed Pack Incomplete</span></>
+              }
+              <span className="text-muted-foreground ml-auto text-[10px]">{seedStatus.present.length}/{SEED_DOC_TYPES.length}</span>
+            </div>
+            {seedStatus.missing.length > 0 && (
+              <div className="flex gap-1 flex-wrap">
+                {seedStatus.missing.map(dt => (
+                  <Badge key={dt} variant="outline" className="text-[8px] px-1.5 py-0 bg-amber-500/10 text-amber-400 border-amber-500/30">
+                    {SEED_LABELS[dt] || dt}
+                  </Badge>
+                ))}
+                <span className="text-[9px] text-muted-foreground ml-1">will be auto-generated on start</span>
+              </div>
+            )}
+          </div>
+
+          {/* ── Pipeline Progress ── */}
+          <div className="p-2.5 rounded-md border border-border/40 bg-muted/10 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Pipeline Progress</span>
+              <span className="text-[10px] font-semibold">{pipelineProgress.satisfied}/{pipelineProgress.total} stages</span>
+            </div>
+            <Progress value={(pipelineProgress.satisfied / Math.max(pipelineProgress.total, 1)) * 100} className="h-1.5" />
+            <div className="flex gap-1 flex-wrap">
+              {pipelineProgress.stages.map(stage => (
+                <span key={stage} className={`text-[8px] px-1 py-0.5 rounded ${
+                  pipelineProgress.existingDocTypes.has(stage)
+                    ? 'bg-emerald-500/15 text-emerald-400'
+                    : 'bg-muted/40 text-muted-foreground'
+                }`}>
+                  {LADDER_LABELS[stage] || stage}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Run to Perfect Package CTA ── */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full h-9 text-xs gap-2 border-primary/30 hover:bg-primary/10 hover:border-primary/50"
+            onClick={handlePerfectPackage}
+            disabled={inferLoading}
+          >
+            <Rocket className="h-3.5 w-3.5 text-primary" />
+            Run to Perfect Package
+            <Badge variant="outline" className="text-[8px] px-1 py-0 ml-auto bg-primary/10 text-primary border-primary/30">
+              → {LADDER_LABELS[finalStage] || finalStage}
+            </Badge>
+          </Button>
+
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Story Setup</p>
@@ -665,13 +755,14 @@ export function AutoRunMissionControl({
                 <Progress value={progressPct} className="h-1.5" />
               </div>
 
-              {/* Stage info */}
+              {/* Stage info + pipeline progress */}
               <div className="flex items-center gap-2 flex-wrap">
                 <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/30">
                   {LADDER_LABELS[job.current_document] || job.current_document}
                 </Badge>
                 <ChevronRight className="h-3 w-3 text-muted-foreground" />
                 <span className="text-[9px] text-muted-foreground">{LADDER_LABELS[job.target_document] || job.target_document}</span>
+                <span className="text-[9px] ml-auto font-medium">{pipelineProgress.satisfied}/{pipelineProgress.total} stages</span>
               </div>
 
               {/* Scores */}
