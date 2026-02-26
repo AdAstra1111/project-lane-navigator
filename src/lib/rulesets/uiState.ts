@@ -16,6 +16,11 @@ export interface RulesetPrefs {
     story_engine?: string;
     causal_grammar?: string;
   };
+  comps?: {
+    include_films?: boolean;
+    include_series?: boolean;
+    include_vertical?: boolean;
+  };
 }
 
 const LS_KEY = (projectId: string, lane: string) =>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,8 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { INFLUENCE_DIMENSIONS, type InfluenceDimension } from '@/lib/rulesets/types';
 import { toast } from 'sonner';
+import { loadProjectLaneRulesetPrefs, saveProjectLaneRulesetPrefs } from '@/lib/rulesets/uiState';
+import { useAuth } from '@/hooks/useAuth';
 
 const DIM_LABELS: Record<InfluenceDimension, string> = {
   pacing: 'Pacing',
@@ -93,12 +95,42 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
   const [loading, setLoading] = useState(false);
   const [selections, setSelections] = useState<Record<string, InfluencerSelection>>({});
   const [saving, setSaving] = useState(false);
+  const { user } = useAuth();
 
-  // Format filter toggles
+  // Format filter toggles — defaults differ by lane
   const isVertical = lane === 'vertical_drama';
   const [includeFilms, setIncludeFilms] = useState(!isVertical);
   const [includeSeries, setIncludeSeries] = useState(true);
   const [includeVertical, setIncludeVertical] = useState(isVertical);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+
+  // Load persisted comps prefs on mount
+  useEffect(() => {
+    loadProjectLaneRulesetPrefs(projectId, lane).then(prefs => {
+      if (prefs.comps) {
+        if (typeof prefs.comps.include_films === 'boolean') setIncludeFilms(prefs.comps.include_films);
+        if (typeof prefs.comps.include_series === 'boolean') setIncludeSeries(prefs.comps.include_series);
+        if (typeof prefs.comps.include_vertical === 'boolean') setIncludeVertical(prefs.comps.include_vertical);
+      }
+      setPrefsLoaded(true);
+    });
+  }, [projectId, lane]);
+
+  // Persist comps prefs when toggles change (after initial load)
+  const persistCompsPrefs = useCallback(async (films: boolean, series: boolean, vertical: boolean) => {
+    if (!user?.id) return;
+    const prefs = await loadProjectLaneRulesetPrefs(projectId, lane);
+    await saveProjectLaneRulesetPrefs(projectId, lane, {
+      ...prefs,
+      comps: { include_films: films, include_series: series, include_vertical: vertical },
+    }, user.id);
+  }, [projectId, lane, user?.id]);
+
+  useEffect(() => {
+    if (prefsLoaded) {
+      persistCompsPrefs(includeFilms, includeSeries, includeVertical);
+    }
+  }, [includeFilms, includeSeries, includeVertical, prefsLoaded, persistCompsPrefs]);
 
   // Auto-seed state
   const [useProjectDocs, setUseProjectDocs] = useState(true);
@@ -194,6 +226,17 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
   };
 
   const confirmLookupMatch = async (match: LookupMatch) => {
+    // Warn if selecting a film while films are excluded
+    const matchFormat = (match.format || '').toLowerCase();
+    const isFilmMatch = matchFormat === 'film' || matchFormat === 'feature' || matchFormat === 'feature_film';
+    if (isFilmMatch && !includeFilms) {
+      const enable = confirm(
+        `"${match.title}" is a film, but films are currently excluded.\n\nEnable "Include films" to add this comp?`
+      );
+      if (!enable) return;
+      setIncludeFilms(true);
+    }
+
     try {
       const { data, error } = await supabase.functions.invoke('comps-engine', {
         body: {
