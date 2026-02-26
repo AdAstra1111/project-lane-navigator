@@ -3,11 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { FileUpload } from '@/components/FileUpload';
 import { supabase } from '@/integrations/supabase/client';
+import { createPendingUpload, MAX_PENDING_FILES, MAX_PENDING_FILE_SIZE } from '@/lib/pendingUploads';
 import { toast } from 'sonner';
 
 const Landing = () => {
   const [files, setFiles] = useState<File[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [processing, setProcessing] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -16,22 +18,36 @@ const Landing = () => {
     });
   }, []);
 
-  const handleFilesChange = (newFiles: File[]) => {
+  const handleFilesChange = async (newFiles: File[]) => {
     setFiles(newFiles);
-    if (newFiles.length === 0) return;
+    if (newFiles.length === 0 || processing) return;
 
-    // Store file names so post-auth flow can prompt re-upload
-    const names = newFiles.map(f => f.name);
-    sessionStorage.setItem('iffy_pending_upload_names', JSON.stringify(names));
+    // Validate limits
+    if (newFiles.length > MAX_PENDING_FILES) {
+      toast.error(`Maximum ${MAX_PENDING_FILES} files allowed`);
+      return;
+    }
+    for (const f of newFiles) {
+      if (f.size > MAX_PENDING_FILE_SIZE) {
+        toast.error(`"${f.name}" exceeds the 20 MB limit`);
+        return;
+      }
+    }
 
-    if (isAuthenticated) {
-      // Authenticated: go straight to dashboard with upload hint
-      toast.info('Redirecting to dashboard to process your script…');
-      navigate('/dashboard', { state: { pendingFiles: true } });
-    } else {
-      // Not authenticated: send to auth, then dashboard
-      toast.info('Sign in to analyse your script');
-      navigate('/auth', { state: { returnTo: '/dashboard', pendingFiles: true } });
+    setProcessing(true);
+    try {
+      // Store files in IndexedDB so they survive redirect/refresh
+      const { id } = await createPendingUpload(newFiles);
+
+      if (isAuthenticated) {
+        navigate(`/dashboard?pendingUploadId=${id}&autoIntake=1`);
+      } else {
+        toast.info('Sign in to analyse your script');
+        navigate(`/auth?redirect=${encodeURIComponent(`/dashboard?pendingUploadId=${id}&autoIntake=1`)}`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to prepare upload');
+      setProcessing(false);
     }
   };
 
