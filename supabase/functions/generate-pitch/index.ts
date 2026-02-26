@@ -425,10 +425,8 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
       });
     }
 
-    if (ideas.ideas.length !== 10) {
-      return new Response(JSON.stringify({ error: `AI returned ${ideas.ideas.length} ideas instead of 10. Please retry.` }), {
-        status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (ideas.ideas.length < 5) {
+      console.warn(`[generate-pitch] AI returned only ${ideas.ideas.length} ideas (expected ~10), proceeding with partial batch`);
     }
 
     ideas.signals_metadata = {
