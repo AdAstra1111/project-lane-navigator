@@ -114,6 +114,7 @@ export function DevelopmentStage({
         onOpenChange={setSeedPackOpen}
         projectId={projectId}
         defaultLane={project.assigned_lane}
+        projectFormat={project.format}
       />
 
       {/* Script Intake link */}
