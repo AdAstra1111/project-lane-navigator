@@ -23,6 +23,7 @@ export default function PitchIdeas() {
   const { ideas, isLoading, save, update, remove } = usePitchIdeas();
   const { projects } = useProjects();
   const [generating, setGenerating] = useState(false);
+  const [generateFailed, setGenerateFailed] = useState(false);
   const [criteria, setCriteria] = useState<HardCriteria>({ ...EMPTY_CRITERIA });
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -46,6 +47,7 @@ export default function PitchIdeas() {
       return;
     }
     setGenerating(true);
+    setGenerateFailed(false);
 
     try {
       const { data, error } = await supabase.functions.invoke('generate-pitch', {
@@ -97,45 +99,62 @@ export default function PitchIdeas() {
         throw new Error('No ideas returned. Please retry.');
       }
 
+      let savedCount = 0;
+      const saveErrors: string[] = [];
+
       for (const idea of pitchIdeas) {
-        await save({
-          mode: 'greenlight',
-          status: 'draft',
-          production_type: criteria.productionType,
-          title: idea.title,
-          logline: idea.logline,
-          one_page_pitch: idea.one_page_pitch,
-          comps: idea.comps || [],
-          recommended_lane: idea.recommended_lane || '',
-          lane_confidence: idea.lane_confidence || 0,
-          budget_band: idea.budget_band || criteria.budgetBand || '',
-          packaging_suggestions: idea.packaging_suggestions || [],
-          development_sprint: idea.development_sprint || [],
-          risks_mitigations: idea.risks_mitigations || [],
-          why_us: idea.why_us || '',
-          genre: idea.genre || criteria.genre || '',
-          region: criteria.region || '',
-          platform_target: criteria.platformTarget || '',
-          risk_level: idea.risk_level || criteria.riskLevel || 'medium',
-          project_id: (!selectedProject || selectedProject === '__none__') ? null : selectedProject,
-          raw_response: {
-            ...idea,
-            premise: idea.premise || '',
-            trend_fit_bullets: idea.trend_fit_bullets || [],
-            differentiation_move: idea.differentiation_move || '',
-            tone_tag: idea.tone_tag || '',
-            format_summary: idea.format_summary || '',
-          },
-          score_market_heat: idea.score_market_heat || 0,
-          score_feasibility: idea.score_feasibility || 0,
-          score_lane_fit: idea.score_lane_fit || 0,
-          score_saturation_risk: idea.score_saturation_risk || 0,
-          score_company_fit: idea.score_company_fit || 0,
-          score_total: idea.score_total || 0,
-        });
+        try {
+          await save({
+            mode: 'greenlight',
+            status: 'draft',
+            production_type: criteria.productionType,
+            title: idea.title,
+            logline: idea.logline,
+            one_page_pitch: idea.one_page_pitch,
+            comps: idea.comps || [],
+            recommended_lane: idea.recommended_lane || '',
+            lane_confidence: idea.lane_confidence || 0,
+            budget_band: idea.budget_band || criteria.budgetBand || '',
+            packaging_suggestions: idea.packaging_suggestions || [],
+            development_sprint: idea.development_sprint || [],
+            risks_mitigations: idea.risks_mitigations || [],
+            why_us: idea.why_us || '',
+            genre: idea.genre || criteria.genre || '',
+            region: criteria.region || '',
+            platform_target: criteria.platformTarget || '',
+            risk_level: idea.risk_level || criteria.riskLevel || 'medium',
+            project_id: (!selectedProject || selectedProject === '__none__') ? null : selectedProject,
+            raw_response: {
+              ...idea,
+              premise: idea.premise || '',
+              trend_fit_bullets: idea.trend_fit_bullets || [],
+              differentiation_move: idea.differentiation_move || '',
+              tone_tag: idea.tone_tag || '',
+              format_summary: idea.format_summary || '',
+            },
+            score_market_heat: idea.score_market_heat || 0,
+            score_feasibility: idea.score_feasibility || 0,
+            score_lane_fit: idea.score_lane_fit || 0,
+            score_saturation_risk: idea.score_saturation_risk || 0,
+            score_company_fit: idea.score_company_fit || 0,
+            score_total: idea.score_total || 0,
+          });
+          savedCount++;
+        } catch (saveErr: any) {
+          console.error(`[PitchIdeas] Failed to save idea "${idea.title}":`, saveErr);
+          saveErrors.push(idea.title || 'Untitled');
+        }
       }
-      toast.success(`${pitchIdeas.length} concepts generated`);
+
+      if (savedCount === 0) {
+        throw new Error('All ideas failed to save. Please retry.');
+      } else if (saveErrors.length > 0) {
+        toast.warning(`${savedCount} saved, ${saveErrors.length} failed: ${saveErrors.join(', ')}`);
+      } else {
+        toast.success(`${savedCount} concepts generated`);
+      }
     } catch (e: any) {
+      setGenerateFailed(true);
       toast.error(e.message || 'Generation failed');
     } finally {
       setGenerating(false);
@@ -233,6 +252,13 @@ export default function PitchIdeas() {
         />
 
         <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />
+        {generateFailed && !generating && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardContent className="py-3 text-sm text-destructive text-center">
+              Generation failed — check the error above and retry.
+            </CardContent>
+          </Card>
+        )}
 
         {/* Status filter + Generate More */}
         <div className="flex items-center justify-between flex-wrap gap-2">
