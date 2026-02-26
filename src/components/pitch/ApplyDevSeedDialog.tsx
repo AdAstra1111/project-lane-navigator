@@ -175,7 +175,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         .insert({
           title,
           user_id: user.id,
-          production_format: idea.production_type || 'film',
+          format: idea.production_type || 'film',
           genres: idea.genre ? [idea.genre] : [],
           assigned_lane: idea.recommended_lane || 'independent-film',
           budget_range: idea.budget_band || '',
