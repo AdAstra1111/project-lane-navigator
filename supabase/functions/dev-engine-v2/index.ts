@@ -3,6 +3,28 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
 import { composeSystem } from "../_shared/llm.ts";
 import { buildBeatGuidanceBlock, computeBeatTargets } from "../_shared/verticalDramaBeats.ts";
+import { loadLanePrefs, loadTeamVoiceProfile } from "../_shared/prefs.ts";
+import { buildTeamVoicePromptBlock } from "../_shared/teamVoice.ts";
+
+/** Load team voice context block + meta for stamping. Returns empty strings if none active. */
+async function loadTeamVoiceContext(
+  supabase: any,
+  projectId: string,
+  lane: string,
+): Promise<{ block: string; metaStamp: Record<string, string> | null; prefsSnapshot: any }> {
+  const prefs = await loadLanePrefs(supabase, projectId, lane);
+  if (!prefs?.team_voice?.id) return { block: "", metaStamp: null, prefsSnapshot: prefs };
+  const tv = await loadTeamVoiceProfile(supabase, prefs.team_voice.id);
+  if (!tv) return { block: "", metaStamp: null, prefsSnapshot: prefs };
+  const hasWritingVoice = !!prefs.writing_voice?.id;
+  const block = buildTeamVoicePromptBlock(tv.label, tv.profile_json, hasWritingVoice);
+  console.log(`[dev-engine-v2] Team Voice injected: id=${prefs.team_voice.id} label=${tv.label}`);
+  return {
+    block,
+    metaStamp: { team_voice_id: prefs.team_voice.id, team_voice_label: tv.label },
+    prefsSnapshot: prefs,
+  };
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1729,12 +1751,17 @@ Format: ${rq.format}.${episodeLengthBlock}`;
         }
       }
 
+      // ── Team Voice injection ──
+      const analyzeLane = project?.assigned_lane || "independent-film";
+      const tvCtx = await loadTeamVoiceContext(supabase, projectId, analyzeLane);
+      const teamVoiceBlock = tvCtx.block ? `\n${tvCtx.block}` : "";
+
       const userPrompt = `PRODUCTION TYPE: ${effectiveProductionType}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 PROJECT: ${project?.title || "Unknown"}
-LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range || "Unknown"}
-${prevContext}${seasonContext}${qualBinding}${canonOSContext}${signalContext}${lockedDecisionsContext}
+LANE: ${analyzeLane} | BUDGET: ${project?.budget_range || "Unknown"}
+${prevContext}${seasonContext}${qualBinding}${canonOSContext}${signalContext}${lockedDecisionsContext}${teamVoiceBlock}
 
 MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, maxContextChars)}`;
@@ -2687,10 +2714,15 @@ MATERIAL:\n${version.plaintext}`;
 
       const rewriteSystemPrompt = buildRewriteSystem(effectiveDeliverable, effectiveFormat, effectiveBehavior);
 
+      // ── Team Voice injection for rewrite ──
+      const rewriteLane = project?.assigned_lane || "independent-film";
+      const rwTvCtx = await loadTeamVoiceContext(supabase, projectId, rewriteLane);
+      const rwTeamVoiceBlock = rwTvCtx.block ? `\n${rwTvCtx.block}\n` : "";
+
       const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
 
 APPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}${decisionDirectives}${globalDirContext}
-
+${rwTeamVoiceBlock}
 TARGET FORMAT: ${targetDocType || "same as source"}
 
 MATERIAL TO REWRITE:\n${fullText}`;
@@ -2731,6 +2763,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           if (rrResp.ok) { const rr = await rrResp.json(); rewriteResolverHash = rr.resolver_hash || null; }
         } catch (_) { /* non-fatal */ }
 
+        const rwMetaJson = rwTvCtx.metaStamp ? { ...rwTvCtx.metaStamp } : undefined;
         const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
           document_id: documentId,
           version_number: nextVersion,
@@ -2741,6 +2774,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           change_summary: parsed.changes_summary || "",
           depends_on: depFields,
           depends_on_resolver_hash: rewriteResolverHash,
+          ...(rwMetaJson ? { meta_json: rwMetaJson } : {}),
         }).select().single();
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
@@ -2892,6 +2926,10 @@ MATERIAL TO REWRITE:\n${fullText}`;
           .limit(1)
           .single();
         const nextVersion = (maxRow?.version_number ?? 0) + 1;
+        // Load team voice for meta_json stamping on chunked rewrite
+        const chunkLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
+        const chunkTvCtx = await loadTeamVoiceContext(supabase, projectId, chunkLane);
+        const chunkMetaJson = chunkTvCtx.metaStamp ? { ...chunkTvCtx.metaStamp } : undefined;
         const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
           document_id: documentId,
           version_number: nextVersion,
@@ -2900,6 +2938,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           created_by: user.id,
           parent_version_id: versionId,
           change_summary: `Chunked rewrite across ${nextVersion - 1} iterations.`,
+          ...(chunkMetaJson ? { meta_json: chunkMetaJson } : {}),
         }).select().single();
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;

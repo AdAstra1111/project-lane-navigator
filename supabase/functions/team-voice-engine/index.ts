@@ -96,24 +96,37 @@ serve(async (req) => {
       // Fetch doc text for each source
       const sampleTexts: string[] = [];
       const hasCowritten = sources.some((s: any) => s.isCowritten);
+      const MAX_SAMPLES = 6;
 
-      for (const src of sources) {
+      for (const src of sources.slice(0, MAX_SAMPLES)) {
         let text = "";
+
+        // If a specific versionId is provided, try that first
         if (src.versionId) {
           const { data: ver } = await supabase.from("project_document_versions")
             .select("plaintext").eq("id", src.versionId).single();
           text = ver?.plaintext || "";
         }
+
+        // Fallback: read directly from project_documents (plaintext or extracted_text)
         if (!text && src.docId) {
-          // Get latest version
           const { data: doc } = await supabase.from("project_documents")
-            .select("latest_version_id").eq("id", src.docId).single();
-          if (doc?.latest_version_id) {
-            const { data: ver } = await supabase.from("project_document_versions")
-              .select("plaintext").eq("id", doc.latest_version_id).single();
-            text = ver?.plaintext || "";
-          }
+            .select("plaintext, extracted_text").eq("id", src.docId).single();
+          text = doc?.plaintext || doc?.extracted_text || "";
         }
+
+        // Fallback: get current version's plaintext
+        if (!text && src.docId) {
+          const { data: curVer } = await supabase.from("project_document_versions")
+            .select("plaintext")
+            .eq("document_id", src.docId)
+            .eq("is_current", true)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .single();
+          text = curVer?.plaintext || "";
+        }
+
         if (text) {
           sampleTexts.push(text.slice(0, MAX_SAMPLE_CHARS));
         }
@@ -189,12 +202,18 @@ ${sampleTexts.map((t, i) => `=== SAMPLE ${i + 1} (${t.length} chars) ===\n${t}\n
           }
           if (!text && src.docId) {
             const { data: doc } = await supabase.from("project_documents")
-              .select("latest_version_id").eq("id", src.docId).single();
-            if (doc?.latest_version_id) {
-              const { data: ver } = await supabase.from("project_document_versions")
-                .select("plaintext").eq("id", doc.latest_version_id).single();
-              text = ver?.plaintext || "";
-            }
+              .select("plaintext, extracted_text").eq("id", src.docId).single();
+            text = doc?.plaintext || doc?.extracted_text || "";
+          }
+          if (!text && src.docId) {
+            const { data: curVer } = await supabase.from("project_document_versions")
+              .select("plaintext")
+              .eq("document_id", src.docId)
+              .eq("is_current", true)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .single();
+            text = curVer?.plaintext || "";
           }
           if (text) sampleTexts.push(text.slice(0, MAX_SAMPLE_CHARS));
         }
