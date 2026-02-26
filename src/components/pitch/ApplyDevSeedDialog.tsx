@@ -244,22 +244,29 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           }
         }
 
-        // 6. Optional: Apply canon draft
+        // 6. Optional: Apply canon draft (merge under seed_draft namespace)
         if (applyCanon) {
           const canonDraft = buildCanonDraft(idea, devSeed);
-          // project_canon row is auto-created by trigger; update it
+          const { data: existing } = await (supabase as any)
+            .from('project_canon')
+            .select('canon_json')
+            .eq('project_id', project.id)
+            .maybeSingle();
+          const merged = { ...(existing?.canon_json || {}), seed_draft: canonDraft };
           await (supabase as any)
             .from('project_canon')
-            .update({ canon_json: canonDraft, updated_by: user.id })
+            .update({ canon_json: merged, updated_by: user.id })
             .eq('project_id', project.id);
         }
 
-        // 7. Optional: Apply lane prefs
+        // 7. Optional: Apply lane prefs (merge-safe)
         if (applyPrefs) {
           const prefsDraft = buildPrefsDraft(devSeed);
           if (Object.keys(prefsDraft).length > 0) {
             const lane = idea.recommended_lane || 'independent-film';
             await saveProjectLaneRulesetPrefs(project.id, lane, prefsDraft as RulesetPrefs, user.id);
+          } else {
+            toast.info('No prefs suggestions in seed');
           }
         }
       }
