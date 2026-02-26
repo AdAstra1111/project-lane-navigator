@@ -360,6 +360,8 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
       }),
     });
 
+    console.log(`[generate-pitch] AI response status: ${response.status}`);
+
     if (!response.ok) {
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again shortly." }), {
@@ -397,8 +399,10 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
 
     let ideas: any;
     if (toolCall?.function?.arguments) {
+      console.log(`[generate-pitch] Parsing tool_call arguments (${toolCall.function.arguments.length} chars)`);
       ideas = JSON.parse(toolCall.function.arguments);
     } else if (msg?.content) {
+      console.log(`[generate-pitch] Parsing from content fallback`);
       const raw = msg.content;
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -414,10 +418,13 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
 
     if (Array.isArray(ideas)) ideas = { ideas };
     if (!ideas.ideas || !Array.isArray(ideas.ideas)) {
+      console.error("[generate-pitch] Malformed ideas object:", JSON.stringify(ideas).substring(0, 300));
       return new Response(JSON.stringify({ error: "AI returned malformed response. Please retry." }), {
         status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    console.log(`[generate-pitch] Successfully parsed ${ideas.ideas.length} ideas`);
 
     if (ideas.ideas.length === 0) {
       return new Response(JSON.stringify({ error: "AI returned no usable ideas. Please retry." }), {
@@ -436,6 +443,7 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
       rationale: signalsRationale,
     };
 
+    console.log(`[generate-pitch] Returning ${ideas.ideas.length} ideas successfully`);
     return new Response(JSON.stringify(ideas), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

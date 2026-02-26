@@ -91,14 +91,26 @@ export default function PitchIdeas() {
         },
       });
 
+      console.log('[PitchIdeas] invoke result — error:', error, 'data keys:', data ? Object.keys(data) : 'null', 'ideas count:', data?.ideas?.length);
+
       if (error) {
         // Extract actual error message from edge function response body
         let errMsg = 'Generation failed';
         try {
-          if (error.context?.body) {
-            const body = typeof error.context.body === 'string' ? JSON.parse(error.context.body) : error.context.body;
-            if (body?.error) errMsg = body.error;
-          } else if (error.message) {
+          console.error('[PitchIdeas] FunctionsError details:', JSON.stringify(error, null, 2));
+          if (error.context) {
+            // Try to read the response body for the actual error message
+            const response = error.context;
+            if (response instanceof Response) {
+              const body = await response.json().catch(() => null);
+              console.error('[PitchIdeas] Error response body:', body);
+              if (body?.error) errMsg = body.error;
+            } else if (typeof response === 'object' && response.body) {
+              const body = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
+              if (body?.error) errMsg = body.error;
+            }
+          }
+          if (errMsg === 'Generation failed' && error.message) {
             errMsg = error.message;
           }
         } catch { /* use default */ }
@@ -107,6 +119,7 @@ export default function PitchIdeas() {
       if (data?.error) throw new Error(data.error);
 
       const pitchIdeas = data?.ideas;
+      console.log('[PitchIdeas] Ideas to save:', pitchIdeas?.length, 'first title:', pitchIdeas?.[0]?.title);
       if (!Array.isArray(pitchIdeas) || pitchIdeas.length === 0) {
         throw new Error('No ideas returned. Please retry.');
       }
