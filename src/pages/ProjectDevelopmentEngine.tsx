@@ -1784,6 +1784,7 @@ export default function ProjectDevelopmentEngine() {
                 }}
                 availableDocuments={documents?.map((d: any) => ({ id: d.id, doc_type: d.doc_type, title: getDocDisplayName((project as any)?.title, d.doc_type) })) || []}
                 project={project}
+                approvedVersionMap={approvedVersionMap}
               />
             </TabsContent>
 
