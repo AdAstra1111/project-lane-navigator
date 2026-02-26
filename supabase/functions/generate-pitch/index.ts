@@ -280,7 +280,7 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -377,6 +377,15 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
     }
 
     const result = await response.json();
+
+    // Handle gateway 200-with-error-body (e.g. provider timeout 524)
+    if (result.error) {
+      const errMsg = result.error?.message || "AI provider error";
+      const errCode = result.error?.code || 500;
+      console.error("AI gateway error (200 body):", errCode, errMsg);
+      throw new Error(`AI generation failed: ${errMsg}`);
+    }
+
     const msg = result.choices?.[0]?.message;
     const toolCall = msg?.tool_calls?.[0];
 
