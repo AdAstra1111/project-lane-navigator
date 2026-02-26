@@ -91,7 +91,19 @@ export default function PitchIdeas() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        // Extract actual error message from edge function response body
+        let errMsg = 'Generation failed';
+        try {
+          if (error.context?.body) {
+            const body = typeof error.context.body === 'string' ? JSON.parse(error.context.body) : error.context.body;
+            if (body?.error) errMsg = body.error;
+          } else if (error.message) {
+            errMsg = error.message;
+          }
+        } catch { /* use default */ }
+        throw new Error(errMsg);
+      }
       if (data?.error) throw new Error(data.error);
 
       const pitchIdeas = data?.ideas;
