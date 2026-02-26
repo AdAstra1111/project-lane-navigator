@@ -92,10 +92,15 @@ export default function PitchIdeas() {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      const pitchIdeas = data.ideas || data;
+      const pitchIdeas = data?.ideas;
+      if (!Array.isArray(pitchIdeas) || pitchIdeas.length === 0) {
+        throw new Error('No ideas returned. Please retry.');
+      }
+
       for (const idea of pitchIdeas) {
         await save({
           mode: 'greenlight',
+          status: 'draft',
           production_type: criteria.productionType,
           title: idea.title,
           logline: idea.logline,

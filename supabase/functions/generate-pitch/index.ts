@@ -413,7 +413,14 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
     }
 
     if (Array.isArray(ideas)) ideas = { ideas };
-    if (!ideas.ideas) ideas = { ideas: [ideas] };
+    if (!ideas.ideas || !Array.isArray(ideas.ideas)) ideas = { ideas: [ideas] };
+
+    // Never return success with empty ideas
+    if (ideas.ideas.length === 0) {
+      return new Response(JSON.stringify({ error: "AI returned no usable ideas. Please retry." }), {
+        status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     ideas.signals_metadata = {
       signals_used: signalsUsedIds,
