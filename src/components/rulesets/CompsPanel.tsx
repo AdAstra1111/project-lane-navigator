@@ -109,6 +109,7 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
   useEffect(() => {
     userChangedRef.current = false;
     loadProjectLaneRulesetPrefs(projectId, lane).then(prefs => {
+      
       if (prefs.comps) {
         if (typeof prefs.comps.include_films === 'boolean') setIncludeFilms(prefs.comps.include_films);
         if (typeof prefs.comps.include_series === 'boolean') setIncludeSeries(prefs.comps.include_series);
@@ -128,6 +129,7 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
 
   // Persist comps prefs when toggles change (only after user interaction)
   const persistCompsPrefs = useCallback(async (films: boolean, series: boolean, vertical: boolean) => {
+    
     if (!user?.id) return;
     const prefs = await loadProjectLaneRulesetPrefs(projectId, lane);
     await saveProjectLaneRulesetPrefs(projectId, lane, {
