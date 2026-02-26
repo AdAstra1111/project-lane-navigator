@@ -90,6 +90,7 @@ import { WorldRulesAccordion } from '@/components/rulesets/WorldRulesAccordion';
 import { ActiveRulesetBadge } from '@/components/rulesets/ActiveRulesetBadge';
 import { useProjectRuleset } from '@/hooks/useProjectRuleset';
 import { SeedAppliedBanner } from '@/components/devengine/SeedAppliedBanner';
+import { StyleSourcesPanel } from '@/components/devengine/StyleSourcesPanel';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -931,6 +932,16 @@ export default function ProjectDevelopmentEngine() {
           onSelectDoc={selectDocument}
           prefsExist={lanePrefsExist}
           onPrefsApplied={() => refetchLanePrefs()}
+        />
+      )}
+
+      {/* ═══ STYLE SOURCES ═══ */}
+      {projectId && rulesetUserId && (
+        <StyleSourcesPanel
+          projectId={projectId}
+          userId={rulesetUserId}
+          lane={rulesetLane}
+          activeText={versionText}
         />
       )}
 
