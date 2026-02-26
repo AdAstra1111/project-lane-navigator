@@ -1117,14 +1117,29 @@ export default function ProjectDevelopmentEngine() {
                 </Card>
               ) : (
                 <>
-                  {/* Version badge */}
+                  {/* Version badge + style meta */}
                   {selectedVersion && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Badge variant="outline" className="text-[9px] px-1.5 py-0 gap-1">
                         <GitBranch className="h-2.5 w-2.5" />
                         v{selectedVersion.version_number}
                         {selectedVersion.label ? ` · ${selectedVersion.label}` : ''}
                       </Badge>
+                      {(selectedVersion as any)?.meta_json?.style_benchmark && (
+                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 gap-1">
+                          Style: {(selectedVersion as any).meta_json.style_benchmark}
+                        </Badge>
+                      )}
+                      {(selectedVersion as any)?.meta_json?.pacing_feel && (
+                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 gap-1">
+                          Pacing: {(selectedVersion as any).meta_json.pacing_feel}
+                        </Badge>
+                      )}
+                      {(selectedVersion as any)?.meta_json?.lane && (
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 gap-1 text-muted-foreground">
+                          {(selectedVersion as any).meta_json.lane}
+                        </Badge>
+                      )}
                     </div>
                   )}
 

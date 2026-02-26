@@ -142,12 +142,21 @@ function buildCanonDraft(idea: PitchIdea, devSeed: any): CanonJson {
 
 // ── Doc helper (hardened) ─────────────────────────────────────────────
 
+interface DocStyleMeta {
+  lane?: string;
+  style_benchmark?: string | null;
+  pacing_feel?: string;
+  seeded_from?: { pitch_idea_id?: string; concept_expansion_id?: string | null };
+  applied_at?: string;
+}
+
 async function createDocWithVersion(
   projectId: string,
   userId: string,
   docType: string,
   title: string,
   content: string,
+  styleMeta?: DocStyleMeta,
 ) {
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80);
   const filePath = `${userId}/${projectId}/${slug}.md`;
@@ -172,16 +181,21 @@ async function createDocWithVersion(
     throw new Error(`Failed to create ${docType} document: ${docErr.message}`);
   }
 
+  const versionPayload: Record<string, unknown> = {
+    document_id: doc.id,
+    version_number: 1,
+    plaintext: content,
+    status: 'draft',
+    is_current: true,
+    created_by: userId,
+  };
+  if (styleMeta) {
+    versionPayload.meta_json = styleMeta;
+  }
+
   const { error: verErr } = await supabase
     .from('project_document_versions')
-    .insert({
-      document_id: doc.id,
-      version_number: 1,
-      plaintext: content,
-      status: 'draft',
-      is_current: true,
-      created_by: userId,
-    } as any);
+    .insert(versionPayload as any);
 
   if (verErr) {
     console.error(`Version insert failed [${docType}]:`, verErr.message);
@@ -257,7 +271,14 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         idea.why_us ? `**Why Us:** ${idea.why_us}` : '',
       ].filter(Boolean).join('\n');
 
-      await createDocWithVersion(project.id, user.id, 'idea', `${title} — Idea`, ideaContent);
+      // Build style meta for all seeded docs
+      const baseStyleMeta: DocStyleMeta = {
+        lane,
+        applied_at: new Date().toISOString(),
+        seeded_from: { pitch_idea_id: idea.id },
+      };
+
+      await createDocWithVersion(project.id, user.id, 'idea', `${title} — Idea`, ideaContent, baseStyleMeta);
 
       // 4. Fetch DevSeed (maybeSingle — may not exist if promote was skipped)
       const { data: expansion } = await supabase
@@ -272,29 +293,38 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
       const expansionId = expansion?.id as string | undefined;
 
       if (devSeed) {
+        // Enrich style meta with seed provenance + prefs draft
+        const prefsDraft = buildPrefsDraft(devSeed, lane);
+        const seedStyleMeta: DocStyleMeta = {
+          ...baseStyleMeta,
+          style_benchmark: prefsDraft.style_benchmark || null,
+          pacing_feel: prefsDraft.pacing_feel,
+          seeded_from: { pitch_idea_id: idea.id, concept_expansion_id: expansionId || null },
+        };
+
         // 5. Create full starter doc pack
         if (applyDocs) {
           // Concept Brief (always)
-          await createDocWithVersion(project.id, user.id, 'concept_brief', `${title} — Concept Brief`, buildConceptBriefContent(title, idea, devSeed));
+          await createDocWithVersion(project.id, user.id, 'concept_brief', `${title} — Concept Brief`, buildConceptBriefContent(title, idea, devSeed), seedStyleMeta);
 
           // Treatment + Character Bible
           if (devSeed.bible_starter) {
-            await createDocWithVersion(project.id, user.id, 'treatment', `${title} — Treatment`, buildTreatmentContent(title, devSeed.bible_starter));
+            await createDocWithVersion(project.id, user.id, 'treatment', `${title} — Treatment`, buildTreatmentContent(title, devSeed.bible_starter), seedStyleMeta);
             if (devSeed.bible_starter.characters?.length) {
-              await createDocWithVersion(project.id, user.id, 'character_bible', `${title} — Characters`, buildCharacterBibleContent(title, devSeed.bible_starter.characters));
+              await createDocWithVersion(project.id, user.id, 'character_bible', `${title} — Characters`, buildCharacterBibleContent(title, devSeed.bible_starter.characters), seedStyleMeta);
             }
           }
 
           // Market Sheet
           if (devSeed.market_rationale) {
-            await createDocWithVersion(project.id, user.id, 'market_sheet', `${title} — Market Sheet`, buildMarketSheetContent(title, devSeed.market_rationale, devSeed.nuance_contract));
+            await createDocWithVersion(project.id, user.id, 'market_sheet', `${title} — Market Sheet`, buildMarketSheetContent(title, devSeed.market_rationale, devSeed.nuance_contract), seedStyleMeta);
           }
 
           // Lane-conditional stubs
           if (isSeriesLane(lane)) {
-            await createDocWithVersion(project.id, user.id, 'season_arc', `${title} — Season Arc`, buildSeasonArcStub(title, devSeed));
+            await createDocWithVersion(project.id, user.id, 'season_arc', `${title} — Season Arc`, buildSeasonArcStub(title, devSeed), seedStyleMeta);
           } else {
-            await createDocWithVersion(project.id, user.id, 'beat_sheet', `${title} — Beat Sheet`, buildBeatSheetStub(title));
+            await createDocWithVersion(project.id, user.id, 'beat_sheet', `${title} — Beat Sheet`, buildBeatSheetStub(title), seedStyleMeta);
           }
         }
 

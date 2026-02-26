@@ -1,0 +1,1 @@
+ALTER TABLE public.project_document_versions ADD COLUMN IF NOT EXISTS meta_json jsonb DEFAULT NULL;
