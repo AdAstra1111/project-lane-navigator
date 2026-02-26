@@ -1,15 +1,38 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { FileUpload } from '@/components/FileUpload';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 const Landing = () => {
   const [files, setFiles] = useState<File[]>([]);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsAuthenticated(!!session);
+    });
+  }, []);
 
   const handleFilesChange = (newFiles: File[]) => {
     setFiles(newFiles);
-    // TODO: wire up to script intake flow
+    if (newFiles.length === 0) return;
+
+    // Store file names so post-auth flow can prompt re-upload
+    const names = newFiles.map(f => f.name);
+    sessionStorage.setItem('iffy_pending_upload_names', JSON.stringify(names));
+
+    if (isAuthenticated) {
+      // Authenticated: go straight to dashboard with upload hint
+      toast.info('Redirecting to dashboard to process your script…');
+      navigate('/dashboard', { state: { pendingFiles: true } });
+    } else {
+      // Not authenticated: send to auth, then dashboard
+      toast.info('Sign in to analyse your script');
+      navigate('/auth', { state: { returnTo: '/dashboard', pendingFiles: true } });
+    }
   };
 
   return (
