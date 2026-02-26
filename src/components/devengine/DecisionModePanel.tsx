@@ -81,9 +81,18 @@ export function DecisionModePanel({
   const [continueVersionId, setContinueVersionId] = useState<string>('latest');
   const { source: canonSource, sourceLabel: canonSourceLabel, evidence: canonEvidence } = useCanonicalState(projectId);
 
-  // Sync external decisions
+  // Sync external decisions — only reset selections when decisions actually change
+  const prevDecisionFingerprint = React.useRef('');
   useEffect(() => {
     if (externalDecisions && externalDecisions.length > 0) {
+      // Fingerprint by note_ids + option counts to detect real changes
+      const fp = externalDecisions.map(d => `${d.note_id}:${d.options?.length || 0}`).sort().join('|');
+      if (fp === prevDecisionFingerprint.current) {
+        // Same decisions, don't reset user selections — just update decision objects
+        setDecisions(externalDecisions);
+        return;
+      }
+      prevDecisionFingerprint.current = fp;
       setDecisions(externalDecisions);
       const autoSelections: Record<string, string> = {};
       for (const d of externalDecisions) {
