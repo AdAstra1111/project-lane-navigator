@@ -13,19 +13,7 @@ interface SeedPackPayload {
   pitch: string;
   lane: string;
   targetPlatform?: string | null;
-}
-
-interface SeedPackResult {
-  project_overview: string;
-  creative_brief: string;
-  market_positioning: string;
-  canon_constraints: string;
-  provenance: {
-    lane: string;
-    targetPlatform: string | null;
-    seed_snapshot_id: string;
-    generated_at: string;
-  };
+  riskOverride?: "robust" | "edge" | "provocative" | null;
 }
 
 const SEED_DOC_CONFIGS = [
@@ -33,6 +21,7 @@ const SEED_DOC_CONFIGS = [
   { key: "creative_brief", title: "Creative Brief (Seed)", doc_type: "creative_brief" },
   { key: "market_positioning", title: "Market Positioning (Seed)", doc_type: "market_positioning" },
   { key: "canon_constraints", title: "Canon & Constraints (Seed)", doc_type: "canon" },
+  { key: "narrative_energy_contract", title: "Narrative Energy Contract (Seed)", doc_type: "nec" },
 ] as const;
 
 async function hashSnapshot(projectId: string, pitch: string, lane: string, targetPlatform: string | null): Promise<string> {
@@ -51,6 +40,88 @@ function jsonRes(body: Record<string, unknown>, status = 200) {
   });
 }
 
+function buildSystemPrompt(lane: string, format: string, seedSnapshotId: string, generatedAt: string, targetPlatform: string | null, riskOverride: string | null): string {
+  return `You are a professional film/TV development architect. Generate a Pitch Architecture analysis and seed pack.
+
+OUTPUT RULES:
+- Return ONLY valid JSON. No markdown. No commentary. No backticks.
+- The JSON must match the exact schema below.
+
+RESTRAINT BIAS RULES (MANDATORY):
+- Default escalation bias is RESTRAINED.
+- If no riskOverride is provided, derive risk_posture conservatively. Default to "robust" when ambiguous.
+- If derived_mode is anything beyond "robust", you MUST justify why restraint weakens the concept.
+- Catastrophic escalation must NEVER be the default.
+- Psychological and relational tension is preferred over spectacle unless the genre strictly demands otherwise.
+- Polarity-driven escalation only. Never spectacle-driven.
+
+${riskOverride ? `RISK OVERRIDE: "${riskOverride}" — apply this posture but still justify.` : "AUTO-DERIVE risk posture conservatively."}
+
+REQUIRED JSON SCHEMA:
+{
+  "concept_distillation": {
+    "core_concept": "string",
+    "central_question": "string",
+    "thematic_spine": "string",
+    "audience_promise": "string"
+  },
+  "emotional_thesis": {
+    "primary_emotion": "string",
+    "emotional_journey": "string",
+    "cathartic_mechanism": "string"
+  },
+  "differentiation_analysis": {
+    "unique_angle": "string",
+    "comparable_gap": "string",
+    "market_white_space": "string"
+  },
+  "sustainability_validation": {
+    "narrative_fuel": "string",
+    "character_engine": "string",
+    "world_capacity": "string",
+    "longevity_assessment": "string"
+  },
+  "polarity_lock": {
+    "core_polarity": "string",
+    "how_conflict_moves_along_axis": "string",
+    "escalation_expression_along_polarity": "string"
+  },
+  "engine_inevitability_test": {
+    "what_happens_if_no_one_acts": "string",
+    "why_world_cannot_remain_stable": "string",
+    "natural_pressure_source": "string"
+  },
+  "failure_modes": [
+    { "risk": "string", "safeguard": "string" }
+  ],
+  "risk_posture": {
+    "derived_mode": "robust|edge|provocative",
+    "justification": "string",
+    "override_applied": boolean
+  },
+  "narrative_energy_contract": "STRING — concise structured text containing: Baseline Mode, Conflict Hierarchy (Tier 1-5), Preferred Operating Tier, Absolute Maximum Tier, Tension Source Matrix, Escalation Geometry, Tonal Envelope, Sustainability Check, Creative Elasticity. Must respect risk posture and restraint bias.",
+  "final_seed_docs": {
+    "project_overview": "STRING — Title, logline, format, genre, tone, target audience, comparable titles, development stage summary.",
+    "creative_brief": "STRING — Creative vision, thematic core, visual tone, narrative approach, audience engagement strategy.",
+    "market_positioning": "STRING — Market landscape, competitive positioning, target buyers/platforms, international potential, timing considerations.",
+    "canon_constraints": "STRING — World rules, character constraints, narrative boundaries, tone guardrails, format-specific requirements."
+  },
+  "compression": {
+    "words_25": "STRING — max 25 words summarizing the project",
+    "words_75": "STRING — max 75 words summarizing the project"
+  },
+  "provenance": {
+    "lane": "${lane}",
+    "targetPlatform": ${targetPlatform ? `"${targetPlatform}"` : "null"},
+    "seed_snapshot_id": "${seedSnapshotId}",
+    "generated_at": "${generatedAt}"
+  }
+}
+
+failure_modes must contain 3-5 entries.
+Tailor content to the lane (${lane}) and format (${format}).`;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -66,7 +137,6 @@ serve(async (req) => {
       return jsonRes({ error: "AI API key not configured" }, 500);
     }
 
-    // Auth: get user via anon client (RLS-scoped)
     const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
@@ -76,13 +146,13 @@ serve(async (req) => {
     }
 
     const body: SeedPackPayload = await req.json();
-    const { projectId, pitch, lane, targetPlatform } = body;
+    const { projectId, pitch, lane, targetPlatform, riskOverride } = body;
 
     if (!projectId || !pitch || !lane) {
       return jsonRes({ error: "projectId, pitch, and lane are required" }, 400);
     }
 
-    // ── Access check: use anonClient (RLS-scoped) to verify project access ──
+    // Access check via RLS-scoped client
     const { data: project, error: projErr } = await anonClient
       .from("projects")
       .select("id, title, format, genres, assigned_lane, budget_range, tone, target_audience")
@@ -93,29 +163,19 @@ serve(async (req) => {
       return jsonRes({ error: "Project not found or access denied" }, 404);
     }
 
-    // Admin client for writes only — access already verified above
     const adminClient = createClient(supabaseUrl, serviceKey);
 
-    // Create deterministic snapshot ID
     const seedSnapshotId = await hashSnapshot(projectId, pitch, lane, targetPlatform ?? null);
     const generatedAt = new Date().toISOString();
 
-    // Build prompts
-    const systemPrompt = `You are a professional film/TV development consultant. Generate a structured seed pack for a project.
-
-OUTPUT RULES:
-- Return ONLY valid JSON. No markdown. No commentary. No backticks.
-- The JSON must have exactly these keys: project_overview, creative_brief, market_positioning, canon_constraints, provenance
-- Each of the four content keys must be a string containing structured professional text (use newlines for sections).
-- provenance must match: { "lane": "${lane}", "targetPlatform": ${targetPlatform ? `"${targetPlatform}"` : "null"}, "seed_snapshot_id": "${seedSnapshotId}", "generated_at": "${generatedAt}" }
-
-CONTENT GUIDELINES:
-- project_overview: Title, logline, format, genre, tone, target audience, comparable titles, development stage summary.
-- creative_brief: Creative vision, thematic core, visual tone, narrative approach, audience engagement strategy.
-- market_positioning: Market landscape, competitive positioning, target buyers/platforms, international potential, timing considerations.
-- canon_constraints: World rules, character constraints, narrative boundaries, tone guardrails, format-specific requirements.
-
-Tailor content to the lane (${lane}) and format (${project.format || "unknown"}).`;
+    const systemPrompt = buildSystemPrompt(
+      lane,
+      project.format || "unknown",
+      seedSnapshotId,
+      generatedAt,
+      targetPlatform ?? null,
+      riskOverride ?? null,
+    );
 
     const userPrompt = `PROJECT: ${project.title}
 FORMAT: ${project.format || "unknown"}
@@ -125,13 +185,13 @@ BUDGET: ${project.budget_range || "unspecified"}
 TONE: ${project.tone || "unspecified"}
 TARGET AUDIENCE: ${project.target_audience || "unspecified"}
 TARGET PLATFORM: ${targetPlatform || "unspecified"}
+RISK OVERRIDE: ${riskOverride || "auto"}
 
 PITCH:
 ${pitch}
 
-Generate the seed pack now. Return ONLY valid JSON.`;
+Generate the full Pitch Architecture analysis and seed pack now. Return ONLY valid JSON.`;
 
-    // ── LLM call via shared callLLM helper — single pass, low temperature ──
     let llmResult;
     try {
       llmResult = await callLLM({
@@ -141,7 +201,7 @@ Generate the seed pack now. Return ONLY valid JSON.`;
         user: userPrompt,
         temperature: 0.2,
         maxTokens: 8000,
-        retries: 1, // single pass — no retry cascade
+        retries: 1,
       });
     } catch (llmErr: unknown) {
       const msg = llmErr instanceof Error ? llmErr.message : "AI call failed";
@@ -151,38 +211,61 @@ Generate the seed pack now. Return ONLY valid JSON.`;
       return jsonRes({ error: "AI generation failed" }, 500);
     }
 
-    // Parse JSON — fail hard on invalid (no repair pass)
-    let seedPack: SeedPackResult;
+    // Hard parse — no repair
+    let parsed: any;
     try {
       const cleaned = extractJSON(llmResult.content);
-      seedPack = JSON.parse(cleaned);
+      parsed = JSON.parse(cleaned);
     } catch (parseErr) {
       console.error("Seed pack JSON parse failed. Raw excerpt:", llmResult.content.slice(0, 500));
       return jsonRes({ error: "AI returned invalid JSON — please retry" }, 422);
     }
 
     // Validate required keys
-    for (const cfg of SEED_DOC_CONFIGS) {
-      if (typeof (seedPack as any)[cfg.key] !== "string") {
-        return jsonRes({ error: `Missing or invalid key: ${cfg.key}` }, 422);
+    const requiredAnalysis = ["concept_distillation", "emotional_thesis", "differentiation_analysis",
+      "sustainability_validation", "polarity_lock", "engine_inevitability_test", "failure_modes", "risk_posture"];
+    for (const key of requiredAnalysis) {
+      if (!parsed[key]) {
+        return jsonRes({ error: `Missing analysis key: ${key}` }, 422);
       }
     }
 
-    // Stamp provenance deterministically
-    seedPack.provenance = {
+    if (!parsed.final_seed_docs || typeof parsed.final_seed_docs !== "object") {
+      return jsonRes({ error: "Missing final_seed_docs" }, 422);
+    }
+    for (const k of ["project_overview", "creative_brief", "market_positioning", "canon_constraints"]) {
+      if (typeof parsed.final_seed_docs[k] !== "string") {
+        return jsonRes({ error: `Missing or invalid seed doc: ${k}` }, 422);
+      }
+    }
+    if (typeof parsed.narrative_energy_contract !== "string") {
+      return jsonRes({ error: "Missing narrative_energy_contract" }, 422);
+    }
+
+    // Stamp provenance
+    parsed.provenance = {
       lane,
       targetPlatform: targetPlatform ?? null,
       seed_snapshot_id: seedSnapshotId,
       generated_at: generatedAt,
     };
 
-    // ── Create/update documents ──
+    // Build content map for document creation
+    const contentMap: Record<string, string> = {
+      project_overview: parsed.final_seed_docs.project_overview,
+      creative_brief: parsed.final_seed_docs.creative_brief,
+      market_positioning: parsed.final_seed_docs.market_positioning,
+      canon_constraints: parsed.final_seed_docs.canon_constraints,
+      narrative_energy_contract: parsed.narrative_energy_contract,
+    };
+
+    // Create/update documents
     const createdDocs: { title: string; doc_type: string; document_id: string; version_number: number }[] = [];
 
     for (const cfg of SEED_DOC_CONFIGS) {
-      const content = (seedPack as any)[cfg.key] as string;
+      const content = contentMap[cfg.key];
+      if (!content) continue;
 
-      // Check if seed doc already exists for this project
       const { data: existing } = await adminClient
         .from("project_documents")
         .select("id")
@@ -194,7 +277,6 @@ Generate the seed pack now. Return ONLY valid JSON.`;
       let documentId: string;
 
       if (existing && existing.length > 0) {
-        // Existing seed doc — create new version
         documentId = existing[0].id;
 
         const { data: maxVer } = await adminClient
@@ -206,7 +288,6 @@ Generate the seed pack now. Return ONLY valid JSON.`;
 
         const nextVersion = (maxVer?.[0]?.version_number || 0) + 1;
 
-        // Clear is_current on existing versions
         await adminClient
           .from("project_document_versions")
           .update({ is_current: false })
@@ -224,7 +305,7 @@ Generate the seed pack now. Return ONLY valid JSON.`;
             label: `seed_v${nextVersion}`,
             created_by: user.id,
             approval_status: "draft",
-            meta_json: seedPack.provenance,
+            meta_json: parsed.provenance,
           });
 
         if (vErr) {
@@ -234,7 +315,6 @@ Generate the seed pack now. Return ONLY valid JSON.`;
 
         createdDocs.push({ title: cfg.title, doc_type: cfg.doc_type, document_id: documentId, version_number: nextVersion });
       } else {
-        // New seed doc — no storage upload, no fake file_path
         const { data: newDoc, error: docErr } = await adminClient
           .from("project_documents")
           .insert({
@@ -269,7 +349,7 @@ Generate the seed pack now. Return ONLY valid JSON.`;
             label: "seed_v1",
             created_by: user.id,
             approval_status: "draft",
-            meta_json: seedPack.provenance,
+            meta_json: parsed.provenance,
           });
 
         if (vErr) {
@@ -285,6 +365,17 @@ Generate the seed pack now. Return ONLY valid JSON.`;
       success: true,
       seed_snapshot_id: seedSnapshotId,
       documents: createdDocs,
+      strategic_analysis: {
+        concept_distillation: parsed.concept_distillation,
+        emotional_thesis: parsed.emotional_thesis,
+        differentiation_analysis: parsed.differentiation_analysis,
+        sustainability_validation: parsed.sustainability_validation,
+        polarity_lock: parsed.polarity_lock,
+        engine_inevitability_test: parsed.engine_inevitability_test,
+        failure_modes: parsed.failure_modes,
+        risk_posture: parsed.risk_posture,
+        compression: parsed.compression || {},
+      },
     });
 
   } catch (err: unknown) {
