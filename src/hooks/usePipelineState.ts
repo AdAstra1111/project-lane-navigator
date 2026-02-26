@@ -3,13 +3,32 @@
  * Uses project format + existing documents to derive current stage, next steps, etc.
  */
 import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { computePipelineState, type PipelineState } from '@/lib/pipeline-brain';
 import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
+import { supabase } from '@/integrations/supabase/client';
 
 export function usePipelineState(projectId: string | undefined) {
   const { project, isLoading: projectLoading } = useProject(projectId);
   const { documents, isLoading: docsLoading } = useProjectDocuments(projectId);
+
+  // Fetch approved version map: document_id → version_id
+  const { data: approvedDocIds = new Set<string>(), isLoading: approvalsLoading } = useQuery({
+    queryKey: ['pipeline-approved', projectId],
+    queryFn: async () => {
+      if (!projectId || !documents || documents.length === 0) return new Set<string>();
+      const docIds = documents.map(d => d.id);
+      const { data, error } = await (supabase as any)
+        .from('project_document_versions')
+        .select('document_id')
+        .in('document_id', docIds)
+        .eq('approval_status', 'approved');
+      if (error) throw error;
+      return new Set<string>((data || []).map((v: any) => v.document_id));
+    },
+    enabled: !!projectId && !!documents && documents.length > 0,
+  });
 
   const pipelineState = useMemo<PipelineState | null>(() => {
     if (!project || !documents) return null;
@@ -21,7 +40,7 @@ export function usePipelineState(projectId: string | undefined) {
       .filter(d => d.doc_type)
       .map(d => ({
         docType: d.doc_type as string,
-        hasApproved: false, // We don't have approval info at this level; could be enhanced
+        hasApproved: approvedDocIds.has(d.id),
         activeVersionId: null,
       }));
 
@@ -42,10 +61,10 @@ export function usePipelineState(projectId: string | undefined) {
     };
 
     return computePipelineState(format, dedupedDocs, criteria);
-  }, [project, documents]);
+  }, [project, documents, approvedDocIds]);
 
   return {
     pipelineState,
-    isLoading: projectLoading || docsLoading,
+    isLoading: projectLoading || docsLoading || approvalsLoading,
   };
 }
