@@ -5,6 +5,12 @@ import { composeSystem } from "../_shared/llm.ts";
 import { buildBeatGuidanceBlock, computeBeatTargets } from "../_shared/verticalDramaBeats.ts";
 import { loadLanePrefs, loadTeamVoiceProfile } from "../_shared/prefs.ts";
 import { buildTeamVoicePromptBlock } from "../_shared/teamVoice.ts";
+import {
+  extractFingerprint, computeDeviation, buildTargetFromTeamVoice,
+  buildTargetFromWritingVoice, buildStyleEvalMeta, buildStyleRepairPrompt,
+  selectBestAttempt, STYLE_ENGINE_VERSION,
+  type StyleTarget, type StyleEvalResult, type StyleFingerprint, type StyleDeviation,
+} from "../_shared/styleDeviation.ts";
 
 /** Load team voice context block + meta for stamping. Returns empty strings if none active. */
 async function loadTeamVoiceContext(
@@ -24,6 +30,93 @@ async function loadTeamVoiceContext(
     metaStamp: { team_voice_id: prefs.team_voice.id, team_voice_label: tv.label },
     prefsSnapshot: prefs,
   };
+}
+
+/** Load voice targets for style eval from lane prefs. */
+async function loadVoiceTargets(
+  supabase: any,
+  projectId: string,
+  lane: string,
+): Promise<{ target: StyleTarget; metaStamp: Record<string, string> | null }> {
+  const prefs = await loadLanePrefs(supabase, projectId, lane);
+  // Team voice takes priority
+  if (prefs?.team_voice?.id) {
+    const tv = await loadTeamVoiceProfile(supabase, prefs.team_voice.id);
+    if (tv) {
+      return {
+        target: buildTargetFromTeamVoice(tv.profile_json, prefs.team_voice.id, tv.label),
+        metaStamp: { team_voice_id: prefs.team_voice.id, team_voice_label: tv.label },
+      };
+    }
+  }
+  if (prefs?.writing_voice?.id) {
+    return {
+      target: buildTargetFromWritingVoice(prefs.writing_voice),
+      metaStamp: { writing_voice_id: prefs.writing_voice.id, writing_voice_label: prefs.writing_voice.label || "" },
+    };
+  }
+  return { target: { voice_source: "none" }, metaStamp: null };
+}
+
+/**
+ * Run style eval on generated text. Returns enriched meta_json fields and optionally
+ * inserts a style_evals row. Returns null if no voice target is set.
+ */
+async function runStyleEval(
+  supabase: any,
+  plaintext: string,
+  projectId: string,
+  documentId: string,
+  versionId: string,
+  lane: string,
+  target: StyleTarget,
+  attempt = 0,
+): Promise<{ evalResult: StyleEvalResult; metaFields: Record<string, any> } | null> {
+  if (target.voice_source === "none") return null;
+  try {
+    const fingerprint = extractFingerprint(plaintext);
+    const deviation = computeDeviation(fingerprint, target);
+    const evalResult: StyleEvalResult = {
+      score: deviation.score,
+      drift_level: deviation.drift_level,
+      fingerprint,
+      target,
+      deltas: deviation.deltas,
+      evaluated_at: new Date().toISOString(),
+      engine_version: STYLE_ENGINE_VERSION,
+      voice_source: target.voice_source,
+    };
+    const metaFields = buildStyleEvalMeta(evalResult);
+
+    // Insert style_evals row (non-fatal)
+    try {
+      await supabase.from("style_evals").insert({
+        project_id: projectId,
+        document_id: documentId,
+        version_id: versionId,
+        lane,
+        voice_source: target.voice_source,
+        team_voice_id: target.voice_source === "team_voice" ? target.voice_id : null,
+        team_voice_label: target.voice_source === "team_voice" ? target.voice_label : null,
+        writing_voice_id: target.voice_source === "writing_voice" ? target.voice_id : null,
+        writing_voice_label: target.voice_source === "writing_voice" ? target.voice_label : null,
+        score: deviation.score,
+        drift_level: deviation.drift_level,
+        fingerprint,
+        target,
+        deltas: deviation.deltas,
+        attempt,
+      });
+    } catch (insertErr: any) {
+      console.warn("[dev-engine-v2] style_evals insert failed (non-fatal):", insertErr?.message);
+    }
+
+    console.log(`[dev-engine-v2] Style eval: score=${deviation.score} drift=${deviation.drift_level} voice=${target.voice_source} attempt=${attempt}`);
+    return { evalResult, metaFields };
+  } catch (err: any) {
+    console.warn("[dev-engine-v2] Style eval computation failed (non-fatal):", err?.message);
+    return null;
+  }
 }
 
 const corsHeaders = {
@@ -2782,6 +2875,17 @@ MATERIAL TO REWRITE:\n${fullText}`;
       }
       if (!newVersion) throw new Error("Failed to create version after retries");
 
+      // ── Style eval on rewrite output ──
+      const rwLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
+      const { target: rwStyleTarget } = await loadVoiceTargets(supabase, projectId, rwLane);
+      const rwStyleEval = await runStyleEval(supabase, rewrittenText, projectId, documentId, newVersion.id, rwLane, rwStyleTarget);
+      if (rwStyleEval) {
+        // Merge style eval meta into version meta_json
+        const mergedMeta = { ...(newVersion.meta_json || {}), ...rwStyleEval.metaFields };
+        await supabase.from("project_document_versions").update({ meta_json: mergedMeta }).eq("id", newVersion.id);
+        newVersion.meta_json = mergedMeta;
+      }
+
       // Store rewrite run with schema_version and deliverable metadata
       const { data: run } = await supabase.from("development_runs").insert({
         project_id: projectId,
@@ -2945,6 +3049,15 @@ MATERIAL TO REWRITE:\n${fullText}`;
         console.warn(`Version ${nextVersion} conflict, retrying...`);
       }
       if (!newVersion) throw new Error("Failed to create version after retries");
+
+      // ── Style eval on chunked rewrite output ──
+      const chunkStyleTarget = (await loadVoiceTargets(supabase, projectId, chunkLane)).target;
+      const chunkStyleEval = await runStyleEval(supabase, assembledText, projectId, documentId, newVersion.id, chunkLane, chunkStyleTarget);
+      if (chunkStyleEval) {
+        const mergedMeta = { ...(newVersion.meta_json || {}), ...chunkStyleEval.metaFields };
+        await supabase.from("project_document_versions").update({ meta_json: mergedMeta }).eq("id", newVersion.id);
+        newVersion.meta_json = mergedMeta;
+      }
 
       let notesCount = 0;
       if (planRunId) {
@@ -3413,6 +3526,15 @@ Output ONLY the expanded screenplay text. No JSON, no commentary, no markdown.`;
         console.warn(`Version ${nextVer} conflict, retrying...`);
       }
       if (!newVersion) throw new Error("Failed to create version after retries");
+
+      // ── Style eval on expand output ──
+      const expandStyleTarget = (await loadVoiceTargets(supabase, projectId, expandLane)).target;
+      const expandStyleEval = await runStyleEval(supabase, cleanExpanded, projectId, documentId, newVersion.id, expandLane, expandStyleTarget);
+      if (expandStyleEval) {
+        const mergedMeta = { ...(newVersion.meta_json || {}), ...expandStyleEval.metaFields };
+        await supabase.from("project_document_versions").update({ meta_json: mergedMeta }).eq("id", newVersion.id);
+        newVersion.meta_json = mergedMeta;
+      }
 
       await supabase.from("development_runs").insert({
         project_id: projectId,
@@ -5423,7 +5545,15 @@ Return ONLY valid JSON:
       }
       if (!newVersion) throw new Error("Failed to create version after retries");
 
-      // Update decision state
+      // ── Style eval on apply_decision output ──
+      const adStyleTarget = (await loadVoiceTargets(supabase, projectId, decLane)).target;
+      const adStyleEval = await runStyleEval(supabase, rewrittenText, projectId, documentId, newVersion.id, decLane, adStyleTarget);
+      if (adStyleEval) {
+        const mergedMeta = { ...(newVersion.meta_json || {}), ...adStyleEval.metaFields };
+        await supabase.from("project_document_versions").update({ meta_json: mergedMeta }).eq("id", newVersion.id);
+        newVersion.meta_json = mergedMeta;
+      }
+
       await supabase.from("project_dev_decision_state").update({
         chosen_option_id: option_id,
         status: "chosen",
@@ -5589,7 +5719,15 @@ Return ONLY valid JSON:
       }
       if (!newVersion) throw new Error("Failed to create version after retries");
 
-      // Mark all included notes as applied
+      // ── Style eval on bundle_fix output ──
+      const bfStyleTarget = (await loadVoiceTargets(supabase, projectId, bundleLane)).target;
+      const bfStyleEval = await runStyleEval(supabase, rewrittenText, projectId, documentId, newVersion.id, bundleLane, bfStyleTarget);
+      if (bfStyleEval) {
+        const mergedMeta = { ...(newVersion.meta_json || {}), ...bfStyleEval.metaFields };
+        await supabase.from("project_document_versions").update({ meta_json: mergedMeta }).eq("id", newVersion.id);
+        newVersion.meta_json = mergedMeta;
+      }
+
       if (note_fingerprints && Array.isArray(note_fingerprints) && note_fingerprints.length > 0) {
         await supabase.from("project_dev_note_state")
           .update({ status: "applied", last_applied_version_id: newVersion.id, last_version_id: newVersion.id })
@@ -12166,7 +12304,15 @@ CRITICAL:
       }
       if (!newVersion) throw new Error("Failed to create version after retries");
 
-      // ── Atomically set current version via RPC ──
+      // ── Style eval on scene-rewrite output ──
+      const srStyleTarget = (await loadVoiceTargets(supabase, projectId, sceneRwLane)).target;
+      const srStyleEval = await runStyleEval(supabase, assembledText, projectId, sourceDocId, newVersion.id, sceneRwLane, srStyleTarget);
+      if (srStyleEval) {
+        const mergedMeta = { ...(newVersion.meta_json || {}), ...srStyleEval.metaFields };
+        await supabase.from("project_document_versions").update({ meta_json: mergedMeta }).eq("id", newVersion.id);
+        newVersion.meta_json = mergedMeta;
+      }
+
       const { error: rpcErr } = await supabase.rpc("set_current_version", {
         p_document_id: sourceDocId,
         p_new_version_id: newVersion.id,

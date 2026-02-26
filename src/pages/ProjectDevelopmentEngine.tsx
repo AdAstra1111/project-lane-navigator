@@ -91,6 +91,7 @@ import { ActiveRulesetBadge } from '@/components/rulesets/ActiveRulesetBadge';
 import { useProjectRuleset } from '@/hooks/useProjectRuleset';
 import { SeedAppliedBanner } from '@/components/devengine/SeedAppliedBanner';
 import { StyleSourcesPanel } from '@/components/devengine/StyleSourcesPanel';
+import { StyleScoreBadge, StyleEvalPanel } from '@/components/devengine/StyleEvalPanel';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -1140,7 +1141,20 @@ export default function ProjectDevelopmentEngine() {
                           {(selectedVersion as any).meta_json.lane}
                         </Badge>
                       )}
+                      {/* Style score badge */}
+                      {(selectedVersion as any)?.meta_json && (
+                        <StyleScoreBadge metaJson={(selectedVersion as any).meta_json} />
+                      )}
                     </div>
+                  )}
+
+                  {/* Style eval panel */}
+                  {selectedVersion && projectId && selectedDoc && (
+                    <StyleEvalPanel
+                      projectId={projectId}
+                      documentId={selectedDoc.id}
+                      metaJson={(selectedVersion as any)?.meta_json}
+                    />
                   )}
 
                   {/* Drift banner */}
