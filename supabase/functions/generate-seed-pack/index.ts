@@ -1,13 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLM, extractJSON, MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 interface SeedPackPayload {
   projectId: string;
@@ -45,6 +44,13 @@ async function hashSnapshot(projectId: string, pitch: string, lane: string, targ
   return hashArray.map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
 }
 
+function jsonRes(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -57,51 +63,44 @@ serve(async (req) => {
     const apiKey = Deno.env.get("LOVABLE_API_KEY");
 
     if (!apiKey) {
-      return new Response(JSON.stringify({ error: "AI API key not configured" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonRes({ error: "AI API key not configured" }, 500);
     }
 
-    // Auth: get user from JWT
+    // Auth: get user via anon client (RLS-scoped)
     const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: { user }, error: authErr } = await anonClient.auth.getUser();
     if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonRes({ error: "Unauthorized" }, 401);
     }
-
-    const adminClient = createClient(supabaseUrl, serviceKey);
 
     const body: SeedPackPayload = await req.json();
     const { projectId, pitch, lane, targetPlatform } = body;
 
     if (!projectId || !pitch || !lane) {
-      return new Response(JSON.stringify({ error: "projectId, pitch, and lane are required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonRes({ error: "projectId, pitch, and lane are required" }, 400);
     }
 
-    // 1) Load project metadata
-    const { data: project, error: projErr } = await adminClient
+    // ── Access check: use anonClient (RLS-scoped) to verify project access ──
+    const { data: project, error: projErr } = await anonClient
       .from("projects")
       .select("id, title, format, genres, assigned_lane, budget_range, tone, target_audience")
       .eq("id", projectId)
       .single();
 
     if (projErr || !project) {
-      return new Response(JSON.stringify({ error: "Project not found" }), {
-        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonRes({ error: "Project not found or access denied" }, 404);
     }
 
-    // 2) Create deterministic snapshot ID
+    // Admin client for writes only — access already verified above
+    const adminClient = createClient(supabaseUrl, serviceKey);
+
+    // Create deterministic snapshot ID
     const seedSnapshotId = await hashSnapshot(projectId, pitch, lane, targetPlatform ?? null);
     const generatedAt = new Date().toISOString();
 
-    // 3) Build system prompt
+    // Build prompts
     const systemPrompt = `You are a professional film/TV development consultant. Generate a structured seed pack for a project.
 
 OUTPUT RULES:
@@ -132,72 +131,44 @@ ${pitch}
 
 Generate the seed pack now. Return ONLY valid JSON.`;
 
-    // 4) LLM call — single pass, low temperature, no repair
-    const llmResponse = await fetch(GATEWAY_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+    // ── LLM call via shared callLLM helper — single pass, low temperature ──
+    let llmResult;
+    try {
+      llmResult = await callLLM({
+        apiKey,
+        model: MODELS.FAST,
+        system: systemPrompt,
+        user: userPrompt,
         temperature: 0.2,
-        max_tokens: 8000,
-      }),
-    });
-
-    if (llmResponse.status === 429) {
-      return new Response(JSON.stringify({ error: "Rate limited — please try again later" }), {
-        status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        maxTokens: 8000,
+        retries: 1, // single pass — no retry cascade
       });
-    }
-    if (llmResponse.status === 402) {
-      return new Response(JSON.stringify({ error: "Payment required — please add credits" }), {
-        status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    if (!llmResponse.ok) {
-      const errText = await llmResponse.text();
-      console.error("LLM error:", llmResponse.status, errText);
-      return new Response(JSON.stringify({ error: "AI generation failed" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    } catch (llmErr: unknown) {
+      const msg = llmErr instanceof Error ? llmErr.message : "AI call failed";
+      if (msg === "RATE_LIMIT") return jsonRes({ error: "Rate limited — please try again later" }, 429);
+      if (msg === "PAYMENT_REQUIRED") return jsonRes({ error: "Payment required — please add credits" }, 402);
+      console.error("generate-seed-pack LLM error:", msg);
+      return jsonRes({ error: "AI generation failed" }, 500);
     }
 
-    const llmData = await llmResponse.json();
-    const rawContent = llmData.choices?.[0]?.message?.content || "";
-
-    // 5) Parse JSON — fail hard on invalid
-    let cleaned = rawContent.replace(/```(?:json)?\s*\n?/gi, "").replace(/\n?```\s*$/g, "").trim();
-    const firstBrace = cleaned.indexOf("{");
-    if (firstBrace > 0) cleaned = cleaned.slice(firstBrace);
-    const lastBrace = cleaned.lastIndexOf("}");
-    if (lastBrace >= 0) cleaned = cleaned.slice(0, lastBrace + 1);
-
+    // Parse JSON — fail hard on invalid (no repair pass)
     let seedPack: SeedPackResult;
     try {
+      const cleaned = extractJSON(llmResult.content);
       seedPack = JSON.parse(cleaned);
     } catch (parseErr) {
-      console.error("Seed pack JSON parse failed:", parseErr, "Raw:", rawContent.slice(0, 500));
-      return new Response(JSON.stringify({ error: "AI returned invalid JSON — please retry" }), {
-        status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      console.error("Seed pack JSON parse failed. Raw excerpt:", llmResult.content.slice(0, 500));
+      return jsonRes({ error: "AI returned invalid JSON — please retry" }, 422);
     }
 
     // Validate required keys
     for (const cfg of SEED_DOC_CONFIGS) {
       if (typeof (seedPack as any)[cfg.key] !== "string") {
-        return new Response(JSON.stringify({ error: `Missing or invalid key: ${cfg.key}` }), {
-          status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return jsonRes({ error: `Missing or invalid key: ${cfg.key}` }, 422);
       }
     }
 
-    // Ensure provenance is set correctly
+    // Stamp provenance deterministically
     seedPack.provenance = {
       lane,
       targetPlatform: targetPlatform ?? null,
@@ -205,13 +176,13 @@ Generate the seed pack now. Return ONLY valid JSON.`;
       generated_at: generatedAt,
     };
 
-    // 6) Create/update documents
+    // ── Create/update documents ──
     const createdDocs: { title: string; doc_type: string; document_id: string; version_number: number }[] = [];
 
     for (const cfg of SEED_DOC_CONFIGS) {
       const content = (seedPack as any)[cfg.key] as string;
 
-      // Check if seed doc already exists
+      // Check if seed doc already exists for this project
       const { data: existing } = await adminClient
         .from("project_documents")
         .select("id")
@@ -226,7 +197,6 @@ Generate the seed pack now. Return ONLY valid JSON.`;
         // Existing seed doc — create new version
         documentId = existing[0].id;
 
-        // Get max version number
         const { data: maxVer } = await adminClient
           .from("project_document_versions")
           .select("version_number")
@@ -236,14 +206,13 @@ Generate the seed pack now. Return ONLY valid JSON.`;
 
         const nextVersion = (maxVer?.[0]?.version_number || 0) + 1;
 
-        // Clear is_current on all existing versions
+        // Clear is_current on existing versions
         await adminClient
           .from("project_document_versions")
           .update({ is_current: false })
           .eq("document_id", documentId)
           .eq("is_current", true);
 
-        // Insert new version
         const { error: vErr } = await adminClient
           .from("project_document_versions")
           .insert({
@@ -265,7 +234,7 @@ Generate the seed pack now. Return ONLY valid JSON.`;
 
         createdDocs.push({ title: cfg.title, doc_type: cfg.doc_type, document_id: documentId, version_number: nextVersion });
       } else {
-        // New seed doc
+        // New seed doc — no storage upload, no fake file_path
         const { data: newDoc, error: docErr } = await adminClient
           .from("project_documents")
           .insert({
@@ -275,8 +244,9 @@ Generate the seed pack now. Return ONLY valid JSON.`;
             doc_type: cfg.doc_type,
             ingestion_source: "seed",
             is_primary: false,
-            file_name: `${cfg.doc_type}_seed.txt`,
-            file_path: `seed/${projectId}/${cfg.doc_type}`,
+            file_name: `seed:${cfg.doc_type}`,
+            file_path: "",
+            extraction_status: "complete",
           })
           .select("id")
           .single();
@@ -288,7 +258,6 @@ Generate the seed pack now. Return ONLY valid JSON.`;
 
         documentId = newDoc.id;
 
-        // Insert v1
         const { error: vErr } = await adminClient
           .from("project_document_versions")
           .insert({
@@ -312,19 +281,15 @@ Generate the seed pack now. Return ONLY valid JSON.`;
       }
     }
 
-    return new Response(JSON.stringify({
+    return jsonRes({
       success: true,
       seed_snapshot_id: seedSnapshotId,
       documents: createdDocs,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("generate-seed-pack error:", message);
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonRes({ error: message }, 500);
   }
 });
