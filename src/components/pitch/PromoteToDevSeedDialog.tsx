@@ -48,7 +48,7 @@ export function PromoteToDevSeedDialog({ idea, open, onOpenChange, onPromoted }:
             Promote to DevSeed
           </DialogTitle>
           <DialogDescription>
-            Creates a DevSeed payload (bible starter, nuance contract, market rationale). Does NOT write to canon or prefs.
+            Creates a DevSeed draft. You'll choose whether to apply canon/prefs in the next step.
           </DialogDescription>
         </DialogHeader>
 
