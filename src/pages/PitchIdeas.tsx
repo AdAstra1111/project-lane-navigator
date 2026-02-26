@@ -58,7 +58,7 @@ export default function PitchIdeas() {
           platformTarget: clean(criteria.platformTarget),
           riskLevel: criteria.riskLevel || 'medium',
           count: 10,
-          projectId: selectedProject || undefined,
+          projectId: (!selectedProject || selectedProject === '__none__') ? undefined : selectedProject,
           hardCriteria: {
             culturalTag: clean(criteria.culturalTag),
             toneAnchor: clean(criteria.toneAnchor),
@@ -112,7 +112,7 @@ export default function PitchIdeas() {
           region: criteria.region || '',
           platform_target: criteria.platformTarget || '',
           risk_level: idea.risk_level || criteria.riskLevel || 'medium',
-          project_id: selectedProject || null,
+          project_id: (!selectedProject || selectedProject === '__none__') ? null : selectedProject,
           raw_response: {
             ...idea,
             premise: idea.premise || '',
