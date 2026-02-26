@@ -2,7 +2,7 @@
  * WorldRulesAccordion — Unified accordion wrapping CompsPanel + WorldRulesPanel + Overrides.
  * Drop this into any generation entry point.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +29,34 @@ export function WorldRulesAccordion({ projectId, lane, userId, className }: Prop
     prefs, activeProfile, savePrefs, isLocked, autoDiversify,
     invalidateProfile,
   } = useProjectRuleset(projectId, lane);
+
+  // --- Writing Voice: draft state + race-proof auto-save ---
+  const [draftVoiceId, setDraftVoiceId] = useState<string>(prefs.writing_voice?.id ?? '');
+  const [voiceSaving, setVoiceSaving] = useState(false);
+  const latestVoiceRef = useRef<string>('');
+
+  // Sync draft when prefs load/change (e.g. lane switch)
+  useEffect(() => {
+    setDraftVoiceId(prefs.writing_voice?.id ?? '');
+  }, [prefs.writing_voice?.id]);
+
+  const handleVoiceSelect = useCallback((voice: WritingVoicePreset) => {
+    const id = voice.id;
+    setDraftVoiceId(id);
+    latestVoiceRef.current = id;
+    setVoiceSaving(true);
+    savePrefs.mutate(
+      { writing_voice: voice as any },
+      {
+        onSettled: () => {
+          // Only clear saving if this was the last requested save
+          if (latestVoiceRef.current === id) {
+            setVoiceSaving(false);
+          }
+        },
+      },
+    );
+  }, [savePrefs]);
 
   const handleInfluencersSet = () => {
     invalidateProfile();
@@ -69,15 +97,17 @@ export function WorldRulesAccordion({ projectId, lane, userId, className }: Prop
             </div>
           </div>
 
-          {/* Writing Voice */}
+          {/* Writing Voice — auto-saves on select with race protection */}
           {!isLocked && (
             <WritingVoiceSelector
               lane={lane}
-              selectedVoiceId={prefs.writing_voice?.id}
-              onSelect={(voice: WritingVoicePreset) => {
-                savePrefs.mutate({ writing_voice: voice as any });
-              }}
+              selectedVoiceId={draftVoiceId}
+              onSelect={handleVoiceSelect}
+              disabled={voiceSaving}
             />
+          )}
+          {voiceSaving && (
+            <p className="text-[9px] text-muted-foreground animate-pulse ml-1">Saving…</p>
           )}
 
           {/* Comps Panel */}

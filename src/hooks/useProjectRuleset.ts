@@ -2,6 +2,7 @@
  * useProjectRuleset — Central hook for loading/managing ruleset state per project+lane.
  * Provides: active engine profile, prefs, resolved rules helper, mutation to resolve for a run.
  */
+import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -72,17 +73,23 @@ export function useProjectRuleset(projectId: string | undefined, lane: string) {
     staleTime: 30_000,
   });
 
-  // Save prefs mutation
+  // Use a ref to always read the latest prefs (avoids stale closure in rapid mutations)
+  const prefsRef = React.useRef(prefs);
+  React.useEffect(() => { prefsRef.current = prefs; }, [prefs]);
+
+  // Save prefs mutation — reads latest prefs via ref to avoid stale merges
   const savePrefs = useMutation({
     mutationFn: async (newPrefs: Partial<RulesetPrefs>) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || !projectId) throw new Error('Not authenticated');
-      const merged = { ...prefs, ...newPrefs };
+      const merged = { ...prefsRef.current, ...newPrefs };
       await saveProjectLaneRulesetPrefs(projectId, lane, merged, user.id);
       return merged;
     },
     onSuccess: (merged) => {
       qc.setQueryData(PREFS_KEY(projectId || '', lane), merged);
+      // Update ref immediately so next rapid mutation sees this result
+      prefsRef.current = merged;
     },
   });
 
