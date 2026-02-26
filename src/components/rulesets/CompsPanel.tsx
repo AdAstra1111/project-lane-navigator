@@ -132,7 +132,7 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
     const prefs = await loadProjectLaneRulesetPrefs(projectId, lane);
     await saveProjectLaneRulesetPrefs(projectId, lane, {
       ...prefs,
-      comps: { include_films: films, include_series: series, include_vertical: vertical },
+      comps: { ...(prefs.comps ?? {}), include_films: films, include_series: series, include_vertical: vertical },
     }, user.id);
   }, [projectId, lane, user?.id]);
 
