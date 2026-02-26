@@ -24,6 +24,7 @@ import {
 import { toast } from 'sonner';
 import { useProjectCanon, type CanonJson, type CanonCharacter, type CanonVersion } from '@/hooks/useProjectCanon';
 import { useCanonicalState } from '@/hooks/useCanonicalState';
+import { CanonEvidenceSection } from '@/components/canon/CanonEvidenceSection';
 
 interface Props {
   projectId: string;
@@ -300,38 +301,13 @@ export function CanonicalEditor({ projectId }: Props) {
         </div>
       </div>
 
-      {/* Canon Source Indicator */}
-      <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[10px] border ${
-        source === 'unknown'
-          ? 'bg-destructive/5 border-destructive/20'
-          : source === 'canon_editor'
-            ? 'bg-primary/5 border-primary/20'
-            : 'bg-amber-500/5 border-amber-500/20'
-      }`}>
-        <Info className={`h-3.5 w-3.5 shrink-0 ${
-          source === 'unknown' ? 'text-destructive' : source === 'canon_editor' ? 'text-primary' : 'text-amber-500'
-        }`} />
-        <span className="text-foreground">
-          Canon sourced from: <strong>{sourceLabel}</strong>
-        </span>
-        {evidence && evidence.locked_decision_count > 0 && source !== 'locked_facts' && (
-          <span className="text-muted-foreground">
-            ({evidence.locked_decision_count} locked decision{evidence.locked_decision_count !== 1 ? 's' : ''} also active)
-          </span>
-        )}
-        <div className="ml-auto">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-5 text-[9px] gap-1 px-1.5 text-muted-foreground hover:text-destructive"
-            onClick={handleResetCanonCache}
-            disabled={isResetting}
-          >
-            {isResetting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RotateCcw className="h-2.5 w-2.5" />}
-            Reset Cache
-          </Button>
-        </div>
-      </div>
+      {/* Canon Source Evidence */}
+      <CanonEvidenceSection
+        source={source}
+        sourceLabel={sourceLabel}
+        evidence={evidence}
+        defaultOpen={source === 'unknown'}
+      />
 
       {/* Warning: Canon is empty but engines may be using document text */}
       {source === 'unknown' && (
