@@ -4,7 +4,8 @@
  * For documentary projects: switches to Documentary Intelligence Mode automatically.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { FileText, TrendingUp, AlertTriangle, Quote, CheckCircle2, ShieldAlert, MessageSquareQuote, Zap, Sprout } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,7 @@ import { DocumentaryIntelligencePanel } from '@/components/documentary/Documenta
 import { GenerateSeedPackModal } from '@/components/seedpack/GenerateSeedPackModal';
 
 import { isDocumentaryFormat } from '@/lib/types';
+import { useAutoRunMissionControl } from '@/hooks/useAutoRunMissionControl';
 import type { Project, FullAnalysis, Recommendation } from '@/lib/types';
 import type { ProjectDocument } from '@/lib/types';
 import type { StageReadinessResult } from '@/lib/stage-readiness';
@@ -57,6 +59,17 @@ export function DevelopmentStage({
   const legacyRecs = (project.recommendations || []) as Recommendation[];
   const isDoc = isDocumentaryFormat(project.format);
   const [seedPackOpen, setSeedPackOpen] = useState(false);
+  const qc = useQueryClient();
+  const autoRun = useAutoRunMissionControl(projectId);
+
+  const handleSeedSuccess = useCallback(() => {
+    qc.invalidateQueries({ queryKey: ['project-documents', projectId] });
+    qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+  }, [qc, projectId]);
+
+  const handleStartAutoRun = useCallback(async (mode: string, startDoc: string, targetDoc: string) => {
+    await autoRun.start(mode, startDoc, targetDoc);
+  }, [autoRun]);
 
   return (
     <div className="space-y-4">
@@ -115,6 +128,8 @@ export function DevelopmentStage({
         projectId={projectId}
         defaultLane={project.assigned_lane}
         projectFormat={project.format}
+        onSuccess={handleSeedSuccess}
+        onStartAutoRun={handleStartAutoRun}
       />
 
       {/* Script Intake link */}
