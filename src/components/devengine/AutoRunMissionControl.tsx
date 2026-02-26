@@ -321,8 +321,18 @@ export function AutoRunMissionControl({
     return { satisfied: satisfied.length, total: ladder.length, stages: ladder, existingDocTypes, approvedDocTypes };
   }, [ladder, existingDocTypes, approvedDocTypes, APPROVAL_REQUIRED_STAGES]);
 
-  const handlePerfectPackage = useCallback(() => {
-    onSaveStorySetup(storySetup).then(() => onStart(mode, startDocument, finalStage));
+  const [starting, setStarting] = useState(false);
+
+  const handlePerfectPackage = useCallback(async () => {
+    setStarting(true);
+    try {
+      await onSaveStorySetup(storySetup);
+      await onStart(mode, startDocument, finalStage);
+    } catch (e: any) {
+      toast({ title: 'Auto-Run failed to start', description: e?.message || 'Unknown error', variant: 'destructive' });
+    } finally {
+      setStarting(false);
+    }
   }, [storySetup, mode, startDocument, finalStage, onSaveStorySetup, onStart]);
 
   const [projectPreFilled, setProjectPreFilled] = useState(false);
@@ -495,9 +505,16 @@ export function AutoRunMissionControl({
     { key: 'comparables', label: 'Comparables',  required: false, multiline: false },
   ];
 
-  const handleStartClick = useCallback(() => {
-    // Save whatever we have and start — no blocking gate if inference was run
-    onSaveStorySetup(storySetup).then(() => onStart(mode, startDocument));
+  const handleStartClick = useCallback(async () => {
+    setStarting(true);
+    try {
+      await onSaveStorySetup(storySetup);
+      await onStart(mode, startDocument);
+    } catch (e: any) {
+      toast({ title: 'Auto-Run failed to start', description: e?.message || 'Unknown error', variant: 'destructive' });
+    } finally {
+      setStarting(false);
+    }
   }, [storySetup, mode, startDocument, onSaveStorySetup, onStart]);
 
   const handleReInfer = useCallback(() => {
@@ -634,7 +651,7 @@ export function AutoRunMissionControl({
             variant="outline"
             className="w-full h-9 text-xs gap-2 border-primary/30 hover:bg-primary/10 hover:border-primary/50"
             onClick={handlePerfectPackage}
-            disabled={inferLoading}
+            disabled={inferLoading || starting}
           >
             <Rocket className="h-3.5 w-3.5 text-primary" />
             Run to Perfect Package
@@ -728,12 +745,14 @@ export function AutoRunMissionControl({
             <Button
               size="sm"
               className="h-8 text-xs gap-1.5 flex-1"
-              onClick={handleStartClick}
-              disabled={inferLoading}
+            onClick={handleStartClick}
+              disabled={inferLoading || starting}
             >
-              {inferLoading
-                ? <><Loader2 className="h-3 w-3 animate-spin" /> Reading docs…</>
-                : <><Play className="h-3.5 w-3.5" /> Confirm & Start</>
+              {starting
+                ? <><Loader2 className="h-3 w-3 animate-spin" /> Starting…</>
+                : inferLoading
+                  ? <><Loader2 className="h-3 w-3 animate-spin" /> Reading docs…</>
+                  : <><Play className="h-3.5 w-3.5" /> Confirm & Start</>
               }
             </Button>
           </div>
@@ -741,6 +760,11 @@ export function AutoRunMissionControl({
             <span>⚡ {mode === 'fast' ? '1 loop/stage, 8 steps' : mode === 'balanced' ? '2 loops/stage, 12 steps' : '3 loops/stage, 18 steps, ≥82 readiness'}</span>
           </div>
 
+          {error && (
+            <div className="text-[10px] text-destructive bg-destructive/5 border border-destructive/20 rounded p-2">
+              {error}
+            </div>
+          )}
           {job && (
             <Button variant="ghost" size="sm" className="h-7 text-[10px] w-full" onClick={onClear}>
               <RotateCcw className="h-3 w-3" /> Clear
