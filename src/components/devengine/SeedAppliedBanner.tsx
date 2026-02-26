@@ -71,7 +71,7 @@ export function SeedAppliedBanner({
         toast.error('DevSeed expansion not found');
         return;
       }
-      const prefsDraft = buildPrefsDraft(exp.raw_response);
+      const prefsDraft = buildPrefsDraft(exp.raw_response, lane);
       if (Object.keys(prefsDraft).length === 0) {
         toast.info('No prefs suggestions in seed');
         return;

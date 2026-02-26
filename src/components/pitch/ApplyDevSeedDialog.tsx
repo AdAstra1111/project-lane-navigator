@@ -338,7 +338,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
 
         // 7. Optional: Apply lane prefs (merge-safe)
         if (applyPrefs) {
-          const prefsDraft = buildPrefsDraft(devSeed);
+          const prefsDraft = buildPrefsDraft(devSeed, lane);
           if (Object.keys(prefsDraft).length > 0) {
             await saveProjectLaneRulesetPrefs(project.id, lane, prefsDraft as RulesetPrefs, user.id);
           } else {
