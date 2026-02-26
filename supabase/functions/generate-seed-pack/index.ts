@@ -14,6 +14,8 @@ interface SeedPackPayload {
   lane: string;
   targetPlatform?: string | null;
   riskOverride?: "robust" | "edge" | "provocative" | null;
+  commitOnly?: boolean;
+  necOverride?: string | null;
 }
 
 const SEED_DOC_CONFIGS = [
@@ -146,7 +148,7 @@ serve(async (req) => {
     }
 
     const body: SeedPackPayload = await req.json();
-    const { projectId, pitch, lane, targetPlatform, riskOverride } = body;
+    const { projectId, pitch, lane, targetPlatform, riskOverride, commitOnly, necOverride } = body;
 
     if (!projectId || !pitch || !lane) {
       return jsonRes({ error: "projectId, pitch, and lane are required" }, 400);
@@ -168,6 +170,110 @@ serve(async (req) => {
     const seedSnapshotId = await hashSnapshot(projectId, pitch, lane, targetPlatform ?? null);
     const generatedAt = new Date().toISOString();
 
+    // ── commitOnly path: only upsert NEC doc, no LLM call ──
+    if (commitOnly && necOverride) {
+      const necCfg = SEED_DOC_CONFIGS.find(c => c.key === "narrative_energy_contract")!;
+      const provenance = { lane, targetPlatform: targetPlatform ?? null, seed_snapshot_id: seedSnapshotId, generated_at: generatedAt };
+
+      const { data: existing } = await adminClient
+        .from("project_documents")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("ingestion_source", "seed")
+        .eq("title", necCfg.title)
+        .limit(1);
+
+      let documentId: string;
+      let versionNumber: number;
+
+      if (existing && existing.length > 0) {
+        documentId = existing[0].id;
+        const { data: maxVer } = await adminClient
+          .from("project_document_versions")
+          .select("version_number")
+          .eq("document_id", documentId)
+          .order("version_number", { ascending: false })
+          .limit(1);
+        const nextVersion = (maxVer?.[0]?.version_number || 0) + 1;
+
+        await adminClient
+          .from("project_document_versions")
+          .update({ is_current: false })
+          .eq("document_id", documentId)
+          .eq("is_current", true);
+
+        const { error: vErr } = await adminClient
+          .from("project_document_versions")
+          .insert({
+            document_id: documentId,
+            version_number: nextVersion,
+            plaintext: necOverride,
+            is_current: true,
+            status: "active",
+            label: `nec_edited_v${nextVersion}`,
+            created_by: user.id,
+            approval_status: "draft",
+            meta_json: provenance,
+          });
+
+        if (vErr) {
+          console.error("NEC commit version insert failed:", vErr);
+          return jsonRes({ error: "Failed to commit NEC version" }, 500);
+        }
+        versionNumber = nextVersion;
+      } else {
+        const { data: newDoc, error: docErr } = await adminClient
+          .from("project_documents")
+          .insert({
+            project_id: projectId,
+            user_id: user.id,
+            title: necCfg.title,
+            doc_type: necCfg.doc_type,
+            ingestion_source: "seed",
+            is_primary: false,
+            file_name: `seed:${necCfg.doc_type}`,
+            file_path: "",
+            extraction_status: "complete",
+          })
+          .select("id")
+          .single();
+
+        if (docErr || !newDoc) {
+          console.error("NEC commit doc insert failed:", docErr);
+          return jsonRes({ error: "Failed to create NEC document" }, 500);
+        }
+        documentId = newDoc.id;
+
+        const { error: vErr } = await adminClient
+          .from("project_document_versions")
+          .insert({
+            document_id: documentId,
+            version_number: 1,
+            plaintext: necOverride,
+            is_current: true,
+            status: "active",
+            label: "nec_edited_v1",
+            created_by: user.id,
+            approval_status: "draft",
+            meta_json: provenance,
+          });
+
+        if (vErr) {
+          console.error("NEC commit version insert failed:", vErr);
+          return jsonRes({ error: "Failed to commit NEC version" }, 500);
+        }
+        versionNumber = 1;
+      }
+
+      return jsonRes({
+        success: true,
+        seed_snapshot_id: seedSnapshotId,
+        documents: [{ title: necCfg.title, doc_type: necCfg.doc_type, document_id: documentId, version_number: versionNumber }],
+        nec: { document_id: documentId, plaintext: necOverride },
+      });
+    }
+
+    // ── Full generation path ──
     const systemPrompt = buildSystemPrompt(
       lane,
       project.format || "unknown",
@@ -230,6 +336,17 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
       }
     }
 
+    // Validate failure_modes length (3-5)
+    if (!Array.isArray(parsed.failure_modes) || parsed.failure_modes.length < 3 || parsed.failure_modes.length > 5) {
+      return jsonRes({ error: "failure_modes must contain 3-5 entries" }, 422);
+    }
+
+    // Validate risk_posture.derived_mode
+    const validModes = ["robust", "edge", "provocative"];
+    if (!parsed.risk_posture?.derived_mode || !validModes.includes(parsed.risk_posture.derived_mode)) {
+      return jsonRes({ error: "risk_posture.derived_mode must be robust, edge, or provocative" }, 422);
+    }
+
     if (!parsed.final_seed_docs || typeof parsed.final_seed_docs !== "object") {
       return jsonRes({ error: "Missing final_seed_docs" }, 422);
     }
@@ -261,6 +378,7 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
 
     // Create/update documents
     const createdDocs: { title: string; doc_type: string; document_id: string; version_number: number }[] = [];
+    let necDocumentId: string | null = null;
 
     for (const cfg of SEED_DOC_CONFIGS) {
       const content = contentMap[cfg.key];
@@ -359,12 +477,20 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
 
         createdDocs.push({ title: cfg.title, doc_type: cfg.doc_type, document_id: documentId, version_number: 1 });
       }
+
+      if (cfg.key === "narrative_energy_contract") {
+        necDocumentId = documentId;
+      }
     }
 
     return jsonRes({
       success: true,
       seed_snapshot_id: seedSnapshotId,
       documents: createdDocs,
+      nec: {
+        document_id: necDocumentId,
+        plaintext: parsed.narrative_energy_contract,
+      },
       strategic_analysis: {
         concept_distillation: parsed.concept_distillation,
         emotional_thesis: parsed.emotional_thesis,
