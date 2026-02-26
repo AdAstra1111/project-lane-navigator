@@ -196,7 +196,8 @@ async function createDocWithVersion(
 const SERIES_LANES = ['fast-turnaround', 'vertical-drama', 'tv-series', 'limited-series', 'digital-series'];
 
 function isSeriesLane(lane: string): boolean {
-  return SERIES_LANES.some(s => lane.toLowerCase().includes(s.replace('-', '')));
+  const norm = lane.toLowerCase().replace(/[-_\s]+/g, '');
+  return SERIES_LANES.some(s => norm.includes(s.replace(/-/g, '')));
 }
 
 // ── Component ─────────────────────────────────────────────────────────
