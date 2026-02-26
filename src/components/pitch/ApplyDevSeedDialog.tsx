@@ -84,6 +84,30 @@ function buildMarketSheetContent(title: string, market: any, nuance: any): strin
   return lines.join('\n');
 }
 
+function buildConceptBriefContent(title: string, idea: PitchIdea, devSeed: any): string {
+  const lines: string[] = [`# ${title} — Concept Brief`, ''];
+  if (idea.logline) lines.push('## Logline', '', idea.logline, '');
+  if (idea.one_page_pitch) lines.push('## Premise', '', idea.one_page_pitch, '');
+  if (idea.genre) lines.push(`**Genre:** ${idea.genre}`);
+  if (idea.recommended_lane) lines.push(`**Lane:** ${idea.recommended_lane}`);
+  if (idea.budget_band) lines.push(`**Budget Band:** ${idea.budget_band}`);
+  if (idea.why_us) lines.push('', '## Why Us', '', idea.why_us);
+  if (devSeed?.bible_starter?.story_engine) lines.push('', '## Story Engine', '', devSeed.bible_starter.story_engine);
+  lines.push('');
+  return lines.join('\n');
+}
+
+function buildSeasonArcStub(title: string, devSeed: any): string {
+  const lines: string[] = [`# ${title} — Season Arc`, '', '> Draft stub — generate full season arc from Dev Engine.', ''];
+  if (devSeed?.bible_starter?.story_engine) lines.push('## Story Engine', '', devSeed.bible_starter.story_engine, '');
+  if (devSeed?.bible_starter?.themes?.length) lines.push('## Thematic Spine', '', ...devSeed.bible_starter.themes.map((t: string) => `- ${t}`), '');
+  return lines.join('\n');
+}
+
+function buildBeatSheetStub(title: string): string {
+  return [`# ${title} — Beat Sheet`, '', '> Draft stub — generate full beat sheet from Dev Engine.', ''].join('\n');
+}
+
 // ── Canon draft builder ───────────────────────────────────────────────
 
 function buildCanonDraft(idea: PitchIdea, devSeed: any): CanonJson {
@@ -116,7 +140,7 @@ function buildCanonDraft(idea: PitchIdea, devSeed: any): CanonJson {
 
 // buildPrefsDraft moved to @/lib/pitch/devseedHelpers
 
-// ── Doc helper ────────────────────────────────────────────────────────
+// ── Doc helper (hardened) ─────────────────────────────────────────────
 
 async function createDocWithVersion(
   projectId: string,
@@ -137,25 +161,42 @@ async function createDocWithVersion(
       file_name: `${slug}.md`,
       file_path: filePath,
       extraction_status: 'complete',
+      plaintext: content,
+      extracted_text: content,
     } as any)
     .select('id')
     .single();
 
-  if (docErr) console.error('Doc insert failed:', docErr.message);
-  if (doc) {
-    await supabase
-      .from('project_document_versions')
-      .insert({
-        document_id: doc.id,
-        project_id: projectId,
-        version_number: 1,
-        content,
-        status: 'draft',
-        is_current: true,
-        created_by: userId,
-      } as any);
+  if (docErr) {
+    console.error(`Doc insert failed [${docType}]:`, docErr.message);
+    throw new Error(`Failed to create ${docType} document: ${docErr.message}`);
   }
+
+  const { error: verErr } = await supabase
+    .from('project_document_versions')
+    .insert({
+      document_id: doc.id,
+      version_number: 1,
+      plaintext: content,
+      status: 'draft',
+      is_current: true,
+      created_by: userId,
+    } as any);
+
+  if (verErr) {
+    console.error(`Version insert failed [${docType}]:`, verErr.message);
+    // Don't throw — doc exists, version is secondary
+  }
+
   return doc;
+}
+
+// ── Lane helpers ──────────────────────────────────────────────────────
+
+const SERIES_LANES = ['fast-turnaround', 'vertical-drama', 'tv-series', 'limited-series', 'digital-series'];
+
+function isSeriesLane(lane: string): boolean {
+  return SERIES_LANES.some(s => lane.toLowerCase().includes(s.replace('-', '')));
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -167,7 +208,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
   const [creating, setCreating] = useState(false);
   const [projectTitle, setProjectTitle] = useState('');
   const [applyDocs, setApplyDocs] = useState(true);
-  const [applyCanon, setApplyCanon] = useState(false);
+  const [applyCanon, setApplyCanon] = useState(true); // default ON now
   const [applyPrefs, setApplyPrefs] = useState(false);
 
   if (!idea) return null;
@@ -179,6 +220,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
     setCreating(true);
     try {
       const title = projectTitle.trim() || defaultTitle;
+      const lane = idea.recommended_lane || 'independent-film';
 
       // 1. Create project
       const { data: project, error: projErr } = await supabase
@@ -188,9 +230,8 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           user_id: user.id,
           format: idea.production_type || 'film',
           genres: idea.genre ? [idea.genre] : [],
-          assigned_lane: idea.recommended_lane || 'independent-film',
+          assigned_lane: lane,
           budget_range: idea.budget_band || '',
-          
           source_pitch_idea_id: idea.id,
         } as any)
         .select('id')
@@ -230,62 +271,99 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
       const expansionId = expansion?.id as string | undefined;
 
       if (devSeed) {
-        // 5. Create draft documents
+        // 5. Create full starter doc pack
         if (applyDocs) {
+          // Concept Brief (always)
+          await createDocWithVersion(project.id, user.id, 'concept_brief', `${title} — Concept Brief`, buildConceptBriefContent(title, idea, devSeed));
+
+          // Treatment + Character Bible
           if (devSeed.bible_starter) {
             await createDocWithVersion(project.id, user.id, 'treatment', `${title} — Treatment`, buildTreatmentContent(title, devSeed.bible_starter));
             if (devSeed.bible_starter.characters?.length) {
               await createDocWithVersion(project.id, user.id, 'character_bible', `${title} — Characters`, buildCharacterBibleContent(title, devSeed.bible_starter.characters));
             }
           }
+
+          // Market Sheet
           if (devSeed.market_rationale) {
             await createDocWithVersion(project.id, user.id, 'market_sheet', `${title} — Market Sheet`, buildMarketSheetContent(title, devSeed.market_rationale, devSeed.nuance_contract));
           }
+
+          // Lane-conditional stubs
+          if (isSeriesLane(lane)) {
+            await createDocWithVersion(project.id, user.id, 'season_arc', `${title} — Season Arc`, buildSeasonArcStub(title, devSeed));
+          } else {
+            await createDocWithVersion(project.id, user.id, 'beat_sheet', `${title} — Beat Sheet`, buildBeatSheetStub(title));
+          }
         }
 
-        // 6. Optional: Apply canon draft (merge under seed_draft namespace)
-        if (applyCanon) {
-          const seedDraft = {
-            ...buildCanonDraft(idea, devSeed),
-            source_pitch_idea_id: idea.id,
-            concept_expansion_id: expansionId || null,
-            lane: idea.recommended_lane || 'independent-film',
-            applied_at: new Date().toISOString(),
-          };
-          const { data: existing } = await (supabase as any)
-            .from('project_canon')
-            .select('canon_json')
-            .eq('project_id', project.id)
-            .maybeSingle();
-          const existingCanon = existing?.canon_json || {};
-          // Preserve previous seed_draft in history (max 10)
-          const history = existingCanon.seed_draft
-            ? [...(existingCanon.seed_draft_history ?? []), existingCanon.seed_draft].slice(-10)
-            : existingCanon.seed_draft_history ?? [];
-          // Spread canonical keys at top level so Dev Engine + getCanonicalProjectState can read them
-          const canonTopLevel = buildCanonDraft(idea, devSeed);
-          const merged = {
-            ...existingCanon,
-            ...canonTopLevel,
-            seed_draft: seedDraft,
-            ...(history.length > 0 ? { seed_draft_history: history } : {}),
-          };
-          await (supabase as any)
-            .from('project_canon')
-            .update({ canon_json: merged, updated_by: user.id })
-            .eq('project_id', project.id);
+        // 6. Always plant canon top-level keys from seed (provenance + top-level)
+        const canonTopLevel = buildCanonDraft(idea, devSeed);
+        const seedDraft = {
+          ...canonTopLevel,
+          source_pitch_idea_id: idea.id,
+          concept_expansion_id: expansionId || null,
+          lane,
+          applied_at: new Date().toISOString(),
+        };
+
+        const { data: existing } = await (supabase as any)
+          .from('project_canon')
+          .select('canon_json')
+          .eq('project_id', project.id)
+          .maybeSingle();
+        const existingCanon = existing?.canon_json || {};
+
+        // Preserve previous seed_draft in history (max 10)
+        const history = existingCanon.seed_draft
+          ? [...(existingCanon.seed_draft_history ?? []), existingCanon.seed_draft].slice(-10)
+          : existingCanon.seed_draft_history ?? [];
+
+        // Merge: top-level canonical keys (only if empty) + seed_draft provenance
+        const merged: Record<string, unknown> = { ...existingCanon };
+        // Plant top-level keys only if not already set
+        for (const [key, val] of Object.entries(canonTopLevel)) {
+          if (val && !merged[key]) {
+            merged[key] = val;
+          }
         }
+        merged.seed_draft = seedDraft;
+        if (history.length > 0) merged.seed_draft_history = history;
+
+        await (supabase as any)
+          .from('project_canon')
+          .update({ canon_json: merged, updated_by: user.id })
+          .eq('project_id', project.id);
 
         // 7. Optional: Apply lane prefs (merge-safe)
         if (applyPrefs) {
           const prefsDraft = buildPrefsDraft(devSeed);
           if (Object.keys(prefsDraft).length > 0) {
-            const lane = idea.recommended_lane || 'independent-film';
             await saveProjectLaneRulesetPrefs(project.id, lane, prefsDraft as RulesetPrefs, user.id);
           } else {
             toast.info('No prefs suggestions in seed');
           }
         }
+      } else {
+        // No devSeed — still plant basic canon from pitch idea
+        const basicCanon: CanonJson = {
+          logline: idea.logline || '',
+          premise: idea.one_page_pitch || '',
+        };
+        const { data: existing } = await (supabase as any)
+          .from('project_canon')
+          .select('canon_json')
+          .eq('project_id', project.id)
+          .maybeSingle();
+        const existingCanon = existing?.canon_json || {};
+        const merged = { ...existingCanon };
+        for (const [key, val] of Object.entries(basicCanon)) {
+          if (val && !merged[key]) merged[key] = val;
+        }
+        await (supabase as any)
+          .from('project_canon')
+          .update({ canon_json: merged, updated_by: user.id })
+          .eq('project_id', project.id);
       }
 
       // 8. Invalidate queries
@@ -294,7 +372,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
 
       const parts: string[] = ['Project created'];
       if (applyDocs) parts.push('docs seeded');
-      if (applyCanon) parts.push('canon draft applied');
+      parts.push('canon planted');
       if (applyPrefs) parts.push('lane prefs set');
       toast.success(parts.join(', '));
 
@@ -316,7 +394,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             Create Project from DevSeed
           </DialogTitle>
           <DialogDescription>
-            Creates a new project and optionally seeds Dev Engine artifacts, canon, and lane preferences from the DevSeed.
+            Creates a new project and seeds Dev Engine artifacts, canon, and optionally lane preferences from the DevSeed.
           </DialogDescription>
         </DialogHeader>
 
@@ -338,8 +416,8 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             <label className="flex items-start gap-2 cursor-pointer">
               <Checkbox checked={applyDocs} onCheckedChange={(v) => setApplyDocs(!!v)} className="mt-0.5" />
               <div>
-                <span className="text-sm font-medium">Create Dev Engine draft docs</span>
-                <p className="text-xs text-muted-foreground">Treatment, Character Bible, Market Sheet as draft documents</p>
+                <span className="text-sm font-medium">Create starter doc pack</span>
+                <p className="text-xs text-muted-foreground">Concept Brief, Treatment, Character Bible, Market Sheet + lane-specific stubs</p>
               </div>
             </label>
 
@@ -363,7 +441,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
             <p className="font-medium text-foreground mb-1">Always created:</p>
             <p>• New project with lane: <span className="text-foreground">{idea.recommended_lane}</span></p>
-            <p>• <span className="text-foreground">Idea</span> document from pitch logline & one-pager</p>
+            <p>• <span className="text-foreground">Idea</span> document + canon logline/premise planted</p>
             <p>• Genre: <span className="text-foreground">{idea.genre}</span> | Budget: <span className="text-foreground">{idea.budget_band}</span></p>
           </div>
         </div>
