@@ -71,7 +71,7 @@ async function ensureSeedPack(
     return { ensured: false, missing: [] };
   }
 
-  // Derive pitch from idea doc or project title
+  // Derive pitch from idea doc's current version plaintext, or project title
   const { data: project } = await supabase
     .from("projects")
     .select("title, format, assigned_lane")
@@ -81,14 +81,21 @@ async function ensureSeedPack(
   let pitch = project?.title || "Untitled project";
   const { data: ideaDocs } = await supabase
     .from("project_documents")
-    .select("id, extracted_text, plaintext")
+    .select("id")
     .eq("project_id", projectId)
     .eq("doc_type", "idea")
     .order("created_at", { ascending: false })
     .limit(1);
 
   if (ideaDocs?.[0]) {
-    const ideaText = ideaDocs[0].extracted_text || ideaDocs[0].plaintext || "";
+    const { data: currentVer } = await supabase
+      .from("project_document_versions")
+      .select("plaintext")
+      .eq("document_id", ideaDocs[0].id)
+      .eq("is_current", true)
+      .limit(1)
+      .single();
+    const ideaText = currentVer?.plaintext || "";
     if (ideaText.length > 10) pitch = ideaText.slice(0, 2000);
   }
 
@@ -141,10 +148,10 @@ async function nextUnsatisfiedStage(
     docsByType.get(d.doc_type)!.push(d.id);
   }
 
-  // Stages that require an approved version to be considered satisfied
+  // Stages that require an approved version to be considered satisfied.
+  // Canonical source: src/lib/pipeline-brain.ts APPROVAL_REQUIRED_STAGES
   const APPROVAL_REQUIRED_STAGES = new Set([
-    "feature_script", "episode_script", "production_draft",
-    "season_master_script",
+    "episode_grid", "character_bible", "season_arc", "format_rules",
   ]);
 
   // Collect doc IDs for approval-required stages that have docs
@@ -1734,6 +1741,9 @@ Deno.serve(async (req) => {
       const currentDoc = job.current_document as DocStage;
       const stepCount = job.step_count;
       const stageLoopCount = job.stage_loop_count;
+
+      // ── Ensure seed pack on resume (cheap idempotent check) ──
+      await ensureSeedPack(supabase, supabaseUrl, job.project_id, token);
 
       // ── Guard: max steps — pause with actionable choices ──
       if (stepCount >= job.max_total_steps) {
