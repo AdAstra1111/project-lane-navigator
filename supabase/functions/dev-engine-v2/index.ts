@@ -12,6 +12,81 @@ import {
   type StyleTarget, type StyleEvalResult, type StyleFingerprint, type StyleDeviation,
 } from "../_shared/styleDeviation.ts";
 
+// ── Supporting doc pack constants ──
+const SUPPORTING_TOTAL_BUDGET = 24000;
+const SUPPORTING_PER_DOC_BUDGET = 6000;
+
+function clampText(s: string, n: number): string {
+  if (!s) return '';
+  return s.length <= n ? s : s.slice(0, n);
+}
+
+async function loadSupportingDocPack(
+  supabaseClient: any,
+  projectId: string,
+  includeDocumentIds: string[],
+  excludeDocumentId: string
+): Promise<string> {
+  const ids = (includeDocumentIds || []).filter(Boolean).filter(id => id !== excludeDocumentId);
+  if (ids.length === 0) return '';
+
+  const { data: docs, error: docsErr } = await supabaseClient
+    .from('project_documents')
+    .select('id, doc_type, title, file_name, created_at')
+    .eq('project_id', projectId)
+    .in('id', ids);
+
+  if (docsErr) throw docsErr;
+  if (!docs || docs.length === 0) return '';
+
+  const docTypePriority: Record<string, number> = {
+    script: 0, outline: 1, beat_sheet: 2, synopsis: 3, treatment: 4,
+    character_bible: 5, world_bible: 6, concept_brief: 7, notes: 8, other: 99,
+  };
+
+  const ordered = [...docs].sort((a: any, b: any) => {
+    const pa = docTypePriority[a.doc_type ?? 'other'] ?? 50;
+    const pb = docTypePriority[b.doc_type ?? 'other'] ?? 50;
+    if (pa !== pb) return pa - pb;
+    const ca = new Date(a.created_at).getTime();
+    const cb = new Date(b.created_at).getTime();
+    if (ca !== cb) return ca - cb;
+    return String(a.id).localeCompare(String(b.id));
+  });
+
+  let remaining = SUPPORTING_TOTAL_BUDGET;
+  const parts: string[] = [];
+
+  for (const d of ordered) {
+    if (remaining <= 0) break;
+
+    const { data: vers, error: vErr } = await supabaseClient
+      .from('project_document_versions')
+      .select('plaintext, is_current, approval_status, version_number')
+      .eq('document_id', d.id)
+      .order('version_number', { ascending: false })
+      .limit(25);
+
+    if (vErr) throw vErr;
+    if (!vers || vers.length === 0) continue;
+
+    const current = vers.find((v: any) => v.is_current);
+    const approved = vers.find((v: any) => v.approval_status === 'approved');
+    const best = current ?? approved ?? vers[0];
+
+    const chunkCap = Math.min(SUPPORTING_PER_DOC_BUDGET, remaining);
+    const text = clampText(best?.plaintext ?? '', chunkCap);
+    if (!text) continue;
+
+    const label = d.title || d.file_name || d.doc_type || 'supporting_doc';
+    parts.push(`--- SUPPORTING DOC: ${label} (doc_type=${d.doc_type ?? 'unknown'}) ---\n${text}\n`);
+    remaining -= text.length;
+  }
+
+  if (parts.length === 0) return '';
+  return `\n\n=== SUPPORTING CONTEXT (DETERMINISTIC EXCERPTS) ===\n${parts.join('\n')}\n`;
+}
+
 /** Load team voice context block + meta for stamping. Returns empty strings if none active. */
 async function loadTeamVoiceContext(
   supabase: any,
@@ -1849,12 +1924,22 @@ Format: ${rq.format}.${episodeLengthBlock}`;
       const tvCtx = await loadTeamVoiceContext(supabase, projectId, analyzeLane);
       const teamVoiceBlock = tvCtx.block ? `\n${tvCtx.block}` : "";
 
+      // ── Supporting doc context (deterministic, optional) ──
+      let supportingContext = "";
+      if (body.includeDocumentIds && Array.isArray(body.includeDocumentIds) && body.includeDocumentIds.length > 0) {
+        try {
+          supportingContext = await loadSupportingDocPack(supabase, projectId, body.includeDocumentIds, documentId);
+        } catch (e: any) {
+          console.warn("[dev-engine-v2] loadSupportingDocPack failed (non-fatal):", e?.message);
+        }
+      }
+
       const userPrompt = `PRODUCTION TYPE: ${effectiveProductionType}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 PROJECT: ${project?.title || "Unknown"}
 LANE: ${analyzeLane} | BUDGET: ${project?.budget_range || "Unknown"}
-${prevContext}${seasonContext}${qualBinding}${canonOSContext}${signalContext}${lockedDecisionsContext}${teamVoiceBlock}
+${prevContext}${seasonContext}${qualBinding}${canonOSContext}${signalContext}${lockedDecisionsContext}${teamVoiceBlock}${supportingContext}
 
 MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, maxContextChars)}`;
