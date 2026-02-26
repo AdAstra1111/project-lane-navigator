@@ -21,6 +21,14 @@ export interface RulesetPrefs {
     include_series?: boolean;
     include_vertical?: boolean;
   };
+  style_sources?: Array<{ doc_id: string; title: string; project_id: string }>;
+  style_fingerprint?: {
+    source: string;
+    sources: Array<{ doc_id: string; title: string; project_id: string }>;
+    targets: Record<string, { min: number; max: number }>;
+    rules: { do: string[]; dont: string[] };
+    updated_at: string;
+  };
 }
 
 const LS_KEY = (projectId: string, lane: string) =>
