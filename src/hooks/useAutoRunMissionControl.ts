@@ -118,7 +118,11 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   const activate = useCallback(() => setActivated(true), []);
 
   const start = useCallback(async (mode: string, startDocument: string, targetDocument?: string) => {
-    if (!projectId) return;
+    if (!projectId) {
+      const msg = 'Cannot start Auto-Run: no project ID';
+      setError(msg);
+      throw new Error(msg);
+    }
     setActivated(true);
     setError(null);
     abortRef.current = false;
@@ -134,6 +138,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       setIsRunning(true);
     } catch (e: any) {
       setError(e.message);
+      throw e; // Re-throw so UI callers can catch
     }
   }, [projectId]);
 
