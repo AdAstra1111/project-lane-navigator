@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,8 +8,10 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   Search, Star, Loader2, FileText, ChevronDown, CheckCircle2, Plus, Eye, Film, Tv, Smartphone,
+  Fingerprint, Upload, Link as LinkIcon, XCircle,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { INFLUENCE_DIMENSIONS, type InfluenceDimension } from '@/lib/rulesets/types';
@@ -667,6 +669,9 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
           </div>
         )}
 
+        {/* ── Script Style Sources ── */}
+        <ScriptSourcesSection projectId={projectId} lane={lane} userId={userId} />
+
         {/* ── Save Influencers ── */}
         {selectedCount > 0 && (
           <Button
@@ -684,5 +689,272 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ── Script Sources Sub-Component ─────────────────────────────────────
+
+interface ScriptSourcesSectionProps {
+  projectId: string;
+  lane: string;
+  userId: string;
+}
+
+interface ScriptSource {
+  id: string;
+  comp_title: string;
+  source_type: string;
+  file_name?: string;
+  char_count?: number;
+  created_at: string;
+}
+
+function ScriptSourcesSection({ projectId, lane, userId }: ScriptSourcesSectionProps) {
+  const [sources, setSources] = useState<ScriptSource[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [compTitle, setCompTitle] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [building, setBuilding] = useState(false);
+  const [fingerprint, setFingerprint] = useState<any>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Load existing sources + fingerprint
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await (supabase as any)
+        .from('comparable_script_sources')
+        .select('id, comp_title, source_type, file_name, char_count, created_at')
+        .eq('project_id', projectId)
+        .eq('lane', lane)
+        .order('created_at', { ascending: false });
+      if (data) setSources(data);
+
+      const prefs = await loadProjectLaneRulesetPrefs(projectId, lane);
+      if ((prefs as any).style_fingerprint) setFingerprint((prefs as any).style_fingerprint);
+    };
+    load();
+  }, [projectId, lane]);
+
+  const handleUpload = async (file: File) => {
+    if (!compTitle.trim()) { toast.info('Enter a comp title first'); return; }
+    setUploading(true);
+    try {
+      const ext = file.name.split('.').pop() || 'txt';
+      const storagePath = `${userId}/${projectId}/${Date.now()}.${ext}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from('comp-scripts')
+        .upload(storagePath, file);
+      if (uploadErr) throw uploadErr;
+
+      // Read char count from file
+      const text = await file.text();
+      const charCount = text.length;
+
+      const { data: row, error: insertErr } = await (supabase as any)
+        .from('comparable_script_sources')
+        .insert({
+          user_id: userId,
+          project_id: projectId,
+          lane,
+          comp_title: compTitle.trim(),
+          source_type: 'upload',
+          storage_path: storagePath,
+          file_name: file.name,
+          char_count: charCount,
+        })
+        .select()
+        .single();
+      if (insertErr) throw insertErr;
+
+      setSources(prev => [row, ...prev]);
+      toast.success(`Script source added: ${file.name}`);
+      setCompTitle('');
+      setAddOpen(false);
+    } catch (e: any) {
+      toast.error(e.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleAddProjectDoc = async (docId: string, docTitle: string) => {
+    if (!compTitle.trim()) { toast.info('Enter a comp title first'); return; }
+    try {
+      const { data: row, error } = await (supabase as any)
+        .from('comparable_script_sources')
+        .insert({
+          user_id: userId,
+          project_id: projectId,
+          lane,
+          comp_title: compTitle.trim(),
+          source_type: 'project_doc',
+          project_doc_id: docId,
+          file_name: docTitle,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      setSources(prev => [row, ...prev]);
+      toast.success(`Project doc linked: ${docTitle}`);
+      setCompTitle('');
+      setAddOpen(false);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to add');
+    }
+  };
+
+  const removeSource = async (id: string) => {
+    await (supabase as any).from('comparable_script_sources').delete().eq('id', id);
+    setSources(prev => prev.filter(s => s.id !== id));
+  };
+
+  const buildFingerprint = async () => {
+    if (sources.length === 0) { toast.info('Add at least one script source first'); return; }
+    setBuilding(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('comps-style-fingerprint', {
+        body: { project_id: projectId, lane, user_id: userId },
+      });
+      if (error) throw error;
+      if (data?.fingerprint) {
+        setFingerprint(data.fingerprint);
+        toast.success(`Style fingerprint built from ${data.sources_processed} source(s)`);
+      } else {
+        toast.error(data?.error || 'No fingerprint returned');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to build fingerprint');
+    } finally {
+      setBuilding(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-border/30 pt-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+          <Fingerprint className="h-3 w-3" />
+          Writing Style Sources
+        </label>
+        <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-1" onClick={() => setAddOpen(true)}>
+          <Plus className="h-3 w-3" /> Add Script
+        </Button>
+      </div>
+
+      {/* Source list */}
+      {sources.length > 0 && (
+        <div className="space-y-1">
+          {sources.map(s => (
+            <div key={s.id} className="flex items-center justify-between gap-1 bg-muted/30 rounded px-2 py-1 text-[10px]">
+              <div className="flex items-center gap-1 min-w-0">
+                {s.source_type === 'upload' ? <Upload className="h-3 w-3 shrink-0 text-muted-foreground" /> : <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                <span className="font-medium truncate">{s.comp_title}</span>
+                {s.file_name && <span className="text-muted-foreground truncate">({s.file_name})</span>}
+                {s.char_count && <Badge variant="outline" className="text-[8px] shrink-0">{(s.char_count / 1000).toFixed(0)}k</Badge>}
+              </div>
+              <button onClick={() => removeSource(s.id)} className="text-muted-foreground hover:text-destructive shrink-0">
+                <XCircle className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Build fingerprint */}
+      {sources.length > 0 && (
+        <Button
+          variant="secondary"
+          size="sm"
+          className="w-full h-7 text-xs gap-1"
+          onClick={buildFingerprint}
+          disabled={building}
+        >
+          {building ? <Loader2 className="h-3 w-3 animate-spin" /> : <Fingerprint className="h-3 w-3" />}
+          {building ? 'Building…' : 'Build Writing Style Fingerprint'}
+        </Button>
+      )}
+
+      {/* Fingerprint summary */}
+      {fingerprint && (
+        <div className="bg-primary/5 border border-primary/20 rounded-md p-2 space-y-1">
+          <p className="text-[10px] font-medium flex items-center gap-1">
+            <Fingerprint className="h-3 w-3 text-primary" />
+            Style Fingerprint Active
+          </p>
+          <div className="grid grid-cols-2 gap-1 text-[9px] text-muted-foreground">
+            {fingerprint.targets?.dialogue_ratio && (
+              <span>Dialogue: {(fingerprint.targets.dialogue_ratio.min * 100).toFixed(0)}–{(fingerprint.targets.dialogue_ratio.max * 100).toFixed(0)}%</span>
+            )}
+            {fingerprint.targets?.sentence_len_avg && (
+              <span>Sent avg: {fingerprint.targets.sentence_len_avg.min}–{fingerprint.targets.sentence_len_avg.max}w</span>
+            )}
+            {fingerprint.targets?.avg_dialogue_line_len && (
+              <span>Dial len: {fingerprint.targets.avg_dialogue_line_len.min}–{fingerprint.targets.avg_dialogue_line_len.max}w</span>
+            )}
+            {fingerprint.targets?.slugline_density && (
+              <span>Slug/100: {fingerprint.targets.slugline_density.min}–{fingerprint.targets.slugline_density.max}</span>
+            )}
+          </div>
+          {fingerprint.rules?.do?.length > 0 && (
+            <div className="text-[9px]">
+              <span className="text-primary font-medium">Do: </span>
+              <span className="text-muted-foreground">{fingerprint.rules.do[0]}</span>
+            </div>
+          )}
+          {fingerprint.sources?.length > 0 && (
+            <p className="text-[8px] text-muted-foreground">
+              From {fingerprint.sources.length} source(s) • {new Date(fingerprint.updated_at).toLocaleDateString()}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Add dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Add Script Source</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-muted-foreground">Comp / Reference Title</label>
+              <Input
+                value={compTitle}
+                onChange={e => setCompTitle(e.target.value)}
+                placeholder="e.g. Succession, Industry…"
+                className="h-8 text-xs mt-1"
+              />
+            </div>
+            <div className="space-y-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full h-8 text-xs gap-1"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading || !compTitle.trim()}
+              >
+                {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                Upload Script (PDF/TXT/Fountain)
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".pdf,.txt,.fountain,.fdx"
+                className="hidden"
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (f) handleUpload(f);
+                  e.target.value = '';
+                }}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground text-center">
+              Scripts are processed for style metrics only — full text is never stored in the database.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

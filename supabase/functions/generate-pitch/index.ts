@@ -105,6 +105,21 @@ serve(async (req) => {
           if (prefs.last_ui?.restraint !== undefined) parts.push(`Restraint Level: ${prefs.last_ui.restraint}/10`);
           if (prefs.last_ui?.conflict_mode) parts.push(`Conflict Mode: ${prefs.last_ui.conflict_mode}`);
           if (prefs.last_ui?.story_engine) parts.push(`Story Engine: ${prefs.last_ui.story_engine}`);
+
+          // Style fingerprint injection
+          if (prefs.style_fingerprint?.targets) {
+            const fp = prefs.style_fingerprint;
+            const t = fp.targets;
+            parts.push(`\n--- STYLE BAND (match these ranges, do NOT copy source scripts) ---`);
+            if (t.dialogue_ratio) parts.push(`Dialogue Ratio Band: ${(t.dialogue_ratio.min * 100).toFixed(0)}–${(t.dialogue_ratio.max * 100).toFixed(0)}%`);
+            if (t.sentence_len_avg) parts.push(`Sentence Length Band (avg words): ${t.sentence_len_avg.min}–${t.sentence_len_avg.max}`);
+            if (t.avg_dialogue_line_len) parts.push(`Dialogue Line Length Band (avg words): ${t.avg_dialogue_line_len.min}–${t.avg_dialogue_line_len.max}`);
+            if (t.slugline_density) parts.push(`Slugline Density Band (per 100 lines): ${t.slugline_density.min}–${t.slugline_density.max}`);
+            if (fp.rules?.do?.length) parts.push(`Style DO: ${fp.rules.do.join('; ')}`);
+            if (fp.rules?.dont?.length) parts.push(`Style DON'T: ${fp.rules.dont.join('; ')}`);
+            parts.push(`--- END STYLE BAND ---`);
+          }
+
           if (parts.length > 0) {
             nuanceBlock = `\n\n=== NUANCE PREFS (from project ruleset — weight these in tone/style) ===\n${parts.join('\n')}\n=== END NUANCE PREFS ===\n`;
           }
