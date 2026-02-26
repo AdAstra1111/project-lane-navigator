@@ -222,13 +222,14 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
       // 4. Fetch DevSeed (maybeSingle — may not exist if promote was skipped)
       const { data: expansion } = await supabase
         .from('concept_expansions')
-        .select('raw_response')
+        .select('id, raw_response')
         .eq('pitch_idea_id', idea.id)
         .order('version', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       const devSeed = expansion?.raw_response as any;
+      const expansionId = expansion?.id as string | undefined;
 
       if (devSeed) {
         // 5. Create draft documents
@@ -246,13 +247,19 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
 
         // 6. Optional: Apply canon draft (merge under seed_draft namespace)
         if (applyCanon) {
-          const canonDraft = buildCanonDraft(idea, devSeed);
+          const seedDraft = {
+            ...buildCanonDraft(idea, devSeed),
+            source_pitch_idea_id: idea.id,
+            concept_expansion_id: expansionId || null,
+            lane: idea.recommended_lane || 'independent-film',
+            applied_at: new Date().toISOString(),
+          };
           const { data: existing } = await (supabase as any)
             .from('project_canon')
             .select('canon_json')
             .eq('project_id', project.id)
             .maybeSingle();
-          const merged = { ...(existing?.canon_json || {}), seed_draft: canonDraft };
+          const merged = { ...(existing?.canon_json || {}), seed_draft: seedDraft };
           await (supabase as any)
             .from('project_canon')
             .update({ canon_json: merged, updated_by: user.id })
