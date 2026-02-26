@@ -14,7 +14,10 @@ import { OverridesEditor } from './OverridesEditor';
 import { ResolvedRulesPreview } from './ResolvedRulesPreview';
 import { ActiveRulesetBadge } from './ActiveRulesetBadge';
 import { WritingVoiceSelector } from './WritingVoiceSelector';
+import { TeamVoiceSelector } from './TeamVoiceSelector';
+import { TeamVoiceManager } from './TeamVoiceManager';
 import { useProjectRuleset } from '@/hooks/useProjectRuleset';
+import { useTeamVoices, type TeamVoice } from '@/hooks/useTeamVoices';
 import type { WritingVoicePreset } from '@/lib/writingVoices/types';
 
 interface Props {
@@ -29,6 +32,40 @@ export function WorldRulesAccordion({ projectId, lane, userId, className }: Prop
     prefs, activeProfile, savePrefs, isLocked, autoDiversify,
     invalidateProfile,
   } = useProjectRuleset(projectId, lane);
+
+  const { voices } = useTeamVoices(userId);
+
+  // --- Team Voice: draft state + race-proof auto-save ---
+  const [draftTeamVoiceId, setDraftTeamVoiceId] = useState<string>(prefs.team_voice?.id ?? '');
+  const [teamVoiceSaving, setTeamVoiceSaving] = useState(false);
+  const [teamVoiceManagerOpen, setTeamVoiceManagerOpen] = useState(false);
+  const latestTeamVoiceRef = useRef<string>('');
+
+  useEffect(() => {
+    setDraftTeamVoiceId(prefs.team_voice?.id ?? '');
+  }, [prefs.team_voice?.id]);
+
+  const handleTeamVoiceSelect = useCallback((voice: TeamVoice | null) => {
+    const id = voice?.id ?? '';
+    setDraftTeamVoiceId(id);
+    latestTeamVoiceRef.current = id;
+    setTeamVoiceSaving(true);
+    savePrefs.mutate(
+      {
+        team_voice: voice ? {
+          id: voice.id,
+          label: voice.label,
+          description: voice.description || undefined,
+          updated_at: voice.updated_at,
+        } : undefined,
+      },
+      {
+        onSettled: () => {
+          if (latestTeamVoiceRef.current === id) setTeamVoiceSaving(false);
+        },
+      },
+    );
+  }, [savePrefs]);
 
   // --- Writing Voice: draft state + race-proof auto-save ---
   const [draftVoiceId, setDraftVoiceId] = useState<string>(prefs.writing_voice?.id ?? '');
@@ -75,6 +112,7 @@ export function WorldRulesAccordion({ projectId, lane, userId, className }: Prop
   };
 
   return (
+    <>
     <Accordion type="single" collapsible className={className}>
       <AccordionItem value="world-rules" className="border-border/50">
         <AccordionTrigger className="py-2 text-xs hover:no-underline">
@@ -96,6 +134,20 @@ export function WorldRulesAccordion({ projectId, lane, userId, className }: Prop
               <span className="text-muted-foreground">Auto-diversify</span>
             </div>
           </div>
+
+          {/* Team Voice — auto-saves on select with race protection */}
+          {!isLocked && (
+            <TeamVoiceSelector
+              voices={voices}
+              selectedVoiceId={draftTeamVoiceId || null}
+              onSelect={handleTeamVoiceSelect}
+              onManage={() => setTeamVoiceManagerOpen(true)}
+              disabled={teamVoiceSaving}
+            />
+          )}
+          {teamVoiceSaving && (
+            <p className="text-[9px] text-muted-foreground animate-pulse ml-1">Saving…</p>
+          )}
 
           {/* Writing Voice — auto-saves on select with race protection */}
           {!isLocked && (
@@ -172,5 +224,16 @@ export function WorldRulesAccordion({ projectId, lane, userId, className }: Prop
         </AccordionContent>
       </AccordionItem>
     </Accordion>
+
+      {/* Team Voice Manager Dialog */}
+      <TeamVoiceManager
+        open={teamVoiceManagerOpen}
+        onOpenChange={setTeamVoiceManagerOpen}
+        projectId={projectId}
+        lane={lane}
+        userId={userId}
+        onVoiceCreated={(voice) => handleTeamVoiceSelect(voice)}
+      />
+    </>
   );
 }

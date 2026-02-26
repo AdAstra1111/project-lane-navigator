@@ -17147,6 +17147,97 @@ export type Database = {
         }
         Relationships: []
       }
+      team_voice_sources: {
+        Row: {
+          cowriter_labels: string[] | null
+          created_at: string | null
+          doc_id: string
+          id: string
+          is_cowritten: boolean | null
+          project_id: string
+          team_voice_id: string
+          title: string | null
+          version_id: string | null
+        }
+        Insert: {
+          cowriter_labels?: string[] | null
+          created_at?: string | null
+          doc_id: string
+          id?: string
+          is_cowritten?: boolean | null
+          project_id: string
+          team_voice_id: string
+          title?: string | null
+          version_id?: string | null
+        }
+        Update: {
+          cowriter_labels?: string[] | null
+          created_at?: string | null
+          doc_id?: string
+          id?: string
+          is_cowritten?: boolean | null
+          project_id?: string
+          team_voice_id?: string
+          title?: string | null
+          version_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_voice_sources_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "team_voice_sources_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_voice_sources_team_voice_id_fkey"
+            columns: ["team_voice_id"]
+            isOneToOne: false
+            referencedRelation: "team_voices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      team_voices: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          label: string
+          lane_group: string | null
+          owner_user_id: string
+          profile_json: Json
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          label: string
+          lane_group?: string | null
+          owner_user_id: string
+          profile_json?: Json
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          label?: string
+          lane_group?: string | null
+          owner_user_id?: string
+          profile_json?: Json
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       territory_cost_index: {
         Row: {
           accommodation_day: number
