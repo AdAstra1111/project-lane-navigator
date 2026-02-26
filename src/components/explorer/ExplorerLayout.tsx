@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { PanelLeft, LogOut, Plus, Settings } from 'lucide-react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { PanelLeft, LogOut, Plus, Settings, ChevronDown, Building2, Lightbulb, Radio, Landmark, LayoutGrid, Users, Globe, FlaskConical, Calendar, BarChart3 } from 'lucide-react';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { Button } from '@/components/ui/button';
 import { GlobalSearch } from '@/components/GlobalSearch';
@@ -8,10 +8,29 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { NotificationBell } from '@/components/NotificationBell';
 import { ExplorerSidebar } from './ExplorerSidebar';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
+
+const toolItems = [
+  { label: 'Companies', icon: Building2, path: '/companies' },
+  { label: 'Pitch Ideas', icon: Lightbulb, path: '/pitch-ideas' },
+  { label: 'Trends', icon: Radio, path: '/trends' },
+  { label: 'Incentives', icon: Landmark, path: '/incentives' },
+  { label: 'Calendar', icon: LayoutGrid, path: '/calendar' },
+  { label: 'Buyers', icon: Users, path: '/buyer-crm' },
+  { label: 'Market Intelligence', icon: Globe, path: '/market-intelligence' },
+  { label: 'Coverage Lab', icon: FlaskConical, path: '/coverage-lab' },
+  { label: 'Festivals', icon: Calendar, path: '/festivals' },
+  { label: 'Reports', icon: BarChart3, path: '/reports' },
+];
 
 export interface BreadcrumbSegment {
   label: string;
@@ -30,6 +49,8 @@ interface ExplorerLayoutProps {
 export function ExplorerLayout({ breadcrumbs, children, title, subtitle, actions }: ExplorerLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { signOut } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -69,6 +90,27 @@ export function ExplorerLayout({ breadcrumbs, children, title, subtitle, actions
             ))}
           </BreadcrumbList>
         </Breadcrumb>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-7 text-[11px] text-muted-foreground hover:text-foreground gap-1 shrink-0">
+              Tools
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {toolItems.map(item => (
+              <DropdownMenuItem
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                className={cn('gap-2 text-xs', location.pathname === item.path && 'bg-accent')}
+              >
+                <item.icon className="h-3.5 w-3.5" />
+                {item.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <div className="flex items-center gap-1.5 shrink-0">
           <GlobalSearch />
