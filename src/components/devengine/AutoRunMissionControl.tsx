@@ -98,6 +98,9 @@ interface ProjectData {
   pitchPremise?: string | null;
 }
 
+// Must stay in sync with APPROVAL_REQUIRED_STAGES in src/lib/pipeline-brain.ts
+const APPROVAL_REQUIRED_STAGES = new Set(['episode_grid', 'character_bible', 'season_arc', 'format_rules']);
+
 const SEED_DOC_TYPES = ['project_overview', 'creative_brief', 'market_positioning', 'canon', 'nec'];
 const SEED_LABELS: Record<string, string> = {
   project_overview: 'Overview', creative_brief: 'Brief', market_positioning: 'Market', canon: 'Canon', nec: 'NEC',
@@ -294,10 +297,7 @@ export function AutoRunMissionControl({
     return { present, missing, allPresent: missing.length === 0 };
   }, [existingDocTypes]);
 
-  // Stages that require an approved version (not just existence) to count as satisfied
-  const APPROVAL_REQUIRED_STAGES = useMemo(() => new Set([
-    'episode_grid', 'character_bible', 'season_arc', 'format_rules',
-  ]), []);
+  // approvedDocTypes: see APPROVAL_REQUIRED_STAGES at module top
 
   // Build set of doc_types that have an approved version
   const approvedDocTypes = useMemo(() => {
