@@ -120,6 +120,26 @@ serve(async (req) => {
             parts.push(`--- END STYLE BAND ---`);
           }
 
+          // Writing Voice injection
+          if (prefs.writing_voice?.id) {
+            const wv = prefs.writing_voice;
+            parts.push(`\n=== VOICE LOCK ===`);
+            parts.push(`Preset: ${wv.label} — ${wv.summary}`);
+            if (wv.knobs) {
+              const knobStr = Object.entries(wv.knobs).map(([k, v]) => `${k}=${v}`).join(', ');
+              parts.push(`Knobs: ${knobStr}`);
+            }
+            if (wv.constraints) {
+              const c = wv.constraints as any;
+              if (c.sentence_len_band) parts.push(`Sentence Length: ${c.sentence_len_band[0]}–${c.sentence_len_band[1]} words`);
+              if (c.dialogue_ratio_band) parts.push(`Dialogue Ratio: ${(c.dialogue_ratio_band[0]*100).toFixed(0)}–${(c.dialogue_ratio_band[1]*100).toFixed(0)}%`);
+              if (c.hook_frequency) parts.push(`Hook Frequency: ${c.hook_frequency}`);
+            }
+            if (wv.do?.length) parts.push(`DO: ${wv.do.join('; ')}`);
+            if (wv.dont?.length) parts.push(`DON'T: ${wv.dont.join('; ')}`);
+            parts.push(`=== END VOICE LOCK ===`);
+          }
+
           if (parts.length > 0) {
             nuanceBlock = `\n\n=== NUANCE PREFS (from project ruleset — weight these in tone/style) ===\n${parts.join('\n')}\n=== END NUANCE PREFS ===\n`;
           }

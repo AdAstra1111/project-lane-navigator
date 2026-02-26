@@ -29,6 +29,16 @@ export interface RulesetPrefs {
     rules: { do: string[]; dont: string[] };
     updated_at: string;
   };
+  writing_voice?: {
+    id: string;
+    label: string;
+    lane_group: string;
+    summary: string;
+    knobs: Record<string, number>;
+    constraints: Record<string, unknown>;
+    do: string[];
+    dont: string[];
+  };
 }
 
 const LS_KEY = (projectId: string, lane: string) =>

@@ -13,7 +13,9 @@ import { ConflictsPanel } from './ConflictsPanel';
 import { OverridesEditor } from './OverridesEditor';
 import { ResolvedRulesPreview } from './ResolvedRulesPreview';
 import { ActiveRulesetBadge } from './ActiveRulesetBadge';
+import { WritingVoiceSelector } from './WritingVoiceSelector';
 import { useProjectRuleset } from '@/hooks/useProjectRuleset';
+import type { WritingVoicePreset } from '@/lib/writingVoices/types';
 
 interface Props {
   projectId: string;
@@ -66,6 +68,17 @@ export function WorldRulesAccordion({ projectId, lane, userId, className }: Prop
               <span className="text-muted-foreground">Auto-diversify</span>
             </div>
           </div>
+
+          {/* Writing Voice */}
+          {!isLocked && (
+            <WritingVoiceSelector
+              lane={lane}
+              selectedVoiceId={prefs.writing_voice?.id}
+              onSelect={(voice: WritingVoicePreset) => {
+                savePrefs.mutate({ writing_voice: voice as any });
+              }}
+            />
+          )}
 
           {/* Comps Panel */}
           {!isLocked && (

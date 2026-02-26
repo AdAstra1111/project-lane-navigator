@@ -14,6 +14,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { CanonJson, CanonCharacter } from '@/hooks/useProjectCanon';
 import { saveProjectLaneRulesetPrefs, type RulesetPrefs } from '@/lib/rulesets/uiState';
 import { buildPrefsDraft } from '@/lib/pitch/devseedHelpers';
+import { getDefaultVoiceForLane } from '@/lib/writingVoices/select';
 
 interface Props {
   idea: PitchIdea | null;
@@ -369,6 +370,13 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         // 7. Optional: Apply lane prefs (merge-safe)
         if (applyPrefs) {
           const prefsDraft = buildPrefsDraft(devSeed, lane);
+          // Set default writing voice if not already present
+          if (!prefsDraft.writing_voice) {
+            const defaultVoice = getDefaultVoiceForLane(lane);
+            if (defaultVoice) {
+              (prefsDraft as any).writing_voice = defaultVoice;
+            }
+          }
           if (Object.keys(prefsDraft).length > 0) {
             await saveProjectLaneRulesetPrefs(project.id, lane, prefsDraft as RulesetPrefs, user.id);
           } else {
