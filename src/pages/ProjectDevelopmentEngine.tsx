@@ -1703,8 +1703,8 @@ export default function ProjectDevelopmentEngine() {
                     format={projectFormat}
                     existingDocs={(documents || []).map((d: any) => ({
                       docType: d.doc_type || 'idea',
-                      hasApproved: !!(approvedVersionMap as any)?.[d.doc_type],
-                      activeVersionId: (approvedVersionMap as any)?.[d.doc_type]?.id || null,
+                      hasApproved: !!(approvedVersionMap as any)?.[d.id],
+                      activeVersionId: (approvedVersionMap as any)?.[d.id] || null,
                     } as ExistingDoc))}
                     criteria={{
                       episodeCount: effectiveSeasonEpisodes ?? undefined,

@@ -13,21 +13,34 @@ import {
 } from "../_shared/styleDeviation.ts";
 
 // ── NEC (Narrative Energy Contract) Guardrail Loader ──
-const NEC_DEFAULT_GUARDRAIL = `\nNARRATIVE ENERGY CONTRACT (DEFAULT — no project NEC found):
+const NEC_MAX_CHARS = 3000;
+
+const NEC_DEFAULT_GUARDRAIL = `\nNEC_GUARDRAIL: source=default prefTier=2 maxTier=3
+NARRATIVE ENERGY CONTRACT (DEFAULT — no project NEC found):
 - Preferred Operating Tier: 2 (psychological/relational pressure, status games, moral dilemmas).
 - Absolute Maximum Tier: 3 (career-ending revelations, major betrayals, institutional collapse).
 - HARD RULES:
-  • Do NOT introduce events above Tier 3 (no assassinations, public catastrophes, mass violence, supernatural intervention) unless the source material already contains them.
-  • Do NOT add blackmail, public scandal, or life-threatening escalation unless explicitly present in the source.
-  • Prefer psychological and relational tension over spectacle.
+  • Do NOT introduce events above Tier 3.
+  • No assassinations, mass casualty events, catastrophic public scandal, "life-ruin" stakes, supernatural escalation, or blackmail unless the source material already contains them.
+  • No "major concert confession" or public-spectacle climaxes unless source material demands it.
+  • Prefer prestige pressure: intimate stakes, reputational friction, relational loss, psychological suspense.
   • Stay inside the tonal envelope established by the source material.`;
+
+// Regex accepts common NEC tier label variants
+const PREF_TIER_RE = /(?:preferred\s*(?:operating\s*)?tier)[:\s]*(\d)/i;
+const MAX_TIER_RE = /(?:(?:absolute\s*)?max(?:imum)?\s*tier)[:\s]*(\d)/i;
+
+function parseTier(match: RegExpMatchArray | null, fallback: number): number {
+  if (!match) return fallback;
+  const n = parseInt(match[1], 10);
+  return (n >= 1 && n <= 5) ? n : fallback;
+}
 
 async function loadNECGuardrailBlock(
   supabaseClient: any,
   projectId: string,
 ): Promise<string> {
   try {
-    // Find the NEC document for this project
     const { data: necDoc } = await supabaseClient
       .from('project_documents')
       .select('id')
@@ -39,7 +52,6 @@ async function loadNECGuardrailBlock(
 
     if (!necDoc) return NEC_DEFAULT_GUARDRAIL;
 
-    // Load current version text
     const { data: necVersion } = await supabaseClient
       .from('project_document_versions')
       .select('plaintext')
@@ -50,20 +62,19 @@ async function loadNECGuardrailBlock(
     const text = necVersion?.plaintext;
     if (!text || text.length < 20) return NEC_DEFAULT_GUARDRAIL;
 
-    // Extract tier info via simple regex
-    const prefTierMatch = text.match(/Preferred Operating Tier[:\s]*(\d)/i);
-    const maxTierMatch = text.match(/Absolute Maximum Tier[:\s]*(\d)/i);
-    const prefTier = prefTierMatch ? prefTierMatch[1] : '2';
-    const maxTier = maxTierMatch ? maxTierMatch[1] : '3';
+    const prefTier = parseTier(text.match(PREF_TIER_RE), 2);
+    const maxTier = parseTier(text.match(MAX_TIER_RE), 3);
 
-    return `\nNARRATIVE ENERGY CONTRACT (from project NEC — authoritative):
-${clampText(text, 3000)}
+    return `\nNEC_GUARDRAIL: source=nec doc_id=${necDoc.id} prefTier=${prefTier} maxTier=${maxTier}
+NARRATIVE ENERGY CONTRACT (from project NEC — AUTHORITATIVE, overrides all other stakes guidance):
+${clampText(text, NEC_MAX_CHARS)}
 
-HARD RULES (derived from NEC):
+HARD RULES (derived from NEC — non-negotiable):
 • Preferred Operating Tier: ${prefTier}. Absolute Maximum Tier: ${maxTier}.
-• Do NOT introduce events above Tier ${maxTier}. No assassinations, public catastrophes, mass violence, or supernatural intervention unless explicitly allowed by NEC.
-• Do NOT add blackmail, public scandal, or life-threatening escalation unless explicitly allowed by NEC.
-• Prefer psychological/relational tension over spectacle. Stay inside the tonal envelope.`;
+• Do NOT introduce events above Tier ${maxTier}. No assassinations, mass casualty events, catastrophic public scandal, "life-ruin" stakes, supernatural escalation, or blackmail unless NEC explicitly allows.
+• No "major concert confession" or public-spectacle climaxes unless NEC explicitly calls for public spectacle.
+• Prefer prestige pressure: intimate stakes, reputational friction, relational loss, psychological suspense over spectacle.
+• Stay inside the tonal envelope. Do NOT escalate beyond what the source material establishes.`;
   } catch (e) {
     console.warn('[dev-engine-v2] NEC load failed, using default guardrail:', e);
     return NEC_DEFAULT_GUARDRAIL;
