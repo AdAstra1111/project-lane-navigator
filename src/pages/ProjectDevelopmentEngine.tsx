@@ -200,7 +200,7 @@ export default function ProjectDevelopmentEngine() {
   const effectiveEpisodeDurationMin = episodeDurationMin ?? (project as any)?.episode_target_duration_min_seconds ?? project?.episode_target_duration_seconds ?? defaultDur;
   const effectiveEpisodeDurationMax = episodeDurationMax ?? (project as any)?.episode_target_duration_max_seconds ?? project?.episode_target_duration_seconds ?? defaultDur;
   const formatDefaultEpisodes = FORMAT_DEFAULTS[normalizedFormat]?.season_episode_count;
-  const effectiveSeasonEpisodes = seasonEpisodes ?? (project as any)?.season_episode_count ?? formatDefaultEpisodes ?? 0;
+  const effectiveSeasonEpisodes: number | null = seasonEpisodes ?? (project as any)?.season_episode_count ?? formatDefaultEpisodes ?? null;
   const [softGateOpen, setSoftGateOpen] = useState(false);
   const [pendingStageAction, setPendingStageAction] = useState<(() => void) | null>(null);
   const [driftOverrideOpen, setDriftOverrideOpen] = useState(false);
@@ -383,7 +383,7 @@ export default function ProjectDevelopmentEngine() {
 
   // Detect episode count conflicts in upstream artifacts
   const artifactConflicts = useMemo(() => {
-    if (!isSeriesFormat || !project) return [];
+    if (!isSeriesFormat || !project || effectiveSeasonEpisodes == null) return [];
     const canonicalCount = effectiveSeasonEpisodes;
     const conflicts: Array<{ artifactName: string; artifactEpisodeCount: number; canonicalEpisodeCount: number }> = [];
 
@@ -532,7 +532,7 @@ export default function ProjectDevelopmentEngine() {
       highImpactTexts: highImpact,
       projectFormat,
       existingDocTypes: documents.map((d: any) => d.doc_type),
-      seasonEpisodeCount: effectiveSeasonEpisodes,
+      seasonEpisodeCount: effectiveSeasonEpisodes ?? undefined,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestAnalysis, latestNotes, documents]);
@@ -1174,7 +1174,7 @@ export default function ProjectDevelopmentEngine() {
                       docType={selectedDoc?.doc_type || 'document'}
                       oldHash={(selectedVersion as any).depends_on_resolver_hash || ''}
                       currentHash={currentResolverHash}
-                      seasonEpisodeCount={resolvedQuals?.season_episode_count || effectiveSeasonEpisodes}
+                      seasonEpisodeCount={resolvedQuals?.season_episode_count || effectiveSeasonEpisodes || undefined}
                       onRegenerate={handleRunEngine}
                       isRegenerating={analyze.isPending}
                     />
@@ -1226,8 +1226,8 @@ export default function ProjectDevelopmentEngine() {
                     verticalDramaGating={verticalDramaGating}
                     isVerticalDrama={isVerticalDrama}
                     currentDocType={selectedDoc?.doc_type}
-                    seasonEpisodeCount={effectiveSeasonEpisodes}
-                    onBeatSheetToScript={(epNum) => beatSheetToScript.mutate({ episodeNumber: epNum, seasonEpisodeCount: effectiveSeasonEpisodes })}
+                    seasonEpisodeCount={effectiveSeasonEpisodes ?? undefined}
+                    onBeatSheetToScript={(epNum) => beatSheetToScript.mutate({ episodeNumber: epNum, seasonEpisodeCount: effectiveSeasonEpisodes ?? undefined })}
                     beatSheetToScriptPending={beatSheetToScript.isPending}
                     nextAction={promotionIntel.data?.next_action}
                     onApproveVersion={selectedVersionId ? handleApproveVersion : undefined}
@@ -1692,10 +1692,10 @@ export default function ProjectDevelopmentEngine() {
                       activeVersionId: (approvedVersionMap as any)?.[d.doc_type]?.id || null,
                     } as ExistingDoc))}
                     criteria={{
-                      episodeCount: effectiveSeasonEpisodes,
+                      episodeCount: effectiveSeasonEpisodes ?? undefined,
                       episodeLengthMin: effectiveEpisodeDurationMin,
                       episodeLengthMax: effectiveEpisodeDurationMax,
-                      seasonEpisodeCount: effectiveSeasonEpisodes,
+                      seasonEpisodeCount: effectiveSeasonEpisodes ?? undefined,
                     }}
                     deferredNoteCount={deferred.deferredNotes.filter(n => n.status === 'deferred').length}
                     onNavigateToStage={(docType) => {
