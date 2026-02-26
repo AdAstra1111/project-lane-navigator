@@ -208,6 +208,12 @@ export function DecisionPanel({
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
   const [customDirections, setCustomDirections] = useState<Record<string, string>>({});
   const [isApplying, setIsApplying] = useState(false);
+
+  // Refs to avoid stale closures in async apply handler
+  const selectedOptionsRef = useRef(selectedOptions);
+  useEffect(() => { selectedOptionsRef.current = selectedOptions; }, [selectedOptions]);
+  const customDirectionsRef = useRef(customDirections);
+  useEffect(() => { customDirectionsRef.current = customDirections; }, [customDirections]);
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
   const [continueVersionId, setContinueVersionId] = useState<string>(versionId || 'latest');
 
@@ -267,23 +273,31 @@ export function DecisionPanel({
   const selectedCount = Object.values(selectedOptions).filter(Boolean).length;
 
   const applyingRef = useRef(false);
+  const applyTokenRef = useRef(0);
   const handleApplyDecisions = useCallback(async () => {
     if (!allBlockersCovered) return;
-    if (applyingRef.current) return; // prevent duplicate calls
+    if (applyingRef.current) return;
     applyingRef.current = true;
+    const token = ++applyTokenRef.current;
     setIsApplying(true);
     try {
-      const opts = Object.entries(selectedOptions)
+      // Read from refs to avoid stale closure
+      const currentSelections = selectedOptionsRef.current;
+      const currentCustom = customDirectionsRef.current;
+      const opts = Object.entries(currentSelections)
         .filter(([, optId]) => !!optId)
         .map(([noteId, optionId]) => ({
           note_id: noteId,
           option_id: optionId,
-          custom_direction: customDirections[noteId] || undefined,
+          custom_direction: currentCustom[noteId] || undefined,
         }));
       const gd = globalDirections.map(d => d.direction);
 
+      if (import.meta.env.DEV) {
+        console.debug('[DecisionPanel] apply token=%d selections=%o', token, currentSelections);
+      }
+
       if (jobId) {
-        // Auto-run mode: apply decisions and continue
         await callAutoRun('apply-decisions-and-continue', {
           jobId,
           selectedOptions: opts,
@@ -291,7 +305,6 @@ export function DecisionPanel({
         });
         onAutoRunContinue?.();
       } else {
-        // Manual mode: call rewrite directly
         if (!documentId || !versionId) return;
         await callDevEngine('rewrite', {
           projectId,
@@ -310,7 +323,7 @@ export function DecisionPanel({
       setIsApplying(false);
       applyingRef.current = false;
     }
-  }, [allBlockersCovered, selectedOptions, customDirections, globalDirections, jobId, documentId, versionId, continueVersionId, projectId, onAutoRunContinue, onRewriteComplete]);
+  }, [allBlockersCovered, globalDirections, jobId, documentId, versionId, continueVersionId, projectId, onAutoRunContinue, onRewriteComplete]);
 
   const loading = isGeneratingOptions || isLoadingOptions;
 
