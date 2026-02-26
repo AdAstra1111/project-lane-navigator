@@ -41,6 +41,7 @@ import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, getDeliverableLabel, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
 import { isSeriesFormat as checkSeriesFormat } from '@/lib/format-helpers';
+import { FORMAT_DEFAULTS } from '@/lib/qualifications/resolveQualifications';
 import { DeliverablePipeline, type PipelineStageStatus } from '@/components/DeliverablePipeline';
 import { StagePlanPanel } from '@/components/stages/StagePlanPanel';
 
@@ -197,7 +198,8 @@ export default function ProjectDevelopmentEngine() {
   const defaultDur = isVerticalDrama ? 60 : 120;
   const effectiveEpisodeDurationMin = episodeDurationMin ?? (project as any)?.episode_target_duration_min_seconds ?? project?.episode_target_duration_seconds ?? defaultDur;
   const effectiveEpisodeDurationMax = episodeDurationMax ?? (project as any)?.episode_target_duration_max_seconds ?? project?.episode_target_duration_seconds ?? defaultDur;
-  const effectiveSeasonEpisodes = seasonEpisodes ?? (project as any)?.season_episode_count ?? 8;
+  const formatDefaultEpisodes = FORMAT_DEFAULTS[normalizedFormat]?.season_episode_count;
+  const effectiveSeasonEpisodes = seasonEpisodes ?? (project as any)?.season_episode_count ?? formatDefaultEpisodes ?? 8;
   const [softGateOpen, setSoftGateOpen] = useState(false);
   const [pendingStageAction, setPendingStageAction] = useState<(() => void) | null>(null);
   const [driftOverrideOpen, setDriftOverrideOpen] = useState(false);
