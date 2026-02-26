@@ -203,8 +203,7 @@ serve(async (req) => {
         .from("project_documents")
         .select("id")
         .eq("project_id", projectId)
-        .eq("ingestion_source", "seed")
-        .eq("title", necCfg.title)
+        .eq("doc_type", necCfg.doc_type)
         .limit(1);
 
       let documentId: string;
@@ -412,8 +411,7 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
         .from("project_documents")
         .select("id")
         .eq("project_id", projectId)
-        .eq("ingestion_source", "seed")
-        .eq("title", cfg.title)
+        .eq("doc_type", cfg.doc_type)
         .limit(1);
 
       let documentId: string;
