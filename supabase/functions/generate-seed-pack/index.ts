@@ -171,7 +171,10 @@ serve(async (req) => {
     const generatedAt = new Date().toISOString();
 
     // ── commitOnly path: only upsert NEC doc, no LLM call ──
-    if (commitOnly && necOverride) {
+    if (commitOnly) {
+      if (!necOverride || !necOverride.trim()) {
+        return jsonRes({ error: "necOverride is required for commitOnly" }, 400);
+      }
       const necCfg = SEED_DOC_CONFIGS.find(c => c.key === "narrative_energy_contract")!;
       const provenance = { lane, targetPlatform: targetPlatform ?? null, seed_snapshot_id: seedSnapshotId, generated_at: generatedAt };
 
