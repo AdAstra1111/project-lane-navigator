@@ -39,6 +39,12 @@ export interface RulesetPrefs {
     do: string[];
     dont: string[];
   };
+  team_voice?: {
+    id: string;
+    label: string;
+    description?: string;
+    updated_at?: string;
+  };
 }
 
 const LS_KEY = (projectId: string, lane: string) =>

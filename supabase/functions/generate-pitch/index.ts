@@ -140,6 +140,41 @@ serve(async (req) => {
             parts.push(`=== END VOICE LOCK ===`);
           }
 
+          // Team Voice injection (higher priority than Writing Voice)
+          if (prefs.team_voice?.id) {
+            try {
+              const { data: tv } = await supa.from("team_voices")
+                .select("label, profile_json")
+                .eq("id", prefs.team_voice.id)
+                .single();
+              if (tv?.profile_json) {
+                const p = tv.profile_json as any;
+                const tvParts: string[] = [];
+                tvParts.push(`\n=== TEAM VOICE (Paradox House) ===`);
+                tvParts.push(`Label: ${tv.label}`);
+                if (p.summary) tvParts.push(`Summary: ${p.summary}`);
+                if (p.knobs) {
+                  const knobStr = Object.entries(p.knobs)
+                    .filter(([_, v]) => v != null)
+                    .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('-') : v}`)
+                    .join(', ');
+                  tvParts.push(`Knobs: ${knobStr}`);
+                }
+                if (p.do?.length) tvParts.push(`DO: ${p.do.join('; ')}`);
+                if (p.dont?.length) tvParts.push(`DON'T: ${p.dont.join('; ')}`);
+                if (p.signature_moves?.length) tvParts.push(`Signature Moves: ${p.signature_moves.join('; ')}`);
+                if (p.banned_moves?.length) tvParts.push(`Banned Moves: ${p.banned_moves.join('; ')}`);
+                tvParts.push(`=== END TEAM VOICE ===`);
+                if (prefs.writing_voice?.id) {
+                  tvParts.push(`Note: Team Voice has priority over generic Writing Voice preset if conflict.`);
+                }
+                parts.push(...tvParts);
+              }
+            } catch (e) {
+              console.warn("[generate-pitch] Team voice fetch failed (non-fatal):", e);
+            }
+          }
+
           if (parts.length > 0) {
             nuanceBlock = `\n\n=== NUANCE PREFS (from project ruleset — weight these in tone/style) ===\n${parts.join('\n')}\n=== END NUANCE PREFS ===\n`;
           }
