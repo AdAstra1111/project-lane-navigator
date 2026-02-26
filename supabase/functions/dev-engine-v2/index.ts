@@ -66,7 +66,10 @@ async function loadNECGuardrailBlock(
       .maybeSingle();
 
     const text = necVersion?.plaintext;
-    if (!text || text.length < 20) return NEC_DEFAULT_GUARDRAIL;
+    if (!text || text.length < 20) {
+      console.log(`[dev-engine-v2] NEC_GUARDRAIL: source=default doc_id=${necDoc.id} prefTier=2 maxTier=3 (text too short)`);
+      return NEC_DEFAULT_GUARDRAIL;
+    }
 
     const prefTier = parseTier(text.match(PREF_TIER_RE), 2);
     const maxTier = parseTier(text.match(MAX_TIER_RE), 3);
