@@ -256,6 +256,38 @@ function extractFromPlainText(rawText: string): ExtractionResult {
   };
 }
 
+// ── Ensure v1 version exists for a document (idempotent) ──
+async function ensureV1VersionExists(
+  supabaseAdmin: any,
+  documentId: string,
+  plaintext: string,
+  userId: string | null
+) {
+  const { data: existing, error: existErr } = await supabaseAdmin
+    .from('project_document_versions')
+    .select('id')
+    .eq('document_id', documentId)
+    .limit(1);
+
+  if (existErr) throw existErr;
+  if (existing && existing.length > 0) return; // already has versions
+
+  const { error: insErr } = await supabaseAdmin
+    .from('project_document_versions')
+    .insert({
+      document_id: documentId,
+      version_number: 1,
+      plaintext: plaintext ?? '',
+      is_current: true,
+      status: 'active',
+      label: 'v1',
+      created_by: userId ?? null,
+      approval_status: 'draft',
+    });
+
+  if (insErr) throw insErr;
+}
+
 async function extractTextFromFile(data: Blob, fileName: string): Promise<ExtractionResult> {
   const ext = fileName.split(".").pop()?.toLowerCase();
 
@@ -435,21 +467,34 @@ serve(async (req) => {
         doc_type: docType,
       };
 
+      let resolvedDocId: string | null = null;
+
       if (existing) {
         const { error: updateErr } = await adminClient
           .from("project_documents")
           .update(docRecord)
           .eq("id", existing.id);
         if (updateErr) console.error("Failed to update document record:", updateErr);
+        resolvedDocId = existing.id;
       } else {
-        const { error: docError } = await adminClient.from("project_documents").insert({
+        const { data: inserted, error: docError } = await adminClient.from("project_documents").insert({
           project_id: projectId,
           user_id: user.id,
           file_name: doc.file_name,
           file_path: doc.file_path,
           ...docRecord,
-        });
+        }).select("id").single();
         if (docError) console.error("Failed to save document record:", docError);
+        resolvedDocId = inserted?.id ?? null;
+      }
+
+      // Ensure v1 version exists (idempotent — skips if any version already present)
+      if (resolvedDocId && doc.extracted_text) {
+        try {
+          await ensureV1VersionExists(adminClient, resolvedDocId, doc.extracted_text, user.id);
+        } catch (v1Err: any) {
+          console.warn("ensureV1VersionExists failed (non-fatal):", v1Err?.message);
+        }
       }
     }
 
