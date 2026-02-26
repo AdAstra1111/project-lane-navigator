@@ -103,20 +103,30 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
   const [includeSeries, setIncludeSeries] = useState(true);
   const [includeVertical, setIncludeVertical] = useState(isVertical);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const userChangedRef = React.useRef(false);
 
   // Load persisted comps prefs on mount
   useEffect(() => {
+    userChangedRef.current = false;
     loadProjectLaneRulesetPrefs(projectId, lane).then(prefs => {
       if (prefs.comps) {
         if (typeof prefs.comps.include_films === 'boolean') setIncludeFilms(prefs.comps.include_films);
         if (typeof prefs.comps.include_series === 'boolean') setIncludeSeries(prefs.comps.include_series);
         if (typeof prefs.comps.include_vertical === 'boolean') setIncludeVertical(prefs.comps.include_vertical);
       }
-      setPrefsLoaded(true);
+      // Allow a tick for state to flush before enabling persistence
+      setTimeout(() => {
+        setPrefsLoaded(true);
+      }, 0);
     });
   }, [projectId, lane]);
 
-  // Persist comps prefs when toggles change (after initial load)
+  // Wrap setters to track user-initiated changes
+  const handleSetIncludeFilms = useCallback((v: boolean) => { userChangedRef.current = true; setIncludeFilms(v); }, []);
+  const handleSetIncludeSeries = useCallback((v: boolean) => { userChangedRef.current = true; setIncludeSeries(v); }, []);
+  const handleSetIncludeVertical = useCallback((v: boolean) => { userChangedRef.current = true; setIncludeVertical(v); }, []);
+
+  // Persist comps prefs when toggles change (only after user interaction)
   const persistCompsPrefs = useCallback(async (films: boolean, series: boolean, vertical: boolean) => {
     if (!user?.id) return;
     const prefs = await loadProjectLaneRulesetPrefs(projectId, lane);
@@ -127,7 +137,7 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
   }, [projectId, lane, user?.id]);
 
   useEffect(() => {
-    if (prefsLoaded) {
+    if (prefsLoaded && userChangedRef.current) {
       persistCompsPrefs(includeFilms, includeSeries, includeVertical);
     }
   }, [includeFilms, includeSeries, includeVertical, prefsLoaded, persistCompsPrefs]);
@@ -234,7 +244,7 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
         `"${match.title}" is a film, but films are currently excluded.\n\nEnable "Include films" to add this comp?`
       );
       if (!enable) return;
-      setIncludeFilms(true);
+      handleSetIncludeFilms(true);
     }
 
     try {
@@ -463,15 +473,15 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
             <div className="flex items-center gap-4 text-[10px] bg-muted/30 rounded-md p-2">
               <span className="text-muted-foreground font-medium shrink-0">Format filters:</span>
               <div className="flex items-center gap-1.5">
-                <Switch checked={includeVertical} onCheckedChange={setIncludeVertical} className="scale-75" />
+                <Switch checked={includeVertical} onCheckedChange={handleSetIncludeVertical} className="scale-75" />
                 <span className="text-muted-foreground">Vertical</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <Switch checked={includeSeries} onCheckedChange={setIncludeSeries} className="scale-75" />
+                <Switch checked={includeSeries} onCheckedChange={handleSetIncludeSeries} className="scale-75" />
                 <span className="text-muted-foreground">Series</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <Switch checked={includeFilms} onCheckedChange={setIncludeFilms} className="scale-75" />
+                <Switch checked={includeFilms} onCheckedChange={handleSetIncludeFilms} className="scale-75" />
                 <span className="text-muted-foreground">Films</span>
               </div>
             </div>
