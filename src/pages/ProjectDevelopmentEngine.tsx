@@ -754,7 +754,10 @@ export default function ProjectDevelopmentEngine() {
       setDriftOverrideOpen(true);
       return;
     }
-    const nextBestDocument = latestAnalysis?.convergence?.next_best_document;
+    // Use Pipeline Brain via promotionIntel (respects locked/approved docs) instead of stale LLM output
+    const promoteTarget = promotionIntel.data?.next_document;
+    const fallbackTarget = latestAnalysis?.convergence?.next_best_document;
+    const nextBestDocument = promoteTarget || fallbackTarget;
     if (nextBestDocument) {
       setSelectedDeliverableType(nextBestDocument as DeliverableType);
       convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
@@ -766,11 +769,12 @@ export default function ProjectDevelopmentEngine() {
       toast.error('Select a version before promoting');
       return;
     }
-    const nextBestDocument = latestAnalysis?.convergence?.next_best_document;
+    // Use Pipeline Brain via promotionIntel (respects locked/approved docs) instead of stale LLM output
+    const skipTarget = promotionIntel.data?.next_document || latestAnalysis?.convergence?.next_best_document;
     setPendingStageAction(() => () => {
-      if (nextBestDocument) {
-        setSelectedDeliverableType(nextBestDocument as DeliverableType);
-        convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
+      if (skipTarget) {
+        setSelectedDeliverableType(skipTarget as DeliverableType);
+        convert.mutate({ targetOutput: skipTarget.toUpperCase(), protectItems: latestAnalysis?.protect });
       }
     });
     setSoftGateOpen(true);
