@@ -13,12 +13,11 @@ export function usePipelineState(projectId: string | undefined) {
   const { project, isLoading: projectLoading } = useProject(projectId);
   const { documents, isLoading: docsLoading } = useProjectDocuments(projectId);
 
-  // Fetch approved version map: document_id → version_id
+  const docIds = useMemo(() => (documents || []).map(d => d.id), [documents]);
   const { data: approvedDocIds = new Set<string>(), isLoading: approvalsLoading } = useQuery({
-    queryKey: ['pipeline-approved', projectId],
+    queryKey: ['pipeline-approved', projectId, docIds],
     queryFn: async () => {
-      if (!projectId || !documents || documents.length === 0) return new Set<string>();
-      const docIds = documents.map(d => d.id);
+      if (!projectId || docIds.length === 0) return new Set<string>();
       const { data, error } = await (supabase as any)
         .from('project_document_versions')
         .select('document_id')
@@ -27,7 +26,7 @@ export function usePipelineState(projectId: string | undefined) {
       if (error) throw error;
       return new Set<string>((data || []).map((v: any) => v.document_id));
     },
-    enabled: !!projectId && !!documents && documents.length > 0,
+    enabled: !!projectId && docIds.length > 0,
   });
 
   const pipelineState = useMemo<PipelineState | null>(() => {
