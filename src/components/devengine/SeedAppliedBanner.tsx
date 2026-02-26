@@ -3,6 +3,7 @@ import { X, Sprout, FileText, Users, BarChart3, Settings2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 import { saveProjectLaneRulesetPrefs, type RulesetPrefs } from '@/lib/rulesets/uiState';
 import { buildPrefsDraft } from '@/lib/pitch/devseedHelpers';
 
@@ -57,13 +58,22 @@ export function SeedAppliedBanner({
   const handleApplyPrefs = async () => {
     setApplyingPrefs(true);
     try {
-      // We need the original devSeed to build prefs — reconstruct from seedDraft provenance
-      // seedDraft itself may contain nuance_contract-derived fields but we stored canon fields.
-      // The safest approach: if seedDraft has restraint/conflict info in its shape, use it.
-      // Otherwise show a message.
-      const prefsDraft = buildPrefsDraft(seedDraft);
+      if (!seedDraft.concept_expansion_id) {
+        toast.info('Seed provenance missing expansion id');
+        return;
+      }
+      const { data: exp } = await supabase
+        .from('concept_expansions')
+        .select('raw_response')
+        .eq('id', seedDraft.concept_expansion_id)
+        .maybeSingle();
+      if (!exp?.raw_response) {
+        toast.error('DevSeed expansion not found');
+        return;
+      }
+      const prefsDraft = buildPrefsDraft(exp.raw_response);
       if (Object.keys(prefsDraft).length === 0) {
-        toast.info('No prefs suggestions available in seed');
+        toast.info('No prefs suggestions in seed');
         return;
       }
       await saveProjectLaneRulesetPrefs(projectId, lane, prefsDraft as RulesetPrefs, userId);
