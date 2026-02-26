@@ -112,7 +112,9 @@ interface AutoRunMissionControlProps {
   error: string | null;
   activated: boolean;
   onActivate: () => void;
-  onStart: (mode: string, startDoc: string) => void;
+  onStart: (mode: string, startDoc: string, targetDoc?: string) => void;
+  /** Map of document_id -> approved_version_id, used for pipeline progress */
+  approvedVersionMap?: Record<string, string>;
   onPause: () => void;
   onResume: (followLatest?: boolean) => void;
   onSetResumeSource: (documentId: string, versionId: string) => Promise<void>;
@@ -236,7 +238,7 @@ export function AutoRunMissionControl({
   onSaveStorySetup, onSaveQualifications, onSaveLaneBudget, onSaveGuardrails,
   fetchDocumentText,
   latestAnalysis, currentDocText, currentDocMeta,
-  availableDocuments, project,
+  availableDocuments, project, approvedVersionMap = {},
 }: AutoRunMissionControlProps) {
   const navigate = useNavigate();
   const [mode, setMode] = useState('balanced');
@@ -292,14 +294,36 @@ export function AutoRunMissionControl({
     return { present, missing, allPresent: missing.length === 0 };
   }, [existingDocTypes]);
 
+  // Stages that require an approved version (not just existence) to count as satisfied
+  const APPROVAL_REQUIRED_STAGES = useMemo(() => new Set([
+    'episode_grid', 'character_bible', 'season_arc', 'format_rules',
+  ]), []);
+
+  // Build set of doc_types that have an approved version
+  const approvedDocTypes = useMemo(() => {
+    const set = new Set<string>();
+    if (!availableDocuments) return set;
+    for (const doc of availableDocuments) {
+      if (approvedVersionMap[doc.id]) {
+        set.add(doc.doc_type);
+      }
+    }
+    return set;
+  }, [availableDocuments, approvedVersionMap]);
+
   const pipelineProgress = useMemo(() => {
-    const satisfied = ladder.filter(stage => existingDocTypes.has(stage));
-    return { satisfied: satisfied.length, total: ladder.length, stages: ladder, existingDocTypes };
-  }, [ladder, existingDocTypes]);
+    const satisfied = ladder.filter(stage => {
+      if (!existingDocTypes.has(stage)) return false;
+      // For approval-required stages, must also have an approved version
+      if (APPROVAL_REQUIRED_STAGES.has(stage)) return approvedDocTypes.has(stage);
+      return true;
+    });
+    return { satisfied: satisfied.length, total: ladder.length, stages: ladder, existingDocTypes, approvedDocTypes };
+  }, [ladder, existingDocTypes, approvedDocTypes, APPROVAL_REQUIRED_STAGES]);
 
   const handlePerfectPackage = useCallback(() => {
-    onSaveStorySetup(storySetup).then(() => onStart(mode, startDocument));
-  }, [storySetup, mode, startDocument, onSaveStorySetup, onStart]);
+    onSaveStorySetup(storySetup).then(() => onStart(mode, startDocument, finalStage));
+  }, [storySetup, mode, startDocument, finalStage, onSaveStorySetup, onStart]);
 
   const [projectPreFilled, setProjectPreFilled] = useState(false);
   useEffect(() => {

@@ -117,7 +117,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
 
   const activate = useCallback(() => setActivated(true), []);
 
-  const start = useCallback(async (mode: string, startDocument: string) => {
+  const start = useCallback(async (mode: string, startDocument: string, targetDocument?: string) => {
     if (!projectId) return;
     setActivated(true);
     setError(null);
@@ -126,7 +126,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     const MODE_STEPS: Record<string, number> = { fast: 8, balanced: 12, premium: 18 };
     try {
       const result = await callAutoRun('start', {
-        projectId, mode, start_document: mappedStart, target_document: 'production_draft',
+        projectId, mode, start_document: mappedStart, target_document: targetDocument || 'production_draft',
         max_total_steps: MODE_STEPS[mode] || 12,
       });
       setJob(result.job);
