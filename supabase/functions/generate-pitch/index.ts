@@ -380,10 +380,16 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
 
     // Handle gateway 200-with-error-body (e.g. provider timeout 524)
     if (result.error) {
-      const errMsg = result.error?.message || "AI provider error";
-      const errCode = result.error?.code || 500;
-      console.error("AI gateway error (200 body):", errCode, errMsg);
-      throw new Error(`AI generation failed: ${errMsg}`);
+      const errCode = result.error?.code || 0;
+      console.error("AI gateway error (200 body):", JSON.stringify(result.error));
+      const normalized =
+        errCode === 524 ? "AI provider timed out. Please retry." :
+        errCode === 429 ? "Rate limited — please try again later." :
+        errCode === 402 ? "Payment required — please add credits." :
+        "AI generation failed.";
+      return new Response(JSON.stringify({ error: normalized }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const msg = result.choices?.[0]?.message;
