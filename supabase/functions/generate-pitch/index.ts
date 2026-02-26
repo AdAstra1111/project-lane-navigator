@@ -10,7 +10,11 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { productionType, genre, subgenre, budgetBand, region, platformTarget, audienceDemo, riskLevel, count, coverageContext, feedbackContext, briefNotes, projectId, skipSignals } = await req.json();
+    const {
+      productionType, genre, subgenre, budgetBand, region, platformTarget,
+      audienceDemo, riskLevel, count, coverageContext, feedbackContext,
+      briefNotes, projectId, skipSignals, hardCriteria,
+    } = await req.json();
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
@@ -19,6 +23,8 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const typeLabel = productionType || "film";
+    const batchSize = Math.min(count || 10, 15);
+
     const coverageSection = coverageContext
       ? `\n\nEXISTING COVERAGE CONTEXT (generate pivot pitches based on this):\n${coverageContext}`
       : "";
@@ -29,6 +35,22 @@ serve(async (req) => {
 
     const notesSection = briefNotes ? `\n\nADDITIONAL BRIEF NOTES FROM PRODUCER:\n${briefNotes}` : "";
 
+    // ── Hard Criteria block ──
+    let hardCriteriaBlock = "";
+    if (hardCriteria) {
+      const parts: string[] = [];
+      if (hardCriteria.culturalTag) parts.push(`Cultural/Style Tag: ${hardCriteria.culturalTag} — ALL concepts MUST reflect this aesthetic, cultural sensibility, and storytelling tradition.`);
+      if (hardCriteria.lane) parts.push(`Monetisation Lane: ${hardCriteria.lane} — concepts MUST be viable in this lane.`);
+      if (hardCriteria.rating) parts.push(`Rating: ${hardCriteria.rating} — content MUST be appropriate for this rating.`);
+      if (hardCriteria.epLength) parts.push(`Episode Length: ${hardCriteria.epLength} minutes per episode.`);
+      if (hardCriteria.epCount) parts.push(`Episode Count: ${hardCriteria.epCount} episodes.`);
+      if (hardCriteria.mustHaveTropes?.length > 0) parts.push(`MUST INCLUDE these tropes/themes: ${hardCriteria.mustHaveTropes.join(', ')}. Every concept MUST incorporate at least one.`);
+      if (hardCriteria.avoidTropes?.length > 0) parts.push(`MUST AVOID these tropes/themes: ${hardCriteria.avoidTropes.join(', ')}. NO concept may use any of these.`);
+      if (parts.length > 0) {
+        hardCriteriaBlock = `\n\n=== HARD CRITERIA (NON-NEGOTIABLE — reject any concept that violates these) ===\n${parts.join('\n')}\n=== END HARD CRITERIA ===\n`;
+      }
+    }
+
     // ── Signal context injection ──
     let signalBlock = "";
     let signalsUsedIds: string[] = [];
@@ -36,18 +58,68 @@ serve(async (req) => {
     let signalsApplied = false;
     let signalsRationale = "no projectId";
 
+    // ── Nuance / Drift context ──
+    let nuanceBlock = "";
+    let driftBlock = "";
+
     if (projectId) {
+      const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+      const supa = createClient(supabaseUrl, supabaseKey);
+
+      // Fetch project settings + lane
+      const { data: proj } = await supa.from("projects")
+        .select("assigned_lane, signals_influence, signals_apply, production_format")
+        .eq("id", projectId).single();
+
+      const lane = proj?.assigned_lane || "independent-film";
+
+      // Fetch project_lane_prefs for nuance context
+      try {
+        const { data: prefsRow } = await supa.from("project_lane_prefs")
+          .select("prefs")
+          .eq("project_id", projectId)
+          .eq("lane", lane)
+          .maybeSingle();
+
+        if (prefsRow?.prefs) {
+          const prefs = prefsRow.prefs as any;
+          const parts: string[] = [];
+          if (prefs.style_benchmark) parts.push(`Style Benchmark: ${prefs.style_benchmark}`);
+          if (prefs.pacing_feel) parts.push(`Pacing Feel: ${prefs.pacing_feel}`);
+          if (prefs.last_ui?.restraint !== undefined) parts.push(`Restraint Level: ${prefs.last_ui.restraint}/10`);
+          if (prefs.last_ui?.conflict_mode) parts.push(`Conflict Mode: ${prefs.last_ui.conflict_mode}`);
+          if (prefs.last_ui?.story_engine) parts.push(`Story Engine: ${prefs.last_ui.story_engine}`);
+          if (parts.length > 0) {
+            nuanceBlock = `\n\n=== NUANCE PREFS (from project ruleset — weight these in tone/style) ===\n${parts.join('\n')}\n=== END NUANCE PREFS ===\n`;
+          }
+        }
+      } catch (e) {
+        console.warn("[generate-pitch] Nuance prefs fetch failed (non-fatal):", e);
+      }
+
+      // Fetch latest drift metrics
+      try {
+        const { data: driftRuns } = await supa.from("cinematic_quality_runs")
+          .select("metrics_json, final_score, final_pass, created_at")
+          .eq("project_id", projectId)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (driftRuns?.[0]) {
+          const d = driftRuns[0];
+          driftBlock = `\n\n=== CREATIVE DRIFT (latest quality metrics — use to avoid drift patterns) ===\nLast Score: ${d.final_score}/100 (${d.final_pass ? 'PASS' : 'FAIL'})\nMetrics: ${JSON.stringify(d.metrics_json)}\n=== END DRIFT ===\n`;
+        }
+      } catch (e) {
+        console.warn("[generate-pitch] Drift fetch failed (non-fatal):", e);
+      }
+
+      // Signal context
       if (skipSignals) {
         signalsRationale = "skipSignals";
       } else {
         try {
-          const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-          const supa = createClient(supabaseUrl, supabaseKey);
-          const { data: projSettings } = await supa.from("projects")
-            .select("signals_influence, signals_apply")
-            .eq("id", projectId).single();
-          signalInfluence = (projSettings as any)?.signals_influence ?? 0.5;
-          const applyConfig = (projSettings as any)?.signals_apply ?? { pitch: true };
+          signalInfluence = proj?.signals_influence ?? 0.5;
+          const applyConfig = proj?.signals_apply ?? { pitch: true };
           if (!applyConfig.pitch) {
             signalsRationale = "signals_apply.pitch=false";
           } else {
@@ -64,13 +136,9 @@ serve(async (req) => {
               const inf = signalInfluence ?? 0.5;
               const influenceLabel = inf >= 0.65 ? "HIGH" : inf >= 0.35 ? "MODERATE" : "LOW";
               let influenceRule = "";
-              if (inf >= 0.65) {
-                influenceRule = "Signals may shape logline framing, comps, buyer angle, AND format mechanics.";
-              } else if (inf >= 0.35) {
-                influenceRule = "Signals should shape comps and buyer positioning ONLY. Do not alter logline or format.";
-              } else {
-                influenceRule = "Signals add risk flags and optional comps ONLY. Do not alter core pitch.";
-              }
+              if (inf >= 0.65) influenceRule = "Signals may shape logline framing, comps, buyer angle, AND format mechanics.";
+              else if (inf >= 0.35) influenceRule = "Signals should shape comps and buyer positioning ONLY.";
+              else influenceRule = "Signals add risk flags and optional comps ONLY.";
               const lines = matches.map((m: any, i: number) => {
                 const c = m.cluster;
                 return `${i+1}. ${c?.name || "Signal"} [${c?.category || ""}] — strength ${c?.strength || 0}/10, ${c?.velocity || "Stable"}, saturation ${c?.saturation_risk || "Low"}\n   ${c?.explanation || ""}`;
@@ -89,40 +157,35 @@ serve(async (req) => {
 
     // Inject guardrails
     const guardrails = buildGuardrailBlock({ productionType: typeLabel, engineName: "generate-pitch" });
-    console.log(`[generate-pitch] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+    console.log(`[generate-pitch] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}, batch=${batchSize}`);
 
     const systemPrompt = `You are IFFY's Development Pitch Engine — an expert development executive who generates production-ready concept pitches for the entertainment industry.
 
 ${guardrails.textBlock}
 
 PRODUCTION TYPE: ${typeLabel}
-ALL outputs MUST be strictly constrained to this production type. Do not suggest formats, budgets, distribution, or packaging strategies that don't apply to ${typeLabel}.
+ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${nuanceBlock}${driftBlock}
 
-Generate exactly ${count || 3} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
+Generate exactly ${batchSize} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
 
-For each idea, you MUST also provide weighted scores (0-100 each) for:
-- market_heat: How hot is this genre/concept in the current market
-- feasibility: How realistic is this to produce given budget and constraints
-- lane_fit: How well does this match the recommended monetisation lane
-- saturation_risk: INVERSE score — high = low saturation (good), low = oversaturated market
-- company_fit: How well this suits an independent producer's strengths
+For each idea, provide weighted scores (0-100):
+- market_heat, feasibility, lane_fit, saturation_risk (inverse), company_fit
+- total_score = (market_heat × 0.30) + (feasibility × 0.25) + (lane_fit × 0.20) + (saturation_risk × 0.15) + (company_fit × 0.10)
 
-The total_score should be calculated as: (market_heat × 0.30) + (feasibility × 0.25) + (lane_fit × 0.20) + (saturation_risk × 0.15) + (company_fit × 0.10)
+RANK by total_score descending.
 
-RANK ideas by total_score descending.
+CRITICAL: Every character must have a DISTINCT name fitting the story's cultural setting. Never reuse generic names across pitches.
 
-CRITICAL — CHARACTER NAME DIVERSITY: Do NOT reuse generic placeholder names like "Maya", "Kai", "Zara", "Eli", etc. across pitches. Every character in every pitch must have a DISTINCT, specific name that fits the story's cultural and geographic setting. Vary ethnicity, era, and naming conventions across ideas. If you catch yourself defaulting to the same name, change it.
+You MUST call submit_pitches with ALL ${batchSize} ideas.`;
 
-For each idea, you MUST call the submit_pitches function with the structured output.`;
-
-    const userPrompt = `Generate ${count || 3} ranked pitch ideas with these filters:
+    const userPrompt = `Generate ${batchSize} ranked pitch ideas:
 - Production Type: ${typeLabel}
 - Genre: ${genre || "any"}${subgenre ? `\n- Subgenre: ${subgenre}` : ""}
 - Budget Band: ${budgetBand || "any"}
 - Region: ${region || "global"}
 - Platform Target: ${platformTarget || "any"}${audienceDemo ? `\n- Audience Demo: ${audienceDemo}` : ""}
 - Risk Level: ${riskLevel || "medium"}
-${coverageContext ? "\nMode: Coverage Transformer — pivot the existing coverage into new concepts." : "Mode: Greenlight Radar — generate fresh original concepts."}`;
+${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar — fresh original concepts."}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -150,73 +213,57 @@ ${coverageContext ? "\nMode: Coverage Transformer — pivot the existing coverag
                     items: {
                       type: "object",
                       properties: {
-                        title: { type: "string", description: "Working title" },
-                        logline: { type: "string", description: "1-2 sentence logline" },
+                        title: { type: "string" },
+                        logline: { type: "string", description: "1-2 sentence hook" },
                         one_page_pitch: { type: "string", description: "Full 1-page pitch (3-5 paragraphs)" },
                         comps: { type: "array", items: { type: "string" }, description: "3-5 comparable titles" },
-                        recommended_lane: { type: "string", description: "Monetisation lane key" },
-                        lane_confidence: { type: "number", description: "0-100 confidence" },
-                        budget_band: { type: "string", description: "Budget range" },
-                        genre: { type: "string", description: "Primary genre" },
+                        recommended_lane: { type: "string" },
+                        lane_confidence: { type: "number" },
+                        budget_band: { type: "string" },
+                        genre: { type: "string" },
                         packaging_suggestions: {
                           type: "array",
                           items: {
                             type: "object",
-                            properties: {
-                              role: { type: "string" },
-                              archetype: { type: "string" },
-                              names: { type: "array", items: { type: "string" } },
-                              rationale: { type: "string" }
-                            },
-                            required: ["role", "archetype", "rationale"],
-                            additionalProperties: false
-                          }
+                            properties: { role: { type: "string" }, archetype: { type: "string" }, names: { type: "array", items: { type: "string" } }, rationale: { type: "string" } },
+                            required: ["role", "archetype", "rationale"], additionalProperties: false,
+                          },
                         },
                         development_sprint: {
                           type: "array",
                           items: {
                             type: "object",
-                            properties: {
-                              week: { type: "string" },
-                              milestone: { type: "string" },
-                              deliverable: { type: "string" }
-                            },
-                            required: ["week", "milestone", "deliverable"],
-                            additionalProperties: false
-                          }
+                            properties: { week: { type: "string" }, milestone: { type: "string" }, deliverable: { type: "string" } },
+                            required: ["week", "milestone", "deliverable"], additionalProperties: false,
+                          },
                         },
                         risks_mitigations: {
                           type: "array",
                           items: {
                             type: "object",
-                            properties: {
-                              risk: { type: "string" },
-                              severity: { type: "string", enum: ["low", "medium", "high"] },
-                              mitigation: { type: "string" }
-                            },
-                            required: ["risk", "severity", "mitigation"],
-                            additionalProperties: false
-                          }
+                            properties: { risk: { type: "string" }, severity: { type: "string", enum: ["low", "medium", "high"] }, mitigation: { type: "string" } },
+                            required: ["risk", "severity", "mitigation"], additionalProperties: false,
+                          },
                         },
-                        why_us: { type: "string", description: "Why this team/company should make this" },
+                        why_us: { type: "string" },
                         risk_level: { type: "string", enum: ["low", "medium", "high"] },
-                        score_market_heat: { type: "number", description: "0-100 market heat score" },
-                        score_feasibility: { type: "number", description: "0-100 feasibility score" },
-                        score_lane_fit: { type: "number", description: "0-100 lane fit score" },
-                        score_saturation_risk: { type: "number", description: "0-100 inverse saturation score" },
-                        score_company_fit: { type: "number", description: "0-100 company fit score" },
-                        score_total: { type: "number", description: "Weighted total score" }
+                        score_market_heat: { type: "number" },
+                        score_feasibility: { type: "number" },
+                        score_lane_fit: { type: "number" },
+                        score_saturation_risk: { type: "number" },
+                        score_company_fit: { type: "number" },
+                        score_total: { type: "number" },
                       },
                       required: ["title", "logline", "one_page_pitch", "comps", "recommended_lane", "lane_confidence", "budget_band", "genre", "packaging_suggestions", "development_sprint", "risks_mitigations", "why_us", "risk_level", "score_market_heat", "score_feasibility", "score_lane_fit", "score_saturation_risk", "score_company_fit", "score_total"],
-                      additionalProperties: false
-                    }
-                  }
+                      additionalProperties: false,
+                    },
+                  },
                 },
                 required: ["ideas"],
-                additionalProperties: false
-              }
-            }
-          }
+                additionalProperties: false,
+              },
+            },
+          },
         ],
         tool_choice: { type: "function", function: { name: "submit_pitches" } },
       }),
@@ -246,7 +293,6 @@ ${coverageContext ? "\nMode: Coverage Transformer — pivot the existing coverag
     if (toolCall?.function?.arguments) {
       ideas = JSON.parse(toolCall.function.arguments);
     } else if (msg?.content) {
-      // Fallback: extract JSON from content
       const raw = msg.content;
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -260,11 +306,9 @@ ${coverageContext ? "\nMode: Coverage Transformer — pivot the existing coverag
       throw new Error("No structured output returned");
     }
 
-    // Normalize: ensure { ideas: [...] } shape
     if (Array.isArray(ideas)) ideas = { ideas };
     if (!ideas.ideas) ideas = { ideas: [ideas] };
 
-    // Always attach signal metadata for verification
     ideas.signals_metadata = {
       signals_used: signalsUsedIds,
       influence_value: signalInfluence,

@@ -1,68 +1,74 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Lightbulb, Radar, RefreshCw, Loader2, Download, X, FileSearch, ChevronDown, ChevronUp } from 'lucide-react';
-import { OperationProgress, GENERATE_PITCH_STAGES } from '@/components/OperationProgress';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Lightbulb, Loader2, Download, RefreshCw, Globe } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { PitchIdeaCard } from '@/components/PitchIdeaCard';
-import { DevelopmentBriefBuilder } from '@/components/DevelopmentBriefBuilder';
-import { PitchSignalDiff } from '@/components/PitchSignalDiff';
+import { HardCriteriaForm, EMPTY_CRITERIA, type HardCriteria } from '@/components/pitch/HardCriteriaForm';
+import { SlateCard } from '@/components/pitch/SlateCard';
+import { PromoteToDevSeedDialog } from '@/components/pitch/PromoteToDevSeedDialog';
+import { OperationProgress, GENERATE_PITCH_STAGES } from '@/components/OperationProgress';
 import { usePitchIdeas, type PitchIdea } from '@/hooks/usePitchIdeas';
 import { useProjects } from '@/hooks/useProjects';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
-import type { DevelopmentBrief } from '@/hooks/useDevelopmentBriefs';
 
 export default function PitchIdeas() {
   const { user } = useAuth();
   const { ideas, isLoading, save, update, remove } = usePitchIdeas();
   const { projects } = useProjects();
   const [generating, setGenerating] = useState(false);
-  const [mode, setMode] = useState<'greenlight' | 'coverage-transform'>('greenlight');
+  const [criteria, setCriteria] = useState<HardCriteria>({ ...EMPTY_CRITERIA });
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
+  const [promoteIdea, setPromoteIdea] = useState<PitchIdea | null>(null);
+  const [batchId, setBatchId] = useState<string | null>(null);
 
   const filteredIdeas = useMemo(() => {
     return ideas
       .filter(i => {
         if (statusFilter && i.status !== statusFilter) return false;
-        if (typeFilter && i.production_type !== typeFilter) return false;
         return true;
       })
       .sort((a, b) => (Number(b.score_total) || 0) - (Number(a.score_total) || 0));
-  }, [ideas, statusFilter, typeFilter]);
+  }, [ideas, statusFilter]);
 
-  const generate = async (brief: DevelopmentBrief) => {
+  const clean = (v: string) => (!v || v === '__any__' || v === '__none__') ? '' : v;
+
+  const generate = useCallback(async () => {
+    if (!criteria.productionType) {
+      toast.error('Select a format/type first');
+      return;
+    }
     setGenerating(true);
-    try {
-      let coverageContext: string | undefined;
-      if (mode === 'coverage-transform' && selectedProject) {
-        const proj = projects.find(p => p.id === selectedProject);
-        if (proj?.analysis_passes) {
-          coverageContext = JSON.stringify(proj.analysis_passes);
-        }
-      }
+    const currentBatch = crypto.randomUUID();
+    setBatchId(currentBatch);
 
+    try {
       const { data, error } = await supabase.functions.invoke('generate-pitch', {
         body: {
-          productionType: brief.production_type,
-          genre: brief.genre,
-          subgenre: brief.subgenre,
-          budgetBand: brief.budget_band,
-          region: brief.region,
-          platformTarget: brief.platform_target,
-          audienceDemo: brief.audience_demo,
-          riskLevel: brief.risk_appetite,
-          briefNotes: brief.notes,
-          count: 3,
-          coverageContext,
+          productionType: criteria.productionType,
+          genre: clean(criteria.genre),
+          budgetBand: clean(criteria.budgetBand),
+          region: clean(criteria.region),
+          platformTarget: clean(criteria.platformTarget),
+          riskLevel: criteria.riskLevel || 'medium',
+          count: 10,
+          projectId: selectedProject || undefined,
+          hardCriteria: {
+            culturalTag: clean(criteria.culturalTag),
+            lane: clean(criteria.lane),
+            rating: clean(criteria.rating),
+            epLength: criteria.epLength || undefined,
+            epCount: criteria.epCount || undefined,
+            mustHaveTropes: criteria.mustHaveTropes,
+            avoidTropes: criteria.avoidTropes,
+          },
+          briefNotes: criteria.notes || undefined,
         },
       });
 
@@ -72,24 +78,23 @@ export default function PitchIdeas() {
       const pitchIdeas = data.ideas || data;
       for (const idea of pitchIdeas) {
         await save({
-          mode,
-          production_type: brief.production_type,
-          brief_id: brief.id,
+          mode: 'greenlight',
+          production_type: criteria.productionType,
           title: idea.title,
           logline: idea.logline,
           one_page_pitch: idea.one_page_pitch,
           comps: idea.comps || [],
           recommended_lane: idea.recommended_lane || '',
           lane_confidence: idea.lane_confidence || 0,
-          budget_band: idea.budget_band || brief.budget_band,
+          budget_band: idea.budget_band || criteria.budgetBand || '',
           packaging_suggestions: idea.packaging_suggestions || [],
           development_sprint: idea.development_sprint || [],
           risks_mitigations: idea.risks_mitigations || [],
           why_us: idea.why_us || '',
-          genre: idea.genre || brief.genre,
-          region: brief.region,
-          platform_target: brief.platform_target,
-          risk_level: idea.risk_level || brief.risk_appetite || 'medium',
+          genre: idea.genre || criteria.genre || '',
+          region: criteria.region || '',
+          platform_target: criteria.platformTarget || '',
+          risk_level: idea.risk_level || criteria.riskLevel || 'medium',
           project_id: selectedProject || null,
           raw_response: idea,
           score_market_heat: idea.score_market_heat || 0,
@@ -100,21 +105,25 @@ export default function PitchIdeas() {
           score_total: idea.score_total || 0,
         });
       }
-      toast.success(`${pitchIdeas.length} ideas generated`);
+      toast.success(`${pitchIdeas.length} concepts generated`);
     } catch (e: any) {
       toast.error(e.message || 'Generation failed');
     } finally {
       setGenerating(false);
     }
-  };
+  }, [criteria, selectedProject, save]);
+
+  const handleShortlist = useCallback(async (id: string, shortlisted: boolean) => {
+    await update({ id, status: shortlisted ? 'shortlisted' : 'draft' });
+    toast.success(shortlisted ? 'Added to shortlist' : 'Removed from shortlist');
+  }, [update]);
 
   const exportPDF = () => {
     const doc = new jsPDF();
     let y = 20;
     doc.setFontSize(18);
-    doc.text('IFFY — Pitch Ideas', 14, y);
+    doc.text('IFFY — Pitch Slate', 14, y);
     y += 12;
-
     for (const idea of filteredIdeas) {
       if (y > 250) { doc.addPage(); y = 20; }
       doc.setFontSize(14);
@@ -122,21 +131,10 @@ export default function PitchIdeas() {
       doc.setFontSize(10);
       const logLines = doc.splitTextToSize(idea.logline, 180);
       doc.text(logLines, 14, y); y += logLines.length * 5 + 3;
-      doc.text(`Score: ${Number(idea.score_total).toFixed(0)} | Lane: ${idea.recommended_lane} (${idea.lane_confidence}%) | Budget: ${idea.budget_band} | Risk: ${idea.risk_level}`, 14, y);
-      y += 5;
-      doc.text(`  Market: ${idea.score_market_heat} | Feasibility: ${idea.score_feasibility} | Lane Fit: ${idea.score_lane_fit} | Saturation: ${idea.score_saturation_risk} | Company: ${idea.score_company_fit}`, 14, y);
-      y += 7;
-      const pitchLines = doc.splitTextToSize(idea.one_page_pitch, 180);
-      doc.text(pitchLines, 14, y); y += pitchLines.length * 5 + 5;
-      doc.text(`Comps: ${idea.comps.join(', ')}`, 14, y); y += 7;
-      if (idea.why_us) {
-        const whyLines = doc.splitTextToSize(`Why Us: ${idea.why_us}`, 180);
-        doc.text(whyLines, 14, y); y += whyLines.length * 5 + 5;
-      }
-      y += 8;
+      doc.text(`Score: ${Number(idea.score_total).toFixed(0)} | Lane: ${idea.recommended_lane} | Budget: ${idea.budget_band}`, 14, y);
+      y += 10;
     }
-
-    doc.save('iffy-pitch-ideas.pdf');
+    doc.save('iffy-pitch-slate.pdf');
     toast.success('PDF exported');
   };
 
@@ -149,117 +147,113 @@ export default function PitchIdeas() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
       >
+        {/* Title */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-display font-bold tracking-tight flex items-center gap-2">
               <Lightbulb className="h-7 w-7 text-primary" />
-              Pitch Ideas
+              Pitch Slate
             </h1>
-            <p className="text-muted-foreground mt-1">AI-powered development concepts ranked by weighted viability scoring</p>
+            <p className="text-muted-foreground mt-1">Generate batches of 10 concepts with hard criteria, then promote the best to DevSeed</p>
           </div>
-          {filteredIdeas.length > 0 && (
-            <Button variant="outline" size="sm" onClick={exportPDF}>
-              <Download className="h-4 w-4 mr-1" />
-              Export PDF
-            </Button>
+          <div className="flex items-center gap-2">
+            {filteredIdeas.length > 0 && (
+              <Button variant="outline" size="sm" onClick={exportPDF}>
+                <Download className="h-4 w-4 mr-1" />
+                Export PDF
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Optional project context */}
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm text-muted-foreground">Project context:</span>
+          <Select value={selectedProject} onValueChange={setSelectedProject}>
+            <SelectTrigger className="w-64">
+              <SelectValue placeholder="None (Global Ideas)" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">
+                <span className="flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" /> None (Global Ideas)</span>
+              </SelectItem>
+              {projects.map(p => (
+                <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {!selectedProject || selectedProject === '__none__' ? (
+            <Badge variant="outline" className="text-xs">Global Mode</Badge>
+          ) : (
+            <Badge variant="default" className="text-xs">Project-tuned</Badge>
           )}
         </div>
 
-        {/* Mode selector */}
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm text-muted-foreground">Mode:</span>
-          <Button
-            variant={mode === 'greenlight' ? 'default' : 'outline'}
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setMode('greenlight')}
-          >
-            <Radar className="h-4 w-4" />
-            Greenlight Radar
-          </Button>
-          <Button
-            variant={mode === 'coverage-transform' ? 'default' : 'outline'}
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setMode('coverage-transform')}
-          >
-            <RefreshCw className="h-4 w-4" />
-            Coverage Transformer
-          </Button>
-        </div>
-
-        {/* Coverage project selector (only in coverage mode) */}
-        {mode === 'coverage-transform' && (
-          <Card className="border-border/50">
-            <CardContent className="pt-5 space-y-4">
-              <p className="text-sm text-muted-foreground">Transform an existing project's coverage into pivot pitches — new angles on existing IP.</p>
-              <Select value={selectedProject} onValueChange={setSelectedProject}>
-                <SelectTrigger className="w-full max-w-sm">
-                  <SelectValue placeholder="Select a project with coverage" />
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.filter(p => p.analysis_passes).map(p => (
-                    <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Brief builder */}
-        <DevelopmentBriefBuilder
+        {/* Hard Criteria Form */}
+        <HardCriteriaForm
+          criteria={criteria}
+          onChange={setCriteria}
           onGenerate={generate}
-          generating={generating || (mode === 'coverage-transform' && !selectedProject)}
+          generating={generating}
+          hasProject={!!selectedProject && selectedProject !== '__none__'}
         />
 
         <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />
 
-        {/* Signal ON/OFF Diff */}
-        {selectedProject && (
-          <PitchSignalDiff
-            brief={{ production_type: mode === 'greenlight' ? 'film' : 'film', genre: '', budget_band: '', region: '', platform_target: '', audience_demo: '', risk_appetite: 'medium' } as any}
-            projectId={selectedProject}
-          />
-        )}
-
-        {/* Status filter */}
-        <div className="flex gap-2 flex-wrap">
-          {['', 'draft', 'shortlisted', 'in-development', 'archived'].map(s => (
-            <Badge
-              key={s || 'all'}
-              variant={statusFilter === s ? 'default' : 'outline'}
-              className="cursor-pointer"
-              onClick={() => setStatusFilter(s)}
-            >
-              {s || 'All'} ({ideas.filter(i => s ? i.status === s : true).length})
-            </Badge>
-          ))}
+        {/* Status filter + Generate More */}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex gap-2 flex-wrap">
+            {['', 'draft', 'shortlisted', 'archived'].map(s => (
+              <Badge
+                key={s || 'all'}
+                variant={statusFilter === s ? 'default' : 'outline'}
+                className="cursor-pointer"
+                onClick={() => setStatusFilter(s)}
+              >
+                {s || 'All'} ({ideas.filter(i => s ? i.status === s : true).length})
+              </Badge>
+            ))}
+          </div>
+          {filteredIdeas.length > 0 && !generating && (
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={generate}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              Generate 10 More
+            </Button>
+          )}
         </div>
 
-        {/* Ideas list */}
+        {/* Slate grid */}
         {isLoading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         ) : filteredIdeas.length === 0 ? (
           <Card className="border-border/30">
             <CardContent className="py-12 text-center text-muted-foreground">
               <Lightbulb className="h-10 w-10 mx-auto mb-3 opacity-40" />
-              <p>No pitch ideas yet. Complete a brief above to generate ideas.</p>
+              <p>No concepts yet. Set your hard criteria above and generate a slate.</p>
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredIdeas.map((idea, i) => (
-              <PitchIdeaCard
+              <SlateCard
                 key={idea.id}
                 idea={idea}
                 rank={i + 1}
+                onPromote={setPromoteIdea}
+                onShortlist={handleShortlist}
                 onDelete={remove}
-                onUpdate={update}
               />
             ))}
           </div>
         )}
+
+        {/* Promote dialog */}
+        <PromoteToDevSeedDialog
+          idea={promoteIdea}
+          open={!!promoteIdea}
+          onOpenChange={open => { if (!open) setPromoteIdea(null); }}
+          onPromoted={() => setPromoteIdea(null)}
+        />
       </motion.main>
     </div>
   );
