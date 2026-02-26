@@ -35,17 +35,34 @@ serve(async (req) => {
 
     const notesSection = briefNotes ? `\n\nADDITIONAL BRIEF NOTES FROM PRODUCER:\n${briefNotes}` : "";
 
-    // ── Hard Criteria block ──
+    // ── Hard Criteria block (expanded) ──
     let hardCriteriaBlock = "";
     if (hardCriteria) {
       const parts: string[] = [];
-      if (hardCriteria.culturalTag) parts.push(`Cultural/Style Tag: ${hardCriteria.culturalTag} — ALL concepts MUST reflect this aesthetic, cultural sensibility, and storytelling tradition.`);
+      if (hardCriteria.culturalTag) parts.push(`Cultural/Style Anchor: ${hardCriteria.culturalTag} — ALL concepts MUST reflect this aesthetic, cultural sensibility, and storytelling tradition.`);
+      if (hardCriteria.toneAnchor) parts.push(`Tone Anchor: "${hardCriteria.toneAnchor}" — every concept must match this tonal quality.`);
       if (hardCriteria.lane) parts.push(`Monetisation Lane: ${hardCriteria.lane} — concepts MUST be viable in this lane.`);
       if (hardCriteria.rating) parts.push(`Rating: ${hardCriteria.rating} — content MUST be appropriate for this rating.`);
+      if (hardCriteria.audience) parts.push(`Target Audience: ${hardCriteria.audience}.`);
+      if (hardCriteria.languageTerritory) parts.push(`Language/Territory: ${hardCriteria.languageTerritory}.`);
       if (hardCriteria.epLength) parts.push(`Episode Length: ${hardCriteria.epLength} minutes per episode.`);
       if (hardCriteria.epCount) parts.push(`Episode Count: ${hardCriteria.epCount} episodes.`);
+      if (hardCriteria.runtimeMin) parts.push(`Minimum Runtime: ${hardCriteria.runtimeMin} minutes.`);
+      if (hardCriteria.runtimeMax) parts.push(`Maximum Runtime: ${hardCriteria.runtimeMax} minutes.`);
+      if (hardCriteria.settingType) parts.push(`Setting Type: ${hardCriteria.settingType}.`);
+      if (hardCriteria.locationVibe) parts.push(`Location Vibe: "${hardCriteria.locationVibe}" — stories should evoke this atmosphere.`);
+      if (hardCriteria.arenaProfession) parts.push(`Arena/Profession: "${hardCriteria.arenaProfession}" — this world/industry must be central.`);
+      if (hardCriteria.romanceTropes?.length > 0) parts.push(`Romance Tropes (MUST use at least one): ${hardCriteria.romanceTropes.join(', ')}.`);
+      if (hardCriteria.heatLevel) parts.push(`Heat Level: ${hardCriteria.heatLevel}.`);
+      if (hardCriteria.obstacleType) parts.push(`Relationship Obstacle Type: ${hardCriteria.obstacleType}.`);
       if (hardCriteria.mustHaveTropes?.length > 0) parts.push(`MUST INCLUDE these tropes/themes: ${hardCriteria.mustHaveTropes.join(', ')}. Every concept MUST incorporate at least one.`);
       if (hardCriteria.avoidTropes?.length > 0) parts.push(`MUST AVOID these tropes/themes: ${hardCriteria.avoidTropes.join(', ')}. NO concept may use any of these.`);
+      if (hardCriteria.prohibitedComps?.length > 0) parts.push(`PROHIBITED COMPS — do NOT resemble these titles: ${hardCriteria.prohibitedComps.join(', ')}.`);
+      if (hardCriteria.locationsMax) parts.push(`Max Locations: ${hardCriteria.locationsMax}.`);
+      if (hardCriteria.castSizeMax) parts.push(`Max Cast Size: ${hardCriteria.castSizeMax} core characters.`);
+      if (hardCriteria.starRole && hardCriteria.starRole !== '__none__') parts.push(`Star Role Required: ${hardCriteria.starRole}.`);
+      if (hardCriteria.noveltyLevel) parts.push(`Novelty Level: ${hardCriteria.noveltyLevel} — ${hardCriteria.noveltyLevel === 'safe' ? 'use proven formulas' : hardCriteria.noveltyLevel === 'bold' ? 'push boundaries, subvert expectations' : 'fresh but grounded'}.`);
+      if (hardCriteria.differentiateBy) parts.push(`Differentiate By: ${hardCriteria.differentiateBy} — this should be each concept's key distinctive element.`);
       if (parts.length > 0) {
         hardCriteriaBlock = `\n\n=== HARD CRITERIA (NON-NEGOTIABLE — reject any concept that violates these) ===\n${parts.join('\n')}\n=== END HARD CRITERIA ===\n`;
       }
@@ -66,7 +83,6 @@ serve(async (req) => {
       const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
       const supa = createClient(supabaseUrl, supabaseKey);
 
-      // Fetch project settings + lane
       const { data: proj } = await supa.from("projects")
         .select("assigned_lane, signals_influence, signals_apply, production_format")
         .eq("id", projectId).single();
@@ -204,7 +220,7 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
             type: "function",
             function: {
               name: "submit_pitches",
-              description: "Submit generated pitch ideas with scoring",
+              description: "Submit generated pitch ideas with scoring and extended metadata",
               parameters: {
                 type: "object",
                 properties: {
@@ -215,12 +231,17 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
                       properties: {
                         title: { type: "string" },
                         logline: { type: "string", description: "1-2 sentence hook" },
+                        premise: { type: "string", description: "2-3 sentence premise expanding on the hook" },
                         one_page_pitch: { type: "string", description: "Full 1-page pitch (3-5 paragraphs)" },
                         comps: { type: "array", items: { type: "string" }, description: "3-5 comparable titles" },
                         recommended_lane: { type: "string" },
                         lane_confidence: { type: "number" },
                         budget_band: { type: "string" },
                         genre: { type: "string" },
+                        tone_tag: { type: "string", description: "Short tone descriptor e.g. 'sweet but sharp'" },
+                        format_summary: { type: "string", description: "Brief format note e.g. '30 x 2min vertical' or '90min feature'" },
+                        trend_fit_bullets: { type: "array", items: { type: "string" }, description: "1-3 short bullets explaining which market signals this concept leverages" },
+                        differentiation_move: { type: "string", description: "One sentence explaining what makes this concept stand out from similar titles" },
                         packaging_suggestions: {
                           type: "array",
                           items: {
@@ -254,7 +275,7 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
                         score_company_fit: { type: "number" },
                         score_total: { type: "number" },
                       },
-                      required: ["title", "logline", "one_page_pitch", "comps", "recommended_lane", "lane_confidence", "budget_band", "genre", "packaging_suggestions", "development_sprint", "risks_mitigations", "why_us", "risk_level", "score_market_heat", "score_feasibility", "score_lane_fit", "score_saturation_risk", "score_company_fit", "score_total"],
+                      required: ["title", "logline", "premise", "one_page_pitch", "comps", "recommended_lane", "lane_confidence", "budget_band", "genre", "tone_tag", "format_summary", "trend_fit_bullets", "differentiation_move", "packaging_suggestions", "development_sprint", "risks_mitigations", "why_us", "risk_level", "score_market_heat", "score_feasibility", "score_lane_fit", "score_saturation_risk", "score_company_fit", "score_total"],
                       additionalProperties: false,
                     },
                   },
