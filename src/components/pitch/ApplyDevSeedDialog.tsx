@@ -259,7 +259,16 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             .select('canon_json')
             .eq('project_id', project.id)
             .maybeSingle();
-          const merged = { ...(existing?.canon_json || {}), seed_draft: seedDraft };
+          const existingCanon = existing?.canon_json || {};
+          // Preserve previous seed_draft in history (max 10)
+          const history = existingCanon.seed_draft
+            ? [...(existingCanon.seed_draft_history ?? []), existingCanon.seed_draft].slice(-10)
+            : existingCanon.seed_draft_history ?? [];
+          const merged = {
+            ...existingCanon,
+            seed_draft: seedDraft,
+            ...(history.length > 0 ? { seed_draft_history: history } : {}),
+          };
           await (supabase as any)
             .from('project_canon')
             .update({ canon_json: merged, updated_by: user.id })
