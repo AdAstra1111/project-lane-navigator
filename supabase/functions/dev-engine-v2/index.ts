@@ -15,6 +15,8 @@ import {
 // ── NEC (Narrative Energy Contract) Guardrail Loader ──
 const NEC_MAX_CHARS = 3000;
 
+const NEC_HARD_ENFORCEMENT = `If your proposal introduces blackmail, public spectacle, mass-casualty/catastrophic stakes, life-ruin stakes, assassinations, or supernatural escalation and the NEC does not explicitly permit it, you MUST replace it with an alternative that stays at or below the Preferred Operating Tier, preserving tone and nuance.`;
+
 const NEC_DEFAULT_GUARDRAIL = `\nNEC_GUARDRAIL: source=default prefTier=2 maxTier=3
 NARRATIVE ENERGY CONTRACT (DEFAULT — no project NEC found):
 - Preferred Operating Tier: 2 (psychological/relational pressure, status games, moral dilemmas).
@@ -24,7 +26,8 @@ NARRATIVE ENERGY CONTRACT (DEFAULT — no project NEC found):
   • No assassinations, mass casualty events, catastrophic public scandal, "life-ruin" stakes, supernatural escalation, or blackmail unless the source material already contains them.
   • No "major concert confession" or public-spectacle climaxes unless source material demands it.
   • Prefer prestige pressure: intimate stakes, reputational friction, relational loss, psychological suspense.
-  • Stay inside the tonal envelope established by the source material.`;
+  • Stay inside the tonal envelope established by the source material.
+HARD ENFORCEMENT: ${NEC_HARD_ENFORCEMENT}`;
 
 // Regex accepts common NEC tier label variants
 const PREF_TIER_RE = /(?:preferred\s*(?:operating\s*)?tier)[:\s]*(\d)/i;
@@ -50,7 +53,10 @@ async function loadNECGuardrailBlock(
       .limit(1)
       .maybeSingle();
 
-    if (!necDoc) return NEC_DEFAULT_GUARDRAIL;
+    if (!necDoc) {
+      console.log(`[dev-engine-v2] NEC_GUARDRAIL: source=default prefTier=2 maxTier=3`);
+      return NEC_DEFAULT_GUARDRAIL;
+    }
 
     const { data: necVersion } = await supabaseClient
       .from('project_document_versions')
@@ -65,6 +71,8 @@ async function loadNECGuardrailBlock(
     const prefTier = parseTier(text.match(PREF_TIER_RE), 2);
     const maxTier = parseTier(text.match(MAX_TIER_RE), 3);
 
+    console.log(`[dev-engine-v2] NEC_GUARDRAIL: source=nec doc_id=${necDoc.id} prefTier=${prefTier} maxTier=${maxTier}`);
+
     return `\nNEC_GUARDRAIL: source=nec doc_id=${necDoc.id} prefTier=${prefTier} maxTier=${maxTier}
 NARRATIVE ENERGY CONTRACT (from project NEC — AUTHORITATIVE, overrides all other stakes guidance):
 ${clampText(text, NEC_MAX_CHARS)}
@@ -74,9 +82,11 @@ HARD RULES (derived from NEC — non-negotiable):
 • Do NOT introduce events above Tier ${maxTier}. No assassinations, mass casualty events, catastrophic public scandal, "life-ruin" stakes, supernatural escalation, or blackmail unless NEC explicitly allows.
 • No "major concert confession" or public-spectacle climaxes unless NEC explicitly calls for public spectacle.
 • Prefer prestige pressure: intimate stakes, reputational friction, relational loss, psychological suspense over spectacle.
-• Stay inside the tonal envelope. Do NOT escalate beyond what the source material establishes.`;
+• Stay inside the tonal envelope. Do NOT escalate beyond what the source material establishes.
+HARD ENFORCEMENT: ${NEC_HARD_ENFORCEMENT}`;
   } catch (e) {
     console.warn('[dev-engine-v2] NEC load failed, using default guardrail:', e);
+    console.log(`[dev-engine-v2] NEC_GUARDRAIL: source=default prefTier=2 maxTier=3`);
     return NEC_DEFAULT_GUARDRAIL;
   }
 }
@@ -2004,9 +2014,8 @@ Format: ${rq.format}.${episodeLengthBlock}`;
       }
       // ── NEC Guardrail injection for analyze (NEC-first) ──
       const analyzeNecBlock = await loadNECGuardrailBlock(supabase, projectId);
-      const necEnforcementLine = `\nHARD ENFORCEMENT: If your proposal introduces blackmail, public spectacle, mass-casualty/catastrophic stakes, life-ruin stakes, assassinations, or supernatural escalation and the NEC does not explicitly permit it, you MUST replace it with an alternative that stays at or below the Preferred Operating Tier, preserving tone and nuance.\n`;
 
-      const userPrompt = `${analyzeNecBlock}${necEnforcementLine}
+      const userPrompt = `${analyzeNecBlock}
 PRODUCTION TYPE: ${effectiveProductionType}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
