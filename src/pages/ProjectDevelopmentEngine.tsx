@@ -200,7 +200,7 @@ export default function ProjectDevelopmentEngine() {
   const effectiveEpisodeDurationMin = episodeDurationMin ?? (project as any)?.episode_target_duration_min_seconds ?? project?.episode_target_duration_seconds ?? defaultDur;
   const effectiveEpisodeDurationMax = episodeDurationMax ?? (project as any)?.episode_target_duration_max_seconds ?? project?.episode_target_duration_seconds ?? defaultDur;
   const formatDefaultEpisodes = FORMAT_DEFAULTS[normalizedFormat]?.season_episode_count;
-  const effectiveSeasonEpisodes = seasonEpisodes ?? (project as any)?.season_episode_count ?? formatDefaultEpisodes ?? (isSeriesFormat ? 10 : 1);
+  const effectiveSeasonEpisodes = seasonEpisodes ?? (project as any)?.season_episode_count ?? formatDefaultEpisodes ?? 0;
   const [softGateOpen, setSoftGateOpen] = useState(false);
   const [pendingStageAction, setPendingStageAction] = useState<(() => void) | null>(null);
   const [driftOverrideOpen, setDriftOverrideOpen] = useState(false);
