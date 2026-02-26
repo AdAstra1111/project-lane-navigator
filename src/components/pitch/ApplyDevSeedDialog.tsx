@@ -179,7 +179,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           genres: idea.genre ? [idea.genre] : [],
           assigned_lane: idea.recommended_lane || 'independent-film',
           budget_range: idea.budget_band || '',
-          status: 'development',
+          
           source_pitch_idea_id: idea.id,
         } as any)
         .select('id')
