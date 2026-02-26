@@ -43,6 +43,146 @@ function nextDoc(current: string, format: string): string | null {
   return idx >= 0 && idx < ladder.length - 1 ? ladder[idx + 1] : null;
 }
 
+// ── Seed Pack doc types ──
+const SEED_DOC_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"];
+
+/**
+ * Ensure seed pack documents exist for a project.
+ * If any are missing, calls generate-seed-pack to create them.
+ * Idempotent: seed pack deduplicates by (project_id, doc_type).
+ */
+async function ensureSeedPack(
+  supabase: any,
+  supabaseUrl: string,
+  projectId: string,
+  token: string,
+): Promise<{ ensured: boolean; missing: string[] }> {
+  const { data: existingDocs } = await supabase
+    .from("project_documents")
+    .select("doc_type")
+    .eq("project_id", projectId)
+    .in("doc_type", SEED_DOC_TYPES);
+
+  const existingSet = new Set((existingDocs || []).map((d: any) => d.doc_type));
+  const missing = SEED_DOC_TYPES.filter(dt => !existingSet.has(dt));
+
+  if (missing.length === 0) {
+    console.log(`[auto-run] SEED_PACK ensured=false missing=`);
+    return { ensured: false, missing: [] };
+  }
+
+  // Derive pitch from idea doc or project title
+  const { data: project } = await supabase
+    .from("projects")
+    .select("title, format, assigned_lane")
+    .eq("id", projectId)
+    .single();
+
+  let pitch = project?.title || "Untitled project";
+  const { data: ideaDocs } = await supabase
+    .from("project_documents")
+    .select("id, extracted_text, plaintext")
+    .eq("project_id", projectId)
+    .eq("doc_type", "idea")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (ideaDocs?.[0]) {
+    const ideaText = ideaDocs[0].extracted_text || ideaDocs[0].plaintext || "";
+    if (ideaText.length > 10) pitch = ideaText.slice(0, 2000);
+  }
+
+  const lane = project?.assigned_lane || "independent-film";
+
+  console.log(`[auto-run] SEED_PACK ensured=true missing=${missing.join(",")}`);
+
+  try {
+    await fetch(`${supabaseUrl}/functions/v1/generate-seed-pack`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ projectId, pitch, lane }),
+    });
+  } catch (e: any) {
+    console.error("[auto-run] SEED_PACK generation failed (non-fatal):", e.message);
+  }
+
+  return { ensured: true, missing };
+}
+
+/**
+ * Find the next unsatisfied stage on the ladder between startIdx and targetIdx.
+ * A stage is "satisfied" if a doc of that type exists. For script stages
+ * (feature_script, episode_script) an approved version is also required.
+ */
+async function nextUnsatisfiedStage(
+  supabase: any,
+  projectId: string,
+  format: string,
+  currentStage: string,
+  targetStage: string,
+): Promise<string | null> {
+  const ladder = getLadderForJob(format);
+  const currentIdx = ladder.indexOf(currentStage);
+  const targetIdx = ladder.indexOf(targetStage);
+  if (currentIdx < 0 || targetIdx < 0) return nextDoc(currentStage, format);
+
+  // Fetch all project docs and their approval status in one pass
+  const { data: allDocs } = await supabase
+    .from("project_documents")
+    .select("id, doc_type")
+    .eq("project_id", projectId);
+
+  const docsByType = new Map<string, string[]>();
+  for (const d of (allDocs || [])) {
+    if (!docsByType.has(d.doc_type)) docsByType.set(d.doc_type, []);
+    docsByType.get(d.doc_type)!.push(d.id);
+  }
+
+  // Stages that require an approved version to be considered satisfied
+  const APPROVAL_REQUIRED_STAGES = new Set([
+    "feature_script", "episode_script", "production_draft",
+    "season_master_script",
+  ]);
+
+  // Collect doc IDs for approval-required stages that have docs
+  const approvalCheckIds: string[] = [];
+  for (const stage of APPROVAL_REQUIRED_STAGES) {
+    const ids = docsByType.get(stage);
+    if (ids) approvalCheckIds.push(...ids);
+  }
+
+  // Batch-fetch approved status
+  const approvedDocIds = new Set<string>();
+  if (approvalCheckIds.length > 0) {
+    const { data: approvedVersions } = await supabase
+      .from("project_document_versions")
+      .select("document_id")
+      .in("document_id", approvalCheckIds)
+      .eq("approval_status", "approved");
+    for (const v of (approvedVersions || [])) {
+      approvedDocIds.add(v.document_id);
+    }
+  }
+
+  // Walk ladder from current+1 to target, find first unsatisfied
+  for (let i = currentIdx + 1; i <= targetIdx; i++) {
+    const stage = ladder[i];
+    const docIds = docsByType.get(stage);
+    if (!docIds || docIds.length === 0) return stage; // no doc at all
+    if (APPROVAL_REQUIRED_STAGES.has(stage)) {
+      // Need at least one approved version
+      const hasApproved = docIds.some(id => approvedDocIds.has(id));
+      if (!hasApproved) return stage;
+    }
+    // Otherwise doc exists → satisfied, continue
+  }
+
+  return null; // all stages satisfied
+}
+
 function isOnLadder(d: string, format?: string): boolean {
   if (format) return getLadderForJob(format).includes(d);
   return ALL_STAGES.has(d);
@@ -709,6 +849,9 @@ Deno.serve(async (req) => {
       // ── Preflight qualification resolver at start ──
       const preflight = await runPreflight(supabase, projectId, fmt, startDoc, true);
 
+      // ── Ensure seed pack docs exist before downstream generation ──
+      const seedResult = await ensureSeedPack(supabase, supabaseUrl, projectId, token);
+
       const { data: job, error } = await supabase.from("auto_run_jobs").insert({
         user_id: userId,
         project_id: projectId,
@@ -724,6 +867,12 @@ Deno.serve(async (req) => {
       if (error) throw new Error(`Failed to create job: ${error.message}`);
 
       await logStep(supabase, job.id, 0, startDoc, "start", `Auto-run started: ${startDoc} → ${targetDoc} (${mode || "balanced"} mode)`);
+
+      if (seedResult.ensured) {
+        await logStep(supabase, job.id, 0, startDoc, "seed_pack_ensured",
+          `Seed pack generated for missing docs: ${seedResult.missing.join(", ")}`,
+        );
+      }
 
       if (preflight.changed) {
         await logStep(supabase, job.id, 0, startDoc, "preflight_resolve",
@@ -2238,8 +2387,8 @@ Deno.serve(async (req) => {
               await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "Blockers persist after max loops");
               return respondWithJob(supabase, jobId);
             }
-            const next = nextDoc(currentDoc);
-            if (next && LADDER.indexOf(next) <= LADDER.indexOf(job.target_document as DocStage)) {
+            const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+            if (next && ladderIndexOf(next, format) <= ladderIndexOf(job.target_document, format)) {
               // ── APPROVAL GATE: pause before force-promoting after max loops ──
               await logStep(supabase, jobId, newStep + 2, currentDoc, "approval_required",
                 `Max loops reached. Review ${currentDoc} before promoting to ${next}`,
@@ -2318,8 +2467,8 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId, "run-next");
           }
 
-          const next = nextDoc(currentDoc);
-          if (next && LADDER.indexOf(next) <= LADDER.indexOf(job.target_document as DocStage)) {
+          const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+          if (next && ladderIndexOf(next, format) <= ladderIndexOf(job.target_document, format)) {
             // ── APPROVAL GATE: pause before promoting to next stage ──
             await logStep(supabase, jobId, newStep + 2, currentDoc, "approval_required",
               `Promote recommended: ${currentDoc} → ${next}. Review before advancing.`,
@@ -2335,8 +2484,8 @@ Deno.serve(async (req) => {
             });
             return respondWithJob(supabase, jobId, "awaiting-approval");
           } else {
-            await updateJob(supabase, jobId, { status: "completed", stop_reason: "Reached target document" });
-            await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "Target reached");
+            await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied up to target" });
+            await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "All stages satisfied up to target");
             return respondWithJob(supabase, jobId);
           }
         }
