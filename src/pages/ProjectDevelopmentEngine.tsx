@@ -89,7 +89,7 @@ import { WorldRulesAccordion } from '@/components/rulesets/WorldRulesAccordion';
 import { ActiveRulesetBadge } from '@/components/rulesets/ActiveRulesetBadge';
 import { useProjectRuleset } from '@/hooks/useProjectRuleset';
 import { SeedAppliedBanner } from '@/components/devengine/SeedAppliedBanner';
-import { loadProjectLaneRulesetPrefs } from '@/lib/rulesets/uiState';
+
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -257,12 +257,17 @@ export default function ProjectDevelopmentEngine() {
   const seedDraft = canonData?.seed_draft || null;
   const seedHistoryLen = Array.isArray(canonData?.seed_draft_history) ? canonData.seed_draft_history.length : 0;
 
-  // Check if lane prefs exist for seed banner CTA
+  // Check if lane prefs row exists for seed banner CTA
   const { data: lanePrefsExist = false, refetch: refetchLanePrefs } = useQuery({
     queryKey: ['dev-engine-lane-prefs-exist', projectId, rulesetLane],
     queryFn: async () => {
-      const prefs = await loadProjectLaneRulesetPrefs(projectId!, rulesetLane);
-      return Object.keys(prefs).length > 0;
+      const { data } = await (supabase as any)
+        .from('project_lane_prefs')
+        .select('project_id')
+        .eq('project_id', projectId!)
+        .eq('lane', rulesetLane)
+        .maybeSingle();
+      return !!data;
     },
     enabled: !!projectId,
     staleTime: 30_000,
