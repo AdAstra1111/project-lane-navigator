@@ -533,6 +533,7 @@ export default function ProjectDevelopmentEngine() {
       highImpactTexts: highImpact,
       projectFormat,
       existingDocTypes: documents.map((d: any) => d.doc_type),
+      approvedDocTypes: documents.filter((d: any) => !!(approvedVersionMap as any)?.[d.id]).map((d: any) => d.doc_type),
       seasonEpisodeCount: effectiveSeasonEpisodes ?? undefined,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps

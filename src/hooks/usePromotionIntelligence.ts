@@ -169,6 +169,8 @@ export interface PromotionInput {
   projectFormat?: string | null;
   /** All existing (non-stale) doc types in the project — used for vertical drama pipeline routing */
   existingDocTypes?: string[];
+  /** Doc types that have at least one approved version — used to skip already-approved stages */
+  approvedDocTypes?: string[];
   /** Season episode count — needed for vertical drama gating */
   seasonEpisodeCount?: number | null;
 }
@@ -180,6 +182,7 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     blockerTexts = [], highImpactTexts = [],
     projectFormat,
     existingDocTypes = [],
+    approvedDocTypes = [],
   } = input;
 
   const doc = resolveDocStage(currentDocument);
@@ -248,8 +251,9 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
 
   if (projectFormat && existingDocTypes.length > 0) {
     // Use Pipeline Brain for all formats
+    const approvedSet = new Set(approvedDocTypes.map(dt => mapDocTypeToLadderStage(dt)));
     const pipelineDocs: ExistingDoc[] = existingDocTypes.map(dt => ({
-      docType: dt, hasApproved: false, activeVersionId: null,
+      docType: dt, hasApproved: approvedSet.has(mapDocTypeToLadderStage(dt)), activeVersionId: null,
     }));
     const pState = computePipelineState(projectFormat, pipelineDocs, {
       seasonEpisodeCount: input.seasonEpisodeCount,
