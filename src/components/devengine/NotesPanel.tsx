@@ -15,7 +15,7 @@ import {
   Zap, ChevronDown, Sparkles, Loader2, CheckCircle2, ArrowRight, Lightbulb,
   Pencil, Check, X, Wand2, Shield, Eye, Lock, AlertTriangle, Layers, Pin, Clock, Trash2, RotateCcw,
 } from 'lucide-react';
-import { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { NoteDrawer } from '@/components/notes/NoteDrawer';
 import type { ProjectNote, NoteSuggestedFix } from '@/lib/types/notes';
@@ -509,6 +509,8 @@ function DecisionSetsSection({ decisionSets, projectId, documentId, versionId, o
 }) {
   const [applying, setApplying] = useState<string | null>(null);
   const [chosenOptions, setChosenOptions] = useState<Record<string, string>>({});
+  const chosenOptionsRef = React.useRef(chosenOptions);
+  React.useEffect(() => { chosenOptionsRef.current = chosenOptions; }, [chosenOptions]);
 
   async function applyDecision(ds: DecisionSet, optionId: string) {
     if (!projectId || !documentId || !versionId) { toast.error('No document selected'); return; }
@@ -564,7 +566,7 @@ function DecisionSetsSection({ decisionSets, projectId, documentId, versionId, o
             {chosen && (
               <Button size="sm" className="h-5 text-[8px] px-2 gap-0.5 bg-violet-600 hover:bg-violet-700 w-full"
                 disabled={applying === ds.decision_id}
-                onClick={() => applyDecision(ds, chosen)}>
+                onClick={() => applyDecision(ds, chosenOptionsRef.current[ds.decision_id])}>
                 {applying === ds.decision_id ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}
                 Apply Decision
               </Button>

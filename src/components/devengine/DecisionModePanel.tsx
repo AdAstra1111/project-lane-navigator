@@ -77,6 +77,12 @@ export function DecisionModePanel({
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
   const [customDirections, setCustomDirections] = useState<Record<string, string>>({});
   const [isApplying, setIsApplying] = useState(false);
+
+  // Refs to avoid stale closures in async apply handler
+  const selectedOptionsRef = React.useRef(selectedOptions);
+  React.useEffect(() => { selectedOptionsRef.current = selectedOptions; }, [selectedOptions]);
+  const customDirectionsRef = React.useRef(customDirections);
+  React.useEffect(() => { customDirectionsRef.current = customDirections; }, [customDirections]);
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
   const [continueVersionId, setContinueVersionId] = useState<string>('latest');
   const { source: canonSource, sourceLabel: canonSourceLabel, evidence: canonEvidence } = useCanonicalState(projectId);
@@ -153,6 +159,7 @@ export function DecisionModePanel({
   const selectedCount = Object.values(selectedOptions).filter(Boolean).length;
 
   const applyingRef = React.useRef(false);
+  const applyTokenRef = React.useRef(0);
   const handleApplyDecisions = useCallback(async () => {
     if (!allBlockersCovered) {
       toast.error(`Select options for all ${uncoveredBlockers.length} blocker(s) first`);
@@ -160,16 +167,24 @@ export function DecisionModePanel({
     }
     if (applyingRef.current) return;
     applyingRef.current = true;
+    const token = ++applyTokenRef.current;
     setIsApplying(true);
     try {
-      const opts = Object.entries(selectedOptions)
+      // Read from refs to avoid stale closure
+      const currentSelections = selectedOptionsRef.current;
+      const currentCustom = customDirectionsRef.current;
+      const opts = Object.entries(currentSelections)
         .filter(([, optId]) => !!optId)
         .map(([noteId, optionId]) => ({
           note_id: noteId,
           option_id: optionId,
-          custom_direction: customDirections[noteId] || undefined,
+          custom_direction: currentCustom[noteId] || undefined,
         }));
       const gd = globalDirections.map(d => d.direction);
+
+      if (import.meta.env.DEV) {
+        console.debug('[DecisionModePanel] apply token=%d selections=%o', token, currentSelections);
+      }
 
       if (jobId && onAutoRunContinue) {
         await onAutoRunContinue(opts, gd);
@@ -181,7 +196,10 @@ export function DecisionModePanel({
           selectedOptions: opts, globalDirections: gd,
           approvedNotes: [], protectItems: [],
         });
-        toast.success('Decisions applied — new version created');
+        // Only show success if this is still the latest apply
+        if (applyTokenRef.current === token) {
+          toast.success('Decisions applied — new version created');
+        }
         onRewriteComplete?.();
       }
       // Record decisions to ledger (fire-and-forget)
@@ -192,12 +210,12 @@ export function DecisionModePanel({
         globalDirections: gd,
       }).catch(e => console.warn('[decisions] record failed:', e));
     } catch (e: any) {
-      toast.error(e.message);
+      if (applyTokenRef.current === token) toast.error(e.message);
     } finally {
       setIsApplying(false);
       applyingRef.current = false;
     }
-  }, [allBlockersCovered, selectedOptions, customDirections, globalDirections, jobId, documentId, versionId, continueVersionId, projectId, onAutoRunContinue, onRewriteComplete, uncoveredBlockers.length]);
+  }, [allBlockersCovered, globalDirections, jobId, documentId, versionId, continueVersionId, projectId, onAutoRunContinue, onRewriteComplete, uncoveredBlockers.length]);
 
   const loading = isGeneratingOptions || isLoadingOptions;
 
