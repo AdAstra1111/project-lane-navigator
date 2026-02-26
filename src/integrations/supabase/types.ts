@@ -1759,6 +1759,76 @@ export type Database = {
           },
         ]
       }
+      comparable_script_sources: {
+        Row: {
+          char_count: number | null
+          comp_title: string
+          created_at: string
+          file_name: string | null
+          id: string
+          lane: string
+          metadata: Json | null
+          project_doc_id: string | null
+          project_id: string
+          source_type: string
+          source_url: string | null
+          storage_path: string | null
+          user_id: string
+        }
+        Insert: {
+          char_count?: number | null
+          comp_title: string
+          created_at?: string
+          file_name?: string | null
+          id?: string
+          lane?: string
+          metadata?: Json | null
+          project_doc_id?: string | null
+          project_id: string
+          source_type?: string
+          source_url?: string | null
+          storage_path?: string | null
+          user_id: string
+        }
+        Update: {
+          char_count?: number | null
+          comp_title?: string
+          created_at?: string
+          file_name?: string | null
+          id?: string
+          lane?: string
+          metadata?: Json | null
+          project_doc_id?: string | null
+          project_id?: string
+          source_type?: string
+          source_url?: string | null
+          storage_path?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comparable_script_sources_project_doc_id_fkey"
+            columns: ["project_doc_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comparable_script_sources_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "comparable_script_sources_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       concept_expansions: {
         Row: {
           arc_map: string
