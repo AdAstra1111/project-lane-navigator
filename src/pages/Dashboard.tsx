@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Plus, Clapperboard, ArrowLeftRight, Kanban, Archive, FileDown, X, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { CrossProjectIntelligence } from '@/components/dashboard/CrossProjectInt
 import { DashboardActivityFeed } from '@/components/dashboard/DashboardActivityFeed';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PageTransition } from '@/components/PageTransition';
+import { LandingIntakeModal } from '@/components/LandingIntakeModal';
 import { useProjects } from '@/hooks/useProjects';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useDashboardScores } from '@/hooks/useDashboardScores';
@@ -22,9 +23,21 @@ export default function Dashboard() {
   const { companies } = useCompanies();
   const { linkMap } = useAllCompanyLinks();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const primaryCompany = companies.length > 0 ? companies[0] : null;
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Pending upload from landing page
+  const pendingUploadId = searchParams.get('pendingUploadId');
+  const handleDismissIntake = () => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('pendingUploadId');
+      next.delete('autoIntake');
+      return next;
+    }, { replace: true });
+  };
 
   const filteredProjects = useMemo(() => {
     if (selectedCompanyId === 'all') return projects;
@@ -233,6 +246,9 @@ export default function Dashboard() {
         </motion.div>
       </main>
     </div>
+    {pendingUploadId && (
+      <LandingIntakeModal pendingUploadId={pendingUploadId} onDismiss={handleDismissIntake} />
+    )}
     </PageTransition>
   );
 }
