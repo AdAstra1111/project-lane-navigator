@@ -9,13 +9,14 @@ import { Button } from '@/components/ui/button';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  Loader2, Sparkles, AlertTriangle, ArrowRight, Lightbulb, FileText, Clock, Info,
+  Loader2, Sparkles, AlertTriangle, ArrowRight, Lightbulb, FileText, Clock,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { DecisionCard, type Decision, type DecisionOption } from './DecisionCard';
 import { toast } from 'sonner';
 import { recordResolutions } from '@/lib/decisions/client';
 import { useCanonicalState } from '@/hooks/useCanonicalState';
+import { CanonEvidenceSection } from '@/components/canon/CanonEvidenceSection';
 
 interface GlobalDirection {
   id: string;
@@ -78,7 +79,7 @@ export function DecisionModePanel({
   const [isApplying, setIsApplying] = useState(false);
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
   const [continueVersionId, setContinueVersionId] = useState<string>('latest');
-  const { source: canonSource, sourceLabel: canonSourceLabel } = useCanonicalState(projectId);
+  const { source: canonSource, sourceLabel: canonSourceLabel, evidence: canonEvidence } = useCanonicalState(projectId);
 
   // Sync external decisions
   useEffect(() => {
@@ -249,19 +250,13 @@ export function DecisionModePanel({
           </CardHeader>
 
           <CardContent className="px-2 pb-2 space-y-2">
-            {/* Canon source indicator */}
-            <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-[9px] border ${
-              canonSource === 'unknown'
-                ? 'bg-destructive/5 border-destructive/20 text-destructive'
-                : 'bg-muted/30 border-border/30 text-muted-foreground'
-            }`}>
-              <Info className="h-2.5 w-2.5 shrink-0" />
-              Canon: {canonSourceLabel}
-              {canonSource === 'unknown' && ' — engines will not assert canonical facts'}
-              <a href="#" className="ml-auto underline hover:text-foreground" onClick={e => { e.preventDefault(); document.querySelector('[data-canon-facts-trigger]')?.dispatchEvent(new Event('click')); }}>
-                View Facts
-              </a>
-            </div>
+            {/* Canon source evidence */}
+            <CanonEvidenceSection
+              source={canonSource}
+              sourceLabel={canonSourceLabel}
+              evidence={canonEvidence}
+              compact
+            />
             {/* Global Directions */}
             {globalDirections.length > 0 && (
               <div className="space-y-1 p-2 rounded border border-primary/20 bg-primary/5">

@@ -21,6 +21,7 @@ export interface CanonEvidence {
   canon_editor_fields: string[];
   locked_decision_count: number;
   locked_decision_ids: string[];
+  locked_decision_titles: string[];
   doc_set_id?: string;
   doc_set_name?: string;
 }
@@ -69,6 +70,7 @@ export async function getCanonicalProjectState(
     canon_editor_fields: [],
     locked_decision_count: 0,
     locked_decision_ids: [],
+    locked_decision_titles: [],
   };
 
   // 1. Load canon editor fields
@@ -103,6 +105,7 @@ export async function getCanonicalProjectState(
 
   evidence.locked_decision_count = lockedDecisions.length;
   evidence.locked_decision_ids = lockedDecisions.map(d => d.id);
+  evidence.locked_decision_titles = lockedDecisions.map(d => d.title || d.decision_text?.slice(0, 60) || d.id.slice(0, 8));
 
   // 3. Determine source + build state
   if (populatedFields.length > 0) {
