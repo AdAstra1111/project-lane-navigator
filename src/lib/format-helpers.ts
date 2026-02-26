@@ -16,3 +16,8 @@ export function isSeriesFormat(format: string): boolean {
   const f = normalizeFormat(format);
   return ['tv-series', 'limited-series', 'vertical-drama', 'digital-series', 'documentary-series', 'anim-series'].includes(f);
 }
+
+/** Format an episode count for display: null/undefined/0 → "—", else the number. */
+export function formatEpisodeCount(n: number | null | undefined): string {
+  return (n != null && n > 0) ? String(n) : '—';
+}
