@@ -6,15 +6,23 @@ import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 
 // ── API helper ──
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  if (!supabaseUrl) throw new Error('Supabase URL not configured');
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
-  const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-run`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-    body: JSON.stringify({ action, ...extra }),
-  });
+  const url = `${supabaseUrl}/functions/v1/auto-run`;
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action, ...extra }),
+    });
+  } catch (fetchErr: any) {
+    throw new Error(`Failed to reach auto-run service (action=${action}, url=${url}): ${fetchErr.message}`);
+  }
   const result = await resp.json();
-  if (!resp.ok) throw new Error(result.error || 'Auto-run error');
+  if (!resp.ok) throw new Error(result.error || `Auto-run error (${resp.status})`);
   return result;
 }
 

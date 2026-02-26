@@ -11,7 +11,7 @@ const corsHeaders = {
 // Loaded at runtime via import.meta.url so the edge function always reads the
 // exact same file that the frontend registry.ts imports. No duplication needed.
 
-const _jsonUrl = new URL("../_shared/stage-ladders.json", import.meta.url);
+const _jsonUrl = new URL("../../_shared/stage-ladders.json", import.meta.url);
 const _laddersJson = await (await fetch(_jsonUrl)).json();
 
 const FORMAT_LADDERS: Record<string, string[]> = _laddersJson.FORMAT_LADDERS;
