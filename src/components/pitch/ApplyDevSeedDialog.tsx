@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { CanonJson, CanonCharacter } from '@/hooks/useProjectCanon';
 import { saveProjectLaneRulesetPrefs, type RulesetPrefs } from '@/lib/rulesets/uiState';
+import { buildPrefsDraft } from '@/lib/pitch/devseedHelpers';
 
 interface Props {
   idea: PitchIdea | null;
@@ -113,21 +114,7 @@ function buildCanonDraft(idea: PitchIdea, devSeed: any): CanonJson {
   return canon;
 }
 
-// ── Prefs draft builder ───────────────────────────────────────────────
-
-function buildPrefsDraft(devSeed: any): Partial<RulesetPrefs> {
-  const prefs: Partial<RulesetPrefs> = {};
-  const nuance = devSeed.nuance_contract;
-  if (!nuance) return prefs;
-
-  if (nuance.restraint_level != null || nuance.conflict_mode) {
-    prefs.last_ui = {};
-    if (nuance.restraint_level != null) prefs.last_ui.restraint = nuance.restraint_level;
-    if (nuance.conflict_mode) prefs.last_ui.conflict_mode = nuance.conflict_mode;
-  }
-
-  return prefs;
-}
+// buildPrefsDraft moved to @/lib/pitch/devseedHelpers
 
 // ── Doc helper ────────────────────────────────────────────────────────
 

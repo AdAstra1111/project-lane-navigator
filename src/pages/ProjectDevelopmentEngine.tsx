@@ -88,6 +88,8 @@ import { MessageSquare } from 'lucide-react';
 import { WorldRulesAccordion } from '@/components/rulesets/WorldRulesAccordion';
 import { ActiveRulesetBadge } from '@/components/rulesets/ActiveRulesetBadge';
 import { useProjectRuleset } from '@/hooks/useProjectRuleset';
+import { SeedAppliedBanner } from '@/components/devengine/SeedAppliedBanner';
+import { loadProjectLaneRulesetPrefs } from '@/lib/rulesets/uiState';
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -237,6 +239,34 @@ export default function ProjectDevelopmentEngine() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => { if (data.user) setRulesetUserId(data.user.id); });
   }, []);
+
+  // Canon seed_draft for SeedAppliedBanner
+  const { data: canonData } = useQuery({
+    queryKey: ['dev-engine-canon-seed', projectId],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from('project_canon')
+        .select('canon_json')
+        .eq('project_id', projectId!)
+        .maybeSingle();
+      return data?.canon_json || {};
+    },
+    enabled: !!projectId,
+    staleTime: 30_000,
+  });
+  const seedDraft = canonData?.seed_draft || null;
+  const seedHistoryLen = Array.isArray(canonData?.seed_draft_history) ? canonData.seed_draft_history.length : 0;
+
+  // Check if lane prefs exist for seed banner CTA
+  const { data: lanePrefsExist = false, refetch: refetchLanePrefs } = useQuery({
+    queryKey: ['dev-engine-lane-prefs-exist', projectId, rulesetLane],
+    queryFn: async () => {
+      const prefs = await loadProjectLaneRulesetPrefs(projectId!, rulesetLane);
+      return Object.keys(prefs).length > 0;
+    },
+    enabled: !!projectId,
+    staleTime: 30_000,
+  });
 
   // Find active handoff for the currently selected document
   const activeHandoffForDoc = useMemo(() => {
@@ -882,6 +912,20 @@ export default function ProjectDevelopmentEngine() {
         />
       </div>
 
+      {/* ═══ SEED APPLIED BANNER ═══ */}
+      {seedDraft && projectId && rulesetUserId && (
+        <SeedAppliedBanner
+          projectId={projectId}
+          userId={rulesetUserId}
+          lane={rulesetLane}
+          seedDraft={seedDraft}
+          historyLen={seedHistoryLen}
+          docs={documents}
+          onSelectDoc={selectDocument}
+          prefsExist={lanePrefsExist}
+          onPrefsApplied={() => refetchLanePrefs()}
+        />
+      )}
 
           {/* ═══ CONNECTIVITY STATUS ═══ */}
           {projectId && (() => {
