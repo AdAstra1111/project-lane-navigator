@@ -125,12 +125,23 @@ async function createDocWithVersion(
   title: string,
   content: string,
 ) {
-  const { data: doc } = await supabase
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80);
+  const filePath = `${userId}/${projectId}/${slug}.md`;
+  const { data: doc, error: docErr } = await supabase
     .from('project_documents')
-    .insert({ project_id: projectId, user_id: userId, doc_type: docType, title } as any)
+    .insert({
+      project_id: projectId,
+      user_id: userId,
+      doc_type: docType,
+      title,
+      file_name: `${slug}.md`,
+      file_path: filePath,
+      extraction_status: 'complete',
+    } as any)
     .select('id')
     .single();
 
+  if (docErr) console.error('Doc insert failed:', docErr.message);
   if (doc) {
     await supabase
       .from('project_document_versions')

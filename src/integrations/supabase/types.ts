@@ -9724,8 +9724,8 @@ export type Database = {
           error_message?: string | null
           extracted_text?: string | null
           extraction_status?: string
-          file_name: string
-          file_path: string
+          file_name?: string
+          file_path?: string
           id?: string
           ingestion_source?: string | null
           is_out_of_date?: boolean | null
