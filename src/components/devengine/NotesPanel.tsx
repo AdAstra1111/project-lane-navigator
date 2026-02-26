@@ -511,10 +511,19 @@ function DecisionSetsSection({ decisionSets, projectId, documentId, versionId, o
   const [chosenOptions, setChosenOptions] = useState<Record<string, string>>({});
   const chosenOptionsRef = React.useRef(chosenOptions);
   React.useEffect(() => { chosenOptionsRef.current = chosenOptions; }, [chosenOptions]);
+  const applyTokenRef = React.useRef(0);
 
-  async function applyDecision(ds: DecisionSet, optionId: string) {
+  async function applyDecision(ds: DecisionSet) {
+    const optionId = chosenOptionsRef.current[ds.decision_id];
+    if (!optionId) { toast.error('Select an option first'); return; }
     if (!projectId || !documentId || !versionId) { toast.error('No document selected'); return; }
+    const token = ++applyTokenRef.current;
     setApplying(ds.decision_id);
+
+    if (import.meta.env.DEV) {
+      console.debug('[DecisionSetsSection] apply token=%d decision=%s option=%s', token, ds.decision_id, optionId);
+    }
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
@@ -529,10 +538,11 @@ function DecisionSetsSection({ decisionSets, projectId, documentId, versionId, o
           option_id: optionId,
         }),
       });
+      if (applyTokenRef.current !== token) return; // superseded by newer apply
       if (res.ok) { toast.success('Decision applied — new version created'); onDecisionApplied?.(); }
       else toast.error('Decision apply failed');
-    } catch { toast.error('Decision apply failed'); }
-    finally { setApplying(null); }
+    } catch { if (applyTokenRef.current === token) toast.error('Decision apply failed'); }
+    finally { if (applyTokenRef.current === token) setApplying(null); }
   }
 
   const openSets = (decisionSets || []).filter(ds => ds.status === 'open');
@@ -566,7 +576,7 @@ function DecisionSetsSection({ decisionSets, projectId, documentId, versionId, o
             {chosen && (
               <Button size="sm" className="h-5 text-[8px] px-2 gap-0.5 bg-violet-600 hover:bg-violet-700 w-full"
                 disabled={applying === ds.decision_id}
-                onClick={() => applyDecision(ds, chosenOptionsRef.current[ds.decision_id])}>
+                onClick={() => applyDecision(ds)}>
                 {applying === ds.decision_id ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}
                 Apply Decision
               </Button>
