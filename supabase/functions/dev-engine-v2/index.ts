@@ -2917,6 +2917,10 @@ MATERIAL TO REWRITE:\n${fullText}`;
         runtimeWarning = `This draft estimates ~${Math.round(newMins)} mins (below preferred minimum ${softMin} mins).`;
       }
 
+      // Load team voice for meta_json stamping on chunked rewrite (outside retry loop)
+      const chunkLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
+      const chunkTvCtx = await loadTeamVoiceContext(supabase, projectId, chunkLane);
+      const chunkMetaJson = chunkTvCtx.metaStamp ? { ...chunkTvCtx.metaStamp } : undefined;
       let newVersion: any = null;
       for (let _retry = 0; _retry < 3; _retry++) {
         const { data: maxRow } = await supabase.from("project_document_versions")
@@ -2926,10 +2930,6 @@ MATERIAL TO REWRITE:\n${fullText}`;
           .limit(1)
           .single();
         const nextVersion = (maxRow?.version_number ?? 0) + 1;
-        // Load team voice for meta_json stamping on chunked rewrite
-        const chunkLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
-        const chunkTvCtx = await loadTeamVoiceContext(supabase, projectId, chunkLane);
-        const chunkMetaJson = chunkTvCtx.metaStamp ? { ...chunkTvCtx.metaStamp } : undefined;
         const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
           document_id: documentId,
           version_number: nextVersion,
@@ -3388,6 +3388,10 @@ Output ONLY the expanded screenplay text. No JSON, no commentary, no markdown.`;
       const expandedWords = cleanExpanded.split(/\s+/).filter(Boolean).length;
       const expandedMins = expandedWords / divisor;
 
+      // Load team voice for meta_json stamping on expand
+      const expandLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
+      const expandTvCtx = await loadTeamVoiceContext(supabase, projectId, expandLane);
+      const expandMetaJson = expandTvCtx.metaStamp ? { ...expandTvCtx.metaStamp } : undefined;
       let newVersion: any = null;
       for (let _retry = 0; _retry < 3; _retry++) {
         const { data: maxRow } = await supabase.from("project_document_versions")
@@ -3402,6 +3406,7 @@ Output ONLY the expanded screenplay text. No JSON, no commentary, no markdown.`;
           created_by: user.id,
           parent_version_id: versionId,
           change_summary: `Auto-expanded from ~${Math.round(currentMins)} to ~${Math.round(expandedMins)} mins.`,
+          ...(expandMetaJson ? { meta_json: expandMetaJson } : {}),
         }).select().single();
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
@@ -5393,7 +5398,10 @@ Return ONLY valid JSON:
       const decisionParsed = await parseAIJson(LOVABLE_API_KEY, decisionRaw);
       const rewrittenText = decisionParsed.rewritten_text || baseVersion.plaintext;
 
-      // Create new version
+      // Create new version (with team voice meta_json stamping)
+      const decLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
+      const decTvCtx = await loadTeamVoiceContext(supabase, projectId, decLane);
+      const decMetaJson = decTvCtx.metaStamp ? { ...decTvCtx.metaStamp } : undefined;
       let newVersion: any = null;
       for (let _retry = 0; _retry < 3; _retry++) {
         const { data: maxRow } = await supabase.from("project_document_versions")
@@ -5408,6 +5416,7 @@ Return ONLY valid JSON:
           created_by: user.id,
           parent_version_id: base_version_id,
           change_summary: decisionParsed.changes_summary || `Applied decision option ${option_id}`,
+          ...(decMetaJson ? { meta_json: decMetaJson } : {}),
         }).select().single();
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
@@ -5555,7 +5564,10 @@ Return ONLY valid JSON:
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       const rewrittenText = parsed.rewritten_text || version.plaintext;
 
-      // Create new version
+      // Create new version (with team voice meta_json stamping)
+      const bundleLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
+      const bundleTvCtx = await loadTeamVoiceContext(supabase, projectId, bundleLane);
+      const bundleMetaJson = bundleTvCtx.metaStamp ? { ...bundleTvCtx.metaStamp } : undefined;
       let newVersion: any = null;
       for (let _retry = 0; _retry < 3; _retry++) {
         const { data: maxRow } = await supabase.from("project_document_versions")
@@ -5570,6 +5582,7 @@ Return ONLY valid JSON:
           created_by: user.id,
           parent_version_id: versionId,
           change_summary: parsed.changes_summary || "Bundle fix applied",
+          ...(bundleMetaJson ? { meta_json: bundleMetaJson } : {}),
         }).select().single();
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
@@ -12122,7 +12135,10 @@ CRITICAL:
         rewriteScopePlan.target_scene_numbers.length > 0 &&
         rewriteScopePlan.target_scene_numbers.length < totalScenesInAssembly;
 
-      // Create new version with retry for version_number collision
+      // Create new version with retry for version_number collision (with team voice meta_json)
+      const sceneRwLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
+      const sceneRwTvCtx = await loadTeamVoiceContext(supabase, projectId, sceneRwLane);
+      const sceneRwMetaJson = sceneRwTvCtx.metaStamp ? { ...sceneRwTvCtx.metaStamp } : undefined;
       let newVersion: any = null;
       for (let _retry = 0; _retry < 3; _retry++) {
         const { data: maxRow } = await supabase.from("project_document_versions")
@@ -12143,6 +12159,7 @@ CRITICAL:
           change_summary: trulySelective
             ? `Selective scene-level rewrite: ${outputs.length} of ${totalScenesInAssembly} scenes rewritten.`
             : `Scene-level rewrite across ${outputs.length} scenes.`,
+          ...(sceneRwMetaJson ? { meta_json: sceneRwMetaJson } : {}),
         }).select().single();
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
