@@ -17066,6 +17066,81 @@ export type Database = {
           },
         ]
       }
+      style_evals: {
+        Row: {
+          attempt: number
+          created_at: string
+          deltas: Json
+          document_id: string
+          drift_level: string
+          fingerprint: Json
+          id: string
+          lane: string
+          project_id: string
+          score: number
+          target: Json
+          team_voice_id: string | null
+          team_voice_label: string | null
+          version_id: string
+          voice_source: string
+          writing_voice_id: string | null
+          writing_voice_label: string | null
+        }
+        Insert: {
+          attempt?: number
+          created_at?: string
+          deltas?: Json
+          document_id: string
+          drift_level?: string
+          fingerprint?: Json
+          id?: string
+          lane?: string
+          project_id: string
+          score?: number
+          target?: Json
+          team_voice_id?: string | null
+          team_voice_label?: string | null
+          version_id: string
+          voice_source?: string
+          writing_voice_id?: string | null
+          writing_voice_label?: string | null
+        }
+        Update: {
+          attempt?: number
+          created_at?: string
+          deltas?: Json
+          document_id?: string
+          drift_level?: string
+          fingerprint?: Json
+          id?: string
+          lane?: string
+          project_id?: string
+          score?: number
+          target?: Json
+          team_voice_id?: string | null
+          team_voice_label?: string | null
+          version_id?: string
+          voice_source?: string
+          writing_voice_id?: string | null
+          writing_voice_label?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "style_evals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "style_evals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscriptions: {
         Row: {
           cancel_at_period_end: boolean
