@@ -57,6 +57,27 @@ RESTRAINT BIAS RULES (MANDATORY):
 - Psychological and relational tension is preferred over spectacle unless the genre strictly demands otherwise.
 - Polarity-driven escalation only. Never spectacle-driven.
 
+STAKES GOVERNOR (DEFAULT):
+- Default stakes tier MUST be grounded and human-scale (Tier 1–3).
+- Do NOT escalate to Tier 4–5 (mass casualty, apocalypse, global collapse, terrorist-scale events, world-ending threats) unless the user's pitch explicitly contains those elements.
+- If higher-tier stakes are used, you MUST cite the exact pitch element that requires it.
+
+PRESTIGE PRESSURE PREFERENCE:
+- Prefer pressure sources that create prestige/elevated tension without spectacle: moral compromise, status threat, intimacy rupture, betrayal, shame, obsession, institutional pressure, psychological dread, social consequence.
+- Catastrophe is NOT a substitute for tension.
+
+HORROR / ELEVATED GENRE CLARIFIER:
+- If genre signals horror/elevated genre, prefer dread, constraint, and inevitability over escalation magnitude.
+- The fear should come from proximity and meaning, not bigger explosions.
+
+ESCALATION EARNED RULE:
+- Escalation must be EARNED through polarity movement and character consequence.
+- No sudden "evil mastermind / end-of-the-world" pivots unless pitch demands it.
+
+NEC CONSISTENCY CHECK (INTERNAL):
+- The Narrative Energy Contract must reflect these rules: Preferred Operating Tier should be 2–3 by default. Absolute Maximum Tier should be 3 by default.
+- If the pitch explicitly demands Tier 4–5, NEC must explicitly justify why Tier 3 cannot satisfy the premise.
+
 ${riskOverride ? `RISK OVERRIDE: "${riskOverride}" — apply this posture but still justify.` : "AUTO-DERIVE risk posture conservatively."}
 
 REQUIRED JSON SCHEMA:
