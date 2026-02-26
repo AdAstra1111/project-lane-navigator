@@ -12,6 +12,64 @@ import {
   type StyleTarget, type StyleEvalResult, type StyleFingerprint, type StyleDeviation,
 } from "../_shared/styleDeviation.ts";
 
+// ── NEC (Narrative Energy Contract) Guardrail Loader ──
+const NEC_DEFAULT_GUARDRAIL = `\nNARRATIVE ENERGY CONTRACT (DEFAULT — no project NEC found):
+- Preferred Operating Tier: 2 (psychological/relational pressure, status games, moral dilemmas).
+- Absolute Maximum Tier: 3 (career-ending revelations, major betrayals, institutional collapse).
+- HARD RULES:
+  • Do NOT introduce events above Tier 3 (no assassinations, public catastrophes, mass violence, supernatural intervention) unless the source material already contains them.
+  • Do NOT add blackmail, public scandal, or life-threatening escalation unless explicitly present in the source.
+  • Prefer psychological and relational tension over spectacle.
+  • Stay inside the tonal envelope established by the source material.`;
+
+async function loadNECGuardrailBlock(
+  supabaseClient: any,
+  projectId: string,
+): Promise<string> {
+  try {
+    // Find the NEC document for this project
+    const { data: necDoc } = await supabaseClient
+      .from('project_documents')
+      .select('id')
+      .eq('project_id', projectId)
+      .eq('doc_type', 'nec')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!necDoc) return NEC_DEFAULT_GUARDRAIL;
+
+    // Load current version text
+    const { data: necVersion } = await supabaseClient
+      .from('project_document_versions')
+      .select('plaintext')
+      .eq('document_id', necDoc.id)
+      .eq('is_current', true)
+      .maybeSingle();
+
+    const text = necVersion?.plaintext;
+    if (!text || text.length < 20) return NEC_DEFAULT_GUARDRAIL;
+
+    // Extract tier info via simple regex
+    const prefTierMatch = text.match(/Preferred Operating Tier[:\s]*(\d)/i);
+    const maxTierMatch = text.match(/Absolute Maximum Tier[:\s]*(\d)/i);
+    const prefTier = prefTierMatch ? prefTierMatch[1] : '2';
+    const maxTier = maxTierMatch ? maxTierMatch[1] : '3';
+
+    return `\nNARRATIVE ENERGY CONTRACT (from project NEC — authoritative):
+${clampText(text, 3000)}
+
+HARD RULES (derived from NEC):
+• Preferred Operating Tier: ${prefTier}. Absolute Maximum Tier: ${maxTier}.
+• Do NOT introduce events above Tier ${maxTier}. No assassinations, public catastrophes, mass violence, or supernatural intervention unless explicitly allowed by NEC.
+• Do NOT add blackmail, public scandal, or life-threatening escalation unless explicitly allowed by NEC.
+• Prefer psychological/relational tension over spectacle. Stay inside the tonal envelope.`;
+  } catch (e) {
+    console.warn('[dev-engine-v2] NEC load failed, using default guardrail:', e);
+    return NEC_DEFAULT_GUARDRAIL;
+  }
+}
+
 // ── Supporting doc pack constants ──
 const SUPPORTING_TOTAL_BUDGET = 24000;
 const SUPPORTING_PER_DOC_BUDGET = 6000;
@@ -2455,7 +2513,10 @@ GENERAL RULES:
         }
       } catch (_e) { /* non-fatal */ }
 
-      const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}${notesCanonBlock}\n\nMATERIAL (${version.plaintext.length} chars total):\n${version.plaintext}`;
+      // ── NEC Guardrail injection for notes ──
+      const notesNecBlock = await loadNECGuardrailBlock(supabase, projectId);
+
+      const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}${notesCanonBlock}${notesNecBlock}\n\nMATERIAL (${version.plaintext.length} chars total):\n${version.plaintext}`;
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, notesSystem, userPrompt, 0.25, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
 
@@ -2892,6 +2953,9 @@ MATERIAL:\n${version.plaintext}`;
 
       const rewriteSystemPrompt = buildRewriteSystem(effectiveDeliverable, effectiveFormat, effectiveBehavior);
 
+      // ── NEC Guardrail injection for rewrite ──
+      const rwNecBlock = await loadNECGuardrailBlock(supabase, projectId);
+
       // ── Team Voice injection for rewrite ──
       const rewriteLane = project?.assigned_lane || "independent-film";
       const rwTvCtx = await loadTeamVoiceContext(supabase, projectId, rewriteLane);
@@ -2900,7 +2964,7 @@ MATERIAL:\n${version.plaintext}`;
       const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
 
 APPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}${decisionDirectives}${globalDirContext}
-${rwTeamVoiceBlock}
+${rwTeamVoiceBlock}${rwNecBlock}
 TARGET FORMAT: ${targetDocType || "same as source"}
 
 MATERIAL TO REWRITE:\n${fullText}`;
@@ -3226,10 +3290,13 @@ Format: ${rq.format}.`;
         console.warn("[dev-engine-v2] convert: resolve-qualifications failed:", e);
       }
 
+      // ── NEC Guardrail injection for convert ──
+      const cvNecBlock = await loadNECGuardrailBlock(supabase, projectId);
+
       const userPrompt = `SOURCE FORMAT: ${srcDoc?.doc_type || "unknown"}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA):\n${JSON.stringify(protectItems || [])}
-${qualBindingBlock}
+${qualBindingBlock}${cvNecBlock}
 MATERIAL:\n${version.plaintext}`;
 
       const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
