@@ -251,8 +251,11 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           const history = existingCanon.seed_draft
             ? [...(existingCanon.seed_draft_history ?? []), existingCanon.seed_draft].slice(-10)
             : existingCanon.seed_draft_history ?? [];
+          // Spread canonical keys at top level so Dev Engine + getCanonicalProjectState can read them
+          const canonTopLevel = buildCanonDraft(idea, devSeed);
           const merged = {
             ...existingCanon,
+            ...canonTopLevel,
             seed_draft: seedDraft,
             ...(history.length > 0 ? { seed_draft_history: history } : {}),
           };
