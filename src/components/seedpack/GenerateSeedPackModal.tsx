@@ -12,16 +12,21 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Sprout, CheckCircle2, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Loader2, Sprout, CheckCircle2, AlertTriangle, ChevronDown, ChevronRight, Rocket } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { getLadderForFormat } from '@/lib/stages/registry';
+import { loadSeedDocs, extractAutofill, applyAutofillToProject } from '@/lib/seedpack-autofill';
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId: string;
   defaultLane?: string;
+  projectFormat?: string | null;
   onSuccess?: () => void;
+  onStartAutoRun?: (mode: string, startDoc: string, targetDoc: string) => void;
 }
 
 const LANE_OPTIONS = [
@@ -61,7 +66,7 @@ interface StrategicAnalysis {
   compression?: { words_25?: string; words_75?: string };
 }
 
-export function GenerateSeedPackModal({ open, onOpenChange, projectId, defaultLane, onSuccess }: Props) {
+export function GenerateSeedPackModal({ open, onOpenChange, projectId, defaultLane, projectFormat, onSuccess, onStartAutoRun }: Props) {
   const [pitch, setPitch] = useState('');
   const [lane, setLane] = useState(defaultLane || 'feature_film');
   const [targetPlatform, setTargetPlatform] = useState('');
@@ -75,6 +80,9 @@ export function GenerateSeedPackModal({ open, onOpenChange, projectId, defaultLa
   const [necDocId, setNecDocId] = useState<string | null>(null);
   const [isCommitting, setIsCommitting] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [autofillEnabled, setAutofillEnabled] = useState(true);
+  const [autoRunEnabled, setAutoRunEnabled] = useState(true);
+  const [autofillStatus, setAutofillStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -88,6 +96,42 @@ export function GenerateSeedPackModal({ open, onOpenChange, projectId, defaultLa
     }
     return () => { if (progressInterval.current) clearInterval(progressInterval.current); };
   }, [status]);
+
+  const handleAutofillAndAutoRun = async () => {
+    if (autofillEnabled) {
+      setAutofillStatus('running');
+      try {
+        const seedDocs = await loadSeedDocs(projectId);
+        if (seedDocs.length > 0) {
+          const autofill = extractAutofill(seedDocs);
+          await applyAutofillToProject(projectId, autofill);
+          toast({ title: 'Fields auto-filled', description: `Extracted from ${seedDocs.length} seed doc(s).` });
+        } else {
+          toast({ title: 'No seed docs found', description: 'Generate the seed pack first.', variant: 'destructive' });
+          setAutofillStatus('error');
+          return;
+        }
+        setAutofillStatus('done');
+      } catch (e: any) {
+        setAutofillStatus('error');
+        toast({ title: 'Autofill failed', description: e.message, variant: 'destructive' });
+        return;
+      }
+    }
+
+    if (autoRunEnabled && onStartAutoRun) {
+      const format = projectFormat || lane || 'feature_film';
+      const ladder = getLadderForFormat(format);
+      const finalStage = ladder[ladder.length - 1];
+      try {
+        await onStartAutoRun('balanced', 'idea', finalStage);
+        toast({ title: 'Auto-Run started', description: `Target: ${finalStage}` });
+        onOpenChange(false);
+      } catch (e: any) {
+        toast({ title: 'Auto-Run failed to start', description: e.message, variant: 'destructive' });
+      }
+    }
+  };
 
   const handleGenerate = async () => {
     if (!pitch.trim()) {
@@ -127,6 +171,11 @@ export function GenerateSeedPackModal({ open, onOpenChange, projectId, defaultLa
 
       toast({ title: 'Pitch Architecture complete', description: `${data.documents?.length || 0} documents created.` });
       onSuccess?.();
+
+      // Auto-fill + auto-run after successful generation if enabled
+      if (autofillEnabled || autoRunEnabled) {
+        setTimeout(() => handleAutofillAndAutoRun(), 500);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Generation failed';
       setErrorMsg(msg);
@@ -180,6 +229,7 @@ export function GenerateSeedPackModal({ open, onOpenChange, projectId, defaultLa
       setNecOriginal('');
       setNecDocId(null);
       setAnalysisOpen(false);
+      setAutofillStatus('idle');
     }
   };
 
@@ -265,6 +315,50 @@ export function GenerateSeedPackModal({ open, onOpenChange, projectId, defaultLa
                   disabled={status === 'generating'}
                 />
               </div>
+            </div>
+
+            {/* Autofill + Auto-Run toggles */}
+            <div className="space-y-2.5 p-3 rounded-lg bg-muted/30 border border-border">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                  <Label htmlFor="autofill-toggle" className="text-xs font-medium cursor-pointer">
+                    Auto-fill project fields from seed docs
+                  </Label>
+                </div>
+                <Switch id="autofill-toggle" checked={autofillEnabled} onCheckedChange={setAutofillEnabled} disabled={status === 'generating'} />
+              </div>
+              <p className="text-[10px] text-muted-foreground pl-5">
+                Extracts comparables, audience, tone, genres from generated documents (no AI — regex only)
+              </p>
+
+              {onStartAutoRun && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Rocket className="h-3.5 w-3.5 text-primary" />
+                      <Label htmlFor="autorun-toggle" className="text-xs font-medium cursor-pointer">
+                        Start Auto-Run to Perfect Package
+                      </Label>
+                    </div>
+                    <Switch id="autorun-toggle" checked={autoRunEnabled} onCheckedChange={setAutoRunEnabled} disabled={status === 'generating'} />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground pl-5">
+                    Automatically starts development engine after seed pack is ready
+                  </p>
+                </>
+              )}
+
+              {autofillStatus === 'running' && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Extracting fields from seed docs…
+                </div>
+              )}
+              {autofillStatus === 'done' && (
+                <div className="flex items-center gap-2 text-xs text-primary">
+                  <CheckCircle2 className="h-3 w-3" /> Fields populated
+                </div>
+              )}
             </div>
 
             {status === 'generating' && (
@@ -381,7 +475,7 @@ export function GenerateSeedPackModal({ open, onOpenChange, projectId, defaultLa
           {!showResults && (
             <Button onClick={handleGenerate} disabled={status === 'generating' || !pitch.trim()} className="gap-1.5">
               {status === 'generating' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sprout className="h-3.5 w-3.5" />}
-              Generate
+              {autoRunEnabled && onStartAutoRun ? 'Generate & Start' : 'Generate'}
             </Button>
           )}
         </DialogFooter>
