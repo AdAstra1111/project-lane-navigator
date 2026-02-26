@@ -1105,8 +1105,8 @@ Deno.serve(async (req) => {
       if (choiceId === "force_promote" && choiceValue === "yes") {
         const { data: fpProj } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
         const fpFmt = (fpProj?.format || "film").toLowerCase().replace(/_/g, "-");
-        const next = nextDoc(currentDoc, fpFmt);
-        if (next && ladderIndexOf(next, fpFmt) <= ladderIndexOf(job.target_document, fpFmt)) {
+        const next = await nextUnsatisfiedStage(supabase, job.project_id, fpFmt, currentDoc, job.target_document);
+        if (next) {
           await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
             `Force-promoted: ${currentDoc} → ${next}`,
             {}, undefined, { choiceId, choiceValue }
@@ -1125,7 +1125,7 @@ Deno.serve(async (req) => {
           await updateJob(supabase, jobId, {
             step_count: stepCount,
             status: "completed",
-            stop_reason: "Reached target document (force-promoted)",
+            stop_reason: "All stages satisfied up to target",
             pending_decisions: null,
           });
           return respondWithJob(supabase, jobId);
@@ -1342,7 +1342,7 @@ Deno.serve(async (req) => {
       } else {
         // Target reached
         await updateJob(supabase, jobId, {
-          step_count: stepCount, status: "completed", stop_reason: "Reached target document (approved)",
+          step_count: stepCount, status: "completed", stop_reason: "All stages satisfied up to target",
           awaiting_approval: false, approval_type: null, approval_payload: null,
           pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
         });
@@ -1377,22 +1377,22 @@ Deno.serve(async (req) => {
       // Fetch format for format-aware ladder
       const { data: jobProj } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
       const jobFmt = (jobProj?.format || "film").toLowerCase().replace(/_/g, "-");
-      const next = nextDoc(current, jobFmt);
-      if (!next) return respond({ error: `Already at final stage: ${current}` }, 400);
-      const stepCount = job.step_count + 1;
-      await logStep(supabase, jobId, stepCount, current, "force_promote", `Force-promoted: ${current} → ${next}`);
-      const targetIdx = ladderIndexOf(job.target_document, jobFmt);
-      const nextIdx = ladderIndexOf(next, jobFmt);
-      if (nextIdx > targetIdx) {
-        await updateJob(supabase, jobId, { step_count: stepCount, status: "completed", stop_reason: `Force-promoted past target` });
-      } else {
-        await updateJob(supabase, jobId, {
-          current_document: next, stage_loop_count: 0, step_count: stepCount,
-          status: "running", stop_reason: null,
-          awaiting_approval: false, approval_type: null, pending_doc_id: null, pending_version_id: null,
-          pending_doc_type: null, pending_next_doc_type: null, pending_decisions: null,
-        });
+      const currentDoc = job.current_document as DocStage;
+      const next = await nextUnsatisfiedStage(supabase, job.project_id, jobFmt, currentDoc, job.target_document);
+      if (!next) {
+        const stepCount = job.step_count + 1;
+        await logStep(supabase, jobId, stepCount, currentDoc, "force_promote", "All stages satisfied up to target");
+        await updateJob(supabase, jobId, { step_count: stepCount, status: "completed", stop_reason: "All stages satisfied up to target" });
+        return respondWithJob(supabase, jobId);
       }
+      const stepCount = job.step_count + 1;
+      await logStep(supabase, jobId, stepCount, currentDoc, "force_promote", `Force-promoted: ${currentDoc} → ${next}`);
+      await updateJob(supabase, jobId, {
+        current_document: next, stage_loop_count: 0, step_count: stepCount,
+        status: "running", stop_reason: null,
+        awaiting_approval: false, approval_type: null, pending_doc_id: null, pending_version_id: null,
+        pending_doc_type: null, pending_next_doc_type: null, pending_decisions: null,
+      });
       return respondWithJob(supabase, jobId, "run-next");
     }
 
