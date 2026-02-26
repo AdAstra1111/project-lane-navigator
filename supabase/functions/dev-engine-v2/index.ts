@@ -2002,8 +2002,12 @@ Format: ${rq.format}.${episodeLengthBlock}`;
           console.warn("[dev-engine-v2] loadSupportingDocPack failed (non-fatal):", e?.message);
         }
       }
+      // ── NEC Guardrail injection for analyze (NEC-first) ──
+      const analyzeNecBlock = await loadNECGuardrailBlock(supabase, projectId);
+      const necEnforcementLine = `\nHARD ENFORCEMENT: If your proposal introduces blackmail, public spectacle, mass-casualty/catastrophic stakes, life-ruin stakes, assassinations, or supernatural escalation and the NEC does not explicitly permit it, you MUST replace it with an alternative that stays at or below the Preferred Operating Tier, preserving tone and nuance.\n`;
 
-      const userPrompt = `PRODUCTION TYPE: ${effectiveProductionType}
+      const userPrompt = `${analyzeNecBlock}${necEnforcementLine}
+PRODUCTION TYPE: ${effectiveProductionType}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 PROJECT: ${project?.title || "Unknown"}
