@@ -507,6 +507,15 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
       }
     }
 
+    // Never return success if any seed doc failed to persist
+    if (createdDocs.length < SEED_DOC_CONFIGS.length) {
+      const missing = SEED_DOC_CONFIGS
+        .filter(c => !createdDocs.some(d => d.doc_type === c.doc_type))
+        .map(c => c.title);
+      console.error("Seed pack incomplete — failed docs:", missing);
+      return jsonRes({ error: `Failed to persist seed documents: ${missing.join(", ")}` }, 500);
+    }
+
     return jsonRes({
       success: true,
       seed_snapshot_id: seedSnapshotId,
