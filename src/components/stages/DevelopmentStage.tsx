@@ -4,9 +4,9 @@
  * For documentary projects: switches to Documentary Intelligence Mode automatically.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { FileText, TrendingUp, AlertTriangle, Quote, CheckCircle2, ShieldAlert, MessageSquareQuote, Zap } from 'lucide-react';
+import { FileText, TrendingUp, AlertTriangle, Quote, CheckCircle2, ShieldAlert, MessageSquareQuote, Zap, Sprout } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { DevelopmentIntelligencePanel } from '@/components/intelligence/DevelopmentIntelligencePanel';
@@ -20,6 +20,7 @@ import { ProjectNoteInput } from '@/components/project/ProjectNoteInput';
 import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
 import { DocumentsList } from '@/components/DocumentsList';
 import { DocumentaryIntelligencePanel } from '@/components/documentary/DocumentaryIntelligencePanel';
+import { GenerateSeedPackModal } from '@/components/seedpack/GenerateSeedPackModal';
 
 import { isDocumentaryFormat } from '@/lib/types';
 import type { Project, FullAnalysis, Recommendation } from '@/lib/types';
@@ -55,6 +56,7 @@ export function DevelopmentStage({
 }: Props) {
   const legacyRecs = (project.recommendations || []) as Recommendation[];
   const isDoc = isDocumentaryFormat(project.format);
+  const [seedPackOpen, setSeedPackOpen] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -94,6 +96,25 @@ export function DevelopmentStage({
           </Link>
         </Button>
       </div>
+
+      {/* Seed Pack */}
+      <div className="flex items-center justify-between glass-card rounded-xl px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Sprout className="h-4 w-4 text-primary" />
+          <span className="text-sm text-muted-foreground">
+            Generate structured scaffold documents from your pitch
+          </span>
+        </div>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setSeedPackOpen(true)}>
+          <Sprout className="h-3.5 w-3.5" />Generate Seed Pack
+        </Button>
+      </div>
+      <GenerateSeedPackModal
+        open={seedPackOpen}
+        onOpenChange={setSeedPackOpen}
+        projectId={projectId}
+        defaultLane={project.assigned_lane}
+      />
 
       {/* Script Intake link */}
       <div className="flex items-center justify-between glass-card rounded-xl px-4 py-3">
