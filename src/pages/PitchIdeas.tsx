@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { HardCriteriaForm, EMPTY_CRITERIA, type HardCriteria } from '@/components/pitch/HardCriteriaForm';
 import { SlateCard } from '@/components/pitch/SlateCard';
 import { PromoteToDevSeedDialog } from '@/components/pitch/PromoteToDevSeedDialog';
+import { ApplyDevSeedDialog } from '@/components/pitch/ApplyDevSeedDialog';
 import { OperationProgress, GENERATE_PITCH_STAGES } from '@/components/OperationProgress';
 import { usePitchIdeas, type PitchIdea } from '@/hooks/usePitchIdeas';
 import { useProjects } from '@/hooks/useProjects';
@@ -26,7 +27,7 @@ export default function PitchIdeas() {
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState('');
   const [promoteIdea, setPromoteIdea] = useState<PitchIdea | null>(null);
-  const [batchId, setBatchId] = useState<string | null>(null);
+  const [applyIdea, setApplyIdea] = useState<PitchIdea | null>(null);
 
   const filteredIdeas = useMemo(() => {
     return ideas
@@ -45,14 +46,13 @@ export default function PitchIdeas() {
       return;
     }
     setGenerating(true);
-    const currentBatch = crypto.randomUUID();
-    setBatchId(currentBatch);
 
     try {
       const { data, error } = await supabase.functions.invoke('generate-pitch', {
         body: {
           productionType: criteria.productionType,
           genre: clean(criteria.genre),
+          subgenre: clean(criteria.subgenre),
           budgetBand: clean(criteria.budgetBand),
           region: clean(criteria.region),
           platformTarget: clean(criteria.platformTarget),
@@ -61,12 +61,29 @@ export default function PitchIdeas() {
           projectId: selectedProject || undefined,
           hardCriteria: {
             culturalTag: clean(criteria.culturalTag),
+            toneAnchor: clean(criteria.toneAnchor),
             lane: clean(criteria.lane),
             rating: clean(criteria.rating),
+            audience: clean(criteria.audience),
+            languageTerritory: clean(criteria.languageTerritory),
             epLength: criteria.epLength || undefined,
             epCount: criteria.epCount || undefined,
+            runtimeMin: criteria.runtimeMin || undefined,
+            runtimeMax: criteria.runtimeMax || undefined,
+            settingType: clean(criteria.settingType),
+            locationVibe: clean(criteria.locationVibe),
+            arenaProfession: clean(criteria.arenaProfession),
+            romanceTropes: criteria.romanceTropes,
+            heatLevel: clean(criteria.heatLevel),
+            obstacleType: clean(criteria.obstacleType),
             mustHaveTropes: criteria.mustHaveTropes,
             avoidTropes: criteria.avoidTropes,
+            prohibitedComps: criteria.prohibitedComps,
+            locationsMax: criteria.locationsMax || undefined,
+            castSizeMax: criteria.castSizeMax || undefined,
+            starRole: clean(criteria.starRole),
+            noveltyLevel: criteria.noveltyLevel || 'balanced',
+            differentiateBy: clean(criteria.differentiateBy),
           },
           briefNotes: criteria.notes || undefined,
         },
@@ -96,7 +113,14 @@ export default function PitchIdeas() {
           platform_target: criteria.platformTarget || '',
           risk_level: idea.risk_level || criteria.riskLevel || 'medium',
           project_id: selectedProject || null,
-          raw_response: idea,
+          raw_response: {
+            ...idea,
+            premise: idea.premise || '',
+            trend_fit_bullets: idea.trend_fit_bullets || [],
+            differentiation_move: idea.differentiation_move || '',
+            tone_tag: idea.tone_tag || '',
+            format_summary: idea.format_summary || '',
+          },
           score_market_heat: idea.score_market_heat || 0,
           score_feasibility: idea.score_feasibility || 0,
           score_lane_fit: idea.score_lane_fit || 0,
@@ -117,6 +141,11 @@ export default function PitchIdeas() {
     await update({ id, status: shortlisted ? 'shortlisted' : 'draft' });
     toast.success(shortlisted ? 'Added to shortlist' : 'Removed from shortlist');
   }, [update]);
+
+  const handlePromoted = useCallback((idea: PitchIdea) => {
+    setPromoteIdea(null);
+    setApplyIdea(idea);
+  }, []);
 
   const exportPDF = () => {
     const doc = new jsPDF();
@@ -203,7 +232,7 @@ export default function PitchIdeas() {
         {/* Status filter + Generate More */}
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex gap-2 flex-wrap">
-            {['', 'draft', 'shortlisted', 'archived'].map(s => (
+            {['', 'draft', 'shortlisted', 'in-development', 'archived'].map(s => (
               <Badge
                 key={s || 'all'}
                 variant={statusFilter === s ? 'default' : 'outline'}
@@ -252,7 +281,14 @@ export default function PitchIdeas() {
           idea={promoteIdea}
           open={!!promoteIdea}
           onOpenChange={open => { if (!open) setPromoteIdea(null); }}
-          onPromoted={() => setPromoteIdea(null)}
+          onPromoted={handlePromoted}
+        />
+
+        {/* Apply DevSeed dialog */}
+        <ApplyDevSeedDialog
+          idea={applyIdea}
+          open={!!applyIdea}
+          onOpenChange={open => { if (!open) setApplyIdea(null); }}
         />
       </motion.main>
     </div>

@@ -12,7 +12,7 @@ interface Props {
   idea: PitchIdea | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onPromoted: () => void;
+  onPromoted: (idea: PitchIdea) => void;
 }
 
 export function PromoteToDevSeedDialog({ idea, open, onOpenChange, onPromoted }: Props) {
@@ -30,9 +30,8 @@ export function PromoteToDevSeedDialog({ idea, open, onOpenChange, onPromoted }:
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      toast.success('DevSeed created — bible starter, nuance contract, and market rationale attached');
-      onPromoted();
-      onOpenChange(false);
+      toast.success('DevSeed created — ready to apply to a project');
+      onPromoted(idea);
     } catch (e: any) {
       toast.error(e.message || 'Promotion failed');
     } finally {
@@ -49,7 +48,7 @@ export function PromoteToDevSeedDialog({ idea, open, onOpenChange, onPromoted }:
             Promote to DevSeed
           </DialogTitle>
           <DialogDescription>
-            This creates a DevSeed payload with a bible starter, nuance contract, and market rationale. It does NOT write to canon or project prefs — those are applied separately.
+            Creates a DevSeed payload (bible starter, nuance contract, market rationale). Does NOT write to canon or prefs.
           </DialogDescription>
         </DialogHeader>
 
@@ -72,7 +71,7 @@ export function PromoteToDevSeedDialog({ idea, open, onOpenChange, onPromoted }:
             <p>• Bible Starter — character, world, and tone foundations</p>
             <p>• Nuance Contract — restraint level, conflict mode, complexity caps</p>
             <p>• Market Rationale — comps analysis, lane justification, buyer positioning</p>
-            <p className="mt-2 text-muted-foreground">⚠ This is a draft — Apply flow required to commit to a project.</p>
+            <p className="mt-2 text-muted-foreground">After creation, you'll be prompted to apply it to a project.</p>
           </div>
         </div>
 

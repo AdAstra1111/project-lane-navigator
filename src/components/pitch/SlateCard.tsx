@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Rocket, ChevronDown, ChevronUp, Bookmark, BookmarkCheck, Trash2 } from 'lucide-react';
+import { Rocket, ChevronDown, ChevronUp, Bookmark, BookmarkCheck, Trash2, TrendingUp, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -20,10 +20,18 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete }: Prop
   const isShortlisted = idea.status === 'shortlisted';
   const laneLabel = LANE_LABELS[idea.recommended_lane as MonetisationLane] || idea.recommended_lane;
 
+  // Extract extended fields from raw_response
+  const raw = idea.raw_response as any || {};
+  const premise = raw.premise || '';
+  const trendFitBullets: string[] = raw.trend_fit_bullets || [];
+  const differentiationMove: string = raw.differentiation_move || '';
+  const toneTag: string = raw.tone_tag || '';
+  const formatSummary: string = raw.format_summary || '';
+
   return (
     <Card className="border-border/40 bg-card/60 backdrop-blur-sm hover:border-primary/30 transition-colors group">
       <CardContent className="p-4">
-        {/* Header row: rank + title + actions */}
+        {/* Header row */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-sm mt-0.5">
@@ -32,16 +40,12 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete }: Prop
             <div className="min-w-0">
               <h3 className="font-semibold text-sm leading-tight">{idea.title}</h3>
               <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{idea.logline}</p>
+              {premise && <p className="text-xs text-muted-foreground/80 mt-1 line-clamp-3">{premise}</p>}
             </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <Button
-              variant={isShortlisted ? 'default' : 'ghost'}
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => onShortlist(idea.id, !isShortlisted)}
-              title={isShortlisted ? 'Remove from shortlist' : 'Shortlist'}
-            >
+            <Button variant={isShortlisted ? 'default' : 'ghost'} size="icon" className="h-7 w-7"
+              onClick={() => onShortlist(idea.id, !isShortlisted)} title={isShortlisted ? 'Remove from shortlist' : 'Shortlist'}>
               {isShortlisted ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
             </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => onDelete(idea.id)}>
@@ -53,17 +57,34 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete }: Prop
         {/* Chips */}
         <div className="flex flex-wrap gap-1.5 mt-3">
           {Number(idea.score_total) > 0 && (
-            <Badge variant="default" className="text-xs font-bold">
-              {Number(idea.score_total).toFixed(0)}
-            </Badge>
+            <Badge variant="default" className="text-xs font-bold">{Number(idea.score_total).toFixed(0)}</Badge>
           )}
           {laneLabel && <Badge variant="outline" className="text-xs">{laneLabel}</Badge>}
           {idea.genre && <Badge variant="secondary" className="text-xs">{idea.genre}</Badge>}
+          {toneTag && <Badge variant="outline" className="text-xs border-primary/30">{toneTag}</Badge>}
           {idea.budget_band && <Badge variant="outline" className="text-xs">{idea.budget_band}</Badge>}
-          <Badge variant={idea.risk_level === 'high' ? 'destructive' : 'secondary'} className="text-xs">
-            {idea.risk_level}
-          </Badge>
+          <Badge variant={idea.risk_level === 'high' ? 'destructive' : 'secondary'} className="text-xs">{idea.risk_level}</Badge>
+          {formatSummary && <Badge variant="outline" className="text-[10px]">{formatSummary}</Badge>}
         </div>
+
+        {/* Trend fit bullets */}
+        {trendFitBullets.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {trendFitBullets.map((b, i) => (
+              <span key={i} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">
+                <TrendingUp className="h-2.5 w-2.5" /> {b}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Differentiation move */}
+        {differentiationMove && (
+          <div className="mt-2 flex items-start gap-1.5">
+            <Zap className="h-3 w-3 text-primary mt-0.5 shrink-0" />
+            <span className="text-xs text-muted-foreground italic">{differentiationMove}</span>
+          </div>
+        )}
 
         {/* Expandable details */}
         <Collapsible open={expanded} onOpenChange={setExpanded}>
