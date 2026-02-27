@@ -75,10 +75,17 @@ Deno.serve(async (req) => {
     if (!action || !projectId_) return json({ error: "action and projectId required" }, 400);
 
     // Verify access
-    const { data: hasAccess } = await db.rpc("has_project_access", {
+    console.log("[notes-engine] checking access", { userId, projectId: projectId_, action });
+    const { data: hasAccess, error: accessErr } = await db.rpc("has_project_access", {
       _user_id: userId, _project_id: projectId_,
     });
-    if (!hasAccess) return json({ error: "Access denied" }, 403);
+    if (accessErr) {
+      console.error("[notes-engine] has_project_access RPC error", { error: accessErr.message, code: accessErr.code });
+    }
+    if (!hasAccess) {
+      console.warn("[notes-engine] access denied", { userId, projectId: projectId_, hasAccess, accessErr: accessErr?.message });
+      return json({ error: "Access denied", detail: `userId=${userId} has no access to project`, rpc_error: accessErr?.message || null }, 403);
+    }
 
     // ══════════════════════════════════════════════
     // LIST NOTES

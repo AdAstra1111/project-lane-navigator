@@ -225,12 +225,14 @@ Deno.serve(async (req) => {
     }
 
     // Fetch project data
+    console.log("[resolve-qualifications] fetching project", { projectId, userId });
     const { data: project, error: projErr } = await supabase.from("projects")
       .select("format, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config, resolved_qualifications_hash")
       .eq("id", projectId).single();
 
     if (projErr || !project) {
-      return new Response(JSON.stringify({ error: "Project not found" }), {
+      console.error("[resolve-qualifications] project lookup failed", { projectId, error: projErr?.message, code: projErr?.code, details: projErr?.details });
+      return new Response(JSON.stringify({ error: "Project not found", detail: projErr?.message || "no rows", code: projErr?.code }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
