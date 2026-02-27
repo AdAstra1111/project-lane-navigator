@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Json } from '@/integrations/supabase/types';
-import { Project, ProjectInput, AnalysisResponse, ProjectDocument } from '@/lib/types';
+import { Project, ProjectInput, ProjectDocument } from '@/lib/types';
 import { classifyProject } from '@/lib/lane-classifier';
 import { toast } from 'sonner';
 
@@ -19,27 +19,8 @@ async function uploadDocuments(files: File[], userId: string): Promise<string[]>
   return paths;
 }
 
-async function analyzeWithAI(
-  projectInput: ProjectInput,
-  documentPaths: string[]
-): Promise<AnalysisResponse> {
-  const { data, error } = await supabase.functions.invoke('analyze-project', {
-    body: { projectInput, documentPaths },
-  });
 
-  if (error) {
-    console.error('AI analysis error:', error);
-    // Check if the response data contains a specific error message
-    const errorMessage = typeof data === 'object' && data?.error
-      ? data.error
-      : error.message || 'AI analysis failed';
-    throw new Error(errorMessage);
-  }
-  if (data?.error) {
-    throw new Error(data.error);
-  }
-  return data as AnalysisResponse;
-}
+
 
 export function useProjects() {
   const queryClient = useQueryClient();
@@ -86,34 +67,9 @@ export function useProjects() {
         documentPaths = await uploadDocuments(files, user.id);
       }
 
-      // 2. Run AI analysis (falls back to rules-based if AI fails and no docs)
-      let analysis: AnalysisResponse | null = null;
-      let fallbackClassification = null;
-
-      try {
-        analysis = await analyzeWithAI(input, documentPaths);
-      } catch (err) {
-        if (files.length > 0) {
-          // If documents were uploaded, we need AI — can't fall back
-          throw err;
-        }
-        console.warn('AI analysis unavailable, using rules-based classifier:', err);
-        fallbackClassification = classifyProject(input);
-      }
-
-      // 3. Build analysis_passes for storage
-      const analysisPasses = analysis
-        ? {
-            verdict: analysis.verdict || null,
-            structural_read: analysis.structural_read,
-            creative_signal: analysis.creative_signal,
-            market_reality: analysis.market_reality,
-            do_next: analysis.do_next,
-            avoid: analysis.avoid,
-            lane_not_suitable: analysis.lane_not_suitable || null,
-            partial_read: analysis.partial_read || null,
-          }
-        : null;
+      // 2. Use rules-based lane classification only (no AI analysis on upload)
+      const fallbackClassification = classifyProject(input);
+      const analysisPasses = null;
 
       // 4. Insert project
       const { data: project, error: insertError } = await supabase
@@ -127,9 +83,9 @@ export function useProjects() {
           target_audience: input.target_audience,
           tone: input.tone,
           comparable_titles: input.comparable_titles,
-          assigned_lane: analysis?.lane || fallbackClassification?.lane || null,
-          confidence: analysis?.confidence ?? fallbackClassification?.confidence ?? null,
-          reasoning: analysis?.rationale || fallbackClassification?.reasoning || null,
+          assigned_lane: fallbackClassification?.lane || null,
+          confidence: fallbackClassification?.confidence ?? null,
+          reasoning: fallbackClassification?.reasoning || null,
           recommendations: fallbackClassification
             ? (fallbackClassification.recommendations as unknown as Json)
             : null,
@@ -143,38 +99,8 @@ export function useProjects() {
 
       const projectId = (project as any).id;
 
-      // 5. Save document records
-      if (analysis?.documents) {
-        for (const doc of analysis.documents) {
-          const cleanedText = doc.extracted_text ? doc.extracted_text.replace(/\u0000/g, '') : null;
-          const { error: docError } = await supabase.from('project_documents').insert({
-            project_id: projectId,
-            user_id: user.id,
-            file_name: doc.file_name,
-            file_path: doc.file_path,
-            extracted_text: cleanedText,
-            extraction_status: doc.extraction_status,
-            total_pages: doc.total_pages,
-            pages_analyzed: doc.pages_analyzed,
-            error_message: doc.error_message,
-          });
-          if (docError) {
-            console.error('Failed to save document record, retrying without text:', docError);
-            // Retry without extracted_text so the doc at least appears in the list
-            await supabase.from('project_documents').insert({
-              project_id: projectId,
-              user_id: user.id,
-              file_name: doc.file_name,
-              file_path: doc.file_path,
-              extracted_text: null,
-              extraction_status: 'pending',
-              total_pages: doc.total_pages,
-              pages_analyzed: null,
-              error_message: 'Text contained invalid characters — use re-analyse to retry.',
-            });
-          }
-        }
-      }
+      // 5. Document records will be created by extract-documents edge function
+      // (called separately if user triggers extraction)
 
       // 6. Detect scripts among uploaded files and create project_scripts records
       const scriptExtensions = ['.fdx', '.fountain'];

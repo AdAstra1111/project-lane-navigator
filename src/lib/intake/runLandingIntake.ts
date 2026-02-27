@@ -112,29 +112,9 @@ export async function runLandingIntake(
     // Non-fatal: project + files exist; extraction might have partially worked
   }
 
-  // 5. Trigger analysis
-  report('analyzing', 'Running AI analysis…');
-  try {
-    await supabase.functions.invoke('analyze-project', {
-      body: {
-        projectInput: {
-          id: projectId,
-          title,
-          format,
-          genres: [],
-          budget_range: '',
-          target_audience: '',
-          tone: '',
-          comparable_titles: '',
-        },
-        documentPaths,
-      },
-    });
-  } catch (analysisErr) {
-    console.error('Analysis error (non-fatal):', analysisErr);
-    // Non-fatal: project + docs exist
-  }
+  // 5. Analysis is NOT auto-triggered on upload.
+  // User must choose lane and start Auto-Run from the project page.
 
-  report('done', 'Project created successfully');
+  report('done', 'Upload complete — choose lane and start Auto-Run from the project page.');
   return { projectId, title };
 }

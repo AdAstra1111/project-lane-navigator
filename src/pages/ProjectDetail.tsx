@@ -69,6 +69,7 @@ import { getEffectiveMode } from '@/lib/visibility';
 import { ProjectSummaryBar } from '@/components/project/ProjectSummaryBar';
 import { SimpleProjectView } from '@/components/project/SimpleProjectView';
 import { AdvancedProjectView } from '@/components/project/AdvancedProjectView';
+import { AutoRunSetupPanel } from '@/components/project/AutoRunSetupPanel';
 
 
 export default function ProjectDetail() {
@@ -444,6 +445,9 @@ export default function ProjectDetail() {
           </div>
 
           {/* Summary Bar removed — ProjectShell owns the top bar now */}
+
+          {/* Auto-Run Setup Panel */}
+          <AutoRunSetupPanel project={project} />
 
           {/* Quick-access buttons */}
           <div className="flex items-center gap-3 mt-4 mb-6">
