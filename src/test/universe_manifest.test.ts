@@ -58,4 +58,28 @@ describe('universe manifest', () => {
     const epInfo = idx.episodeIndexByDocId.get('E11');
     expect(epInfo).toEqual({ season: 1, episode: 1, key: 'S01E01' });
   });
+
+  test('rejects schema_version mismatch', () => {
+    const res = parseUniverseManifest(JSON.stringify({ schema_version: 2 }));
+    expect(res.ok).toBe(false);
+    expect(res.errors[0]).toMatch(/schema_version/);
+  });
+
+  test('collects structural errors deterministically', () => {
+    const res = parseUniverseManifest(JSON.stringify({
+      schema_version: 1,
+      seasons: [
+        { season: "one", episodes: "nope" },
+        { season: 1, episodes: [
+          { episode: "two" },
+          { episode: 3, doc_ids: "bad" },
+        ] },
+      ],
+    }));
+    expect(res.ok).toBe(false);
+    const joined = res.errors.join(' | ');
+    expect(joined).toMatch(/season must be a number/);
+    expect(joined).toMatch(/episode must be a number/);
+    expect(joined).toMatch(/doc_ids must be an array/);
+  });
 });
