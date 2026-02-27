@@ -436,6 +436,12 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             body: { action: 'regen-insufficient-status', jobId },
           });
           regenResult = statusRes.data;
+
+          // Hard guard: if any item errored, abort before navigating
+          const errorItems = (regenResult?.items || []).filter((i: any) => i.status === 'error');
+          if (errorItems.length > 0) {
+            throw new Error(`Doc regen failed for ${errorItems[0].doc_type}: ${errorItems[0].error || 'unknown error'}`);
+          }
         }
       }
 
