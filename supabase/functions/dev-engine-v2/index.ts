@@ -385,8 +385,13 @@ async function parseAIJson(apiKey: string, raw: string): Promise<any> {
   try {
     return JSON.parse(extractJSON(raw));
   } catch {
-    const repair = await callAI(apiKey, FAST_MODEL, "Fix this malformed JSON. Return ONLY valid JSON.", raw.slice(0, 6000));
-    return JSON.parse(extractJSON(repair));
+    try {
+      const repair = await callAI(apiKey, FAST_MODEL, "Fix this malformed JSON. Return ONLY valid JSON.", raw.slice(0, 6000));
+      return JSON.parse(extractJSON(repair));
+    } catch (e2) {
+      console.error("[dev-engine-v2] parseAIJson repair also failed", raw.slice(0, 300));
+      return null;
+    }
   }
 }
 
@@ -4126,8 +4131,15 @@ Rules:
       try {
         parsed = JSON.parse(extractJSON(raw));
       } catch {
-        const repair = await callAI(LOVABLE_API_KEY, FAST_MODEL, "Fix this malformed JSON. Return JSON ONLY.", raw.slice(0, 3000), 0, 1500);
-        parsed = JSON.parse(extractJSON(repair));
+        try {
+          const repair = await callAI(LOVABLE_API_KEY, FAST_MODEL, "Fix this malformed JSON. Return JSON ONLY.", raw.slice(0, 3000), 0, 1500);
+          parsed = JSON.parse(extractJSON(repair));
+        } catch (e2) {
+          console.error("[dev-engine-v2] executive-strategy JSON repair failed", raw.slice(0, 300));
+          return new Response(JSON.stringify({ success: false, error: "MODEL_JSON_PARSE_FAILED", snippet: raw.slice(0, 300) }), {
+            status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
       }
 
       // Normalize structure
@@ -4430,8 +4442,15 @@ Return ONLY valid JSON matching this schema:
       try {
         parsed = JSON.parse(extractJSON(raw));
       } catch {
-        const repair = await callAI(LOVABLE_API_KEY, FAST_MODEL, "Fix this malformed JSON. Return JSON ONLY.", raw.slice(0, 3000), 0, 1500);
-        parsed = JSON.parse(extractJSON(repair));
+        try {
+          const repair = await callAI(LOVABLE_API_KEY, FAST_MODEL, "Fix this malformed JSON. Return JSON ONLY.", raw.slice(0, 3000), 0, 1500);
+          parsed = JSON.parse(extractJSON(repair));
+        } catch (e2) {
+          console.error("[dev-engine-v2] extract-criteria JSON repair failed", raw.slice(0, 300));
+          return new Response(JSON.stringify({ success: false, error: "MODEL_JSON_PARSE_FAILED", snippet: raw.slice(0, 300) }), {
+            status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
       }
 
       if (!parsed.criteria) parsed.criteria = {};
@@ -12739,6 +12758,13 @@ CRITICAL:
     // Return 200 for "stale version" errors so the UI can handle gracefully without crashing
     if (msg.includes("Version no longer exists") || msg.includes("Version was deleted") || msg.includes("Version not found")) {
       return new Response(JSON.stringify({ ok: false, stale_version: true, error: msg }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // JSON parse errors from malformed model output → return 200 with structured failure
+    if (msg.includes("JSON") || msg.includes("Expected ','") || msg.includes("Unexpected token") || msg.includes("after array element")) {
+      console.error("[dev-engine-v2] JSON parse bubble-up caught", msg);
+      return new Response(JSON.stringify({ success: false, error: "MODEL_JSON_PARSE_FAILED", detail: msg.slice(0, 300) }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
