@@ -13256,17 +13256,33 @@ No stubs, no placeholders, no TODO markers.`;
           reason: it.reason,
           status: isDryRun ? "preview" : "queued",
           char_before: it.char_before,
+          char_after: isDryRun ? it.char_before : 0,
           upstream: it.upstream,
         }));
         const { error: itemsErr } = await supabase.from("regen_job_items").insert(rows);
         if (itemsErr) throw new Error(`Failed to create regen items: ${itemsErr.message}`);
       }
 
+      // Legacy-compatible response shape
+      const legacyResults = items.map(it => ({
+        doc_type: it.doc_type,
+        document_id: it.document_id,
+        reason: it.reason,
+        char_before: it.char_before,
+        char_after: isDryRun ? it.char_before : 0,
+        regenerated: false,
+        upstream: it.upstream,
+      }));
+
       return new Response(JSON.stringify({
         success: true,
         job_id: job.id,
-        dry_run: isDry === true,
+        dry_run: isDryRun,
         total_count: items.length,
+        scanned: scanDocTypes.length,
+        results: legacyResults,
+        regenerated: [],
+        skipped: [],
         items,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -13282,9 +13298,21 @@ No stubs, no placeholders, no TODO markers.`;
         .select("*").eq("id", jobId).single();
       if (jobErr || !job) throw new Error("Regen job not found");
       if (job.status === "complete" || job.status === "cancelled" || job.dry_run === true) {
-        return new Response(JSON.stringify({ success: true, job, processed: [], done: true }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        // For dry-run, load items and return legacy shape
+        let legacyResults: any[] = [];
+        if (job.dry_run === true) {
+          const { data: dryItems } = await supabase.from("regen_job_items")
+            .select("*").eq("job_id", jobId).order("created_at", { ascending: true });
+          legacyResults = (dryItems || []).map((it: any) => ({
+            doc_type: it.doc_type, document_id: it.document_id, reason: it.reason,
+            char_before: it.char_before, char_after: it.char_before || it.char_after,
+            regenerated: false, upstream: it.upstream,
+          }));
+        }
+        return new Response(JSON.stringify({
+          success: true, job, processed: [], done: true, dry_run: !!job.dry_run,
+          results: legacyResults, regenerated: [], skipped: [],
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // Mark running
@@ -13515,10 +13543,22 @@ ${upstreamText}`;
       const { data: items } = await supabase.from("regen_job_items")
         .select("*").eq("job_id", jobId).order("created_at", { ascending: true });
 
+      // Legacy mapping for dry-run jobs
+      const legacyResults = (items || []).map((it: any) => ({
+        doc_type: it.doc_type, document_id: it.document_id, reason: it.reason,
+        char_before: it.char_before,
+        char_after: job.dry_run ? (it.char_before || it.char_after) : it.char_after,
+        regenerated: it.status === "regenerated",
+        upstream: it.upstream,
+      }));
+
       return new Response(JSON.stringify({
         success: true,
         job,
         items: items || [],
+        results: legacyResults,
+        regenerated: legacyResults.filter((r: any) => r.regenerated),
+        skipped: legacyResults.filter((r: any) => !r.regenerated),
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
