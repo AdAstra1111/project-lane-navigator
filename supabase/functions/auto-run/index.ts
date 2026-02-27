@@ -1,5 +1,17 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+function waitUntilSafe(p: Promise<any>): boolean {
+  try {
+    // @ts-ignore
+    if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(p);
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -2388,8 +2400,11 @@ Deno.serve(async (req) => {
       );
 
       // Step A: Run review (analyze + notes) with retry
-      try {
-        console.log("[auto-run] before dev-engine analyze", { currentDoc, docId: doc.id });
+      // ── Background execution pattern to avoid edge function timeout ──
+      const _t0 = Date.now();
+      const bgTask = (async () => {
+       try {
+        console.log("[auto-run] dev-engine analyze (bg) START", { jobId, currentDoc, docId: doc.id });
         const { result: rawAnalyzeResult } = await callEdgeFunctionWithRetry(
           supabase, supabaseUrl, "dev-engine-v2", {
             action: "analyze",
@@ -2403,7 +2418,7 @@ Deno.serve(async (req) => {
             season_episode_count: seasonEpisodeCount,
           }, token, job.project_id, format, currentDoc, jobId, stepCount
         );
-        console.log("[auto-run] after dev-engine analyze");
+        console.log("[auto-run] dev-engine analyze (bg) DONE", { jobId });
 
         // dev-engine-v2 wraps analysis under { run, analysis }
         const analyzeResult = rawAnalyzeResult?.analysis || rawAnalyzeResult || {};
@@ -2728,14 +2743,30 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId);
           }
         }
-      } catch (e: any) {
+       } catch (e: any) {
+        console.error("[auto-run] dev-engine analyze (bg) ERROR", e?.message || e);
         await updateJob(supabase, jobId, { status: "failed", error: `Step failed: ${e.message}` });
         await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop", `Error: ${e.message}`);
-      console.log("[auto-run] run-next complete", { jobId });
-      return respondWithJob(supabase, jobId);
-    }
+       }
+      })(); // end bgTask
 
-      return respondWithJob(supabase, jobId);
+      // Attempt non-blocking background execution
+      const scheduled = waitUntilSafe(bgTask);
+
+      if (scheduled) {
+        console.log("[auto-run] run-next returning early (dev-engine in background)", { jobId });
+        return respondWithJob(supabase, jobId, "run-next");
+      } else {
+        // Fallback: time-budgeted approach
+        if (Date.now() - _t0 > 800) {
+          console.log("[auto-run] run-next time-budget early return (no bg runtime)", { jobId });
+          return respondWithJob(supabase, jobId, "continue");
+        }
+        // Within budget — await synchronously
+        await bgTask;
+        console.log("[auto-run] run-next complete", { jobId });
+        return respondWithJob(supabase, jobId);
+      }
     }
 
     return respond({ error: `Unknown action: ${action}` }, 400);
