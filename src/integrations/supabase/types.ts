@@ -12027,6 +12027,7 @@ export type Database = {
           runtime_tolerance_pct: number
           script_coverage_verdict: string
           season_episode_count: number | null
+          season_episode_count_locked: boolean
           season_style_profile: Json | null
           season_style_template_doc_type: string | null
           season_style_template_version_id: string | null
@@ -12088,6 +12089,7 @@ export type Database = {
           runtime_tolerance_pct?: number
           script_coverage_verdict?: string
           season_episode_count?: number | null
+          season_episode_count_locked?: boolean
           season_style_profile?: Json | null
           season_style_template_doc_type?: string | null
           season_style_template_version_id?: string | null
@@ -12149,6 +12151,7 @@ export type Database = {
           runtime_tolerance_pct?: number
           script_coverage_verdict?: string
           season_episode_count?: number | null
+          season_episode_count_locked?: boolean
           season_style_profile?: Json | null
           season_style_template_doc_type?: string | null
           season_style_template_version_id?: string | null

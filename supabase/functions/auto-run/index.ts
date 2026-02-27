@@ -2546,7 +2546,8 @@ Deno.serve(async (req) => {
       const stepCount = job.step_count;
       const stageLoopCount = job.stage_loop_count;
 
-      // ── Lock lifecycle: early-return paths release explicitly.
+
+
       // bgTask owns the lock once spawned — its own finally releases it.
       // We track whether bgTask was spawned to avoid double-release.
       let bgTaskSpawned = false;
@@ -2655,8 +2656,36 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ── EPISODE COUNT GATE: block episode_script / master steps if count unset ──
+      {
+        const EPISODE_GATED_STAGES = ["episode_script", "season_master_script"];
+        if (EPISODE_GATED_STAGES.includes(currentDoc)) {
+          const { data: epProj } = await supabase.from("projects")
+            .select("season_episode_count, season_episode_count_locked")
+            .eq("id", job.project_id).single();
+          const epN = epProj?.season_episode_count;
+          if (typeof epN !== "number" || epN < 1) {
+            await updateJob(supabase, jobId, {
+              status: "paused",
+              stop_reason: "INPUT_INCOMPLETE",
+              error: "season_episode_count not set",
+              awaiting_approval: true,
+              approval_type: "input_incomplete",
+              last_ui_message: "Episode count not set. Set it in Season Scripts panel before continuing.",
+            });
+            await logStep(supabase, jobId, stepCount + 1, currentDoc, "pause_for_input",
+              "Episode count not set — cannot proceed to episode generation");
+            return respond({
+              job: { ...job, status: "paused", stop_reason: "INPUT_INCOMPLETE", error: "season_episode_count not set" },
+              latest_steps: [],
+              next_action_hint: "input-incomplete",
+              missing_fields: ["season_episode_count"],
+            });
+          }
+        }
+      }
 
-      if (stepCount >= job.max_total_steps) {
+
         const stepLimitDecisions = [
           {
             id: "raise_step_limit_once",
