@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 import { useGenerateSeriesScripts, type SeriesScriptItem } from '@/hooks/useGenerateSeriesScripts';
 import {
-  Film, Play, Search, Loader2, CheckCircle2, AlertTriangle, XCircle, FileText, RotateCcw,
+  Film, Play, Search, Loader2, CheckCircle2, XCircle, FileText, RotateCcw,
+  BookOpen, AlertTriangle,
 } from 'lucide-react';
 
 const STATUS_BADGE: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
@@ -48,8 +50,12 @@ interface Props {
 }
 
 export function GenerateSeasonScriptsPanel({ projectId }: Props) {
-  const { scan, generate, clear, scanResult, result, loading, error, progress } = useGenerateSeriesScripts(projectId);
-  const [force, setForce] = useState(false);
+  const {
+    scan, generate, buildMaster, clear,
+    scanResult, result, loading, error, progress,
+    masterResult, masterLoading,
+  } = useGenerateSeriesScripts(projectId);
+  const [force] = useState(false);
 
   const items: SeriesScriptItem[] = result?.items || scanResult?.items || [];
   const isRunning = progress.status === 'running';
@@ -63,103 +69,170 @@ export function GenerateSeasonScriptsPanel({ projectId }: Props) {
   const doneCount = items.filter(i => i.status === 'regenerated').length;
 
   return (
-    <Card className="border-primary/20">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Film className="h-5 w-5 text-primary" />
-          Generate Season Scripts
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Status summary */}
-        {error && (
-          <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30">
-            <XCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-            <p className="text-sm text-destructive">{error}</p>
-          </div>
-        )}
-
-        {isComplete && hasResult && (
-          <div className="flex items-start gap-2 p-3 rounded-md bg-emerald-500/10 border border-emerald-500/30">
-            <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
-            <p className="text-sm text-emerald-400">
-              Generated {doneCount} episode script{doneCount !== 1 ? 's' : ''}.
-              {errorCount > 0 && ` ${errorCount} failed.`}
-            </p>
-          </div>
-        )}
-
-        {/* Progress bar */}
-        {(isRunning || (isComplete && hasResult)) && (
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>{isRunning ? 'Generating...' : 'Complete'}</span>
-              <span>{progress.completed}/{progress.total} episodes</span>
+    <div className="space-y-4">
+      {/* Per-episode generation */}
+      <Card className="border-primary/20">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Film className="h-5 w-5 text-primary" />
+            Generate Season Scripts
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {error && (
+            <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30">
+              <XCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+              <p className="text-sm text-destructive">{error}</p>
             </div>
-            <Progress value={progressPct} className="h-2" />
-          </div>
-        )}
-
-        {/* Episode list */}
-        {items.length > 0 && (
-          <ScrollArea className="max-h-[300px] border rounded-md">
-            {items.map((item, i) => (
-              <EpisodeRow key={item.id || i} item={item} />
-            ))}
-          </ScrollArea>
-        )}
-
-        {/* Actions */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {!isRunning && !hasResult && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => scan()}
-              disabled={loading}
-            >
-              {loading && progress.status === 'scanning' ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : (
-                <Search className="h-4 w-4 mr-1" />
-              )}
-              Scan Episodes
-            </Button>
-          )}
-
-          {hasScan && !isRunning && !hasResult && (
-            <Button
-              size="sm"
-              onClick={() => generate({ force })}
-              disabled={loading}
-            >
-              <Play className="h-4 w-4 mr-1" />
-              Generate {scanResult.items.length} Script{scanResult.items.length !== 1 ? 's' : ''}
-            </Button>
           )}
 
           {isComplete && hasResult && (
-            <Button variant="outline" size="sm" onClick={clear}>
-              <RotateCcw className="h-4 w-4 mr-1" />
-              Reset
-            </Button>
+            <div className="flex items-start gap-2 p-3 rounded-md bg-primary/10 border border-primary/30">
+              <CheckCircle2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+              <p className="text-sm text-foreground">
+                Generated {doneCount} episode script{doneCount !== 1 ? 's' : ''}.
+                {errorCount > 0 && ` ${errorCount} failed.`}
+              </p>
+            </div>
           )}
 
-          {isRunning && (
-            <Badge variant="secondary" className="gap-1">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Generating episode {progress.completed + 1} of {progress.total}...
-            </Badge>
+          {(isRunning || (isComplete && hasResult)) && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{isRunning ? 'Generating...' : 'Complete'}</span>
+                <span>{progress.completed}/{progress.total} episodes</span>
+              </div>
+              <Progress value={progressPct} className="h-2" />
+            </div>
           )}
-        </div>
 
-        {/* Scan info when no scan yet */}
-        {!hasScan && !hasResult && !isRunning && !loading && (
+          {items.length > 0 && (
+            <ScrollArea className="max-h-[300px] border rounded-md">
+              {items.map((item, i) => (
+                <EpisodeRow key={item.id || i} item={item} />
+              ))}
+            </ScrollArea>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {!isRunning && !hasResult && (
+              <Button variant="outline" size="sm" onClick={() => scan()} disabled={loading}>
+                {loading && progress.status === 'scanning' ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4 mr-1" />
+                )}
+                Scan Episodes
+              </Button>
+            )}
+
+            {hasScan && !isRunning && !hasResult && (
+              <Button size="sm" onClick={() => generate({ force })} disabled={loading}>
+                <Play className="h-4 w-4 mr-1" />
+                Generate {scanResult.items.length} Script{scanResult.items.length !== 1 ? 's' : ''}
+              </Button>
+            )}
+
+            {isComplete && hasResult && (
+              <Button variant="outline" size="sm" onClick={clear}>
+                <RotateCcw className="h-4 w-4 mr-1" />
+                Reset
+              </Button>
+            )}
+
+            {isRunning && (
+              <Badge variant="secondary" className="gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Generating episode {progress.completed + 1} of {progress.total}...
+              </Badge>
+            )}
+          </div>
+
+          {!hasScan && !hasResult && !isRunning && !loading && (
+            <p className="text-xs text-muted-foreground">
+              Scan to identify episodes needing scripts, then generate them one by one with quality gates.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Separator />
+
+      {/* Master script build (deterministic, no LLM) */}
+      <Card className="border-muted">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <BookOpen className="h-5 w-5 text-muted-foreground" />
+            Build Master Season Script
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
           <p className="text-xs text-muted-foreground">
-            Scan to identify episodes needing scripts, then generate them one by one with quality gates.
+            Concatenates all episode scripts into a single master document. No AI — instant, deterministic.
           </p>
-        )}
-      </CardContent>
-    </Card>
+
+          {masterResult && !masterResult.success && (
+            <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30">
+              <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+              <div className="text-sm">
+                <p className="text-destructive">{masterResult.error}</p>
+                {masterResult.missing_episodes && masterResult.missing_episodes.length > 0 && (
+                  <p className="text-muted-foreground mt-1">
+                    Missing: Episodes {masterResult.missing_episodes.join(', ')}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {masterResult && masterResult.success && (
+            <div className="flex items-start gap-2 p-3 rounded-md bg-primary/10 border border-primary/30">
+              <CheckCircle2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+              <p className="text-sm text-foreground">
+                Master script built — {masterResult.episode_count} episodes, {((masterResult.char_count || 0) / 1000).toFixed(1)}k chars (v{masterResult.version_number})
+              </p>
+            </div>
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => buildMaster()}
+            disabled={masterLoading}
+          >
+            {masterLoading ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <BookOpen className="h-4 w-4 mr-1" />
+            )}
+            Build Master Script
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* SQL validation snippets (dev reference) */}
+      {/* 
+        -- Verify no episode_script has stub markers:
+        SELECT pd.id, pdv.plaintext 
+        FROM project_documents pd 
+        JOIN project_document_versions pdv ON pdv.document_id = pd.id AND pdv.is_current = true
+        WHERE pd.project_id = :project_id AND pd.doc_type = 'episode_script'
+          AND (pdv.plaintext ILIKE '%draft stub%' OR pdv.plaintext ILIKE '%generate full%'
+               OR pdv.plaintext ILIKE '%remaining episodes%' OR pdv.plaintext ILIKE '%episodes 11%');
+        
+        -- Verify episode count matches:
+        SELECT COUNT(*) as ep_count FROM project_documents 
+        WHERE project_id = :project_id AND doc_type = 'episode_script';
+        
+        -- Verify master script length ≈ sum of episodes:
+        SELECT 
+          (SELECT LENGTH(pdv.plaintext) FROM project_documents pd 
+           JOIN project_document_versions pdv ON pdv.document_id = pd.id AND pdv.is_current = true
+           WHERE pd.project_id = :project_id AND pd.doc_type = 'season_master_script') as master_len,
+          (SELECT SUM(LENGTH(pdv.plaintext)) FROM project_documents pd 
+           JOIN project_document_versions pdv ON pdv.document_id = pd.id AND pdv.is_current = true
+           WHERE pd.project_id = :project_id AND pd.doc_type = 'episode_script') as episodes_sum;
+      */}
+    </div>
   );
 }
