@@ -117,7 +117,7 @@ export function AutoRunPanel({
     }
   }, [job?.awaiting_approval, job?.id]);
 
-  const hasPendingDecisions = job?.pending_decisions && job.pending_decisions.length > 0;
+  const hasPendingDecisions = job?.status === 'paused' && job?.pending_decisions && job.pending_decisions.length > 0;
   const blockingDecision = hasPendingDecisions
     ? job!.pending_decisions!.find(d => d.impact === 'blocking') || job!.pending_decisions![0]
     : null;

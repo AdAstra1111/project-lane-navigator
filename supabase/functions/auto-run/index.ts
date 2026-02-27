@@ -1310,21 +1310,25 @@ interface NormalizedDecision {
   impact: "blocking" | "non_blocking";
 }
 
-function normalizePendingDecisions(rawDecisions: any[], context: string): NormalizedDecision[] {
+function normalizePendingDecisions(rawDecisions: any[], context: string, jobId?: string, stepIndex?: number): NormalizedDecision[] {
   if (!Array.isArray(rawDecisions) || rawDecisions.length === 0) return [];
-  return rawDecisions.map((d: any, i: number) => ({
-    id: d.note_id || d.id || `decision_${i}`,
-    question: d.note || d.question || d.description || `Decision ${i + 1}: ${context}`,
-    options: Array.isArray(d.options) ? d.options.map((o: any) => ({
-      value: o.option_id || o.value || o.title || `opt_${i}`,
-      why: o.what_changes ? (Array.isArray(o.what_changes) ? o.what_changes.join("; ") : String(o.what_changes)) : o.why || o.title || "",
-    })) : [
-      { value: "accept", why: "Apply the recommended fix" },
-      { value: "skip", why: "Skip this issue" },
-    ],
-    recommended: d.recommended_option_id || d.recommended || undefined,
-    impact: d.severity === "blocker" ? "blocking" : "non_blocking",
-  }));
+  return rawDecisions.map((d: any, i: number) => {
+    const baseId = d.note_id || d.id || `decision_${i}`;
+    const stableId = jobId && stepIndex != null ? `${jobId}:${stepIndex}:${baseId}` : baseId;
+    return {
+      id: stableId,
+      question: d.note || d.question || d.description || `Decision ${i + 1}: ${context}`,
+      options: Array.isArray(d.options) ? d.options.map((o: any) => ({
+        value: o.option_id || o.value || o.title || `opt_${i}`,
+        why: o.what_changes ? (Array.isArray(o.what_changes) ? o.what_changes.join("; ") : String(o.what_changes)) : o.why || o.title || "",
+      })) : [
+        { value: "accept", why: "Apply the recommended fix" },
+        { value: "skip", why: "Skip this issue" },
+      ],
+      recommended: d.recommended_option_id || d.recommended || undefined,
+      impact: d.severity === "blocker" ? "blocking" : "non_blocking",
+    };
+  });
 }
 
 // ── Helper: create fallback decisions when options generation fails or returns empty ──
@@ -1632,18 +1636,28 @@ Deno.serve(async (req) => {
       const choiceId = body.choiceId || decisionId;
       const choiceValue = body.selectedValue || "yes";
 
-      const decision = pending.find((d: any) => d.id === choiceId);
+      const decision = pending.find((d: any) => d.id === choiceId || d.id.endsWith(`:${choiceId}`));
       if (!decision) {
-        // Decision is stale — return current job state so UI can refresh
+        // Decision is stale — return 409 with current job state so UI can self-heal
         console.warn(`[auto-run] Stale decision: ${choiceId} not in pending_decisions [${pending.map((d:any)=>d.id).join(",")}]`);
-        return respondWithJob(supabase, jobId, "stale-decision");
+        const { data: freshJob } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+        const { data: freshSteps } = await supabase.from("auto_run_steps").select("*").eq("job_id", jobId).order("step_index", { ascending: false }).limit(10);
+        return new Response(JSON.stringify({
+          code: "STALE_DECISION",
+          job: freshJob,
+          latest_steps: (freshSteps || []).reverse(),
+          next_action_hint: getHint(freshJob),
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+      // Extract the base decision key (last segment after colons) for special-case matching
+      const matchedId = decision.id;
+      const baseChoiceId = matchedId.includes(":") ? matchedId.split(":").pop()! : matchedId;
 
       const stepCount = job.step_count + 1;
       const currentDoc = job.current_document as DocStage;
 
       // ── Handle step-limit choices ──
-      if (choiceId === "raise_step_limit_once" && choiceValue === "yes") {
+      if (baseChoiceId === "raise_step_limit_once" && choiceValue === "yes") {
         const newMax = job.max_total_steps + 6;
         await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
           `Step limit raised: ${job.max_total_steps} → ${newMax}`,
@@ -1659,7 +1673,7 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId, "run-next");
       }
 
-      if (choiceId === "raise_step_limit_once" && choiceValue === "no") {
+      if (baseChoiceId === "raise_step_limit_once" && choiceValue === "no") {
         await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
           "User declined step extension — stopping run",
           {}, undefined, { choiceId, choiceValue }
@@ -1673,7 +1687,7 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId, "none");
       }
 
-      if (choiceId === "run_exec_strategy" && choiceValue === "yes") {
+      if (baseChoiceId === "run_exec_strategy" && choiceValue === "yes") {
         // Run executive strategy inline
         try {
           const { data: project } = await supabase.from("projects")
@@ -1773,7 +1787,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (choiceId === "force_promote" && choiceValue === "yes") {
+      if (baseChoiceId === "force_promote" && choiceValue === "yes") {
         const { data: fpProj } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
         const fpFmt = (fpProj?.format || "film").toLowerCase().replace(/_/g, "-");
         const next = await nextUnsatisfiedStage(supabase, job.project_id, fpFmt, currentDoc, job.target_document);
@@ -1805,7 +1819,7 @@ Deno.serve(async (req) => {
 
       // ── Generic decision handling (original executive-strategy must_decide) ──
       const projectUpdates: Record<string, any> = {};
-      const did = choiceId.toLowerCase();
+      const did = baseChoiceId.toLowerCase();
       if (did.includes("lane") || did.includes("positioning")) {
         projectUpdates.assigned_lane = choiceValue;
       } else if (did.includes("budget")) {
@@ -1818,7 +1832,7 @@ Deno.serve(async (req) => {
           const { data: curProj } = await supabase.from("projects").select("guardrails_config").eq("id", job.project_id).single();
           const gc = curProj?.guardrails_config || {};
           gc.overrides = gc.overrides || {};
-          gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), [choiceId]: num };
+          gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), [baseChoiceId]: num };
           projectUpdates.guardrails_config = gc;
           if (did.includes("episode_target_duration")) {
             projectUpdates.episode_target_duration_seconds = num;
@@ -1828,7 +1842,7 @@ Deno.serve(async (req) => {
         const { data: curProj } = await supabase.from("projects").select("guardrails_config").eq("id", job.project_id).single();
         const gc = curProj?.guardrails_config || {};
         gc.overrides = gc.overrides || {};
-        gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), [choiceId]: choiceValue };
+        gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), [baseChoiceId]: choiceValue };
         projectUpdates.guardrails_config = gc;
       }
 
@@ -1836,7 +1850,7 @@ Deno.serve(async (req) => {
         await supabase.from("projects").update(projectUpdates).eq("id", job.project_id);
       }
 
-      const remainingDecisions = pending.filter((d: any) => d.id !== choiceId);
+      const remainingDecisions = pending.filter((d: any) => d.id !== matchedId);
       const hasBlockingRemaining = remainingDecisions.some((d: any) => d.impact === "blocking");
 
       await logStep(supabase, jobId, stepCount, job.current_document, "decision_applied",
@@ -3251,7 +3265,7 @@ Deno.serve(async (req) => {
 
             const optionsData = optionsResult?.result?.options || optionsResult?.result || {};
 
-            const normalizedDecisions = normalizePendingDecisions(optionsData.decisions || [], escalateReason);
+            const normalizedDecisions = normalizePendingDecisions(optionsData.decisions || [], escalateReason, jobId, newStep);
 
             await logStep(supabase, jobId, null, currentDoc, "escalate_options_generated",
               `${escalateReason}. Generated ${normalizedDecisions.length} decision sets.`,
@@ -3332,7 +3346,7 @@ Deno.serve(async (req) => {
               const optionsData = optionsResult?.result?.options || optionsResult?.result || {};
               const optionsRunId = optionsResult?.result?.run?.id || null;
 
-              const stabiliseDecisions = normalizePendingDecisions(optionsData.decisions || [], "Stabilise: blockers/high-impact");
+              const stabiliseDecisions = normalizePendingDecisions(optionsData.decisions || [], "Stabilise: blockers/high-impact", jobId, newStep + 2);
 
               await logStep(supabase, jobId, null, currentDoc, "options_generated",
                 `Generated ${stabiliseDecisions.length} decision sets for ${blockersCount} blockers + ${highImpactCount} high-impact notes`,
