@@ -1048,19 +1048,25 @@ async function releaseProcessingLock(supabase: any, jobId: string) {
 
 // ── Helper: atomically increment step_count and return new value as step_index ──
 async function nextStepIndex(supabase: any, jobId: string): Promise<number> {
-  // Use rpc-free approach: read-increment-write with select for return
-  // We rely on the processing lock to prevent concurrent increments
-  const { data: job } = await supabase
-    .from("auto_run_jobs")
-    .select("step_count")
-    .eq("id", jobId)
-    .single();
-  const next = (job?.step_count ?? 0) + 1;
-  await supabase
-    .from("auto_run_jobs")
-    .update({ step_count: next })
-    .eq("id", jobId);
-  return next;
+  // Truly atomic: uses a SECURITY DEFINER DB function that does
+  // UPDATE ... SET step_count = step_count + 1 RETURNING step_count
+  const { data, error } = await supabase.rpc("increment_step_count", { p_job_id: jobId });
+  if (error) {
+    console.error("[auto-run] increment_step_count RPC failed, falling back", error.message);
+    // Fallback: read-then-write (still protected by processing lock)
+    const { data: job } = await supabase
+      .from("auto_run_jobs")
+      .select("step_count")
+      .eq("id", jobId)
+      .single();
+    const next = (job?.step_count ?? 0) + 1;
+    await supabase
+      .from("auto_run_jobs")
+      .update({ step_count: next })
+      .eq("id", jobId);
+    return next;
+  }
+  return data as number;
 }
 
 // ── Helper: detect if an error is a 502/503 upstream outage ──
@@ -2130,8 +2136,10 @@ Deno.serve(async (req) => {
       const stepCount = job.step_count;
       const stageLoopCount = job.stage_loop_count;
 
-      // ── All synchronous early-returns must release the lock. Wrap in try/finally. ──
-      // Note: bgTask has its own finally for lock release; double-release is harmless.
+      // ── Lock lifecycle: early-return paths release explicitly.
+      // bgTask owns the lock once spawned — its own finally releases it.
+      // We track whether bgTask was spawned to avoid double-release.
+      let bgTaskSpawned = false;
       try {
       // ── Ensure seed pack on resume (hard guard) ──
       console.log("[auto-run] before ensureSeedPack", { projectId: job.project_id });
@@ -2995,6 +3003,9 @@ Deno.serve(async (req) => {
        }
       })(); // end bgTask
 
+      // bgTask now owns the lock — mark so outer finally doesn't release
+      bgTaskSpawned = true;
+
       // Attempt non-blocking background execution
       const scheduled = waitUntilSafe(bgTask);
 
@@ -3010,9 +3021,11 @@ Deno.serve(async (req) => {
       // Always return immediately — heavy work continues in background
       return respondWithJob(supabase, jobId, "run-next");
       } finally {
-        // Release lock for any synchronous early-return path.
-        // bgTask paths also release in their own finally — double-release is harmless.
-        await releaseProcessingLock(supabase, jobId);
+        // Only release lock if bgTask was NOT spawned.
+        // If bgTask was spawned, it owns the lock and releases in its own finally.
+        if (!bgTaskSpawned) {
+          await releaseProcessingLock(supabase, jobId);
+        }
       }
     }
 
