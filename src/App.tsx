@@ -81,6 +81,7 @@ const TrailerHub = lazy(() => import("./pages/TrailerHub"));
 const Showcase = lazy(() => import("./pages/Showcase"));
 const CanonPlaceholder = lazy(() => import("./pages/CanonPlaceholder"));
 const DemoDashboard = lazy(() => import("./pages/DemoDashboard"));
+const EdgeDebug = lazy(() => import("./pages/EdgeDebug"));
 
 // ProjectShell — new unified workspace frame (Week 1 refactor)
 import { ProjectShell } from "@/components/project/ProjectShell";
@@ -204,6 +205,7 @@ const AnimatedRoutes = () => {
           <Route path="/deep-review" element={<ReviewRedirect />} />
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="/share/pack/:token" element={<SharePackView />} />
+          <Route path="/debug/edge" element={<EdgeDebug />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
