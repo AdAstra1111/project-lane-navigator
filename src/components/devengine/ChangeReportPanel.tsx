@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ChevronDown, AlertTriangle, FileText, MapPin, Users, ShieldAlert, Search, Loader2, Plus } from 'lucide-react';
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { isScriptDocType } from '@/lib/script_change';
 import { parseUniverseManifest, manifestDocIds, MANIFEST_TEMPLATE, type ManifestIndices } from '@/lib/universe_manifest/manifest';
 import { toast } from 'sonner';
@@ -144,12 +144,34 @@ export function ChangeReportPanel({ projectId, sourceDocId, sourceDocType }: Cha
     return scopes;
   }, [manifestIndices, sourceEpisodeInfo]);
 
-  // ── Create manifest CTA ──
+  // Reset scope if no longer available
+  useEffect(() => {
+    if (!availableScopes.includes(rippleScope)) {
+      setRippleScope('project');
+    }
+  }, [availableScopes, rippleScope]);
+
+  // ── Create manifest CTA (idempotent) ──
   const createManifest = useCallback(async () => {
     setCreatingManifest(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { toast.error('Not authenticated'); return; }
+
+      // Idempotent: check if already exists
+      const { data: existing } = await (supabase as any)
+        .from('project_documents')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('doc_type', 'universe_manifest')
+        .limit(1)
+        .maybeSingle();
+
+      if (existing?.id) {
+        queryClient.invalidateQueries({ queryKey: ['universe-manifest', projectId] });
+        toast.success('Universe Manifest already exists');
+        return;
+      }
 
       const { data: newDoc, error: docErr } = await (supabase as any)
         .from('project_documents')
@@ -167,6 +189,19 @@ export function ChangeReportPanel({ projectId, sourceDocId, sourceDocType }: Cha
         .single();
 
       if (docErr || !newDoc) {
+        // Conflict — re-check
+        const { data: retryExisting } = await (supabase as any)
+          .from('project_documents')
+          .select('id')
+          .eq('project_id', projectId)
+          .eq('doc_type', 'universe_manifest')
+          .limit(1)
+          .maybeSingle();
+        if (retryExisting?.id) {
+          queryClient.invalidateQueries({ queryKey: ['universe-manifest', projectId] });
+          toast.success('Universe Manifest already exists');
+          return;
+        }
         toast.error('Failed to create manifest');
         return;
       }
