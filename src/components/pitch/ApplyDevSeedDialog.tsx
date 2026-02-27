@@ -405,16 +405,38 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           .eq('project_id', project.id);
       }
 
-      // 8. Auto-fill stubs: run server regeneration and require successful completion before navigation
+      // 8. Auto-fill stubs: run queued regeneration with tick polling
       let regenResult: any = null;
       if (applyDocs) {
-        const { data, error } = await supabase.functions.invoke('dev-engine-v2', {
-          body: { action: 'regenerate-insufficient-docs', projectId: project.id, dryRun: false },
+        const startRes = await supabase.functions.invoke('dev-engine-v2', {
+          body: { action: 'regen-insufficient-start', projectId: project.id, dryRun: false },
         });
-        if (error) throw new Error(error.message || 'Failed to finalize starter docs');
-        if (data?.error) throw new Error(data.error);
-        if (data?.success === false) throw new Error('Failed to finalize starter docs');
-        regenResult = data;
+        if (startRes.error) throw new Error(startRes.error.message || 'Failed to start doc regen');
+        const startData = startRes.data;
+        if (startData?.error) throw new Error(startData.error);
+        const jobId = startData?.job_id;
+        const total = startData?.total_count || 0;
+
+        if (jobId && total > 0) {
+          let done = false;
+          let backoff = 500;
+          while (!done) {
+            const tickRes = await supabase.functions.invoke('dev-engine-v2', {
+              body: { action: 'regen-insufficient-tick', jobId, maxItemsPerTick: 3 },
+            });
+            if (tickRes.error) throw new Error(tickRes.error.message || 'Regen tick failed');
+            done = tickRes.data?.done === true;
+            if (!done) {
+              await new Promise(r => setTimeout(r, backoff));
+              backoff = Math.min(backoff * 1.2, 3000);
+            }
+          }
+          // Get final status
+          const statusRes = await supabase.functions.invoke('dev-engine-v2', {
+            body: { action: 'regen-insufficient-status', jobId },
+          });
+          regenResult = statusRes.data;
+        }
       }
 
       // 9. Invalidate list + docs + seed status before opening Dev Engine
@@ -428,7 +450,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
 
       const parts: string[] = ['Project created'];
       if (applyDocs) parts.push('docs seeded');
-      if (applyDocs && regenResult?.regenerated?.length) parts.push(`autofilled ${regenResult.regenerated.length} docs`);
+      if (applyDocs && regenResult?.items?.length) parts.push(`autofilled ${regenResult.items.filter((i: any) => i.status === 'regenerated').length} docs`);
       parts.push('canon planted');
       if (applyPrefs) parts.push('lane prefs set');
       toast.success(parts.join(', '));

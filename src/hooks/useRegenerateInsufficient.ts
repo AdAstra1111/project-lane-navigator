@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 export type RegenReason = 'stub_marker' | 'too_short' | 'missing_current_version';
@@ -29,6 +29,13 @@ export interface RegenSummary {
   skipped: RegenSkipped[];
 }
 
+export interface RegenProgress {
+  total: number;
+  completed: number;
+  status: 'idle' | 'scanning' | 'running' | 'complete' | 'error';
+  jobId?: string;
+}
+
 async function callDevEngine(action: string, body: Record<string, any>): Promise<any> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
@@ -50,17 +57,39 @@ export function useRegenerateInsufficient(projectId: string | undefined) {
   const [result, setResult] = useState<RegenSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<RegenProgress>({ total: 0, completed: 0, status: 'idle' });
+  const abortRef = useRef(false);
 
   const scan = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
     setError(null);
+    setProgress(p => ({ ...p, status: 'scanning' }));
     try {
-      const res = await callDevEngine('regenerate-insufficient-docs', { projectId, dryRun: true });
-      setDryRunResult(res);
-      return res as RegenSummary;
+      const res = await callDevEngine('regen-insufficient-start', { projectId, dryRun: true });
+      // Map queued items to RegenSummary format for backward compat
+      const mapped: RegenSummary = {
+        success: true,
+        dry_run: true,
+        scanned: res.total_count || 0,
+        regenerated: [],
+        results: (res.items || []).map((it: any) => ({
+          doc_type: it.doc_type,
+          document_id: it.document_id,
+          reason: it.reason,
+          char_before: it.char_before,
+          char_after: it.char_before,
+          regenerated: false,
+          upstream: it.upstream,
+        })),
+        skipped: [],
+      };
+      setDryRunResult(mapped);
+      setProgress({ total: res.total_count, completed: 0, status: 'idle', jobId: res.job_id });
+      return mapped;
     } catch (e: any) {
       setError(e.message);
+      setProgress(p => ({ ...p, status: 'error' }));
       return null;
     } finally {
       setLoading(false);
@@ -71,13 +100,70 @@ export function useRegenerateInsufficient(projectId: string | undefined) {
     if (!projectId) return;
     setLoading(true);
     setError(null);
+    abortRef.current = false;
+    setProgress({ total: 0, completed: 0, status: 'running' });
+
     try {
-      const res = await callDevEngine('regenerate-insufficient-docs', { projectId, dryRun: false });
-      setResult(res);
+      // 1. Start the job
+      const startRes = await callDevEngine('regen-insufficient-start', { projectId, dryRun: false });
+      const jobId = startRes.job_id;
+      const total = startRes.total_count || 0;
+      setProgress({ total, completed: 0, status: 'running', jobId });
+
+      if (total === 0) {
+        setProgress({ total: 0, completed: 0, status: 'complete', jobId });
+        const emptySummary: RegenSummary = { success: true, dry_run: false, scanned: 0, regenerated: [], results: [], skipped: [] };
+        setResult(emptySummary);
+        setDryRunResult(null);
+        return emptySummary;
+      }
+
+      // 2. Tick until complete
+      let done = false;
+      const allProcessed: RegenResult[] = [];
+      let backoff = 500;
+
+      while (!done && !abortRef.current) {
+        const tickRes = await callDevEngine('regen-insufficient-tick', { jobId, maxItemsPerTick: 3 });
+        done = tickRes.done === true;
+
+        for (const p of (tickRes.processed || [])) {
+          allProcessed.push({
+            doc_type: p.doc_type,
+            document_id: p.document_id || null,
+            reason: p.reason || 'missing_current_version',
+            char_before: p.char_before || 0,
+            char_after: p.char_after || 0,
+            regenerated: p.status === 'regenerated',
+            error: p.error,
+            upstream: p.upstream,
+          });
+        }
+
+        const completed = tickRes.job?.completed_count || allProcessed.length;
+        setProgress({ total, completed, status: done ? 'complete' : 'running', jobId });
+
+        if (!done) {
+          await new Promise(r => setTimeout(r, backoff));
+          backoff = Math.min(backoff * 1.2, 3000);
+        }
+      }
+
+      const summary: RegenSummary = {
+        success: true,
+        dry_run: false,
+        scanned: total,
+        regenerated: allProcessed.filter(r => r.regenerated),
+        results: allProcessed,
+        skipped: [],
+      };
+      setResult(summary);
       setDryRunResult(null);
-      return res as RegenSummary;
+      setProgress({ total, completed: total, status: 'complete', jobId });
+      return summary;
     } catch (e: any) {
       setError(e.message);
+      setProgress(p => ({ ...p, status: 'error' }));
       return null;
     } finally {
       setLoading(false);
@@ -88,7 +174,9 @@ export function useRegenerateInsufficient(projectId: string | undefined) {
     setDryRunResult(null);
     setResult(null);
     setError(null);
+    setProgress({ total: 0, completed: 0, status: 'idle' });
+    abortRef.current = true;
   }, []);
 
-  return { scan, regenerate, clear, dryRunResult, result, loading, error };
+  return { scan, regenerate, clear, dryRunResult, result, loading, error, progress };
 }

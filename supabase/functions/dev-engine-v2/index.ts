@@ -13137,6 +13137,387 @@ No stubs, no placeholders, no TODO markers.`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ── REGEN QUEUE: START ──
+    if (action === "regen-insufficient-start") {
+      const { projectId, dryRun: isDry, force: isForce, limit: maxLimit } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const docLimit = Math.min(Math.max(maxLimit || 25, 1), 40);
+
+      // Reuse scan logic from regenerate-insufficient-docs
+      const { data: proj } = await supabase.from("projects")
+        .select("format, assigned_lane, title").eq("id", projectId).single();
+      const fmt = (proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const ladder = getLadderForFormat(fmt);
+
+      const SEED_CORE_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"] as const;
+      const STUB_MARKERS = ["draft stub","generate full","generate from dev engine","from dev engine","todo","[insert","[1–2 sentences]","[1-2 sentences]","placeholder"];
+      const MIN_CHARS: Record<string, number> = {
+        concept_brief:800,beat_sheet:1200,character_bible:1200,treatment:1200,story_outline:1200,
+        episode_grid:800,season_arc:800,format_rules:600,market_sheet:700,vertical_market_sheet:700,
+        episode_script:2000,feature_script:2000,season_master_script:2000,production_draft:2000,
+        documentary_outline:800,deck:600,vertical_episode_beats:600,project_overview:600,
+        creative_brief:600,market_positioning:600,canon:600,nec:500,
+      };
+      const DEFAULT_MIN = 600;
+      const containsStubMarker = (text: string): boolean => {
+        const lower = (text || "").toLowerCase();
+        return STUB_MARKERS.some(marker => lower.includes(marker));
+      };
+
+      const { data: allDocs } = await supabase.from("project_documents")
+        .select("id, doc_type").eq("project_id", projectId);
+      const docSlots = new Map<string, string>();
+      for (const d of (allDocs || [])) { if (!docSlots.has(d.doc_type)) docSlots.set(d.doc_type, d.id); }
+
+      const allDocIds = (allDocs || []).map((d: any) => d.id);
+      let currentVersions: any[] = [];
+      if (allDocIds.length > 0) {
+        const { data: vers } = await supabase.from("project_document_versions")
+          .select("id, document_id, plaintext, approval_status, version_number")
+          .in("document_id", allDocIds).eq("is_current", true);
+        currentVersions = vers || [];
+      }
+      const verByDocId = new Map<string, any>();
+      for (const v of currentVersions) verByDocId.set(v.document_id, v);
+
+      const scanDocTypes = Array.from(new Set([
+        ...SEED_CORE_TYPES, ...ladder, "beat_sheet", ...Array.from(docSlots.keys()),
+      ])).filter(dt => dt !== "idea");
+
+      const upstreamHints: Record<string, string[]> = {
+        project_overview: ["concept_brief", "idea"],
+        creative_brief: ["concept_brief", "idea"],
+        market_positioning: ["market_sheet", "vertical_market_sheet", "concept_brief", "idea"],
+        canon: ["concept_brief", "idea", "treatment"],
+        nec: ["concept_brief", "idea", "treatment"],
+        beat_sheet: ["concept_brief", "idea", "topline_narrative", "treatment"],
+      };
+      const findUpstreamType = (stage: string): string | null => {
+        const candidates: string[] = [];
+        if (upstreamHints[stage]) candidates.push(...upstreamHints[stage]);
+        const stageIdx = ladder.indexOf(stage);
+        if (stageIdx > 0) { for (let i = stageIdx - 1; i >= 0; i--) candidates.push(ladder[i]); }
+        candidates.push("concept_brief", "idea", ...SEED_CORE_TYPES);
+        const deduped = Array.from(new Set(candidates.filter(t => t && t !== stage)));
+        for (const t of deduped) {
+          const prevDocId = docSlots.get(t);
+          if (!prevDocId) continue;
+          const prevVer = verByDocId.get(prevDocId);
+          const prevText = (prevVer?.plaintext || "").trim();
+          if (prevText.length < 80 || containsStubMarker(prevText)) continue;
+          return t;
+        }
+        return null;
+      };
+
+      // Build items
+      const items: Array<{doc_type:string; document_id:string|null; reason:string; char_before:number; upstream:string|null}> = [];
+      for (const stage of scanDocTypes) {
+        if (items.length >= docLimit) break;
+        const docId = docSlots.get(stage) || null;
+        const ver = docId ? verByDocId.get(docId) : null;
+        const plaintext = ver ? (ver.plaintext || "").trim() : "";
+        const charBefore = plaintext.length;
+
+        let reason: string | null = null;
+        if (!docId || !ver) reason = "missing_current_version";
+        else if (containsStubMarker(plaintext)) reason = "stub_marker";
+        else {
+          const minChars = MIN_CHARS[stage] ?? DEFAULT_MIN;
+          if (charBefore < minChars) reason = "too_short";
+        }
+        if (!reason && !isForce) continue;
+        if (!reason && isForce) reason = "too_short";
+
+        const upstream = findUpstreamType(stage);
+        items.push({ doc_type: stage, document_id: docId, reason: reason!, char_before: charBefore, upstream });
+      }
+
+      // Create job
+      const { data: job, error: jobErr } = await supabase.from("regen_jobs").insert({
+        project_id: projectId,
+        created_by: userId,
+        status: items.length > 0 ? "queued" : "complete",
+        dry_run: isDry === true,
+        force: isForce === true,
+        total_count: items.length,
+        completed_count: 0,
+      }).select().single();
+      if (jobErr) throw new Error(`Failed to create regen job: ${jobErr.message}`);
+
+      // Create items
+      if (items.length > 0) {
+        const rows = items.map(it => ({
+          job_id: job.id,
+          doc_type: it.doc_type,
+          document_id: it.document_id,
+          reason: it.reason,
+          status: "queued",
+          char_before: it.char_before,
+          upstream: it.upstream,
+        }));
+        const { error: itemsErr } = await supabase.from("regen_job_items").insert(rows);
+        if (itemsErr) throw new Error(`Failed to create regen items: ${itemsErr.message}`);
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        job_id: job.id,
+        dry_run: isDry === true,
+        total_count: items.length,
+        items,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── REGEN QUEUE: TICK ──
+    if (action === "regen-insufficient-tick") {
+      const { jobId, maxItemsPerTick } = body;
+      if (!jobId) throw new Error("jobId required");
+      const tickLimit = Math.min(Math.max(maxItemsPerTick || 3, 1), 10);
+
+      // Load job
+      const { data: job, error: jobErr } = await supabase.from("regen_jobs")
+        .select("*").eq("id", jobId).single();
+      if (jobErr || !job) throw new Error("Regen job not found");
+      if (job.status === "complete" || job.status === "cancelled") {
+        return new Response(JSON.stringify({ success: true, job, processed: [], done: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Mark running
+      if (job.status !== "running") {
+        await supabase.from("regen_jobs").update({ status: "running" }).eq("id", jobId);
+      }
+
+      // Get next queued items
+      const { data: queuedItems } = await supabase.from("regen_job_items")
+        .select("*").eq("job_id", jobId).eq("status", "queued")
+        .order("created_at", { ascending: true }).limit(tickLimit);
+
+      if (!queuedItems || queuedItems.length === 0) {
+        // Check if all done
+        const { data: remaining } = await supabase.from("regen_job_items")
+          .select("id").eq("job_id", jobId).in("status", ["queued", "running"]);
+        if (!remaining || remaining.length === 0) {
+          await supabase.from("regen_jobs").update({ status: "complete", completed_count: job.total_count }).eq("id", jobId);
+          const { data: finalJob } = await supabase.from("regen_jobs").select("*").eq("id", jobId).single();
+          return new Response(JSON.stringify({ success: true, job: finalJob, processed: [], done: true }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ success: true, job, processed: [], done: false }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Load project context for regen
+      const projectId = job.project_id;
+      const { data: proj } = await supabase.from("projects")
+        .select("format, assigned_lane, title").eq("id", projectId).single();
+      const fmt = (proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const ladder = getLadderForFormat(fmt);
+
+      const SEED_CORE_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"] as const;
+      const STUB_MARKERS = ["draft stub","generate full","generate from dev engine","from dev engine","todo","[insert","[1–2 sentences]","[1-2 sentences]","placeholder"];
+      const containsStubMarker = (text: string): boolean => {
+        const lower = (text || "").toLowerCase();
+        return STUB_MARKERS.some(marker => lower.includes(marker));
+      };
+
+      const { data: allDocs } = await supabase.from("project_documents")
+        .select("id, doc_type").eq("project_id", projectId);
+      const docSlots = new Map<string, string>();
+      for (const d of (allDocs || [])) { if (!docSlots.has(d.doc_type)) docSlots.set(d.doc_type, d.id); }
+
+      const allDocIds = (allDocs || []).map((d: any) => d.id);
+      let currentVersions: any[] = [];
+      if (allDocIds.length > 0) {
+        const { data: vers } = await supabase.from("project_document_versions")
+          .select("id, document_id, plaintext, approval_status, version_number")
+          .in("document_id", allDocIds).eq("is_current", true);
+        currentVersions = vers || [];
+      }
+      const verByDocId = new Map<string, any>();
+      for (const v of currentVersions) verByDocId.set(v.document_id, v);
+
+      const upstreamHints: Record<string, string[]> = {
+        project_overview: ["concept_brief", "idea"],
+        creative_brief: ["concept_brief", "idea"],
+        market_positioning: ["market_sheet", "vertical_market_sheet", "concept_brief", "idea"],
+        canon: ["concept_brief", "idea", "treatment"],
+        nec: ["concept_brief", "idea", "treatment"],
+        beat_sheet: ["concept_brief", "idea", "topline_narrative", "treatment"],
+      };
+      const findUpstream = (stage: string): { upstreamDocId: string; upstreamVersionId: string; upstreamType: string } | null => {
+        const candidates: string[] = [];
+        if (upstreamHints[stage]) candidates.push(...upstreamHints[stage]);
+        const stageIdx = ladder.indexOf(stage);
+        if (stageIdx > 0) { for (let i = stageIdx - 1; i >= 0; i--) candidates.push(ladder[i]); }
+        candidates.push("concept_brief", "idea", ...SEED_CORE_TYPES);
+        const deduped = Array.from(new Set(candidates.filter(t => t && t !== stage)));
+        for (const t of deduped) {
+          const prevDocId = docSlots.get(t);
+          if (!prevDocId) continue;
+          const prevVer = verByDocId.get(prevDocId);
+          const prevText = (prevVer?.plaintext || "").trim();
+          if (prevText.length < 80 || containsStubMarker(prevText)) continue;
+          return { upstreamDocId: prevDocId, upstreamVersionId: prevVer.id, upstreamType: t };
+        }
+        return null;
+      };
+
+      const MIN_CHARS: Record<string, number> = {
+        concept_brief:800,beat_sheet:1200,character_bible:1200,treatment:1200,story_outline:1200,
+        episode_grid:800,season_arc:800,format_rules:600,market_sheet:700,vertical_market_sheet:700,
+        episode_script:2000,feature_script:2000,season_master_script:2000,production_draft:2000,
+        documentary_outline:800,deck:600,vertical_episode_beats:600,project_overview:600,
+        creative_brief:600,market_positioning:600,canon:600,nec:500,
+      };
+      const DEFAULT_MIN = 600;
+      const validateOutput = (docType: string, text: string): string | null => {
+        const trimmed = (text || "").trim();
+        if (containsStubMarker(trimmed)) return "stub_marker";
+        const minChars = MIN_CHARS[docType] ?? DEFAULT_MIN;
+        if (trimmed.length < minChars) return "too_short";
+        return null;
+      };
+
+      const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+
+      const processed: any[] = [];
+
+      for (const item of queuedItems) {
+        // Mark running
+        await supabase.from("regen_job_items").update({ status: "running" }).eq("id", item.id);
+
+        if (job.dry_run) {
+          await supabase.from("regen_job_items").update({ status: "skipped", error: "dry_run" }).eq("id", item.id);
+          processed.push({ ...item, status: "skipped", error: "dry_run" });
+          continue;
+        }
+
+        const stage = item.doc_type;
+        const upstream = findUpstream(stage);
+        if (!upstream) {
+          await supabase.from("regen_job_items").update({ status: "error", error: "No upstream doc with usable content" }).eq("id", item.id);
+          processed.push({ ...item, status: "error", error: "No upstream doc" });
+          continue;
+        }
+
+        try {
+          const upstreamVersion = verByDocId.get(upstream.upstreamDocId);
+          const upstreamText = (upstreamVersion?.plaintext || "").trim();
+          if (!upstreamText) throw new Error(`${upstream.upstreamType} has no text`);
+
+          const targetOutput = stage.toUpperCase();
+          const necBlock = await loadNECGuardrailBlock(supabase, projectId);
+
+          const userPrompt = `SOURCE FORMAT: ${upstream.upstreamType}
+TARGET FORMAT: ${targetOutput}
+PROTECT (non-negotiable creative DNA): []
+${necBlock}
+
+CRITICAL: Produce a FULL, COMPLETE ${stage.replace(/_/g, " ")} document.
+Do NOT produce stubs, placeholders, or TODO markers.
+Include all required sections with substantive content.
+
+MATERIAL:
+${upstreamText}`;
+
+          const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, CONVERT_SYSTEM_JSON, userPrompt, 0.35, 10000);
+          let parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+          let convertedText = (parsed?.converted_text || "").trim();
+          let retryUsed = false;
+
+          let outputReason = validateOutput(stage, convertedText);
+          if (outputReason) {
+            retryUsed = true;
+            const retryPrompt = `${userPrompt}\n\nRETRY INSTRUCTION: Previous output was insufficient (${outputReason}). Produce the FULL document now.`;
+            const raw2 = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, CONVERT_SYSTEM_JSON, retryPrompt, 0.35, 10000);
+            const parsed2 = await parseAIJson(LOVABLE_API_KEY, raw2);
+            const retryText = (parsed2?.converted_text || "").trim();
+            if (retryText.length > convertedText.length) convertedText = retryText;
+            outputReason = validateOutput(stage, convertedText);
+          }
+
+          if (outputReason) throw new Error(`Output still insufficient (${outputReason}, ${convertedText.length} chars)`);
+
+          const slot = await ensureDocSlot(supabase, projectId, userId, stage);
+          const newVersion = await createVer(supabase, {
+            documentId: slot.documentId,
+            docType: stage,
+            plaintext: convertedText,
+            label: `regen_insufficient_${stage}`,
+            createdBy: userId,
+            approvalStatus: "draft",
+            changeSummary: `Regenerated insufficient doc (${item.reason}) from ${upstream.upstreamType}${retryUsed ? " with retry" : ""}`,
+            sourceDocumentIds: [upstream.upstreamDocId],
+            metaJson: { generator: "regenerate-insufficient", reason: item.reason, upstream_type: upstream.upstreamType, retry_used: retryUsed },
+          });
+
+          await supabase.from("regen_job_items").update({
+            status: "regenerated",
+            char_after: convertedText.length,
+            document_id: slot.documentId,
+          }).eq("id", item.id);
+
+          // Refresh verByDocId for subsequent items that may use this as upstream
+          verByDocId.set(slot.documentId, { id: newVersion.id, document_id: slot.documentId, plaintext: convertedText, version_number: newVersion.version_number });
+          if (!docSlots.has(stage)) docSlots.set(stage, slot.documentId);
+
+          processed.push({ id: item.id, doc_type: stage, status: "regenerated", char_after: convertedText.length });
+          console.log(`[regen-tick] regenerated ${stage}: ${convertedText.length} chars`);
+        } catch (err: any) {
+          const errMsg = (err?.message || "regeneration_failed").slice(0, 300);
+          console.error(`[regen-tick] error for ${stage}:`, errMsg);
+          await supabase.from("regen_job_items").update({ status: "error", error: errMsg }).eq("id", item.id);
+          processed.push({ id: item.id, doc_type: stage, status: "error", error: errMsg });
+        }
+      }
+
+      // Update completed_count
+      const { data: statusCounts } = await supabase.from("regen_job_items")
+        .select("status").eq("job_id", jobId);
+      const completedCount = (statusCounts || []).filter((r: any) => r.status !== "queued" && r.status !== "running").length;
+      const allDone = completedCount >= job.total_count;
+
+      await supabase.from("regen_jobs").update({
+        completed_count: completedCount,
+        status: allDone ? "complete" : "running",
+      }).eq("id", jobId);
+
+      const { data: updatedJob } = await supabase.from("regen_jobs").select("*").eq("id", jobId).single();
+
+      return new Response(JSON.stringify({
+        success: true,
+        job: updatedJob,
+        processed,
+        done: allDone,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── REGEN QUEUE: STATUS ──
+    if (action === "regen-insufficient-status") {
+      const { jobId } = body;
+      if (!jobId) throw new Error("jobId required");
+
+      const { data: job, error: jobErr } = await supabase.from("regen_jobs")
+        .select("*").eq("id", jobId).single();
+      if (jobErr || !job) throw new Error("Regen job not found");
+
+      const { data: items } = await supabase.from("regen_job_items")
+        .select("*").eq("job_id", jobId).order("created_at", { ascending: true });
+
+      return new Response(JSON.stringify({
+        success: true,
+        job,
+        items: items || [],
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
