@@ -613,8 +613,19 @@ export function AutoRunMissionControl({
             </div>
           )}
           {job?.status === 'failed' && (
-            <div className="p-2 rounded bg-destructive/10 border border-destructive/20 text-xs text-destructive">
-              ✗ {formatErrorDisplay(job.error)}
+            <div className="p-2.5 rounded bg-destructive/10 border border-destructive/20 text-xs text-destructive space-y-1.5">
+              <div className="font-semibold">✗ Auto-Run Failed</div>
+              <div>{job.stop_reason || formatErrorDisplay(job.error) || 'Unknown failure'}</div>
+              {(job as any).missing_seed_docs && Array.isArray((job as any).missing_seed_docs) && (
+                <div className="mt-1 space-y-0.5">
+                  <div className="text-[10px] font-medium text-destructive/80">Missing seed documents:</div>
+                  <ul className="list-disc list-inside text-[10px] text-destructive/70">
+                    {(job as any).missing_seed_docs.map((d: string) => (
+                      <li key={d}>{d}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 
