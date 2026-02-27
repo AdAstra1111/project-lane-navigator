@@ -12918,18 +12918,21 @@ CRITICAL:
       const verByDocId = new Map<string, any>();
       for (const v of currentVersions) verByDocId.set(v.document_id, v);
 
-      // Include seed core + ladder docs (idea excluded)
+      // Include seed core + ladder + ALL existing project doc types + beat_sheet (idea excluded)
       const scanDocTypes = Array.from(new Set([
         ...SEED_CORE_TYPES,
         ...ladder,
+        "beat_sheet",
+        ...Array.from(docSlots.keys()),
       ])).filter(dt => dt !== "idea");
 
       const upstreamHints: Record<string, string[]> = {
         project_overview: ["concept_brief", "idea"],
         creative_brief: ["concept_brief", "idea"],
-        market_positioning: ["market_sheet", "concept_brief", "idea"],
-        canon: ["concept_brief", "idea"],
-        nec: ["concept_brief", "idea"],
+        market_positioning: ["market_sheet", "vertical_market_sheet", "concept_brief", "idea"],
+        canon: ["concept_brief", "idea", "treatment"],
+        nec: ["concept_brief", "idea", "treatment"],
+        beat_sheet: ["concept_brief", "idea", "topline_narrative", "treatment"],
       };
 
       const findUpstream = (stage: string): { upstreamDocId: string; upstreamVersionId: string; upstreamType: string } | null => {
