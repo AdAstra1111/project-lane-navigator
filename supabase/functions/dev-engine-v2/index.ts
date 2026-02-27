@@ -14170,7 +14170,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     // SET SEASON EPISODE COUNT
     // ══════════════════════════════════════════════════════════════
     if (action === "set-season-episode-count") {
-      const { projectId: pid, episodeCount: ec, lock } = body;
+      const { projectId: pid, episodeCount: ec, lock, source } = body;
       if (!pid) throw new Error("projectId required");
       if (typeof ec !== "number" || ec < 1 || ec > 300) throw new Error("episodeCount must be 1..300");
 
@@ -14178,16 +14178,16 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         .select("season_episode_count_locked, user_id").eq("id", pid).single();
       if (!proj) throw new Error("Project not found");
       if (proj.season_episode_count_locked === true) {
-        return new Response(JSON.stringify({ error: "Episode count is locked. Cannot change." }), {
+        return new Response(JSON.stringify({ error: "EPISODE_COUNT_LOCKED", message: "Episode count is locked. Cannot change." }), {
           status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const updates: any = { season_episode_count: ec };
+      const updates: any = { season_episode_count: ec, season_episode_count_source: source || "manual" };
       if (lock === true) updates.season_episode_count_locked = true;
 
       const { data: updated, error: upErr } = await supabase.from("projects")
-        .update(updates).eq("id", pid).select("id, season_episode_count, season_episode_count_locked").single();
+        .update(updates).eq("id", pid).select("id, season_episode_count, season_episode_count_locked, season_episode_count_source").single();
       if (upErr) throw new Error(upErr.message);
 
       return new Response(JSON.stringify({ success: true, project: updated }), {
@@ -14202,11 +14202,12 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const { projectId: pid } = body;
       if (!pid) throw new Error("projectId required");
       const { data: proj } = await supabase.from("projects")
-        .select("season_episode_count, season_episode_count_locked").eq("id", pid).single();
+        .select("season_episode_count, season_episode_count_locked, season_episode_count_source").eq("id", pid).single();
       if (!proj) throw new Error("Project not found");
       return new Response(JSON.stringify({
         season_episode_count: proj.season_episode_count,
         locked: proj.season_episode_count_locked === true,
+        source: proj.season_episode_count_source || null,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -14244,6 +14245,119 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const { validateEpisodeCount } = await import("../_shared/episode-count-validator.ts");
       const report = await validateEpisodeCount(supabase, pid);
       return new Response(JSON.stringify(report), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // PITCH IDEA — SET DEVSEED CANON
+    // ══════════════════════════════════════════════════════════════
+    if (action === "pitch-idea-set-devseed-canon") {
+      const { pitchIdeaId, seasonEpisodeCount, format, assignedLane, episodeLengthTarget } = body;
+      if (!pitchIdeaId) throw new Error("pitchIdeaId required");
+      if (typeof seasonEpisodeCount !== "number" || seasonEpisodeCount < 1 || seasonEpisodeCount > 200) {
+        throw new Error("seasonEpisodeCount must be integer 1..200");
+      }
+
+      const canonJson = {
+        season_episode_count: seasonEpisodeCount,
+        format: format || null,
+        assigned_lane: assignedLane || null,
+        episode_length_target: episodeLengthTarget || null,
+        locked: true,
+        locked_at: new Date().toISOString(),
+        locked_by: userId,
+        source: "pitch_idea_ui",
+      };
+
+      const { error: upErr } = await supabase.from("pitch_ideas")
+        .update({ devseed_canon_json: canonJson } as any)
+        .eq("id", pitchIdeaId);
+      if (upErr) throw new Error(upErr.message);
+
+      return new Response(JSON.stringify({ success: true, devseed_canon_json: canonJson }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // BACKFILL PROJECT EPISODE COUNT FROM DEVSEED
+    // ══════════════════════════════════════════════════════════════
+    if (action === "project-backfill-season-episode-count-from-devseed") {
+      const { projectId: pid } = body;
+      if (!pid) throw new Error("projectId required");
+
+      const { data: proj } = await supabase.from("projects")
+        .select("season_episode_count, season_episode_count_locked, devseed_pitch_idea_id").eq("id", pid).single();
+      if (!proj) throw new Error("Project not found");
+      if (proj.season_episode_count_locked === true) {
+        return new Response(JSON.stringify({ skipped: true, reason: "already_locked", season_episode_count: proj.season_episode_count }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const pitchId = proj.devseed_pitch_idea_id;
+      if (!pitchId) throw new Error("No devseed_pitch_idea_id linked to this project");
+
+      const { data: pitch } = await supabase.from("pitch_ideas")
+        .select("devseed_canon_json").eq("id", pitchId).single();
+      if (!pitch) throw new Error("Pitch idea not found");
+
+      const canon = pitch.devseed_canon_json as any;
+      const count = canon?.season_episode_count;
+      if (typeof count !== "number" || count < 1) {
+        throw new Error("Pitch idea has no season_episode_count in devseed_canon_json");
+      }
+
+      await supabase.from("projects").update({
+        season_episode_count: count,
+        season_episode_count_locked: true,
+        season_episode_count_source: "devseed_backfill",
+      }).eq("id", pid);
+
+      return new Response(JSON.stringify({ success: true, season_episode_count: count, locked: true, source: "devseed_backfill" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // REGEN EPISODE GRID TO MATCH CANON
+    // ══════════════════════════════════════════════════════════════
+    if (action === "regen-episode-grid-to-canon") {
+      const { projectId: pid } = body;
+      if (!pid) throw new Error("projectId required");
+
+      // Get canonical count
+      const { data: proj } = await supabase.from("projects")
+        .select("season_episode_count, season_episode_count_locked, title").eq("id", pid).single();
+      if (!proj) throw new Error("Project not found");
+      if (!proj.season_episode_count || proj.season_episode_count < 1) {
+        throw new Error("EPISODE_COUNT_NOT_SET");
+      }
+      const N = proj.season_episode_count;
+
+      // Queue episode_grid regen via existing regen system
+      const { data: gridDoc } = await supabase.from("project_documents")
+        .select("id").eq("project_id", pid).eq("doc_type", "episode_grid").limit(1).maybeSingle();
+
+      if (!gridDoc) {
+        // Create episode_grid doc stub
+        const slug = `${proj.title?.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}-episode-grid`;
+        const stubContent = `# Episode Grid\\n\\nTotal Episodes: ${N}\\n\\n` +
+          Array.from({ length: N }, (_, i) => `## Episode ${i + 1}\\nLogline: TBD`).join("\\n\\n");
+        const { data: newDoc } = await supabase.from("project_documents")
+          .insert({ project_id: pid, user_id: userId, doc_type: "episode_grid", title: `${proj.title} — Episode Grid`, file_name: `${slug}.md`, file_path: `${userId}/${pid}/${slug}.md`, extraction_status: "complete", plaintext: stubContent, extracted_text: stubContent } as any)
+          .select("id").single();
+        if (newDoc) {
+          await supabase.from("project_document_versions").insert({ document_id: newDoc.id, version_number: 1, plaintext: stubContent, status: "draft", is_current: true, created_by: userId } as any);
+        }
+        return new Response(JSON.stringify({ success: true, action: "created_stub", episode_count: N }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Queue regen for existing grid doc
+      return new Response(JSON.stringify({ success: true, action: "regen_queued", episode_count: N, doc_id: gridDoc.id, message: "Use regen-insufficient-start to regenerate episode_grid with the canonical count." }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

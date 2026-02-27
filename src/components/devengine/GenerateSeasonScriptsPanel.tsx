@@ -92,20 +92,23 @@ export function GenerateSeasonScriptsPanel({ projectId }: Props) {
   const [force] = useState(false);
   const [canonicalCount, setCanonicalCount] = useState<number | null>(null);
   const [locked, setLocked] = useState(false);
+  const [countSource, setCountSource] = useState<string | null>(null);
   const [countInput, setCountInput] = useState('');
   const [countSaving, setCountSaving] = useState(false);
   const [report, setReport] = useState<EpisodeCountReport | null>(null);
   const [validating, setValidating] = useState(false);
+  const [regenningGrid, setRegenningGrid] = useState(false);
 
   // Load canonical count + locked state
   useEffect(() => {
-    supabase.from('projects').select('season_episode_count, season_episode_count_locked').eq('id', projectId).single()
+    supabase.from('projects').select('season_episode_count, season_episode_count_locked, season_episode_count_source').eq('id', projectId).single()
       .then(({ data }) => {
         const val = data?.season_episode_count;
         const isLocked = data?.season_episode_count_locked === true;
         setCanonicalCount(typeof val === 'number' && val > 0 ? val : null);
         setCountInput(typeof val === 'number' && val > 0 ? String(val) : '');
         setLocked(isLocked);
+        setCountSource((data as any)?.season_episode_count_source || null);
       });
   }, [projectId]);
 
@@ -210,6 +213,9 @@ export function GenerateSeasonScriptsPanel({ projectId }: Props) {
                 {locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
                 {canonicalCount} episodes {locked ? '(Locked)' : ''}
               </Badge>
+              {countSource && (
+                <Badge variant="outline" className="text-xs">Source: {countSource}</Badge>
+              )}
               {!locked && (
                 <>
                   <Button variant="outline" size="sm" onClick={lockCount} disabled={countSaving}>
@@ -291,6 +297,27 @@ export function GenerateSeasonScriptsPanel({ projectId }: Props) {
                   Master missing: Episodes {report.master.missing_separators.join(', ')}
                 </p>
               )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 gap-1 text-xs"
+                disabled={regenningGrid}
+                onClick={async () => {
+                  setRegenningGrid(true);
+                  try {
+                    await callDevEngine('regen-episode-grid-to-canon', { projectId });
+                    toast.success('Episode grid regeneration initiated');
+                    runValidation();
+                  } catch (e: any) {
+                    toast.error(e.message);
+                  } finally {
+                    setRegenningGrid(false);
+                  }
+                }}
+              >
+                {regenningGrid ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                Regenerate episode grid to match canon
+              </Button>
             </CardContent>
           )}
         </Card>

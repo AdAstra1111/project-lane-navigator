@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { Rocket, ChevronDown, ChevronUp, Bookmark, BookmarkCheck, Trash2, TrendingUp, Zap } from 'lucide-react';
+import { Rocket, ChevronDown, ChevronUp, Bookmark, BookmarkCheck, Trash2, TrendingUp, Zap, Lock, Hash } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { LANE_LABELS, type MonetisationLane } from '@/lib/types';
 import type { PitchIdea } from '@/hooks/usePitchIdeas';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface Props {
   idea: PitchIdea;
@@ -15,10 +18,69 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
+function EpisodeCountSetter({ idea }: { idea: PitchIdea }) {
+  const devseedCanon = idea.devseed_canon_json || {};
+  const [epCount, setEpCount] = useState(String(devseedCanon.season_episode_count || ''));
+  const [saving, setSaving] = useState(false);
+  const isLocked = devseedCanon.locked === true;
+
+  const save = async () => {
+    const num = parseInt(epCount);
+    if (!num || num < 1 || num > 200) { toast.error('Episode count must be 1-200'); return; }
+    setSaving(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('dev-engine-v2', {
+        body: {
+          action: 'pitch-idea-set-devseed-canon',
+          pitchIdeaId: idea.id,
+          seasonEpisodeCount: num,
+          format: idea.production_type,
+          assignedLane: idea.recommended_lane,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(`Canon locked: ${num} episodes`);
+      // Reload page to reflect changes
+      window.location.reload();
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 pt-2 border-t border-border/20">
+      <p className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1">
+        <Hash className="h-3 w-3" /> DevSeed Canon — Episode Count
+      </p>
+      {isLocked ? (
+        <div className="flex items-center gap-1.5">
+          <Lock className="h-3 w-3 text-primary" />
+          <span className="text-xs font-medium text-primary">{devseedCanon.season_episode_count} episodes (locked)</span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <Input
+            type="number" min={1} max={200}
+            value={epCount} onChange={e => setEpCount(e.target.value)}
+            placeholder="e.g. 30" className="h-7 w-20 text-xs"
+          />
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={save} disabled={saving}>
+            <Lock className="h-3 w-3" /> Set & Lock
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete }: Props) {
   const [expanded, setExpanded] = useState(false);
   const isShortlisted = idea.status === 'shortlisted';
   const laneLabel = LANE_LABELS[idea.recommended_lane as MonetisationLane] || idea.recommended_lane;
+  const devseedCanon = idea.devseed_canon_json || {};
 
   // Extract extended fields from raw_response
   const raw = idea.raw_response as any || {};
@@ -117,8 +179,20 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete }: Prop
               <span>Lane Fit: <span className="font-medium text-foreground">{Number(idea.score_lane_fit).toFixed(0)}</span></span>
               <span>Saturation: <span className="font-medium text-foreground">{Number(idea.score_saturation_risk).toFixed(0)}</span></span>
             </div>
+
+            {/* DesSeed Canon — Episode Count Setter */}
+            <EpisodeCountSetter idea={idea} />
           </CollapsibleContent>
         </Collapsible>
+
+        {/* Canon badge row */}
+        {devseedCanon.season_episode_count && (
+          <div className="flex items-center gap-1.5 mt-2">
+            <Lock className="h-3 w-3 text-primary" />
+            <span className="text-[10px] font-medium text-primary">Canon: {devseedCanon.season_episode_count} episodes</span>
+            {devseedCanon.format && <Badge variant="outline" className="text-[10px] h-4">{devseedCanon.format}</Badge>}
+          </div>
+        )}
 
         {/* Promote button */}
         <div className="flex justify-end mt-3 pt-2 border-t border-border/20">

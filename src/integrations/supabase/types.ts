@@ -7309,6 +7309,7 @@ export type Database = {
           concept_lock_version: number
           created_at: string
           development_sprint: Json
+          devseed_canon_json: Json
           genre: string
           id: string
           lane_confidence: number
@@ -7346,6 +7347,7 @@ export type Database = {
           concept_lock_version?: number
           created_at?: string
           development_sprint?: Json
+          devseed_canon_json?: Json
           genre?: string
           id?: string
           lane_confidence?: number
@@ -7383,6 +7385,7 @@ export type Database = {
           concept_lock_version?: number
           created_at?: string
           development_sprint?: Json
+          devseed_canon_json?: Json
           genre?: string
           id?: string
           lane_confidence?: number
@@ -11997,6 +12000,7 @@ export type Database = {
           created_at: string
           current_stage: string | null
           development_behavior: string | null
+          devseed_pitch_idea_id: string | null
           document_urls: string[]
           episode_target_duration_max_seconds: number | null
           episode_target_duration_min_seconds: number | null
@@ -12028,6 +12032,7 @@ export type Database = {
           script_coverage_verdict: string
           season_episode_count: number | null
           season_episode_count_locked: boolean
+          season_episode_count_source: string | null
           season_style_profile: Json | null
           season_style_template_doc_type: string | null
           season_style_template_version_id: string | null
@@ -12059,6 +12064,7 @@ export type Database = {
           created_at?: string
           current_stage?: string | null
           development_behavior?: string | null
+          devseed_pitch_idea_id?: string | null
           document_urls?: string[]
           episode_target_duration_max_seconds?: number | null
           episode_target_duration_min_seconds?: number | null
@@ -12090,6 +12096,7 @@ export type Database = {
           script_coverage_verdict?: string
           season_episode_count?: number | null
           season_episode_count_locked?: boolean
+          season_episode_count_source?: string | null
           season_style_profile?: Json | null
           season_style_template_doc_type?: string | null
           season_style_template_version_id?: string | null
@@ -12121,6 +12128,7 @@ export type Database = {
           created_at?: string
           current_stage?: string | null
           development_behavior?: string | null
+          devseed_pitch_idea_id?: string | null
           document_urls?: string[]
           episode_target_duration_max_seconds?: number | null
           episode_target_duration_min_seconds?: number | null
@@ -12152,6 +12160,7 @@ export type Database = {
           script_coverage_verdict?: string
           season_episode_count?: number | null
           season_episode_count_locked?: boolean
+          season_episode_count_source?: string | null
           season_style_profile?: Json | null
           season_style_template_doc_type?: string | null
           season_style_template_version_id?: string | null
