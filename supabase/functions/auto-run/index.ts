@@ -983,20 +983,25 @@ async function callEdgeFunctionWithRetry(
 }
 
 // ── Helper: log a step ──
+// stepIndex: pass null to auto-allocate via atomic DB increment (nextStepIndex).
+// Returns the step_index that was used.
 async function logStep(
   supabase: any,
   jobId: string,
-  stepIndex: number,
+  stepIndex: number | null,
   document: string,
   action: string,
   summary: string,
   scores: { ci?: number; gp?: number; gap?: number; readiness?: number; confidence?: number; risk_flags?: string[] } = {},
   outputText?: string,
   outputRef?: any
-) {
+): Promise<number> {
+  const idx = stepIndex !== null && stepIndex !== undefined
+    ? stepIndex
+    : await nextStepIndex(supabase, jobId);
   await supabase.from("auto_run_steps").insert({
     job_id: jobId,
-    step_index: stepIndex,
+    step_index: idx,
     document,
     action,
     summary,
@@ -1009,6 +1014,7 @@ async function logStep(
     output_text: outputText ? outputText.slice(0, 4000) : null,
     output_ref: outputRef || null,
   });
+  return idx;
 }
 
 // ── Helper: update job ──
@@ -2522,12 +2528,11 @@ Deno.serve(async (req) => {
             }
           }
 
-          await logStep(supabase, jobId, newStep + 1, currentDoc, "approval_required",
+          await logStep(supabase, jobId, null, currentDoc, "approval_required",
             `Review generated ${currentDoc} before continuing`,
             {}, undefined, { docId: convertedDocId, versionId: convertedVersionId, doc_type: currentDoc, from_stage: prevStage }
           );
           await updateJob(supabase, jobId, {
-            step_count: newStep + 1,
             status: "paused",
             stop_reason: `Approval required: review generated ${currentDoc}`,
             awaiting_approval: true,
@@ -2672,10 +2677,11 @@ Deno.serve(async (req) => {
         const blockersCount = blockers.length;
         const highImpactCount = highImpact.length;
 
-        const newStep = stepCount + 1;
+        const newStep = await nextStepIndex(supabase, jobId);
         const analyzeShapeKeys = Object.keys(analyzeResult || {});
 
         // Store step_resolver_hash for hash-based invalidation
+        // newStep is already from nextStepIndex (atomic)
         const stepInsertResult = await supabase.from("auto_run_steps").insert({
           job_id: jobId,
           step_index: newStep,
@@ -2712,14 +2718,13 @@ Deno.serve(async (req) => {
         // Step C: Compute promotion intelligence
         const promo = computePromotion(ci, gp, gap, trajectory, currentDoc, blockersCount, highImpactCount, stageLoopCount + 1);
 
-        await logStep(supabase, jobId, newStep + 1, currentDoc, "promotion_check",
+        await logStep(supabase, jobId, null, currentDoc, "promotion_check",
           `${promo.recommendation} (readiness: ${promo.readiness_score}, flags: ${promo.risk_flags.join(",") || "none"})`,
           { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags }
         );
 
-        // Update job scores
+        // Update job scores (step_count maintained by nextStepIndex)
         await updateJob(supabase, jobId, {
-          step_count: newStep + 1,
           last_ci: ci, last_gp: gp, last_gap: gap,
           last_readiness: promo.readiness_score, last_confidence: promo.confidence,
           last_risk_flags: promo.risk_flags,
@@ -2728,7 +2733,7 @@ Deno.serve(async (req) => {
         // ── HARD STOPS ──
         if (promo.risk_flags.includes("hard_gate:thrash")) {
           await updateJob(supabase, jobId, { status: "stopped", stop_reason: "Thrash detected — run Executive Strategy Loop" });
-          await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "Thrash detected");
+          await logStep(supabase, jobId, null, currentDoc, "stop", "Thrash detected");
           return respondWithJob(supabase, jobId);
         }
         if (promo.risk_flags.includes("hard_gate:eroding_trajectory") || promo.recommendation === "escalate") {
@@ -2748,21 +2753,20 @@ Deno.serve(async (req) => {
                 deliverableType: currentDoc,
                 developmentBehavior: behavior,
                 format,
-              }, token, job.project_id, format, currentDoc, jobId, newStep + 2
+              }, token, job.project_id, format, currentDoc, jobId, newStep
             );
 
             const optionsData = optionsResult?.result?.options || optionsResult?.result || {};
 
             const normalizedDecisions = normalizePendingDecisions(optionsData.decisions || [], escalateReason);
 
-            await logStep(supabase, jobId, newStep + 2, currentDoc, "escalate_options_generated",
+            await logStep(supabase, jobId, null, currentDoc, "escalate_options_generated",
               `${escalateReason}. Generated ${normalizedDecisions.length} decision sets.`,
               { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags },
             );
 
             optionsGeneratedThisStep = true;
             await updateJob(supabase, jobId, {
-              step_count: newStep + 2,
               status: "paused",
               stop_reason: `Decisions required: ${escalateReason}`,
               pending_decisions: normalizedDecisions.length > 0 ? normalizedDecisions : createFallbackDecisions(currentDoc, ci, gp, escalateReason),
@@ -2797,12 +2801,11 @@ Deno.serve(async (req) => {
               },
             ];
 
-            await logStep(supabase, jobId, newStep + 2, currentDoc, "pause_for_approval",
+            await logStep(supabase, jobId, null, currentDoc, "pause_for_approval",
               `${escalateReason} — options generation failed, awaiting user decision`,
               { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags },
             );
             await updateJob(supabase, jobId, {
-              step_count: newStep + 2,
               status: "paused",
               stop_reason: `Approval required: ${escalateReason}`,
               pending_decisions: escalateDecisions,
@@ -2838,7 +2841,7 @@ Deno.serve(async (req) => {
 
               const stabiliseDecisions = normalizePendingDecisions(optionsData.decisions || [], "Stabilise: blockers/high-impact");
 
-              await logStep(supabase, jobId, newStep + 2, currentDoc, "options_generated",
+              await logStep(supabase, jobId, null, currentDoc, "options_generated",
                 `Generated ${stabiliseDecisions.length} decision sets for ${blockersCount} blockers + ${highImpactCount} high-impact notes`,
                 { ci, gp, gap, readiness: promo.readiness_score },
                 undefined, { optionsRunId, decisions: stabiliseDecisions.length, global_directions: optionsData.global_directions?.length || 0 }
@@ -2846,7 +2849,6 @@ Deno.serve(async (req) => {
 
               optionsGeneratedThisStep = true;
               await updateJob(supabase, jobId, {
-                step_count: newStep + 2,
                 stage_loop_count: newLoopCount,
                 status: "paused",
                 stop_reason: "Decisions required",
@@ -2860,7 +2862,7 @@ Deno.serve(async (req) => {
             } catch (optErr: any) {
               // If options generation fails, fall through to regular rewrite
               console.error("Options generation failed, falling back to rewrite:", optErr.message);
-              await logStep(supabase, jobId, newStep + 2, currentDoc, "options_failed",
+              await logStep(supabase, jobId, null, currentDoc, "options_failed",
                 `Options generation failed: ${optErr.message}. Falling back to rewrite.`);
             }
           }
@@ -2873,18 +2875,18 @@ Deno.serve(async (req) => {
             if (blockersCount > 0) {
               const fallback = createFallbackDecisions(currentDoc, ci, gp, "Blockers persist after max loops");
               await updateJob(supabase, jobId, { status: "paused", stop_reason: "Blockers persist — manual decision required", stage_loop_count: newLoopCount, pending_decisions: fallback });
-              await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "Blockers persist after max loops");
+              await logStep(supabase, jobId, null, currentDoc, "stop", "Blockers persist after max loops");
               return respondWithJob(supabase, jobId);
             }
             const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
             if (next && ladderIndexOf(next, format) <= ladderIndexOf(job.target_document, format)) {
               // ── APPROVAL GATE: pause before force-promoting after max loops ──
-              await logStep(supabase, jobId, newStep + 2, currentDoc, "approval_required",
+              await logStep(supabase, jobId, null, currentDoc, "approval_required",
                 `Max loops reached. Review ${currentDoc} before promoting to ${next}`,
                 {}, undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
               );
               await updateJob(supabase, jobId, {
-                stage_loop_count: newLoopCount, step_count: newStep + 2,
+                stage_loop_count: newLoopCount,
                 status: "paused", stop_reason: `Approval required: review ${currentDoc} before promoting to ${next}`,
                 awaiting_approval: true, approval_type: "promote",
                 pending_doc_id: doc.id, pending_version_id: latestVersion.id,
@@ -2930,13 +2932,12 @@ Deno.serve(async (req) => {
             // D) After rewrite, update job to use new version for next cycle
             await updateJob(supabase, jobId, {
               stage_loop_count: newLoopCount,
-              step_count: newStep + 2,
               follow_latest: true,
               resume_document_id: doc.id,
               resume_version_id: newVersionId !== "unknown" ? newVersionId : null,
             });
-            await logStep(supabase, jobId, newStep + 2, currentDoc, "rewrite", `Applied rewrite (loop ${newLoopCount}/${job.max_stage_loops})`);
-            await logStep(supabase, jobId, newStep + 3, currentDoc, "rewrite_output_ref",
+            await logStep(supabase, jobId, null, currentDoc, "rewrite", `Applied rewrite (loop ${newLoopCount}/${job.max_stage_loops})`);
+            await logStep(supabase, jobId, null, currentDoc, "rewrite_output_ref",
               `Rewrite created new versionId=${newVersionId}`,
               {}, undefined, { docId: doc.id, newVersionId, advanced_to_new_version: true }
             );
@@ -2951,21 +2952,21 @@ Deno.serve(async (req) => {
         if (promo.recommendation === "promote") {
           const modeConf = MODE_CONFIG[job.mode] || MODE_CONFIG.balanced;
           if (modeConf.require_readiness && promo.readiness_score < modeConf.require_readiness) {
-            await updateJob(supabase, jobId, { stage_loop_count: stageLoopCount + 1, step_count: newStep + 1 });
-            await logStep(supabase, jobId, newStep + 2, currentDoc, "stabilise", `Readiness ${promo.readiness_score} < ${modeConf.require_readiness} (premium threshold)`);
+            await updateJob(supabase, jobId, { stage_loop_count: stageLoopCount + 1 });
+            await logStep(supabase, jobId, null, currentDoc, "stabilise", `Readiness ${promo.readiness_score} < ${modeConf.require_readiness} (premium threshold)`);
             return respondWithJob(supabase, jobId, "run-next");
           }
 
           const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
           if (next && ladderIndexOf(next, format) <= ladderIndexOf(job.target_document, format)) {
             // ── APPROVAL GATE: pause before promoting to next stage ──
-            await logStep(supabase, jobId, newStep + 2, currentDoc, "approval_required",
+            await logStep(supabase, jobId, null, currentDoc, "approval_required",
               `Promote recommended: ${currentDoc} → ${next}. Review before advancing.`,
               { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence },
               undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
             );
             await updateJob(supabase, jobId, {
-              step_count: newStep + 2, status: "paused",
+              status: "paused",
               stop_reason: `Approval required: review ${currentDoc} before promoting to ${next}`,
               awaiting_approval: true, approval_type: "promote",
               pending_doc_id: doc.id, pending_version_id: latestVersion.id,
@@ -2974,7 +2975,7 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId, "awaiting-approval");
           } else {
             await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied up to target" });
-            await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "All stages satisfied up to target");
+            await logStep(supabase, jobId, null, currentDoc, "stop", "All stages satisfied up to target");
             return respondWithJob(supabase, jobId);
           }
         }
@@ -2994,8 +2995,9 @@ Deno.serve(async (req) => {
           await logStep(supabase, jobId, errStep, currentDoc, "dev_engine_unavailable",
             compactErr.slice(0, 500));
         } else {
+          const errIdx = await nextStepIndex(supabase, jobId);
           await updateJob(supabase, jobId, { status: "failed", error: `Step failed: ${(e.message || '').slice(0, 500)}` });
-          await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop", `Error: ${(e.message || '').slice(0, 500)}`);
+          await logStep(supabase, jobId, errIdx, currentDoc, "stop", `Error: ${(e.message || '').slice(0, 500)}`);
         }
        } finally {
         // ── ALWAYS release the processing lock ──
