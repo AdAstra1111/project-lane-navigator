@@ -106,6 +106,7 @@ export function useAutoRun(projectId: string | undefined) {
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef(false);
+  const runLoopRef = useRef<(jobId: string) => Promise<void>>();
 
   // Fetch existing job on mount
   const { data: existingJob } = useQuery({
@@ -148,11 +149,11 @@ export function useAutoRun(projectId: string | undefined) {
       setIsRunning(true);
       // Invalidate docs immediately — seed pack may have been created during start
       invalidateDevEngine(qc, { projectId, deep: false });
-      runLoop(result.job.id);
+      runLoopRef.current?.(result.job.id);
     } catch (e: any) {
       setError(e.message);
     }
-  }, [projectId]);
+  }, [projectId, qc]);
 
   const runLoop = useCallback(async (jobId: string) => {
     setIsRunning(true);
@@ -191,6 +192,7 @@ export function useAutoRun(projectId: string | undefined) {
     setIsRunning(false);
     invalidateDevEngine(qc, { projectId, deep: true });
   }, [projectId, qc]);
+  runLoopRef.current = runLoop;
 
   const runNext = useCallback(async () => {
     if (!job) return;
@@ -214,11 +216,11 @@ export function useAutoRun(projectId: string | undefined) {
         followLatest: followLatest ?? true,
         pinned_inputs: job.pinned_inputs || {},
       });
-      runLoop(job.id);
+      runLoopRef.current?.(job.id);
     } catch (e: any) {
       setError(e.message);
     }
-  }, [job, runLoop]);
+  }, [job]);
 
   const pause = useCallback(async () => {
     if (!job) return;
@@ -253,12 +255,12 @@ export function useAutoRun(projectId: string | undefined) {
       setSteps(result.latest_steps || []);
       // If job resumed to running, start the loop
       if (result.job?.status === 'running') {
-        runLoop(result.job.id);
+        runLoopRef.current?.(result.job.id);
       }
     } catch (e: any) {
       setError(e.message);
     }
-  }, [job, runLoop]);
+  }, [job]);
 
   const clear = useCallback(() => {
     setJob(null);
@@ -290,13 +292,13 @@ export function useAutoRun(projectId: string | undefined) {
       setSteps(result.latest_steps || []);
       if (result.job?.status === 'running') {
         await new Promise(r => setTimeout(r, 300));
-        runLoop(result.job.id);
+        runLoopRef.current?.(result.job.id);
       }
     } catch (e: any) {
       if (e.message?.includes('not awaiting approval')) return;
       setError(e.message);
     }
-  }, [job, runLoop, isRunning]);
+  }, [job, isRunning]);
 
   const applyDecisionsAndContinue = useCallback(async (
     selectedOptions: Array<{ note_id: string; option_id: string; custom_direction?: string }>,
@@ -316,12 +318,12 @@ export function useAutoRun(projectId: string | undefined) {
       setSteps(result.latest_steps || []);
       if (result.job?.status === 'running') {
         await new Promise(r => setTimeout(r, 300));
-        runLoop(result.job.id);
+        runLoopRef.current?.(result.job.id);
       }
     } catch (e: any) {
       setError(e.message);
     }
-  }, [job, runLoop, isRunning]);
+  }, [job, isRunning]);
 
   return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear, approveDecision, getPendingDoc, approveNext, applyDecisionsAndContinue };
 }
