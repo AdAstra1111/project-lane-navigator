@@ -165,8 +165,9 @@ export function useAutoRun(projectId: string | undefined) {
         const result = await callAutoRun('run-next', { jobId });
         setJob(result.job);
         setSteps(result.latest_steps || []);
-        // Refresh doc list mid-loop so seed pack chips update live
+        // Refresh doc list + seed versions mid-loop so seed pack chips update live
         qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+        qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
 
         const jobStatus = result.job?.status;
         const stopReason = result.job?.stop_reason;
