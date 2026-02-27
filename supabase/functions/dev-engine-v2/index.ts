@@ -1694,11 +1694,55 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const body = await req.json();
+    const { action } = body;
+
+    // ── Auth-optional gate for regen-queue actions (CI/tooling) ──
+    const AUTH_OPTIONAL_ACTIONS = new Set([
+      "regen-insufficient-start",
+      "regen-insufficient-tick",
+      "regen-insufficient-status",
+    ]);
+    const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
+
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
+
+    let userId: string;
+    let actor: "user" | "service_role" = "user";
+    let user: { id: string; email?: string };
+
+    if (!authHeader?.startsWith("Bearer ") && AUTH_OPTIONAL_ACTIONS.has(action) && allowNoAuth) {
+      // No-auth path — dev/CI only
+      console.log("[dev-engine-v2] NOAUTH regen-queue allowed (dev only)", { action });
+      userId = "service_role";
+      actor = "service_role";
+      user = { id: "service_role", email: "service_role@internal" };
+    } else if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    } else {
+      // Normal JWT validation
+      const token = authHeader.replace("Bearer ", "");
+      try {
+        const payloadB64 = token.split(".")[1];
+        if (!payloadB64) throw new Error("Invalid token");
+        const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
+        if (payload.role === "service_role") {
+          userId = "service_role";
+          actor = "service_role";
+          user = { id: "service_role", email: "service_role@internal" };
+          console.log("[dev-engine-v2] service_role actor accepted");
+        } else if (payload.sub) {
+          userId = payload.sub;
+          user = { id: payload.sub, email: payload.email };
+        } else {
+          throw new Error("Invalid token claims");
+        }
+      } catch {
+        throw new Error("Unauthorized");
+      }
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -1707,37 +1751,8 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Validate JWT — allow service_role tokens for internal CI/automation
-    const token = authHeader.replace("Bearer ", "");
-    let userId: string;
-    let actor: "user" | "service_role" = "user";
-    let user: { id: string; email?: string };
-    try {
-      const payloadB64 = token.split(".")[1];
-      if (!payloadB64) throw new Error("Invalid token");
-      const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
-      // Check expiry
-      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
-      if (payload.role === "service_role") {
-        userId = "service_role";
-        actor = "service_role";
-        user = { id: "service_role", email: "service_role@internal" };
-        console.log("[dev-engine-v2] service_role actor accepted");
-      } else if (payload.sub) {
-        userId = payload.sub;
-        user = { id: payload.sub, email: payload.email };
-      } else {
-        throw new Error("Invalid token claims");
-      }
-    } catch {
-      throw new Error("Unauthorized");
-    }
-
     // Use service client for DB operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    const body = await req.json();
-    const { action } = body;
 
     // ── Centralized document existence check ──
     // Any action that sends a documentId must reference a valid project_documents row
