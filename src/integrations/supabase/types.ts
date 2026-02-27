@@ -12237,6 +12237,8 @@ export type Database = {
         Row: {
           char_after: number
           char_before: number
+          claimed_at: string | null
+          claimed_by: string | null
           created_at: string
           doc_type: string
           document_id: string | null
@@ -12251,6 +12253,8 @@ export type Database = {
         Insert: {
           char_after?: number
           char_before?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
           created_at?: string
           doc_type: string
           document_id?: string | null
@@ -12265,6 +12269,8 @@ export type Database = {
         Update: {
           char_after?: number
           char_before?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
           created_at?: string
           doc_type?: string
           document_id?: string | null
@@ -21258,6 +21264,31 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "video_render_shots"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_regen_items: {
+        Args: { p_claimed_by: string; p_job_id: string; p_limit: number }
+        Returns: {
+          char_after: number
+          char_before: number
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string
+          doc_type: string
+          document_id: string | null
+          error: string | null
+          id: string
+          job_id: string
+          reason: string
+          status: string
+          updated_at: string
+          upstream: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "regen_job_items"
           isOneToOne: false
           isSetofReturn: true
         }
