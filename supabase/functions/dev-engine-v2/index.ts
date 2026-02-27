@@ -1469,28 +1469,30 @@ const docTypeMap: Record<string, string> = {
   "CONCEPT BRIEF": "concept_brief",
   MARKET_SHEET: "market_sheet",
   "MARKET SHEET": "market_sheet",
-  BLUEPRINT: "blueprint",
-  ARCHITECTURE: "architecture",
+  BLUEPRINT: "treatment",
+  ARCHITECTURE: "story_outline",
   CHARACTER_BIBLE: "character_bible",
   "CHARACTER BIBLE": "character_bible",
   BEAT_SHEET: "beat_sheet",
   "BEAT SHEET": "beat_sheet",
-  SCRIPT: "script",
-  PILOT_SCRIPT: "script",
-  "PILOT SCRIPT": "script",
+  SCRIPT: "feature_script",
+  PILOT_SCRIPT: "episode_script",
+  "PILOT SCRIPT": "episode_script",
   PRODUCTION_DRAFT: "production_draft",
   "PRODUCTION DRAFT": "production_draft",
   DECK: "deck",
   DOCUMENTARY_OUTLINE: "documentary_outline",
   "DOCUMENTARY OUTLINE": "documentary_outline",
   TREATMENT: "treatment",
-  ONE_PAGER: "one_pager",
-  OUTLINE: "blueprint",
-  EPISODE_OUTLINE: "blueprint",
-  "EPISODE OUTLINE": "blueprint",
+  STORY_OUTLINE: "story_outline",
+  "STORY OUTLINE": "story_outline",
+  ONE_PAGER: "concept_brief",
+  OUTLINE: "treatment",
+  EPISODE_OUTLINE: "treatment",
+  "EPISODE OUTLINE": "treatment",
   "EPISODE_BEAT_SHEET": "vertical_episode_beats",
   "EPISODE BEAT SHEET": "vertical_episode_beats",
-  DRAFT_SCRIPT: "script",
+  DRAFT_SCRIPT: "feature_script",
   FORMAT_RULES: "format_rules",
   "FORMAT RULES": "format_rules",
   SEASON_ARC: "season_arc",
@@ -1504,6 +1506,12 @@ const docTypeMap: Record<string, string> = {
   VERTICAL_MARKET_SHEET: "vertical_market_sheet",
   "VERTICAL MARKET SHEET": "vertical_market_sheet",
   "MARKET SHEET (VD)": "vertical_market_sheet",
+  FEATURE_SCRIPT: "feature_script",
+  "FEATURE SCRIPT": "feature_script",
+  EPISODE_SCRIPT: "episode_script",
+  "EPISODE SCRIPT": "episode_script",
+  SEASON_MASTER_SCRIPT: "season_master_script",
+  "SEASON MASTER SCRIPT": "season_master_script",
 };
 
 // ── Vertical Drama Document Pipeline ──
@@ -3400,12 +3408,12 @@ MATERIAL:\n${version.plaintext}`;
       }
       let resolvedDocType = docTypeMap[targetOutput] || docTypeMap[normalizedTarget] || docTypeMap[(targetOutput || "").toUpperCase()] || "other";
 
-      const VALID_DELIVERABLES_SET = new Set(["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats"]);
+      const VALID_DELIVERABLES_SET = new Set(["idea","topline_narrative","concept_brief","market_sheet","treatment","story_outline","character_bible","beat_sheet","feature_script","episode_script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats","season_master_script","vertical_market_sheet"]);
       if (resolvedDocType === "other") {
         // Fuzzy match: strip numbers, parens, normalize
         const aggressive = (targetOutput || "").toLowerCase().replace(/[\s\-()0-9]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
         const fuzzy = [...VALID_DELIVERABLES_SET].find(d => aggressive.includes(d) || d.includes(aggressive));
-        resolvedDocType = fuzzy || "script"; // Never fall through to "other"
+        resolvedDocType = fuzzy || "feature_script"; // Never fall through to "other"
       }
 
       const { data: newDoc, error: dErr } = await supabase.from("project_documents").insert({
@@ -3426,9 +3434,9 @@ MATERIAL:\n${version.plaintext}`;
         .select("drift_snapshot").eq("id", versionId).single();
       const upstreamCore = (upstreamVersion?.drift_snapshot as any)?.extracted_core || {};
 
-      const resolvedDeliverable = resolvedDocType === "other" ? "script" : resolvedDocType;
+      const resolvedDeliverable = resolvedDocType === "other" ? "feature_script" : resolvedDocType;
       // Dependency tracking for converted version
-      const CONVERT_DEP_TYPES = new Set(["deck", "character_bible", "beat_sheet", "script", "blueprint", "architecture"]);
+      const CONVERT_DEP_TYPES = new Set(["deck", "character_bible", "beat_sheet", "feature_script", "episode_script", "treatment", "story_outline"]);
       const convertDepFields = CONVERT_DEP_TYPES.has(resolvedDeliverable)
         ? ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"]
         : [];
@@ -3545,7 +3553,7 @@ ${version.plaintext}`;
         file_name: `${srcDoc?.title || "Script"} — Feature Screenplay`,
         file_path: "",
         extraction_status: "in_progress",
-        doc_type: "script",
+        doc_type: "feature_script",
         title: `${srcDoc?.title || "Script"} — Feature Screenplay`,
         source: "generated",
         plaintext: "",
@@ -3559,6 +3567,7 @@ ${version.plaintext}`;
         plaintext: "",
         created_by: user.id,
         change_summary: "Pipeline generation in progress",
+        deliverable_type: "feature_script",
       }).select().single();
       if (svErr || !scriptVersion) throw svErr || new Error("Failed to create script version");
 
@@ -5151,7 +5160,7 @@ Previous attempt problems: ${validation.reasons.join("; ")}`;
         file_name: `${srcDoc?.title || "Beat Sheet"} → ${title}`,
         file_path: "",
         extraction_status: "complete",
-        doc_type: "script",
+        doc_type: "episode_script",
         title,
         source: "generated",
         plaintext: scriptText,
@@ -5166,6 +5175,7 @@ Previous attempt problems: ${validation.reasons.join("; ")}`;
         created_by: user.id,
         change_summary: `Generated from beat sheet (scope: ${scopeResult.scope}, slice: ${sliceMethod})`,
         source_document_ids: [documentId],
+        deliverable_type: "episode_script",
       }).select().single();
       if (nvErr || !newVersion) throw nvErr || new Error("Failed to create episode script version");
 
