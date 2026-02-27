@@ -69,7 +69,13 @@ async function callDevEngine(action: string, body: Record<string, any>): Promise
     body: JSON.stringify({ action, ...body }),
   });
   const result = await resp.json();
-  if (!resp.ok) throw new Error(result.error || 'Request failed');
+  if (!resp.ok) {
+    // Surface specific error codes
+    if (result.error === 'EPISODE_COUNT_NOT_SET' || result.error === 'EPISODE_COUNT_LOCKED') {
+      throw new Error(result.error);
+    }
+    throw new Error(result.error || result.message || 'Request failed');
+  }
   return result;
 }
 
@@ -118,6 +124,20 @@ export function GenerateSeasonScriptsPanel({ projectId }: Props) {
         if (andLock) setLocked(true);
         toast.success(andLock ? `Episode count set to ${num} and locked` : `Episode count set to ${num}`);
       }
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setCountSaving(false);
+    }
+  };
+
+  const lockCount = async () => {
+    if (!canonicalCount) return;
+    setCountSaving(true);
+    try {
+      await callDevEngine('lock-season-episode-count', { projectId });
+      setLocked(true);
+      toast.success(`Episode count locked at ${canonicalCount}`);
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -191,9 +211,14 @@ export function GenerateSeasonScriptsPanel({ projectId }: Props) {
                 {canonicalCount} episodes {locked ? '(Locked)' : ''}
               </Badge>
               {!locked && (
-                <Button variant="ghost" size="sm" onClick={clearCanonicalCount} disabled={countSaving}>
-                  Clear
-                </Button>
+                <>
+                  <Button variant="outline" size="sm" onClick={lockCount} disabled={countSaving}>
+                    <Lock className="h-3 w-3 mr-1" /> Lock
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={clearCanonicalCount} disabled={countSaving}>
+                    Clear
+                  </Button>
+                </>
               )}
             </div>
           ) : (
