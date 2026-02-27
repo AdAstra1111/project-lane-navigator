@@ -53,7 +53,7 @@ async function ensureSeedPack(
   supabaseUrl: string,
   projectId: string,
   token: string,
-): Promise<{ ensured: boolean; missing: string[]; failed: boolean; error?: string; warnings?: { doc_type: string; reason: string; chars: number }[] }> {
+): Promise<{ ensured: boolean; missing: string[]; failed: boolean; fail_type?: 'SEED_PACK_FAILED' | 'SEED_PACK_INCOMPLETE'; error?: string; warnings?: { doc_type: string; reason: string; chars: number }[]; seed_http_status?: number }> {
   const { data: existingDocs } = await supabase
     .from("project_documents")
     .select("doc_type")
@@ -110,7 +110,7 @@ async function ensureSeedPack(
 
       if (trulyMissing.length > 0) {
         console.error(`[auto-run] SEED_PACK docs exist but ${trulyMissing.length} missing current version entirely: ${trulyMissing.join(",")}`);
-        return { ensured: false, missing: trulyMissing, failed: true, error: `Seed docs missing current version: ${trulyMissing.join(", ")}`, warnings: shortDocs };
+        return { ensured: false, missing: trulyMissing, failed: true, fail_type: "SEED_PACK_INCOMPLETE", error: `Seed docs missing current version: ${trulyMissing.join(", ")}`, warnings: shortDocs };
       }
 
       if (shortDocs.length > 0) {
@@ -166,18 +166,21 @@ async function ensureSeedPack(
 
     if (!seedRes.ok) {
       const errBody = await seedRes.text();
-      console.error(`[auto-run] SEED_PACK generation returned ${seedRes.status}: ${errBody}`);
-      return { ensured: true, missing, failed: true, error: `generate-seed-pack returned ${seedRes.status}` };
+      const truncErr = (errBody || "").slice(0, 300);
+      console.error(`[auto-run] SEED_PACK generation returned ${seedRes.status}: ${truncErr}`);
+      return { ensured: true, missing, failed: true, fail_type: "SEED_PACK_FAILED", error: `generate-seed-pack HTTP ${seedRes.status}: ${truncErr}`, seed_http_status: seedRes.status };
     }
 
     const seedResult = await seedRes.json();
     if (!seedResult.success) {
-      console.error("[auto-run] SEED_PACK generation returned success=false:", seedResult.error);
-      return { ensured: true, missing, failed: true, error: seedResult.error || "generate-seed-pack failed" };
+      const truncErr = ((seedResult.error || "generate-seed-pack failed") as string).slice(0, 300);
+      console.error("[auto-run] SEED_PACK generation returned success=false:", truncErr);
+      return { ensured: true, missing, failed: true, fail_type: "SEED_PACK_FAILED", error: truncErr };
     }
   } catch (e: any) {
-    console.error("[auto-run] SEED_PACK generation failed:", e.message);
-    return { ensured: true, missing, failed: true, error: e.message };
+    const truncErr = ((e.message || "Unknown error") as string).slice(0, 300);
+    console.error("[auto-run] SEED_PACK generation failed:", truncErr);
+    return { ensured: true, missing, failed: true, fail_type: "SEED_PACK_FAILED", error: truncErr };
   }
 
   // Re-verify after generation
@@ -221,7 +224,7 @@ async function ensureSeedPack(
 
   if (trulyMissingPost.length > 0) {
     console.error(`[auto-run] SEED_PACK still missing after generation: ${trulyMissingPost.join(",")}`);
-    return { ensured: true, missing: trulyMissingPost, failed: true, error: `Seed pack missing after generation: ${trulyMissingPost.join(", ")}`, warnings: shortDocsPost };
+    return { ensured: true, missing: trulyMissingPost, failed: true, fail_type: "SEED_PACK_INCOMPLETE", error: `Seed pack missing after generation: ${trulyMissingPost.join(", ")}`, warnings: shortDocsPost };
   }
 
   if (shortDocsPost.length > 0) {
@@ -1910,20 +1913,27 @@ Deno.serve(async (req) => {
       // ── Ensure seed pack on resume (hard guard) ──
       const seedResult = await ensureSeedPack(supabase, supabaseUrl, job.project_id, token);
       if (seedResult.failed) {
-        console.error(`[auto-run] SEED_PACK_INCOMPLETE — failing job ${jobId}. Missing: ${seedResult.missing.join(", ")}. Error: ${seedResult.error}`);
+        const stopReason = seedResult.fail_type || "SEED_PACK_INCOMPLETE";
+        const compactError = (seedResult.error || seedResult.missing.join(", ")).slice(0, 300);
+        console.error(`[auto-run] ${stopReason} — failing job ${jobId}. Missing: ${seedResult.missing.join(", ")}. Error: ${compactError}`);
         await updateJob(supabase, jobId, {
           status: "failed",
-          stop_reason: "SEED_PACK_INCOMPLETE",
-          last_ui_message: `Seed pack incomplete: ${seedResult.error || seedResult.missing.join(", ")}`,
+          stop_reason: stopReason,
+          last_ui_message: `Seed pack issue: ${compactError}`,
         });
         await logStep(supabase, jobId, stepCount + 1, currentDoc, "seed_pack_failed",
-          `Seed pack incomplete — cannot proceed. Missing: ${seedResult.missing.join(", ")}`);
+          `${stopReason} — cannot proceed. ${compactError}`);
         return respond({
-          job: { ...job, status: "failed", stop_reason: "SEED_PACK_INCOMPLETE" },
+          job: { ...job, status: "failed", stop_reason: stopReason },
           missing_seed_docs: seedResult.missing,
-          error: seedResult.error,
+          seed_debug: { fail_type: stopReason, error: compactError, seed_http_status: seedResult.seed_http_status },
+          seed_warnings: seedResult.warnings || [],
+          error: compactError,
         });
       }
+
+      // Attach seed warnings to subsequent responses (non-blocking)
+      const _seedWarnings = seedResult.warnings || [];
 
       // ── Guard: max steps — pause with actionable choices ──
       if (stepCount >= job.max_total_steps) {

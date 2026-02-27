@@ -39,6 +39,7 @@ export function invalidateDevEngine(
   qc.invalidateQueries({ queryKey: ['dev-v2-doc-runs'] });
   qc.invalidateQueries({ queryKey: ['dev-v2-convergence'] });
   qc.invalidateQueries({ queryKey: ['dev-v2-approved', projectId] });
+  qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
 
   // ── Per-document keys ──────────────────────────────────────────────────────
   if (docId) {

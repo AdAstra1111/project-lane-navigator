@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
+import { buildSeedSummary, type SeedSummary } from '@/lib/seedSummary';
 import { getLadderForFormat } from '@/lib/stages/registry';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -185,6 +187,12 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
     start: 'bg-muted text-muted-foreground',
     force_promote: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
     set_stage: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+    seed_pack_failed: 'bg-destructive/15 text-destructive border-destructive/30',
+    seed_pack_verified: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    stabilise: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+    pause_for_approval: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    decision_applied: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    decisions_rewrite_failed: 'bg-destructive/15 text-destructive border-destructive/30',
   };
 
   return (
@@ -304,18 +312,23 @@ export function AutoRunMissionControl({
     [availableDocuments],
   );
 
-  // Seed pack status: check docs exist. Flag short docs as warnings.
+  // Seed pack status: version-aware via dedicated hook
+  const seedPack = useSeedPackStatus(projectId);
   const seedStatus = useMemo(() => {
-    const allDocs = availableDocuments || [];
-    const present = SEED_DOC_TYPES.filter(dt => {
-      const doc = allDocs.find(d => d.doc_type === dt);
-      return !!doc;
-    });
-    const missing = SEED_DOC_TYPES.filter(dt => !present.includes(dt));
-    // Warn on docs that exist but might be stubs (no way to check plaintext from here,
-    // but server will surface warnings — this is a best-effort UI check)
-    return { present, missing, allPresent: missing.length === 0 };
-  }, [availableDocuments]);
+    const present = seedPack.docs.filter(d => d.status !== 'missing').map(d => d.doc_type);
+    const missing = seedPack.docs.filter(d => d.status === 'missing').map(d => d.doc_type);
+    return { present, missing, allPresent: missing.length === 0, docs: seedPack.docs };
+  }, [seedPack.docs]);
+
+  // Seed summary (deterministic, no LLM)
+  const [seedSummary, setSeedSummary] = useState<SeedSummary | null>(null);
+  const [seedSummaryLoading, setSeedSummaryLoading] = useState(false);
+  useEffect(() => {
+    if (seedStatus.allPresent && !seedSummary && !seedSummaryLoading) {
+      setSeedSummaryLoading(true);
+      buildSeedSummary(projectId).then(s => { setSeedSummary(s); setSeedSummaryLoading(false); }).catch(() => setSeedSummaryLoading(false));
+    }
+  }, [seedStatus.allPresent, projectId]);
 
   // approvedDocTypes: see APPROVAL_REQUIRED_STAGES at module top
 
@@ -645,15 +658,17 @@ export function AutoRunMissionControl({
               <span className="text-muted-foreground ml-auto text-[10px]">{seedStatus.present.length}/{SEED_DOC_TYPES.length}</span>
             </div>
             <div className="flex gap-1 flex-wrap">
-              {SEED_DOC_TYPES.map(dt => {
-                const isPresent = seedStatus.present.includes(dt);
+              {seedStatus.docs.map(doc => {
+                const icon = doc.status === 'present' ? '✓' : doc.status === 'short' ? '⚠' : '✗';
+                const colorCls = doc.status === 'present'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : doc.status === 'short'
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  : 'bg-destructive/10 text-destructive border-destructive/30';
                 return (
-                  <Badge key={dt} variant="outline" className={`text-[8px] px-1.5 py-0 ${
-                    isPresent
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                      : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                  }`}>
-                    {isPresent ? '✓' : '✗'} {SEED_LABELS[dt] || dt}
+                  <Badge key={doc.doc_type} variant="outline" className={`text-[8px] px-1.5 py-0 ${colorCls}`}
+                    title={doc.status === 'short' ? `Only ${doc.char_count} chars — may be a placeholder` : undefined}>
+                    {icon} {SEED_LABELS[doc.doc_type] || doc.doc_type}
                   </Badge>
                 );
               })}
@@ -663,7 +678,47 @@ export function AutoRunMissionControl({
             )}
           </div>
 
-          {/* ── Pipeline Progress ── */}
+          {/* ── Seed Summary (deterministic, collapsible) ── */}
+          {seedSummary && !seedSummary.isEmpty && (
+            <Accordion type="single" collapsible className="w-full">
+              <AccordionItem value="seed-summary" className="border-border/30">
+                <AccordionTrigger className="text-[10px] py-1.5 px-2 hover:no-underline">
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <FileText className="h-3 w-3" />
+                    Seed Summary
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="px-2 pb-2 text-[10px] space-y-1.5">
+                  {seedSummary.overview && (
+                    <div><span className="font-medium text-foreground/70">Overview:</span> {seedSummary.overview}</div>
+                  )}
+                  {seedSummary.briefBullets.length > 0 && (
+                    <div>
+                      <span className="font-medium text-foreground/70">Brief:</span>
+                      <ul className="list-disc list-inside text-muted-foreground ml-1">
+                        {seedSummary.briefBullets.map((b, i) => <li key={i}>{b}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {seedSummary.compsBullets.length > 0 && (
+                    <div>
+                      <span className="font-medium text-foreground/70">Comparables:</span>
+                      <ul className="list-disc list-inside text-muted-foreground ml-1">
+                        {seedSummary.compsBullets.map((b, i) => <li key={i}>{b}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {seedSummary.necSummary && (
+                    <div><span className="font-medium text-foreground/70">NEC:</span> <span className="text-muted-foreground">{seedSummary.necSummary}</span></div>
+                  )}
+                  {seedSummary.canonHighlights && (
+                    <div><span className="font-medium text-foreground/70">Canon:</span> <span className="text-muted-foreground">{seedSummary.canonHighlights}</span></div>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )}
+
           <div className="p-2.5 rounded-md border border-border/40 bg-muted/10 space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Pipeline Progress</span>
