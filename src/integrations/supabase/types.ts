@@ -471,6 +471,7 @@ export type Database = {
           error: string | null
           follow_latest: boolean
           id: string
+          is_processing: boolean
           last_ci: number | null
           last_confidence: number | null
           last_gap: number | null
@@ -489,6 +490,7 @@ export type Database = {
           pending_version_id: string | null
           pinned_inputs: Json | null
           pipeline_key: string | null
+          processing_started_at: string | null
           project_id: string
           resume_document_id: string | null
           resume_version_id: string | null
@@ -514,6 +516,7 @@ export type Database = {
           error?: string | null
           follow_latest?: boolean
           id?: string
+          is_processing?: boolean
           last_ci?: number | null
           last_confidence?: number | null
           last_gap?: number | null
@@ -532,6 +535,7 @@ export type Database = {
           pending_version_id?: string | null
           pinned_inputs?: Json | null
           pipeline_key?: string | null
+          processing_started_at?: string | null
           project_id: string
           resume_document_id?: string | null
           resume_version_id?: string | null
@@ -557,6 +561,7 @@ export type Database = {
           error?: string | null
           follow_latest?: boolean
           id?: string
+          is_processing?: boolean
           last_ci?: number | null
           last_confidence?: number | null
           last_gap?: number | null
@@ -575,6 +580,7 @@ export type Database = {
           pending_version_id?: string | null
           pinned_inputs?: Json | null
           pipeline_key?: string | null
+          processing_started_at?: string | null
           project_id?: string
           resume_document_id?: string | null
           resume_version_id?: string | null

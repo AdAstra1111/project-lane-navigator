@@ -1022,6 +1022,55 @@ async function getJob(supabase: any, jobId: string) {
   return data;
 }
 
+// ── Helper: acquire single-flight processing lock ──
+// Returns the locked job row if acquired, or null if another invocation holds the lock.
+async function acquireProcessingLock(supabase: any, jobId: string, userId: string): Promise<any | null> {
+  const { data, error } = await supabase
+    .from("auto_run_jobs")
+    .update({ is_processing: true, processing_started_at: new Date().toISOString() })
+    .eq("id", jobId)
+    .eq("user_id", userId)
+    .eq("status", "running")
+    .or("is_processing.eq.false,processing_started_at.is.null,processing_started_at.lt." + new Date(Date.now() - 60_000).toISOString())
+    .select("*")
+    .single();
+  if (error || !data) return null;
+  return data;
+}
+
+// ── Helper: release processing lock ──
+async function releaseProcessingLock(supabase: any, jobId: string) {
+  await supabase
+    .from("auto_run_jobs")
+    .update({ is_processing: false, processing_started_at: null })
+    .eq("id", jobId);
+}
+
+// ── Helper: atomically increment step_count and return new value as step_index ──
+async function nextStepIndex(supabase: any, jobId: string): Promise<number> {
+  // Use rpc-free approach: read-increment-write with select for return
+  // We rely on the processing lock to prevent concurrent increments
+  const { data: job } = await supabase
+    .from("auto_run_jobs")
+    .select("step_count")
+    .eq("id", jobId)
+    .single();
+  const next = (job?.step_count ?? 0) + 1;
+  await supabase
+    .from("auto_run_jobs")
+    .update({ step_count: next })
+    .eq("id", jobId);
+  return next;
+}
+
+// ── Helper: detect if an error is a 502/503 upstream outage ──
+function isUpstreamOutage(err: any): boolean {
+  const status = err?.status;
+  if (status === 502 || status === 503) return true;
+  const msg = (err?.message || "").toLowerCase();
+  return msg.includes("502") || msg.includes("503") || msg.includes("bad gateway") || msg.includes("temporarily unavailable");
+}
+
 // ── Helper: normalize pending decisions from dev-engine-v2 options output ──
 interface NormalizedDecision {
   id: string;
@@ -2064,15 +2113,26 @@ Deno.serve(async (req) => {
       console.log("[auto-run] run-next start", { jobId });
       let optionsGeneratedThisStep = false;
 
-      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
-      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
-      if (job.awaiting_approval) return respond({ job, latest_steps: [], next_action_hint: "awaiting-approval" });
-      if (job.status !== "running") return respond({ job, latest_steps: [], next_action_hint: getHint(job) });
+      // ── Pre-check: bail early for non-running / approval states ──
+      const { data: preJob, error: preJobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (preJobErr || !preJob) return respond({ error: "Job not found" }, 404);
+      if (preJob.awaiting_approval) return respond({ job: preJob, latest_steps: [], next_action_hint: "awaiting-approval" });
+      if (preJob.status !== "running") return respond({ job: preJob, latest_steps: [], next_action_hint: getHint(preJob) });
+
+      // ── SINGLE-FLIGHT LOCK: acquire processing lock ──
+      const job = await acquireProcessingLock(supabase, jobId, userId);
+      if (!job) {
+        console.log("[auto-run] run-next lock not acquired (another invocation processing)", { jobId });
+        return respondWithJob(supabase, jobId, "wait");
+      }
 
       const currentDoc = job.current_document as DocStage;
       const stepCount = job.step_count;
       const stageLoopCount = job.stage_loop_count;
 
+      // ── All synchronous early-returns must release the lock. Wrap in try/finally. ──
+      // Note: bgTask has its own finally for lock release; double-release is harmless.
+      try {
       // ── Ensure seed pack on resume (hard guard) ──
       console.log("[auto-run] before ensureSeedPack", { projectId: job.project_id });
       const seedResult = await ensureSeedPack(supabase, supabaseUrl, job.project_id, token);
@@ -2912,8 +2972,26 @@ Deno.serve(async (req) => {
         }
        } catch (e: any) {
         console.error("[auto-run] dev-engine analyze (bg) ERROR", e?.message || e);
-        await updateJob(supabase, jobId, { status: "failed", error: `Step failed: ${e.message}` });
-        await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop", `Error: ${e.message}`);
+        if (isUpstreamOutage(e)) {
+          // ── 502/503: deterministic pause, not fail ──
+          const errStep = await nextStepIndex(supabase, jobId);
+          const compactErr = `DEV_ENGINE_UNAVAILABLE (${e.status || '?'}): ${(e.message || '').slice(0, 300)}`;
+          await updateJob(supabase, jobId, {
+            status: "paused",
+            stop_reason: "DEV_ENGINE_UNAVAILABLE",
+            error: compactErr.slice(0, 500),
+            awaiting_approval: false,
+            approval_type: null,
+          });
+          await logStep(supabase, jobId, errStep, currentDoc, "dev_engine_unavailable",
+            compactErr.slice(0, 500));
+        } else {
+          await updateJob(supabase, jobId, { status: "failed", error: `Step failed: ${(e.message || '').slice(0, 500)}` });
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop", `Error: ${(e.message || '').slice(0, 500)}`);
+        }
+       } finally {
+        // ── ALWAYS release the processing lock ──
+        await releaseProcessingLock(supabase, jobId);
        }
       })(); // end bgTask
 
@@ -2931,6 +3009,11 @@ Deno.serve(async (req) => {
       }
       // Always return immediately — heavy work continues in background
       return respondWithJob(supabase, jobId, "run-next");
+      } finally {
+        // Release lock for any synchronous early-return path.
+        // bgTask paths also release in their own finally — double-release is harmless.
+        await releaseProcessingLock(supabase, jobId);
+      }
     }
 
     return respond({ error: `Unknown action: ${action}` }, 400);
@@ -2961,7 +3044,11 @@ async function respondWithJob(supabase: any, jobId: string, hint?: string): Prom
 function getHint(job: any): string {
   if (!job) return "none";
   if (job.awaiting_approval) return "awaiting-approval";
-  if (job.status === "running") return "run-next";
+  if (job.status === "running") {
+    // If another invocation is processing, tell caller to wait
+    if (job.is_processing) return "wait";
+    return "run-next";
+  }
   if (job.status === "paused") {
     if (job.pending_decisions && Array.isArray(job.pending_decisions) && job.pending_decisions.length > 0) {
       return "approve-decision";
