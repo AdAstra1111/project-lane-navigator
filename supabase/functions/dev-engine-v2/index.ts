@@ -13598,74 +13598,13 @@ ${upstreamText}`;
       const lane = proj.assigned_lane || (fmt.includes("vertical") ? "vertical_drama" : "series");
       const isVertical = lane === "vertical_drama" || fmt.includes("vertical");
 
-      // Load episode_grid to get episode count and loglines
-      const { data: gridDoc } = await supabase.from("project_documents")
-        .select("id").eq("project_id", pid).eq("doc_type", "episode_grid").limit(1);
-      let episodeGrid: any[] = [];
-      // Priority 1: explicit canonical/project episode count
-      let episodeCount = (proj as any).season_episode_count || 0;
-      const gridDocExists = gridDoc && gridDoc.length > 0;
+      // ── CENTRALIZED EPISODE COUNT RESOLVER ──
+      const { resolveEpisodeCount } = await import("../_shared/episode-count.ts");
+      const resolved = await resolveEpisodeCount(supabase, pid, fmt);
+      let episodeCount = resolved.episodeCount;
+      let episodeGrid = resolved.gridEntries;
 
-      if (gridDocExists) {
-        const { data: gridVer } = await supabase.from("project_document_versions")
-          .select("plaintext").eq("document_id", gridDoc[0].id).eq("is_current", true).limit(1);
-        const gridText = gridVer?.[0]?.plaintext || "";
-        // Parse episode entries from grid — supports both prose and markdown table formats
-        // 1) Try markdown table: rows like "| 1 | **Title** | logline | ..."
-        const tableRowRegex = /^\s*\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|/gm;
-        let tableMatch;
-        while ((tableMatch = tableRowRegex.exec(gridText)) !== null) {
-          const num = parseInt(tableMatch[1]);
-          const titleRaw = tableMatch[2].trim();
-          const title = titleRaw.replace(/\*\*/g, "").replace(/_/g, "").trim();
-          const logline = tableMatch[3].trim();
-          episodeGrid.push({ index: num, title: title || `Episode ${num}`, logline: logline || "" });
-        }
-        // 2) Fallback: prose format "Episode 1: Title" or "Ep 1 - Title"
-        if (episodeGrid.length === 0) {
-          const epMatches = gridText.match(/(?:episode|ep\.?\s*)\s*(\d+)[:\s\-–—]+(.*?)(?=\n(?:episode|ep\.?\s*)\s*\d+|\n\n|$)/gi);
-          if (epMatches) {
-            for (const m of epMatches) {
-              const numMatch = m.match(/(\d+)/);
-              const num = numMatch ? parseInt(numMatch[1]) : episodeGrid.length + 1;
-              const titleMatch = m.match(/\d+[:\s\-–—]+\s*"?([^"\n]+)"?/);
-              episodeGrid.push({ index: num, title: titleMatch?.[1]?.trim() || `Episode ${num}`, logline: m.trim() });
-            }
-          }
-        }
-        // SAFETY: If grid doc exists but parsing yielded 0 episodes, FAIL LOUDLY
-        if (episodeGrid.length === 0) {
-          throw new Error(
-            "Episode grid document exists but zero episodes were parsed. Check markdown table format. Grid doc id: " + gridDoc[0].id
-          );
-        }
-        if (episodeGrid.length > episodeCount) episodeCount = episodeGrid.length;
-      }
-
-      if (episodeCount === 0) {
-        // Try season_arc
-        const { data: arcDoc } = await supabase.from("project_documents")
-          .select("id").eq("project_id", pid).eq("doc_type", "season_arc").limit(1);
-        if (arcDoc && arcDoc.length > 0) {
-          const { data: arcVer } = await supabase.from("project_document_versions")
-            .select("plaintext").eq("document_id", arcDoc[0].id).eq("is_current", true).limit(1);
-          const arcText = arcVer?.[0]?.plaintext || "";
-          const countMatch = arcText.match(/(\d+)\s*episodes/i);
-          if (countMatch) episodeCount = parseInt(countMatch[1]);
-        }
-      }
-
-      // Only use default if NO grid doc exists AND no explicit count found
-      if (episodeCount === 0) {
-        if (gridDocExists) {
-          // Should not reach here (thrown above), but belt-and-suspenders
-          throw new Error("Episode grid exists but episodeCount is still 0. Aborting to prevent ghost season.");
-        }
-        episodeCount = isVertical ? 30 : 8;
-        console.warn("[series-scripts] WARNING: No episode_grid doc found; using default episodeCount:", episodeCount);
-      }
-
-      console.log("[series-scripts] episodeCount resolved to:", episodeCount, "| gridDocExists:", !!gridDocExists, "| gridParsedRows:", episodeGrid.length);
+      console.log(`[series-scripts] episodeCount resolved: ${JSON.stringify({ episodeCount: resolved.episodeCount, source: resolved.source, parsedGridCount: resolved.parsedGridCount, gridDocExists: resolved.gridDocExists })}`);
 
       const startEp = episodeStart || 1;
       const endEp = episodeEnd || episodeCount;
@@ -14067,6 +14006,21 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const { projectId: pid } = body;
       if (!pid) throw new Error("projectId required");
 
+      // Resolve expected episode count via centralized resolver
+      const { data: masterProj } = await supabase.from("projects")
+        .select("format").eq("id", pid).single();
+      const masterFmt = (masterProj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+
+      let expectedCount: number | null = null;
+      try {
+        const { resolveEpisodeCount } = await import("../_shared/episode-count.ts");
+        const resolved = await resolveEpisodeCount(supabase, pid, masterFmt);
+        expectedCount = resolved.episodeCount;
+        console.log(`[build-master] Expected episodeCount: ${expectedCount} (source=${resolved.source})`);
+      } catch (e: any) {
+        console.warn(`[build-master] Could not resolve episode count: ${e.message}`);
+      }
+
       // Find all episode_script docs for this project
       const { data: epDocs } = await supabase.from("project_documents")
         .select("id, meta_json, title")
@@ -14087,6 +14041,22 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const sortedIndices = Array.from(epMap.keys()).sort((a, b) => a - b);
       if (sortedIndices.length === 0) {
         throw new Error("No episode scripts with episode_index metadata found.");
+      }
+
+      // Cross-check: if canonical count is known, verify all expected episodes exist
+      if (expectedCount && expectedCount > 0) {
+        const missingExpected: number[] = [];
+        for (let i = 1; i <= expectedCount; i++) {
+          if (!epMap.has(i)) missingExpected.push(i);
+        }
+        if (missingExpected.length > 0) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: `Missing episode scripts for ${missingExpected.length} of ${expectedCount} expected episodes: ${missingExpected.join(", ")}. Generate them first.`,
+            missing_episodes: missingExpected,
+            expected_count: expectedCount,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
       }
 
       // Fetch current versions for all episode docs
