@@ -2686,6 +2686,7 @@ Deno.serve(async (req) => {
       }
 
 
+      if (stepCount >= job.max_total_steps) {
         const stepLimitDecisions = [
           {
             id: "raise_step_limit_once",
