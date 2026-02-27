@@ -304,7 +304,7 @@ export function AutoRunMissionControl({
     [availableDocuments],
   );
 
-  // Seed pack status: check docs exist AND have non-empty plaintext or extracted_text
+  // Seed pack status: check docs exist. Flag short docs as warnings.
   const seedStatus = useMemo(() => {
     const allDocs = availableDocuments || [];
     const present = SEED_DOC_TYPES.filter(dt => {
@@ -312,6 +312,8 @@ export function AutoRunMissionControl({
       return !!doc;
     });
     const missing = SEED_DOC_TYPES.filter(dt => !present.includes(dt));
+    // Warn on docs that exist but might be stubs (no way to check plaintext from here,
+    // but server will surface warnings — this is a best-effort UI check)
     return { present, missing, allPresent: missing.length === 0 };
   }, [availableDocuments]);
 

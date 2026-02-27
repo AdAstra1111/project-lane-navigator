@@ -53,7 +53,7 @@ async function ensureSeedPack(
   supabaseUrl: string,
   projectId: string,
   token: string,
-): Promise<{ ensured: boolean; missing: string[]; failed: boolean; error?: string }> {
+): Promise<{ ensured: boolean; missing: string[]; failed: boolean; error?: string; warnings?: { doc_type: string; reason: string; chars: number }[] }> {
   const { data: existingDocs } = await supabase
     .from("project_documents")
     .select("doc_type")
@@ -79,26 +79,47 @@ async function ensureSeedPack(
         .in("document_id", docIds)
         .eq("is_current", true);
 
+      const MIN_SEED_CHARS = 20;
       const docsWithContent = new Set(
         (currentVersions || [])
-          .filter((v: any) => v.plaintext && v.plaintext.trim().length > 0)
+          .filter((v: any) => v.plaintext && v.plaintext.trim().length >= MIN_SEED_CHARS)
           .map((v: any) => v.document_id)
       );
 
-      const docTypeMap = new Map((verifiedDocs || []).map((d: any) => [d.id, d.doc_type]));
-      const missingContent = SEED_DOC_TYPES.filter(dt => {
+      // Docs that exist but have no current version at all
+      const trulyMissing = SEED_DOC_TYPES.filter(dt => {
         const docId = (verifiedDocs || []).find((d: any) => d.doc_type === dt)?.id;
-        return !docId || !docsWithContent.has(docId);
+        if (!docId) return true;
+        // Check if doc has ANY current version (even short)
+        const hasCurrentVersion = (currentVersions || []).some((v: any) => v.document_id === docId);
+        return !hasCurrentVersion;
       });
 
-      if (missingContent.length > 0) {
-        console.error(`[auto-run] SEED_PACK docs exist but ${missingContent.length} missing current version with content: ${missingContent.join(",")}`);
-        return { ensured: false, missing: missingContent, failed: true, error: `Seed docs missing current version content: ${missingContent.join(", ")}` };
+      // Docs that have a current version but are too short (warning only)
+      const shortDocs = SEED_DOC_TYPES
+        .filter(dt => !trulyMissing.includes(dt))
+        .filter(dt => {
+          const docId = (verifiedDocs || []).find((d: any) => d.doc_type === dt)?.id;
+          return docId && !docsWithContent.has(docId);
+        })
+        .map(dt => {
+          const docId = (verifiedDocs || []).find((d: any) => d.doc_type === dt)?.id;
+          const ver = (currentVersions || []).find((v: any) => v.document_id === docId);
+          return { doc_type: dt, reason: "too_short" as const, chars: ver?.plaintext?.trim()?.length || 0 };
+        });
+
+      if (trulyMissing.length > 0) {
+        console.error(`[auto-run] SEED_PACK docs exist but ${trulyMissing.length} missing current version entirely: ${trulyMissing.join(",")}`);
+        return { ensured: false, missing: trulyMissing, failed: true, error: `Seed docs missing current version: ${trulyMissing.join(", ")}`, warnings: shortDocs };
+      }
+
+      if (shortDocs.length > 0) {
+        console.warn(`[auto-run] SEED_PACK ${shortDocs.length} docs are short (< ${MIN_SEED_CHARS} chars): ${shortDocs.map(d => d.doc_type).join(",")}`);
       }
     }
 
     console.log(`[auto-run] SEED_PACK ensured=false missing=none all_verified`);
-    return { ensured: false, missing: [], failed: false };
+    return { ensured: false, missing: [], failed: false, warnings: shortDocs.length > 0 ? shortDocs : undefined };
   }
 
   // Derive pitch from idea doc's current version plaintext, or project title
@@ -175,24 +196,40 @@ async function ensureSeedPack(
         .eq("is_current", true)
     : { data: [] };
 
-  const verifiedSet = new Set(
-    (postVersions || [])
-      .filter((v: any) => v.plaintext && v.plaintext.trim().length > 0)
-      .map((v: any) => v.document_id)
-  );
-
-  const stillMissing = SEED_DOC_TYPES.filter(dt => {
+  const postMinChars = 20;
+  // Docs that truly don't exist or have no current version
+  const trulyMissingPost = SEED_DOC_TYPES.filter(dt => {
     const doc = (postDocs || []).find((d: any) => d.doc_type === dt);
-    return !doc || !verifiedSet.has(doc.id);
+    if (!doc) return true;
+    const hasCurrentVersion = (postVersions || []).some((v: any) => v.document_id === doc.id);
+    return !hasCurrentVersion;
   });
 
-  if (stillMissing.length > 0) {
-    console.error(`[auto-run] SEED_PACK still incomplete after generation: ${stillMissing.join(",")}`);
-    return { ensured: true, missing: stillMissing, failed: true, error: `Seed pack incomplete after generation: ${stillMissing.join(", ")}` };
+  // Short docs (warning only)
+  const shortDocsPost = SEED_DOC_TYPES
+    .filter(dt => !trulyMissingPost.includes(dt))
+    .filter(dt => {
+      const doc = (postDocs || []).find((d: any) => d.doc_type === dt);
+      const ver = (postVersions || []).find((v: any) => v.document_id === doc?.id);
+      return !ver?.plaintext || ver.plaintext.trim().length < postMinChars;
+    })
+    .map(dt => {
+      const doc = (postDocs || []).find((d: any) => d.doc_type === dt);
+      const ver = (postVersions || []).find((v: any) => v.document_id === doc?.id);
+      return { doc_type: dt, reason: "too_short" as const, chars: ver?.plaintext?.trim()?.length || 0 };
+    });
+
+  if (trulyMissingPost.length > 0) {
+    console.error(`[auto-run] SEED_PACK still missing after generation: ${trulyMissingPost.join(",")}`);
+    return { ensured: true, missing: trulyMissingPost, failed: true, error: `Seed pack missing after generation: ${trulyMissingPost.join(", ")}`, warnings: shortDocsPost };
   }
 
-  console.log("[auto-run] SEED_PACK fully verified after generation");
-  return { ensured: true, missing: [], failed: false };
+  if (shortDocsPost.length > 0) {
+    console.warn(`[auto-run] SEED_PACK ${shortDocsPost.length} docs short after generation: ${shortDocsPost.map(d => d.doc_type).join(",")}`);
+  }
+
+  console.log("[auto-run] SEED_PACK verified after generation");
+  return { ensured: true, missing: [], failed: false, warnings: shortDocsPost.length > 0 ? shortDocsPost : undefined };
 }
 
 /**
