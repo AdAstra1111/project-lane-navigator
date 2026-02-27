@@ -13291,10 +13291,14 @@ No stubs, no placeholders, no TODO markers.`;
         await supabase.from("regen_jobs").update({ status: "running" }).eq("id", jobId);
       }
 
-      // Get next queued items
-      const { data: queuedItems } = await supabase.from("regen_job_items")
-        .select("*").eq("job_id", jobId).eq("status", "queued")
-        .order("created_at", { ascending: true }).limit(tickLimit);
+      // Atomic claim via RPC (UPDATE...RETURNING with FOR UPDATE SKIP LOCKED)
+      const { data: queuedItems, error: claimErr } = await supabase.rpc("claim_regen_items", {
+        p_job_id: jobId,
+        p_limit: tickLimit,
+        p_claimed_by: userId,
+      });
+      if (claimErr) console.error("[regen-tick] claim_regen_items error:", claimErr.message);
+      console.log(`[regen-tick] claimed ${(queuedItems || []).length} items via RPC, claimed_by=${userId}`);
 
       if (!queuedItems || queuedItems.length === 0) {
         // Check if all done
@@ -13390,8 +13394,7 @@ No stubs, no placeholders, no TODO markers.`;
       const processed: any[] = [];
 
       for (const item of queuedItems) {
-        // Mark running
-        await supabase.from("regen_job_items").update({ status: "running" }).eq("id", item.id);
+        // Item already claimed as 'running' by RPC — no extra update needed
 
         if (job.dry_run) {
           await supabase.from("regen_job_items").update({ status: "skipped", error: "dry_run" }).eq("id", item.id);
