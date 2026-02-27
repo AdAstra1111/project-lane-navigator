@@ -360,6 +360,7 @@ export function AutoRunMissionControl({
     return { satisfied: satisfied.length, total: ladder.length, stages: ladder, existingDocTypes, approvedDocTypes };
   }, [ladder, existingDocTypes, approvedDocTypes, APPROVAL_REQUIRED_STAGES]);
 
+  const [mode, setMode] = useState<'fast' | 'balanced' | 'premium'>('balanced');
   const [starting, setStarting] = useState(false);
 
   const handlePerfectPackage = useCallback(async () => {
@@ -983,7 +984,7 @@ export function AutoRunMissionControl({
           )}
 
           <div className="flex items-center gap-2">
-            <Select value={mode} onValueChange={setMode}>
+            <Select value={mode} onValueChange={(v) => setMode(v as 'fast' | 'balanced' | 'premium')}>
               <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="fast">⚡ Fast (8)</SelectItem>
