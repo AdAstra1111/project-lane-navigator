@@ -12233,6 +12233,116 @@ export type Database = {
           },
         ]
       }
+      regen_job_items: {
+        Row: {
+          char_after: number
+          char_before: number
+          created_at: string
+          doc_type: string
+          document_id: string | null
+          error: string | null
+          id: string
+          job_id: string
+          reason: string
+          status: string
+          updated_at: string
+          upstream: string | null
+        }
+        Insert: {
+          char_after?: number
+          char_before?: number
+          created_at?: string
+          doc_type: string
+          document_id?: string | null
+          error?: string | null
+          id?: string
+          job_id: string
+          reason: string
+          status?: string
+          updated_at?: string
+          upstream?: string | null
+        }
+        Update: {
+          char_after?: number
+          char_before?: number
+          created_at?: string
+          doc_type?: string
+          document_id?: string | null
+          error?: string | null
+          id?: string
+          job_id?: string
+          reason?: string
+          status?: string
+          updated_at?: string
+          upstream?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "regen_job_items_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "regen_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      regen_jobs: {
+        Row: {
+          completed_count: number
+          created_at: string
+          created_by: string
+          dry_run: boolean
+          error: string | null
+          force: boolean
+          id: string
+          project_id: string
+          status: string
+          total_count: number
+          updated_at: string
+        }
+        Insert: {
+          completed_count?: number
+          created_at?: string
+          created_by: string
+          dry_run?: boolean
+          error?: string | null
+          force?: boolean
+          id?: string
+          project_id: string
+          status?: string
+          total_count?: number
+          updated_at?: string
+        }
+        Update: {
+          completed_count?: number
+          created_at?: string
+          created_by?: string
+          dry_run?: boolean
+          error?: string | null
+          force?: boolean
+          id?: string
+          project_id?: string
+          status?: string
+          total_count?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "regen_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "regen_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       resolved_notes: {
         Row: {
           created_at: string
