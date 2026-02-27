@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useRegenerateInsufficient, type RegenSummary } from '@/hooks/useRegenerateInsufficient';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
 import { buildSeedSummary, type SeedSummary } from '@/lib/seedSummary';
 import { getLadderForFormat } from '@/lib/stages/registry';
@@ -303,6 +304,8 @@ export function AutoRunMissionControl({
   const [showPreflight, setShowPreflight] = useState(false);
   const [preflightErrors, setPreflightErrors] = useState<string[]>([]);
   const [approvingSeedCore, setApprovingSeedCore] = useState(false);
+  const regen = useRegenerateInsufficient(projectId);
+  const [showRegenConfirm, setShowRegenConfirm] = useState(false);
 
   // ── Seed Pack + Pipeline Progress (computed from availableDocuments + ladder) ──
   const projectFormat = (project?.format || 'film').toLowerCase().replace(/_/g, '-');
@@ -568,6 +571,25 @@ export function AutoRunMissionControl({
     }
   }, [onApproveSeedCore]);
 
+  const handleRegenScan = useCallback(async () => {
+    const res = await regen.scan();
+    if (res && res.regenerated.length > 0) {
+      setShowRegenConfirm(true);
+    } else if (res) {
+      toast({ title: 'All docs sufficient', description: `Scanned ${res.scanned} stages — no stubs found.` });
+    }
+  }, [regen]);
+
+  const handleRegenConfirm = useCallback(async () => {
+    setShowRegenConfirm(false);
+    const res = await regen.regenerate();
+    if (res?.regenerated?.length) {
+      toast({ title: `Regenerated ${res.regenerated.length} doc${res.regenerated.length > 1 ? 's' : ''}`, description: res.regenerated.map(r => r.doc_type.replace(/_/g, ' ')).join(', ') });
+    } else {
+      toast({ title: 'No docs regenerated' });
+    }
+  }, [regen]);
+
   const handleReInfer = useCallback(() => {
     setInferLoading(true);
     setStoryAutoFilled(false);
@@ -783,6 +805,65 @@ export function AutoRunMissionControl({
               ))}
             </div>
           </div>
+
+          {/* ── Regenerate Insufficient Docs ── */}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-full h-7 text-[10px] gap-1.5 text-muted-foreground hover:text-foreground"
+            onClick={handleRegenScan}
+            disabled={regen.loading}
+          >
+            {regen.loading
+              ? <><Loader2 className="h-3 w-3 animate-spin" /> Scanning…</>
+              : <><RotateCcw className="h-3 w-3" /> Regenerate Insufficient Docs</>
+            }
+          </Button>
+
+          {/* Dry-run confirmation modal */}
+          {showRegenConfirm && regen.dryRunResult && (
+            <div className="p-2.5 rounded-md border border-amber-500/30 bg-amber-500/5 space-y-2">
+              <div className="flex items-center gap-1.5 text-xs text-amber-400 font-medium">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {regen.dryRunResult.regenerated.length} doc{regen.dryRunResult.regenerated.length > 1 ? 's' : ''} will be regenerated
+              </div>
+              <div className="space-y-1">
+                {regen.dryRunResult.regenerated.map(r => (
+                  <div key={r.doc_type} className="flex items-center justify-between text-[10px]">
+                    <span className="font-medium">{LADDER_LABELS[r.doc_type] || r.doc_type.replace(/_/g, ' ')}</span>
+                    <Badge variant="outline" className="text-[8px] px-1 py-0 bg-destructive/10 text-destructive border-destructive/30">
+                      {r.reason.split('(')[0]}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-1.5">
+                <Button size="sm" className="flex-1 h-7 text-[10px]" onClick={handleRegenConfirm} disabled={regen.loading}>
+                  {regen.loading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Confirm & Regenerate'}
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => { setShowRegenConfirm(false); regen.clear(); }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Regen results */}
+          {regen.result && regen.result.regenerated.length > 0 && (
+            <div className="p-2.5 rounded-md border border-emerald-500/20 bg-emerald-500/5 space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Regenerated {regen.result.regenerated.length} doc{regen.result.regenerated.length > 1 ? 's' : ''}
+              </div>
+              {regen.result.regenerated.map(r => (
+                <div key={r.doc_type} className="flex items-center justify-between text-[10px]">
+                  <span>{LADDER_LABELS[r.doc_type] || r.doc_type.replace(/_/g, ' ')}</span>
+                  <span className="text-muted-foreground">{r.chars.toLocaleString()} chars{r.retry_used ? ' (retry)' : ''}</span>
+                </div>
+              ))}
+              <Button size="sm" variant="ghost" className="h-6 text-[9px] w-full" onClick={regen.clear}>Dismiss</Button>
+            </div>
+          )}
 
           {/* ── Run to Perfect Package CTA ── */}
           <Button
