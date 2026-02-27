@@ -55,6 +55,95 @@ function nextDoc(current: string, format: string): string | null {
 // ── Seed Pack doc types ──
 const SEED_DOC_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"];
 
+// ── Input readiness thresholds ──
+const MIN_IDEA_CHARS = 200;
+const MIN_CONCEPT_BRIEF_CHARS = 200;
+const MIN_SEED_CHARS_FOR_INPUT = 20; // seed docs just need to exist; short is warning-only
+const INPUT_DOC_TYPES = ["idea", "concept_brief", ...SEED_DOC_TYPES];
+
+interface DocCharCount {
+  doc_type: string;
+  has_doc: boolean;
+  has_current_version: boolean;
+  char_count: number;
+}
+
+async function getDocCharCounts(supabase: any, projectId: string, docTypes: string[]): Promise<DocCharCount[]> {
+  const { data: docs } = await supabase
+    .from("project_documents")
+    .select("id, doc_type")
+    .eq("project_id", projectId)
+    .in("doc_type", docTypes);
+
+  const docMap = new Map<string, string>();
+  for (const d of (docs || [])) {
+    if (!docMap.has(d.doc_type)) docMap.set(d.doc_type, d.id);
+  }
+
+  const docIds = Array.from(docMap.values());
+  let versions: any[] = [];
+  if (docIds.length > 0) {
+    const { data: vers } = await supabase
+      .from("project_document_versions")
+      .select("document_id, plaintext")
+      .in("document_id", docIds)
+      .eq("is_current", true);
+    versions = vers || [];
+  }
+
+  return docTypes.map(dt => {
+    const docId = docMap.get(dt);
+    const ver = docId ? versions.find((v: any) => v.document_id === docId) : null;
+    return {
+      doc_type: dt,
+      has_doc: !!docId,
+      has_current_version: !!ver,
+      char_count: ver?.plaintext?.trim()?.length || 0,
+    };
+  });
+}
+
+/** Check if project inputs are sufficient to proceed with auto-run */
+function checkInputReadiness(counts: DocCharCount[]): { ready: boolean; missing_fields: string[]; summary: string } {
+  const missing: string[] = [];
+
+  const idea = counts.find(c => c.doc_type === "idea");
+  const brief = counts.find(c => c.doc_type === "concept_brief");
+
+  // Need at least one of idea or concept_brief with sufficient content
+  const ideaOk = idea && idea.has_current_version && idea.char_count >= MIN_IDEA_CHARS;
+  const briefOk = brief && brief.has_current_version && brief.char_count >= MIN_CONCEPT_BRIEF_CHARS;
+
+  if (!ideaOk && !briefOk) {
+    if (!idea?.has_doc && !brief?.has_doc) {
+      missing.push("idea(missing)", "concept_brief(missing)");
+    } else {
+      if (idea?.has_doc) missing.push(`idea(${idea.char_count}chars)`);
+      else missing.push("idea(missing)");
+      if (brief?.has_doc) missing.push(`concept_brief(${brief.char_count}chars)`);
+      else missing.push("concept_brief(missing)");
+    }
+  }
+
+  // Seed docs: just need to exist (short is a warning, not a blocker)
+  const seedMissing = SEED_DOC_TYPES.filter(dt => {
+    const c = counts.find(cc => cc.doc_type === dt);
+    return !c || !c.has_doc || !c.has_current_version;
+  });
+  if (seedMissing.length > 0) {
+    for (const dt of seedMissing) {
+      const c = counts.find(cc => cc.doc_type === dt);
+      missing.push(`${dt}(${c?.has_doc ? c.char_count + 'chars' : 'missing'})`);
+    }
+  }
+
+  const summary = missing.length > 0
+    ? `INPUT_INCOMPLETE | missing=${missing.join(", ")}`
+    : "inputs_ready";
+
+  return { ready: missing.length === 0, missing_fields: missing, summary };
+}
+
 /**
  * Ensure seed pack documents exist for a project.
  * If any are missing, calls generate-seed-pack to create them.
@@ -1094,6 +1183,35 @@ Deno.serve(async (req) => {
         );
       }
 
+      // ── INPUT READINESS CHECK at start ──
+      {
+        const inputCounts = await getDocCharCounts(supabase, projectId, INPUT_DOC_TYPES);
+        const inputCheck = checkInputReadiness(inputCounts);
+        if (!inputCheck.ready) {
+          console.warn("[auto-run] INPUT_INCOMPLETE at start", { jobId: job.id, missing: inputCheck.missing_fields });
+          const compactErr = inputCheck.summary.slice(0, 500);
+          await updateJob(supabase, job.id, {
+            status: "paused",
+            stop_reason: "INPUT_INCOMPLETE",
+            error: compactErr,
+            awaiting_approval: true,
+            approval_type: "input_incomplete",
+            last_ui_message: `Cannot proceed: ${inputCheck.missing_fields.join(", ")}. Please add content to the listed documents and resume.`,
+          });
+          await logStep(supabase, job.id, 1, effectiveStartDoc, "pause_for_input",
+            `INPUT_INCOMPLETE: ${compactErr}`,
+            {}, undefined, { missing_fields: inputCheck.missing_fields, doc_counts: inputCounts }
+          );
+          return respond({
+            job: { ...job, status: "paused", stop_reason: "INPUT_INCOMPLETE", error: compactErr },
+            latest_steps: [],
+            next_action_hint: "input-incomplete",
+            missing_fields: inputCheck.missing_fields,
+            doc_counts: inputCounts,
+          });
+        }
+      }
+
       return respond({ job, latest_steps: [], next_action_hint: "run-next" });
     }
 
@@ -1984,7 +2102,36 @@ Deno.serve(async (req) => {
       // Attach seed warnings to subsequent responses (non-blocking)
       const _seedWarnings = seedResult.warnings || [];
 
-      // ── Guard: max steps — pause with actionable choices ──
+      // ── INPUT READINESS GATE: prevent spinning on empty/stub inputs ──
+      {
+        const inputCounts = await getDocCharCounts(supabase, job.project_id, INPUT_DOC_TYPES);
+        const inputCheck = checkInputReadiness(inputCounts);
+        if (!inputCheck.ready) {
+          console.warn("[auto-run] INPUT_INCOMPLETE", { jobId, missing: inputCheck.missing_fields });
+          const compactErr = inputCheck.summary.slice(0, 500);
+          await updateJob(supabase, jobId, {
+            status: "paused",
+            stop_reason: "INPUT_INCOMPLETE",
+            error: compactErr,
+            awaiting_approval: true,
+            approval_type: "input_incomplete",
+            last_ui_message: `Cannot proceed: ${inputCheck.missing_fields.join(", ")}. Please add content to the listed documents and resume.`,
+          });
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "pause_for_input",
+            `INPUT_INCOMPLETE: ${compactErr}`,
+            {}, undefined, { missing_fields: inputCheck.missing_fields, doc_counts: inputCounts }
+          );
+          return respond({
+            job: { ...job, status: "paused", stop_reason: "INPUT_INCOMPLETE", error: compactErr },
+            latest_steps: [],
+            next_action_hint: "input-incomplete",
+            missing_fields: inputCheck.missing_fields,
+            doc_counts: inputCounts,
+          });
+        }
+      }
+
+
       if (stepCount >= job.max_total_steps) {
         const stepLimitDecisions = [
           {
