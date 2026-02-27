@@ -171,8 +171,10 @@ serve(async (req) => {
     const body: SeedPackPayload = await req.json();
     const { projectId, pitch, lane, targetPlatform, riskOverride, commitOnly, necOverride } = body;
 
+    console.log("[generate-seed-pack] start", { projectId, lane, commitOnly: !!commitOnly });
+
     if (!projectId || !pitch || !lane) {
-      return jsonRes({ error: "projectId, pitch, and lane are required" }, 400);
+      return jsonRes({ success: false, insertedCount: 0, updatedCount: 0, error: "projectId, pitch, and lane are required" }, 400);
     }
 
     // Access check via RLS-scoped client
@@ -232,7 +234,7 @@ serve(async (req) => {
             version_number: nextVersion,
             plaintext: necOverride,
             is_current: true,
-            status: "active",
+            status: "draft",
             label: `nec_edited_v${nextVersion}`,
             created_by: user.id,
             approval_status: "draft",
@@ -274,7 +276,7 @@ serve(async (req) => {
             version_number: 1,
             plaintext: necOverride,
             is_current: true,
-            status: "active",
+            status: "draft",
             label: "nec_edited_v1",
             created_by: user.id,
             approval_status: "draft",
@@ -399,9 +401,19 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
       narrative_energy_contract: parsed.narrative_energy_contract,
     };
 
+    // Pre-fetch existing doc ids for insert/update counting
+    const { data: preExistingDocs } = await adminClient
+      .from("project_documents")
+      .select("doc_type")
+      .eq("project_id", projectId)
+      .in("doc_type", SEED_DOC_CONFIGS.map(c => c.doc_type));
+    const preExistingSet = new Set((preExistingDocs || []).map((d: any) => d.doc_type));
+
     // Create/update documents
     const createdDocs: { title: string; doc_type: string; document_id: string; version_number: number }[] = [];
     let necDocumentId: string | null = null;
+    let insertedCount = 0;
+    let updatedCount = 0;
 
     for (const cfg of SEED_DOC_CONFIGS) {
       const content = contentMap[cfg.key];
@@ -441,7 +453,7 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
             version_number: nextVersion,
             plaintext: content,
             is_current: true,
-            status: "active",
+            status: "draft",
             label: `seed_v${nextVersion}`,
             created_by: user.id,
             approval_status: "draft",
@@ -449,10 +461,11 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
           });
 
         if (vErr) {
-          console.error(`Version insert failed for ${cfg.title}:`, vErr);
+          console.error(`[generate-seed-pack] version insert failed for ${cfg.title}:`, vErr);
           continue;
         }
 
+        updatedCount++;
         createdDocs.push({ title: cfg.title, doc_type: cfg.doc_type, document_id: documentId, version_number: nextVersion });
       } else {
         const { data: newDoc, error: docErr } = await adminClient
@@ -472,7 +485,7 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
           .single();
 
         if (docErr || !newDoc) {
-          console.error(`Doc insert failed for ${cfg.title}:`, docErr);
+          console.error(`[generate-seed-pack] doc insert failed for ${cfg.title}:`, docErr);
           continue;
         }
 
@@ -485,7 +498,7 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
             version_number: 1,
             plaintext: content,
             is_current: true,
-            status: "active",
+            status: "draft",
             label: "seed_v1",
             created_by: user.id,
             approval_status: "draft",
@@ -493,10 +506,11 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
           });
 
         if (vErr) {
-          console.error(`Version insert failed for ${cfg.title}:`, vErr);
+          console.error(`[generate-seed-pack] version insert failed for ${cfg.title}:`, vErr);
           continue;
         }
 
+        insertedCount++;
         createdDocs.push({ title: cfg.title, doc_type: cfg.doc_type, document_id: documentId, version_number: 1 });
       }
 
@@ -510,12 +524,16 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
       const missing = SEED_DOC_CONFIGS
         .filter(c => !createdDocs.some(d => d.doc_type === c.doc_type))
         .map(c => c.title);
-      console.error("Seed pack incomplete — failed docs:", missing);
-      return jsonRes({ error: `Failed to persist seed documents: ${missing.join(", ")}` }, 500);
+      console.error("[generate-seed-pack] incomplete — failed docs:", missing, { insertedCount, updatedCount });
+      return jsonRes({ success: false, insertedCount, updatedCount, error: `Failed to persist seed documents: ${missing.join(", ")}` }, 500);
     }
+
+    console.log("[generate-seed-pack] complete", { insertedCount, updatedCount });
 
     return jsonRes({
       success: true,
+      insertedCount,
+      updatedCount,
       seed_snapshot_id: seedSnapshotId,
       documents: createdDocs,
       nec: {
@@ -537,7 +555,7 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("generate-seed-pack error:", message);
-    return jsonRes({ error: message }, 500);
+    console.error("[generate-seed-pack] error:", message);
+    return jsonRes({ success: false, insertedCount: 0, updatedCount: 0, error: message }, 500);
   }
 });
