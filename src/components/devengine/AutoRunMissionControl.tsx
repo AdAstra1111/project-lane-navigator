@@ -522,7 +522,8 @@ export function AutoRunMissionControl({
     URL.revokeObjectURL(url);
   };
 
-  const hasDecisions = job?.pending_decisions && job.pending_decisions.length > 0;
+  const isDecisionState = job?.status === 'paused' && job?.pending_decisions && job.pending_decisions.length > 0;
+  const hasDecisions = !!isDecisionState;
   const blockingDecision = hasDecisions
     ? (job!.pending_decisions as PendingDecision[]).find(d => d.impact === 'blocking') || (job!.pending_decisions as PendingDecision[])[0]
     : null;
