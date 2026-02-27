@@ -161,7 +161,6 @@ export async function createVersion(
     document_id: opts.documentId,
     version_number: nextVersion,
     plaintext: opts.plaintext,
-    extracted_text: opts.plaintext,
     is_current: true,
     status: "draft",
     label: opts.label,

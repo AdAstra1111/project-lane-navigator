@@ -1376,12 +1376,34 @@ Deno.serve(async (req) => {
         );
       }
 
-      // ── INPUT READINESS CHECK at start ──
+      // ── INPUT READINESS CHECK at start (with auto-regen attempt) ──
       {
         const inputCounts = await getDocCharCounts(supabase, projectId, INPUT_DOC_TYPES);
-        const inputCheck = checkInputReadiness(inputCounts);
+        let inputCheck = checkInputReadiness(inputCounts);
         if (!inputCheck.ready) {
-          console.warn("[auto-run] INPUT_INCOMPLETE at start", { jobId: job.id, missing: inputCheck.missing_fields });
+          // Attempt auto-regeneration of insufficient docs before pausing
+          console.log("[auto-run] INPUT_INCOMPLETE at start — attempting auto-regen", { jobId: job.id, missing: inputCheck.missing_fields });
+          try {
+            const regenResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ action: "regenerate-insufficient-docs", projectId, dryRun: false }),
+            });
+            const regenResult = await regenResp.json();
+            console.log("[auto-run] auto-regen result", { regenerated: regenResult?.regenerated?.length || 0, skipped: regenResult?.skipped?.length || 0 });
+            await logStep(supabase, job.id, 1, effectiveStartDoc, "auto_regen_inputs",
+              `Auto-regenerated ${regenResult?.regenerated?.length || 0} docs`,
+              {}, undefined, { regen_result: regenResult }
+            );
+            // Re-check readiness after regeneration
+            const inputCounts2 = await getDocCharCounts(supabase, projectId, INPUT_DOC_TYPES);
+            inputCheck = checkInputReadiness(inputCounts2);
+          } catch (regenErr: any) {
+            console.error("[auto-run] auto-regen failed:", regenErr.message);
+          }
+        }
+        if (!inputCheck.ready) {
+          console.warn("[auto-run] INPUT_INCOMPLETE at start (after regen attempt)", { jobId: job.id, missing: inputCheck.missing_fields });
           const compactErr = inputCheck.summary.slice(0, 500);
           await updateJob(supabase, job.id, {
             status: "paused",
@@ -1393,14 +1415,13 @@ Deno.serve(async (req) => {
           });
           await logStep(supabase, job.id, 1, effectiveStartDoc, "pause_for_input",
             `INPUT_INCOMPLETE: ${compactErr}`,
-            {}, undefined, { missing_fields: inputCheck.missing_fields, doc_counts: inputCounts }
+            {}, undefined, { missing_fields: inputCheck.missing_fields }
           );
           return respond({
             job: { ...job, status: "paused", stop_reason: "INPUT_INCOMPLETE", error: compactErr },
             latest_steps: [],
             next_action_hint: "input-incomplete",
             missing_fields: inputCheck.missing_fields,
-            doc_counts: inputCounts,
           });
         }
       }
@@ -2413,12 +2434,34 @@ Deno.serve(async (req) => {
       // Attach seed warnings to subsequent responses (non-blocking)
       const _seedWarnings = seedResult.warnings || [];
 
-      // ── INPUT READINESS GATE: prevent spinning on empty/stub inputs ──
+      // ── INPUT READINESS GATE: prevent spinning on empty/stub inputs (with auto-regen) ──
       {
         const inputCounts = await getDocCharCounts(supabase, job.project_id, INPUT_DOC_TYPES);
-        const inputCheck = checkInputReadiness(inputCounts);
+        let inputCheck = checkInputReadiness(inputCounts);
         if (!inputCheck.ready) {
-          console.warn("[auto-run] INPUT_INCOMPLETE", { jobId, missing: inputCheck.missing_fields });
+          // Attempt auto-regeneration before pausing
+          console.log("[auto-run] INPUT_INCOMPLETE — attempting auto-regen", { jobId, missing: inputCheck.missing_fields });
+          try {
+            const regenResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ action: "regenerate-insufficient-docs", projectId: job.project_id, dryRun: false }),
+            });
+            const regenResult = await regenResp.json();
+            console.log("[auto-run] auto-regen result", { regenerated: regenResult?.regenerated?.length || 0 });
+            await logStep(supabase, jobId, stepCount + 1, currentDoc, "auto_regen_inputs",
+              `Auto-regenerated ${regenResult?.regenerated?.length || 0} docs`,
+              {}, undefined, { regen_result: regenResult }
+            );
+            // Re-check
+            const inputCounts2 = await getDocCharCounts(supabase, job.project_id, INPUT_DOC_TYPES);
+            inputCheck = checkInputReadiness(inputCounts2);
+          } catch (regenErr: any) {
+            console.error("[auto-run] auto-regen failed:", regenErr.message);
+          }
+        }
+        if (!inputCheck.ready) {
+          console.warn("[auto-run] INPUT_INCOMPLETE (after regen attempt)", { jobId, missing: inputCheck.missing_fields });
           const compactErr = inputCheck.summary.slice(0, 500);
           await updateJob(supabase, jobId, {
             status: "paused",
@@ -2430,14 +2473,13 @@ Deno.serve(async (req) => {
           });
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "pause_for_input",
             `INPUT_INCOMPLETE: ${compactErr}`,
-            {}, undefined, { missing_fields: inputCheck.missing_fields, doc_counts: inputCounts }
+            {}, undefined, { missing_fields: inputCheck.missing_fields }
           );
           return respond({
             job: { ...job, status: "paused", stop_reason: "INPUT_INCOMPLETE", error: compactErr },
             latest_steps: [],
             next_action_hint: "input-incomplete",
             missing_fields: inputCheck.missing_fields,
-            doc_counts: inputCounts,
           });
         }
       }

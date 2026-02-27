@@ -1062,8 +1062,29 @@ export function AutoRunMissionControl({
 
               {/* Stop reason / error (when not related to approval) */}
               {job.stop_reason && !job.awaiting_approval && !hasDecisions && (
-                <div className="text-[10px] text-amber-400 bg-amber-500/5 border border-amber-500/20 rounded p-2">
-                  {job.stop_reason}
+                <div className="text-[10px] text-amber-400 bg-amber-500/5 border border-amber-500/20 rounded p-2 space-y-1.5">
+                  <div>{job.stop_reason}</div>
+                  {job.stop_reason === 'INPUT_INCOMPLETE' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-[9px] gap-1"
+                      disabled={regen.loading}
+                      onClick={async () => {
+                        const dry = await regen.scan();
+                        if (dry && dry.regenerated?.length > 0) {
+                          const result = await regen.regenerate();
+                          if (result?.success) {
+                            toast({ title: 'Inputs regenerated', description: `Fixed ${result.regenerated?.length || 0} docs. Try resuming.` });
+                          }
+                        } else {
+                          toast({ title: 'No fixable docs found', description: 'Manual input may be needed.', variant: 'destructive' });
+                        }
+                      }}
+                    >
+                      {regen.loading ? <><Loader2 className="h-3 w-3 animate-spin" /> Fixing…</> : <><RotateCcw className="h-3 w-3" /> Fix Inputs</>}
+                    </Button>
+                  )}
                 </div>
               )}
               {error && (
