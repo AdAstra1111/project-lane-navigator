@@ -256,6 +256,11 @@ export function useAutoRun(projectId: string | undefined) {
       const result = await callAutoRun('approve-decision', { jobId: job.id, decisionId, selectedValue });
       setJob(result.job);
       setSteps(result.latest_steps || []);
+      // If stale decision, UI will naturally re-render with current pending_decisions
+      if (result.next_action === 'stale-decision') {
+        console.warn('[auto-run] Decision was stale, refreshed job state');
+        return;
+      }
       // If job resumed to running, start the loop
       if (result.job?.status === 'running') {
         runLoopRef.current?.(result.job.id);

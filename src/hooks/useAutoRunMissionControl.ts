@@ -234,6 +234,10 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       const result = await callAutoRun('approve-decision', { jobId: job.id, decisionId, selectedValue });
       setJob(result.job);
       setSteps(result.latest_steps || []);
+      if (result.next_action === 'stale-decision') {
+        console.warn('[auto-run] Decision was stale, refreshed job state');
+        return;
+      }
       if (result.job?.status === 'running') {
         setIsRunning(true);
       }
