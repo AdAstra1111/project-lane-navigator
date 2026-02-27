@@ -238,9 +238,17 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
       const title = projectTitle.trim() || defaultTitle;
       const lane = idea.recommended_lane || 'independent-film';
 
-      // Read devseed canon for episode count
+      // Read devseed canon for episode count, fallback to parsing format_summary
       const devseedCanon = (idea as any).devseed_canon_json || {};
-      const canonEpisodeCount = devseedCanon.season_episode_count;
+      let canonEpisodeCount = devseedCanon.season_episode_count;
+
+      // Auto-extract from raw_response format_summary if not explicitly set
+      if (!canonEpisodeCount || typeof canonEpisodeCount !== 'number') {
+        const raw = idea.raw_response as any || {};
+        const fmt = raw.format_summary || raw.format || '';
+        const match = fmt.match(/(\d+)\s*x\s*/i) || fmt.match(/(\d+)\s*episodes/i);
+        if (match) canonEpisodeCount = parseInt(match[1]);
+      }
 
       // 1. Create project — copy canonical episode count from devseed
       const projectInsert: Record<string, any> = {
@@ -254,7 +262,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         devseed_pitch_idea_id: idea.id,
       };
 
-      // Copy canonical episode count if set in devseed
+      // Copy canonical episode count if available (from devseed or parsed)
       if (typeof canonEpisodeCount === 'number' && canonEpisodeCount > 0) {
         projectInsert.season_episode_count = canonEpisodeCount;
         projectInsert.season_episode_count_locked = true;
@@ -544,10 +552,17 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             <p>• Genre: <span className="text-foreground">{idea.genre}</span> | Budget: <span className="text-foreground">{idea.budget_band}</span></p>
             {(() => {
               const dc = (idea as any).devseed_canon_json || {};
-              return dc.season_episode_count ? (
-                <p>• <span className="text-foreground font-medium">Canon Episode Count: {dc.season_episode_count}</span> (will be locked on project)</p>
+              let epCount = dc.season_episode_count;
+              if (!epCount) {
+                const raw = idea.raw_response as any || {};
+                const fmt = raw.format_summary || raw.format || '';
+                const m = fmt.match(/(\d+)\s*x\s*/i) || fmt.match(/(\d+)\s*episodes/i);
+                if (m) epCount = parseInt(m[1]);
+              }
+              return epCount ? (
+                <p>• <span className="text-foreground font-medium">Canon Episode Count: {epCount}</span> (will be locked on project){!dc.season_episode_count && <span className="text-muted-foreground"> — auto-detected from format</span>}</p>
               ) : (
-                <p className="text-amber-400">⚠ No episode count set — set it on the pitch card first for series projects</p>
+                <p className="text-amber-400">⚠ No episode count detected — set it on the pitch card for series projects</p>
               );
             })()}
           </div>
