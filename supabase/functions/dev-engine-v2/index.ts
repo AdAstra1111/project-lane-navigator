@@ -13608,17 +13608,29 @@ ${upstreamText}`;
         const { data: gridVer } = await supabase.from("project_document_versions")
           .select("plaintext").eq("document_id", gridDoc[0].id).eq("is_current", true).limit(1);
         const gridText = gridVer?.[0]?.plaintext || "";
-        // Parse episode entries from grid
-        const epMatches = gridText.match(/(?:episode|ep\.?\s*)\s*(\d+)[:\s\-–—]+(.*?)(?=\n(?:episode|ep\.?\s*)\s*\d+|\n\n|$)/gi);
-        if (epMatches) {
-          for (const m of epMatches) {
-            const numMatch = m.match(/(\d+)/);
-            const num = numMatch ? parseInt(numMatch[1]) : episodeGrid.length + 1;
-            const titleMatch = m.match(/\d+[:\s\-–—]+\s*"?([^"\n]+)"?/);
-            episodeGrid.push({ index: num, title: titleMatch?.[1]?.trim() || `Episode ${num}`, logline: m.trim() });
-          }
-          if (episodeGrid.length > episodeCount) episodeCount = episodeGrid.length;
+        // Parse episode entries from grid — supports both prose and markdown table formats
+        // 1) Try markdown table: rows like "| 1 | **Title** | logline | ..."
+        const tableRowRegex = /^\|\s*(\d+)\s*\|\s*\*{0,2}([^|*]+?)\*{0,2}\s*\|\s*([^|]*)\|/gm;
+        let tableMatch;
+        while ((tableMatch = tableRowRegex.exec(gridText)) !== null) {
+          const num = parseInt(tableMatch[1]);
+          const title = tableMatch[2].trim();
+          const logline = tableMatch[3].trim();
+          episodeGrid.push({ index: num, title: title || `Episode ${num}`, logline: logline || "" });
         }
+        // 2) Fallback: prose format "Episode 1: Title" or "Ep 1 - Title"
+        if (episodeGrid.length === 0) {
+          const epMatches = gridText.match(/(?:episode|ep\.?\s*)\s*(\d+)[:\s\-–—]+(.*?)(?=\n(?:episode|ep\.?\s*)\s*\d+|\n\n|$)/gi);
+          if (epMatches) {
+            for (const m of epMatches) {
+              const numMatch = m.match(/(\d+)/);
+              const num = numMatch ? parseInt(numMatch[1]) : episodeGrid.length + 1;
+              const titleMatch = m.match(/\d+[:\s\-–—]+\s*"?([^"\n]+)"?/);
+              episodeGrid.push({ index: num, title: titleMatch?.[1]?.trim() || `Episode ${num}`, logline: m.trim() });
+            }
+          }
+        }
+        if (episodeGrid.length > episodeCount) episodeCount = episodeGrid.length;
       }
 
       if (episodeCount === 0) {
