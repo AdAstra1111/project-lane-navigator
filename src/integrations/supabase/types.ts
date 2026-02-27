@@ -9773,6 +9773,7 @@ export type Database = {
           char_count: number | null
           created_at: string
           display_name: string | null
+          doc_role: string
           doc_type: string
           error_message: string | null
           extracted_text: string | null
@@ -9803,6 +9804,7 @@ export type Database = {
           char_count?: number | null
           created_at?: string
           display_name?: string | null
+          doc_role?: string
           doc_type?: string
           error_message?: string | null
           extracted_text?: string | null
@@ -9833,6 +9835,7 @@ export type Database = {
           char_count?: number | null
           created_at?: string
           display_name?: string | null
+          doc_role?: string
           doc_type?: string
           error_message?: string | null
           extracted_text?: string | null

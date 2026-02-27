@@ -105,11 +105,16 @@ export function useDevEngineV2(projectId: string | undefined) {
       if (!projectId) return [];
       const { data, error } = await (supabase as any)
         .from('project_documents')
-        .select('id, project_id, title, doc_type, source, file_name, file_path, plaintext, extracted_text, created_at')
+        .select('id, project_id, title, doc_type, source, file_name, file_path, plaintext, extracted_text, created_at, doc_role')
         .eq('project_id', projectId)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return (data || []) as DevDocument[];
+      // Filter out system/internal docs from the Dev Engine creative view
+      const allDocs = (data || []) as DevDocument[];
+      return allDocs.filter(d => {
+        const role = (d as any).doc_role || 'creative_primary';
+        return ['creative_primary', 'creative_supporting', 'derived_output'].includes(role);
+      });
     },
     enabled: !!projectId,
   });

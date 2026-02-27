@@ -22,6 +22,7 @@ import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
 import { DocumentsList } from '@/components/DocumentsList';
 import { DocumentaryIntelligencePanel } from '@/components/documentary/DocumentaryIntelligencePanel';
 import { GenerateSeedPackModal } from '@/components/seedpack/GenerateSeedPackModal';
+import { isCreativeRole } from '@/lib/docRoles';
 
 import { isDocumentaryFormat } from '@/lib/types';
 import { useAutoRunMissionControl } from '@/hooks/useAutoRunMissionControl';
@@ -289,7 +290,7 @@ export function DevelopmentStage({
             {hasDocuments ? 'Uploaded Documents' : 'Documents'}
           </h4>
         </div>
-        {hasDocuments && <DocumentsList documents={documents} projectId={projectId} />}
+        {hasDocuments && <DocumentsList documents={documents.filter(d => isCreativeRole((d as any).doc_role))} projectId={projectId} showSystemToggle allDocuments={documents} />}
         <div className={hasDocuments ? 'mt-4' : ''}>
           <AddDocumentsUpload
             existingCount={documents.length}

@@ -211,6 +211,7 @@ async function upsertDerivedDoc(
         file_path: `${userId}/${projectId}/${docType}.json`,
         extraction_status: 'complete',
         source: 'derived',
+        doc_role: docType.startsWith('scene_graph') ? 'system_index' : 'system_analysis',
       })
       .select('id')
       .single();
