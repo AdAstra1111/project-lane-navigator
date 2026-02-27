@@ -1372,11 +1372,16 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Resolve format for ladder checks
+      const { data: approveProj } = await supabase.from("projects")
+        .select("format").eq("id", job.project_id).single();
+      const approveFormat = (approveProj?.format || "film").toLowerCase().replace(/_/g, "-");
+
       await logStep(supabase, jobId, stepCount, currentDoc, "approval_approved",
         `User approved ${job.approval_type}: ${currentDoc} → ${nextStage || "continue"}`
       );
 
-      if (nextStage && isOnLadder(nextStage, format) && ladderIndexOf(nextStage, format) <= ladderIndexOf(job.target_document, format)) {
+      if (nextStage && isOnLadder(nextStage, approveFormat) && ladderIndexOf(nextStage, approveFormat) <= ladderIndexOf(job.target_document, approveFormat)) {
         await updateJob(supabase, jobId, {
           step_count: stepCount, current_document: nextStage, stage_loop_count: 0,
           status: "running", stop_reason: null,
