@@ -2036,6 +2036,12 @@ ${version.plaintext.slice(0, maxContextChars)}`;
 
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, systemPrompt, userPrompt, 0.2, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+      if (!parsed) {
+        console.error("[dev-engine-v2] analyze: parseAIJson returned null", raw.slice(0, 300));
+        return new Response(JSON.stringify({ success: false, error: "MODEL_JSON_PARSE_FAILED", where: "analyze", snippet: raw.slice(0, 300) }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       // Normalize: ensure scores are at top level for backward compat
       const scores = parsed.scores || {};
@@ -2551,6 +2557,12 @@ GENERAL RULES:
       const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}${notesCanonBlock}${notesNecBlock}\n\nMATERIAL (${version.plaintext.length} chars total):\n${version.plaintext}`;
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, notesSystem, userPrompt, 0.25, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+      if (!parsed) {
+        console.error("[dev-engine-v2] notes: parseAIJson returned null", raw.slice(0, 300));
+        return new Response(JSON.stringify({ success: false, error: "MODEL_JSON_PARSE_FAILED", where: "notes", snippet: raw.slice(0, 300) }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       // Backward compat: build actionable_notes from tiered notes
       const allTieredNotes = [
@@ -3003,6 +3015,12 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
       const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, rewriteSystemPrompt, userPrompt, 0.4, 12000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+      if (!parsed) {
+        console.error("[dev-engine-v2] rewrite: parseAIJson returned null", raw.slice(0, 300));
+        return new Response(JSON.stringify({ success: false, error: "MODEL_JSON_PARSE_FAILED", where: "rewrite", snippet: raw.slice(0, 300) }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       let rewrittenText = parsed.rewritten_text || "";
 
       // Post-processing safety guard for documentary/deck
@@ -4609,6 +4627,11 @@ Overall score = average of all 5 dimension scores. Passed = overall_score >= 65 
       } catch {
         result = await parseAIJson(LOVABLE_API_KEY, raw);
       }
+      if (!result) {
+        return new Response(JSON.stringify({ success: false, error: "MODEL_JSON_PARSE_FAILED", where: "validate-episode", snippet: raw.slice(0, 300) }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       // Store validation result
       await supabase.from("episode_validations").insert({
@@ -4767,6 +4790,11 @@ RULES:
         result = JSON.parse(extractJSON(raw));
       } catch {
         result = await parseAIJson(LOVABLE_API_KEY, raw);
+      }
+      if (!result) {
+        return new Response(JSON.stringify({ success: false, error: "MODEL_JSON_PARSE_FAILED", where: "episode-metrics", snippet: raw.slice(0, 300) }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // Add computed fields
