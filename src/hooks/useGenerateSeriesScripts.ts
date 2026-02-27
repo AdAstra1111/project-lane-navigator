@@ -30,6 +30,17 @@ export interface SeriesScriptProgress {
   jobId?: string;
 }
 
+export interface MasterBuildResult {
+  success: boolean;
+  document_id?: string;
+  version_id?: string;
+  version_number?: number;
+  episode_count?: number;
+  char_count?: number;
+  error?: string;
+  missing_episodes?: number[];
+}
+
 async function callDevEngine(action: string, body: Record<string, any>): Promise<any> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
@@ -52,6 +63,8 @@ export function useGenerateSeriesScripts(projectId: string | undefined) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<SeriesScriptProgress>({ total: 0, completed: 0, status: 'idle' });
+  const [masterResult, setMasterResult] = useState<MasterBuildResult | null>(null);
+  const [masterLoading, setMasterLoading] = useState(false);
   const abortRef = useRef(false);
 
   const scan = useCallback(async () => {
@@ -99,7 +112,6 @@ export function useGenerateSeriesScripts(projectId: string | undefined) {
         return startRes;
       }
 
-      // Tick loop
       let done = false;
       let backoff = 800;
 
@@ -116,7 +128,6 @@ export function useGenerateSeriesScripts(projectId: string | undefined) {
         }
       }
 
-      // Fetch final status
       const statusRes = await callDevEngine('series-scripts-status', { jobId });
       setResult({ job: statusRes.job, items: statusRes.items || [] });
       setScanResult(null);
@@ -131,13 +142,43 @@ export function useGenerateSeriesScripts(projectId: string | undefined) {
     }
   }, [projectId]);
 
+  const buildMaster = useCallback(async () => {
+    if (!projectId) return;
+    setMasterLoading(true);
+    setMasterResult(null);
+    setError(null);
+    try {
+      const res = await callDevEngine('build-season-master-script', { projectId });
+      if (res.success === false) {
+        setMasterResult({ success: false, error: res.error, missing_episodes: res.missing_episodes });
+      } else {
+        setMasterResult({
+          success: true,
+          document_id: res.document_id,
+          version_id: res.version_id,
+          version_number: res.version_number,
+          episode_count: res.episode_count,
+          char_count: res.char_count,
+        });
+      }
+      return res;
+    } catch (e: any) {
+      setMasterResult({ success: false, error: e.message });
+      setError(e.message);
+      return null;
+    } finally {
+      setMasterLoading(false);
+    }
+  }, [projectId]);
+
   const clear = useCallback(() => {
     setScanResult(null);
     setResult(null);
     setError(null);
+    setMasterResult(null);
     setProgress({ total: 0, completed: 0, status: 'idle' });
     abortRef.current = true;
   }, []);
 
-  return { scan, generate, clear, scanResult, result, loading, error, progress };
+  return { scan, generate, buildMaster, clear, scanResult, result, loading, error, progress, masterResult, masterLoading };
 }

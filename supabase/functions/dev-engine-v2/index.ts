@@ -13871,21 +13871,83 @@ Write the COMPLETE teleplay for this episode NOW.`;
           let scriptText = await callAI(LOVABLE_API_KEY, model, EPISODE_SCRIPT_SYSTEM, userPrompt, 0.4, maxTok);
           scriptText = scriptText.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
 
-          const MIN_CHARS = isVertical ? 1200 : 2500;
+          const MIN_CHARS = isVertical ? 1500 : 8000;
           let retryUsed = false;
 
-          // Quality check + repair
-          const STUB_CHECK = ["draft stub","generate full","todo","[insert","placeholder"];
-          if (scriptText.length < MIN_CHARS || STUB_CHECK.some(m => scriptText.toLowerCase().includes(m))) {
+          // ── Summary-tail detector + structure validators ──
+          function validateEpisodeScript(text: string, epIndex: number, vertical: boolean): string | null {
+            const lower = text.toLowerCase();
+            const STUB_CHECK = ["draft stub","generate full","todo","[insert","placeholder"];
+            if (STUB_CHECK.some(m => lower.includes(m))) return "stub_marker";
+
+            // Summary-tail: multi-episode compression
+            const summaryPatterns = [
+              /episodes?\s+\d+[\s–\-—]+\d+/i,
+              /remaining\s+episodes/i,
+              /summary\s+of\s+(the\s+)?(remaining|rest|later|subsequent)/i,
+              /overview\s+of\s+episodes/i,
+              /recap\s+of\s+episodes/i,
+              /highlights?\s+of\s+episodes/i,
+              /episodes?\s+\d+\s+through\s+\d+/i,
+            ];
+            for (const pat of summaryPatterns) {
+              if (pat.test(text)) return `summary_tail_detected: ${pat.source}`;
+            }
+
+            // Multi-episode heading detection: if 3+ "EPISODE N" headings appear, it's compressing multiple episodes
+            const epHeadings = text.match(/\bEPISODE\s+\d+/gi) || [];
+            const uniqueEpNums = new Set(epHeadings.map(h => h.match(/\d+/)?.[0]));
+            if (uniqueEpNums.size >= 3) {
+              return `multi_episode_compression: found ${uniqueEpNums.size} episode headings in single script`;
+            }
+
+            // Bullet list describing multiple episodes
+            const bulletEpLines = text.match(/^[\s]*[-•*]\s*(?:ep(?:isode)?\.?\s*\d+)/gmi) || [];
+            if (bulletEpLines.length >= 3) {
+              return `bullet_list_summary: ${bulletEpLines.length} bullet episode references`;
+            }
+
+            // Structure requirements: scene headings
+            const sceneHeadings = (text.match(/^(INT\.|EXT\.|INT\/EXT\.)/gmi) || []).length;
+            const minScenes = vertical ? 1 : 3;
+            if (sceneHeadings < minScenes) {
+              return `insufficient_structure: ${sceneHeadings} scene headings (need ${minScenes}+)`;
+            }
+
+            // Dialogue blocks (CHARACTER NAME followed by line)
+            const dialogueBlocks = (text.match(/^[A-Z][A-Z\s.'()-]{1,40}$/gm) || []).length;
+            const minDialogue = vertical ? 2 : 5;
+            if (dialogueBlocks < minDialogue) {
+              return `insufficient_dialogue: ${dialogueBlocks} dialogue blocks (need ${minDialogue}+)`;
+            }
+
+            // Char threshold
+            if (text.length < MIN_CHARS) {
+              return `too_short: ${text.length} chars (need ${MIN_CHARS}+)`;
+            }
+
+            return null;
+          }
+
+          let validationFailure = validateEpisodeScript(scriptText, epIdx, isVertical);
+          if (validationFailure) {
             retryUsed = true;
-            const retryPrompt = `${userPrompt}\n\nRETRY: Previous output was too short (${scriptText.length} chars, need ${MIN_CHARS}+). Write the FULL, COMPLETE episode script NOW. No stubs.`;
+            console.log(`[series-scripts-tick] ep${epIdx} attempt0 failed: ${validationFailure}`);
+            const retryPrompt = `${userPrompt}\n\nRETRY INSTRUCTION: Previous output FAILED validation (${validationFailure}).
+CRITICAL RULES:
+- Write ONLY Episode ${epIdx}. Do NOT summarise or reference other episodes.
+- Include proper INT./EXT. scene headings, CHARACTER NAMES in caps, and dialogue.
+- Minimum ${MIN_CHARS} characters of actual teleplay content.
+- No bullet-point summaries. No episode overviews. Full dramatic scenes only.
+Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             let retryText = await callAI(LOVABLE_API_KEY, PRO_MODEL, EPISODE_SCRIPT_SYSTEM, retryPrompt, 0.4, 16000);
             retryText = retryText.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
             if (retryText.length > scriptText.length) scriptText = retryText;
+            validationFailure = validateEpisodeScript(scriptText, epIdx, isVertical);
           }
 
-          if (scriptText.length < Math.floor(MIN_CHARS * 0.5)) {
-            throw new Error(`Script too short after retry (${scriptText.length} chars, need ${MIN_CHARS})`);
+          if (validationFailure) {
+            throw new Error(`Episode ${epIdx} script failed validation after retry: ${validationFailure}`);
           }
 
           // Save via doc-os
@@ -13964,6 +14026,106 @@ Write the COMPLETE teleplay for this episode NOW.`;
 
       return new Response(JSON.stringify({
         success: true, job, items: items || [],
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // BUILD SEASON MASTER SCRIPT (deterministic concatenation, NO LLM)
+    // ══════════════════════════════════════════════════════════════
+    if (action === "build-season-master-script") {
+      const { projectId: pid } = body;
+      if (!pid) throw new Error("projectId required");
+
+      // Find all episode_script docs for this project
+      const { data: epDocs } = await supabase.from("project_documents")
+        .select("id, meta_json, title")
+        .eq("project_id", pid)
+        .eq("doc_type", "episode_script");
+
+      if (!epDocs || epDocs.length === 0) {
+        throw new Error("No episode scripts found. Generate episode scripts first.");
+      }
+
+      // Map by episode_index
+      const epMap = new Map<number, { docId: string; title: string }>();
+      for (const d of epDocs) {
+        const epIdx = (d.meta_json as any)?.episode_index;
+        if (epIdx != null) epMap.set(epIdx, { docId: d.id, title: d.title || `Episode ${epIdx}` });
+      }
+
+      const sortedIndices = Array.from(epMap.keys()).sort((a, b) => a - b);
+      if (sortedIndices.length === 0) {
+        throw new Error("No episode scripts with episode_index metadata found.");
+      }
+
+      // Fetch current versions for all episode docs
+      const epDocIds = sortedIndices.map(i => epMap.get(i)!.docId);
+      const { data: epVersions } = await supabase.from("project_document_versions")
+        .select("document_id, plaintext")
+        .in("document_id", epDocIds)
+        .eq("is_current", true);
+
+      const verByDocId = new Map<string, string>();
+      for (const v of (epVersions || [])) {
+        verByDocId.set(v.document_id, v.plaintext || "");
+      }
+
+      // Check for missing episodes
+      const missing: number[] = [];
+      for (const idx of sortedIndices) {
+        const entry = epMap.get(idx)!;
+        const text = verByDocId.get(entry.docId) || "";
+        if (text.trim().length < 100) missing.push(idx);
+      }
+
+      if (missing.length > 0) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: `Missing or empty episode scripts for episodes: ${missing.join(", ")}. Generate them first.`,
+          missing_episodes: missing,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Concatenate
+      const parts: string[] = [];
+      for (const idx of sortedIndices) {
+        const entry = epMap.get(idx)!;
+        const text = verByDocId.get(entry.docId) || "";
+        parts.push(`${"=".repeat(60)}\n=== EPISODE ${String(idx).padStart(2, "0")}: ${entry.title} ===\n${"=".repeat(60)}\n\n${text.trim()}`);
+      }
+      const masterText = parts.join("\n\n\n");
+
+      // Save via doc-os
+      const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
+      const slot = await ensureDocSlot(supabase, pid, userId, "season_master_script", {
+        title: "Master Season Script",
+        source: "compiled",
+      });
+
+      const newVersion = await createVer(supabase, {
+        documentId: slot.documentId,
+        docType: "season_master_script",
+        plaintext: masterText,
+        label: "compiled_master",
+        createdBy: userId,
+        approvalStatus: "draft",
+        changeSummary: `Compiled from ${sortedIndices.length} episode scripts (episodes ${sortedIndices[0]}–${sortedIndices[sortedIndices.length - 1]})`,
+        metaJson: {
+          generator: "build-season-master-script",
+          episode_count: sortedIndices.length,
+          episode_indices: sortedIndices,
+          compiled_at: new Date().toISOString(),
+        },
+        sourceDocumentIds: epDocIds,
+      });
+
+      return new Response(JSON.stringify({
+        success: true,
+        document_id: slot.documentId,
+        version_id: newVersion.id,
+        version_number: newVersion.version_number,
+        episode_count: sortedIndices.length,
+        char_count: masterText.length,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
