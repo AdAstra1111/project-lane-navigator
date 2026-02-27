@@ -328,7 +328,7 @@ export function AutoRunMissionControl({
       setSeedSummaryLoading(true);
       buildSeedSummary(projectId).then(s => { setSeedSummary(s); setSeedSummaryLoading(false); }).catch(() => setSeedSummaryLoading(false));
     }
-  }, [seedStatus.allPresent, projectId]);
+  }, [seedStatus.allPresent, projectId, seedSummary, seedSummaryLoading]);
 
   // approvedDocTypes: see APPROVAL_REQUIRED_STAGES at module top
 
@@ -677,6 +677,14 @@ export function AutoRunMissionControl({
               <span className="text-[9px] text-muted-foreground">Missing docs will be auto-generated on start</span>
             )}
           </div>
+
+          {/* ── Seed short warning ── */}
+          {seedPack.warningCount > 0 && (
+            <div className="flex items-center gap-1 px-2 py-1 rounded bg-accent/10 text-[9px] text-accent-foreground/70">
+              <AlertTriangle className="h-3 w-3 text-yellow-500 shrink-0" />
+              ⚠ {seedPack.warningCount} seed doc{seedPack.warningCount > 1 ? 's are' : ' is'} short; consider regenerating seed pack
+            </div>
+          )}
 
           {/* ── Seed Summary (deterministic, collapsible) ── */}
           {seedSummary && !seedSummary.isEmpty && (
