@@ -13673,7 +13673,7 @@ ${upstreamText}`;
     // SERIES SCRIPTS: START
     // ══════════════════════════════════════════════════════════════
     if (action === "series-scripts-start") {
-      const { projectId: pid, dryRun: isDry, force: isForce, episodeStart, episodeEnd } = body;
+      const { projectId: pid, dryRun: isDry, force: isForce, episodeStart, episodeEnd, policyJson } = body;
       if (!pid) throw new Error("projectId required");
 
       // Load project
@@ -13777,6 +13777,7 @@ ${upstreamText}`;
       }
 
       const isDryRun = isDry === true;
+      const policy = policyJson || {};
       const { data: job, error: jobErr } = await supabase.from("regen_jobs").insert({
         project_id: pid,
         created_by: userId,
@@ -13785,7 +13786,8 @@ ${upstreamText}`;
         force: isForce === true,
         total_count: items.length,
         completed_count: isDryRun ? items.length : 0,
-        job_type: "generate_series_scripts",
+        job_type: policy.auto_approve ? "series_autorun" : "generate_series_scripts",
+        policy_json: policy,
       }).select().single();
       if (jobErr) throw new Error(`Failed to create series scripts job: ${jobErr.message}`);
 
@@ -14041,14 +14043,18 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             metaJson: { episode_index: epIdx, episode_title: epTitle },
           });
 
+          // Determine auto-approve from job policy
+          const autoApprove = (job.policy_json as any)?.auto_approve === true;
+          const approvalStatus = autoApprove ? "approved" : "draft";
+
           const newVersion = await createVer(supabase, {
             documentId: slot.documentId,
             docType: "episode_script",
             plaintext: scriptText,
             label: `series_scripts_e${String(epIdx).padStart(2, "0")}`,
             createdBy: userId,
-            approvalStatus: "draft",
-            changeSummary: `Generated episode ${epIdx} script${retryUsed ? " with retry" : ""}`,
+            approvalStatus,
+            changeSummary: `Generated episode ${epIdx} script${retryUsed ? " with retry" : ""}${autoApprove ? " [auto-approved]" : ""}`,
             metaJson: {
               generator: "series-scripts",
               episode_index: epIdx,
@@ -14056,13 +14062,23 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
               retry_used: retryUsed,
               char_count: scriptText.length,
               lane,
+              auto_approved: autoApprove,
             },
           });
+
+          // If auto-approve, also update the version's approval_status in DB
+          if (autoApprove) {
+            await supabase.from("project_document_versions")
+              .update({ approval_status: "approved" })
+              .eq("id", newVersion.id);
+          }
 
           await supabase.from("regen_job_items").update({
             status: "regenerated",
             char_after: scriptText.length,
             document_id: slot.documentId,
+            auto_approved: autoApprove,
+            approved_version_id: autoApprove ? newVersion.id : null,
           }).eq("id", item.id);
 
           processed.push({ id: item.id, episode_index: epIdx, status: "regenerated", char_after: scriptText.length });
@@ -14079,17 +14095,81 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const { data: statusCounts } = await supabase.from("regen_job_items")
         .select("status").eq("job_id", jobId);
       const completedCount = (statusCounts || []).filter((r: any) => r.status !== "queued" && r.status !== "running").length;
+      const errorCount = (statusCounts || []).filter((r: any) => r.status === "error").length;
       const allDone = completedCount >= job.total_count;
 
+      // Check stop_on_first_fail policy
+      const stopOnFail = (job.policy_json as any)?.stop_on_first_fail === true;
+      const shouldStop = stopOnFail && errorCount > 0;
+
+      const newStatus = shouldStop ? "failed" : allDone ? "complete" : "running";
       await supabase.from("regen_jobs").update({
         completed_count: completedCount,
-        status: allDone ? "complete" : "running",
+        status: newStatus,
+        ...(shouldStop ? { error: "Stopped: episode generation failed (stop_on_first_fail policy)" } : {}),
       }).eq("id", jobId);
+
+      // Auto-build master if all done, auto_approve enabled, and no errors
+      const autoApprovePolicy = (job.policy_json as any)?.auto_approve === true;
+      const autoBuildMaster = (job.policy_json as any)?.auto_build_master === true;
+      let masterBuilt = false;
+
+      if (allDone && errorCount === 0 && autoApprovePolicy && autoBuildMaster) {
+        try {
+          console.log(`[series-scripts-tick] All episodes done. Auto-building master season script...`);
+          const { getCanonicalEpisodeCountOrThrow } = await import("../_shared/episode-count.ts");
+          const canonical = await getCanonicalEpisodeCountOrThrow(supabase, projectId);
+          const expectedCount = canonical.episodeCount;
+
+          const { data: epDocs } = await supabase.from("project_documents")
+            .select("id, meta_json, title").eq("project_id", projectId).eq("doc_type", "episode_script");
+          const epMap = new Map<number, string>();
+          for (const d of (epDocs || [])) {
+            const idx = (d.meta_json as any)?.episode_index;
+            if (idx != null) epMap.set(idx, d.id);
+          }
+
+          const docIds = [];
+          for (let i = 1; i <= expectedCount; i++) {
+            if (epMap.has(i)) docIds.push(epMap.get(i)!);
+          }
+
+          if (docIds.length === expectedCount) {
+            const { data: vers } = await supabase.from("project_document_versions")
+              .select("plaintext, document_id").in("document_id", docIds).eq("is_current", true);
+            const verMap = new Map((vers || []).map((v: any) => [v.document_id, v.plaintext]));
+
+            const parts: string[] = [];
+            for (let i = 1; i <= expectedCount; i++) {
+              const text = verMap.get(epMap.get(i)!) || "";
+              parts.push(`\n\n${"=".repeat(60)}\nEPISODE ${i}\n${"=".repeat(60)}\n\n${text.trim()}`);
+            }
+            const masterText = `# MASTER SEASON SCRIPT\n\n${expectedCount} Episodes\n${parts.join("\n")}`;
+
+            const { ensureDocSlot: ens, createVersion: cv } = await import("../_shared/doc-os.ts");
+            const masterSlot = await ens(supabase, projectId, userId, "season_master_script", { source: "generated" });
+            await cv(supabase, {
+              documentId: masterSlot.documentId,
+              docType: "season_master_script",
+              plaintext: masterText,
+              label: "autorun_master_build",
+              createdBy: userId,
+              approvalStatus: "approved",
+              changeSummary: `Auto-built master season script from ${expectedCount} episodes`,
+              metaJson: { generator: "series-autorun", episode_count: expectedCount, auto_approved: true },
+            });
+            masterBuilt = true;
+            console.log(`[series-scripts-tick] Master season script built: ${masterText.length} chars`);
+          }
+        } catch (masterErr: any) {
+          console.error("[series-scripts-tick] Master build error:", masterErr.message);
+        }
+      }
 
       const { data: updatedJob } = await supabase.from("regen_jobs").select("*").eq("id", jobId).single();
 
       return new Response(JSON.stringify({
-        success: true, job: updatedJob, processed, done: allDone,
+        success: true, job: updatedJob, processed, done: allDone, masterBuilt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
