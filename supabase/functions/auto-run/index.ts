@@ -670,17 +670,39 @@ function computePromotion(
 async function callEdgeFunction(
   supabaseUrl: string, functionName: string, body: any, token: string
 ): Promise<any> {
-  const resp = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await resp.text();
-  if (!resp.ok) throw new Error(`${functionName} error: ${text}`);
-  try { return JSON.parse(text); } catch { return { raw: text }; }
+  const url = `${supabaseUrl}/functions/v1/${functionName}`;
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (fetchErr: any) {
+    throw Object.assign(new Error(`${functionName} network error: ${fetchErr.message}`), {
+      structured: true, code: "EDGE_FUNCTION_NETWORK_ERROR", status: 0, body: fetchErr.message,
+    });
+  }
+  const raw = await resp.text();
+  if (!resp.ok) {
+    // Truncate HTML blobs to something useful
+    const snippet = raw.slice(0, 1000);
+    throw Object.assign(new Error(`${functionName} error (${resp.status}): ${snippet}`), {
+      structured: true, code: "EDGE_FUNCTION_FAILED", status: resp.status, body: snippet,
+    });
+  }
+  let data: any;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw Object.assign(new Error(`${functionName} returned invalid JSON (${resp.status}): ${raw.slice(0, 500)}`), {
+      structured: true, code: "EDGE_FUNCTION_INVALID_JSON", status: resp.status, body: raw.slice(0, 1000),
+    });
+  }
+  return data;
 }
 
 async function callEdgeFunctionWithRetry(
