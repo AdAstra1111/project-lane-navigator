@@ -1466,6 +1466,7 @@ Deno.serve(async (req) => {
       {
         const inputCounts = await getDocCharCounts(supabase, projectId, INPUT_DOC_TYPES);
         let inputCheck = checkInputReadiness(inputCounts);
+        let regenWasOk = false;
         if (!inputCheck.ready) {
           console.log("[auto-run] INPUT_INCOMPLETE at start — attempting auto-regen", { jobId: job.id, missing: inputCheck.missing_fields });
           const regenAttempt = await attemptAutoRegenInputs(
@@ -1480,6 +1481,7 @@ Deno.serve(async (req) => {
             "start_gate",
           );
 
+          regenWasOk = regenAttempt.ok;
           if (!regenAttempt.ok) {
             console.warn("[auto-run] start auto-regen did not resolve inputs", { jobId: job.id, error: regenAttempt.error });
           }
@@ -1501,8 +1503,17 @@ Deno.serve(async (req) => {
               regenerated_count: Array.isArray(regenAttempt.regenResult?.regenerated) ? regenAttempt.regenResult.regenerated.length : 0,
             },
           );
+
+          // HARD GUARD: If regen succeeded and readiness is now satisfied, NEVER pause
+          if (regenWasOk && inputCheck.ready) {
+            console.log("[auto-run] HARD GUARD: regen succeeded + ready — continuing without pause", { jobId: job.id });
+          }
         }
         if (!inputCheck.ready) {
+          // DEFENSIVE ASSERTION: regen succeeded + ready must never reach here
+          if (regenWasOk && inputCheck.ready) {
+            throw new Error("ILLEGAL_PAUSE_AFTER_SUCCESSFUL_REGEN");
+          }
           console.warn("[auto-run] INPUT_INCOMPLETE at start (after regen attempt)", { jobId: job.id, missing: inputCheck.missing_fields });
           const compactErr = inputCheck.summary.slice(0, 500);
           await updateJob(supabase, job.id, {
@@ -1515,7 +1526,7 @@ Deno.serve(async (req) => {
           });
           await logStep(supabase, job.id, 1, effectiveStartDoc, "pause_for_input",
             `INPUT_INCOMPLETE: ${compactErr}`,
-            {}, undefined, { missing_fields: inputCheck.missing_fields }
+            {}, undefined, { missing_fields: inputCheck.missing_fields, regen_was_ok: regenWasOk }
           );
           return respond({
             job: { ...job, status: "paused", stop_reason: "INPUT_INCOMPLETE", error: compactErr },
@@ -2538,6 +2549,7 @@ Deno.serve(async (req) => {
       {
         const inputCounts = await getDocCharCounts(supabase, job.project_id, INPUT_DOC_TYPES);
         let inputCheck = checkInputReadiness(inputCounts);
+        let regenWasOk = false;
         if (!inputCheck.ready) {
           console.log("[auto-run] INPUT_INCOMPLETE — attempting auto-regen", { jobId, missing: inputCheck.missing_fields });
           const regenAttempt = await attemptAutoRegenInputs(
@@ -2552,6 +2564,7 @@ Deno.serve(async (req) => {
             "run_next_gate",
           );
 
+          regenWasOk = regenAttempt.ok;
           if (!regenAttempt.ok) {
             console.warn("[auto-run] run-next auto-regen did not resolve inputs", { jobId, error: regenAttempt.error });
           }
@@ -2573,8 +2586,17 @@ Deno.serve(async (req) => {
               regenerated_count: Array.isArray(regenAttempt.regenResult?.regenerated) ? regenAttempt.regenResult.regenerated.length : 0,
             },
           );
+
+          // HARD GUARD: If regen succeeded and readiness is now satisfied, NEVER pause
+          if (regenWasOk && inputCheck.ready) {
+            console.log("[auto-run] HARD GUARD: regen succeeded + ready — continuing without pause", { jobId });
+          }
         }
         if (!inputCheck.ready) {
+          // DEFENSIVE ASSERTION: regen succeeded + ready must never reach here
+          if (regenWasOk && inputCheck.ready) {
+            throw new Error("ILLEGAL_PAUSE_AFTER_SUCCESSFUL_REGEN");
+          }
           console.warn("[auto-run] INPUT_INCOMPLETE (after regen attempt)", { jobId, missing: inputCheck.missing_fields });
           const compactErr = inputCheck.summary.slice(0, 500);
           await updateJob(supabase, jobId, {
@@ -2587,7 +2609,7 @@ Deno.serve(async (req) => {
           });
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "pause_for_input",
             `INPUT_INCOMPLETE: ${compactErr}`,
-            {}, undefined, { missing_fields: inputCheck.missing_fields }
+            {}, undefined, { missing_fields: inputCheck.missing_fields, regen_was_ok: regenWasOk }
           );
           return respond({
             job: { ...job, status: "paused", stop_reason: "INPUT_INCOMPLETE", error: compactErr },
