@@ -13602,19 +13602,22 @@ ${upstreamText}`;
       const { data: gridDoc } = await supabase.from("project_documents")
         .select("id").eq("project_id", pid).eq("doc_type", "episode_grid").limit(1);
       let episodeGrid: any[] = [];
+      // Priority 1: explicit canonical/project episode count
       let episodeCount = (proj as any).season_episode_count || 0;
+      const gridDocExists = gridDoc && gridDoc.length > 0;
 
-      if (gridDoc && gridDoc.length > 0) {
+      if (gridDocExists) {
         const { data: gridVer } = await supabase.from("project_document_versions")
           .select("plaintext").eq("document_id", gridDoc[0].id).eq("is_current", true).limit(1);
         const gridText = gridVer?.[0]?.plaintext || "";
         // Parse episode entries from grid — supports both prose and markdown table formats
         // 1) Try markdown table: rows like "| 1 | **Title** | logline | ..."
-        const tableRowRegex = /^\|\s*(\d+)\s*\|\s*\*{0,2}([^|*]+?)\*{0,2}\s*\|\s*([^|]*)\|/gm;
+        const tableRowRegex = /^\s*\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|/gm;
         let tableMatch;
         while ((tableMatch = tableRowRegex.exec(gridText)) !== null) {
           const num = parseInt(tableMatch[1]);
-          const title = tableMatch[2].trim();
+          const titleRaw = tableMatch[2].trim();
+          const title = titleRaw.replace(/\*\*/g, "").replace(/_/g, "").trim();
           const logline = tableMatch[3].trim();
           episodeGrid.push({ index: num, title: title || `Episode ${num}`, logline: logline || "" });
         }
@@ -13629,6 +13632,12 @@ ${upstreamText}`;
               episodeGrid.push({ index: num, title: titleMatch?.[1]?.trim() || `Episode ${num}`, logline: m.trim() });
             }
           }
+        }
+        // SAFETY: If grid doc exists but parsing yielded 0 episodes, FAIL LOUDLY
+        if (episodeGrid.length === 0) {
+          throw new Error(
+            "Episode grid document exists but zero episodes were parsed. Check markdown table format. Grid doc id: " + gridDoc[0].id
+          );
         }
         if (episodeGrid.length > episodeCount) episodeCount = episodeGrid.length;
       }
@@ -13646,7 +13655,17 @@ ${upstreamText}`;
         }
       }
 
-      if (episodeCount === 0) episodeCount = isVertical ? 30 : 8; // Defaults
+      // Only use default if NO grid doc exists AND no explicit count found
+      if (episodeCount === 0) {
+        if (gridDocExists) {
+          // Should not reach here (thrown above), but belt-and-suspenders
+          throw new Error("Episode grid exists but episodeCount is still 0. Aborting to prevent ghost season.");
+        }
+        episodeCount = isVertical ? 30 : 8;
+        console.warn("[series-scripts] WARNING: No episode_grid doc found; using default episodeCount:", episodeCount);
+      }
+
+      console.log("[series-scripts] episodeCount resolved to:", episodeCount, "| gridDocExists:", !!gridDocExists, "| gridParsedRows:", episodeGrid.length);
 
       const startEp = episodeStart || 1;
       const endEp = episodeEnd || episodeCount;
