@@ -21172,6 +21172,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      increment_step_count: { Args: { p_job_id: string }; Returns: number }
       insert_cinematic_quality_run_with_attempts: {
         Args: { p_attempt0: Json; p_attempt1?: Json; p_run: Json }
         Returns: string
