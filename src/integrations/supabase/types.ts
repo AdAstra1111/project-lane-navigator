@@ -12256,6 +12256,8 @@ export type Database = {
       }
       regen_job_items: {
         Row: {
+          approved_version_id: string | null
+          auto_approved: boolean | null
           char_after: number
           char_before: number
           claimed_at: string | null
@@ -12276,6 +12278,8 @@ export type Database = {
           upstream: string | null
         }
         Insert: {
+          approved_version_id?: string | null
+          auto_approved?: boolean | null
           char_after?: number
           char_before?: number
           claimed_at?: string | null
@@ -12296,6 +12300,8 @@ export type Database = {
           upstream?: string | null
         }
         Update: {
+          approved_version_id?: string | null
+          auto_approved?: boolean | null
           char_after?: number
           char_before?: number
           claimed_at?: string | null
@@ -12335,6 +12341,7 @@ export type Database = {
           force: boolean
           id: string
           job_type: string
+          policy_json: Json | null
           project_id: string
           status: string
           total_count: number
@@ -12349,6 +12356,7 @@ export type Database = {
           force?: boolean
           id?: string
           job_type?: string
+          policy_json?: Json | null
           project_id: string
           status?: string
           total_count?: number
@@ -12363,6 +12371,7 @@ export type Database = {
           force?: boolean
           id?: string
           job_type?: string
+          policy_json?: Json | null
           project_id?: string
           status?: string
           total_count?: number
@@ -21307,6 +21316,8 @@ export type Database = {
       claim_regen_items: {
         Args: { p_claimed_by: string; p_job_id: string; p_limit: number }
         Returns: {
+          approved_version_id: string | null
+          auto_approved: boolean | null
           char_after: number
           char_before: number
           claimed_at: string | null

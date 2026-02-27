@@ -67,6 +67,7 @@ import { useAutoRunMissionControl } from '@/hooks/useAutoRunMissionControl';
 import { CanonicalQualificationsPanel } from '@/components/devengine/CanonicalQualificationsPanel';
 import { QualificationConflictBanner } from '@/components/devengine/QualificationConflictBanner';
 import { GenerateSeasonScriptsPanel } from '@/components/devengine/GenerateSeasonScriptsPanel';
+import { SeriesWriterAutorunPanel } from '@/components/devengine/SeriesWriterAutorunPanel';
 import { useStageResolve } from '@/hooks/useStageResolve';
 import { useDecisionCommit } from '@/hooks/useDecisionCommit';
 import { isDocStale } from '@/lib/stale-detection';
@@ -1878,7 +1879,10 @@ export default function ProjectDevelopmentEngine() {
               />
             </TabsContent>
 
-            <TabsContent value="series-scripts" className="mt-3">
+            <TabsContent value="series-scripts" className="mt-3 space-y-4">
+              {(isVerticalDrama || isSeriesFormat) && (
+                <SeriesWriterAutorunPanel projectId={projectId!} />
+              )}
               <GenerateSeasonScriptsPanel projectId={projectId!} />
             </TabsContent>
 
