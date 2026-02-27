@@ -13587,7 +13587,7 @@ ${upstreamText}`;
 
       // Load project
       const { data: proj } = await supabase.from("projects")
-        .select("format, assigned_lane, title, episode_count")
+        .select("format, assigned_lane, title, season_episode_count")
         .eq("id", pid).single();
       if (!proj) throw new Error("Project not found");
 
@@ -13602,7 +13602,7 @@ ${upstreamText}`;
       const { data: gridDoc } = await supabase.from("project_documents")
         .select("id").eq("project_id", pid).eq("doc_type", "episode_grid").limit(1);
       let episodeGrid: any[] = [];
-      let episodeCount = proj.episode_count || 0;
+      let episodeCount = (proj as any).season_episode_count || 0;
 
       if (gridDoc && gridDoc.length > 0) {
         const { data: gridVer } = await supabase.from("project_document_versions")
