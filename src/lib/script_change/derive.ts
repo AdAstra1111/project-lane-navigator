@@ -1,11 +1,11 @@
 /**
  * derive — orchestrator for deterministic script change analysis.
- * Creates/updates scene_graph and change_report documents.
+ * Creates/updates scene_graph and change_report documents keyed by source doc type.
  * No LLM calls. All analysis is heuristic.
  */
 
 import { supabase } from '@/integrations/supabase/client';
-import { parseScenes } from './sceneParser';
+import { parseScenes, extractCharacterCues, extractLocations } from './sceneParser';
 import { computeDiff, mapHunksToScenes } from './diff';
 import { computeImpactFlags, computeStaleDocs, computeFixPlan } from './impact';
 
@@ -32,8 +32,8 @@ interface DeriveParams {
 
 /**
  * Run deterministic script change derivatives.
- * Call after a new script version becomes current.
- * Errors are caught and logged but do not throw.
+ * Derived doc_types are keyed by source doc type to avoid collisions:
+ *   scene_graph__feature_script, change_report__episode_script, etc.
  */
 export async function deriveScriptChangeArtifacts(params: DeriveParams): Promise<void> {
   const {
@@ -53,6 +53,10 @@ export async function deriveScriptChangeArtifacts(params: DeriveParams): Promise
     const newScenes = parseScenes(normalizedNew);
     const oldScenes = previousPlaintext ? parseScenes(normalizedOld) : [];
 
+    // Keyed derived doc types
+    const sceneGraphDocType = `scene_graph__${sourceDocType}`;
+    const changeReportDocType = `change_report__${sourceDocType}`;
+
     // Build scene graph JSON
     const sceneGraphJson = {
       schema_version: '1.0',
@@ -68,40 +72,96 @@ export async function deriveScriptChangeArtifacts(params: DeriveParams): Promise
       ? computeDiff(normalizedOld, normalizedNew)
       : { stats: { old_len: 0, new_len: normalizedNew.length, added: normalizedNew.length, removed: 0, change_pct: 100, hunks: 0 }, hunks: [] };
 
-    const changedOrdinals = previousPlaintext
-      ? mapHunksToScenes(diff.hunks, newScenes, normalizedOld.split('\n'))
-      : newScenes.map(s => s.ordinal);
+    // Map hunks → old scenes → new scenes
+    const changedOldOrdinals = previousPlaintext
+      ? mapHunksToScenes(diff.hunks, oldScenes, normalizedOld.split('\n'))
+      : [];
 
-    const changedScenes = newScenes.filter(s => changedOrdinals.includes(s.ordinal));
+    // Map old ordinals to new scenes by slugline match or nearest ordinal
+    const changedNewScenes = previousPlaintext
+      ? mapOldOrdinalsToNewScenes(changedOldOrdinals, oldScenes, newScenes)
+      : newScenes; // first version: all scenes are "changed"
+
+    // Entity deltas
+    const oldChars = previousPlaintext ? extractCharacterCues(normalizedOld) : [];
+    const newChars = extractCharacterCues(normalizedNew);
+    const oldLocs = previousPlaintext ? extractLocations(oldScenes) : [];
+    const newLocs = extractLocations(newScenes);
+
+    const removedCharacters = oldChars.filter(c => !newChars.includes(c));
+    const addedCharacters = newChars.filter(c => !oldChars.includes(c));
+    const removedLocations = oldLocs.filter(l => !newLocs.includes(l));
+    const addedLocations = newLocs.filter(l => !oldLocs.includes(l));
+
     const impactFlags = previousPlaintext
       ? computeImpactFlags(normalizedOld, normalizedNew, oldScenes, newScenes)
       : [];
-    const staleDocs = computeStaleDocs(diff.stats.change_pct, impactFlags, changedScenes.length, existingDocTypes);
+    const staleDocs = computeStaleDocs(diff.stats.change_pct, impactFlags, changedNewScenes.length, existingDocTypes);
     const fixPlan = computeFixPlan(impactFlags);
 
     const changeReportJson = {
       schema_version: '1.0',
       source_doc_id: sourceDocId,
+      source_doc_type: sourceDocType,
       from_version_id: previousVersionId,
       to_version_id: newVersionId,
       stats: diff.stats,
       diff_hunks: diff.hunks,
-      changed_scene_ids: changedScenes.map(s => s.scene_id),
-      changed_scenes: changedScenes.map(s => ({ scene_id: s.scene_id, ordinal: s.ordinal, slugline: s.slugline })),
+      changed_scene_ids: changedNewScenes.map(s => s.scene_id),
+      changed_scenes: changedNewScenes.map(s => ({ scene_id: s.scene_id, ordinal: s.ordinal, slugline: s.slugline })),
       impact_flags: impactFlags,
       stale_docs: staleDocs,
       fix_plan: fixPlan,
+      added_characters: addedCharacters,
+      removed_characters: removedCharacters,
+      added_locations: addedLocations,
+      removed_locations: removedLocations,
     };
 
-    // Upsert docs and write versions
+    // Upsert docs keyed by source doc type
     await Promise.all([
-      upsertDerivedDoc(projectId, 'scene_graph', 'Scene Index', JSON.stringify(sceneGraphJson, null, 2), actorUserId),
-      upsertDerivedDoc(projectId, 'change_report', 'Change Report', JSON.stringify(changeReportJson, null, 2), actorUserId),
+      upsertDerivedDoc(projectId, sceneGraphDocType, `Scene Index (${sourceDocType})`, JSON.stringify(sceneGraphJson, null, 2), actorUserId),
+      upsertDerivedDoc(projectId, changeReportDocType, `Change Report (${sourceDocType})`, JSON.stringify(changeReportJson, null, 2), actorUserId),
     ]);
   } catch (err) {
     console.error('[derive] Failed to create script change artifacts:', err);
-    // Non-fatal — do not block the save
   }
+}
+
+/**
+ * Map old scene ordinals to corresponding new scenes.
+ * Match by slugline (case-insensitive), else nearest ordinal.
+ */
+function mapOldOrdinalsToNewScenes(
+  oldOrdinals: number[],
+  oldScenes: Array<{ ordinal: number; slugline: string }>,
+  newScenes: Array<{ ordinal: number; slugline: string; scene_id: string }>,
+) {
+  const matched = new Set<number>();
+  const result: typeof newScenes = [];
+
+  for (const ord of oldOrdinals) {
+    const oldScene = oldScenes.find(s => s.ordinal === ord);
+    if (!oldScene) continue;
+
+    // Try slugline match first
+    const slugUpper = oldScene.slugline.toUpperCase();
+    let best = newScenes.find(s => s.slugline.toUpperCase() === slugUpper && !matched.has(s.ordinal));
+
+    // Fallback: nearest ordinal
+    if (!best) {
+      best = newScenes
+        .filter(s => !matched.has(s.ordinal))
+        .sort((a, b) => Math.abs(a.ordinal - ord) - Math.abs(b.ordinal - ord))[0];
+    }
+
+    if (best && !matched.has(best.ordinal)) {
+      matched.add(best.ordinal);
+      result.push(best);
+    }
+  }
+
+  return result.sort((a, b) => a.ordinal - b.ordinal);
 }
 
 /**
@@ -114,7 +174,6 @@ async function upsertDerivedDoc(
   plaintext: string,
   userId: string,
 ): Promise<void> {
-  // Find or create doc
   const { data: existing } = await (supabase as any)
     .from('project_documents')
     .select('id')
@@ -149,7 +208,6 @@ async function upsertDerivedDoc(
     docId = newDoc.id;
   }
 
-  // Get next version number
   const { data: maxRow } = await (supabase as any)
     .from('project_document_versions')
     .select('version_number')
@@ -160,14 +218,12 @@ async function upsertDerivedDoc(
 
   const nextVersion = (maxRow?.version_number ?? 0) + 1;
 
-  // Clear previous is_current
   await (supabase as any)
     .from('project_document_versions')
     .update({ is_current: false })
     .eq('document_id', docId)
     .eq('is_current', true);
 
-  // Insert new version
   const { error: vErr } = await (supabase as any)
     .from('project_document_versions')
     .insert({

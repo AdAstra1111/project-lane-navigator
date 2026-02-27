@@ -1,17 +1,28 @@
 /**
  * ChangeReportPanel — displays the latest deterministic change report
- * for a script document. Collapsible, minimal, no LLM.
+ * for a script document, keyed by source doc type. Includes Universe Ripple Scan.
  */
 
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
-import { ChevronDown, AlertTriangle, FileText, MapPin, Users, ShieldAlert } from 'lucide-react';
-import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { ChevronDown, AlertTriangle, FileText, MapPin, Users, ShieldAlert, Search, Loader2 } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { isScriptDocType } from '@/lib/script_change';
 
 interface ChangeReportPanelProps {
   projectId: string;
+  sourceDocType: string;
+  sourceDocId?: string;
+}
+
+interface RippleMatch {
+  doc_type: string;
+  document_id: string;
+  title: string;
+  matches: Array<{ term: string; count: number }>;
 }
 
 const FLAG_ICONS: Record<string, typeof AlertTriangle> = {
@@ -32,24 +43,26 @@ const FLAG_COLORS: Record<string, string> = {
   TONE_SHIFT: 'text-purple-500',
 };
 
-export function ChangeReportPanel({ projectId }: ChangeReportPanelProps) {
+export function ChangeReportPanel({ projectId, sourceDocType, sourceDocId }: ChangeReportPanelProps) {
   const [open, setOpen] = useState(false);
+  const [rippleResults, setRippleResults] = useState<RippleMatch[] | null>(null);
+  const [rippleLoading, setRippleLoading] = useState(false);
+
+  const derivedDocType = `change_report__${sourceDocType}`;
 
   const { data: report, isLoading } = useQuery({
-    queryKey: ['change-report', projectId],
+    queryKey: ['change-report', projectId, sourceDocType],
     queryFn: async () => {
-      // Find the change_report doc for this project
       const { data: doc } = await (supabase as any)
         .from('project_documents')
         .select('id')
         .eq('project_id', projectId)
-        .eq('doc_type', 'change_report')
+        .eq('doc_type', derivedDocType)
         .limit(1)
         .maybeSingle();
 
       if (!doc) return null;
 
-      // Get current version
       const { data: version } = await (supabase as any)
         .from('project_document_versions')
         .select('plaintext, created_at')
@@ -61,17 +74,95 @@ export function ChangeReportPanel({ projectId }: ChangeReportPanelProps) {
       if (!version?.plaintext) return null;
 
       try {
-        return {
-          ...JSON.parse(version.plaintext),
-          _created_at: version.created_at,
-        };
+        return { ...JSON.parse(version.plaintext), _created_at: version.created_at };
       } catch {
         return null;
       }
     },
-    enabled: !!projectId,
+    enabled: !!projectId && !!sourceDocType,
     staleTime: 30_000,
   });
+
+  const runRippleScan = useCallback(async () => {
+    if (!report) return;
+    setRippleLoading(true);
+    setRippleResults(null);
+
+    try {
+      const searchTerms: string[] = [
+        ...(report.removed_characters || []),
+        ...(report.removed_locations || []),
+      ];
+
+      if (searchTerms.length === 0) {
+        setRippleResults([]);
+        return;
+      }
+
+      // Fetch all script-like docs in project, excluding the source doc
+      const { data: docs } = await (supabase as any)
+        .from('project_documents')
+        .select('id, doc_type, title')
+        .eq('project_id', projectId)
+        .neq('id', sourceDocId || '');
+
+      if (!docs) { setRippleResults([]); return; }
+
+      const scriptDocs = docs.filter((d: any) => isScriptDocType(d.doc_type));
+      if (scriptDocs.length === 0) { setRippleResults([]); return; }
+
+      // Fetch current versions for these docs
+      const docIds = scriptDocs.map((d: any) => d.id);
+      const { data: versions } = await (supabase as any)
+        .from('project_document_versions')
+        .select('document_id, plaintext')
+        .in('document_id', docIds)
+        .eq('is_current', true);
+
+      if (!versions) { setRippleResults([]); return; }
+
+      const results: RippleMatch[] = [];
+      for (const ver of versions) {
+        if (!ver.plaintext) continue;
+        const text = ver.plaintext as string;
+        const docMeta = scriptDocs.find((d: any) => d.id === ver.document_id);
+        if (!docMeta) continue;
+
+        const matches: Array<{ term: string; count: number }> = [];
+        for (const term of searchTerms) {
+          // Case-insensitive search for locations, case-sensitive for characters (uppercase)
+          const isUpper = term === term.toUpperCase();
+          let count = 0;
+          let idx = 0;
+          while (true) {
+            const found = isUpper
+              ? text.indexOf(term, idx)
+              : text.toLowerCase().indexOf(term.toLowerCase(), idx);
+            if (found === -1) break;
+            count++;
+            idx = found + term.length;
+          }
+          if (count > 0) matches.push({ term, count });
+        }
+
+        if (matches.length > 0) {
+          results.push({
+            doc_type: docMeta.doc_type,
+            document_id: docMeta.id,
+            title: docMeta.title || docMeta.doc_type,
+            matches,
+          });
+        }
+      }
+
+      setRippleResults(results);
+    } catch (err) {
+      console.error('[ripple-scan] Error:', err);
+      setRippleResults([]);
+    } finally {
+      setRippleLoading(false);
+    }
+  }, [report, projectId, sourceDocId]);
 
   if (isLoading || !report) return null;
 
@@ -80,6 +171,7 @@ export function ChangeReportPanel({ projectId }: ChangeReportPanelProps) {
   const impactFlags = report.impact_flags || [];
   const staleDocs = report.stale_docs || [];
   const fixPlan = report.fix_plan || [];
+  const hasRemovedEntities = (report.removed_characters?.length > 0) || (report.removed_locations?.length > 0);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -175,6 +267,49 @@ export function ChangeReportPanel({ projectId }: ChangeReportPanelProps) {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Universe Ripple Scan */}
+          {hasRemovedEntities && (
+            <div className="pt-1 border-t">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 text-[10px] gap-1"
+                onClick={runRippleScan}
+                disabled={rippleLoading}
+              >
+                {rippleLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+                Scan project scripts for references
+              </Button>
+
+              {rippleResults !== null && (
+                <div className="mt-2 space-y-1">
+                  {rippleResults.length === 0 ? (
+                    <div className="text-[10px] text-muted-foreground">No references to removed entities found in other scripts.</div>
+                  ) : (
+                    <>
+                      <div className="font-medium text-[10px] text-amber-600 mb-1">
+                        Found references in {rippleResults.length} document{rippleResults.length !== 1 ? 's' : ''}:
+                      </div>
+                      {rippleResults.map((r, i) => (
+                        <div key={i} className="text-[11px] pl-2 border-l-2 border-amber-300 py-0.5">
+                          <span className="font-medium">{r.title}</span>
+                          <span className="text-muted-foreground"> ({r.doc_type.replace(/_/g, ' ')})</span>
+                          <div className="flex flex-wrap gap-1.5 mt-0.5">
+                            {r.matches.map((m, j) => (
+                              <Badge key={j} variant="outline" className="text-[9px] h-4 px-1 text-amber-600 border-amber-300">
+                                {m.term} ×{m.count}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
