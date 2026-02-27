@@ -826,7 +826,22 @@ Deno.serve(async (req) => {
       if (error || !job) return respond({ job: null, latest_steps: [], next_action_hint: "No job found" });
 
       const { data: steps } = await supabase.from("auto_run_steps").select("*").eq("job_id", job.id).order("step_index", { ascending: false }).limit(10);
-      return respond({ job, latest_steps: (steps || []).reverse(), next_action_hint: getHint(job) });
+
+      // Include seed pack status in response for debugging
+      const seedProjectId = job.project_id || projectId;
+      let seedPackInfo: { present: number; total: number; missing: string[] } | undefined;
+      if (seedProjectId) {
+        const { data: seedDocs } = await supabase
+          .from("project_documents")
+          .select("doc_type")
+          .eq("project_id", seedProjectId)
+          .in("doc_type", SEED_DOC_TYPES);
+        const seedSet = new Set((seedDocs || []).map((d: any) => d.doc_type));
+        const seedMissing = SEED_DOC_TYPES.filter(dt => !seedSet.has(dt));
+        seedPackInfo = { present: SEED_DOC_TYPES.length - seedMissing.length, total: SEED_DOC_TYPES.length, missing: seedMissing };
+      }
+
+      return respond({ job, latest_steps: (steps || []).reverse(), next_action_hint: getHint(job), seed_pack: seedPackInfo });
     }
 
     // ═══════════════════════════════════════

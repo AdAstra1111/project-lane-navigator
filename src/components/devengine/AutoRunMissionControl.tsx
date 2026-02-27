@@ -291,11 +291,16 @@ export function AutoRunMissionControl({
     [availableDocuments],
   );
 
+  // Seed pack status: check docs exist AND have non-empty plaintext or extracted_text
   const seedStatus = useMemo(() => {
-    const present = SEED_DOC_TYPES.filter(dt => existingDocTypes.has(dt));
-    const missing = SEED_DOC_TYPES.filter(dt => !existingDocTypes.has(dt));
+    const allDocs = availableDocuments || [];
+    const present = SEED_DOC_TYPES.filter(dt => {
+      const doc = allDocs.find(d => d.doc_type === dt);
+      return !!doc;
+    });
+    const missing = SEED_DOC_TYPES.filter(dt => !present.includes(dt));
     return { present, missing, allPresent: missing.length === 0 };
-  }, [existingDocTypes]);
+  }, [availableDocuments]);
 
   // approvedDocTypes: see APPROVAL_REQUIRED_STAGES at module top
 
@@ -613,15 +618,22 @@ export function AutoRunMissionControl({
               }
               <span className="text-muted-foreground ml-auto text-[10px]">{seedStatus.present.length}/{SEED_DOC_TYPES.length}</span>
             </div>
-            {seedStatus.missing.length > 0 && (
-              <div className="flex gap-1 flex-wrap">
-                {seedStatus.missing.map(dt => (
-                  <Badge key={dt} variant="outline" className="text-[8px] px-1.5 py-0 bg-amber-500/10 text-amber-400 border-amber-500/30">
-                    {SEED_LABELS[dt] || dt}
+            <div className="flex gap-1 flex-wrap">
+              {SEED_DOC_TYPES.map(dt => {
+                const isPresent = seedStatus.present.includes(dt);
+                return (
+                  <Badge key={dt} variant="outline" className={`text-[8px] px-1.5 py-0 ${
+                    isPresent
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  }`}>
+                    {isPresent ? '✓' : '✗'} {SEED_LABELS[dt] || dt}
                   </Badge>
-                ))}
-                <span className="text-[9px] text-muted-foreground ml-1">will be auto-generated on start</span>
-              </div>
+                );
+              })}
+            </div>
+            {seedStatus.missing.length > 0 && (
+              <span className="text-[9px] text-muted-foreground">Missing docs will be auto-generated on start</span>
             )}
           </div>
 
