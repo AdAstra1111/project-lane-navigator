@@ -190,6 +190,10 @@ export function getCanonicalFilename(opts: {
  * NEVER defaults to "Script" — returns "Document" for unknown types.
  */
 export function getDocTypeLabel(docType: string | null | undefined, format?: string | null): string {
+  // Derived doc types keyed by source doc ID — display friendly labels
+  if (docType?.startsWith('scene_graph__')) return 'Scene Index';
+  if (docType?.startsWith('change_report__')) return 'Change Report';
+
   const normalized = normalizeDocTypeKey(docType);
 
   // Apply format-specific overrides for non-series formats

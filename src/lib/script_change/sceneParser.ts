@@ -10,6 +10,7 @@ export interface ParsedScene {
   start: number;
   end: number;
   preview: string;
+  anchor: string;
 }
 
 /** Standard screenplay heading pattern */
@@ -54,6 +55,7 @@ export function parseScenes(text: string): ParsedScene[] {
 function makeScene(ordinal: number, slugline: string, start: number, end: number, fullText: string): ParsedScene {
   const body = fullText.slice(start, Math.min(end, fullText.length));
   const preview = body.slice(0, 120).replace(/\n/g, ' ').trim();
+  const anchor = body.replace(/\s+/g, ' ').toUpperCase().slice(0, 80).trim();
   return {
     scene_id: simpleHash(`${ordinal}:${slugline}`),
     ordinal,
@@ -61,6 +63,7 @@ function makeScene(ordinal: number, slugline: string, start: number, end: number
     start,
     end,
     preview,
+    anchor,
   };
 }
 

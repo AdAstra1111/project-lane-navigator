@@ -32,8 +32,8 @@ interface DeriveParams {
 
 /**
  * Run deterministic script change derivatives.
- * Derived doc_types are keyed by source doc type to avoid collisions:
- *   scene_graph__feature_script, change_report__episode_script, etc.
+ * Derived doc_types are keyed by source doc ID to avoid collisions:
+ *   scene_graph__<docId>, change_report__<docId>
  */
 export async function deriveScriptChangeArtifacts(params: DeriveParams): Promise<void> {
   const {
@@ -53,9 +53,9 @@ export async function deriveScriptChangeArtifacts(params: DeriveParams): Promise
     const newScenes = parseScenes(normalizedNew);
     const oldScenes = previousPlaintext ? parseScenes(normalizedOld) : [];
 
-    // Keyed derived doc types
-    const sceneGraphDocType = `scene_graph__${sourceDocType}`;
-    const changeReportDocType = `change_report__${sourceDocType}`;
+    // Keyed derived doc types by SOURCE DOC ID
+    const sceneGraphDocType = `scene_graph__${sourceDocId}`;
+    const changeReportDocType = `change_report__${sourceDocId}`;
 
     // Build scene graph JSON
     const sceneGraphJson = {
@@ -118,10 +118,10 @@ export async function deriveScriptChangeArtifacts(params: DeriveParams): Promise
       removed_locations: removedLocations,
     };
 
-    // Upsert docs keyed by source doc type
+    // Upsert docs keyed by source doc ID
     await Promise.all([
-      upsertDerivedDoc(projectId, sceneGraphDocType, `Scene Index (${sourceDocType})`, JSON.stringify(sceneGraphJson, null, 2), actorUserId),
-      upsertDerivedDoc(projectId, changeReportDocType, `Change Report (${sourceDocType})`, JSON.stringify(changeReportJson, null, 2), actorUserId),
+      upsertDerivedDoc(projectId, sceneGraphDocType, 'Scene Index', JSON.stringify(sceneGraphJson, null, 2), actorUserId),
+      upsertDerivedDoc(projectId, changeReportDocType, 'Change Report', JSON.stringify(changeReportJson, null, 2), actorUserId),
     ]);
   } catch (err) {
     console.error('[derive] Failed to create script change artifacts:', err);
@@ -130,12 +130,12 @@ export async function deriveScriptChangeArtifacts(params: DeriveParams): Promise
 
 /**
  * Map old scene ordinals to corresponding new scenes.
- * Match by slugline (case-insensitive), else nearest ordinal.
+ * Match by slugline + anchor similarity, then slugline alone, then nearest ordinal.
  */
 function mapOldOrdinalsToNewScenes(
   oldOrdinals: number[],
-  oldScenes: Array<{ ordinal: number; slugline: string }>,
-  newScenes: Array<{ ordinal: number; slugline: string; scene_id: string }>,
+  oldScenes: Array<{ ordinal: number; slugline: string; anchor?: string }>,
+  newScenes: Array<{ ordinal: number; slugline: string; scene_id: string; anchor?: string }>,
 ) {
   const matched = new Set<number>();
   const result: typeof newScenes = [];
@@ -144,11 +144,24 @@ function mapOldOrdinalsToNewScenes(
     const oldScene = oldScenes.find(s => s.ordinal === ord);
     if (!oldScene) continue;
 
-    // Try slugline match first
     const slugUpper = oldScene.slugline.toUpperCase();
-    let best = newScenes.find(s => s.slugline.toUpperCase() === slugUpper && !matched.has(s.ordinal));
+    const oldAnchor = oldScene.anchor || '';
 
-    // Fallback: nearest ordinal
+    // 1) Slugline + anchor prefix match
+    let best = oldAnchor
+      ? newScenes.find(s =>
+          s.slugline.toUpperCase() === slugUpper &&
+          !matched.has(s.ordinal) &&
+          (s.anchor || '').startsWith(oldAnchor.slice(0, 40))
+        )
+      : undefined;
+
+    // 2) Slugline match only
+    if (!best) {
+      best = newScenes.find(s => s.slugline.toUpperCase() === slugUpper && !matched.has(s.ordinal));
+    }
+
+    // 3) Nearest ordinal fallback
     if (!best) {
       best = newScenes
         .filter(s => !matched.has(s.ordinal))

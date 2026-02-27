@@ -350,9 +350,48 @@ export default function ProjectDevelopmentEngine() {
   }, [convert.isSuccess]);
 
   // When a new version arrives and we have a pending '__next__' marker, resolve it
+  // Also trigger script change derivation for rewrite/convert results
   useEffect(() => {
     if (postOperationVersionId.current === '__next__' && selectedVersionId) {
       postOperationVersionId.current = selectedVersionId;
+
+      // Trigger derivation for rewrite/convert results on script docs
+      if (selectedDoc && isScriptDocType(selectedDoc.doc_type) && projectId && selectedDocId) {
+        (async () => {
+          try {
+            const { data: newVer } = await (supabase as any)
+              .from('project_document_versions')
+              .select('id, plaintext')
+              .eq('id', selectedVersionId)
+              .maybeSingle();
+            if (!newVer?.plaintext) return;
+
+            // Fetch previous version (second newest)
+            const { data: prevVer } = await (supabase as any)
+              .from('project_document_versions')
+              .select('id, plaintext')
+              .eq('document_id', selectedDocId)
+              .neq('id', selectedVersionId)
+              .order('version_number', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            const { data: { user } } = await supabase.auth.getUser();
+            await deriveScriptChangeArtifacts({
+              projectId,
+              sourceDocId: selectedDocId,
+              sourceDocType: selectedDoc.doc_type,
+              newVersionId: selectedVersionId,
+              newPlaintext: newVer.plaintext,
+              previousPlaintext: prevVer?.plaintext || null,
+              previousVersionId: prevVer?.id || null,
+              actorUserId: user?.id || '',
+              existingDocTypes: documents.map(d => d.doc_type),
+            });
+            qcRef.invalidateQueries({ queryKey: ['change-report', projectId, selectedDocId] });
+          } catch { /* non-fatal */ }
+        })();
+      }
     }
   }, [selectedVersionId]);
 
@@ -830,7 +869,7 @@ export default function ProjectDevelopmentEngine() {
           actorUserId: user?.id || '',
           existingDocTypes,
         }).then(() => {
-          qcRef.invalidateQueries({ queryKey: ['change-report', projectId, selectedDoc.doc_type] });
+          qcRef.invalidateQueries({ queryKey: ['change-report', projectId, selectedDocId] });
         }).catch(() => { /* non-fatal */ });
       }
     } catch (e: any) {
@@ -1669,8 +1708,8 @@ export default function ProjectDevelopmentEngine() {
               )}
 
               {/* Change Report Panel — script docs only */}
-              {projectId && selectedDoc && isScriptDocType(selectedDoc.doc_type) && (
-                <ChangeReportPanel projectId={projectId} sourceDocType={selectedDoc.doc_type} sourceDocId={selectedDocId || undefined} />
+              {projectId && selectedDocId && selectedDoc && isScriptDocType(selectedDoc.doc_type) && (
+                <ChangeReportPanel projectId={projectId} sourceDocId={selectedDocId} sourceDocType={selectedDoc.doc_type} />
               )}
 
               {/* ═══ UNIFIED BIG BUTTON: Apply All Notes & Decisions ═══ */}

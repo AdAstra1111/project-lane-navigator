@@ -14,8 +14,8 @@ import { isScriptDocType } from '@/lib/script_change';
 
 interface ChangeReportPanelProps {
   projectId: string;
+  sourceDocId: string;
   sourceDocType: string;
-  sourceDocId?: string;
 }
 
 interface RippleMatch {
@@ -43,15 +43,16 @@ const FLAG_COLORS: Record<string, string> = {
   TONE_SHIFT: 'text-purple-500',
 };
 
-export function ChangeReportPanel({ projectId, sourceDocType, sourceDocId }: ChangeReportPanelProps) {
+export function ChangeReportPanel({ projectId, sourceDocId, sourceDocType }: ChangeReportPanelProps) {
   const [open, setOpen] = useState(false);
   const [rippleResults, setRippleResults] = useState<RippleMatch[] | null>(null);
   const [rippleLoading, setRippleLoading] = useState(false);
 
-  const derivedDocType = `change_report__${sourceDocType}`;
+  // Keyed by source doc ID
+  const derivedDocType = `change_report__${sourceDocId}`;
 
   const { data: report, isLoading } = useQuery({
-    queryKey: ['change-report', projectId, sourceDocType],
+    queryKey: ['change-report', projectId, sourceDocId],
     queryFn: async () => {
       const { data: doc } = await (supabase as any)
         .from('project_documents')
@@ -79,7 +80,7 @@ export function ChangeReportPanel({ projectId, sourceDocType, sourceDocId }: Cha
         return null;
       }
     },
-    enabled: !!projectId && !!sourceDocType,
+    enabled: !!projectId && !!sourceDocId,
     staleTime: 30_000,
   });
 
