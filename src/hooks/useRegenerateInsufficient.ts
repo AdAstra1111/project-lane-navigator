@@ -1,15 +1,17 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
+export type RegenReason = 'stub_marker' | 'too_short' | 'missing_current_version';
+
 export interface RegenResult {
   doc_type: string;
   document_id: string | null;
-  old_version_id: string | null;
-  new_version_id: string | null;
-  reason: string;
-  chars: number;
-  retry_used: boolean;
-  upstream: string;
+  reason: RegenReason;
+  char_before: number;
+  char_after: number;
+  regenerated: boolean;
+  error?: string;
+  upstream?: string | null;
 }
 
 export interface RegenSkipped {
@@ -23,6 +25,7 @@ export interface RegenSummary {
   dry_run: boolean;
   scanned: number;
   regenerated: RegenResult[];
+  results?: RegenResult[];
   skipped: RegenSkipped[];
 }
 

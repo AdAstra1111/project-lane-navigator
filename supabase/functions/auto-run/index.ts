@@ -190,23 +190,91 @@ function checkInputReadiness(counts: DocCharCount[]): { ready: boolean; missing_
     }
   }
 
-  // Seed docs: just need to exist with non-stub content (short is a warning, not a blocker)
-  const seedMissing = SEED_DOC_TYPES.filter(dt => {
+  // Seed docs: require non-stub current versions. Short/placeholder seed docs are insufficient.
+  const seedInsufficient = SEED_DOC_TYPES.map(dt => {
     const c = counts.find(cc => cc.doc_type === dt);
-    return !c || !c.has_doc || !c.has_current_version;
-  });
-  if (seedMissing.length > 0) {
-    for (const dt of seedMissing) {
-      const c = counts.find(cc => cc.doc_type === dt);
-      missing.push(`${dt}(${c?.has_doc ? c.char_count + 'chars' : 'missing'})`);
-    }
-  }
+    if (!c || !c.has_doc) return `${dt}(missing)`;
+    if (!c.has_current_version) return `${dt}(missing_current_version)`;
+    if (containsStubMarker(c.plaintext)) return `${dt}(stub)`;
+    if (c.char_count < MIN_SEED_CHARS_FOR_INPUT) return `${dt}(${c.char_count}chars)`;
+    return null;
+  }).filter((v): v is string => !!v);
+  missing.push(...seedInsufficient);
 
   const summary = missing.length > 0
     ? `INPUT_INCOMPLETE | missing=${missing.join(", ")}`
     : "inputs_ready";
 
   return { ready: missing.length === 0, missing_fields: missing, summary };
+}
+
+async function attemptAutoRegenInputs(
+  supabase: any,
+  supabaseUrl: string,
+  token: string,
+  jobId: string,
+  stepIndex: number,
+  currentDoc: string,
+  projectId: string,
+  insufficients: string[],
+  trigger: "start_gate" | "run_next_gate" | "stub_at_current_stage",
+): Promise<{ ok: boolean; regenResult: any; error?: string }> {
+  try {
+    const regenResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action: "regenerate-insufficient-docs", projectId, dryRun: false }),
+    });
+
+    const raw = await regenResp.text();
+    let regenResult: any = {};
+    try {
+      regenResult = raw ? JSON.parse(raw) : {};
+    } catch {
+      regenResult = { parse_error: true, raw: raw.slice(0, 300) };
+    }
+
+    const ok = regenResp.ok && regenResult?.success !== false && !regenResult?.error;
+    const regeneratedCount = Array.isArray(regenResult?.regenerated) ? regenResult.regenerated.length : 0;
+
+    await logStep(
+      supabase,
+      jobId,
+      stepIndex,
+      currentDoc,
+      "auto_regen_inputs",
+      ok
+        ? `Auto-regenerated ${regeneratedCount} docs`
+        : `Auto-regeneration attempted but failed (${regenResp.status})`,
+      {},
+      undefined,
+      { trigger, insufficients, regen_result: regenResult, http_status: regenResp.status },
+    );
+
+    if (!ok) {
+      const err = regenResult?.error || `HTTP ${regenResp.status}`;
+      console.error("[auto-run] auto-regen failed", { jobId, trigger, err });
+      return { ok: false, regenResult, error: String(err) };
+    }
+
+    console.log("[auto-run] auto-regen result", { jobId, trigger, regenerated: regeneratedCount, skipped: regenResult?.skipped?.length || 0 });
+    return { ok: true, regenResult };
+  } catch (e: any) {
+    const err = e?.message || "unknown_error";
+    await logStep(
+      supabase,
+      jobId,
+      stepIndex,
+      currentDoc,
+      "auto_regen_inputs",
+      `Auto-regeneration threw error: ${err}`,
+      {},
+      undefined,
+      { trigger, insufficients, error: err },
+    );
+    console.error("[auto-run] auto-regen threw", { jobId, trigger, err });
+    return { ok: false, regenResult: null, error: err };
+  }
 }
 
 /**
@@ -439,6 +507,7 @@ const STUB_MARKERS = [
   "draft stub",
   "generate full",
   "generate from dev engine",
+  "from dev engine",
   "todo",
   "[insert",
   "[1–2 sentences]",
@@ -1398,26 +1467,26 @@ Deno.serve(async (req) => {
         const inputCounts = await getDocCharCounts(supabase, projectId, INPUT_DOC_TYPES);
         let inputCheck = checkInputReadiness(inputCounts);
         if (!inputCheck.ready) {
-          // Attempt auto-regeneration of insufficient docs before pausing
           console.log("[auto-run] INPUT_INCOMPLETE at start — attempting auto-regen", { jobId: job.id, missing: inputCheck.missing_fields });
-          try {
-            const regenResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ action: "regenerate-insufficient-docs", projectId, dryRun: false }),
-            });
-            const regenResult = await regenResp.json();
-            console.log("[auto-run] auto-regen result", { regenerated: regenResult?.regenerated?.length || 0, skipped: regenResult?.skipped?.length || 0 });
-            await logStep(supabase, job.id, 1, effectiveStartDoc, "auto_regen_inputs",
-              `Auto-regenerated ${regenResult?.regenerated?.length || 0} docs`,
-              {}, undefined, { regen_result: regenResult }
-            );
-            // Re-check readiness after regeneration
-            const inputCounts2 = await getDocCharCounts(supabase, projectId, INPUT_DOC_TYPES);
-            inputCheck = checkInputReadiness(inputCounts2);
-          } catch (regenErr: any) {
-            console.error("[auto-run] auto-regen failed:", regenErr.message);
+          const regenAttempt = await attemptAutoRegenInputs(
+            supabase,
+            supabaseUrl,
+            token,
+            job.id,
+            1,
+            effectiveStartDoc,
+            projectId,
+            inputCheck.missing_fields,
+            "start_gate",
+          );
+
+          if (!regenAttempt.ok) {
+            console.warn("[auto-run] start auto-regen did not resolve inputs", { jobId: job.id, error: regenAttempt.error });
           }
+
+          // Re-check readiness after regeneration attempt
+          const inputCounts2 = await getDocCharCounts(supabase, projectId, INPUT_DOC_TYPES);
+          inputCheck = checkInputReadiness(inputCounts2);
         }
         if (!inputCheck.ready) {
           console.warn("[auto-run] INPUT_INCOMPLETE at start (after regen attempt)", { jobId: job.id, missing: inputCheck.missing_fields });
@@ -2456,26 +2525,26 @@ Deno.serve(async (req) => {
         const inputCounts = await getDocCharCounts(supabase, job.project_id, INPUT_DOC_TYPES);
         let inputCheck = checkInputReadiness(inputCounts);
         if (!inputCheck.ready) {
-          // Attempt auto-regeneration before pausing
           console.log("[auto-run] INPUT_INCOMPLETE — attempting auto-regen", { jobId, missing: inputCheck.missing_fields });
-          try {
-            const regenResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ action: "regenerate-insufficient-docs", projectId: job.project_id, dryRun: false }),
-            });
-            const regenResult = await regenResp.json();
-            console.log("[auto-run] auto-regen result", { regenerated: regenResult?.regenerated?.length || 0 });
-            await logStep(supabase, jobId, stepCount + 1, currentDoc, "auto_regen_inputs",
-              `Auto-regenerated ${regenResult?.regenerated?.length || 0} docs`,
-              {}, undefined, { regen_result: regenResult }
-            );
-            // Re-check
-            const inputCounts2 = await getDocCharCounts(supabase, job.project_id, INPUT_DOC_TYPES);
-            inputCheck = checkInputReadiness(inputCounts2);
-          } catch (regenErr: any) {
-            console.error("[auto-run] auto-regen failed:", regenErr.message);
+          const regenAttempt = await attemptAutoRegenInputs(
+            supabase,
+            supabaseUrl,
+            token,
+            jobId,
+            stepCount + 1,
+            currentDoc,
+            job.project_id,
+            inputCheck.missing_fields,
+            "run_next_gate",
+          );
+
+          if (!regenAttempt.ok) {
+            console.warn("[auto-run] run-next auto-regen did not resolve inputs", { jobId, error: regenAttempt.error });
           }
+
+          // Re-check after regeneration attempt
+          const inputCounts2 = await getDocCharCounts(supabase, job.project_id, INPUT_DOC_TYPES);
+          inputCheck = checkInputReadiness(inputCounts2);
         }
         if (!inputCheck.ready) {
           console.warn("[auto-run] INPUT_INCOMPLETE (after regen attempt)", { jobId, missing: inputCheck.missing_fields });
@@ -2916,33 +2985,37 @@ Deno.serve(async (req) => {
       const docIsStub = reviewCharCount === 0 || !isDownstreamDocSufficient(currentDoc, reviewText);
       if (docIsStub) {
         console.log(`[auto-run] current doc ${currentDoc} is stub/insufficient (${reviewCharCount} chars) — attempting auto-regen`);
-        try {
-          const regenResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ action: "regenerate-insufficient-docs", projectId: job.project_id, dryRun: false }),
-          });
-          const regenResult = await regenResp.json();
-          const regenCount = regenResult?.regenerated?.length || 0;
-          console.log(`[auto-run] auto-regen for stub doc: regenerated=${regenCount}`);
-          await logStep(supabase, jobId, stepCount + 1, currentDoc, "auto_regen_inputs",
-            `Auto-regenerated ${regenCount} docs (current stage ${currentDoc} was stub)`,
-            {}, undefined, { regen_result: regenResult, trigger: "stub_at_current_stage" }
-          );
 
-          // Re-fetch the doc's current version after regen
-          const { data: regenVers } = await supabase.from("project_document_versions")
-            .select("id, plaintext, version_number")
-            .eq("document_id", doc.id)
-            .eq("is_current", true)
-            .limit(1);
-          if (regenVers?.[0]) {
-            latestVersion = regenVers[0];
-            reviewText = latestVersion.plaintext || "";
-            reviewCharCount = reviewText.length;
-          }
-        } catch (regenErr: any) {
-          console.error("[auto-run] auto-regen for stub failed:", regenErr.message);
+        const stageInsufficients = [
+          `${currentDoc}(${reviewCharCount === 0 ? "missing_current_version" : "stub_or_too_short"})`,
+        ];
+
+        const regenAttempt = await attemptAutoRegenInputs(
+          supabase,
+          supabaseUrl,
+          token,
+          jobId,
+          stepCount + 1,
+          currentDoc,
+          job.project_id,
+          stageInsufficients,
+          "stub_at_current_stage",
+        );
+
+        if (!regenAttempt.ok) {
+          console.warn("[auto-run] auto-regen for current stub doc failed", { jobId, currentDoc, error: regenAttempt.error });
+        }
+
+        // Re-fetch the doc's current version after regen
+        const { data: regenVers } = await supabase.from("project_document_versions")
+          .select("id, plaintext, version_number")
+          .eq("document_id", doc.id)
+          .eq("is_current", true)
+          .limit(1);
+        if (regenVers?.[0]) {
+          latestVersion = regenVers[0];
+          reviewText = latestVersion.plaintext || "";
+          reviewCharCount = reviewText.length;
         }
       }
 
