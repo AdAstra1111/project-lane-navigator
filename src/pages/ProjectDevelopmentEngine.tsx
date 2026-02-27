@@ -792,6 +792,21 @@ export default function ProjectDevelopmentEngine() {
     if (!selectedVersionId || editableText === versionText) return;
     setIsSavingText(true);
     try {
+      // Fetch previous plaintext before overwriting
+      let previousPlaintext: string | null = null;
+      let previousVersionId: string | null = null;
+      if (selectedDoc && isScriptDocType(selectedDoc.doc_type)) {
+        const { data: prevVer } = await (supabase as any)
+          .from('project_document_versions')
+          .select('id, plaintext')
+          .eq('id', selectedVersionId)
+          .maybeSingle();
+        if (prevVer?.plaintext && prevVer.plaintext !== editableText) {
+          previousPlaintext = prevVer.plaintext;
+          previousVersionId = prevVer.id;
+        }
+      }
+
       const { error } = await (supabase as any)
         .from('project_document_versions')
         .update({ plaintext: editableText })
@@ -810,12 +825,12 @@ export default function ProjectDevelopmentEngine() {
           sourceDocType: selectedDoc.doc_type,
           newVersionId: selectedVersionId,
           newPlaintext: editableText,
-          previousPlaintext: versionText !== editableText ? versionText : null,
-          previousVersionId: null,
+          previousPlaintext,
+          previousVersionId,
           actorUserId: user?.id || '',
           existingDocTypes,
         }).then(() => {
-          qcRef.invalidateQueries({ queryKey: ['change-report', projectId] });
+          qcRef.invalidateQueries({ queryKey: ['change-report', projectId, selectedDoc.doc_type] });
         }).catch(() => { /* non-fatal */ });
       }
     } catch (e: any) {
@@ -1655,7 +1670,7 @@ export default function ProjectDevelopmentEngine() {
 
               {/* Change Report Panel — script docs only */}
               {projectId && selectedDoc && isScriptDocType(selectedDoc.doc_type) && (
-                <ChangeReportPanel projectId={projectId} />
+                <ChangeReportPanel projectId={projectId} sourceDocType={selectedDoc.doc_type} sourceDocId={selectedDocId || undefined} />
               )}
 
               {/* ═══ UNIFIED BIG BUTTON: Apply All Notes & Decisions ═══ */}
