@@ -942,6 +942,10 @@ const FORMAT_ALIASES: Record<string, string> = {
   "hybrid": "film",
   "podcast-ip": "digital-series",
   "commercial": "short",
+  "b2-a": "vertical-drama",
+  "b2a": "vertical-drama",
+  "vertical": "vertical-drama",
+  "vertical_drama": "vertical-drama",
 };
 
 function resolveFormatAlias(format: string): string {
@@ -12847,7 +12851,7 @@ CRITICAL:
       // Resolve project format + ladder
       const { data: proj } = await supabase.from("projects")
         .select("format, assigned_lane, title").eq("id", projectId).single();
-      const fmt = (proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const fmt = resolveFormatAlias((proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
       const ladder = getLadderForFormat(fmt);
 
       const SEED_CORE_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"] as const;
@@ -12958,6 +12962,10 @@ CRITICAL:
         canon: ["concept_brief", "idea", "treatment"],
         nec: ["concept_brief", "idea", "treatment"],
         beat_sheet: ["concept_brief", "idea", "topline_narrative", "treatment"],
+        season_arc: ["concept_brief", "character_bible", "topline_narrative"],
+        episode_grid: ["season_arc", "character_bible", "format_rules", "concept_brief"],
+        vertical_episode_beats: ["episode_grid", "season_arc", "character_bible", "format_rules"],
+        episode_script: ["vertical_episode_beats", "episode_grid", "season_arc", "character_bible"],
       };
 
       const findUpstream = (stage: string): { upstreamDocId: string; upstreamVersionId: string; upstreamType: string } | null => {
@@ -13163,7 +13171,7 @@ No stubs, no placeholders, no TODO markers.`;
       // Reuse scan logic from regenerate-insufficient-docs
       const { data: proj } = await supabase.from("projects")
         .select("format, assigned_lane, title").eq("id", projectId).single();
-      const fmt = (proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const fmt = resolveFormatAlias((proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
       const ladder = getLadderForFormat(fmt);
 
       const SEED_CORE_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"] as const;
@@ -13208,6 +13216,10 @@ No stubs, no placeholders, no TODO markers.`;
         canon: ["concept_brief", "idea", "treatment"],
         nec: ["concept_brief", "idea", "treatment"],
         beat_sheet: ["concept_brief", "idea", "topline_narrative", "treatment"],
+        season_arc: ["concept_brief", "character_bible", "topline_narrative"],
+        episode_grid: ["season_arc", "character_bible", "format_rules", "concept_brief"],
+        vertical_episode_beats: ["episode_grid", "season_arc", "character_bible", "format_rules"],
+        episode_script: ["vertical_episode_beats", "episode_grid", "season_arc", "character_bible"],
       };
       const findUpstreamType = (stage: string): string | null => {
         const candidates: string[] = [];
@@ -13365,7 +13377,7 @@ No stubs, no placeholders, no TODO markers.`;
       const projectId = job.project_id;
       const { data: proj } = await supabase.from("projects")
         .select("format, assigned_lane, title").eq("id", projectId).single();
-      const fmt = (proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const fmt = resolveFormatAlias((proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
       const ladder = getLadderForFormat(fmt);
 
       const SEED_CORE_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"] as const;
@@ -13398,6 +13410,10 @@ No stubs, no placeholders, no TODO markers.`;
         canon: ["concept_brief", "idea", "treatment"],
         nec: ["concept_brief", "idea", "treatment"],
         beat_sheet: ["concept_brief", "idea", "topline_narrative", "treatment"],
+        season_arc: ["concept_brief", "character_bible", "topline_narrative"],
+        episode_grid: ["season_arc", "character_bible", "format_rules", "concept_brief"],
+        vertical_episode_beats: ["episode_grid", "season_arc", "character_bible", "format_rules"],
+        episode_script: ["vertical_episode_beats", "episode_grid", "season_arc", "character_bible"],
       };
       const findUpstream = (stage: string): { upstreamDocId: string; upstreamVersionId: string; upstreamType: string } | null => {
         const candidates: string[] = [];
@@ -13433,6 +13449,66 @@ No stubs, no placeholders, no TODO markers.`;
         return null;
       };
 
+      const EPISODE_COUNT_DOCS = new Set(["episode_grid", "vertical_episode_beats"]);
+      const needsEpisodeCountValidation = (queuedItems || []).some((it: any) => EPISODE_COUNT_DOCS.has(it.doc_type));
+      let canonicalEpisodeCount: number | null = null;
+      let parseEpisodeGridFn: ((gridText: string) => Array<{ index: number }>) | null = null;
+
+      if (needsEpisodeCountValidation) {
+        try {
+          const episodeCountMod = await import("../_shared/episode-count.ts");
+          const canonical = await episodeCountMod.getCanonicalEpisodeCountOrThrow(supabase, projectId);
+          canonicalEpisodeCount = canonical.episodeCount;
+          parseEpisodeGridFn = episodeCountMod.parseEpisodeGrid;
+          console.log(`[regen-tick] canonical episode count resolved: ${canonicalEpisodeCount} (locked=${canonical.locked})`);
+        } catch (e: any) {
+          console.error(`[regen-tick] failed to resolve canonical episode count: ${e?.message || e}`);
+        }
+      }
+
+      const extractEpisodeNumbers = (text: string): number[] => {
+        const hits = new Set<number>();
+        const patterns = [
+          /\bEP(?:ISODE)?\s*0?(\d{1,3})\b/gi,
+          /^\s*\|\s*(\d{1,3})\s*\|/gm,
+          /^\s*(?:#+\s*)?Episode\s*0?(\d{1,3})\b/gmi,
+        ];
+
+        for (const rx of patterns) {
+          let m: RegExpExecArray | null;
+          while ((m = rx.exec(text)) !== null) {
+            const n = parseInt(m[1], 10);
+            if (n >= 1 && n <= 300) hits.add(n);
+          }
+        }
+
+        return Array.from(hits).sort((a, b) => a - b);
+      };
+
+      const validateEpisodeCoverage = (docType: string, text: string): string | null => {
+        if (!EPISODE_COUNT_DOCS.has(docType)) return null;
+        if (canonicalEpisodeCount == null) return "missing_canonical_episode_count";
+
+        let found: number[] = [];
+        if (docType === "episode_grid" && parseEpisodeGridFn) {
+          found = parseEpisodeGridFn(text)
+            .map((e: any) => e.index)
+            .filter((n: number) => Number.isInteger(n) && n >= 1 && n <= 300);
+        } else {
+          found = extractEpisodeNumbers(text);
+        }
+
+        const foundSet = new Set(found);
+        const expected = Array.from({ length: canonicalEpisodeCount }, (_, i) => i + 1);
+        const missing = expected.filter((n) => !foundSet.has(n));
+        const extras = Array.from(foundSet).filter((n) => n > canonicalEpisodeCount!);
+
+        if (missing.length > 0 || extras.length > 0 || foundSet.size !== canonicalEpisodeCount) {
+          return `episode_count_mismatch expected=${canonicalEpisodeCount} found=${foundSet.size} missing=${missing.slice(0, 8).join(",")}${missing.length > 8 ? "..." : ""} extras=${extras.slice(0, 5).join(",")}`;
+        }
+        return null;
+      };
+
       const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
@@ -13462,11 +13538,26 @@ No stubs, no placeholders, no TODO markers.`;
 
           const targetOutput = stage.toUpperCase();
           const necBlock = await loadNECGuardrailBlock(supabase, projectId);
+          const isEpisodeCountDoc = EPISODE_COUNT_DOCS.has(stage);
+
+          if (isEpisodeCountDoc && canonicalEpisodeCount == null) {
+            throw new Error("EPISODE_COUNT_NOT_SET");
+          }
+
+          const episodeCountBlock = isEpisodeCountDoc && canonicalEpisodeCount != null
+            ? `
+CANONICAL EPISODE COUNT (HARD REQUIREMENT):
+- This project has EXACTLY ${canonicalEpisodeCount} episodes.
+- You MUST include every episode from 1 through ${canonicalEpisodeCount}.
+- Do NOT stop early, summarize ranges, or collapse episodes (e.g., "Episodes 11-30").
+- Do NOT output any episode number above ${canonicalEpisodeCount}.`
+            : "";
 
           const userPrompt = `SOURCE FORMAT: ${upstream.upstreamType}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA): []
 ${necBlock}
+${episodeCountBlock}
 
 CRITICAL: Produce a FULL, COMPLETE ${stage.replace(/_/g, " ")} document.
 Do NOT produce stubs, placeholders, or TODO markers.
@@ -13480,15 +13571,15 @@ ${upstreamText}`;
           let convertedText = (parsed?.converted_text || "").trim();
           let retryUsed = false;
 
-          let outputReason = validateOutput(stage, convertedText);
+          let outputReason = validateOutput(stage, convertedText) || validateEpisodeCoverage(stage, convertedText);
           if (outputReason) {
             retryUsed = true;
-            const retryPrompt = `${userPrompt}\n\nRETRY INSTRUCTION: Previous output was insufficient (${outputReason}). Produce the FULL document now.`;
+            const retryPrompt = `${userPrompt}\n\nRETRY INSTRUCTION: Previous output was insufficient (${outputReason}). Produce the FULL document now with complete episode coverage.`;
             const raw2 = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, CONVERT_SYSTEM_JSON, retryPrompt, 0.35, 10000);
             const parsed2 = await parseAIJson(LOVABLE_API_KEY, raw2);
             const retryText = (parsed2?.converted_text || "").trim();
-            if (retryText.length > convertedText.length) convertedText = retryText;
-            outputReason = validateOutput(stage, convertedText);
+            if (retryText.length > convertedText.length || isEpisodeCountDoc) convertedText = retryText;
+            outputReason = validateOutput(stage, convertedText) || validateEpisodeCoverage(stage, convertedText);
           }
 
           if (outputReason) throw new Error(`Output still insufficient (${outputReason}, ${convertedText.length} chars)`);
