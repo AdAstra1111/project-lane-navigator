@@ -119,6 +119,12 @@ export const ALL_DOC_TYPE_LABELS: Record<string, string> = {
   research_dossier: 'Research Dossier',
   script_coverage: 'Script Coverage',
   trailer_script: 'Trailer Script',
+  // Seed core docs
+  project_overview: 'Project Overview',
+  market_positioning: 'Market Positioning',
+  canon: 'Canon & Constraints',
+  nec: 'Narrative Energy Contract',
+  // Fallbacks
   other: 'Document',
   document: 'Document',
 };

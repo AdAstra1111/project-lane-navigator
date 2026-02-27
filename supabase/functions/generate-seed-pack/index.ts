@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, extractJSON, MODELS } from "../_shared/llm.ts";
+import { upsertDoc, SEED_CORE_TYPES } from "../_shared/doc-os.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -409,7 +410,7 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
       .in("doc_type", SEED_DOC_CONFIGS.map(c => c.doc_type));
     const preExistingSet = new Set((preExistingDocs || []).map((d: any) => d.doc_type));
 
-    // Create/update documents
+    // Create/update documents using canonical doc-os helpers
     const createdDocs: { title: string; doc_type: string; document_id: string; version_number: number }[] = [];
     let necDocumentId: string | null = null;
     let insertedCount = 0;
@@ -419,103 +420,32 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
       const content = contentMap[cfg.key];
       if (!content) continue;
 
-      const { data: existing } = await adminClient
-        .from("project_documents")
-        .select("id")
-        .eq("project_id", projectId)
-        .eq("doc_type", cfg.doc_type)
-        .limit(1);
+      try {
+        const result = await upsertDoc(adminClient, {
+          projectId,
+          userId: user.id,
+          docType: cfg.doc_type,
+          plaintext: content,
+          label: `seed_v1`,
+          approvalStatus: "draft",
+          metaJson: parsed.provenance,
+          source: "seed",
+          title: cfg.title,
+        });
 
-      let documentId: string;
-
-      if (existing && existing.length > 0) {
-        documentId = existing[0].id;
-
-        const { data: maxVer } = await adminClient
-          .from("project_document_versions")
-          .select("version_number")
-          .eq("document_id", documentId)
-          .order("version_number", { ascending: false })
-          .limit(1);
-
-        const nextVersion = (maxVer?.[0]?.version_number || 0) + 1;
-
-        await adminClient
-          .from("project_document_versions")
-          .update({ is_current: false })
-          .eq("document_id", documentId)
-          .eq("is_current", true);
-
-        const { error: vErr } = await adminClient
-          .from("project_document_versions")
-          .insert({
-            document_id: documentId,
-            version_number: nextVersion,
-            plaintext: content,
-            is_current: true,
-            status: "draft",
-            label: `seed_v${nextVersion}`,
-            created_by: user.id,
-            approval_status: "draft",
-            meta_json: parsed.provenance,
-          });
-
-        if (vErr) {
-          console.error(`[generate-seed-pack] version insert failed for ${cfg.title}:`, vErr);
-          continue;
+        if (result.isNewDoc) {
+          insertedCount++;
+        } else {
+          updatedCount++;
         }
+        createdDocs.push({ title: cfg.title, doc_type: cfg.doc_type, document_id: result.documentId, version_number: result.versionNumber });
 
-        updatedCount++;
-        createdDocs.push({ title: cfg.title, doc_type: cfg.doc_type, document_id: documentId, version_number: nextVersion });
-      } else {
-        const { data: newDoc, error: docErr } = await adminClient
-          .from("project_documents")
-          .insert({
-            project_id: projectId,
-            user_id: user.id,
-            title: cfg.title,
-            doc_type: cfg.doc_type,
-            ingestion_source: "seed",
-            is_primary: false,
-            file_name: `seed:${cfg.doc_type}`,
-            file_path: "",
-            extraction_status: "complete",
-          })
-          .select("id")
-          .single();
-
-        if (docErr || !newDoc) {
-          console.error(`[generate-seed-pack] doc insert failed for ${cfg.title}:`, docErr);
-          continue;
+        if (cfg.key === "narrative_energy_contract") {
+          necDocumentId = result.documentId;
         }
-
-        documentId = newDoc.id;
-
-        const { error: vErr } = await adminClient
-          .from("project_document_versions")
-          .insert({
-            document_id: documentId,
-            version_number: 1,
-            plaintext: content,
-            is_current: true,
-            status: "draft",
-            label: "seed_v1",
-            created_by: user.id,
-            approval_status: "draft",
-            meta_json: parsed.provenance,
-          });
-
-        if (vErr) {
-          console.error(`[generate-seed-pack] version insert failed for ${cfg.title}:`, vErr);
-          continue;
-        }
-
-        insertedCount++;
-        createdDocs.push({ title: cfg.title, doc_type: cfg.doc_type, document_id: documentId, version_number: 1 });
-      }
-
-      if (cfg.key === "narrative_energy_contract") {
-        necDocumentId = documentId;
+      } catch (err: any) {
+        console.error(`[generate-seed-pack] upsertDoc failed for ${cfg.title}:`, err.message);
+        continue;
       }
     }
 
