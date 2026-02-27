@@ -7,15 +7,19 @@
 export interface UniverseManifestV1 {
   schema_version: 1;
   universe_assets?: string[];
-  seasons?: Array<{
-    season: number;
-    season_assets?: string[];
-    episodes: Array<{
-      episode: number;
-      title?: string;
-      doc_ids: string[];
-    }>;
-  }>;
+  seasons?: ManifestSeasonV1[];
+}
+
+export interface ManifestSeasonV1 {
+  season: number;
+  season_assets?: string[];
+  episodes: ManifestEpisodeV1[];
+}
+
+export interface ManifestEpisodeV1 {
+  episode: number;
+  doc_ids: string[];
+  title?: string;
 }
 
 export interface ManifestParseResult {
@@ -35,6 +39,11 @@ function epKey(s: number, e: number): string {
   return `S${String(s).padStart(2, '0')}E${String(e).padStart(2, '0')}`;
 }
 
+function uniqStrings(arr: any): string[] {
+  if (!Array.isArray(arr)) return [];
+  return [...new Set(arr.filter((x: any) => typeof x === 'string') as string[])];
+}
+
 export function parseUniverseManifest(plaintext: string): ManifestParseResult {
   const errors: string[] = [];
 
@@ -42,7 +51,7 @@ export function parseUniverseManifest(plaintext: string): ManifestParseResult {
   try {
     raw = JSON.parse(plaintext);
   } catch (e: any) {
-    return { ok: false, errors: [`Invalid JSON: ${e.message}`] };
+    return { ok: false, errors: [`Invalid JSON: ${e?.message || 'parse error'}`] };
   }
 
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -50,8 +59,10 @@ export function parseUniverseManifest(plaintext: string): ManifestParseResult {
   }
 
   if (raw.schema_version !== 1) {
-    errors.push(`Expected schema_version 1, got ${JSON.stringify(raw.schema_version)}`);
-    return { ok: false, errors };
+    return {
+      ok: false,
+      errors: [`Expected schema_version 1, got ${JSON.stringify(raw.schema_version)}`],
+    };
   }
 
   const manifest: UniverseManifestV1 = { schema_version: 1 };
@@ -61,7 +72,7 @@ export function parseUniverseManifest(plaintext: string): ManifestParseResult {
     if (!Array.isArray(raw.universe_assets)) {
       errors.push('universe_assets must be an array');
     } else {
-      manifest.universe_assets = [...new Set(raw.universe_assets.filter((x: any) => typeof x === 'string') as string[])];
+      manifest.universe_assets = uniqStrings(raw.universe_assets);
     }
   }
 
@@ -70,42 +81,58 @@ export function parseUniverseManifest(plaintext: string): ManifestParseResult {
     if (!Array.isArray(raw.seasons)) {
       errors.push('seasons must be an array');
     } else {
-      manifest.seasons = [];
+      const seasons: ManifestSeasonV1[] = [];
       for (let si = 0; si < raw.seasons.length; si++) {
         const s = raw.seasons[si];
-        if (typeof s !== 'object' || s === null) {
+        if (typeof s !== 'object' || s === null || Array.isArray(s)) {
           errors.push(`seasons[${si}] must be an object`);
           continue;
         }
-        if (typeof s.season !== 'number') {
+        if (typeof s.season !== 'number' || !Number.isFinite(s.season)) {
           errors.push(`seasons[${si}].season must be a number`);
           continue;
         }
-        const season: UniverseManifestV1['seasons'] extends (infer T)[] | undefined ? NonNullable<T> : never = {
+        const season: ManifestSeasonV1 = {
           season: s.season,
           season_assets: [],
           episodes: [],
         };
-        if (Array.isArray(s.season_assets)) {
-          season.season_assets = [...new Set(s.season_assets.filter((x: any) => typeof x === 'string') as string[])];
-        }
-        if (Array.isArray(s.episodes)) {
-          for (let ei = 0; ei < s.episodes.length; ei++) {
-            const ep = s.episodes[ei];
-            if (typeof ep !== 'object' || ep === null) continue;
-            if (typeof ep.episode !== 'number') {
-              errors.push(`seasons[${si}].episodes[${ei}].episode must be a number`);
-              continue;
-            }
-            season.episodes.push({
-              episode: ep.episode,
-              title: typeof ep.title === 'string' ? ep.title : undefined,
-              doc_ids: Array.isArray(ep.doc_ids) ? [...new Set(ep.doc_ids.filter((x: any) => typeof x === 'string') as string[])] : [],
-            });
+        if (s.season_assets !== undefined) {
+          if (!Array.isArray(s.season_assets)) {
+            errors.push(`seasons[${si}].season_assets must be an array`);
+          } else {
+            season.season_assets = uniqStrings(s.season_assets);
           }
         }
-        manifest.seasons.push(season);
+        if (s.episodes !== undefined) {
+          if (!Array.isArray(s.episodes)) {
+            errors.push(`seasons[${si}].episodes must be an array`);
+          } else {
+            for (let ei = 0; ei < s.episodes.length; ei++) {
+              const ep = s.episodes[ei];
+              if (typeof ep !== 'object' || ep === null || Array.isArray(ep)) {
+                errors.push(`seasons[${si}].episodes[${ei}] must be an object`);
+                continue;
+              }
+              if (typeof ep.episode !== 'number' || !Number.isFinite(ep.episode)) {
+                errors.push(`seasons[${si}].episodes[${ei}].episode must be a number`);
+                continue;
+              }
+              const episode: ManifestEpisodeV1 = {
+                episode: ep.episode,
+                title: typeof ep.title === 'string' ? ep.title : undefined,
+                doc_ids: Array.isArray(ep.doc_ids) ? uniqStrings(ep.doc_ids) : [],
+              };
+              if (ep.doc_ids !== undefined && !Array.isArray(ep.doc_ids)) {
+                errors.push(`seasons[${si}].episodes[${ei}].doc_ids must be an array`);
+              }
+              season.episodes.push(episode);
+            }
+          }
+        }
+        seasons.push(season);
       }
+      manifest.seasons = seasons;
     }
   }
 
@@ -131,12 +158,12 @@ export function manifestDocIds(m: UniverseManifestV1): ManifestIndices {
       seasonSet.add(id);
     }
 
-    for (const ep of s.episodes) {
+    for (const ep of s.episodes || []) {
       const key = epKey(s.season, ep.episode);
       const epSet = byEpisode.get(key) || new Set<string>();
       byEpisode.set(key, epSet);
 
-      for (const id of ep.doc_ids) {
+      for (const id of ep.doc_ids || []) {
         universe.add(id);
         seasonSet.add(id);
         epSet.add(id);
@@ -149,16 +176,18 @@ export function manifestDocIds(m: UniverseManifestV1): ManifestIndices {
 }
 
 /** Seed template for new manifest */
-export const MANIFEST_TEMPLATE = JSON.stringify({
-  schema_version: 1,
-  universe_assets: [],
-  seasons: [
-    {
-      season: 1,
-      season_assets: [],
-      episodes: [
-        { episode: 1, title: "Episode 1", doc_ids: [] }
-      ]
-    }
-  ]
-}, null, 2);
+export const MANIFEST_TEMPLATE = JSON.stringify(
+  {
+    schema_version: 1,
+    universe_assets: [],
+    seasons: [
+      {
+        season: 1,
+        season_assets: [],
+        episodes: [{ episode: 1, title: 'Episode 1', doc_ids: [] }],
+      },
+    ],
+  },
+  null,
+  2
+);
