@@ -2754,19 +2754,16 @@ Deno.serve(async (req) => {
       const scheduled = waitUntilSafe(bgTask);
 
       if (scheduled) {
-        console.log("[auto-run] run-next returning early (dev-engine in background)", { jobId });
-        return respondWithJob(supabase, jobId, "run-next");
+        console.log("[auto-run] run-next returning early (bg scheduled via waitUntil)", { jobId });
       } else {
-        // Fallback: time-budgeted approach
-        if (Date.now() - _t0 > 800) {
-          console.log("[auto-run] run-next time-budget early return (no bg runtime)", { jobId });
-          return respondWithJob(supabase, jobId, "continue");
-        }
-        // Within budget — await synchronously
-        await bgTask;
-        console.log("[auto-run] run-next complete", { jobId });
-        return respondWithJob(supabase, jobId);
+        // No waitUntil available — fire-and-forget; bgTask writes to DB,
+        // polling client will pick up results. Catch errors so unhandled
+        // rejection doesn't crash the isolate.
+        bgTask.catch((e: any) => console.error("[auto-run] bgTask unhandled", e?.message || e));
+        console.log("[auto-run] run-next returning early (fire-and-forget, no waitUntil)", { jobId });
       }
+      // Always return immediately — heavy work continues in background
+      return respondWithJob(supabase, jobId, "run-next");
     }
 
     return respond({ error: `Unknown action: ${action}` }, 400);
