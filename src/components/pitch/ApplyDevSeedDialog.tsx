@@ -405,7 +405,23 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           .eq('project_id', project.id);
       }
 
-      // 8. Invalidate queries
+      // 8. Auto-fill stubs: call regenerate-insufficient-docs to replace stubs with real content
+      if (applyDocs) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({ action: 'regenerate-insufficient-docs', projectId: project.id, dryRun: false }),
+            });
+          }
+        } catch (regenErr) {
+          console.warn('Auto-fill stubs after seed failed (non-fatal):', regenErr);
+        }
+      }
+
+      // 9. Invalidate queries
       qc.invalidateQueries({ queryKey: ['projects'] });
       qc.invalidateQueries({ queryKey: ['pitch-ideas'] });
 
