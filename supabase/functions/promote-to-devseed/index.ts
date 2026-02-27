@@ -214,10 +214,33 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
       // Non-fatal — still return the payload
     }
 
-    // Update pitch idea status
+    // Auto-extract episode count from format_summary and persist as devseed canon
+    const rawResponse = idea.raw_response || {};
+    const formatSummary = rawResponse.format_summary || rawResponse.format || '';
+    let extractedEpCount: number | null = null;
+    const epMatch = formatSummary.match(/(\d+)\s*x\s*/i) || formatSummary.match(/(\d+)\s*episodes/i);
+    if (epMatch) extractedEpCount = parseInt(epMatch[1]);
+
+    const updatePayload: Record<string, any> = { status: "in-development" };
+    
+    // Persist canon if we extracted an episode count and none is set yet
+    const existingCanon = idea.devseed_canon_json || {};
+    if (extractedEpCount && extractedEpCount > 0 && !existingCanon.season_episode_count) {
+      updatePayload.devseed_canon_json = {
+        ...existingCanon,
+        season_episode_count: extractedEpCount,
+        format: idea.production_type || 'vertical-drama',
+        locked: true,
+        locked_at: new Date().toISOString(),
+        source: 'format_summary_auto',
+      };
+      console.log(`[promote-to-devseed] Auto-persisted canon episode count: ${extractedEpCount} from format_summary`);
+    }
+
+    // Update pitch idea status (and canon if extracted)
     await supabase
       .from("pitch_ideas")
-      .update({ status: "in-development" })
+      .update(updatePayload)
       .eq("id", pitchIdeaId);
 
     return new Response(JSON.stringify({
