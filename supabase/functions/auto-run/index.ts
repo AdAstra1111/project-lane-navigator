@@ -840,8 +840,15 @@ Deno.serve(async (req) => {
       // Sanitize target_document — "draft" and "coverage" are legacy aliases, never real targets
       const rawTarget = target_document || "production_draft";
       const targetDoc = canonicalDocType(rawTarget);
-      // Validate both are on the format's ladder
-      if (!isOnLadder(startDoc, fmt)) return respond({ error: `Invalid start_document: ${startDoc} (not on ${fmt} ladder)` }, 400);
+      // Validate both are on the format's ladder (graceful fallback for start_document)
+      let effectiveStartDoc = startDoc;
+      if (!isOnLadder(startDoc, fmt)) {
+        const ladder = getLadderForJob(fmt);
+        // Find nearest valid stage: walk all stages, pick the last one whose conceptual position <= startDoc
+        // Fallback: use the first stage on the ladder
+        effectiveStartDoc = ladder[0];
+        console.warn(`start_document "${startDoc}" not on ${fmt} ladder — using "${effectiveStartDoc}"`);
+      }
       if (!isOnLadder(targetDoc, fmt)) {
         // Graceful fallback: use last stage on the ladder
         const ladder = getLadderForJob(fmt);
@@ -854,7 +861,7 @@ Deno.serve(async (req) => {
       const effectiveMaxSteps = max_total_steps ?? modeConf.max_total_steps;
 
       // ── Preflight qualification resolver at start ──
-      const preflight = await runPreflight(supabase, projectId, fmt, startDoc, true);
+      const preflight = await runPreflight(supabase, projectId, fmt, effectiveStartDoc, true);
 
       // ── Ensure seed pack docs exist before downstream generation ──
       const seedResult = await ensureSeedPack(supabase, supabaseUrl, projectId, token);
@@ -864,25 +871,25 @@ Deno.serve(async (req) => {
         project_id: projectId,
         status: "running",
         mode: mode || "balanced",
-        start_document: startDoc,
+        start_document: effectiveStartDoc,
         target_document: targetDoc,
-        current_document: startDoc,
+        current_document: effectiveStartDoc,
         max_stage_loops: effectiveMaxLoops,
         max_total_steps: effectiveMaxSteps,
       }).select("*").single();
 
       if (error) throw new Error(`Failed to create job: ${error.message}`);
 
-      await logStep(supabase, job.id, 0, startDoc, "start", `Auto-run started: ${startDoc} → ${targetDoc} (${mode || "balanced"} mode)`);
+      await logStep(supabase, job.id, 0, effectiveStartDoc, "start", `Auto-run started: ${effectiveStartDoc} → ${targetDoc} (${mode || "balanced"} mode)`);
 
       if (seedResult.ensured) {
-        await logStep(supabase, job.id, 0, startDoc, "seed_pack_ensured",
+        await logStep(supabase, job.id, 0, effectiveStartDoc, "seed_pack_ensured",
           `Seed pack generated for missing docs: ${seedResult.missing.join(", ")}`,
         );
       }
 
       if (preflight.changed) {
-        await logStep(supabase, job.id, 0, startDoc, "preflight_resolve",
+        await logStep(supabase, job.id, 0, effectiveStartDoc, "preflight_resolve",
           `Resolved qualifications: ${Object.keys(preflight.resolved).join(", ")} → ${JSON.stringify(preflight.resolved)}`,
         );
       }
