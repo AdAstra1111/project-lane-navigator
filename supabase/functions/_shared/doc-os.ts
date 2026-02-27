@@ -50,12 +50,12 @@ export const SEED_CORE_TYPES = Object.entries(DOC_TYPE_REGISTRY)
   .filter(([_, c]) => c.is_seed_core)
   .map(([k]) => k);
 
-/** Resolve a doc_type to its canonical config. Returns 'other' config for unknown types. */
+/** Resolve a doc_type to its canonical config. Throws for unknown types to prevent stray slots. */
 export function resolveDocType(docType: string): { key: string; config: DocTypeConfig } {
   if (DOC_TYPE_REGISTRY[docType]) {
     return { key: docType, config: DOC_TYPE_REGISTRY[docType] };
   }
-  return { key: "other", config: DOC_TYPE_REGISTRY.other };
+  throw new Error(`resolveDocType: unknown doc_type "${docType}". Must be one of: ${Object.keys(DOC_TYPE_REGISTRY).join(", ")}`);
 }
 
 // ── Canonical Doc Slot (upsert) ──
