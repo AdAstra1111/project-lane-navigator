@@ -1633,7 +1633,11 @@ Deno.serve(async (req) => {
       const choiceValue = body.selectedValue || "yes";
 
       const decision = pending.find((d: any) => d.id === choiceId);
-      if (!decision) return respond({ error: `Decision ${choiceId} not found in pending_decisions` }, 404);
+      if (!decision) {
+        // Decision is stale — return current job state so UI can refresh
+        console.warn(`[auto-run] Stale decision: ${choiceId} not in pending_decisions [${pending.map((d:any)=>d.id).join(",")}]`);
+        return respondWithJob(supabase, jobId, "stale-decision");
+      }
 
       const stepCount = job.step_count + 1;
       const currentDoc = job.current_document as DocStage;
