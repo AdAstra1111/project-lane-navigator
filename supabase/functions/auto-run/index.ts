@@ -1685,6 +1685,111 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════
+    // ACTION: approve-seed-core
+    // ═══════════════════════════════════════
+    if (action === "approve-seed-core") {
+      const pId = body.projectId || projectId;
+      if (!pId) return respond({ error: "projectId required" }, 400);
+
+      // 1. Find all 5 seed docs
+      const { data: seedDocs } = await supabase
+        .from("project_documents")
+        .select("id, doc_type")
+        .eq("project_id", pId)
+        .in("doc_type", SEED_DOC_TYPES);
+
+      const docMap = new Map<string, string>();
+      for (const d of (seedDocs || [])) {
+        if (!docMap.has(d.doc_type)) docMap.set(d.doc_type, d.id);
+      }
+
+      const missingDocs = SEED_DOC_TYPES.filter(dt => !docMap.has(dt));
+      if (missingDocs.length > 0) {
+        return respond({ success: false, stop_reason: "SEED_CORE_MISSING", missing_docs: missingDocs, missing_current_versions: [] });
+      }
+
+      // 2. Find current versions
+      const docIds = Array.from(docMap.values());
+      const { data: curVersions } = await supabase
+        .from("project_document_versions")
+        .select("id, document_id, approval_status")
+        .in("document_id", docIds)
+        .eq("is_current", true);
+
+      const versionMap = new Map<string, { id: string; approval_status: string }>();
+      for (const v of (curVersions || [])) {
+        versionMap.set(v.document_id, { id: v.id, approval_status: v.approval_status });
+      }
+
+      const missingCurrentVersions: string[] = [];
+      for (const dt of SEED_DOC_TYPES) {
+        const docId = docMap.get(dt)!;
+        if (!versionMap.has(docId)) missingCurrentVersions.push(dt);
+      }
+
+      if (missingCurrentVersions.length > 0) {
+        return respond({ success: false, stop_reason: "SEED_CORE_MISSING", missing_docs: [], missing_current_versions: missingCurrentVersions });
+      }
+
+      // 3. Approve all 5 current versions
+      const approvedVersionIds: string[] = [];
+      const approvedDocTypes: string[] = [];
+      for (const dt of SEED_DOC_TYPES) {
+        const docId = docMap.get(dt)!;
+        const ver = versionMap.get(docId)!;
+        if (ver.approval_status !== "approved") {
+          await supabase
+            .from("project_document_versions")
+            .update({ approval_status: "approved", approved_at: new Date().toISOString(), approved_by: userId })
+            .eq("id", ver.id);
+        }
+        approvedVersionIds.push(ver.id);
+        approvedDocTypes.push(dt);
+      }
+
+      console.log(`[auto-run] approve-seed-core: approved ${approvedDocTypes.length} seed docs for project ${pId}`);
+
+      // 4. If job_id provided and paused on seed gate, resume it
+      let resumedJob = null;
+      if (jobId) {
+        const { data: jRow } = await supabase
+          .from("auto_run_jobs")
+          .select("*")
+          .eq("id", jobId)
+          .eq("user_id", userId)
+          .single();
+
+        if (jRow && jRow.status === "paused" && jRow.stop_reason === "SEED_CORE_NOT_OFFICIAL") {
+          await updateJob(supabase, jobId, {
+            status: "running",
+            stop_reason: null,
+            error: null,
+            awaiting_approval: false,
+            approval_type: null,
+            approval_payload: null,
+          });
+
+          const stepCount = (jRow.step_count || 0) + 1;
+          await logStep(supabase, jobId, stepCount, jRow.current_document, "seed_core_approved",
+            `Seed core officialized — ${approvedDocTypes.length} docs approved`,
+            {}, undefined, { approved_doc_types: approvedDocTypes, approved_version_ids: approvedVersionIds }
+          );
+          await updateJob(supabase, jobId, { step_count: stepCount });
+
+          const { data: updated } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+          resumedJob = updated;
+        }
+      }
+
+      return respond({
+        success: true,
+        approved_doc_types: approvedDocTypes,
+        approved_version_ids: approvedVersionIds,
+        job: resumedJob,
+      });
+    }
+
+    // ═══════════════════════════════════════
     // ACTION: approve-next
     // ═══════════════════════════════════════
     if (action === "approve-next") {

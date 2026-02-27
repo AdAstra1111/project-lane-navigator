@@ -273,6 +273,33 @@ export function useAutoRun(projectId: string | undefined) {
     abortRef.current = true;
   }, []);
 
+  const approveSeedCore = useCallback(async () => {
+    if (!projectId) return null;
+    setError(null);
+    abortRef.current = false;
+    try {
+      const result = await callAutoRun('approve-seed-core', {
+        projectId,
+        jobId: job?.id,
+      });
+      if (result.job) {
+        setJob(result.job);
+        // If job resumed to running, start the loop
+        if (result.job.status === 'running') {
+          await new Promise(r => setTimeout(r, 300));
+          runLoopRef.current?.(result.job.id);
+        }
+      }
+      // Invalidate seed status + docs
+      qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
+      qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+      return result;
+    } catch (e: any) {
+      setError(e.message);
+      return null;
+    }
+  }, [projectId, job, qc]);
+
   const getPendingDoc = useCallback(async () => {
     if (!job) return null;
     try {
@@ -328,5 +355,5 @@ export function useAutoRun(projectId: string | undefined) {
     }
   }, [job, isRunning]);
 
-  return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear, approveDecision, getPendingDoc, approveNext, applyDecisionsAndContinue };
+  return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear, approveDecision, getPendingDoc, approveNext, applyDecisionsAndContinue, approveSeedCore };
 }
