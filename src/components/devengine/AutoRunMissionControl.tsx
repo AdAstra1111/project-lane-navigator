@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRegenerateInsufficient, type RegenSummary } from '@/hooks/useRegenerateInsufficient';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
+import { useQueryClient } from '@tanstack/react-query';
 import { buildSeedSummary, type SeedSummary } from '@/lib/seedSummary';
 import { getLadderForFormat } from '@/lib/stages/registry';
 import { useNavigate } from 'react-router-dom';
@@ -267,7 +268,7 @@ export function AutoRunMissionControl({
   availableDocuments, project, approvedVersionMap = {},
 }: AutoRunMissionControlProps) {
   const navigate = useNavigate();
-  const [mode, setMode] = useState('balanced');
+  const qc = useQueryClient();
   const [safeMode, setSafeMode] = useState(true);
   const [startDocument, setStartDocument] = useState(currentDeliverable as string);
 
@@ -571,9 +572,30 @@ export function AutoRunMissionControl({
     }
   }, [onApproveSeedCore]);
 
+  const regenDryRunItems = useMemo(
+    () => (regen.dryRunResult?.results?.length ? regen.dryRunResult.results : (regen.dryRunResult?.regenerated || [])),
+    [regen.dryRunResult],
+  );
+
+  const regenAppliedItems = useMemo(
+    () => (regen.result?.results?.length
+      ? regen.result.results.filter(r => r.regenerated)
+      : (regen.result?.regenerated || [])),
+    [regen.result],
+  );
+
+  const invalidateAfterRegen = useCallback(async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] }),
+      qc.invalidateQueries({ queryKey: ['dev-v2-versions'] }),
+      qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] }),
+    ]);
+  }, [projectId, qc]);
+
   const handleRegenScan = useCallback(async () => {
     const res = await regen.scan();
-    if (res && res.regenerated.length > 0) {
+    const dryItems = (res?.results?.length ? res.results : (res?.regenerated || []));
+    if (res && dryItems.length > 0) {
       setShowRegenConfirm(true);
     } else if (res) {
       toast({ title: 'All docs sufficient', description: `Scanned ${res.scanned} stages — no stubs found.` });
@@ -583,12 +605,19 @@ export function AutoRunMissionControl({
   const handleRegenConfirm = useCallback(async () => {
     setShowRegenConfirm(false);
     const res = await regen.regenerate();
-    if (res?.regenerated?.length) {
-      toast({ title: `Regenerated ${res.regenerated.length} doc${res.regenerated.length > 1 ? 's' : ''}`, description: res.regenerated.map(r => r.doc_type.replace(/_/g, ' ')).join(', ') });
+    const fixedItems = (res?.results?.length
+      ? res.results.filter(r => r.regenerated)
+      : (res?.regenerated || []));
+    await invalidateAfterRegen();
+    if (fixedItems.length > 0) {
+      toast({
+        title: `Regenerated ${fixedItems.length} doc${fixedItems.length > 1 ? 's' : ''}`,
+        description: fixedItems.map(r => r.doc_type.replace(/_/g, ' ')).join(', '),
+      });
     } else {
       toast({ title: 'No docs regenerated' });
     }
-  }, [regen]);
+  }, [invalidateAfterRegen, regen]);
 
   const handleReInfer = useCallback(() => {
     setInferLoading(true);
@@ -825,14 +854,14 @@ export function AutoRunMissionControl({
             <div className="p-2.5 rounded-md border border-amber-500/30 bg-amber-500/5 space-y-2">
               <div className="flex items-center gap-1.5 text-xs text-amber-400 font-medium">
                 <AlertTriangle className="h-3.5 w-3.5" />
-                {regen.dryRunResult.regenerated.length} doc{regen.dryRunResult.regenerated.length > 1 ? 's' : ''} will be regenerated
+                {regenDryRunItems.length} doc{regenDryRunItems.length > 1 ? 's' : ''} will be regenerated
               </div>
               <div className="space-y-1">
-                {regen.dryRunResult.regenerated.map(r => (
+                {regenDryRunItems.map(r => (
                   <div key={r.doc_type} className="flex items-center justify-between text-[10px]">
                     <span className="font-medium">{LADDER_LABELS[r.doc_type] || r.doc_type.replace(/_/g, ' ')}</span>
                     <Badge variant="outline" className="text-[8px] px-1 py-0 bg-destructive/10 text-destructive border-destructive/30">
-                      {r.reason.split('(')[0]}
+                      {r.reason.replace(/_/g, ' ')}
                     </Badge>
                   </div>
                 ))}
@@ -849,16 +878,16 @@ export function AutoRunMissionControl({
           )}
 
           {/* Regen results */}
-          {regen.result && regen.result.regenerated.length > 0 && (
+          {regen.result && regenAppliedItems.length > 0 && (
             <div className="p-2.5 rounded-md border border-emerald-500/20 bg-emerald-500/5 space-y-1.5">
               <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                Regenerated {regen.result.regenerated.length} doc{regen.result.regenerated.length > 1 ? 's' : ''}
+                Regenerated {regenAppliedItems.length} doc{regenAppliedItems.length > 1 ? 's' : ''}
               </div>
-              {regen.result.regenerated.map(r => (
+              {regenAppliedItems.map(r => (
                 <div key={r.doc_type} className="flex items-center justify-between text-[10px]">
                   <span>{LADDER_LABELS[r.doc_type] || r.doc_type.replace(/_/g, ' ')}</span>
-                  <span className="text-muted-foreground">{r.chars.toLocaleString()} chars{r.retry_used ? ' (retry)' : ''}</span>
+                  <span className="text-muted-foreground">{r.char_after.toLocaleString()} chars</span>
                 </div>
               ))}
               <Button size="sm" variant="ghost" className="h-6 text-[9px] w-full" onClick={regen.clear}>Dismiss</Button>
@@ -1070,19 +1099,12 @@ export function AutoRunMissionControl({
                       variant="outline"
                       className="h-6 text-[9px] gap-1"
                       disabled={regen.loading}
-                      onClick={async () => {
-                        const dry = await regen.scan();
-                        if (dry && dry.regenerated?.length > 0) {
-                          const result = await regen.regenerate();
-                          if (result?.success) {
-                            toast({ title: 'Inputs regenerated', description: `Fixed ${result.regenerated?.length || 0} docs. Try resuming.` });
-                          }
-                        } else {
-                          toast({ title: 'No fixable docs found', description: 'Manual input may be needed.', variant: 'destructive' });
-                        }
-                      }}
+                      onClick={handleRegenScan}
                     >
-                      {regen.loading ? <><Loader2 className="h-3 w-3 animate-spin" /> Fixing…</> : <><RotateCcw className="h-3 w-3" /> Fix Inputs</>}
+                      {regen.loading
+                        ? <><Loader2 className="h-3 w-3 animate-spin" /> Scanning…</>
+                        : <><RotateCcw className="h-3 w-3" /> Fix Inputs (Regenerate Insufficient Docs)</>
+                      }
                     </Button>
                   )}
                 </div>

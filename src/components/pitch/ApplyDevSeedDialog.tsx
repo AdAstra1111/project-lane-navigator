@@ -405,28 +405,30 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           .eq('project_id', project.id);
       }
 
-      // 8. Auto-fill stubs: call regenerate-insufficient-docs to replace stubs with real content
+      // 8. Auto-fill stubs: run server regeneration and require successful completion before navigation
+      let regenResult: any = null;
       if (applyDocs) {
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session) {
-            await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-              body: JSON.stringify({ action: 'regenerate-insufficient-docs', projectId: project.id, dryRun: false }),
-            });
-          }
-        } catch (regenErr) {
-          console.warn('Auto-fill stubs after seed failed (non-fatal):', regenErr);
-        }
+        const { data, error } = await supabase.functions.invoke('dev-engine-v2', {
+          body: { action: 'regenerate-insufficient-docs', projectId: project.id, dryRun: false },
+        });
+        if (error) throw new Error(error.message || 'Failed to finalize starter docs');
+        if (data?.error) throw new Error(data.error);
+        if (data?.success === false) throw new Error('Failed to finalize starter docs');
+        regenResult = data;
       }
 
-      // 9. Invalidate queries
-      qc.invalidateQueries({ queryKey: ['projects'] });
-      qc.invalidateQueries({ queryKey: ['pitch-ideas'] });
+      // 9. Invalidate list + docs + seed status before opening Dev Engine
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['projects'] }),
+        qc.invalidateQueries({ queryKey: ['pitch-ideas'] }),
+        qc.invalidateQueries({ queryKey: ['dev-v2-docs', project.id] }),
+        qc.invalidateQueries({ queryKey: ['dev-v2-versions'] }),
+        qc.invalidateQueries({ queryKey: ['seed-pack-versions', project.id] }),
+      ]);
 
       const parts: string[] = ['Project created'];
       if (applyDocs) parts.push('docs seeded');
+      if (applyDocs && regenResult?.regenerated?.length) parts.push(`autofilled ${regenResult.regenerated.length} docs`);
       parts.push('canon planted');
       if (applyPrefs) parts.push('lane prefs set');
       toast.success(parts.join(', '));
