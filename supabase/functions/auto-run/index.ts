@@ -55,6 +55,54 @@ function nextDoc(current: string, format: string): string | null {
 // ── Seed Pack doc types ──
 const SEED_DOC_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"];
 
+// ── Seed Core Official check ──
+interface SeedCoreOfficialResult {
+  official: boolean;
+  missing: string[];
+  unapproved: string[];
+}
+
+async function isSeedCoreOfficial(supabase: any, projectId: string): Promise<SeedCoreOfficialResult> {
+  const { data: docs } = await supabase
+    .from("project_documents")
+    .select("id, doc_type")
+    .eq("project_id", projectId)
+    .in("doc_type", SEED_DOC_TYPES);
+
+  const docMap = new Map<string, string>();
+  for (const d of (docs || [])) {
+    if (!docMap.has(d.doc_type)) docMap.set(d.doc_type, d.id);
+  }
+
+  const missing = SEED_DOC_TYPES.filter(dt => !docMap.has(dt));
+  if (missing.length > 0) {
+    return { official: false, missing, unapproved: [] };
+  }
+
+  const docIds = Array.from(docMap.values());
+  const { data: versions } = await supabase
+    .from("project_document_versions")
+    .select("document_id, approval_status")
+    .in("document_id", docIds)
+    .eq("is_current", true);
+
+  const approvedDocIds = new Set(
+    (versions || [])
+      .filter((v: any) => v.approval_status === "approved")
+      .map((v: any) => v.document_id)
+  );
+
+  const unapproved: string[] = [];
+  for (const dt of SEED_DOC_TYPES) {
+    const docId = docMap.get(dt)!;
+    if (!approvedDocIds.has(docId)) {
+      unapproved.push(dt);
+    }
+  }
+
+  return { official: unapproved.length === 0, missing: [], unapproved };
+}
+
 // ── Input readiness thresholds ──
 const MIN_IDEA_CHARS = 200;
 const MIN_CONCEPT_BRIEF_CHARS = 200;
@@ -2469,6 +2517,25 @@ Deno.serve(async (req) => {
 
       // If no document exists for current stage, generate one
       if (!doc) {
+        // ── SEED CORE OFFICIAL GATE ──
+        // Before deriving a downstream doc, ensure seed core is approved
+        const seedCheck = await isSeedCoreOfficial(supabase, job.project_id);
+        if (!seedCheck.official) {
+          const gateStep = stepCount + 1;
+          await logStep(supabase, jobId, gateStep, currentDoc, "seed_core_block",
+            `Seed core not official — missing: [${seedCheck.missing.join(",")}], unapproved: [${seedCheck.unapproved.join(",")}]`
+          );
+          await updateJob(supabase, jobId, {
+            status: "paused",
+            stop_reason: "SEED_CORE_NOT_OFFICIAL",
+            awaiting_approval: true,
+            approval_type: "seed_core_officialize",
+            step_count: gateStep,
+            error: JSON.stringify({ missing_seed_docs: seedCheck.missing, unapproved_seed_docs: seedCheck.unapproved }),
+          });
+          return respondWithJob(supabase, jobId, "seed-core-not-official");
+        }
+
         const runNextLadder = getLadderForJob(format);
         const ladderIdx = runNextLadder.indexOf(currentDoc);
         if (ladderIdx <= 0) {

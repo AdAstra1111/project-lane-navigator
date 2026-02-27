@@ -201,94 +201,9 @@ function getStageGateDefaults(productionType: string) {
   ];
 }
 
-const TOPLINE_TEMPLATE = `# Topline Narrative
-
-## Logline
-
-[1–2 sentences]
-
-## Short Synopsis
-
-[150–300 words]
-
-## Long Synopsis
-
-[~1–2 pages]
-
-## Story Pillars
-
-- Theme:
-- Protagonist:
-- Goal:
-- Stakes:
-- Antagonistic force:
-- Setting:
-- Tone:
-- Comps:
-
-## Series Only
-
-- Series promise / engine:
-- Season arc snapshot:
-`;
-
-async function ensureToplineNarrative(supabase: any, projectId: string, userId: string) {
-  // Idempotent: check if topline doc already exists
-  const { data: existing } = await supabase
-    .from("project_documents")
-    .select("id")
-    .eq("project_id", projectId)
-    .eq("doc_type", "topline_narrative")
-    .limit(1);
-
-  if (existing && existing.length > 0) return { documentId: existing[0].id, created: false };
-
-  // Create project_documents row (file_name + file_path are required NOT NULL)
-  const { data: doc, error: docErr } = await supabase
-    .from("project_documents")
-    .insert({
-      project_id: projectId,
-      user_id: userId,
-      doc_type: "topline_narrative",
-      title: "Topline Narrative",
-      file_name: "topline_narrative.md",
-      file_path: `${projectId}/topline_narrative.md`,
-    })
-    .select("id")
-    .single();
-
-  if (docErr) {
-    console.error("Failed to create topline doc:", docErr.message);
-    return null;
-  }
-
-  // Create initial version — matching dev-engine-v2 insert shape
-  const { data: version, error: verErr } = await supabase
-    .from("project_document_versions")
-    .insert({
-      document_id: doc.id,
-      version_number: 1,
-      plaintext: TOPLINE_TEMPLATE,
-      created_by: userId,
-      label: "Initial template",
-      deliverable_type: "topline_narrative",
-    })
-    .select("id")
-    .single();
-
-  if (verErr) {
-    console.error("Failed to create topline version:", verErr.message);
-    return null;
-  }
-
-  // Set latest_version_id
-  await supabase
-    .from("project_documents")
-    .update({ latest_version_id: version.id })
-    .eq("id", doc.id);
-
-  return { documentId: doc.id, versionId: version.id, created: true };
-}
+// REMOVED: TOPLINE_TEMPLATE and ensureToplineNarrative
+// Topline narrative is no longer auto-created as a stub template.
+// It should be derived from official seed core via dev-engine-v2 when needed.
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -468,8 +383,8 @@ serve(async (req) => {
     }));
     await supabase.from("stage_gates").insert(gateRows);
 
-    // STEP 9: Auto-create Topline Narrative document
-    await ensureToplineNarrative(supabase, projectId, user.id);
+    // STEP 9: Topline Narrative — no longer auto-created as template stub.
+    // Will be derived from official seed core when needed.
 
     return new Response(JSON.stringify({ projectId }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
