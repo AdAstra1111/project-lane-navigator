@@ -13578,6 +13578,395 @@ ${upstreamText}`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ══════════════════════════════════════════════════════════════
+    // SERIES SCRIPTS: START
+    // ══════════════════════════════════════════════════════════════
+    if (action === "series-scripts-start") {
+      const { projectId: pid, dryRun: isDry, force: isForce, episodeStart, episodeEnd } = body;
+      if (!pid) throw new Error("projectId required");
+
+      // Load project
+      const { data: proj } = await supabase.from("projects")
+        .select("format, assigned_lane, title, episode_count")
+        .eq("id", pid).single();
+      if (!proj) throw new Error("Project not found");
+
+      const fmt = (proj.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const isSeriesLike = ["series","vertical-drama","vertical_drama","limited-series","mini-series","anthology"].includes(fmt);
+      if (!isSeriesLike) throw new Error(`Project format '${fmt}' is not a series. Cannot generate season scripts.`);
+
+      const lane = proj.assigned_lane || (fmt.includes("vertical") ? "vertical_drama" : "series");
+      const isVertical = lane === "vertical_drama" || fmt.includes("vertical");
+
+      // Load episode_grid to get episode count and loglines
+      const { data: gridDoc } = await supabase.from("project_documents")
+        .select("id").eq("project_id", pid).eq("doc_type", "episode_grid").limit(1);
+      let episodeGrid: any[] = [];
+      let episodeCount = proj.episode_count || 0;
+
+      if (gridDoc && gridDoc.length > 0) {
+        const { data: gridVer } = await supabase.from("project_document_versions")
+          .select("plaintext").eq("document_id", gridDoc[0].id).eq("is_current", true).limit(1);
+        const gridText = gridVer?.[0]?.plaintext || "";
+        // Parse episode entries from grid
+        const epMatches = gridText.match(/(?:episode|ep\.?\s*)\s*(\d+)[:\s\-–—]+(.*?)(?=\n(?:episode|ep\.?\s*)\s*\d+|\n\n|$)/gi);
+        if (epMatches) {
+          for (const m of epMatches) {
+            const numMatch = m.match(/(\d+)/);
+            const num = numMatch ? parseInt(numMatch[1]) : episodeGrid.length + 1;
+            const titleMatch = m.match(/\d+[:\s\-–—]+\s*"?([^"\n]+)"?/);
+            episodeGrid.push({ index: num, title: titleMatch?.[1]?.trim() || `Episode ${num}`, logline: m.trim() });
+          }
+          if (episodeGrid.length > episodeCount) episodeCount = episodeGrid.length;
+        }
+      }
+
+      if (episodeCount === 0) {
+        // Try season_arc
+        const { data: arcDoc } = await supabase.from("project_documents")
+          .select("id").eq("project_id", pid).eq("doc_type", "season_arc").limit(1);
+        if (arcDoc && arcDoc.length > 0) {
+          const { data: arcVer } = await supabase.from("project_document_versions")
+            .select("plaintext").eq("document_id", arcDoc[0].id).eq("is_current", true).limit(1);
+          const arcText = arcVer?.[0]?.plaintext || "";
+          const countMatch = arcText.match(/(\d+)\s*episodes/i);
+          if (countMatch) episodeCount = parseInt(countMatch[1]);
+        }
+      }
+
+      if (episodeCount === 0) episodeCount = isVertical ? 30 : 8; // Defaults
+
+      const startEp = episodeStart || 1;
+      const endEp = episodeEnd || episodeCount;
+
+      // Check existing episode scripts
+      const { data: existingDocs } = await supabase.from("project_documents")
+        .select("id, meta_json, doc_type")
+        .eq("project_id", pid).eq("doc_type", "episode_script");
+
+      const existingByEp = new Map<number, string>();
+      for (const d of (existingDocs || [])) {
+        const epIdx = (d.meta_json as any)?.episode_index;
+        if (epIdx != null) existingByEp.set(epIdx, d.id);
+      }
+
+      // Check current versions for existing docs
+      const existingDocIds = Array.from(existingByEp.values());
+      let currentVersionsByDocId = new Map<string, any>();
+      if (existingDocIds.length > 0) {
+        const { data: vers } = await supabase.from("project_document_versions")
+          .select("id, document_id, plaintext")
+          .in("document_id", existingDocIds).eq("is_current", true);
+        for (const v of (vers || [])) currentVersionsByDocId.set(v.document_id, v);
+      }
+
+      const STUB_MARKERS = ["draft stub","generate full","generate from dev engine","todo","[insert","placeholder"];
+      const containsStub = (text: string) => STUB_MARKERS.some(m => text.toLowerCase().includes(m));
+      const MIN_CHARS = isVertical ? 1200 : 2500;
+
+      // Build items
+      const items: any[] = [];
+      for (let ep = startEp; ep <= endEp; ep++) {
+        const docId = existingByEp.get(ep) || null;
+        const ver = docId ? currentVersionsByDocId.get(docId) : null;
+        const plaintext = (ver?.plaintext || "").trim();
+        const charBefore = plaintext.length;
+
+        let reason: string | null = null;
+        if (!docId || !ver) reason = "missing_current_version";
+        else if (containsStub(plaintext)) reason = "stub_marker";
+        else if (charBefore < MIN_CHARS) reason = "too_short";
+
+        if (!reason && !isForce) continue;
+        if (!reason && isForce) reason = "forced";
+
+        const gridEntry = episodeGrid.find(e => e.index === ep);
+        items.push({
+          doc_type: "episode_script",
+          document_id: docId,
+          reason,
+          char_before: charBefore,
+          episode_index: ep,
+          episode_title: gridEntry?.title || `Episode ${ep}`,
+          target_doc_type: "episode_script",
+          meta_json: { logline: gridEntry?.logline || null, lane, is_vertical: isVertical },
+        });
+      }
+
+      const isDryRun = isDry === true;
+      const { data: job, error: jobErr } = await supabase.from("regen_jobs").insert({
+        project_id: pid,
+        created_by: userId,
+        status: isDryRun ? "complete" : (items.length > 0 ? "queued" : "complete"),
+        dry_run: isDryRun,
+        force: isForce === true,
+        total_count: items.length,
+        completed_count: isDryRun ? items.length : 0,
+        job_type: "generate_series_scripts",
+      }).select().single();
+      if (jobErr) throw new Error(`Failed to create series scripts job: ${jobErr.message}`);
+
+      if (items.length > 0) {
+        const rows = items.map(it => ({
+          job_id: job.id,
+          doc_type: it.doc_type,
+          document_id: it.document_id,
+          reason: it.reason,
+          status: isDryRun ? "preview" : "queued",
+          char_before: it.char_before,
+          char_after: 0,
+          episode_index: it.episode_index,
+          episode_title: it.episode_title,
+          target_doc_type: it.target_doc_type,
+          meta_json: it.meta_json,
+        }));
+        const { error: itemsErr } = await supabase.from("regen_job_items").insert(rows);
+        if (itemsErr) throw new Error(`Failed to create series script items: ${itemsErr.message}`);
+      }
+
+      // Load items back for response
+      const { data: savedItems } = await supabase.from("regen_job_items")
+        .select("*").eq("job_id", job.id).order("episode_index", { ascending: true });
+
+      return new Response(JSON.stringify({
+        success: true,
+        job_id: job.id,
+        job,
+        dry_run: isDryRun,
+        total_count: items.length,
+        episode_count: episodeCount,
+        items: savedItems || [],
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // SERIES SCRIPTS: TICK
+    // ══════════════════════════════════════════════════════════════
+    if (action === "series-scripts-tick") {
+      const { jobId, maxItemsPerTick } = body;
+      if (!jobId) throw new Error("jobId required");
+      const tickLimit = Math.min(Math.max(maxItemsPerTick || 1, 1), 3); // 1 episode per tick default
+
+      const { data: job, error: jobErr } = await supabase.from("regen_jobs")
+        .select("*").eq("id", jobId).single();
+      if (jobErr || !job) throw new Error("Series scripts job not found");
+      if (job.status === "complete" || job.status === "cancelled" || job.dry_run === true) {
+        return new Response(JSON.stringify({ success: true, job, processed: [], done: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (job.status !== "running") {
+        await supabase.from("regen_jobs").update({ status: "running" }).eq("id", jobId);
+      }
+
+      // Claim items
+      const { data: queuedItems, error: claimErr } = await supabase.rpc("claim_regen_items", {
+        p_job_id: jobId, p_limit: tickLimit, p_claimed_by: userId,
+      });
+      if (claimErr) console.error("[series-scripts-tick] claim error:", claimErr.message);
+
+      if (!queuedItems || queuedItems.length === 0) {
+        const { data: remaining } = await supabase.from("regen_job_items")
+          .select("id").eq("job_id", jobId).in("status", ["queued", "running"]);
+        if (!remaining || remaining.length === 0) {
+          await supabase.from("regen_jobs").update({ status: "complete", completed_count: job.total_count }).eq("id", jobId);
+          const { data: finalJob } = await supabase.from("regen_jobs").select("*").eq("id", jobId).single();
+          return new Response(JSON.stringify({ success: true, job: finalJob, processed: [], done: true }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ success: true, job, processed: [], done: false }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Load project context
+      const projectId = job.project_id;
+      const { data: proj } = await supabase.from("projects")
+        .select("format, assigned_lane, title, genres, tone, target_audience")
+        .eq("id", projectId).single();
+
+      const lane = proj?.assigned_lane || "series";
+      const isVertical = lane === "vertical_drama";
+
+      // Load upstream docs (character_bible, format_rules, canon, nec, season_arc, episode_grid, treatment)
+      const upstreamTypes = ["character_bible", "format_rules", "canon", "nec", "season_arc", "episode_grid", "treatment", "topline_narrative", "creative_brief"];
+      const { data: upstreamDocs } = await supabase.from("project_documents")
+        .select("id, doc_type").eq("project_id", projectId).in("doc_type", upstreamTypes);
+
+      const upstreamDocIds = (upstreamDocs || []).map((d: any) => d.id);
+      let upstreamTexts: Record<string, string> = {};
+      if (upstreamDocIds.length > 0) {
+        const { data: upVers } = await supabase.from("project_document_versions")
+          .select("document_id, plaintext").in("document_id", upstreamDocIds).eq("is_current", true);
+        const docIdToType = new Map((upstreamDocs || []).map((d: any) => [d.id, d.doc_type]));
+        for (const v of (upVers || [])) {
+          const dt = docIdToType.get(v.document_id);
+          if (dt && v.plaintext) upstreamTexts[dt] = v.plaintext;
+        }
+      }
+
+      const necBlock = await loadNECGuardrailBlock(supabase, projectId);
+      const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+
+      const EPISODE_SCRIPT_SYSTEM = `You are IFFY, a professional screenwriter AI. Write a COMPLETE, production-ready episode script in proper teleplay format.
+
+REQUIREMENTS:
+- Full scene headings (INT./EXT. LOCATION - DAY/NIGHT)
+- Complete dialogue with character names in CAPS
+- Action/description lines
+- Act structure if specified by format rules
+- No placeholders, stubs, or TODO markers
+- No meta-commentary about the writing process
+${isVertical ? `
+VERTICAL DRAMA FORMAT:
+- Target length: 120-180 seconds per episode (approximately 1200-2500 characters)
+- Fast-paced, hook-driven structure
+- End on cliffhanger or strong emotional beat
+- Minimal scene transitions (1-3 locations max)
+` : `
+STANDARD SERIES FORMAT:
+- Full teleplay length (3000-8000+ characters per episode)
+- Proper act structure
+- Multiple storylines as appropriate
+- Character development beats
+`}
+
+Output ONLY the screenplay text. No JSON wrapping, no markdown fences, no commentary.`;
+
+      const processed: any[] = [];
+
+      for (const item of queuedItems) {
+        const epIdx = item.episode_index || 1;
+        const epTitle = item.episode_title || `Episode ${epIdx}`;
+        const itemMeta = (item.meta_json || {}) as any;
+        const logline = itemMeta.logline || "";
+
+        try {
+          // Build episode-specific prompt
+          let contextBlocks: string[] = [];
+          if (upstreamTexts.character_bible) contextBlocks.push(`CHARACTER BIBLE:\n${upstreamTexts.character_bible.slice(0, 4000)}`);
+          if (upstreamTexts.format_rules) contextBlocks.push(`FORMAT RULES:\n${upstreamTexts.format_rules.slice(0, 2000)}`);
+          if (upstreamTexts.canon) contextBlocks.push(`CANON & CONSTRAINTS:\n${upstreamTexts.canon.slice(0, 2000)}`);
+          if (upstreamTexts.season_arc) contextBlocks.push(`SEASON ARC:\n${upstreamTexts.season_arc.slice(0, 3000)}`);
+          if (logline) contextBlocks.push(`EPISODE GRID ENTRY:\n${logline}`);
+          if (upstreamTexts.treatment) contextBlocks.push(`TREATMENT:\n${upstreamTexts.treatment.slice(0, 3000)}`);
+
+          const userPrompt = `PROJECT: ${proj?.title || "Untitled"}
+GENRES: ${(proj?.genres || []).join(", ")}
+TONE: ${proj?.tone || "Unknown"}
+LANE: ${lane}
+${necBlock}
+
+${contextBlocks.join("\n\n")}
+
+WRITE EPISODE ${epIdx}: "${epTitle}"
+Write the COMPLETE teleplay for this episode NOW.`;
+
+          const model = isVertical ? BALANCED_MODEL : PRO_MODEL;
+          const maxTok = isVertical ? 8000 : 16000;
+
+          let scriptText = await callAI(LOVABLE_API_KEY, model, EPISODE_SCRIPT_SYSTEM, userPrompt, 0.4, maxTok);
+          scriptText = scriptText.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+
+          const MIN_CHARS = isVertical ? 1200 : 2500;
+          let retryUsed = false;
+
+          // Quality check + repair
+          const STUB_CHECK = ["draft stub","generate full","todo","[insert","placeholder"];
+          if (scriptText.length < MIN_CHARS || STUB_CHECK.some(m => scriptText.toLowerCase().includes(m))) {
+            retryUsed = true;
+            const retryPrompt = `${userPrompt}\n\nRETRY: Previous output was too short (${scriptText.length} chars, need ${MIN_CHARS}+). Write the FULL, COMPLETE episode script NOW. No stubs.`;
+            let retryText = await callAI(LOVABLE_API_KEY, PRO_MODEL, EPISODE_SCRIPT_SYSTEM, retryPrompt, 0.4, 16000);
+            retryText = retryText.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+            if (retryText.length > scriptText.length) scriptText = retryText;
+          }
+
+          if (scriptText.length < Math.floor(MIN_CHARS * 0.5)) {
+            throw new Error(`Script too short after retry (${scriptText.length} chars, need ${MIN_CHARS})`);
+          }
+
+          // Save via doc-os
+          const slot = await ensureDocSlot(supabase, projectId, userId, "episode_script", {
+            episodeIndex: epIdx,
+            title: `Episode ${epIdx} Script — ${epTitle}`,
+            source: "generated",
+            metaJson: { episode_index: epIdx, episode_title: epTitle },
+          });
+
+          const newVersion = await createVer(supabase, {
+            documentId: slot.documentId,
+            docType: "episode_script",
+            plaintext: scriptText,
+            label: `series_scripts_e${String(epIdx).padStart(2, "0")}`,
+            createdBy: userId,
+            approvalStatus: "draft",
+            changeSummary: `Generated episode ${epIdx} script${retryUsed ? " with retry" : ""}`,
+            metaJson: {
+              generator: "series-scripts",
+              episode_index: epIdx,
+              episode_title: epTitle,
+              retry_used: retryUsed,
+              char_count: scriptText.length,
+              lane,
+            },
+          });
+
+          await supabase.from("regen_job_items").update({
+            status: "regenerated",
+            char_after: scriptText.length,
+            document_id: slot.documentId,
+          }).eq("id", item.id);
+
+          processed.push({ id: item.id, episode_index: epIdx, status: "regenerated", char_after: scriptText.length });
+          console.log(`[series-scripts-tick] ep${epIdx} done: ${scriptText.length} chars`);
+        } catch (err: any) {
+          const errMsg = (err?.message || "generation_failed").slice(0, 300);
+          console.error(`[series-scripts-tick] ep${epIdx} error:`, errMsg);
+          await supabase.from("regen_job_items").update({ status: "error", error: errMsg }).eq("id", item.id);
+          processed.push({ id: item.id, episode_index: epIdx, status: "error", error: errMsg });
+        }
+      }
+
+      // Update completed_count
+      const { data: statusCounts } = await supabase.from("regen_job_items")
+        .select("status").eq("job_id", jobId);
+      const completedCount = (statusCounts || []).filter((r: any) => r.status !== "queued" && r.status !== "running").length;
+      const allDone = completedCount >= job.total_count;
+
+      await supabase.from("regen_jobs").update({
+        completed_count: completedCount,
+        status: allDone ? "complete" : "running",
+      }).eq("id", jobId);
+
+      const { data: updatedJob } = await supabase.from("regen_jobs").select("*").eq("id", jobId).single();
+
+      return new Response(JSON.stringify({
+        success: true, job: updatedJob, processed, done: allDone,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // SERIES SCRIPTS: STATUS
+    // ══════════════════════════════════════════════════════════════
+    if (action === "series-scripts-status") {
+      const { jobId } = body;
+      if (!jobId) throw new Error("jobId required");
+
+      const { data: job, error: jobErr } = await supabase.from("regen_jobs")
+        .select("*").eq("id", jobId).single();
+      if (jobErr || !job) throw new Error("Series scripts job not found");
+
+      const { data: items } = await supabase.from("regen_job_items")
+        .select("*").eq("job_id", jobId).order("episode_index", { ascending: true });
+
+      return new Response(JSON.stringify({
+        success: true, job, items: items || [],
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
