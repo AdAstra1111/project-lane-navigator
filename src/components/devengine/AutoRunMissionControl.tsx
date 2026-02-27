@@ -231,6 +231,19 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
   );
 }
 
+/** Format error strings: strip HTML tags, extract structured codes, and truncate */
+function formatErrorDisplay(err: string | null | undefined): string {
+  if (!err) return '';
+  let clean = err.replace(/<[^>]*>/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  const codeMatch = clean.match(/^(.+?)\s+error\s+\((\d+)\):\s*(.*)/s);
+  if (codeMatch) {
+    const [, fn, status, body] = codeMatch;
+    const truncBody = body.length > 200 ? body.slice(0, 200) + '…' : body;
+    return `${fn} failed (HTTP ${status}): ${truncBody}`;
+  }
+  return clean.length > 300 ? clean.slice(0, 300) + '…' : clean;
+}
+
 // ── Main Component ──
 export function AutoRunMissionControl({
   projectId, currentDeliverable, job, steps, isRunning, error,
@@ -601,7 +614,7 @@ export function AutoRunMissionControl({
           )}
           {job?.status === 'failed' && (
             <div className="p-2 rounded bg-destructive/10 border border-destructive/20 text-xs text-destructive">
-              ✗ {job.error}
+              ✗ {formatErrorDisplay(job.error)}
             </div>
           )}
 
@@ -774,7 +787,7 @@ export function AutoRunMissionControl({
 
           {error && (
             <div className="text-[10px] text-destructive bg-destructive/5 border border-destructive/20 rounded p-2">
-              {error}
+              {formatErrorDisplay(error)}
             </div>
           )}
           {job && (
@@ -860,7 +873,7 @@ export function AutoRunMissionControl({
               )}
               {error && (
                 <div className="text-[10px] text-destructive bg-destructive/5 border border-destructive/20 rounded p-2">
-                  {error}
+                  {formatErrorDisplay(error)}
                 </div>
               )}
             </CardContent>
