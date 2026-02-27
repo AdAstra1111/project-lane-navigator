@@ -18,9 +18,21 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
+/** Extract episode count from format_summary like "38 x 2min vertical episodes" */
+function parseEpisodeCountFromFormat(idea: PitchIdea): number | null {
+  const raw = idea.raw_response as any || {};
+  const fmt = raw.format_summary || raw.format || '';
+  const match = fmt.match(/(\d+)\s*x\s*/i);
+  if (match) return parseInt(match[1]);
+  const match2 = fmt.match(/(\d+)\s*episodes/i);
+  if (match2) return parseInt(match2[1]);
+  return null;
+}
+
 function EpisodeCountSetter({ idea }: { idea: PitchIdea }) {
   const devseedCanon = idea.devseed_canon_json || {};
-  const [epCount, setEpCount] = useState(String(devseedCanon.season_episode_count || ''));
+  const inferredCount = parseEpisodeCountFromFormat(idea);
+  const [epCount, setEpCount] = useState(String(devseedCanon.season_episode_count || inferredCount || ''));
   const [saving, setSaving] = useState(false);
   const isLocked = devseedCanon.locked === true;
 
