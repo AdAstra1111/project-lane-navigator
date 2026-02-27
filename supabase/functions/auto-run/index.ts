@@ -1079,16 +1079,25 @@ async function getJob(supabase: any, jobId: string) {
 // ── Helper: acquire single-flight processing lock ──
 // Returns the locked job row if acquired, or null if another invocation holds the lock.
 async function acquireProcessingLock(supabase: any, jobId: string, userId: string): Promise<any | null> {
+  // TEMPORARY DIAGNOSTIC — remove after evidence captured
+  const { data: preSnap } = await supabase.from("auto_run_jobs").select("id,status,user_id,is_processing,processing_started_at").eq("id", jobId).single();
+  const orClause = "is_processing.eq.false,processing_started_at.is.null,processing_started_at.lt." + new Date(Date.now() - 60_000).toISOString();
+  console.log("[auto-run] acquireProcessingLock pre", { jobId, userId, orClause, pre: preSnap ? { status: preSnap.status, user_id: preSnap.user_id, is_processing: preSnap.is_processing, processing_started_at: preSnap.processing_started_at } : "NO_ROW" });
+
   const { data, error } = await supabase
     .from("auto_run_jobs")
     .update({ is_processing: true, processing_started_at: new Date().toISOString() })
     .eq("id", jobId)
     .eq("user_id", userId)
     .eq("status", "running")
-    .or("is_processing.eq.false,processing_started_at.is.null,processing_started_at.lt." + new Date(Date.now() - 60_000).toISOString())
+    .or(orClause)
     .select("*")
     .single();
+
+  console.log("[auto-run] acquireProcessingLock result", { jobId, userId, ok: !!data, err: error?.message, details: error?.details, code: error?.code });
+
   if (error || !data) return null;
+  console.log("[auto-run] lock acquired", { jobId, userId, processing_started_at: data.processing_started_at });
   return data;
 }
 
