@@ -1707,19 +1707,28 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Validate JWT by decoding claims locally (avoids session lookup which fails for ES256 tokens)
+    // Validate JWT — allow service_role tokens for internal CI/automation
     const token = authHeader.replace("Bearer ", "");
     let userId: string;
+    let actor: "user" | "service_role" = "user";
     let user: { id: string; email?: string };
     try {
       const payloadB64 = token.split(".")[1];
       if (!payloadB64) throw new Error("Invalid token");
       const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
-      if (!payload.sub) throw new Error("Invalid token claims");
       // Check expiry
       if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
-      userId = payload.sub;
-      user = { id: payload.sub, email: payload.email };
+      if (payload.role === "service_role") {
+        userId = "service_role";
+        actor = "service_role";
+        user = { id: "service_role", email: "service_role@internal" };
+        console.log("[dev-engine-v2] service_role actor accepted");
+      } else if (payload.sub) {
+        userId = payload.sub;
+        user = { id: payload.sub, email: payload.email };
+      } else {
+        throw new Error("Invalid token claims");
+      }
     } catch {
       throw new Error("Unauthorized");
     }

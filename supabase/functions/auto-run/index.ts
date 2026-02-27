@@ -1360,10 +1360,27 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Verify user
-    const { data: { user }, error: userErr } = await supabase.auth.getUser(token);
-    if (userErr || !user) return respond({ error: "Unauthorized" }, 401);
-    const userId = user.id;
+    // Verify user — allow service_role tokens for internal CI/automation
+    let userId: string;
+    let actor: "user" | "service_role" = "user";
+    try {
+      const payloadB64 = token.split(".")[1];
+      if (!payloadB64) throw new Error("Invalid token");
+      const jwtPayload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+      if (jwtPayload.exp && jwtPayload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
+      if (jwtPayload.role === "service_role") {
+        userId = "service_role";
+        actor = "service_role";
+        console.log("[auto-run] service_role actor accepted");
+      } else {
+        const { data: { user }, error: userErr } = await supabase.auth.getUser(token);
+        if (userErr || !user) return respond({ error: "Unauthorized" }, 401);
+        userId = user.id;
+      }
+    } catch (e: any) {
+      console.error("[auto-run] auth error", e?.message);
+      return respond({ error: "Unauthorized" }, 401);
+    }
 
     const body = await req.json();
     const { action, projectId, jobId, mode, start_document, target_document, max_stage_loops, max_total_steps, decision } = body;
