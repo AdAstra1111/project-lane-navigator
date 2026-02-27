@@ -1931,6 +1931,7 @@ Deno.serve(async (req) => {
     // ═══════════════════════════════════════
     if (action === "run-next") {
       if (!jobId) return respond({ error: "jobId required" }, 400);
+      console.log("[auto-run] run-next start", { jobId });
       let optionsGeneratedThisStep = false;
 
       const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
@@ -1943,7 +1944,9 @@ Deno.serve(async (req) => {
       const stageLoopCount = job.stage_loop_count;
 
       // ── Ensure seed pack on resume (hard guard) ──
+      console.log("[auto-run] before ensureSeedPack", { projectId: job.project_id });
       const seedResult = await ensureSeedPack(supabase, supabaseUrl, job.project_id, token);
+      console.log("[auto-run] after ensureSeedPack", { failed: seedResult.failed, missing: seedResult.missing });
       if (seedResult.failed) {
         const stopReason = seedResult.fail_type || "SEED_PACK_INCOMPLETE";
         const sd = seedResult.seed_debug || {};
@@ -2386,6 +2389,7 @@ Deno.serve(async (req) => {
 
       // Step A: Run review (analyze + notes) with retry
       try {
+        console.log("[auto-run] before dev-engine analyze", { currentDoc, docId: doc.id });
         const { result: rawAnalyzeResult } = await callEdgeFunctionWithRetry(
           supabase, supabaseUrl, "dev-engine-v2", {
             action: "analyze",
@@ -2399,6 +2403,7 @@ Deno.serve(async (req) => {
             season_episode_count: seasonEpisodeCount,
           }, token, job.project_id, format, currentDoc, jobId, stepCount
         );
+        console.log("[auto-run] after dev-engine analyze");
 
         // dev-engine-v2 wraps analysis under { run, analysis }
         const analyzeResult = rawAnalyzeResult?.analysis || rawAnalyzeResult || {};
@@ -2726,8 +2731,9 @@ Deno.serve(async (req) => {
       } catch (e: any) {
         await updateJob(supabase, jobId, { status: "failed", error: `Step failed: ${e.message}` });
         await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop", `Error: ${e.message}`);
-        return respondWithJob(supabase, jobId);
-      }
+      console.log("[auto-run] run-next complete", { jobId });
+      return respondWithJob(supabase, jobId);
+    }
 
       return respondWithJob(supabase, jobId);
     }
