@@ -75,7 +75,7 @@ ${styleProfile}
 TEMPLATE EPISODE (style benchmark):
 ${templateContent || "(no template set)"}
 
-EPISODE ${episodeNumber} of ${proj?.season_episode_count || 30} TO SCORE:
+EPISODE ${episodeNumber} of ${proj?.season_episode_count ?? "UNKNOWN"} TO SCORE:
 ${script.text_content.slice(0, 10000)}
 
 Score compliance.`;

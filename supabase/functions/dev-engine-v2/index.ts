@@ -13598,19 +13598,30 @@ ${upstreamText}`;
       const lane = proj.assigned_lane || (fmt.includes("vertical") ? "vertical_drama" : "series");
       const isVertical = lane === "vertical_drama" || fmt.includes("vertical");
 
-      // ── CENTRALIZED EPISODE COUNT RESOLVER ──
-      const { resolveEpisodeCount } = await import("../_shared/episode-count.ts");
-      const resolved = await resolveEpisodeCount(supabase, pid, fmt);
-      let episodeCount = resolved.episodeCount;
-      let episodeGrid = resolved.gridEntries;
-
-      console.log(`[series-scripts] episodeCount resolved: ${JSON.stringify({ episodeCount: resolved.episodeCount, source: resolved.source, parsedGridCount: resolved.parsedGridCount, gridDocExists: resolved.gridDocExists })}`);
-
-      // Hard gate: if canonical count is set, enforce it and reject out-of-range requests
-      const canonicalN = proj.season_episode_count;
-      if (typeof canonicalN === "number" && canonicalN > 0) {
-        episodeCount = canonicalN; // override with canonical
+      // ── CANONICAL EPISODE COUNT (hard gate — no defaults) ──
+      const { getCanonicalEpisodeCountOrThrow, resolveEpisodeCount } = await import("../_shared/episode-count.ts");
+      let canonical;
+      try {
+        canonical = await getCanonicalEpisodeCountOrThrow(supabase, pid);
+      } catch (e: any) {
+        if (e.message === "EPISODE_COUNT_NOT_SET") {
+          return new Response(JSON.stringify({
+            error: "EPISODE_COUNT_NOT_SET",
+            message: "Episode count not set. Set it in Season Arc / Format Rules first.",
+          }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        throw e;
       }
+      let episodeCount = canonical.episodeCount;
+
+      // Load grid entries for metadata (titles/loglines)
+      let episodeGrid: any[] = [];
+      try {
+        const resolved = await resolveEpisodeCount(supabase, pid, fmt);
+        episodeGrid = resolved.gridEntries;
+      } catch (_) { /* grid not available, that's fine */ }
+
+      console.log(`[series-scripts] episodeCount canonical: ${episodeCount} (locked=${canonical.locked})`);
 
       const startEp = episodeStart || 1;
       const endEp = episodeEnd || episodeCount;
@@ -14017,19 +14028,22 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const { projectId: pid } = body;
       if (!pid) throw new Error("projectId required");
 
-      // Resolve expected episode count via centralized resolver
-      const { data: masterProj } = await supabase.from("projects")
-        .select("format").eq("id", pid).single();
-      const masterFmt = (masterProj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
-
-      let expectedCount: number | null = null;
+      // Resolve expected episode count via canonical getter (hard gate)
+      const { getCanonicalEpisodeCountOrThrow } = await import("../_shared/episode-count.ts");
+      let expectedCount: number;
       try {
-        const { resolveEpisodeCount } = await import("../_shared/episode-count.ts");
-        const resolved = await resolveEpisodeCount(supabase, pid, masterFmt);
-        expectedCount = resolved.episodeCount;
-        console.log(`[build-master] Expected episodeCount: ${expectedCount} (source=${resolved.source})`);
+        const canonical = await getCanonicalEpisodeCountOrThrow(supabase, pid);
+        expectedCount = canonical.episodeCount;
+        console.log(`[build-master] Canonical episodeCount: ${expectedCount} (locked=${canonical.locked})`);
       } catch (e: any) {
-        console.warn(`[build-master] Could not resolve episode count: ${e.message}`);
+        if (e.message === "EPISODE_COUNT_NOT_SET") {
+          return new Response(JSON.stringify({
+            success: false,
+            error: "EPISODE_COUNT_NOT_SET",
+            message: "Episode count not set. Set it before building master script.",
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        throw e;
       }
 
       // Find all episode_script docs for this project
@@ -14194,6 +14208,31 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         season_episode_count: proj.season_episode_count,
         locked: proj.season_episode_count_locked === true,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // LOCK SEASON EPISODE COUNT
+    // ══════════════════════════════════════════════════════════════
+    if (action === "lock-season-episode-count") {
+      const { projectId: pid } = body;
+      if (!pid) throw new Error("projectId required");
+      const { data: proj } = await supabase.from("projects")
+        .select("season_episode_count, season_episode_count_locked").eq("id", pid).single();
+      if (!proj) throw new Error("Project not found");
+      if (proj.season_episode_count === null) {
+        return new Response(JSON.stringify({ error: "EPISODE_COUNT_NOT_SET", message: "Cannot lock — episode count not set." }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (proj.season_episode_count_locked === true) {
+        return new Response(JSON.stringify({ season_episode_count: proj.season_episode_count, locked: true, already_locked: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      await supabase.from("projects").update({ season_episode_count_locked: true }).eq("id", pid);
+      return new Response(JSON.stringify({ season_episode_count: proj.season_episode_count, locked: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // ══════════════════════════════════════════════════════════════

@@ -68,7 +68,7 @@ Return ONLY valid JSON with this schema:
 }`,
     });
 
-    const userPrompt = `EPISODE ${episodeNumber} of ${proj?.season_episode_count || 30} SCRIPT:
+    const userPrompt = `EPISODE ${episodeNumber} of ${proj?.season_episode_count ?? "UNKNOWN"} SCRIPT:
 ${script.text_content.slice(0, 12000)}
 
 PRIOR EPISODE LEDGERS:
