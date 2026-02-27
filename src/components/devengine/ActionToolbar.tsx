@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { NextAction } from '@/lib/next-action';
 import { renderActionPillText } from '@/lib/next-action';
 import { GenerateShotListModal } from '@/components/shots/GenerateShotListModal';
+import { getAllowedConversionsFrom } from '@/lib/docFlowMap';
 
 interface VerticalDramaGating {
   missing_prerequisites: string[];
@@ -70,6 +71,8 @@ interface ActionToolbarProps {
   selectedVersionId?: string;
   /** Project format for format-aware labels */
   format?: string | null;
+  /** Project assigned lane — gates conversions */
+  assignedLane?: string | null;
 }
 
 export function ActionToolbar({
@@ -91,6 +94,7 @@ export function ActionToolbar({
   selectedDocumentId,
   selectedVersionId,
   format,
+  assignedLane,
 }: ActionToolbarProps) {
   const navigate = useNavigate();
   const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
@@ -207,12 +211,24 @@ export function ActionToolbar({
           </Button>
         )}
 
-        {/* Convert — secondary */}
-        <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 ml-auto"
-          onClick={onConvert} disabled={anyPending}>
-          {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-          Convert → {getDeliverableLabel(selectedDeliverableType, format)}
-        </Button>
+        {/* Convert — only if lane allows conversion to the selected deliverable */}
+        {(() => {
+          const currentNorm = currentDocType?.toLowerCase().replace(/[\s\-]+/g, '_') || '';
+          const targetNorm = (selectedDeliverableType || '').toLowerCase().replace(/[\s\-]+/g, '_');
+          const laneConversions = getAllowedConversionsFrom(assignedLane, currentNorm);
+          const hasAllowed = laneConversions.some(c => c.to === targetNorm);
+          if (!hasAllowed && laneConversions.length === 0) return null;
+          const conversionLabel = laneConversions.find(c => c.to === targetNorm)?.label
+            || laneConversions[0]?.label
+            || `Convert → ${getDeliverableLabel(selectedDeliverableType, format)}`;
+          return (
+            <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 ml-auto"
+              onClick={onConvert} disabled={anyPending || !hasAllowed}>
+              {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
+              {conversionLabel}
+            </Button>
+          );
+        })()}
       </div>
 
       {/* Beat Sheet → Episode Script for vertical_drama */}

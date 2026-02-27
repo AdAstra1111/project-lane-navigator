@@ -801,6 +801,12 @@ export default function ProjectDevelopmentEngine() {
     const fallbackTarget = latestAnalysis?.convergence?.next_best_document;
     const nextBestDocument = promoteTarget || fallbackTarget;
     if (nextBestDocument) {
+      // Lane gate: block conversion to feature_script for non-feature lanes
+      const lane = project?.assigned_lane;
+      if (nextBestDocument === 'feature_script' && lane && !['feature_film', 'animation', 'short', 'unspecified'].includes(lane)) {
+        toast.error(`"Feature Script" is not available for ${lane.replace(/_/g, ' ')} projects`);
+        return;
+      }
       setSelectedDeliverableType(nextBestDocument as DeliverableType);
       convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
     }
@@ -1333,6 +1339,7 @@ export default function ProjectDevelopmentEngine() {
                     autoReviewEnabled={autoReviewEnabled}
                     onAutoReviewToggle={setAutoReviewEnabled}
                     format={normalizedFormat}
+                    assignedLane={project?.assigned_lane}
                   />
 
                   {/* Resume auto-run handled by banner above */}
