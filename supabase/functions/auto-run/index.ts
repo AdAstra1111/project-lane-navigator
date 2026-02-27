@@ -1487,6 +1487,20 @@ Deno.serve(async (req) => {
           // Re-check readiness after regeneration attempt
           const inputCounts2 = await getDocCharCounts(supabase, projectId, INPUT_DOC_TYPES);
           inputCheck = checkInputReadiness(inputCounts2);
+
+          // Log post-regen readiness for debugging
+          await logStep(supabase, job.id, 1, effectiveStartDoc, "auto_regen_inputs",
+            inputCheck.ready
+              ? `Post-regen readiness: READY (all inputs satisfied)`
+              : `Post-regen readiness: STILL MISSING ${inputCheck.missing_fields.join(", ")}`,
+            {}, undefined, {
+              trigger: "start_gate_recheck",
+              missing_after_regen: inputCheck.missing_fields,
+              ready_after_regen: inputCheck.ready,
+              regen_ok: regenAttempt.ok,
+              regenerated_count: Array.isArray(regenAttempt.regenResult?.regenerated) ? regenAttempt.regenResult.regenerated.length : 0,
+            },
+          );
         }
         if (!inputCheck.ready) {
           console.warn("[auto-run] INPUT_INCOMPLETE at start (after regen attempt)", { jobId: job.id, missing: inputCheck.missing_fields });
@@ -2545,6 +2559,20 @@ Deno.serve(async (req) => {
           // Re-check after regeneration attempt
           const inputCounts2 = await getDocCharCounts(supabase, job.project_id, INPUT_DOC_TYPES);
           inputCheck = checkInputReadiness(inputCounts2);
+
+          // Log post-regen readiness
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "auto_regen_inputs",
+            inputCheck.ready
+              ? `Post-regen readiness: READY`
+              : `Post-regen readiness: STILL MISSING ${inputCheck.missing_fields.join(", ")}`,
+            {}, undefined, {
+              trigger: "run_next_gate_recheck",
+              missing_after_regen: inputCheck.missing_fields,
+              ready_after_regen: inputCheck.ready,
+              regen_ok: regenAttempt.ok,
+              regenerated_count: Array.isArray(regenAttempt.regenResult?.regenerated) ? regenAttempt.regenResult.regenerated.length : 0,
+            },
+          );
         }
         if (!inputCheck.ready) {
           console.warn("[auto-run] INPUT_INCOMPLETE (after regen attempt)", { jobId, missing: inputCheck.missing_fields });
