@@ -192,31 +192,54 @@ export async function inferEpisodeCountFromDocs(
 export async function getCanonicalEpisodeCountOrThrow(
   supabaseClient: any,
   projectId: string,
-): Promise<{ episodeCount: number; locked: boolean; source: string }> {
+): Promise<{ episodeCount: number; locked: boolean; source: string; mismatchGridCount?: number }> {
   // 1) Check canonical column
   const { data: proj } = await supabaseClient
     .from("projects")
-    .select("season_episode_count, season_episode_count_locked")
+    .select("season_episode_count, season_episode_count_locked, season_episode_count_source")
     .eq("id", projectId)
     .single();
 
   const canonicalCount = proj?.season_episode_count;
   const locked = proj?.season_episode_count_locked === true;
+  const source = proj?.season_episode_count_source || "canonical_project";
 
   if (typeof canonicalCount === "number" && canonicalCount > 0) {
-    return { episodeCount: canonicalCount, locked, source: "canonical_project" };
+    // If locked, NEVER infer — just return canon. Optionally detect grid mismatch.
+    let mismatchGridCount: number | undefined;
+    if (locked) {
+      try {
+        const { data: gridDoc } = await supabaseClient
+          .from("project_documents").select("id")
+          .eq("project_id", projectId).eq("doc_type", "episode_grid").limit(1);
+        if (gridDoc && gridDoc.length > 0) {
+          const { data: gridVer } = await supabaseClient
+            .from("project_document_versions").select("plaintext")
+            .eq("document_id", gridDoc[0].id).eq("is_current", true).limit(1);
+          const gridText = gridVer?.[0]?.plaintext || "";
+          const gridEntries = parseEpisodeGrid(gridText);
+          if (gridEntries.length > 0 && gridEntries.length !== canonicalCount) {
+            mismatchGridCount = gridEntries.length;
+            console.log(`[episode-count] MISMATCH: canon=${canonicalCount} grid=${gridEntries.length}`);
+          }
+        }
+      } catch (_) { /* non-fatal */ }
+    }
+    return { episodeCount: canonicalCount, locked, source, mismatchGridCount };
   }
 
-  // 2) Attempt one-time inference
-  const inferred = await inferEpisodeCountFromDocs(supabaseClient, projectId);
-  if (inferred !== null) {
-    // Write to projects (unlocked) so future calls don't re-infer
-    await supabaseClient.from("projects")
-      .update({ season_episode_count: inferred })
-      .eq("id", projectId);
+  // 2) Attempt one-time inference (only if NOT locked)
+  if (!locked) {
+    const inferred = await inferEpisodeCountFromDocs(supabaseClient, projectId);
+    if (inferred !== null) {
+      // Write to projects (unlocked) so future calls don't re-infer
+      await supabaseClient.from("projects")
+        .update({ season_episode_count: inferred, season_episode_count_source: "inferred" })
+        .eq("id", projectId);
 
-    console.log(`[episode-count] Auto-set canonical count to ${inferred} (inferred, unlocked)`);
-    return { episodeCount: inferred, locked: false, source: "inferred" };
+      console.log(`[episode-count] Auto-set canonical count to ${inferred} (inferred, unlocked)`);
+      return { episodeCount: inferred, locked: false, source: "inferred" };
+    }
   }
 
   // 3) No count available — hard error

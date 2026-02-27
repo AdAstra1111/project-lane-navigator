@@ -38,6 +38,16 @@ export interface PitchIdea {
   concept_lock_version: number;
   created_at: string;
   updated_at: string;
+  devseed_canon_json: {
+    season_episode_count?: number;
+    format?: string;
+    assigned_lane?: string;
+    episode_length_target?: string;
+    locked?: boolean;
+    locked_at?: string;
+    locked_by?: string;
+    source?: string;
+  };
 }
 
 export interface PitchFeedback {

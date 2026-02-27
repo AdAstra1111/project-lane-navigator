@@ -238,18 +238,32 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
       const title = projectTitle.trim() || defaultTitle;
       const lane = idea.recommended_lane || 'independent-film';
 
-      // 1. Create project
+      // Read devseed canon for episode count
+      const devseedCanon = (idea as any).devseed_canon_json || {};
+      const canonEpisodeCount = devseedCanon.season_episode_count;
+
+      // 1. Create project — copy canonical episode count from devseed
+      const projectInsert: Record<string, any> = {
+        title,
+        user_id: user.id,
+        format: idea.production_type || 'film',
+        genres: idea.genre ? [idea.genre] : [],
+        assigned_lane: lane,
+        budget_range: idea.budget_band || '',
+        source_pitch_idea_id: idea.id,
+        devseed_pitch_idea_id: idea.id,
+      };
+
+      // Copy canonical episode count if set in devseed
+      if (typeof canonEpisodeCount === 'number' && canonEpisodeCount > 0) {
+        projectInsert.season_episode_count = canonEpisodeCount;
+        projectInsert.season_episode_count_locked = true;
+        projectInsert.season_episode_count_source = 'devseed';
+      }
+
       const { data: project, error: projErr } = await supabase
         .from('projects')
-        .insert({
-          title,
-          user_id: user.id,
-          format: idea.production_type || 'film',
-          genres: idea.genre ? [idea.genre] : [],
-          assigned_lane: lane,
-          budget_range: idea.budget_band || '',
-          source_pitch_idea_id: idea.id,
-        } as any)
+        .insert(projectInsert as any)
         .select('id')
         .single();
 
@@ -528,6 +542,14 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             <p>• New project with lane: <span className="text-foreground">{idea.recommended_lane}</span></p>
             <p>• <span className="text-foreground">Idea</span> document + canon logline/premise planted</p>
             <p>• Genre: <span className="text-foreground">{idea.genre}</span> | Budget: <span className="text-foreground">{idea.budget_band}</span></p>
+            {(() => {
+              const dc = (idea as any).devseed_canon_json || {};
+              return dc.season_episode_count ? (
+                <p>• <span className="text-foreground font-medium">Canon Episode Count: {dc.season_episode_count}</span> (will be locked on project)</p>
+              ) : (
+                <p className="text-amber-400">⚠ No episode count set — set it on the pitch card first for series projects</p>
+              );
+            })()}
           </div>
         </div>
 
