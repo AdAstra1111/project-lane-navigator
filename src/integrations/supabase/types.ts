@@ -9783,6 +9783,7 @@ export type Database = {
           last_compiled_at: string | null
           latest_export_path: string | null
           latest_version_id: string | null
+          meta_json: Json | null
           needs_reconcile: boolean
           pages_analyzed: number | null
           plaintext: string | null
@@ -9812,6 +9813,7 @@ export type Database = {
           last_compiled_at?: string | null
           latest_export_path?: string | null
           latest_version_id?: string | null
+          meta_json?: Json | null
           needs_reconcile?: boolean
           pages_analyzed?: number | null
           plaintext?: string | null
@@ -9841,6 +9843,7 @@ export type Database = {
           last_compiled_at?: string | null
           latest_export_path?: string | null
           latest_version_id?: string | null
+          meta_json?: Json | null
           needs_reconcile?: boolean
           pages_analyzed?: number | null
           plaintext?: string | null
@@ -12242,11 +12245,15 @@ export type Database = {
           created_at: string
           doc_type: string
           document_id: string | null
+          episode_index: number | null
+          episode_title: string | null
           error: string | null
           id: string
           job_id: string
+          meta_json: Json | null
           reason: string
           status: string
+          target_doc_type: string | null
           updated_at: string
           upstream: string | null
         }
@@ -12258,11 +12265,15 @@ export type Database = {
           created_at?: string
           doc_type: string
           document_id?: string | null
+          episode_index?: number | null
+          episode_title?: string | null
           error?: string | null
           id?: string
           job_id: string
+          meta_json?: Json | null
           reason: string
           status?: string
+          target_doc_type?: string | null
           updated_at?: string
           upstream?: string | null
         }
@@ -12274,11 +12285,15 @@ export type Database = {
           created_at?: string
           doc_type?: string
           document_id?: string | null
+          episode_index?: number | null
+          episode_title?: string | null
           error?: string | null
           id?: string
           job_id?: string
+          meta_json?: Json | null
           reason?: string
           status?: string
+          target_doc_type?: string | null
           updated_at?: string
           upstream?: string | null
         }
@@ -12301,6 +12316,7 @@ export type Database = {
           error: string | null
           force: boolean
           id: string
+          job_type: string
           project_id: string
           status: string
           total_count: number
@@ -12314,6 +12330,7 @@ export type Database = {
           error?: string | null
           force?: boolean
           id?: string
+          job_type?: string
           project_id: string
           status?: string
           total_count?: number
@@ -12327,6 +12344,7 @@ export type Database = {
           error?: string | null
           force?: boolean
           id?: string
+          job_type?: string
           project_id?: string
           status?: string
           total_count?: number
@@ -21278,11 +21296,15 @@ export type Database = {
           created_at: string
           doc_type: string
           document_id: string | null
+          episode_index: number | null
+          episode_title: string | null
           error: string | null
           id: string
           job_id: string
+          meta_json: Json | null
           reason: string
           status: string
+          target_doc_type: string | null
           updated_at: string
           upstream: string | null
         }[]

@@ -74,40 +74,59 @@ export async function ensureDocSlot(
   projectId: string,
   userId: string,
   docType: string,
-  opts?: { title?: string; source?: string }
+  opts?: { title?: string; source?: string; episodeIndex?: number; metaJson?: Record<string, any> }
 ): Promise<DocSlotResult> {
   const { key, config } = resolveDocType(docType);
 
-  // Check for existing
-  const { data: existing } = await supabase
+  // Build query for existing slot
+  let query = supabase
     .from("project_documents")
     .select("id")
     .eq("project_id", projectId)
-    .eq("doc_type", key)
-    .limit(1);
+    .eq("doc_type", key);
+
+  // Per-episode matching: if episodeIndex provided, match on meta_json->episode_index
+  if (opts?.episodeIndex != null) {
+    query = query.eq("meta_json->>episode_index", String(opts.episodeIndex));
+  }
+
+  const { data: existing } = await query.limit(1);
 
   if (existing && existing.length > 0) {
     return { documentId: existing[0].id, isNew: false };
   }
 
+  // Build title and file_name for per-episode docs
+  const epIdx = opts?.episodeIndex;
+  const epSuffix = epIdx != null ? `_e${String(epIdx).padStart(2, "0")}` : "";
+  const title = opts?.title || (epIdx != null ? `${config.title} — Episode ${epIdx}` : config.title);
+  const fileName = epIdx != null ? config.file_name.replace(".md", `${epSuffix}.md`) : config.file_name;
+
   // Create new
+  const insertPayload: Record<string, any> = {
+    project_id: projectId,
+    user_id: userId,
+    doc_type: key,
+    title,
+    file_name: fileName,
+    file_path: `${projectId}/${fileName}`,
+    extraction_status: "complete",
+    source: opts?.source || "generated",
+    is_primary: false,
+  };
+
+  // Merge meta_json with episode_index
+  const meta: Record<string, any> = { ...(opts?.metaJson || {}) };
+  if (epIdx != null) meta.episode_index = epIdx;
+  if (Object.keys(meta).length > 0) insertPayload.meta_json = meta;
+
   const { data: newDoc, error } = await supabase
     .from("project_documents")
-    .insert({
-      project_id: projectId,
-      user_id: userId,
-      doc_type: key,
-      title: opts?.title || config.title,
-      file_name: config.file_name,
-      file_path: `${projectId}/${config.file_name}`,
-      extraction_status: "complete",
-      source: opts?.source || "generated",
-      is_primary: false,
-    })
+    .insert(insertPayload)
     .select("id")
     .single();
 
-  if (error) throw new Error(`ensureDocSlot(${key}): ${error.message}`);
+  if (error) throw new Error(`ensureDocSlot(${key}${epSuffix}): ${error.message}`);
   return { documentId: newDoc.id, isNew: true };
 }
 

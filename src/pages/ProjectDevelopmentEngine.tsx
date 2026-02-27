@@ -66,6 +66,7 @@ import { CriteriaPanel } from '@/components/devengine/CriteriaPanel';
 import { useAutoRunMissionControl } from '@/hooks/useAutoRunMissionControl';
 import { CanonicalQualificationsPanel } from '@/components/devengine/CanonicalQualificationsPanel';
 import { QualificationConflictBanner } from '@/components/devengine/QualificationConflictBanner';
+import { GenerateSeasonScriptsPanel } from '@/components/devengine/GenerateSeasonScriptsPanel';
 import { useStageResolve } from '@/hooks/useStageResolve';
 import { useDecisionCommit } from '@/hooks/useDecisionCommit';
 import { isDocStale } from '@/lib/stale-detection';
@@ -1497,6 +1498,7 @@ export default function ProjectDevelopmentEngine() {
               <TabsTrigger value="convergence" className="text-xs">Convergence</TabsTrigger>
               <TabsTrigger value="qualifications" className="text-xs">Qualifications</TabsTrigger>
               <TabsTrigger value="autorun" className="text-xs">Auto-Run</TabsTrigger>
+              <TabsTrigger value="series-scripts" className="text-xs">Season Scripts</TabsTrigger>
               <TabsTrigger value="criteria" className="text-xs">Criteria</TabsTrigger>
               <TabsTrigger value="package" className="text-xs">Package</TabsTrigger>
               <TabsTrigger value="canon" className="text-xs">Canon</TabsTrigger>
@@ -1867,6 +1869,10 @@ export default function ProjectDevelopmentEngine() {
                 project={project}
                 approvedVersionMap={approvedVersionMap}
               />
+            </TabsContent>
+
+            <TabsContent value="series-scripts" className="mt-3">
+              <GenerateSeasonScriptsPanel projectId={projectId!} />
             </TabsContent>
 
             <TabsContent value="criteria" className="mt-3">
