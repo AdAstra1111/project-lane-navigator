@@ -12811,6 +12811,231 @@ CRITICAL:
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ── REGENERATE INSUFFICIENT DOCS ──
+    if (action === "regenerate-insufficient-docs") {
+      const { projectId, dryRun, limit: maxLimit, force } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const isDry = dryRun === true;
+      const docLimit = Math.min(maxLimit || 10, 20);
+
+      // Resolve project format + ladder
+      const { data: proj } = await supabase.from("projects")
+        .select("format, assigned_lane, title").eq("id", projectId).single();
+      const fmt = (proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const ladder = getLadderForFormat(fmt);
+
+      // Stub detection constants (must match auto-run)
+      const STUB_MARKERS = [
+        "draft stub", "generate full", "generate from dev engine",
+        "todo", "[insert", "[1–2 sentences]", "[1-2 sentences]", "placeholder",
+      ];
+      const MIN_CHARS: Record<string, number> = {
+        concept_brief: 800, beat_sheet: 1200, character_bible: 1200,
+        treatment: 1200, story_outline: 1200, episode_grid: 800,
+        season_arc: 800, format_rules: 600, market_sheet: 700,
+        vertical_market_sheet: 700, episode_script: 2000, feature_script: 2000,
+        season_master_script: 2000, production_draft: 2000,
+        documentary_outline: 800, deck: 600, vertical_episode_beats: 600,
+      };
+      const DEFAULT_MIN = 600;
+
+      // Skip seed core + idea (they have their own gates)
+      const SKIP_TYPES = new Set(["idea", "project_overview", "creative_brief", "market_positioning", "canon", "nec"]);
+
+      // Fetch all project docs
+      const { data: allDocs } = await supabase.from("project_documents")
+        .select("id, doc_type").eq("project_id", projectId);
+
+      const docSlots = new Map<string, string>(); // doc_type -> document_id
+      for (const d of (allDocs || [])) {
+        if (!docSlots.has(d.doc_type)) docSlots.set(d.doc_type, d.id);
+      }
+
+      // Fetch all current versions
+      const allDocIds = (allDocs || []).map((d: any) => d.id);
+      let currentVersions: any[] = [];
+      if (allDocIds.length > 0) {
+        const { data: vers } = await supabase.from("project_document_versions")
+          .select("id, document_id, plaintext, approval_status, version_number")
+          .in("document_id", allDocIds).eq("is_current", true);
+        currentVersions = vers || [];
+      }
+      const verByDocId = new Map<string, any>();
+      for (const v of currentVersions) verByDocId.set(v.document_id, v);
+
+      // Check sufficiency for each ladder stage
+      const regenerated: any[] = [];
+      const skipped: any[] = [];
+
+      for (const stage of ladder) {
+        if (SKIP_TYPES.has(stage)) continue;
+        if (regenerated.length >= docLimit) break;
+
+        const docId = docSlots.get(stage);
+        const ver = docId ? verByDocId.get(docId) : null;
+        const plaintext = ver?.plaintext?.trim() || "";
+        const minChars = MIN_CHARS[stage] ?? DEFAULT_MIN;
+
+        // Determine sufficiency
+        let reason: string | null = null;
+        if (!docId) {
+          reason = "no_doc_slot";
+        } else if (!ver) {
+          reason = "no_current_version";
+        } else if (plaintext.length < minChars) {
+          reason = `too_short(${plaintext.length}/${minChars})`;
+        } else {
+          const lower = plaintext.toLowerCase();
+          for (const marker of STUB_MARKERS) {
+            if (lower.includes(marker)) { reason = `stub_marker(${marker})`; break; }
+          }
+        }
+
+        if (!reason && !force) {
+          skipped.push({ doc_type: stage, status: "sufficient", note: `${plaintext.length} chars, ok` });
+          continue;
+        }
+        if (!reason && force) {
+          reason = "force_regenerate";
+        }
+
+        // Find upstream source
+        const ladderIdx = ladder.indexOf(stage);
+        if (ladderIdx <= 0) {
+          skipped.push({ doc_type: stage, status: "no_upstream", note: "First stage on ladder" });
+          continue;
+        }
+
+        // Walk backward to find first available upstream with content
+        let upstreamDocId: string | null = null;
+        let upstreamVersionId: string | null = null;
+        let upstreamType: string | null = null;
+        for (let i = ladderIdx - 1; i >= 0; i--) {
+          const prevType = ladder[i];
+          const prevDocId = docSlots.get(prevType);
+          if (prevDocId) {
+            const prevVer = verByDocId.get(prevDocId);
+            if (prevVer?.plaintext?.trim()?.length > 50) {
+              upstreamDocId = prevDocId;
+              upstreamVersionId = prevVer.id;
+              upstreamType = prevType;
+              break;
+            }
+          }
+        }
+
+        if (!upstreamDocId || !upstreamVersionId) {
+          skipped.push({ doc_type: stage, status: "missing_upstream", note: "No upstream doc with content" });
+          continue;
+        }
+
+        if (isDry) {
+          regenerated.push({
+            doc_type: stage, document_id: docId || null,
+            old_version_id: ver?.id || null, new_version_id: null,
+            reason, chars: plaintext.length, retry_used: false,
+            upstream: upstreamType,
+          });
+          continue;
+        }
+
+        // Actually regenerate via convert logic
+        try {
+          // Load upstream plaintext
+          const { data: upVer } = await supabase.from("project_document_versions")
+            .select("plaintext").eq("id", upstreamVersionId).single();
+          if (!upVer?.plaintext) {
+            skipped.push({ doc_type: stage, status: "upstream_empty", note: `${upstreamType} version has no text` });
+            continue;
+          }
+
+          const targetOutput = stage.toUpperCase();
+          const necBlock = await loadNECGuardrailBlock(supabase, projectId);
+
+          const userPrompt = `SOURCE FORMAT: ${upstreamType}
+TARGET FORMAT: ${targetOutput}
+PROTECT (non-negotiable creative DNA): []
+${necBlock}
+
+CRITICAL: Produce a FULL, COMPLETE ${stage.replace(/_/g, ' ')} document. 
+Do NOT produce stubs, placeholders, or TODO markers.
+Include all required sections with substantive content.
+
+MATERIAL:
+${upVer.plaintext}`;
+
+          const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, CONVERT_SYSTEM_JSON, userPrompt, 0.35, 10000);
+          let parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+          let convertedText = parsed?.converted_text || "";
+          let retryUsed = false;
+
+          // Sufficiency check on output
+          const outLen = convertedText.trim().length;
+          const outMin = MIN_CHARS[stage] ?? DEFAULT_MIN;
+          let outputInsufficient = outLen < outMin;
+          if (!outputInsufficient) {
+            const lower = convertedText.toLowerCase();
+            for (const marker of STUB_MARKERS) {
+              if (lower.includes(marker)) { outputInsufficient = true; break; }
+            }
+          }
+
+          // One retry if insufficient
+          if (outputInsufficient) {
+            retryUsed = true;
+            const retryPrompt = `${userPrompt}
+
+RETRY INSTRUCTION: Your previous output was insufficient (${outLen} chars, minimum ${outMin}).
+Produce the FULL document NOW with all sections filled out in detail. 
+No stubs, no placeholders, no "[insert]" markers. Include real narrative content.`;
+
+            const raw2 = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, CONVERT_SYSTEM_JSON, retryPrompt, 0.35, 10000);
+            const parsed2 = await parseAIJson(LOVABLE_API_KEY, raw2);
+            if (parsed2?.converted_text && parsed2.converted_text.trim().length > convertedText.trim().length) {
+              convertedText = parsed2.converted_text;
+            }
+          }
+
+          // Ensure doc slot exists
+          const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
+          const slot = await ensureDocSlot(supabase, projectId, userId, stage);
+
+          const newVersion = await createVer(supabase, {
+            documentId: slot.documentId,
+            docType: stage,
+            plaintext: convertedText,
+            label: `regen_insufficient_v${(ver?.version_number || 0) + 1}`,
+            createdBy: userId,
+            approvalStatus: "draft",
+            changeSummary: `Regenerated: ${reason}. From ${upstreamType}. ${retryUsed ? 'Retry used.' : ''}`,
+            sourceDocumentIds: [upstreamDocId],
+            metaJson: { generator: "regenerate-insufficient", reason, upstream_type: upstreamType, retry_used: retryUsed },
+          });
+
+          regenerated.push({
+            doc_type: stage, document_id: slot.documentId,
+            old_version_id: ver?.id || null, new_version_id: newVersion.id,
+            reason, chars: convertedText.trim().length, retry_used: retryUsed,
+            upstream: upstreamType,
+          });
+
+          console.log(`[dev-engine-v2] regenerated ${stage}: ${convertedText.trim().length} chars (retry=${retryUsed})`);
+        } catch (regenErr: any) {
+          console.error(`[dev-engine-v2] regen failed for ${stage}:`, regenErr.message);
+          skipped.push({ doc_type: stage, status: "regen_failed", note: regenErr.message?.slice(0, 200) });
+        }
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        dry_run: isDry,
+        scanned: ladder.filter(s => !SKIP_TYPES.has(s)).length,
+        regenerated,
+        skipped,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
