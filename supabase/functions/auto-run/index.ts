@@ -114,6 +114,17 @@ interface DocCharCount {
   has_doc: boolean;
   has_current_version: boolean;
   char_count: number;
+  plaintext: string;
+}
+
+/** Check if plaintext contains stub markers */
+function containsStubMarker(text: string): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  for (const marker of STUB_MARKERS) {
+    if (lower.includes(marker)) return true;
+  }
+  return false;
 }
 
 async function getDocCharCounts(supabase: any, projectId: string, docTypes: string[]): Promise<DocCharCount[]> {
@@ -142,11 +153,13 @@ async function getDocCharCounts(supabase: any, projectId: string, docTypes: stri
   return docTypes.map(dt => {
     const docId = docMap.get(dt);
     const ver = docId ? versions.find((v: any) => v.document_id === docId) : null;
+    const plaintext = ver?.plaintext?.trim() || "";
     return {
       doc_type: dt,
       has_doc: !!docId,
       has_current_version: !!ver,
-      char_count: ver?.plaintext?.trim()?.length || 0,
+      char_count: plaintext.length,
+      plaintext,
     };
   });
 }
@@ -158,22 +171,26 @@ function checkInputReadiness(counts: DocCharCount[]): { ready: boolean; missing_
   const idea = counts.find(c => c.doc_type === "idea");
   const brief = counts.find(c => c.doc_type === "concept_brief");
 
-  // Need at least one of idea or concept_brief with sufficient content
-  const ideaOk = idea && idea.has_current_version && idea.char_count >= MIN_IDEA_CHARS;
-  const briefOk = brief && brief.has_current_version && brief.char_count >= MIN_CONCEPT_BRIEF_CHARS;
+  // Need at least one of idea or concept_brief with sufficient non-stub content
+  const ideaOk = idea && idea.has_current_version && idea.char_count >= MIN_IDEA_CHARS && !containsStubMarker(idea.plaintext);
+  const briefOk = brief && brief.has_current_version && brief.char_count >= MIN_CONCEPT_BRIEF_CHARS && !containsStubMarker(brief.plaintext);
 
   if (!ideaOk && !briefOk) {
     if (!idea?.has_doc && !brief?.has_doc) {
       missing.push("idea(missing)", "concept_brief(missing)");
     } else {
-      if (idea?.has_doc) missing.push(`idea(${idea.char_count}chars)`);
-      else missing.push("idea(missing)");
-      if (brief?.has_doc) missing.push(`concept_brief(${brief.char_count}chars)`);
-      else missing.push("concept_brief(missing)");
+      if (idea?.has_doc) {
+        const reason = containsStubMarker(idea.plaintext) ? "stub" : `${idea.char_count}chars`;
+        missing.push(`idea(${reason})`);
+      } else missing.push("idea(missing)");
+      if (brief?.has_doc) {
+        const reason = containsStubMarker(brief.plaintext) ? "stub" : `${brief.char_count}chars`;
+        missing.push(`concept_brief(${reason})`);
+      } else missing.push("concept_brief(missing)");
     }
   }
 
-  // Seed docs: just need to exist (short is a warning, not a blocker)
+  // Seed docs: just need to exist with non-stub content (short is a warning, not a blocker)
   const seedMissing = SEED_DOC_TYPES.filter(dt => {
     const c = counts.find(cc => cc.doc_type === dt);
     return !c || !c.has_doc || !c.has_current_version;
@@ -2892,10 +2909,44 @@ Deno.serve(async (req) => {
       }
 
       // Resolve the actual text being fed into analysis (version plaintext > doc extracted_text > doc plaintext)
-      const reviewText = latestVersion.plaintext || doc.extracted_text || doc.plaintext || "";
-      const reviewCharCount = reviewText.length;
+      let reviewText = latestVersion.plaintext || doc.extracted_text || doc.plaintext || "";
+      let reviewCharCount = reviewText.length;
 
-      // ── C) STOP if input text is empty ──
+      // ── C) AUTO-REGEN if current doc is stub or empty ──
+      const docIsStub = reviewCharCount === 0 || !isDownstreamDocSufficient(currentDoc, reviewText);
+      if (docIsStub) {
+        console.log(`[auto-run] current doc ${currentDoc} is stub/insufficient (${reviewCharCount} chars) — attempting auto-regen`);
+        try {
+          const regenResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ action: "regenerate-insufficient-docs", projectId: job.project_id, dryRun: false }),
+          });
+          const regenResult = await regenResp.json();
+          const regenCount = regenResult?.regenerated?.length || 0;
+          console.log(`[auto-run] auto-regen for stub doc: regenerated=${regenCount}`);
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "auto_regen_inputs",
+            `Auto-regenerated ${regenCount} docs (current stage ${currentDoc} was stub)`,
+            {}, undefined, { regen_result: regenResult, trigger: "stub_at_current_stage" }
+          );
+
+          // Re-fetch the doc's current version after regen
+          const { data: regenVers } = await supabase.from("project_document_versions")
+            .select("id, plaintext, version_number")
+            .eq("document_id", doc.id)
+            .eq("is_current", true)
+            .limit(1);
+          if (regenVers?.[0]) {
+            latestVersion = regenVers[0];
+            reviewText = latestVersion.plaintext || "";
+            reviewCharCount = reviewText.length;
+          }
+        } catch (regenErr: any) {
+          console.error("[auto-run] auto-regen for stub failed:", regenErr.message);
+        }
+      }
+
+      // If still empty after regen attempt, fail
       if (reviewCharCount === 0) {
         await updateJob(supabase, jobId, {
           status: "failed",
