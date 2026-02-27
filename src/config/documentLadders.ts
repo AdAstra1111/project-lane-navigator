@@ -60,6 +60,9 @@ export const BASE_DOC_TYPES: Record<string, DocTypeMeta> = {
   episode_grid:            { label: 'Episode Grid',            description: 'Grid of all episodes with hooks/turns' },
   vertical_episode_beats:  { label: 'Vertical Episode Beats',  description: 'Beat sheets for vertical drama episodes' },
   topline_narrative:       { label: 'Topline Narrative',       description: 'Synopsis + logline + story pillars' },
+  // Derived (non-ladder) doc types
+  scene_graph:             { label: 'Scene Index',             description: 'Deterministic scene segmentation index' },
+  change_report:           { label: 'Change Report',           description: 'Deterministic diff and impact analysis' },
 };
 
 // ── Lane-specific ladders ──────────────────────────────────────────────────
