@@ -13606,8 +13606,19 @@ ${upstreamText}`;
 
       console.log(`[series-scripts] episodeCount resolved: ${JSON.stringify({ episodeCount: resolved.episodeCount, source: resolved.source, parsedGridCount: resolved.parsedGridCount, gridDocExists: resolved.gridDocExists })}`);
 
+      // Hard gate: if canonical count is set, enforce it and reject out-of-range requests
+      const canonicalN = proj.season_episode_count;
+      if (typeof canonicalN === "number" && canonicalN > 0) {
+        episodeCount = canonicalN; // override with canonical
+      }
+
       const startEp = episodeStart || 1;
       const endEp = episodeEnd || episodeCount;
+
+      // Reject ranges outside 1..N
+      if (startEp < 1 || endEp > episodeCount || startEp > endEp) {
+        throw new Error(`Episode range ${startEp}-${endEp} is outside canonical range 1-${episodeCount}`);
+      }
 
       // Check existing episode scripts
       const { data: existingDocs } = await supabase.from("project_documents")
@@ -14057,6 +14068,17 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             expected_count: expectedCount,
           }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
+
+        // Block if extras exist beyond canonical count
+        const extras = sortedIndices.filter(i => i > expectedCount);
+        if (extras.length > 0) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: `Found ${extras.length} episode scripts beyond canonical count of ${expectedCount}: episodes ${extras.join(", ")}. Remove or archive them first.`,
+            extra_episodes: extras,
+            expected_count: expectedCount,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
       }
 
       // Fetch current versions for all episode docs
@@ -14128,6 +14150,63 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         episode_count: sortedIndices.length,
         char_count: masterText.length,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // SET SEASON EPISODE COUNT
+    // ══════════════════════════════════════════════════════════════
+    if (action === "set-season-episode-count") {
+      const { projectId: pid, episodeCount: ec, lock } = body;
+      if (!pid) throw new Error("projectId required");
+      if (typeof ec !== "number" || ec < 1 || ec > 300) throw new Error("episodeCount must be 1..300");
+
+      const { data: proj } = await supabase.from("projects")
+        .select("season_episode_count_locked, user_id").eq("id", pid).single();
+      if (!proj) throw new Error("Project not found");
+      if (proj.season_episode_count_locked === true) {
+        return new Response(JSON.stringify({ error: "Episode count is locked. Cannot change." }), {
+          status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const updates: any = { season_episode_count: ec };
+      if (lock === true) updates.season_episode_count_locked = true;
+
+      const { data: updated, error: upErr } = await supabase.from("projects")
+        .update(updates).eq("id", pid).select("id, season_episode_count, season_episode_count_locked").single();
+      if (upErr) throw new Error(upErr.message);
+
+      return new Response(JSON.stringify({ success: true, project: updated }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // GET SEASON EPISODE COUNT
+    // ══════════════════════════════════════════════════════════════
+    if (action === "get-season-episode-count") {
+      const { projectId: pid } = body;
+      if (!pid) throw new Error("projectId required");
+      const { data: proj } = await supabase.from("projects")
+        .select("season_episode_count, season_episode_count_locked").eq("id", pid).single();
+      if (!proj) throw new Error("Project not found");
+      return new Response(JSON.stringify({
+        season_episode_count: proj.season_episode_count,
+        locked: proj.season_episode_count_locked === true,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // VALIDATE EPISODE COUNT (consistency check)
+    // ══════════════════════════════════════════════════════════════
+    if (action === "validate-episode-count") {
+      const { projectId: pid } = body;
+      if (!pid) throw new Error("projectId required");
+      const { validateEpisodeCount } = await import("../_shared/episode-count-validator.ts");
+      const report = await validateEpisodeCount(supabase, pid);
+      return new Response(JSON.stringify(report), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     throw new Error(`Unknown action: ${action}`);
