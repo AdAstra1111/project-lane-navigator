@@ -1,0 +1,2 @@
+ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS autorun_enabled boolean NOT NULL DEFAULT false;
+ALTER TABLE public.projects ADD COLUMN IF NOT EXISTS autorun_trigger text NOT NULL DEFAULT 'manual';

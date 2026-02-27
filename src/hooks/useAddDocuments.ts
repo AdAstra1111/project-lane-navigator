@@ -75,47 +75,9 @@ export function useAddDocuments(projectId: string | undefined) {
           });
         }
 
-        // 4. If latest draft, trigger re-analysis
+        // 4. Auto-analysis removed — user starts Auto-Run manually from the project page.
         if (scriptInfo.isLatestDraft) {
-          try {
-            // Get project data for re-analysis
-            const { data: project } = await supabase
-              .from('projects')
-              .select('*')
-              .eq('id', projectId)
-              .single();
-
-            if (project) {
-              // Get ALL document paths for this project for cumulative analysis
-              const { data: allDocs } = await supabase
-                .from('project_documents')
-                .select('file_path')
-                .eq('project_id', projectId);
-
-              const allPaths = (allDocs?.map(d => d.file_path) || documentPaths).filter(p => p && p.trim() !== '');
-
-              await supabase.functions.invoke('analyze-project', {
-                body: {
-                  projectInput: {
-                    id: projectId,
-                    title: project.title,
-                    format: project.format,
-                    genres: project.genres,
-                    budget_range: project.budget_range,
-                    target_audience: project.target_audience,
-                    tone: project.tone,
-                    comparable_titles: project.comparable_titles,
-                  },
-                  documentPaths: allPaths,
-                },
-              });
-
-              toast.success('Script recognised — re-analysing project intelligence…');
-            }
-          } catch (analysisErr) {
-            console.error('Re-analysis after script upload failed:', analysisErr);
-            // Non-fatal — docs are still uploaded
-          }
+          toast.success('Script recognised as latest draft.');
         }
       }
 

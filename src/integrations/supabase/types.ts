@@ -11992,6 +11992,8 @@ export type Database = {
           ai_production_mode: boolean
           analysis_passes: Json | null
           assigned_lane: string | null
+          autorun_enabled: boolean
+          autorun_trigger: string
           budget_range: string
           canon_version_id: string | null
           comparable_titles: string
@@ -12056,6 +12058,8 @@ export type Database = {
           ai_production_mode?: boolean
           analysis_passes?: Json | null
           assigned_lane?: string | null
+          autorun_enabled?: boolean
+          autorun_trigger?: string
           budget_range?: string
           canon_version_id?: string | null
           comparable_titles?: string
@@ -12120,6 +12124,8 @@ export type Database = {
           ai_production_mode?: boolean
           analysis_passes?: Json | null
           assigned_lane?: string | null
+          autorun_enabled?: boolean
+          autorun_trigger?: string
           budget_range?: string
           canon_version_id?: string | null
           comparable_titles?: string
