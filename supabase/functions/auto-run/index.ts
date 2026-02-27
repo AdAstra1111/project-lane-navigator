@@ -2420,6 +2420,24 @@ Deno.serve(async (req) => {
         );
         console.log("[auto-run] dev-engine analyze (bg) DONE", { jobId });
 
+        // ── Guard: dev-engine-v2 returned structured failure ──
+        if (!rawAnalyzeResult || rawAnalyzeResult.success === false) {
+          const errMsg = (rawAnalyzeResult?.error ? String(rawAnalyzeResult.error) : "DEV_ENGINE_RETURNED_FAILURE").slice(0, 300);
+          const where = rawAnalyzeResult?.where ? String(rawAnalyzeResult.where) : "dev-engine-v2/analyze";
+          const snippet = rawAnalyzeResult?.snippet ? String(rawAnalyzeResult.snippet).slice(0, 200) : "";
+          const fullErr = `${where} | ${errMsg}${snippet ? " | " + snippet : ""}`;
+          console.error("[auto-run] dev-engine analyze returned failure", { jobId, errMsg, where });
+          await updateJob(supabase, jobId, {
+            status: "failed",
+            stop_reason: "DEV_ENGINE_FAILED",
+            error: fullErr.slice(0, 500),
+          });
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop",
+            `DEV_ENGINE_FAILED: ${fullErr}`.slice(0, 500)
+          );
+          return; // exit bgTask — do not proceed to notes/rewrite/promote
+        }
+
         // dev-engine-v2 wraps analysis under { run, analysis }
         const analyzeResult = rawAnalyzeResult?.analysis || rawAnalyzeResult || {};
 
