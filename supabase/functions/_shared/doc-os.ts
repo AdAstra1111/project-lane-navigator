@@ -74,7 +74,7 @@ export async function ensureDocSlot(
   projectId: string,
   userId: string,
   docType: string,
-  opts?: { title?: string; source?: string; episodeIndex?: number; metaJson?: Record<string, any> }
+  opts?: { title?: string; source?: string; episodeIndex?: number; metaJson?: Record<string, any>; docRole?: string }
 ): Promise<DocSlotResult> {
   const { key, config } = resolveDocType(docType);
 
@@ -113,6 +113,7 @@ export async function ensureDocSlot(
     extraction_status: "complete",
     source: opts?.source || "generated",
     is_primary: false,
+    doc_role: opts?.docRole || "creative_primary",
   };
 
   // Merge meta_json with episode_index

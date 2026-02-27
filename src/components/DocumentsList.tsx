@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle, RotateCw, Trash2, Sparkles, ChevronRight, Eye, ScanSearch } from 'lucide-react';
+import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle, RotateCw, Trash2, Sparkles, ChevronRight, Eye, ScanSearch, Settings2 } from 'lucide-react';
 import { ProjectDocument, DocumentType, DOC_TYPE_LABELS } from '@/lib/types';
 import { getDocTypeLabel } from '@/lib/can-promote-to-script';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -85,17 +86,25 @@ const DOC_TYPE_COLORS: Record<DocumentType, string> = {
 interface DocumentsListProps {
   documents: ProjectDocument[];
   projectId?: string;
+  /** If true, show a toggle to reveal system/internal documents */
+  showSystemToggle?: boolean;
+  /** All documents including system ones (used when showSystemToggle is true) */
+  allDocuments?: ProjectDocument[];
 }
 
-export function DocumentsList({ documents, projectId }: DocumentsListProps) {
+export function DocumentsList({ documents, projectId, showSystemToggle, allDocuments }: DocumentsListProps) {
   const queryClient = useQueryClient();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
   const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
+  const [showSystem, setShowSystem] = useState(false);
   const extract = useExtractDocuments(projectId);
 
-  if (documents.length === 0) return null;
+  // When system toggle is on and allDocuments provided, show all; otherwise just creative
+  const visibleDocs = (showSystemToggle && showSystem && allDocuments) ? allDocuments : documents;
+
+  if (visibleDocs.length === 0) return null;
 
   const hasUnextracted = documents.some(d => {
     // Dev-engine docs with version content don't need extraction
@@ -215,10 +224,19 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
     }
   };
 
-  return (
+   return (
     <div>
+      {showSystemToggle && (
+        <div className="flex items-center gap-2 mb-3">
+          <Switch checked={showSystem} onCheckedChange={setShowSystem} id="system-docs-toggle" />
+          <label htmlFor="system-docs-toggle" className="text-xs text-muted-foreground cursor-pointer flex items-center gap-1.5">
+            <Settings2 className="h-3 w-3" />
+            Show System Documents
+          </label>
+        </div>
+      )}
       <div className="space-y-2">
-        {documents.map((doc, index) => {
+        {visibleDocs.map((doc, index) => {
           const healthy = isDocHealthy(doc);
           return (
             <motion.div
