@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
 import { useGenerateSeriesScripts, type SeriesScriptItem } from '@/hooks/useGenerateSeriesScripts';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Film, Play, Search, Loader2, CheckCircle2, XCircle, FileText, RotateCcw,
-  BookOpen, AlertTriangle,
+  BookOpen, AlertTriangle, Hash,
 } from 'lucide-react';
 
 const STATUS_BADGE: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
@@ -56,6 +58,35 @@ export function GenerateSeasonScriptsPanel({ projectId }: Props) {
     masterResult, masterLoading,
   } = useGenerateSeriesScripts(projectId);
   const [force] = useState(false);
+  const [canonicalCount, setCanonicalCount] = useState<number | null>(null);
+  const [countInput, setCountInput] = useState('');
+  const [countSaving, setCountSaving] = useState(false);
+
+  useEffect(() => {
+    supabase.from('projects').select('season_episode_count').eq('id', projectId).single()
+      .then(({ data }) => {
+        const val = data?.season_episode_count;
+        setCanonicalCount(typeof val === 'number' && val > 0 ? val : null);
+        setCountInput(typeof val === 'number' && val > 0 ? String(val) : '');
+      });
+  }, [projectId]);
+
+  const saveCanonicalCount = async () => {
+    const num = parseInt(countInput);
+    if (!num || num < 1) return;
+    setCountSaving(true);
+    await supabase.from('projects').update({ season_episode_count: num }).eq('id', projectId);
+    setCanonicalCount(num);
+    setCountSaving(false);
+  };
+
+  const clearCanonicalCount = async () => {
+    setCountSaving(true);
+    await supabase.from('projects').update({ season_episode_count: null } as any).eq('id', projectId);
+    setCanonicalCount(null);
+    setCountInput('');
+    setCountSaving(false);
+  };
 
   const items: SeriesScriptItem[] = result?.items || scanResult?.items || [];
   const isRunning = progress.status === 'running';
@@ -70,6 +101,44 @@ export function GenerateSeasonScriptsPanel({ projectId }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* Canonical episode count */}
+      <Card className="border-muted">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Hash className="h-5 w-5 text-muted-foreground" />
+            Season Episode Count
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {canonicalCount ? (
+            <div className="flex items-center gap-2">
+              <Badge variant="default" className="text-sm">Canonical: {canonicalCount} episodes</Badge>
+              <Button variant="ghost" size="sm" onClick={clearCanonicalCount} disabled={countSaving}>
+                Clear
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No canonical count set. Episodes will be derived from episode grid, season arc, or format default.
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={1}
+              max={200}
+              placeholder="e.g. 10"
+              value={countInput}
+              onChange={e => setCountInput(e.target.value)}
+              className="w-24 h-8 text-sm"
+            />
+            <Button size="sm" variant="outline" onClick={saveCanonicalCount} disabled={countSaving || !countInput || parseInt(countInput) < 1}>
+              {countSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Set'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Per-episode generation */}
       <Card className="border-primary/20">
         <CardHeader className="pb-3">
