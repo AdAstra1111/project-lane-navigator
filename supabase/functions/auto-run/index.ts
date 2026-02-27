@@ -53,7 +53,7 @@ async function ensureSeedPack(
   supabaseUrl: string,
   projectId: string,
   token: string,
-): Promise<{ ensured: boolean; missing: string[] }> {
+): Promise<{ ensured: boolean; missing: string[]; failed: boolean; error?: string }> {
   const { data: existingDocs } = await supabase
     .from("project_documents")
     .select("doc_type")
@@ -64,8 +64,41 @@ async function ensureSeedPack(
   const missing = SEED_DOC_TYPES.filter(dt => !existingSet.has(dt));
 
   if (missing.length === 0) {
-    console.log(`[auto-run] SEED_PACK ensured=false missing=`);
-    return { ensured: false, missing: [] };
+    // Verify all have current versions with non-empty plaintext
+    const { data: verifiedDocs } = await supabase
+      .from("project_documents")
+      .select("id, doc_type")
+      .eq("project_id", projectId)
+      .in("doc_type", SEED_DOC_TYPES);
+
+    const docIds = (verifiedDocs || []).map((d: any) => d.id);
+    if (docIds.length > 0) {
+      const { data: currentVersions } = await supabase
+        .from("project_document_versions")
+        .select("document_id, plaintext")
+        .in("document_id", docIds)
+        .eq("is_current", true);
+
+      const docsWithContent = new Set(
+        (currentVersions || [])
+          .filter((v: any) => v.plaintext && v.plaintext.trim().length > 0)
+          .map((v: any) => v.document_id)
+      );
+
+      const docTypeMap = new Map((verifiedDocs || []).map((d: any) => [d.id, d.doc_type]));
+      const missingContent = SEED_DOC_TYPES.filter(dt => {
+        const docId = (verifiedDocs || []).find((d: any) => d.doc_type === dt)?.id;
+        return !docId || !docsWithContent.has(docId);
+      });
+
+      if (missingContent.length > 0) {
+        console.error(`[auto-run] SEED_PACK docs exist but ${missingContent.length} missing current version with content: ${missingContent.join(",")}`);
+        return { ensured: false, missing: missingContent, failed: true, error: `Seed docs missing current version content: ${missingContent.join(", ")}` };
+      }
+    }
+
+    console.log(`[auto-run] SEED_PACK ensured=false missing=none all_verified`);
+    return { ensured: false, missing: [], failed: false };
   }
 
   // Derive pitch from idea doc's current version plaintext, or project title
@@ -101,7 +134,7 @@ async function ensureSeedPack(
   console.log(`[auto-run] SEED_PACK ensured=true missing=${missing.join(",")}`);
 
   try {
-    await fetch(`${supabaseUrl}/functions/v1/generate-seed-pack`, {
+    const seedRes = await fetch(`${supabaseUrl}/functions/v1/generate-seed-pack`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -109,11 +142,57 @@ async function ensureSeedPack(
       },
       body: JSON.stringify({ projectId, pitch, lane }),
     });
+
+    if (!seedRes.ok) {
+      const errBody = await seedRes.text();
+      console.error(`[auto-run] SEED_PACK generation returned ${seedRes.status}: ${errBody}`);
+      return { ensured: true, missing, failed: true, error: `generate-seed-pack returned ${seedRes.status}` };
+    }
+
+    const seedResult = await seedRes.json();
+    if (!seedResult.success) {
+      console.error("[auto-run] SEED_PACK generation returned success=false:", seedResult.error);
+      return { ensured: true, missing, failed: true, error: seedResult.error || "generate-seed-pack failed" };
+    }
   } catch (e: any) {
-    console.error("[auto-run] SEED_PACK generation failed (non-fatal):", e.message);
+    console.error("[auto-run] SEED_PACK generation failed:", e.message);
+    return { ensured: true, missing, failed: true, error: e.message };
   }
 
-  return { ensured: true, missing };
+  // Re-verify after generation
+  const { data: postDocs } = await supabase
+    .from("project_documents")
+    .select("id, doc_type")
+    .eq("project_id", projectId)
+    .in("doc_type", SEED_DOC_TYPES);
+
+  const postDocIds = (postDocs || []).map((d: any) => d.id);
+  const { data: postVersions } = postDocIds.length > 0
+    ? await supabase
+        .from("project_document_versions")
+        .select("document_id, plaintext")
+        .in("document_id", postDocIds)
+        .eq("is_current", true)
+    : { data: [] };
+
+  const verifiedSet = new Set(
+    (postVersions || [])
+      .filter((v: any) => v.plaintext && v.plaintext.trim().length > 0)
+      .map((v: any) => v.document_id)
+  );
+
+  const stillMissing = SEED_DOC_TYPES.filter(dt => {
+    const doc = (postDocs || []).find((d: any) => d.doc_type === dt);
+    return !doc || !verifiedSet.has(doc.id);
+  });
+
+  if (stillMissing.length > 0) {
+    console.error(`[auto-run] SEED_PACK still incomplete after generation: ${stillMissing.join(",")}`);
+    return { ensured: true, missing: stillMissing, failed: true, error: `Seed pack incomplete after generation: ${stillMissing.join(", ")}` };
+  }
+
+  console.log("[auto-run] SEED_PACK fully verified after generation");
+  return { ensured: true, missing: [], failed: false };
 }
 
 /**
@@ -1791,8 +1870,23 @@ Deno.serve(async (req) => {
       const stepCount = job.step_count;
       const stageLoopCount = job.stage_loop_count;
 
-      // ── Ensure seed pack on resume (cheap idempotent check) ──
-      await ensureSeedPack(supabase, supabaseUrl, job.project_id, token);
+      // ── Ensure seed pack on resume (hard guard) ──
+      const seedResult = await ensureSeedPack(supabase, supabaseUrl, job.project_id, token);
+      if (seedResult.failed) {
+        console.error(`[auto-run] SEED_PACK_INCOMPLETE — failing job ${jobId}. Missing: ${seedResult.missing.join(", ")}. Error: ${seedResult.error}`);
+        await updateJob(supabase, jobId, {
+          status: "failed",
+          stop_reason: "SEED_PACK_INCOMPLETE",
+          last_ui_message: `Seed pack incomplete: ${seedResult.error || seedResult.missing.join(", ")}`,
+        });
+        await logStep(supabase, jobId, stepCount + 1, currentDoc, "seed_pack_failed",
+          `Seed pack incomplete — cannot proceed. Missing: ${seedResult.missing.join(", ")}`);
+        return respond({
+          job: { ...job, status: "failed", stop_reason: "SEED_PACK_INCOMPLETE" },
+          missing_seed_docs: seedResult.missing,
+          error: seedResult.error,
+        });
+      }
 
       // ── Guard: max steps — pause with actionable choices ──
       if (stepCount >= job.max_total_steps) {
