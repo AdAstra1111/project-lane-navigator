@@ -39,6 +39,8 @@ import { useSeasonTemplate } from '@/hooks/useSeasonTemplate';
 import { canPromoteToScript, getDocDisplayName } from '@/lib/can-promote-to-script';
 import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
+import { ChangeReportPanel } from '@/components/devengine/ChangeReportPanel';
+import { deriveScriptChangeArtifacts, isScriptDocType } from '@/lib/script_change';
 import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, getDeliverableLabel, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
 import { isSeriesFormat as checkSeriesFormat } from '@/lib/format-helpers';
 import { FORMAT_DEFAULTS } from '@/lib/qualifications/resolveQualifications';
@@ -797,6 +799,25 @@ export default function ProjectDevelopmentEngine() {
       if (error) throw error;
       toast.success('Saved');
       qcRef.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+
+      // Trigger deterministic script change derivatives
+      if (selectedDoc && isScriptDocType(selectedDoc.doc_type) && projectId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        const existingDocTypes = documents.map(d => d.doc_type);
+        deriveScriptChangeArtifacts({
+          projectId,
+          sourceDocId: selectedDocId!,
+          sourceDocType: selectedDoc.doc_type,
+          newVersionId: selectedVersionId,
+          newPlaintext: editableText,
+          previousPlaintext: versionText !== editableText ? versionText : null,
+          previousVersionId: null,
+          actorUserId: user?.id || '',
+          existingDocTypes,
+        }).then(() => {
+          qcRef.invalidateQueries({ queryKey: ['change-report', projectId] });
+        }).catch(() => { /* non-fatal */ });
+      }
     } catch (e: any) {
       toast.error(e.message || 'Failed to save');
     } finally {
@@ -1630,6 +1651,11 @@ export default function ProjectDevelopmentEngine() {
               {versionText && !isVerticalDrama && (selectedDeliverableType === 'feature_script' || selectedDeliverableType === 'production_draft') && (
                 <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
                   selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
+              )}
+
+              {/* Change Report Panel — script docs only */}
+              {projectId && selectedDoc && isScriptDocType(selectedDoc.doc_type) && (
+                <ChangeReportPanel projectId={projectId} />
               )}
 
               {/* ═══ UNIFIED BIG BUTTON: Apply All Notes & Decisions ═══ */}
