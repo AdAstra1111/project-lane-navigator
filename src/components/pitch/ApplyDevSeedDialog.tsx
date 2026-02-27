@@ -225,7 +225,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
   const [projectTitle, setProjectTitle] = useState('');
   const [applyDocs, setApplyDocs] = useState(true);
   const [applyCanon, setApplyCanon] = useState(true); // default ON now
-  const [applyPrefs, setApplyPrefs] = useState(false);
+  const [applyPrefs, setApplyPrefs] = useState(true);
 
   if (!idea) return null;
 
