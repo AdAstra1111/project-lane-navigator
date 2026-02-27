@@ -416,10 +416,59 @@ async function ensureSeedPack(
   return { ensured: true, missing: [], failed: false, warnings: shortDocsPost.length > 0 ? shortDocsPost : undefined, seed_debug: _seedDebugSuccess };
 }
 
+// ── Downstream Sufficiency Gate ──────────────────────────────────────────────
+
+const STUB_MARKERS = [
+  "draft stub",
+  "generate full",
+  "generate from dev engine",
+  "todo",
+  "[insert",
+  "[1–2 sentences]",
+  "[1-2 sentences]",
+  "placeholder",
+];
+
+const MIN_CHARS_BY_DOC_TYPE: Record<string, number> = {
+  concept_brief: 800,
+  beat_sheet: 1200,
+  character_bible: 1200,
+  treatment: 1200,
+  story_outline: 1200,
+  episode_grid: 800,
+  season_arc: 800,
+  format_rules: 600,
+  market_sheet: 700,
+  vertical_market_sheet: 700,
+  episode_script: 2000,
+  feature_script: 2000,
+  season_master_script: 2000,
+  production_draft: 2000,
+  documentary_outline: 800,
+  deck: 600,
+  vertical_episode_beats: 600,
+};
+
+const DEFAULT_MIN_CHARS = 600;
+
+function isDownstreamDocSufficient(docType: string, plaintext: string | null | undefined, _approvalStatus?: string): boolean {
+  if (!plaintext) return false;
+  const text = plaintext.trim();
+  const minChars = MIN_CHARS_BY_DOC_TYPE[docType] ?? DEFAULT_MIN_CHARS;
+  if (text.length < minChars) return false;
+  const lower = text.toLowerCase();
+  for (const marker of STUB_MARKERS) {
+    if (lower.includes(marker)) return false;
+  }
+  return true;
+}
+
 /**
  * Find the next unsatisfied stage on the ladder between startIdx and targetIdx.
- * A stage is "satisfied" if a doc of that type exists. For script stages
- * (feature_script, episode_script) an approved version is also required.
+ * A stage is "satisfied" if:
+ *   - a doc of that type exists with a current version
+ *   - the current version passes sufficiency checks (no stubs, min chars)
+ *   - for APPROVAL_REQUIRED_STAGES, an approved version is also required
  */
 async function nextUnsatisfiedStage(
   supabase: any,
@@ -433,7 +482,7 @@ async function nextUnsatisfiedStage(
   const targetIdx = ladder.indexOf(targetStage);
   if (currentIdx < 0 || targetIdx < 0) return nextDoc(currentStage, format);
 
-  // Fetch all project docs and their approval status in one pass
+  // Fetch all project docs
   const { data: allDocs } = await supabase
     .from("project_documents")
     .select("id, doc_type")
@@ -445,43 +494,57 @@ async function nextUnsatisfiedStage(
     docsByType.get(d.doc_type)!.push(d.id);
   }
 
-  // Stages that require an approved version to be considered satisfied.
-  // Canonical source: src/lib/pipeline-brain.ts APPROVAL_REQUIRED_STAGES
+  // Collect all doc IDs for batch version fetch
+  const allDocIds = (allDocs || []).map((d: any) => d.id);
+
+  // Batch-fetch current versions with plaintext + approval_status
+  let currentVersions: any[] = [];
+  if (allDocIds.length > 0) {
+    const { data: vers } = await supabase
+      .from("project_document_versions")
+      .select("document_id, plaintext, approval_status")
+      .in("document_id", allDocIds)
+      .eq("is_current", true);
+    currentVersions = vers || [];
+  }
+
+  const versionByDocId = new Map<string, { plaintext: string | null; approval_status: string }>();
+  for (const v of currentVersions) {
+    versionByDocId.set(v.document_id, { plaintext: v.plaintext, approval_status: v.approval_status });
+  }
+
   const APPROVAL_REQUIRED_STAGES = new Set([
     "episode_grid", "character_bible", "season_arc", "format_rules",
   ]);
 
-  // Collect doc IDs for approval-required stages that have docs
-  const approvalCheckIds: string[] = [];
-  for (const stage of APPROVAL_REQUIRED_STAGES) {
-    const ids = docsByType.get(stage);
-    if (ids) approvalCheckIds.push(...ids);
-  }
-
-  // Batch-fetch approved status
-  const approvedDocIds = new Set<string>();
-  if (approvalCheckIds.length > 0) {
-    const { data: approvedVersions } = await supabase
-      .from("project_document_versions")
-      .select("document_id")
-      .in("document_id", approvalCheckIds)
-      .eq("approval_status", "approved");
-    for (const v of (approvedVersions || [])) {
-      approvedDocIds.add(v.document_id);
-    }
-  }
-
   // Walk ladder from current+1 to target, find first unsatisfied
   for (let i = currentIdx + 1; i <= targetIdx; i++) {
     const stage = ladder[i];
+    // Skip seed core stages — they have their own gate
+    if (SEED_DOC_TYPES.includes(stage)) continue;
+
     const docIds = docsByType.get(stage);
     if (!docIds || docIds.length === 0) return stage; // no doc at all
+
+    // Check sufficiency: at least one doc must have a sufficient current version
+    const hasSufficient = docIds.some(id => {
+      const ver = versionByDocId.get(id);
+      if (!ver) return false;
+      return isDownstreamDocSufficient(stage, ver.plaintext, ver.approval_status);
+    });
+
+    if (!hasSufficient) {
+      console.log(`[auto-run] stage ${stage} unsatisfied: doc exists but content insufficient (stub or too short)`);
+      return stage;
+    }
+
     if (APPROVAL_REQUIRED_STAGES.has(stage)) {
-      // Need at least one approved version
-      const hasApproved = docIds.some(id => approvedDocIds.has(id));
+      const hasApproved = docIds.some(id => {
+        const ver = versionByDocId.get(id);
+        return ver?.approval_status === "approved";
+      });
       if (!hasApproved) return stage;
     }
-    // Otherwise doc exists → satisfied, continue
   }
 
   return null; // all stages satisfied
