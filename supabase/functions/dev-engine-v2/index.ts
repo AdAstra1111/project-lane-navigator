@@ -381,6 +381,21 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
   throw new Error("AI call failed after retries");
 }
 
+const STRICT_JSON_RULES = `CRITICAL: Return ONLY valid JSON. No markdown fences. No trailing commas. All keys in double quotes. No comments. No extra text before or after the JSON object.`;
+
+function safeSnippet(s: string, n = 300): string {
+  if (!s) return "";
+  return s.slice(0, n);
+}
+
+function looksLikeAnalyzeShape(obj: any): boolean {
+  if (typeof obj !== "object" || obj === null || Array.isArray(obj)) return false;
+  // Permissive: any of these top-level keys means it's plausibly an analyze result
+  return !!(obj.actionable_notes || obj.metrics || obj.score || obj.scores ||
+    obj.summary || obj.result || obj.ci_score != null || obj.convergence ||
+    obj.blocking_issues || obj.high_impact_notes);
+}
+
 async function parseAIJson(apiKey: string, raw: string): Promise<any> {
   try {
     return JSON.parse(extractJSON(raw));
@@ -2035,12 +2050,29 @@ MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, maxContextChars)}`;
 
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, systemPrompt, userPrompt, 0.2, 6000);
-      const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
-      if (!parsed) {
-        console.error("[dev-engine-v2] analyze: parseAIJson returned null", raw.slice(0, 300));
-        return new Response(JSON.stringify({ success: false, error: "MODEL_JSON_PARSE_FAILED", where: "analyze", snippet: raw.slice(0, 300) }), {
-          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      let parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+
+      // ── Strict JSON retry: one deterministic recovery attempt ──
+      if (!parsed || !looksLikeAnalyzeShape(parsed)) {
+        console.log("[dev-engine-v2] analyze json invalid -> strict retry", { projectId, documentId, versionId: version.id });
+        try {
+          const raw2 = await callAI(LOVABLE_API_KEY, PRO_MODEL, `${STRICT_JSON_RULES}\n\n${systemPrompt}`, userPrompt, 0.1, 6000);
+          const parsed2 = await parseAIJson(LOVABLE_API_KEY, raw2);
+          if (parsed2 && looksLikeAnalyzeShape(parsed2)) {
+            console.log("[dev-engine-v2] analyze strict retry succeeded", { projectId });
+            parsed = parsed2;
+          } else {
+            console.error("[dev-engine-v2] analyze strict retry failed -> returning success:false", { projectId, snippet: safeSnippet(raw2) });
+            return new Response(JSON.stringify({ success: false, error: "MODEL_JSON_PARSE_FAILED", where: "analyze", attempt: 2, snippet: safeSnippet(raw2, 300), hint: "strict_retry_failed" }), {
+              status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        } catch (retryErr: any) {
+          console.error("[dev-engine-v2] analyze strict retry threw", { projectId, error: retryErr?.message });
+          return new Response(JSON.stringify({ success: false, error: "MODEL_JSON_PARSE_FAILED", where: "analyze", attempt: 2, snippet: safeSnippet(raw, 300), hint: "strict_retry_exception" }), {
+            status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
       }
 
       // Normalize: ensure scores are at top level for backward compat

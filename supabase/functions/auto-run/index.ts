@@ -2424,8 +2424,10 @@ Deno.serve(async (req) => {
         if (!rawAnalyzeResult || rawAnalyzeResult.success === false) {
           const errMsg = (rawAnalyzeResult?.error ? String(rawAnalyzeResult.error) : "DEV_ENGINE_RETURNED_FAILURE").slice(0, 300);
           const where = rawAnalyzeResult?.where ? String(rawAnalyzeResult.where) : "dev-engine-v2/analyze";
-          const snippet = rawAnalyzeResult?.snippet ? String(rawAnalyzeResult.snippet).slice(0, 200) : "";
-          const fullErr = `${where} | ${errMsg}${snippet ? " | " + snippet : ""}`;
+          const attempt = rawAnalyzeResult?.attempt ? String(rawAnalyzeResult.attempt) : "1";
+          const snippet = (rawAnalyzeResult?.snippet || "").slice(0, 200);
+          const hint = rawAnalyzeResult?.hint ? String(rawAnalyzeResult.hint) : "";
+          const fullErr = `${errMsg} | where=${where} | attempt=${attempt}${hint ? " | hint=" + hint : ""}${snippet ? " | " + snippet : ""}`;
           console.error("[auto-run] dev-engine analyze returned failure", { jobId, errMsg, where });
           await updateJob(supabase, jobId, {
             status: "failed",
