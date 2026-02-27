@@ -13234,26 +13234,27 @@ No stubs, no placeholders, no TODO markers.`;
         items.push({ doc_type: stage, document_id: docId, reason: reason!, char_before: charBefore, upstream });
       }
 
-      // Create job
+      // Create job — dry_run jobs are born complete (inspection-only snapshot)
+      const isDryRun = isDry === true;
       const { data: job, error: jobErr } = await supabase.from("regen_jobs").insert({
         project_id: projectId,
         created_by: userId,
-        status: items.length > 0 ? "queued" : "complete",
-        dry_run: isDry === true,
+        status: isDryRun ? "complete" : (items.length > 0 ? "queued" : "complete"),
+        dry_run: isDryRun,
         force: isForce === true,
         total_count: items.length,
-        completed_count: 0,
+        completed_count: isDryRun ? items.length : 0,
       }).select().single();
       if (jobErr) throw new Error(`Failed to create regen job: ${jobErr.message}`);
 
-      // Create items
+      // Create items — dry_run uses 'preview' status (immutable); live uses 'queued'
       if (items.length > 0) {
         const rows = items.map(it => ({
           job_id: job.id,
           doc_type: it.doc_type,
           document_id: it.document_id,
           reason: it.reason,
-          status: "queued",
+          status: isDryRun ? "preview" : "queued",
           char_before: it.char_before,
           upstream: it.upstream,
         }));
@@ -13280,7 +13281,7 @@ No stubs, no placeholders, no TODO markers.`;
       const { data: job, error: jobErr } = await supabase.from("regen_jobs")
         .select("*").eq("id", jobId).single();
       if (jobErr || !job) throw new Error("Regen job not found");
-      if (job.status === "complete" || job.status === "cancelled") {
+      if (job.status === "complete" || job.status === "cancelled" || job.dry_run === true) {
         return new Response(JSON.stringify({ success: true, job, processed: [], done: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
