@@ -121,6 +121,7 @@ export const ALL_DOC_TYPE_LABELS: Record<string, string> = {
   trailer_script: 'Trailer Script',
   // Seed core docs
   project_overview: 'Project Overview',
+  creative_brief: 'Creative Brief',
   market_positioning: 'Market Positioning',
   canon: 'Canon & Constraints',
   nec: 'Narrative Energy Contract',
