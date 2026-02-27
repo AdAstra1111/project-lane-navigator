@@ -84,13 +84,10 @@ serve(async (req) => {
 
 Output as a JSON object with keys: bible_starter, nuance_contract, market_rationale. Each should be a well-structured object.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    // Fetch with retry for transient gateway errors (502/503)
+    let response: Response | null = null;
+    const MAX_RETRIES = 2;
+    const aiPayload = JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
@@ -147,13 +144,36 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
           },
         ],
         tool_choice: { type: "function", function: { name: "submit_devseed" } },
-      }),
-    });
+      });
 
-    if (!response.ok) {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: aiPayload,
+      });
+
+      if (response.ok) break;
+
+      // Retry on transient gateway errors
+      if ((response.status === 502 || response.status === 503) && attempt < MAX_RETRIES) {
+        const backoffMs = 2000 * (attempt + 1);
+        console.warn(`[promote-to-devseed] AI gateway returned ${response.status}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        await response.text(); // consume body
+        await new Promise(r => setTimeout(r, backoffMs));
+        continue;
+      }
+
       const t = await response.text();
       console.error("AI error:", response.status, t);
-      throw new Error("DevSeed generation failed");
+      throw new Error(`DevSeed generation failed (AI returned ${response.status})`);
+    }
+
+    if (!response || !response.ok) {
+      throw new Error("DevSeed generation failed after retries");
     }
 
     const result = await response.json();
