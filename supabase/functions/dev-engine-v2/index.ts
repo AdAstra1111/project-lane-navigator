@@ -1690,7 +1690,10 @@ function compareSnapshots(a: CriteriaSnapshot | null, b: CriteriaSnapshot | null
 // MAIN
 // ═══════════════════════════════════════════════════════════════
 
+console.log("[dev-engine-v2] booted");
+
 serve(async (req) => {
+  console.log("[dev-engine-v2] request received", { method: req.method, url: req.url });
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
