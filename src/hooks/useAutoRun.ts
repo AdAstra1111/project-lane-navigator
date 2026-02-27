@@ -163,11 +163,20 @@ export function useAutoRun(projectId: string | undefined) {
         setJob(result.job);
         setSteps(result.latest_steps || []);
 
-        if (!result.job || !['running'].includes(result.job.status)) {
-          break;
-        }
-        // Stop polling if awaiting approval
-        if (result.job?.awaiting_approval || result.next_action_hint === 'awaiting-approval') {
+        const jobStatus = result.job?.status;
+        const stopReason = result.job?.stop_reason;
+
+        if (
+          !result.job ||
+          jobStatus !== 'running' ||
+          stopReason ||
+          jobStatus === 'completed' ||
+          jobStatus === 'stopped' ||
+          jobStatus === 'failed' ||
+          jobStatus === 'paused' ||
+          result.job?.awaiting_approval ||
+          result.next_action_hint === 'awaiting-approval'
+        ) {
           break;
         }
       } catch (e: any) {
