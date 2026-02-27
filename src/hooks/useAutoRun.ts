@@ -146,6 +146,8 @@ export function useAutoRun(projectId: string | undefined) {
       setJob(result.job);
       setSteps(result.latest_steps || []);
       setIsRunning(true);
+      // Invalidate docs immediately — seed pack may have been created during start
+      invalidateDevEngine(qc, { projectId, deep: false });
       runLoop(result.job.id);
     } catch (e: any) {
       setError(e.message);
@@ -162,6 +164,8 @@ export function useAutoRun(projectId: string | undefined) {
         const result = await callAutoRun('run-next', { jobId });
         setJob(result.job);
         setSteps(result.latest_steps || []);
+        // Refresh doc list mid-loop so seed pack chips update live
+        qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
 
         const jobStatus = result.job?.status;
         const stopReason = result.job?.stop_reason;
