@@ -19,6 +19,10 @@ export type DocTypeKey =
   | 'format_rules'
   | 'production_draft'
   | 'trailer_script'
+  | 'project_overview'
+  | 'market_positioning'
+  | 'canon'
+  | 'nec'
   | 'other';
 
 export const DOC_TYPE_KEY_LABELS: Record<DocTypeKey, string> = {
@@ -37,6 +41,10 @@ export const DOC_TYPE_KEY_LABELS: Record<DocTypeKey, string> = {
   format_rules: 'Format Rules',
   production_draft: 'Production Draft',
   trailer_script: 'Trailer Script',
+  project_overview: 'Project Overview',
+  market_positioning: 'Market Positioning',
+  canon: 'Canon & Constraints',
+  nec: 'Narrative Energy Contract',
   other: 'Document',
 };
 
@@ -66,7 +74,12 @@ const KEY_MAP: Record<string, DocTypeKey> = {
   concept_lock: 'concept_brief',
   market_sheet: 'market_sheet',
   market: 'market_sheet',
-  market_positioning: 'market_sheet',
+  market_positioning: 'market_positioning',
+  project_overview: 'project_overview',
+  canon: 'canon',
+  canon_constraints: 'canon',
+  nec: 'nec',
+  narrative_energy_contract: 'nec',
   deck: 'deck',
   pitch_deck: 'deck',
   lookbook: 'deck',
