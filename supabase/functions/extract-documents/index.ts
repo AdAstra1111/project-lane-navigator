@@ -443,9 +443,14 @@ serve(async (req) => {
     }
 
     // Read the doc_type passed from the client (single source of truth)
-    // Normalize script variants to canonical 'script' for storage
-    const rawDocType = body.docType || "document";
-    const docType = rawDocType === "script_latest" || rawDocType === "script_older" ? "script" : rawDocType;
+    // Normalize script variants to canonical types for storage
+    const rawDocType = body.docType || "other";
+    const EXTRACT_DOC_TYPE_MAP: Record<string, string> = {
+      script_latest: "feature_script", script_older: "feature_script", script: "feature_script",
+      screenplay_draft: "feature_script", script_pdf: "feature_script", blueprint: "treatment",
+      architecture: "story_outline", document: "other",
+    };
+    const docType = EXTRACT_DOC_TYPE_MAP[rawDocType] || rawDocType;
 
     // Save document records to DB (upsert by file_path)
     for (const doc of docResults) {

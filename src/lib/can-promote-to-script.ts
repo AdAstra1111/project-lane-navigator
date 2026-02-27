@@ -93,6 +93,7 @@ export const ALL_DOC_TYPE_LABELS: Record<string, string> = {
   logline: 'Logline',
   one_pager: 'One-Pager',
   treatment: 'Treatment',
+  story_outline: 'Story Outline',
   blueprint: 'Season Blueprint',
   architecture: 'Series Architecture',
   beat_sheet: 'Episode Beat Sheet',
