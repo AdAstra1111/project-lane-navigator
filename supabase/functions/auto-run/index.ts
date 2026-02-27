@@ -7,22 +7,12 @@ const corsHeaders = {
 };
 
 // ── Document Ladders ──────────────────────────────────────────────────────────
-// SINGLE SOURCE OF TRUTH: supabase/_shared/stage-ladders.json
-// Loaded at runtime via import.meta.url so the edge function always reads the
-// exact same file that the frontend registry.ts imports. No duplication needed.
+// SINGLE SOURCE OF TRUTH: supabase/functions/_shared/stage-ladders.ts
+// Static import — no top-level await, no fetch, no file I/O.
+import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
 
-const _jsonPath = new URL("../../_shared/stage-ladders.json", import.meta.url);
-let _laddersJson: any;
-try {
-  _laddersJson = JSON.parse(await Deno.readTextFile(_jsonPath));
-} catch {
-  // Fallback: resolve via file:// path string
-  const pathStr = _jsonPath.pathname || _jsonPath.href.replace("file://", "");
-  _laddersJson = JSON.parse(await Deno.readTextFile(pathStr));
-}
-
-const FORMAT_LADDERS: Record<string, string[]> = _laddersJson.FORMAT_LADDERS;
-const DOC_TYPE_ALIASES: Record<string, string> = _laddersJson.DOC_TYPE_ALIASES;
+const FORMAT_LADDERS: Record<string, string[]> = STAGE_LADDERS.FORMAT_LADDERS;
+const DOC_TYPE_ALIASES: Record<string, string> = STAGE_LADDERS.DOC_TYPE_ALIASES;
 
 /**
  * Sanitize a doc_type before persisting — maps legacy aliases to canonical stages.
@@ -804,6 +794,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    if (!FORMAT_LADDERS || typeof FORMAT_LADDERS !== "object" || Object.keys(FORMAT_LADDERS).length === 0) {
+      return respond({ error: "STAGE_LADDERS_LOAD_FAILED" }, 500);
+    }
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return respond({ error: "Unauthorized" }, 401);
