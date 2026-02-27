@@ -334,6 +334,31 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     abortRef.current = true;
   }, []);
 
+  const approveSeedCore = useCallback(async () => {
+    if (!projectId) return null;
+    setError(null);
+    abortRef.current = false;
+    try {
+      const result = await callAutoRun('approve-seed-core', {
+        projectId,
+        jobId: job?.id,
+      });
+      if (result.job) {
+        setJob(result.job);
+        if (result.job.status === 'running') {
+          await new Promise(r => setTimeout(r, 300));
+          setIsRunning(true);
+        }
+      }
+      qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
+      qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+      return result;
+    } catch (e: any) {
+      setError(e.message);
+      return null;
+    }
+  }, [projectId, job, qc]);
+
   const applyDecisionsAndContinue = useCallback(async (
     selectedOptions: Array<{ note_id: string; option_id: string; custom_direction?: string }>,
     globalDirections?: string[]
@@ -361,7 +386,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     // Core actions
     start, pause, resume, stop, runNext, clear, refreshStatus, activate,
     // Approval
-    getPendingDoc, approveNext, approveDecision,
+    getPendingDoc, approveNext, approveDecision, approveSeedCore,
     // Decisions
     applyDecisionsAndContinue,
     // Stage control

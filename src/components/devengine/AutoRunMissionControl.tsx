@@ -129,6 +129,7 @@ interface AutoRunMissionControlProps {
   onGetPendingDoc: () => Promise<any>;
   onApproveNext: (decision: 'approve' | 'revise' | 'stop') => void;
   onApproveDecision: (decisionId: string, selectedValue: string) => void;
+  onApproveSeedCore: () => Promise<any>;
   onSetStage: (stage: string) => void;
   onForcePromote: () => void;
   onRestartFromStage: (stage: string) => void;
@@ -257,7 +258,7 @@ export function AutoRunMissionControl({
   projectId, currentDeliverable, job, steps, isRunning, error,
   activated, onActivate,
   onStart, onPause, onResume, onSetResumeSource, onStop, onRunNext, onClear,
-  onGetPendingDoc, onApproveNext, onApproveDecision,
+  onGetPendingDoc, onApproveNext, onApproveDecision, onApproveSeedCore,
   onSetStage, onForcePromote, onRestartFromStage,
   onSaveStorySetup, onSaveQualifications, onSaveLaneBudget, onSaveGuardrails,
   fetchDocumentText,
@@ -301,6 +302,7 @@ export function AutoRunMissionControl({
   const [saving, setSaving] = useState<string | null>(null);
   const [showPreflight, setShowPreflight] = useState(false);
   const [preflightErrors, setPreflightErrors] = useState<string[]>([]);
+  const [approvingSeedCore, setApprovingSeedCore] = useState(false);
 
   // ── Seed Pack + Pipeline Progress (computed from availableDocuments + ladder) ──
   const projectFormat = (project?.format || 'film').toLowerCase().replace(/_/g, '-');
@@ -550,6 +552,22 @@ export function AutoRunMissionControl({
     }
   }, [storySetup, mode, startDocument, onSaveStorySetup, onStart]);
 
+  const handleApproveSeedCore = useCallback(async () => {
+    setApprovingSeedCore(true);
+    try {
+      const result = await onApproveSeedCore();
+      if (result?.success) {
+        toast({ title: 'Seed Core approved', description: 'Automation resumed — downstream docs will be generated automatically.' });
+      } else if (result?.stop_reason === 'SEED_CORE_MISSING') {
+        toast({ title: 'Cannot approve', description: `Missing: ${(result.missing_docs || result.missing_current_versions || []).join(', ')}`, variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Approval failed', description: e?.message, variant: 'destructive' });
+    } finally {
+      setApprovingSeedCore(false);
+    }
+  }, [onApproveSeedCore]);
+
   const handleReInfer = useCallback(() => {
     setInferLoading(true);
     setStoryAutoFilled(false);
@@ -644,35 +662,55 @@ export function AutoRunMissionControl({
             </div>
           )}
 
-          {/* ── Seed Pack Status ── */}
+          {/* ── Seed Core Status ── */}
           <div className={`p-2.5 rounded-md border text-xs space-y-1.5 ${
-            seedStatus.allPresent
+            seedPack.allApproved
               ? 'bg-emerald-500/5 border-emerald-500/20'
+              : seedStatus.allPresent
+              ? 'bg-primary/5 border-primary/20'
               : 'bg-amber-500/5 border-amber-500/20'
           }`}>
             <div className="flex items-center gap-1.5">
-              {seedStatus.allPresent
-                ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /><span className="text-emerald-400 font-medium">Seed Pack Ready</span></>
+              {seedPack.allApproved
+                ? <><Shield className="h-3.5 w-3.5 text-emerald-400" /><span className="text-emerald-400 font-medium">Seed Core Official</span></>
+                : seedStatus.allPresent
+                ? <><Shield className="h-3.5 w-3.5 text-primary" /><span className="text-primary font-medium">Seed Core Ready — Needs Approval</span></>
                 : <><AlertTriangle className="h-3.5 w-3.5 text-amber-400" /><span className="text-amber-400 font-medium">Seed Pack Incomplete</span></>
               }
               <span className="text-muted-foreground ml-auto text-[10px]">{seedStatus.present.length}/{SEED_DOC_TYPES.length}</span>
             </div>
             <div className="flex gap-1 flex-wrap">
               {seedStatus.docs.map(doc => {
-                const icon = doc.status === 'present' ? '✓' : doc.status === 'short' ? '⚠' : '✗';
-                const colorCls = doc.status === 'present'
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                const isApproved = doc.approval_status === 'approved';
+                const icon = doc.status === 'missing' ? '✗' : doc.status === 'short' ? '⚠' : isApproved ? '✓' : '○';
+                const colorCls = doc.status === 'missing'
+                  ? 'bg-destructive/10 text-destructive border-destructive/30'
                   : doc.status === 'short'
                   ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                  : 'bg-destructive/10 text-destructive border-destructive/30';
+                  : isApproved
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : 'bg-primary/10 text-primary border-primary/30';
                 return (
                   <Badge key={doc.doc_type} variant="outline" className={`text-[8px] px-1.5 py-0 ${colorCls}`}
-                    title={doc.status === 'short' ? `Only ${doc.char_count} chars — may be a placeholder` : undefined}>
+                    title={doc.status === 'short' ? `Only ${doc.char_count} chars` : isApproved ? 'Approved' : 'Draft — needs approval'}>
                     {icon} {SEED_LABELS[doc.doc_type] || doc.doc_type}
                   </Badge>
                 );
               })}
             </div>
+            {seedStatus.allPresent && !seedPack.allApproved && (
+              <Button
+                size="sm"
+                className="w-full h-8 text-xs gap-1.5 mt-1"
+                onClick={handleApproveSeedCore}
+                disabled={approvingSeedCore}
+              >
+                {approvingSeedCore
+                  ? <><Loader2 className="h-3 w-3 animate-spin" /> Approving…</>
+                  : <><Shield className="h-3.5 w-3.5" /> Approve Seed Core</>
+                }
+              </Button>
+            )}
             {seedStatus.missing.length > 0 && (
               <span className="text-[9px] text-muted-foreground">Missing docs will be auto-generated on start</span>
             )}
@@ -1038,8 +1076,57 @@ export function AutoRunMissionControl({
             </Card>
           )}
 
+          {/* C1.5) Seed Core Official Gate */}
+          {job.status === 'paused' && job.stop_reason === 'SEED_CORE_NOT_OFFICIAL' && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-primary" />
+                  <div>
+                    <h3 className="text-sm font-semibold">Approve Seed Core to Continue</h3>
+                    <p className="text-[11px] text-muted-foreground">
+                      Auto-run is paused because the 5 Seed Core documents need approval before downstream docs can be generated.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                  {seedStatus.docs.map(doc => {
+                    const isApproved = doc.approval_status === 'approved';
+                    const icon = doc.status === 'missing' ? '✗' : isApproved ? '✓' : '○';
+                    const colorCls = doc.status === 'missing'
+                      ? 'bg-destructive/10 text-destructive border-destructive/30'
+                      : isApproved
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : 'bg-primary/10 text-primary border-primary/30';
+                    return (
+                      <Badge key={doc.doc_type} variant="outline" className={`text-[8px] px-1.5 py-0 ${colorCls}`}>
+                        {icon} {SEED_LABELS[doc.doc_type] || doc.doc_type}
+                      </Badge>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 flex-1"
+                    onClick={handleApproveSeedCore}
+                    disabled={approvingSeedCore || seedStatus.missing.length > 0}
+                  >
+                    {approvingSeedCore
+                      ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Approving…</>
+                      : <><Shield className="h-3.5 w-3.5" /> Approve Seed Core & Resume</>
+                    }
+                  </Button>
+                  <Button variant="destructive" size="sm" className="h-8 text-xs gap-1.5" onClick={onStop}>
+                    <Square className="h-3.5 w-3.5" /> Stop
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* C2) Standard Approval Gate — only shown when NOT a series_writer handoff */}
-          {job.awaiting_approval && job.approval_type !== 'series_writer' && (
+          {job.awaiting_approval && job.approval_type !== 'series_writer' && job.approval_type !== 'seed_core_officialize' && (
             <Card className="border-primary/30 bg-primary/5">
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-center gap-2">

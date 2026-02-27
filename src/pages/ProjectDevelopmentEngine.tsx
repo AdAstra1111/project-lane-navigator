@@ -1847,6 +1847,7 @@ export default function ProjectDevelopmentEngine() {
                 onApproveDecision={autoRun.approveDecision}
                 onGetPendingDoc={autoRun.getPendingDoc}
                 onApproveNext={autoRun.approveNext}
+                onApproveSeedCore={autoRun.approveSeedCore}
                 onSetStage={autoRun.setStage}
                 onForcePromote={autoRun.forcePromote}
                 onRestartFromStage={autoRun.restartFromStage}
