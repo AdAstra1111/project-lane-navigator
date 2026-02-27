@@ -1,16 +1,20 @@
 /**
  * ChangeReportPanel — displays the latest deterministic change report
- * for a script document, keyed by source doc type. Includes Universe Ripple Scan.
+ * for a script document, keyed by source doc ID.
+ * Includes Universe Ripple Scan with optional manifest-based scoping.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ChevronDown, AlertTriangle, FileText, MapPin, Users, ShieldAlert, Search, Loader2 } from 'lucide-react';
-import { useState, useCallback } from 'react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChevronDown, AlertTriangle, FileText, MapPin, Users, ShieldAlert, Search, Loader2, Plus } from 'lucide-react';
+import { useState, useCallback, useMemo } from 'react';
 import { isScriptDocType } from '@/lib/script_change';
+import { parseUniverseManifest, manifestDocIds, MANIFEST_TEMPLATE, type ManifestIndices } from '@/lib/universe_manifest/manifest';
+import { toast } from 'sonner';
 
 interface ChangeReportPanelProps {
   projectId: string;
@@ -24,6 +28,8 @@ interface RippleMatch {
   title: string;
   matches: Array<{ term: string; count: number }>;
 }
+
+type RippleScope = 'project' | 'universe' | 'season' | 'episode';
 
 const FLAG_ICONS: Record<string, typeof AlertTriangle> = {
   CONTINUITY_RISK: AlertTriangle,
@@ -47,10 +53,14 @@ export function ChangeReportPanel({ projectId, sourceDocId, sourceDocType }: Cha
   const [open, setOpen] = useState(false);
   const [rippleResults, setRippleResults] = useState<RippleMatch[] | null>(null);
   const [rippleLoading, setRippleLoading] = useState(false);
+  const [rippleScope, setRippleScope] = useState<RippleScope>('project');
+  const [creatingManifest, setCreatingManifest] = useState(false);
+  const queryClient = useQueryClient();
 
   // Keyed by source doc ID
   const derivedDocType = `change_report__${sourceDocId}`;
 
+  // ── Load change report ──
   const { data: report, isLoading } = useQuery({
     queryKey: ['change-report', projectId, sourceDocId],
     queryFn: async () => {
@@ -84,6 +94,106 @@ export function ChangeReportPanel({ projectId, sourceDocId, sourceDocType }: Cha
     staleTime: 30_000,
   });
 
+  // ── Load universe manifest (optional) ──
+  const { data: manifestData } = useQuery({
+    queryKey: ['universe-manifest', projectId],
+    queryFn: async () => {
+      const { data: doc } = await (supabase as any)
+        .from('project_documents')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('doc_type', 'universe_manifest')
+        .limit(1)
+        .maybeSingle();
+
+      if (!doc) return { exists: false as const };
+
+      const { data: version } = await (supabase as any)
+        .from('project_document_versions')
+        .select('plaintext')
+        .eq('document_id', doc.id)
+        .eq('is_current', true)
+        .limit(1)
+        .maybeSingle();
+
+      if (!version?.plaintext) return { exists: true as const, parseResult: { ok: false, errors: ['No version content'] } };
+
+      const parseResult = parseUniverseManifest(version.plaintext);
+      return { exists: true as const, parseResult };
+    },
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
+  const manifestIndices = useMemo<ManifestIndices | null>(() => {
+    if (!manifestData?.exists || !manifestData.parseResult?.ok || !manifestData.parseResult.manifest) return null;
+    return manifestDocIds(manifestData.parseResult.manifest);
+  }, [manifestData]);
+
+  const sourceEpisodeInfo = manifestIndices?.episodeIndexByDocId.get(sourceDocId) || null;
+
+  // Available scopes
+  const availableScopes = useMemo<RippleScope[]>(() => {
+    const scopes: RippleScope[] = ['project'];
+    if (manifestIndices) {
+      scopes.push('universe');
+      if (sourceEpisodeInfo) {
+        scopes.push('season', 'episode');
+      }
+    }
+    return scopes;
+  }, [manifestIndices, sourceEpisodeInfo]);
+
+  // ── Create manifest CTA ──
+  const createManifest = useCallback(async () => {
+    setCreatingManifest(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { toast.error('Not authenticated'); return; }
+
+      const { data: newDoc, error: docErr } = await (supabase as any)
+        .from('project_documents')
+        .insert({
+          project_id: projectId,
+          user_id: user.id,
+          doc_type: 'universe_manifest',
+          title: 'Universe Manifest',
+          file_name: 'universe_manifest.json',
+          file_path: `${user.id}/${projectId}/universe_manifest.json`,
+          extraction_status: 'complete',
+          source: 'user',
+        })
+        .select('id')
+        .single();
+
+      if (docErr || !newDoc) {
+        toast.error('Failed to create manifest');
+        return;
+      }
+
+      await (supabase as any)
+        .from('project_document_versions')
+        .insert({
+          document_id: newDoc.id,
+          version_number: 1,
+          plaintext: MANIFEST_TEMPLATE,
+          status: 'draft',
+          is_current: true,
+          created_by: user.id,
+          label: 'v1 (template)',
+        });
+
+      queryClient.invalidateQueries({ queryKey: ['universe-manifest', projectId] });
+      toast.success('Universe Manifest created — edit it to add doc IDs');
+    } catch (err) {
+      console.error('[manifest] Create error:', err);
+      toast.error('Failed to create manifest');
+    } finally {
+      setCreatingManifest(false);
+    }
+  }, [projectId, queryClient]);
+
+  // ── Ripple scan ──
   const runRippleScan = useCallback(async () => {
     if (!report) return;
     setRippleLoading(true);
@@ -100,7 +210,7 @@ export function ChangeReportPanel({ projectId, sourceDocId, sourceDocType }: Cha
         return;
       }
 
-      // Fetch all script-like docs in project, excluding the source doc
+      // Fetch all docs in project, excluding the source doc
       const { data: docs } = await (supabase as any)
         .from('project_documents')
         .select('id, doc_type, title')
@@ -109,11 +219,43 @@ export function ChangeReportPanel({ projectId, sourceDocId, sourceDocType }: Cha
 
       if (!docs) { setRippleResults([]); return; }
 
-      const scriptDocs = docs.filter((d: any) => isScriptDocType(d.doc_type));
-      if (scriptDocs.length === 0) { setRippleResults([]); return; }
+      // Filter candidates based on scope
+      let candidateDocs: any[];
 
-      // Fetch current versions for these docs
-      const docIds = scriptDocs.map((d: any) => d.id);
+      if (rippleScope === 'project') {
+        // Original behavior: script docs only, exclude derived
+        candidateDocs = docs.filter((d: any) =>
+          isScriptDocType(d.doc_type) &&
+          !d.doc_type.startsWith('change_report__') &&
+          !d.doc_type.startsWith('scene_graph__')
+        );
+      } else if (manifestIndices) {
+        // Manifest-scoped: filter by membership set
+        let membershipSet: Set<string>;
+        if (rippleScope === 'universe') {
+          membershipSet = manifestIndices.universe;
+        } else if (rippleScope === 'season' && sourceEpisodeInfo) {
+          membershipSet = manifestIndices.bySeason.get(sourceEpisodeInfo.season) || new Set();
+        } else if (rippleScope === 'episode' && sourceEpisodeInfo) {
+          membershipSet = manifestIndices.byEpisode.get(sourceEpisodeInfo.key) || new Set();
+        } else {
+          membershipSet = new Set();
+        }
+
+        candidateDocs = docs.filter((d: any) =>
+          membershipSet.has(d.id) &&
+          !d.doc_type.startsWith('change_report__') &&
+          !d.doc_type.startsWith('scene_graph__') &&
+          d.doc_type !== 'universe_manifest'
+        );
+      } else {
+        candidateDocs = [];
+      }
+
+      if (candidateDocs.length === 0) { setRippleResults([]); return; }
+
+      // Fetch current versions
+      const docIds = candidateDocs.map((d: any) => d.id);
       const { data: versions } = await (supabase as any)
         .from('project_document_versions')
         .select('document_id, plaintext')
@@ -126,12 +268,11 @@ export function ChangeReportPanel({ projectId, sourceDocId, sourceDocType }: Cha
       for (const ver of versions) {
         if (!ver.plaintext) continue;
         const text = ver.plaintext as string;
-        const docMeta = scriptDocs.find((d: any) => d.id === ver.document_id);
+        const docMeta = candidateDocs.find((d: any) => d.id === ver.document_id);
         if (!docMeta) continue;
 
         const matches: Array<{ term: string; count: number }> = [];
         for (const term of searchTerms) {
-          // Case-insensitive search for locations, case-sensitive for characters (uppercase)
           const isUpper = term === term.toUpperCase();
           let count = 0;
           let idx = 0;
@@ -163,7 +304,7 @@ export function ChangeReportPanel({ projectId, sourceDocId, sourceDocType }: Cha
     } finally {
       setRippleLoading(false);
     }
-  }, [report, projectId, sourceDocId]);
+  }, [report, projectId, sourceDocId, rippleScope, manifestIndices, sourceEpisodeInfo]);
 
   if (isLoading || !report) return null;
 
@@ -173,6 +314,8 @@ export function ChangeReportPanel({ projectId, sourceDocId, sourceDocType }: Cha
   const staleDocs = report.stale_docs || [];
   const fixPlan = report.fix_plan || [];
   const hasRemovedEntities = (report.removed_characters?.length > 0) || (report.removed_locations?.length > 0);
+  const manifestExists = manifestData?.exists ?? false;
+  const manifestErrors = (manifestData?.exists && !manifestData.parseResult?.ok) ? (manifestData.parseResult?.errors || []) : [];
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -273,22 +416,63 @@ export function ChangeReportPanel({ projectId, sourceDocId, sourceDocType }: Cha
 
           {/* Universe Ripple Scan */}
           {hasRemovedEntities && (
-            <div className="pt-1 border-t">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 text-[10px] gap-1"
-                onClick={runRippleScan}
-                disabled={rippleLoading}
-              >
-                {rippleLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
-                Scan project scripts for references
-              </Button>
+            <div className="pt-1 border-t space-y-2">
+              {/* Scope selector + scan button */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-[10px] gap-1"
+                  onClick={runRippleScan}
+                  disabled={rippleLoading}
+                >
+                  {rippleLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+                  Scan for references
+                </Button>
 
+                {availableScopes.length > 1 && (
+                  <Select value={rippleScope} onValueChange={(v) => setRippleScope(v as RippleScope)}>
+                    <SelectTrigger className="h-6 text-[10px] w-[110px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableScopes.map(s => (
+                        <SelectItem key={s} value={s} className="text-[11px]">
+                          {s === 'project' ? 'Project' : s === 'universe' ? 'Universe' : s === 'season' ? `Season ${sourceEpisodeInfo?.season}` : `Episode ${sourceEpisodeInfo?.key}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                {!manifestExists && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[10px] gap-1 text-muted-foreground"
+                    onClick={createManifest}
+                    disabled={creatingManifest}
+                  >
+                    {creatingManifest ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                    Create Universe Manifest
+                  </Button>
+                )}
+              </div>
+
+              {/* Manifest errors */}
+              {manifestErrors.length > 0 && (
+                <div className="text-[10px] text-destructive">
+                  ⚠ Manifest error: {manifestErrors[0]}
+                </div>
+              )}
+
+              {/* Ripple results */}
               {rippleResults !== null && (
-                <div className="mt-2 space-y-1">
+                <div className="space-y-1">
                   {rippleResults.length === 0 ? (
-                    <div className="text-[10px] text-muted-foreground">No references to removed entities found in other scripts.</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      No references to removed entities found{rippleScope !== 'project' ? ` in ${rippleScope} scope` : ''}.
+                    </div>
                   ) : (
                     <>
                       <div className="font-medium text-[10px] text-amber-600 mb-1">

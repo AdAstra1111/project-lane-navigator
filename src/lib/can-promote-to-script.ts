@@ -193,6 +193,7 @@ export function getDocTypeLabel(docType: string | null | undefined, format?: str
   // Derived doc types keyed by source doc ID — display friendly labels
   if (docType?.startsWith('scene_graph__')) return 'Scene Index';
   if (docType?.startsWith('change_report__')) return 'Change Report';
+  if (docType === 'universe_manifest') return 'Universe Manifest';
 
   const normalized = normalizeDocTypeKey(docType);
 
