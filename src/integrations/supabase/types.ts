@@ -3875,6 +3875,119 @@ export type Database = {
           },
         ]
       }
+      devseed_job_items: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string
+          doc_type: string
+          episode_index: number | null
+          error_code: string | null
+          error_detail: string | null
+          gate_failures: string[] | null
+          gate_score: number | null
+          id: string
+          item_key: string
+          job_id: string
+          output_doc_id: string | null
+          output_version_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          doc_type: string
+          episode_index?: number | null
+          error_code?: string | null
+          error_detail?: string | null
+          gate_failures?: string[] | null
+          gate_score?: number | null
+          id?: string
+          item_key: string
+          job_id: string
+          output_doc_id?: string | null
+          output_version_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          doc_type?: string
+          episode_index?: number | null
+          error_code?: string | null
+          error_detail?: string | null
+          gate_failures?: string[] | null
+          gate_score?: number | null
+          id?: string
+          item_key?: string
+          job_id?: string
+          output_doc_id?: string | null
+          output_version_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "devseed_job_items_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "devseed_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      devseed_jobs: {
+        Row: {
+          created_at: string
+          created_by: string
+          error: string | null
+          id: string
+          include_dev_pack: boolean
+          lane: string | null
+          mode: string
+          pitch_idea_id: string
+          progress_json: Json
+          project_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          error?: string | null
+          id?: string
+          include_dev_pack?: boolean
+          lane?: string | null
+          mode?: string
+          pitch_idea_id: string
+          progress_json?: Json
+          project_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          error?: string | null
+          id?: string
+          include_dev_pack?: boolean
+          lane?: string | null
+          mode?: string
+          pitch_idea_id?: string
+          progress_json?: Json
+          project_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       doc_change_proposals: {
         Row: {
           created_at: string
@@ -21163,6 +21276,34 @@ export type Database = {
       check_document_access: {
         Args: { _file_path: string; _user_id: string }
         Returns: boolean
+      }
+      claim_next_devseed_items: {
+        Args: { p_claimed_by: string; p_job_id: string; p_limit: number }
+        Returns: {
+          attempts: number
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string
+          doc_type: string
+          episode_index: number | null
+          error_code: string | null
+          error_detail: string | null
+          gate_failures: string[] | null
+          gate_score: number | null
+          id: string
+          item_key: string
+          job_id: string
+          output_doc_id: string | null
+          output_version_id: string | null
+          status: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "devseed_job_items"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       claim_next_rewrite_job: {
         Args: {
