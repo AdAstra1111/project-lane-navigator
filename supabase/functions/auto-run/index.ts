@@ -1368,7 +1368,8 @@ function createFallbackDecisions(currentDoc: string, ci: number, gp: number, rea
 function tryAutoAcceptDecisions(decisions: NormalizedDecision[], allowDefaults: boolean): Record<string, string> | null {
   if (!allowDefaults) return null;
   const blocking = decisions.filter(d => d.impact === "blocking");
-  if (blocking.length === 0) return null;
+  // No blocking decisions — auto-decide can skip optional ones and continue
+  if (blocking.length === 0) return {};
   const selections: Record<string, string> = {};
   for (const d of blocking) {
     if (d.recommended) {
