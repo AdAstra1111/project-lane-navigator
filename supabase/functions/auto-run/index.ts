@@ -2156,7 +2156,7 @@ Deno.serve(async (req) => {
 
       console.log(`[auto-run] approve-seed-core: approved ${approvedDocTypes.length} seed docs for project ${pId}`);
 
-      // 4. If job_id provided and paused on seed gate, resume it
+      // 4. If job_id provided, return latest job state and resume when blocked on seed gate
       let resumedJob = null;
       if (jobId) {
         const { data: jRow } = await supabase
@@ -2166,25 +2166,37 @@ Deno.serve(async (req) => {
           .eq("user_id", userId)
           .single();
 
-        if (jRow && jRow.status === "paused" && jRow.stop_reason === "SEED_CORE_NOT_OFFICIAL") {
-          await updateJob(supabase, jobId, {
-            status: "running",
-            stop_reason: null,
-            error: null,
-            awaiting_approval: false,
-            approval_type: null,
-            approval_payload: null,
-          });
+        if (jRow) {
+          const shouldResumeFromSeedGate =
+            jRow.status === "paused" && (
+              jRow.stop_reason === "SEED_CORE_NOT_OFFICIAL" ||
+              jRow.approval_type === "seed_core_officialize" ||
+              jRow.awaiting_approval === true
+            );
 
-          const stepCount = (jRow.step_count || 0) + 1;
-          await logStep(supabase, jobId, stepCount, jRow.current_document, "seed_core_approved",
-            `Seed core officialized — ${approvedDocTypes.length} docs approved`,
-            {}, undefined, { approved_doc_types: approvedDocTypes, approved_version_ids: approvedVersionIds }
-          );
-          await updateJob(supabase, jobId, { step_count: stepCount });
+          if (shouldResumeFromSeedGate) {
+            await updateJob(supabase, jobId, {
+              status: "running",
+              stop_reason: null,
+              error: null,
+              awaiting_approval: false,
+              approval_type: null,
+              approval_payload: null,
+            });
 
-          const { data: updated } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
-          resumedJob = updated;
+            const stepCount = (jRow.step_count || 0) + 1;
+            await logStep(supabase, jobId, stepCount, jRow.current_document, "seed_core_approved",
+              `Seed core officialized — ${approvedDocTypes.length} docs approved`,
+              {}, undefined, { approved_doc_types: approvedDocTypes, approved_version_ids: approvedVersionIds }
+            );
+            await updateJob(supabase, jobId, { step_count: stepCount });
+
+            const { data: updated } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+            resumedJob = updated;
+          } else {
+            // Still return job so frontend can sync UI and decide next action
+            resumedJob = jRow;
+          }
         }
       }
 

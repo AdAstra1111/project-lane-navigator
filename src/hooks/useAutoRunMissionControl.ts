@@ -371,16 +371,34 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
         projectId,
         jobId: job?.id,
       });
-      if (result.job) {
-        setJob(result.job);
-        if (result.job.status === 'running') {
-          await new Promise(r => setTimeout(r, 300));
-          setIsRunning(true);
+
+      let effectiveJob = result?.job ?? null;
+      let latestSteps: AutoRunStep[] = [];
+
+      // Fallback sync: some backend responses may not include job payload
+      if (!effectiveJob && job?.id) {
+        try {
+          const status = await callAutoRun('status', { jobId: job.id });
+          effectiveJob = status?.job ?? null;
+          latestSteps = status?.latest_steps || [];
+        } catch {
+          // best-effort status sync
         }
       }
-      qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
-      qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
-      return result;
+
+      if (effectiveJob) {
+        setJob(effectiveJob);
+        if (latestSteps.length > 0) setSteps(latestSteps);
+        setIsRunning(effectiveJob.status === 'running' && !effectiveJob.awaiting_approval);
+      }
+
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] }),
+        qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] }),
+        qc.invalidateQueries({ queryKey: ['auto-run-mission-status', projectId] }),
+      ]);
+
+      return { ...result, job: effectiveJob ?? result?.job ?? null };
     } catch (e: any) {
       setError(e.message);
       return null;
