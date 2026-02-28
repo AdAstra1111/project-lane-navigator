@@ -405,6 +405,14 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     } catch (e: any) { setError(e.message); }
   }, [job]);
 
+  const toggleAllowDefaults = useCallback(async (val: boolean) => {
+    if (!job) return;
+    try {
+      await supabase.from('auto_run_jobs').update({ allow_defaults: val }).eq('id', job.id);
+      setJob(prev => prev ? { ...prev, allow_defaults: val } : prev);
+    } catch (e: any) { setError(e.message); }
+  }, [job]);
+
   const resumeFromStepLimit = useCallback(async () => {
     if (!job) return;
     const RESUME_BUMP = 10;
@@ -444,5 +452,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     fetchDocumentText,
     // Step budget
     updateStepLimit, resumeFromStepLimit,
+    // Auto-decide
+    toggleAllowDefaults,
   };
 }

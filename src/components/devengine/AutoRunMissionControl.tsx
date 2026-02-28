@@ -145,6 +145,8 @@ interface AutoRunMissionControlProps {
   /** Step budget control */
   onUpdateStepLimit: (newLimit: number) => Promise<void>;
   onResumeFromStepLimit: () => Promise<void>;
+  /** Auto-decide toggle */
+  onToggleAllowDefaults?: (val: boolean) => Promise<void>;
   /** Analysis data for auto-filling story setup */
   latestAnalysis?: any;
   /** Current document text to show in viewer */
@@ -283,6 +285,7 @@ export function AutoRunMissionControl({
   onSaveStorySetup, onSaveQualifications, onSaveLaneBudget, onSaveGuardrails,
   fetchDocumentText,
   onUpdateStepLimit, onResumeFromStepLimit,
+  onToggleAllowDefaults,
   latestAnalysis, currentDocText, currentDocMeta,
   availableDocuments, project, approvedVersionMap = {},
 }: AutoRunMissionControlProps) {
@@ -1224,6 +1227,17 @@ export function AutoRunMissionControl({
               <div className="flex items-center gap-2 mt-1">
                 <Switch checked={safeMode} onCheckedChange={setSafeMode} className="scale-75" />
                 <span className="text-[9px] text-muted-foreground">Safe Mode (require approval for all promotions)</span>
+              </div>
+              {/* Auto-decide toggle */}
+              <div className="flex items-center gap-2 mt-1">
+                <Switch
+                  checked={job.allow_defaults !== false}
+                  onCheckedChange={(checked) => onToggleAllowDefaults?.(checked)}
+                  className="scale-75"
+                />
+                <span className="text-[9px] text-muted-foreground">
+                  Auto-decide (accept recommended options without pausing)
+                </span>
               </div>
             </CardContent>
           </Card>

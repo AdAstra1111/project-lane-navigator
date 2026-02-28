@@ -1344,7 +1344,25 @@ function createFallbackDecisions(currentDoc: string, ci: number, gp: number, rea
       ],
       impact: "blocking",
     },
-  ];
+];
+}
+
+// ── Helper: auto-accept decisions when allow_defaults is true ──
+// Returns the recommended values for all blocking decisions if every blocking decision has a recommended option.
+// Returns null if any blocking decision lacks a recommended option (must pause for user).
+function tryAutoAcceptDecisions(decisions: NormalizedDecision[], allowDefaults: boolean): Record<string, string> | null {
+  if (!allowDefaults) return null;
+  const blocking = decisions.filter(d => d.impact === "blocking");
+  if (blocking.length === 0) return null;
+  const selections: Record<string, string> = {};
+  for (const d of blocking) {
+    if (d.recommended) {
+      selections[d.id] = d.recommended;
+    } else {
+      return null; // Can't auto-accept — missing recommendation
+    }
+  }
+  return selections;
 }
 
 Deno.serve(async (req) => {
@@ -1763,17 +1781,26 @@ Deno.serve(async (req) => {
             {}, undefined, { strategy: strat, updates: projectUpdates }
           );
 
-          // If strategy produced blocking decisions, pause again
+          // If strategy produced blocking decisions, try auto-accept or pause
           const blockingDecisions = mustDecide.filter((d: any) => d.impact === "blocking");
           if (blockingDecisions.length > 0) {
-            await updateJob(supabase, jobId, {
-              step_count: stepCount,
-              stage_loop_count: 0,
-              status: "paused",
-              stop_reason: `Approval required: ${blockingDecisions[0].question}`,
-              pending_decisions: mustDecide,
-            });
-            return respondWithJob(supabase, jobId, "approve-decision");
+            const autoSelections = tryAutoAcceptDecisions(mustDecide, job.allow_defaults !== false);
+            if (autoSelections) {
+              await logStep(supabase, jobId, stepCount, currentDoc, "auto_decided",
+                `Auto-accepted ${Object.keys(autoSelections).length} decisions (allow_defaults)`,
+                {}, undefined, { selections: autoSelections }
+              );
+              // Don't pause — resume with extended steps
+            } else {
+              await updateJob(supabase, jobId, {
+                step_count: stepCount,
+                stage_loop_count: 0,
+                status: "paused",
+                stop_reason: `Approval required: ${blockingDecisions[0].question}`,
+                pending_decisions: mustDecide,
+              });
+              return respondWithJob(supabase, jobId, "approve-decision");
+            }
           }
 
           // Resume with extended steps
@@ -2409,16 +2436,25 @@ Deno.serve(async (req) => {
           {}, undefined, { strategy: strat, updates: projectUpdates }
         );
 
-        // If blocking decisions exist, pause for user
+        // If blocking decisions exist, try auto-accept or pause for user
         const blockingDecisions = mustDecide.filter((d: any) => d.impact === "blocking");
         if (blockingDecisions.length > 0) {
-          await updateJob(supabase, jobId, {
-            step_count: stepCount,
-            status: "paused",
-            stop_reason: `Executive strategy decision required: ${blockingDecisions[0].question}`,
-            pending_decisions: mustDecide,
-          });
-          return respondWithJob(supabase, jobId, "approve-decision");
+          const autoSelections = tryAutoAcceptDecisions(mustDecide, job.allow_defaults !== false);
+          if (autoSelections) {
+            await logStep(supabase, jobId, stepCount, currentDoc, "auto_decided",
+              `Auto-accepted ${Object.keys(autoSelections).length} executive strategy decisions`,
+              {}, undefined, { selections: autoSelections }
+            );
+            // Fall through to resume
+          } else {
+            await updateJob(supabase, jobId, {
+              step_count: stepCount,
+              status: "paused",
+              stop_reason: `Executive strategy decision required: ${blockingDecisions[0].question}`,
+              pending_decisions: mustDecide,
+            });
+            return respondWithJob(supabase, jobId, "approve-decision");
+          }
         }
 
         // No blocking decisions — resume
@@ -3371,17 +3407,27 @@ Deno.serve(async (req) => {
               { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags },
             );
 
-            optionsGeneratedThisStep = true;
-            await updateJob(supabase, jobId, {
-              status: "paused",
-              stop_reason: `Decisions required: ${escalateReason}`,
-              pending_decisions: normalizedDecisions.length > 0 ? normalizedDecisions : createFallbackDecisions(currentDoc, ci, gp, escalateReason),
-              awaiting_approval: false,
-              approval_type: null,
-              pending_doc_id: doc.id,
-              pending_version_id: latestVersion.id,
-            });
-            return respondWithJob(supabase, jobId, "decisions-required");
+            const finalEscDecisions = normalizedDecisions.length > 0 ? normalizedDecisions : createFallbackDecisions(currentDoc, ci, gp, escalateReason);
+            const autoSelections = tryAutoAcceptDecisions(finalEscDecisions, job.allow_defaults !== false);
+            if (autoSelections) {
+              await logStep(supabase, jobId, null, currentDoc, "auto_decided",
+                `Auto-accepted ${Object.keys(autoSelections).length} escalation decisions`,
+                { ci, gp, gap }, undefined, { selections: autoSelections }
+              );
+              // Fall through — don't pause
+            } else {
+              optionsGeneratedThisStep = true;
+              await updateJob(supabase, jobId, {
+                status: "paused",
+                stop_reason: `Decisions required: ${escalateReason}`,
+                pending_decisions: finalEscDecisions,
+                awaiting_approval: false,
+                approval_type: null,
+                pending_doc_id: doc.id,
+                pending_version_id: latestVersion.id,
+              });
+              return respondWithJob(supabase, jobId, "decisions-required");
+            }
           } catch (optErr: any) {
             // Fallback: pause with simple decisions if options generation fails
             console.error("Escalate options failed:", optErr.message);
@@ -3407,18 +3453,28 @@ Deno.serve(async (req) => {
               },
             ];
 
-            await logStep(supabase, jobId, null, currentDoc, "pause_for_approval",
-              `${escalateReason} — options generation failed, awaiting user decision`,
-              { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags },
-            );
-            await updateJob(supabase, jobId, {
-              status: "paused",
-              stop_reason: `Approval required: ${escalateReason}`,
-              pending_decisions: escalateDecisions,
-              pending_doc_id: doc.id,
-              pending_version_id: latestVersion.id,
-            });
-            return respondWithJob(supabase, jobId, "approve-decision");
+            const autoSelections = tryAutoAcceptDecisions(escalateDecisions, job.allow_defaults !== false);
+            if (autoSelections) {
+              await logStep(supabase, jobId, null, currentDoc, "auto_decided",
+                `Auto-accepted escalation decisions (allow_defaults)`,
+                { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence },
+                undefined, { selections: autoSelections }
+              );
+              // Fall through — don't pause
+            } else {
+              await logStep(supabase, jobId, null, currentDoc, "pause_for_approval",
+                `${escalateReason} — options generation failed, awaiting user decision`,
+                { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags },
+              );
+              await updateJob(supabase, jobId, {
+                status: "paused",
+                stop_reason: `Approval required: ${escalateReason}`,
+                pending_decisions: escalateDecisions,
+                pending_doc_id: doc.id,
+                pending_version_id: latestVersion.id,
+              });
+              return respondWithJob(supabase, jobId, "approve-decision");
+            }
           }
         }
 
@@ -3453,18 +3509,28 @@ Deno.serve(async (req) => {
                 undefined, { optionsRunId, decisions: stabiliseDecisions.length, global_directions: optionsData.global_directions?.length || 0 }
               );
 
-              optionsGeneratedThisStep = true;
-              await updateJob(supabase, jobId, {
-                stage_loop_count: newLoopCount,
-                status: "paused",
-                stop_reason: "Decisions required",
-                pending_decisions: stabiliseDecisions.length > 0 ? stabiliseDecisions : createFallbackDecisions(currentDoc, ci, gp, "Blockers/high-impact issues"),
-                awaiting_approval: false,
-                approval_type: null,
-                pending_doc_id: doc.id,
-                pending_version_id: latestVersion.id,
-              });
-              return respondWithJob(supabase, jobId, "decisions-required");
+              const finalDecisions = stabiliseDecisions.length > 0 ? stabiliseDecisions : createFallbackDecisions(currentDoc, ci, gp, "Blockers/high-impact issues");
+              const autoSelections = tryAutoAcceptDecisions(finalDecisions, job.allow_defaults !== false);
+              if (autoSelections) {
+                await logStep(supabase, jobId, null, currentDoc, "auto_decided",
+                  `Auto-accepted ${Object.keys(autoSelections).length} stabilise decisions`,
+                  { ci, gp, gap }, undefined, { selections: autoSelections }
+                );
+                // Don't pause — fall through to rewrite
+              } else {
+                optionsGeneratedThisStep = true;
+                await updateJob(supabase, jobId, {
+                  stage_loop_count: newLoopCount,
+                  status: "paused",
+                  stop_reason: "Decisions required",
+                  pending_decisions: finalDecisions,
+                  awaiting_approval: false,
+                  approval_type: null,
+                  pending_doc_id: doc.id,
+                  pending_version_id: latestVersion.id,
+                });
+                return respondWithJob(supabase, jobId, "decisions-required");
+              }
             } catch (optErr: any) {
               // If options generation fails, fall through to regular rewrite
               console.error("Options generation failed, falling back to rewrite:", optErr.message);

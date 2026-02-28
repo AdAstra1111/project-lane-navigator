@@ -1869,6 +1869,7 @@ export default function ProjectDevelopmentEngine() {
                 fetchDocumentText={autoRun.fetchDocumentText}
                 onUpdateStepLimit={autoRun.updateStepLimit}
                 onResumeFromStepLimit={autoRun.resumeFromStepLimit}
+                onToggleAllowDefaults={autoRun.toggleAllowDefaults}
                 latestAnalysis={latestAnalysis}
                 currentDocText={versionText}
                 currentDocMeta={{
