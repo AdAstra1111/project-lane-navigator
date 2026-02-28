@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Play, Pause, Square, RotateCcw, ChevronDown, ShieldAlert,
-  ArrowRight, Loader2, ListOrdered, AlertTriangle,
+  ArrowRight, Loader2, ListOrdered, AlertTriangle, RefreshCcw,
 } from 'lucide-react';
 import type { AutoRunJob, AutoRunStep } from '@/hooks/useAutoRun';
 
@@ -220,16 +220,33 @@ export function AutoRunBanner({
         )}
 
         {isStaleDoc && (
-          <>
-            <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1 border-amber-500/30 text-amber-400"
-              onClick={onScrollToCriteria}>
-              <AlertTriangle className="h-3 w-3" /> Open Rebase Panel
-            </Button>
-            <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1"
-              onClick={() => onResume(true)}>
-              <Play className="h-3 w-3" /> Continue anyway
-            </Button>
-          </>
+          <div className="flex flex-col gap-1.5 w-full">
+            <div className="flex items-start gap-2 p-2 rounded-md border border-amber-500/30 bg-amber-500/5">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-1">
+                <p className="text-[10px] text-amber-400 font-medium">
+                  Document may be outdated — project criteria changed{staleDiffKeys ? ` (${staleDiffKeys})` : ''}
+                </p>
+                <p className="text-[9px] text-muted-foreground">
+                  Choose how to proceed:
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              <Button size="sm" variant="default" className="h-7 text-[10px] gap-1"
+                onClick={() => onResume()}>
+                <RefreshCcw className="h-3 w-3" /> Regenerate document
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1"
+                onClick={() => onResume(true)}>
+                <Play className="h-3 w-3" /> Keep current &amp; continue
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-[10px] gap-1 text-muted-foreground"
+                onClick={onScrollToCriteria}>
+                Review criteria first
+              </Button>
+            </div>
+          </div>
         )}
       </div>
 
