@@ -2475,9 +2475,22 @@ Deno.serve(async (req) => {
     // ═══════════════════════════════════════
     if (action === "apply-decisions-and-continue") {
       if (!jobId) return respond({ error: "jobId required" }, 400);
-      const { selectedOptions, globalDirections } = body;
-      if (!selectedOptions || !Array.isArray(selectedOptions) || selectedOptions.length === 0) {
-        return respond({ error: "selectedOptions array required" }, 400);
+      let { selectedOptions, globalDirections } = body;
+      if (!selectedOptions || !Array.isArray(selectedOptions)) {
+        selectedOptions = [];
+      }
+
+      // If no user selections but allow_defaults is on, auto-accept from pending_decisions
+      if (selectedOptions.length === 0) {
+        const { data: preJob } = await supabase.from("auto_run_jobs").select("allow_defaults, pending_decisions").eq("id", jobId).eq("user_id", userId).single();
+        if (preJob?.allow_defaults && Array.isArray(preJob.pending_decisions) && preJob.pending_decisions.length > 0) {
+          selectedOptions = preJob.pending_decisions
+            .filter((d: any) => d.recommended)
+            .map((d: any) => ({ note_id: d.id, option_id: d.recommended }));
+        }
+        if (selectedOptions.length === 0) {
+          return respond({ error: "selectedOptions array required" }, 400);
+        }
       }
 
       const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
