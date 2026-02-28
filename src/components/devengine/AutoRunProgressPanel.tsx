@@ -78,7 +78,15 @@ export function AutoRunProgressPanel({
 }: Props) {
   const pipeline = getLadderForFormat(format);
   const stageHistory: AutoRunStageHistoryEntry[] = job.stage_history || [];
-  const currentStageIdx = job.current_stage_index || 0;
+  
+  // Derive current stage index from current_document position in ladder (more reliable than DB field)
+  const derivedStageIdx = useMemo(() => {
+    const fromDoc = pipeline.indexOf(job.current_document as any);
+    if (fromDoc >= 0) return fromDoc;
+    return job.current_stage_index || 0;
+  }, [pipeline, job.current_document, job.current_stage_index]);
+  
+  const currentStageIdx = derivedStageIdx;
   const totalStages = pipeline.length;
   const progressPct = totalStages > 0 ? Math.round((currentStageIdx / totalStages) * 100) : 0;
 
@@ -86,7 +94,19 @@ export function AutoRunProgressPanel({
   const isPaused = job.status === 'paused';
   const isStopped = job.status === 'stopped' || job.status === 'failed';
 
-  const stageScores = useMemo(() => deriveStageScores(steps), [steps]);
+  // Derive scores from steps + job-level scores for current stage
+  const stageScores = useMemo(() => {
+    const scores = deriveStageScores(steps);
+    // Supplement with job-level last_ci/last_gp for the current document
+    if (job.current_document && (job.last_ci != null || job.last_gp != null)) {
+      const existing = scores[job.current_document];
+      scores[job.current_document] = {
+        ci: job.last_ci ?? existing?.ci ?? null,
+        gp: job.last_gp ?? existing?.gp ?? null,
+      };
+    }
+    return scores;
+  }, [steps, job.current_document, job.last_ci, job.last_gp]);
 
   return (
     <Card className={cn('border-primary/20', className)}>
