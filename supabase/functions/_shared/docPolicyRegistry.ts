@@ -40,6 +40,15 @@ const REGISTRY: Record<string, DocPolicy> = {
   feature_script:   { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   beat_sheet:       { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   production_draft: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  blueprint:        { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  script:           { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  deck:             { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  market_sheet:     { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  season_arc:       { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  format_rules:     { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  documentary_outline: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  vertical_episode_beats: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  vertical_market_sheet: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
 
   // AGGREGATE docs (compile-only — no LLM rewrites)
   episode_grid:           { docClass: "AGGREGATE", acceptanceProfile: "AGG_PROFILE_DEFAULT" },
