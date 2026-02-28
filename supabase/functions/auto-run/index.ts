@@ -566,7 +566,8 @@ async function nextUnsatisfiedStage(
   const ladder = getLadderForJob(format);
   const currentIdx = ladder.indexOf(currentStage);
   const targetIdx = ladder.indexOf(targetStage);
-  if (currentIdx < 0 || targetIdx < 0) return nextDoc(currentStage, format);
+  const safeTargetIdx = targetIdx >= 0 ? targetIdx : ladder.length - 1;
+  if (currentIdx < 0) return nextDoc(currentStage, format);
 
   // Fetch all project docs
   const { data: allDocs } = await supabase
@@ -604,7 +605,7 @@ async function nextUnsatisfiedStage(
   ]);
 
   // Walk ladder from current+1 to target, find first unsatisfied
-  for (let i = currentIdx + 1; i <= targetIdx; i++) {
+  for (let i = currentIdx + 1; i <= safeTargetIdx; i++) {
     const stage = ladder[i];
     // Skip seed core stages — they have their own gate
     if (SEED_DOC_TYPES.includes(stage)) continue;
@@ -643,6 +644,19 @@ function isOnLadder(d: string, format?: string): boolean {
 
 function ladderIndexOf(d: string, format: string): number {
   return getLadderForJob(format).indexOf(d);
+}
+
+function resolveTargetForFormat(targetDoc: string, format: string): string {
+  if (isOnLadder(targetDoc, format)) return targetDoc;
+  const ladder = getLadderForJob(format);
+  return ladder[ladder.length - 1];
+}
+
+function isStageAtOrBeforeTarget(stage: string, targetDoc: string, format: string): boolean {
+  if (!isOnLadder(stage, format)) return false;
+  const stageIdx = ladderIndexOf(stage, format);
+  const targetIdx = ladderIndexOf(resolveTargetForFormat(targetDoc, format), format);
+  return stageIdx >= 0 && stageIdx <= targetIdx;
 }
 
 // ── Mode Config ──
@@ -1464,6 +1478,7 @@ Deno.serve(async (req) => {
       const targetDoc = canonicalDocType(rawTarget);
       // Validate both are on the format's ladder (graceful fallback for start_document)
       let effectiveStartDoc = startDoc;
+      let effectiveTargetDoc = targetDoc;
       if (!isOnLadder(startDoc, fmt)) {
         const ladder = getLadderForJob(fmt);
         // Find nearest valid stage: walk all stages, pick the last one whose conceptual position <= startDoc
@@ -1471,11 +1486,12 @@ Deno.serve(async (req) => {
         effectiveStartDoc = ladder[0];
         console.warn(`start_document "${startDoc}" not on ${fmt} ladder — using "${effectiveStartDoc}"`);
       }
-      if (!isOnLadder(targetDoc, fmt)) {
+      if (!isOnLadder(effectiveTargetDoc, fmt)) {
         // Graceful fallback: use last stage on the ladder
         const ladder = getLadderForJob(fmt);
         const fallbackTarget = ladder[ladder.length - 1];
-        console.warn(`target_document "${targetDoc}" not on ${fmt} ladder — using "${fallbackTarget}"`);
+        console.warn(`target_document "${effectiveTargetDoc}" not on ${fmt} ladder — using "${fallbackTarget}"`);
+        effectiveTargetDoc = fallbackTarget;
       }
 
       const modeConf = MODE_CONFIG[mode || "balanced"] || MODE_CONFIG.balanced;
@@ -1494,7 +1510,7 @@ Deno.serve(async (req) => {
         status: "running",
         mode: mode || "balanced",
         start_document: effectiveStartDoc,
-        target_document: targetDoc,
+        target_document: effectiveTargetDoc,
         current_document: effectiveStartDoc,
         max_stage_loops: effectiveMaxLoops,
         max_total_steps: effectiveMaxSteps,
@@ -1502,7 +1518,7 @@ Deno.serve(async (req) => {
 
       if (error) throw new Error(`Failed to create job: ${error.message}`);
 
-      await logStep(supabase, job.id, 0, effectiveStartDoc, "start", `Auto-run started: ${effectiveStartDoc} → ${targetDoc} (${mode || "balanced"} mode)`);
+      await logStep(supabase, job.id, 0, effectiveStartDoc, "start", `Auto-run started: ${effectiveStartDoc} → ${effectiveTargetDoc} (${mode || "balanced"} mode)`);
 
       if (seedResult.ensured) {
         await logStep(supabase, job.id, 0, effectiveStartDoc, "seed_pack_ensured",
@@ -2183,7 +2199,7 @@ Deno.serve(async (req) => {
         `User approved ${job.approval_type}: ${currentDoc} → ${nextStage || "continue"}`
       );
 
-      if (nextStage && isOnLadder(nextStage, approveFormat) && ladderIndexOf(nextStage, approveFormat) <= ladderIndexOf(job.target_document, approveFormat)) {
+      if (nextStage && isStageAtOrBeforeTarget(nextStage, job.target_document, approveFormat)) {
         await updateJob(supabase, jobId, {
           step_count: stepCount, current_document: nextStage, stage_loop_count: 0,
           status: "running", stop_reason: null,
@@ -3599,7 +3615,7 @@ Deno.serve(async (req) => {
               return respondWithJob(supabase, jobId);
             }
             const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
-            if (next && ladderIndexOf(next, format) <= ladderIndexOf(job.target_document, format)) {
+            if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
               // ── APPROVAL GATE: pause before force-promoting after max loops ──
               await logStep(supabase, jobId, null, currentDoc, "approval_required",
                 `Max loops reached. Review ${currentDoc} before promoting to ${next}`,
@@ -3678,7 +3694,7 @@ Deno.serve(async (req) => {
           }
 
           const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
-          if (next && ladderIndexOf(next, format) <= ladderIndexOf(job.target_document, format)) {
+          if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
             // ── APPROVAL GATE: pause before promoting to next stage ──
             await logStep(supabase, jobId, null, currentDoc, "approval_required",
               `Promote recommended: ${currentDoc} → ${next}. Review before advancing.`,
