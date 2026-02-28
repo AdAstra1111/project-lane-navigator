@@ -181,7 +181,20 @@ export function chunkPlanFor(
   }
 
   if (strategy === "scene_indexed") {
-    const sceneCount = context.sceneCount || 10;
+    if (!context.sceneCount || context.sceneCount < 1) {
+      // Fall back to sectioned strategy if no real scene count from DB
+      console.warn(`[largeRiskRouter] scene_indexed requested for "${docType}" but no sceneCount — falling back to sectioned`);
+      const sections = SCRIPT_SECTIONS;
+      const chunks: ChunkPlanEntry[] = sections.map((sec, i) => ({
+        chunkIndex: i,
+        chunkKey: sec,
+        label: sec.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+        sectionId: sec,
+      }));
+      return { strategy: "sectioned", chunks, totalChunks: chunks.length, docType };
+    }
+
+    const sceneCount = context.sceneCount;
     const batchSize = context.batchSize || 5;
     const chunks: ChunkPlanEntry[] = [];
     let chunkIndex = 0;
@@ -196,7 +209,7 @@ export function chunkPlanFor(
       chunkIndex++;
     }
 
-    return { strategy, chunks, totalChunks: chunks.length, docType };
+    return { strategy: "scene_indexed", chunks, totalChunks: chunks.length, docType };
   }
 
   throw new Error(`[largeRiskRouter] Unknown strategy: ${strategy}`);

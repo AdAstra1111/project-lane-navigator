@@ -2,10 +2,10 @@
  * Chunk Runner — Orchestrates chunked generation, DB storage, assembly.
  *
  * Responsible for:
- * 1. Creating chunk plan entries in project_document_chunks
+ * 1. Upserting chunk plan entries in project_document_chunks (preserving existing)
  * 2. Generating each chunk via LLM
  * 3. Validating each chunk
- * 4. Assembling final plaintext from all chunks
+ * 4. Assembly repair loop (regen only missing/failed chunks)
  * 5. Storing assembled result in project_document_versions
  *
  * Used by: generate-document, dev-engine-v2, auto-run.
@@ -24,21 +24,13 @@ export interface ChunkRunnerOptions {
   versionId: string;
   docType: string;
   plan: ChunkPlan;
-  /** System prompt for LLM */
   systemPrompt: string;
-  /** Upstream context to include in every chunk call */
   upstreamContent: string;
-  /** Project title for prompt context */
   projectTitle: string;
-  /** Additional generation context */
   additionalContext?: string;
-  /** LLM model to use */
   model?: string;
-  /** Max repair attempts per chunk */
   maxChunkRepairs?: number;
-  /** Episode count (for episodic validation) */
   episodeCount?: number;
-  /** Request ID for tracing */
   requestId?: string;
 }
 
@@ -52,9 +44,21 @@ export interface ChunkRunResult {
   assembledFromChunks: boolean;
 }
 
-// ── LLM Gateway ──
+// ── Constants ──
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const MAX_ASSEMBLY_REPAIR_PASSES = 2;
+
+// ── Token budgets per strategy/docType ──
+
+function maxTokensForChunk(strategy: string, docType: string): number {
+  if (strategy === "episodic_indexed") return 16000;
+  if (docType.includes("script") || docType === "screenplay_draft" || docType === "production_draft") return 32000;
+  if (docType.includes("treatment")) return 24000;
+  return 16000;
+}
+
+// ── LLM Gateway ──
 
 async function callChunkLLM(
   apiKey: string,
@@ -81,7 +85,7 @@ async function callChunkLLM(
   return data.choices?.[0]?.message?.content || "";
 }
 
-// ── Chunk Plan Initialization ──
+// ── Chunk Plan Initialization (UPSERT, preserving existing) ──
 
 async function initializeChunks(
   supabase: any,
@@ -89,39 +93,46 @@ async function initializeChunks(
   versionId: string,
   plan: ChunkPlan
 ): Promise<void> {
-  // Upsert chunk entries (pending status)
-  const rows = plan.chunks.map(chunk => ({
-    document_id: documentId,
-    version_id: versionId,
-    chunk_index: chunk.chunkIndex,
-    chunk_key: chunk.chunkKey,
-    status: "pending",
-    attempts: 0,
-    meta_json: {
-      label: chunk.label,
-      episodeStart: chunk.episodeStart,
-      episodeEnd: chunk.episodeEnd,
-      sectionId: chunk.sectionId,
-      strategy: plan.strategy,
-    },
-  }));
-
-  // Delete any existing chunks for this version (clean slate)
-  await supabase
+  // Load existing chunks for this version
+  const { data: existing } = await supabase
     .from("project_document_chunks")
-    .delete()
+    .select("chunk_index, status, content")
     .eq("document_id", documentId)
     .eq("version_id", versionId);
 
-  // Insert fresh chunk entries
-  const { error } = await supabase
-    .from("project_document_chunks")
-    .insert(rows);
+  const existingMap = new Map((existing || []).map((c: any) => [c.chunk_index, c]));
 
-  if (error) {
-    console.error("[chunkRunner] Failed to initialize chunks:", error);
-    throw new Error(`Failed to initialize chunks: ${error.message}`);
+  // Only insert chunks that don't already exist
+  const newRows = plan.chunks
+    .filter(chunk => !existingMap.has(chunk.chunkIndex))
+    .map(chunk => ({
+      document_id: documentId,
+      version_id: versionId,
+      chunk_index: chunk.chunkIndex,
+      chunk_key: chunk.chunkKey,
+      status: "pending",
+      attempts: 0,
+      meta_json: {
+        label: chunk.label,
+        episodeStart: chunk.episodeStart,
+        episodeEnd: chunk.episodeEnd,
+        sectionId: chunk.sectionId,
+        strategy: plan.strategy,
+      },
+    }));
+
+  if (newRows.length > 0) {
+    const { error } = await supabase
+      .from("project_document_chunks")
+      .insert(newRows);
+
+    if (error) {
+      console.error("[chunkRunner] Failed to initialize chunks:", error);
+      throw new Error(`Failed to initialize chunks: ${error.message}`);
+    }
   }
+
+  console.log(`[chunkRunner] initializeChunks: ${newRows.length} new, ${existingMap.size} preserved`);
 }
 
 // ── Single Chunk Generation ──
@@ -132,6 +143,7 @@ async function generateSingleChunk(
   previousChunkEnding?: string
 ): Promise<string> {
   const { apiKey, systemPrompt, upstreamContent, projectTitle, docType, additionalContext, model, plan } = opts;
+  const tokenBudget = maxTokensForChunk(plan.strategy, docType);
 
   let chunkPrompt: string;
 
@@ -175,7 +187,20 @@ Generate the "${sectionLabel}" section now.`;
 ${upstreamContent}`;
   }
 
-  return await callChunkLLM(apiKey, systemPrompt, chunkPrompt, model || "google/gemini-2.5-flash", 16000);
+  return await callChunkLLM(apiKey, systemPrompt, chunkPrompt, model || "google/gemini-2.5-flash", tokenBudget);
+}
+
+// ── Determine which chunks need (re)generation ──
+
+function chunksNeedingGeneration(
+  plan: ChunkPlan,
+  existingMap: Map<number, any>
+): ChunkPlanEntry[] {
+  return plan.chunks.filter(c => {
+    const existing = existingMap.get(c.chunkIndex);
+    if (!existing) return true;
+    return ["pending", "failed", "failed_validation", "needs_regen"].includes(existing.status);
+  });
 }
 
 // ── Main Runner ──
@@ -187,17 +212,35 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
   } = opts;
 
   const rid = requestId || crypto.randomUUID();
-  console.log(`[chunkRunner] Starting chunked generation: ${plan.totalChunks} chunks, strategy=${plan.strategy}, docType=${docType}, rid=${rid}`);
+  console.log(`[chunkRunner] Starting: ${plan.totalChunks} chunks, strategy=${plan.strategy}, rid=${rid}`);
 
-  // 1. Initialize chunk entries in DB
+  // 1. Upsert chunk entries (preserving existing)
   await initializeChunks(supabase, documentId, versionId, plan);
 
-  // 2. Generate each chunk sequentially (for continuity)
+  // 2. Load current chunk state
+  const { data: existingChunks } = await supabase
+    .from("project_document_chunks")
+    .select("*")
+    .eq("document_id", documentId)
+    .eq("version_id", versionId)
+    .order("chunk_index", { ascending: true });
+
+  const chunkMap = new Map((existingChunks || []).map((c: any) => [c.chunk_index, c]));
+
+  // Pre-fill content array from existing done chunks
   const chunkContents: string[] = new Array(plan.totalChunks).fill("");
-  let completedChunks = 0;
+  for (const [idx, row] of chunkMap.entries()) {
+    if (row.status === "done" && row.content) {
+      chunkContents[idx] = row.content;
+    }
+  }
+
+  // 3. Generate only chunks that need it
+  const toGenerate = chunksNeedingGeneration(plan, chunkMap);
+  let completedChunks = plan.totalChunks - toGenerate.length;
   let failedChunks = 0;
 
-  for (const chunk of plan.chunks) {
+  for (const chunk of toGenerate) {
     const previousEnding = chunk.chunkIndex > 0
       ? chunkContents[chunk.chunkIndex - 1].slice(-500)
       : undefined;
@@ -205,7 +248,7 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
     // Mark as running
     await supabase
       .from("project_document_chunks")
-      .update({ status: "running", attempts: 1 })
+      .update({ status: "running", attempts: (chunkMap.get(chunk.chunkIndex)?.attempts || 0) + 1 })
       .eq("document_id", documentId)
       .eq("version_id", versionId)
       .eq("chunk_index", chunk.chunkIndex);
@@ -227,18 +270,10 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
 
           if (!validation.pass && attempt < maxChunkRepairs) {
             console.warn(`[chunkRunner] Chunk ${chunk.chunkKey} failed validation (attempt ${attempt}): ${validation.failures.map(f => f.detail).join("; ")}`);
-            // Update attempt count
-            await supabase
-              .from("project_document_chunks")
-              .update({ attempts: attempt + 2 })
-              .eq("document_id", documentId)
-              .eq("version_id", versionId)
-              .eq("chunk_index", chunk.chunkIndex);
             continue;
           }
           chunkPassed = validation.pass;
         } else {
-          // For sectioned: just check banned language
           chunkPassed = !hasBannedSummarizationLanguage(content);
           if (!chunkPassed && attempt < maxChunkRepairs) {
             console.warn(`[chunkRunner] Chunk ${chunk.chunkKey} contains banned language, retrying`);
@@ -247,7 +282,7 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
         }
         break;
       } catch (err: any) {
-        console.error(`[chunkRunner] Chunk ${chunk.chunkKey} generation error (attempt ${attempt}):`, err.message);
+        console.error(`[chunkRunner] Chunk ${chunk.chunkKey} error (attempt ${attempt}):`, err.message);
         if (attempt >= maxChunkRepairs) {
           failedChunks++;
           await supabase
@@ -255,7 +290,7 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
             .update({
               status: "failed",
               error: err.message?.slice(0, 500),
-              attempts: attempt + 1,
+              attempts: (chunkMap.get(chunk.chunkIndex)?.attempts || 0) + attempt + 1,
             })
             .eq("document_id", documentId)
             .eq("version_id", versionId)
@@ -266,13 +301,19 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
 
     if (content) {
       chunkContents[chunk.chunkIndex] = content;
-      completedChunks++;
+
+      // HONEST STATUS: done only if validation passed, failed_validation otherwise
+      const finalStatus = chunkPassed ? "done" : "failed_validation";
+      if (!chunkPassed) failedChunks++;
+      if (chunkPassed) completedChunks++;
+
       await supabase
         .from("project_document_chunks")
         .update({
-          status: chunkPassed ? "done" : "done",
+          status: finalStatus,
           content,
           char_count: content.length,
+          error: chunkPassed ? null : "Chunk validation failed (banned language or missing episodes)",
         })
         .eq("document_id", documentId)
         .eq("version_id", versionId)
@@ -280,22 +321,109 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
     }
   }
 
-  // 3. Assemble final content
-  const assembledContent = chunkContents.filter(Boolean).join("\n\n");
-
-  // 4. Validate assembled content
+  // 4. Assemble + validate + repair loop
+  let assembledContent = chunkContents.filter(Boolean).join("\n\n");
   let validationResult: any;
-  if (plan.strategy === "episodic_indexed" && episodeCount) {
-    validationResult = validateEpisodicContent(assembledContent, episodeCount, docType);
-  } else {
-    validationResult = validateSectionedContent(
-      assembledContent,
-      plan.chunks.map(c => c.chunkKey),
-      docType
-    );
+
+  for (let repairPass = 0; repairPass <= MAX_ASSEMBLY_REPAIR_PASSES; repairPass++) {
+    // Validate assembled content
+    if (plan.strategy === "episodic_indexed" && episodeCount) {
+      validationResult = validateEpisodicContent(assembledContent, episodeCount, docType);
+    } else {
+      validationResult = validateSectionedContent(
+        assembledContent,
+        plan.chunks.map(c => c.chunkKey),
+        docType
+      );
+    }
+
+    if (validationResult.pass || repairPass >= MAX_ASSEMBLY_REPAIR_PASSES) break;
+
+    // Determine which chunks need regen based on validation failures
+    const chunksToRegen: number[] = [];
+
+    if (validationResult.missingIndices?.length > 0 && plan.strategy === "episodic_indexed") {
+      // Find which chunks contain the missing episodes
+      for (const missingEp of validationResult.missingIndices) {
+        const owningChunk = plan.chunks.find(
+          c => c.episodeStart != null && c.episodeEnd != null &&
+               missingEp >= c.episodeStart && missingEp <= c.episodeEnd
+        );
+        if (owningChunk && !chunksToRegen.includes(owningChunk.chunkIndex)) {
+          chunksToRegen.push(owningChunk.chunkIndex);
+        }
+      }
+    } else if (validationResult.missingSections?.length > 0) {
+      // Find chunks for missing sections
+      for (const missingSec of validationResult.missingSections) {
+        const owningChunk = plan.chunks.find(c => c.chunkKey === missingSec || c.sectionId === missingSec);
+        if (owningChunk && !chunksToRegen.includes(owningChunk.chunkIndex)) {
+          chunksToRegen.push(owningChunk.chunkIndex);
+        }
+      }
+    }
+
+    if (chunksToRegen.length === 0) break; // No actionable repair
+
+    console.log(`[chunkRunner] Assembly repair pass ${repairPass + 1}: regenerating chunks ${chunksToRegen.join(", ")}`);
+
+    // Mark affected chunks as needs_regen
+    for (const idx of chunksToRegen) {
+      await supabase
+        .from("project_document_chunks")
+        .update({ status: "needs_regen" })
+        .eq("document_id", documentId)
+        .eq("version_id", versionId)
+        .eq("chunk_index", idx);
+    }
+
+    // Regenerate only those chunks
+    for (const idx of chunksToRegen) {
+      const chunk = plan.chunks[idx];
+      const previousEnding = idx > 0 ? chunkContents[idx - 1].slice(-500) : undefined;
+
+      await supabase
+        .from("project_document_chunks")
+        .update({ status: "running" })
+        .eq("document_id", documentId)
+        .eq("version_id", versionId)
+        .eq("chunk_index", idx);
+
+      try {
+        const content = await generateSingleChunk(opts, chunk, previousEnding);
+        chunkContents[idx] = content;
+
+        const isValid = plan.strategy === "episodic_indexed" && chunk.episodeStart && chunk.episodeEnd
+          ? validateEpisodicChunk(content, Array.from({ length: chunk.episodeEnd - chunk.episodeStart + 1 }, (_, i) => chunk.episodeStart! + i), docType).pass
+          : !hasBannedSummarizationLanguage(content);
+
+        await supabase
+          .from("project_document_chunks")
+          .update({
+            status: isValid ? "done" : "failed_validation",
+            content,
+            char_count: content.length,
+            error: isValid ? null : "Repair pass: validation still failing",
+          })
+          .eq("document_id", documentId)
+          .eq("version_id", versionId)
+          .eq("chunk_index", idx);
+      } catch (err: any) {
+        console.error(`[chunkRunner] Repair regen for chunk ${idx} failed:`, err.message);
+        await supabase
+          .from("project_document_chunks")
+          .update({ status: "failed", error: err.message?.slice(0, 500) })
+          .eq("document_id", documentId)
+          .eq("version_id", versionId)
+          .eq("chunk_index", idx);
+      }
+    }
+
+    // Reassemble
+    assembledContent = chunkContents.filter(Boolean).join("\n\n");
   }
 
-  // 5. Update version with assembled content
+  // 5. Store assembled content
   await supabase
     .from("project_document_versions")
     .update({
@@ -305,7 +433,7 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
     })
     .eq("id", versionId);
 
-  console.log(`[chunkRunner] Complete: ${completedChunks}/${plan.totalChunks} chunks, validation=${validationResult.pass ? "PASS" : "FAIL"}, rid=${rid}`);
+  console.log(`[chunkRunner] Complete: ${completedChunks}/${plan.totalChunks}, validation=${validationResult.pass ? "PASS" : "FAIL"}, rid=${rid}`);
 
   return {
     success: validationResult.pass && failedChunks === 0,
@@ -320,7 +448,8 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
 
 /**
  * Resume a partially completed chunked generation.
- * Only generates chunks that are pending or failed.
+ * Only generates chunks that are pending/failed/failed_validation/needs_regen.
+ * Does NOT call fresh init that overwrites state.
  */
 export async function resumeChunkedGeneration(opts: ChunkRunnerOptions): Promise<ChunkRunResult> {
   const { supabase, documentId, versionId, plan } = opts;
@@ -335,11 +464,8 @@ export async function resumeChunkedGeneration(opts: ChunkRunnerOptions): Promise
 
   const chunkMap = new Map((existingChunks || []).map((c: any) => [c.chunk_index, c]));
 
-  // Filter plan to only pending/failed chunks
-  const pendingChunks = plan.chunks.filter(c => {
-    const existing = chunkMap.get(c.chunkIndex);
-    return !existing || existing.status === "pending" || existing.status === "failed";
-  });
+  // Check if any chunks need generation
+  const pendingChunks = chunksNeedingGeneration(plan, chunkMap);
 
   if (pendingChunks.length === 0) {
     // All chunks done — just reassemble
@@ -360,6 +486,9 @@ export async function resumeChunkedGeneration(opts: ChunkRunnerOptions): Promise
     };
   }
 
-  // Run only pending chunks (reuse opts but could be optimized)
+  // Ensure any missing chunk rows exist (upsert, not delete)
+  await initializeChunks(supabase, documentId, versionId, plan);
+
+  // Run the main generation (which now respects existing done chunks)
   return runChunkedGeneration(opts);
 }
