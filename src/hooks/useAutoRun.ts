@@ -67,6 +67,11 @@ export interface AutoRunJob {
   allow_defaults: boolean;
   is_processing: boolean;
   processing_started_at: string | null;
+  // Frontier exploration fields
+  frontier_version_id: string | null;
+  frontier_ci: number | null;
+  frontier_gp: number | null;
+  frontier_attempts: number;
   created_at: string;
   updated_at: string;
 }

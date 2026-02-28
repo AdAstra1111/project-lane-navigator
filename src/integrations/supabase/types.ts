@@ -475,6 +475,10 @@ export type Database = {
           current_stage_index: number | null
           error: string | null
           follow_latest: boolean
+          frontier_attempts: number
+          frontier_ci: number | null
+          frontier_gp: number | null
+          frontier_version_id: string | null
           id: string
           is_processing: boolean
           last_analyzed_version_id: string | null
@@ -532,6 +536,10 @@ export type Database = {
           current_stage_index?: number | null
           error?: string | null
           follow_latest?: boolean
+          frontier_attempts?: number
+          frontier_ci?: number | null
+          frontier_gp?: number | null
+          frontier_version_id?: string | null
           id?: string
           is_processing?: boolean
           last_analyzed_version_id?: string | null
@@ -589,6 +597,10 @@ export type Database = {
           current_stage_index?: number | null
           error?: string | null
           follow_latest?: boolean
+          frontier_attempts?: number
+          frontier_ci?: number | null
+          frontier_gp?: number | null
+          frontier_version_id?: string | null
           id?: string
           is_processing?: boolean
           last_analyzed_version_id?: string | null
