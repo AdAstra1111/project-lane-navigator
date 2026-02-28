@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
-import { isAggregate, getRegressionThreshold, requireDocPolicy, getDocPolicy } from "../_shared/docPolicyRegistry.ts";
+import { isAggregate, getRegressionThreshold, requireDocPolicy } from "../_shared/docPolicyRegistry.ts";
 import {
   DEFAULT_MAX_TOTAL_STEPS,
   DEFAULT_MAX_STAGE_LOOPS,
@@ -2515,9 +2515,18 @@ Deno.serve(async (req) => {
       const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
       const behavior = project?.development_behavior || "market";
 
-      // ── DOC POLICY GUARD (apply-rewrite) ──
+      // ── DOC POLICY GUARD (apply-rewrite) — FAIL CLOSED ──
       {
-        const applyPolicy = getDocPolicy(currentDoc);
+        let applyPolicy;
+        try {
+          applyPolicy = requireDocPolicy(currentDoc);
+        } catch (regErr: any) {
+          await logStep(supabase, jobId, stepCount, currentDoc, "doc_type_unregistered",
+            `Doc type "${currentDoc}" is not in the policy registry. Halting.`);
+          await updateJob(supabase, jobId, { status: "paused", pause_reason: "DOC_TYPE_UNREGISTERED",
+            stop_reason: `Unregistered doc type: ${currentDoc}. Cannot proceed with rewrite.` });
+          return respondWithJob(supabase, jobId);
+        }
         if (applyPolicy.docClass === "AGGREGATE") {
           await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_llm_write_blocked",
             `AGGREGATE doc "${currentDoc}" cannot be LLM-rewritten (apply-rewrite). Halting.`);
@@ -2526,7 +2535,16 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
         if (applyPolicy.docClass === "UNIT" && applyPolicy.requiresEpisodeIndex) {
-          // UNIT identity validation deferred to engine
+          const unitDoc = doc;
+          const metaJson = unitDoc?.meta_json || {};
+          const epIdx = metaJson?.episode_index;
+          if (typeof epIdx !== "number" || epIdx < 1 || !Number.isInteger(epIdx)) {
+            await logStep(supabase, jobId, stepCount, currentDoc, "unit_identity_missing",
+              `UNIT doc "${currentDoc}" requires episode_index but got: ${JSON.stringify(epIdx)}. Halting.`);
+            await updateJob(supabase, jobId, { status: "paused", pause_reason: "UNIT_IDENTITY_MISSING",
+              stop_reason: `UNIT doc "${currentDoc}" missing valid episode_index in meta_json.` });
+            return respondWithJob(supabase, jobId);
+          }
         }
       }
 
@@ -2861,9 +2879,18 @@ Deno.serve(async (req) => {
 
       const rewriteSelectedOptions = selectedContentOptions.length > 0 ? selectedContentOptions : selectedOptions;
 
-      // ── DOC POLICY GUARD (apply-decisions-and-continue) ──
+      // ── DOC POLICY GUARD (apply-decisions-and-continue) — FAIL CLOSED ──
       {
-        const decPolicy = getDocPolicy(currentDoc);
+        let decPolicy;
+        try {
+          decPolicy = requireDocPolicy(currentDoc);
+        } catch (regErr: any) {
+          await logStep(supabase, jobId, stepCount, currentDoc, "doc_type_unregistered",
+            `Doc type "${currentDoc}" is not in the policy registry. Halting.`);
+          await updateJob(supabase, jobId, { status: "paused", pause_reason: "DOC_TYPE_UNREGISTERED",
+            stop_reason: `Unregistered doc type: ${currentDoc}. Cannot proceed with rewrite.` });
+          return respondWithJob(supabase, jobId);
+        }
         if (decPolicy.docClass === "AGGREGATE") {
           await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_llm_write_blocked",
             `AGGREGATE doc "${currentDoc}" cannot be LLM-rewritten (apply-decisions). Halting.`);
@@ -2872,7 +2899,18 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
         if (decPolicy.docClass === "UNIT" && decPolicy.requiresEpisodeIndex) {
-          // UNIT identity validation deferred to engine
+          // Fetch the doc record to check meta_json
+          const { data: unitDocRow } = await supabase.from("project_documents")
+            .select("meta_json").eq("id", docId).single();
+          const metaJson = unitDocRow?.meta_json || {};
+          const epIdx = metaJson?.episode_index;
+          if (typeof epIdx !== "number" || epIdx < 1 || !Number.isInteger(epIdx)) {
+            await logStep(supabase, jobId, stepCount, currentDoc, "unit_identity_missing",
+              `UNIT doc "${currentDoc}" requires episode_index but got: ${JSON.stringify(epIdx)}. Halting.`);
+            await updateJob(supabase, jobId, { status: "paused", pause_reason: "UNIT_IDENTITY_MISSING",
+              stop_reason: `UNIT doc "${currentDoc}" missing valid episode_index in meta_json.` });
+            return respondWithJob(supabase, jobId);
+          }
         }
       }
 
@@ -3705,11 +3743,12 @@ Deno.serve(async (req) => {
           { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags }
         );
 
-        // Update job scores (step_count maintained by nextStepIndex)
+        // Update job scores + last_analyzed_version_id (step_count maintained by nextStepIndex)
         await updateJob(supabase, jobId, {
           last_ci: ci, last_gp: gp, last_gap: gap,
           last_readiness: promo.readiness_score, last_confidence: promo.confidence,
           last_risk_flags: promo.risk_flags,
+          last_analyzed_version_id: latestVersion.id,
         });
 
         // ── HARD STOPS ──
@@ -4002,27 +4041,22 @@ Deno.serve(async (req) => {
           const baselineVersionId = currentAccepted.id;
 
           // ── BASELINE SCORE REUSE OPTIMIZATION ──
-          // If job already cached baseline scores for this exact version, skip redundant analyze call
+          // Reuse cached scores ONLY if last_analyzed_version_id === baselineVersionId
           let baselineCI: number;
           let baselineGP: number;
-          const cachedBaselineVersionId = (job as any).best_version_id === baselineVersionId ? null : (job as any)._baseline_version_id;
-          const canReuseBaseline = (job as any).best_version_id !== undefined
-            && typeof (job as any).best_ci === "number"
-            && typeof (job as any).best_gp === "number"
-            && (job as any).best_version_id === baselineVersionId;
-          // Also check if last analyze was for this exact baseline (ci/gp from review step)
-          const lastAnalyzeIsBaseline = latestVersion.id === baselineVersionId
-            && typeof ci === "number" && typeof gp === "number"
-            && ci > 0 && gp > 0;
+          const jobLastAnalyzed = (job as any).last_analyzed_version_id;
+          const jobLastCI = (job as any).last_ci;
+          const jobLastGP = (job as any).last_gp;
+          const canReuseFromJob = jobLastAnalyzed === baselineVersionId
+            && typeof jobLastCI === "number" && typeof jobLastGP === "number";
 
-          if (lastAnalyzeIsBaseline) {
-            // The review step just scored this exact version — reuse those scores
-            baselineCI = ci;
-            baselineGP = gp;
+          if (canReuseFromJob) {
+            baselineCI = jobLastCI;
+            baselineGP = jobLastGP;
             await logStep(supabase, jobId, null, currentDoc, "baseline_score_reused",
-              `Reused review scores for baseline ${baselineVersionId}: CI=${baselineCI} GP=${baselineGP}`,
+              `Reused job-cached scores for baseline ${baselineVersionId}: CI=${baselineCI} GP=${baselineGP}`,
               { ci: baselineCI, gp: baselineGP }, undefined,
-              { source: "review_step", baselineVersionId });
+              { source: "job_cache", baselineVersionId, last_analyzed_version_id: jobLastAnalyzed });
           } else {
             // Must re-score baseline
             try {
