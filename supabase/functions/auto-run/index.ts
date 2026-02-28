@@ -1440,7 +1440,28 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════
-    // ACTION: status
+    // ACTION: continue-exhaustion
+    // ═══════════════════════════════════════
+    if (action === "continue-exhaustion") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const bump = Math.max(1, Math.min(Number(body.bump) || 4, 20));
+      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+      const newRemaining = (job.stage_exhaustion_remaining ?? 0) + bump;
+      const stepCount = job.step_count + 1;
+      await logStep(supabase, jobId, stepCount, job.current_document, "exhaustion_budget_extended",
+        `Stage exhaustion budget extended by +${bump} (now ${newRemaining})`);
+      await updateJob(supabase, jobId, {
+        stage_exhaustion_remaining: newRemaining,
+        step_count: stepCount,
+        status: "running",
+        stop_reason: null,
+        pause_reason: null,
+        pending_decisions: null,
+      });
+      return respondWithJob(supabase, jobId, "run-next");
+    }
+
     // ═══════════════════════════════════════
     if (action === "status") {
       const query = jobId
@@ -1862,6 +1883,7 @@ Deno.serve(async (req) => {
             step_count: stepCount,
             current_document: next,
             stage_loop_count: 0,
+            stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
             max_total_steps: job.max_total_steps + 6,
             status: "running",
             stop_reason: null,
@@ -2205,6 +2227,7 @@ Deno.serve(async (req) => {
       if (nextStage && isStageAtOrBeforeTarget(nextStage, job.target_document, approveFormat)) {
         await updateJob(supabase, jobId, {
           step_count: stepCount, current_document: nextStage, stage_loop_count: 0,
+          stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
           status: "running", stop_reason: null,
           awaiting_approval: false, approval_type: null, approval_payload: null,
           pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
@@ -2233,6 +2256,7 @@ Deno.serve(async (req) => {
       await logStep(supabase, jobId, stepCount, stage, "set_stage", `Manual stage set: ${job.current_document} → ${stage}`);
       await updateJob(supabase, jobId, {
         current_document: stage, stage_loop_count: 0, step_count: stepCount,
+        stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
       });
       return respondWithJob(supabase, jobId);
     }
@@ -2259,6 +2283,7 @@ Deno.serve(async (req) => {
       await logStep(supabase, jobId, stepCount, currentDoc, "force_promote", `Force-promoted: ${currentDoc} → ${next}`);
       await updateJob(supabase, jobId, {
         current_document: next, stage_loop_count: 0, step_count: stepCount,
+        stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
         status: "running", stop_reason: null,
         awaiting_approval: false, approval_type: null, pending_doc_id: null, pending_version_id: null,
         pending_doc_type: null, pending_next_doc_type: null, pending_decisions: null,
@@ -2279,6 +2304,7 @@ Deno.serve(async (req) => {
       await logStep(supabase, jobId, stepCount, stage, "restart_from_stage", `Restarted from ${stage}`);
       await updateJob(supabase, jobId, {
         current_document: stage, stage_loop_count: 0, step_count: stepCount,
+        stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
         status: "running", stop_reason: null, error: null,
         awaiting_approval: false, approval_type: null, approval_payload: null,
         pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
@@ -2628,6 +2654,7 @@ Deno.serve(async (req) => {
           max_total_steps: maxTotalSteps,
           current_document: nextDoc,
           stage_loop_count: (forcePromoteChoice === "yes" || forcePromoteChoice === "force_promote" || runExecChoice === "yes") ? 0 : job.stage_loop_count,
+          stage_exhaustion_remaining: (forcePromoteChoice === "yes" || forcePromoteChoice === "force_promote" || runExecChoice === "yes") ? (job.stage_exhaustion_default ?? 4) : job.stage_exhaustion_remaining,
           status,
           stop_reason: stopReason,
           pending_decisions: null,
@@ -3011,7 +3038,7 @@ Deno.serve(async (req) => {
               { risk_flags: ["qualification_hash_changed", "episode_count_invalidated"] }
             );
             // Reset stage loop count so a fresh analysis cycle starts
-            await updateJob(supabase, jobId, { stage_loop_count: 0 });
+            await updateJob(supabase, jobId, { stage_loop_count: 0, stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4 });
           }
         } else {
           const errText = await resolverResp.text();
@@ -3072,6 +3099,7 @@ Deno.serve(async (req) => {
           await updateJob(supabase, jobId, {
             current_document: "concept_brief",
             stage_loop_count: 0,
+            stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
             step_count: upshiftStep,
           });
           return respondWithJob(supabase, jobId, "run-next");
@@ -3231,7 +3259,7 @@ Deno.serve(async (req) => {
 
           const newStep = stepCount + 1;
           await logStep(supabase, jobId, newStep, currentDoc, "generate", `Generated ${currentDoc} from ${prevStage}${useChunkedGenerator ? ' (chunked pipeline)' : ''}`, {}, convertedDocId ? `Created doc ${convertedDocId}` : undefined, convertedDocId ? { docId: convertedDocId } : undefined);
-          await updateJob(supabase, jobId, { step_count: newStep, stage_loop_count: 0 });
+          await updateJob(supabase, jobId, { step_count: newStep, stage_loop_count: 0, stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4 });
 
           // ── APPROVAL GATE: after convert, pause for user to review ──
           await logStep(supabase, jobId, null, currentDoc, "approval_required",
@@ -3645,28 +3673,58 @@ Deno.serve(async (req) => {
           const jobAfterOptions = await getJob(supabase, jobId);
           const hasActiveDecisions = Array.isArray(jobAfterOptions?.pending_decisions) && (jobAfterOptions.pending_decisions as any[]).length > 0;
 
+          // ── SOFT MAX-LOOPS + EXHAUSTION BUDGET (replaces old blocking max-loops) ──
           if (!optionsGeneratedThisStep && !hasActiveDecisions && newLoopCount >= job.max_stage_loops) {
-            if (blockersCount > 0) {
-              const fallback = createFallbackDecisions(currentDoc, ci, gp, "Blockers persist after max loops");
-              await updateJob(supabase, jobId, { status: "paused", stop_reason: "Blockers persist — manual decision required", stage_loop_count: newLoopCount, pending_decisions: fallback });
-              await logStep(supabase, jobId, null, currentDoc, "stop", "Blockers persist after max loops");
-              return respondWithJob(supabase, jobId);
-            }
-            const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
-            if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
-              // ── APPROVAL GATE: pause before force-promoting after max loops ──
-              await logStep(supabase, jobId, null, currentDoc, "approval_required",
-                `Max loops reached. Review ${currentDoc} before promoting to ${next}`,
-                {}, undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
-              );
-              await updateJob(supabase, jobId, {
-                stage_loop_count: newLoopCount,
-                status: "paused", stop_reason: `Approval required: review ${currentDoc} before promoting to ${next}`,
-                awaiting_approval: true, approval_type: "promote",
-                pending_doc_id: doc.id, pending_version_id: latestVersion.id,
-                pending_doc_type: currentDoc, pending_next_doc_type: next,
-              });
-              return respondWithJob(supabase, jobId, "awaiting-approval");
+            // Parse convergence targets
+            const convergeTarget = (typeof job.converge_target_json === 'object' && job.converge_target_json) 
+              ? job.converge_target_json as { ci: number; gp: number }
+              : { ci: 90, gp: 90 };
+            const convergedEnough = (ci >= convergeTarget.ci) && (gp >= convergeTarget.gp);
+
+            if (!convergedEnough) {
+              const exhaustionRemaining = job.stage_exhaustion_remaining ?? 4;
+              const exhaustionDefault = job.stage_exhaustion_default ?? 4;
+
+              if (exhaustionRemaining > 0 && job.step_count < job.max_total_steps) {
+                // Soft limit: decrement exhaustion budget and continue
+                await updateJob(supabase, jobId, {
+                  stage_loop_count: newLoopCount,
+                  stage_exhaustion_remaining: exhaustionRemaining - 1,
+                });
+                await logStep(supabase, jobId, null, currentDoc, "soft_max_loops_continue",
+                  `Soft limit exceeded; continuing (exhaustion remaining ${exhaustionRemaining - 1}/${exhaustionDefault}) until CI>=${convergeTarget.ci} and GP>=${convergeTarget.gp} or budget exhausted (CI=${ci}, GP=${gp})`
+                );
+                // Fall through to rewrite below — do NOT pause or return
+              } else {
+                // Exhaustion budget depleted — pause with stage_exhausted
+                await updateJob(supabase, jobId, {
+                  stage_loop_count: newLoopCount,
+                  status: "paused",
+                  pause_reason: "stage_exhausted",
+                  stop_reason: `Stage exhaustion budget reached before convergence (CI=${ci}/${convergeTarget.ci}, GP=${gp}/${convergeTarget.gp})`,
+                });
+                await logStep(supabase, jobId, null, currentDoc, "stage_exhausted",
+                  `Stage exhaustion budget depleted (CI=${ci}, GP=${gp}). Pausing for user decision.`
+                );
+                return respondWithJob(supabase, jobId);
+              }
+            } else {
+              // Converged enough — proceed to promotion normally
+              const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+              if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
+                await logStep(supabase, jobId, null, currentDoc, "approval_required",
+                  `Converged (CI=${ci}, GP=${gp}). Review ${currentDoc} before promoting to ${next}`,
+                  {}, undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
+                );
+                await updateJob(supabase, jobId, {
+                  stage_loop_count: newLoopCount,
+                  status: "paused", stop_reason: `Converged — review ${currentDoc} before promoting to ${next}`,
+                  awaiting_approval: true, approval_type: "promote",
+                  pending_doc_id: doc.id, pending_version_id: latestVersion.id,
+                  pending_doc_type: currentDoc, pending_next_doc_type: next,
+                });
+                return respondWithJob(supabase, jobId, "awaiting-approval");
+              }
             }
           }
 

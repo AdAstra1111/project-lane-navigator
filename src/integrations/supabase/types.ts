@@ -465,6 +465,7 @@ export type Database = {
           approval_required_for_doc_type: string | null
           approval_type: string | null
           awaiting_approval: boolean
+          converge_target_json: Json
           created_at: string | null
           current_document: string
           current_stage_index: number | null
@@ -494,6 +495,8 @@ export type Database = {
           project_id: string
           resume_document_id: string | null
           resume_version_id: string | null
+          stage_exhaustion_default: number
+          stage_exhaustion_remaining: number
           stage_history: Json | null
           stage_loop_count: number
           start_document: string
@@ -510,6 +513,7 @@ export type Database = {
           approval_required_for_doc_type?: string | null
           approval_type?: string | null
           awaiting_approval?: boolean
+          converge_target_json?: Json
           created_at?: string | null
           current_document: string
           current_stage_index?: number | null
@@ -539,6 +543,8 @@ export type Database = {
           project_id: string
           resume_document_id?: string | null
           resume_version_id?: string | null
+          stage_exhaustion_default?: number
+          stage_exhaustion_remaining?: number
           stage_history?: Json | null
           stage_loop_count?: number
           start_document: string
@@ -555,6 +561,7 @@ export type Database = {
           approval_required_for_doc_type?: string | null
           approval_type?: string | null
           awaiting_approval?: boolean
+          converge_target_json?: Json
           created_at?: string | null
           current_document?: string
           current_stage_index?: number | null
@@ -584,6 +591,8 @@ export type Database = {
           project_id?: string
           resume_document_id?: string | null
           resume_version_id?: string | null
+          stage_exhaustion_default?: number
+          stage_exhaustion_remaining?: number
           stage_history?: Json | null
           stage_loop_count?: number
           start_document?: string
