@@ -144,15 +144,13 @@ export function useAutoRun(projectId: string | undefined) {
 
     const mappedStart = mapDocTypeToLadderStage(startDocument);
 
-    const MODE_STEPS: Record<string, number> = { fast: 8, balanced: 12, premium: 18 };
-
     try {
     const result = await callAutoRun('start', {
         projectId,
-        mode,
+        mode: 'balanced',
         start_document: mappedStart,
         target_document: 'production_draft',
-        max_total_steps: MODE_STEPS[mode] || 12,
+        max_total_steps: 100,
       });
       setJob(result.job);
       setSteps(result.latest_steps || []);
