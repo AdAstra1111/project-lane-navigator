@@ -658,7 +658,12 @@ export function AutoRunMissionControl({
     try {
       const result = await onApproveSeedCore();
       if (result?.success) {
-        toast({ title: 'Seed Core approved', description: 'Automation resumed — downstream docs will be generated automatically.' });
+        const resumed = result?.job?.status === 'running' && !result?.job?.awaiting_approval;
+        if (resumed) {
+          toast({ title: 'Seed Core approved', description: 'Automation resumed — downstream docs will be generated automatically.' });
+        } else {
+          toast({ title: 'Seed Core approved', description: 'Approved successfully, but auto-run is still paused (check the current pause reason).' });
+        }
       } else if (result?.stop_reason === 'SEED_CORE_MISSING') {
         toast({ title: 'Cannot approve', description: `Missing: ${(result.missing_docs || result.missing_current_versions || []).join(', ')}`, variant: 'destructive' });
       }
