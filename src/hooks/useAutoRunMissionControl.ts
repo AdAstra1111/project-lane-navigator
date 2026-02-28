@@ -21,14 +21,11 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
   } catch (fetchErr: any) {
     throw new Error(`Failed to reach auto-run service (action=${action}, url=${url}): ${fetchErr.message}`);
   }
-  // Handle 409 STALE_DECISION gracefully
-  if (resp.status === 409) {
-    const data = await resp.json();
-    if (data.code === 'STALE_DECISION') {
-      return { ...data, _stale: true };
-    }
-  }
   const result = await resp.json();
+  // Handle 409 STALE_DECISION gracefully (must parse body only once)
+  if (resp.status === 409 && result?.code === 'STALE_DECISION') {
+    return { ...result, _stale: true };
+  }
   if (!resp.ok) throw new Error(result.error || `Auto-run error (${resp.status})`);
   return result;
 }
@@ -385,6 +382,10 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       });
       setJob(result.job);
       setSteps(result.latest_steps || []);
+      if (result._stale || result.code === 'STALE_DECISION') {
+        console.warn('[auto-run] Decision was stale in applyDecisions, refreshed job state');
+        return;
+      }
       if (result.job?.status === 'running' && !result.job?.awaiting_approval) {
         setIsRunning(true);
       }

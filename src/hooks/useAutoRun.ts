@@ -96,14 +96,11 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
     },
     body: JSON.stringify({ action, ...extra }),
   });
-  // Handle 409 STALE_DECISION gracefully
-  if (resp.status === 409) {
-    const data = await resp.json();
-    if (data.code === 'STALE_DECISION') {
-      return { ...data, _stale: true };
-    }
-  }
   const result = await resp.json();
+  // Handle 409 STALE_DECISION gracefully (must parse body only once)
+  if (resp.status === 409 && result?.code === 'STALE_DECISION') {
+    return { ...result, _stale: true };
+  }
   if (!resp.ok) throw new Error(result.error || 'Auto-run error');
   return result;
 }
