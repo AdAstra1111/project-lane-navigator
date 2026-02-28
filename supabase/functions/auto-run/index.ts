@@ -3293,8 +3293,50 @@ Deno.serve(async (req) => {
         latestVersion = versions?.[0];
       }
       if (!latestVersion) {
-        await updateJob(supabase, jobId, { status: "failed", error: "No version for current document" });
-        return respondWithJob(supabase, jobId);
+        // Doc slot exists but has zero versions — treat as missing and re-enter
+        // generation path by clearing doc and restarting this iteration
+        console.warn(`[auto-run] Doc slot ${doc.id} (${currentDoc}) has no versions — will generate`);
+        doc = null;
+        // Re-run the generation logic inline (same as the !doc branch above)
+        const seedCheck2 = await isSeedCoreOfficial(supabase, job.project_id);
+        if (!seedCheck2.official) {
+          await updateJob(supabase, jobId, {
+            status: "paused", stop_reason: "SEED_CORE_NOT_OFFICIAL",
+            awaiting_approval: true, approval_type: "seed_core_officialize",
+            error: JSON.stringify({ missing_seed_docs: seedCheck2.missing, unapproved_seed_docs: seedCheck2.unapproved }),
+          });
+          return respondWithJob(supabase, jobId, "seed-core-not-official");
+        }
+        // Find previous stage to convert from
+        const pipeline2 = getLadderForFormat(format);
+        const stageIdx2 = pipeline2.indexOf(currentDoc);
+        const prevStage2 = stageIdx2 > 0 ? pipeline2[stageIdx2 - 1] : null;
+        if (!prevStage2) {
+          await updateJob(supabase, jobId, { status: "failed", error: `No previous stage to generate ${currentDoc} from (empty doc slot)` });
+          return respondWithJob(supabase, jobId);
+        }
+        const { data: prevDocs2 } = await supabase.from("project_documents")
+          .select("id, doc_type, plaintext, extracted_text")
+          .eq("project_id", job.project_id).eq("doc_type", prevStage2)
+          .order("created_at", { ascending: false }).limit(1);
+        const prevDoc2 = prevDocs2?.[0];
+        if (!prevDoc2) {
+          await updateJob(supabase, jobId, { status: "failed", error: `Cannot generate ${currentDoc}: predecessor ${prevStage2} missing` });
+          return respondWithJob(supabase, jobId);
+        }
+        try {
+          const useChunked2 = CHUNKED_DOC_TYPES.includes(currentDoc);
+          const { docId: genDocId2, versionId: genVerId2 } = await convertDocument(supabase, { projectId: job.project_id, userId: job.user_id, sourceDocId: prevDoc2.id, targetDocType: currentDoc, mode: job.mode || "balanced", useChunkedGenerator: useChunked2, format, lane, behavior });
+          const ns2 = stepCount + 1;
+          await logStep(supabase, jobId, ns2, currentDoc, "generate", `Generated ${currentDoc} from ${prevStage2} (empty-slot recovery)`, {}, genDocId2 ? `Created doc ${genDocId2}` : undefined, genDocId2 ? { docId: genDocId2 } : undefined);
+          await updateJob(supabase, jobId, { step_count: ns2, stage_loop_count: 0, stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4 });
+          await logStep(supabase, jobId, null, currentDoc, "approval_required", `Review generated ${currentDoc} before continuing`, {}, undefined, { docId: genDocId2, versionId: genVerId2, doc_type: currentDoc, from_stage: prevStage2 });
+          await updateJob(supabase, jobId, { status: "paused", stop_reason: `Approval required: review generated ${currentDoc}`, awaiting_approval: true, approval_type: "convert", pending_doc_id: genDocId2 || prevDoc2.id, pending_version_id: genVerId2, pending_doc_type: currentDoc, pending_next_doc_type: currentDoc });
+          return respondWithJob(supabase, jobId, "awaiting-approval");
+        } catch (e2: any) {
+          await updateJob(supabase, jobId, { status: "failed", error: `Generate failed (empty-slot recovery): ${e2.message}` });
+          return respondWithJob(supabase, jobId);
+        }
       }
 
       // Log resume source usage
