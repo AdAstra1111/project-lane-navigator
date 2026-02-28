@@ -123,13 +123,16 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
         return; // Don't reschedule — polling stops
       }
 
-      // If backend idle and still running, nudge once
+      // If backend idle and still running, nudge run-next
       if (result.job.status === 'running' && !result.job.awaiting_approval && !result.job.is_processing) {
-        callAutoRun('run-next', { jobId: job.id }).catch(() => {});
+        callAutoRun('run-next', { jobId: job.id }).catch((nudgeErr) => {
+          console.warn('[auto-run poll] nudge run-next failed:', nudgeErr.message);
+        });
       }
 
-      // Schedule next poll at normal interval
-      schedulePoll(4000);
+      // Schedule next poll — shorter interval when idle to catch dropped chains
+      const interval = (result.job.status === 'running' && !result.job.is_processing) ? 3000 : 5000;
+      schedulePoll(interval);
 
     } catch (e: any) {
       // ── Failure path: DO NOT clear job state or stop running ──

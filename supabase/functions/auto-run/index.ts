@@ -1243,35 +1243,35 @@ async function getJob(supabase: any, jobId: string) {
 // ── Helper: acquire single-flight processing lock ──
 // Returns the locked job row if acquired, or null if another invocation holds the lock.
 // Uses two sequential CAS attempts to avoid PostgREST .or() issues.
+// When actor is "service_role", the user_id filter is skipped so self-chaining works.
 async function acquireProcessingLock(supabase: any, jobId: string, userId: string): Promise<any | null> {
   const now = new Date().toISOString();
   const lockExpires = new Date(Date.now() + 120_000).toISOString(); // 2 min lock
+  const isService = userId === "service_role";
 
   // Attempt A: normal acquire (is_processing = false)
-  const { data: rowA } = await supabase
+  let qA = supabase
     .from("auto_run_jobs")
     .update({ is_processing: true, processing_started_at: now, lock_expires_at: lockExpires, last_heartbeat_at: now })
     .eq("id", jobId)
-    .eq("user_id", userId)
     .eq("status", "running")
-    .eq("is_processing", false)
-    .select("*")
-    .maybeSingle();
+    .eq("is_processing", false);
+  if (!isService) qA = qA.eq("user_id", userId);
+  const { data: rowA } = await qA.select("*").maybeSingle();
 
   if (rowA) return rowA;
 
   // Attempt B: stale-lock steal (is_processing = true but older than 60s)
   const staleThreshold = new Date(Date.now() - 60_000).toISOString();
-  const { data: rowB } = await supabase
+  let qB = supabase
     .from("auto_run_jobs")
     .update({ is_processing: true, processing_started_at: now, lock_expires_at: lockExpires, last_heartbeat_at: now })
     .eq("id", jobId)
-    .eq("user_id", userId)
     .eq("status", "running")
     .eq("is_processing", true)
-    .lt("processing_started_at", staleThreshold)
-    .select("*")
-    .maybeSingle();
+    .lt("processing_started_at", staleThreshold);
+  if (!isService) qB = qB.eq("user_id", userId);
+  const { data: rowB } = await qB.select("*").maybeSingle();
 
   if (rowB) return rowB;
 
@@ -2899,7 +2899,10 @@ Deno.serve(async (req) => {
       let optionsGeneratedThisStep = false;
 
       // ── Pre-check: bail early for non-running / approval states ──
-      const { data: preJob, error: preJobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      // service_role skips user_id filter (self-chain path)
+      let preJobQuery = supabase.from("auto_run_jobs").select("*").eq("id", jobId);
+      if (actor !== "service_role") preJobQuery = preJobQuery.eq("user_id", userId);
+      const { data: preJob, error: preJobErr } = await preJobQuery.single();
       if (preJobErr || !preJob) return respond({ error: "Job not found" }, 404);
       if (preJob.awaiting_approval) return respond({ job: preJob, latest_steps: [], next_action_hint: "awaiting-approval" });
       if (preJob.status !== "running") return respond({ job: preJob, latest_steps: [], next_action_hint: getHint(preJob) });
@@ -4018,14 +4021,19 @@ Deno.serve(async (req) => {
             if (postJob.step_count < postJob.max_total_steps) {
               console.log("[auto-run] self-chaining run-next after bg task", { jobId, step: postJob.step_count, max: postJob.max_total_steps });
               const selfUrl = `${supabaseUrl}/functions/v1/auto-run`;
-              fetch(selfUrl, {
+              const chainPromise = fetch(selfUrl, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
                   "Authorization": `Bearer ${serviceKey}`,
                 },
                 body: JSON.stringify({ action: "run-next", jobId }),
-              }).catch((e: any) => console.error("[auto-run] self-chain fetch failed", e?.message));
+              }).then((r: Response) => {
+                if (!r.ok) console.error("[auto-run] self-chain HTTP error", { status: r.status, jobId });
+                else console.log("[auto-run] self-chain success", { jobId, status: r.status });
+              }).catch((e: any) => console.error("[auto-run] self-chain fetch failed", { jobId, error: e?.message }));
+              // Track the chain fetch in waitUntil so isolate stays alive
+              waitUntilSafe(chainPromise);
             } else {
               console.log("[auto-run] self-chain skipped: step budget exhausted", { jobId, step: postJob.step_count, max: postJob.max_total_steps });
             }
