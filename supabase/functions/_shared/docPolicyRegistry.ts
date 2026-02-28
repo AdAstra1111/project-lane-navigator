@@ -18,10 +18,18 @@ export interface DocPolicy {
 }
 
 // ── Acceptance Profiles ──
-export const ACCEPTANCE_PROFILES: Record<string, { regressionThreshold: number; minCI: number; minGP: number }> = {
-  UNIT_PROFILE_DEFAULT:   { regressionThreshold: 5, minCI: 0, minGP: 0 },
-  SINGLE_PROFILE_DEFAULT: { regressionThreshold: 5, minCI: 0, minGP: 0 },
-  AGG_PROFILE_DEFAULT:    { regressionThreshold: 0, minCI: 0, minGP: 0 },
+export interface AcceptanceProfile {
+  regressionThreshold: number;   // PROMOTE_DELTA: max drop to auto-promote to is_current
+  exploreThreshold: number;      // EXPLORE_DELTA: max drop to continue exploring (without promoting)
+  maxFrontierAttempts: number;   // bounded frontier exploration attempts
+  minCI: number;
+  minGP: number;
+}
+
+export const ACCEPTANCE_PROFILES: Record<string, AcceptanceProfile> = {
+  UNIT_PROFILE_DEFAULT:   { regressionThreshold: 5, exploreThreshold: 15, maxFrontierAttempts: 3, minCI: 0, minGP: 0 },
+  SINGLE_PROFILE_DEFAULT: { regressionThreshold: 5, exploreThreshold: 15, maxFrontierAttempts: 3, minCI: 0, minGP: 0 },
+  AGG_PROFILE_DEFAULT:    { regressionThreshold: 0, exploreThreshold: 0,  maxFrontierAttempts: 0, minCI: 0, minGP: 0 },
 };
 
 // ── Registry ──
@@ -93,4 +101,16 @@ export function getRegressionThreshold(docType: string): number {
   const policy = requireDocPolicy(docType);
   const profile = ACCEPTANCE_PROFILES[policy.acceptanceProfile];
   return profile?.regressionThreshold ?? 5;
+}
+
+export function getExploreThreshold(docType: string): number {
+  const policy = requireDocPolicy(docType);
+  const profile = ACCEPTANCE_PROFILES[policy.acceptanceProfile];
+  return profile?.exploreThreshold ?? 15;
+}
+
+export function getMaxFrontierAttempts(docType: string): number {
+  const policy = requireDocPolicy(docType);
+  const profile = ACCEPTANCE_PROFILES[policy.acceptanceProfile];
+  return profile?.maxFrontierAttempts ?? 3;
 }
