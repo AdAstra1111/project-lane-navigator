@@ -68,9 +68,19 @@ export function AutoRunProgressInfo({
     // Rate: steps per minute
     const stepsPerMin = avgStepSec > 0 ? 60 / avgStepSec : 0;
 
-    // ETA based on remaining steps
-    const remainingSteps = Math.max(0, job.max_total_steps - stepCount);
-    const etaSec = avgStepSec > 0 ? remainingSteps * avgStepSec : -1;
+    // ETA based on pipeline stages remaining, not budget remaining
+    // Use avg steps-per-stage from completed stages to project remaining time
+    const stagesRemaining = Math.max(0, totalPipelineStages - completedStages);
+    let etaSec = -1;
+    if (completedStages > 0 && stagesRemaining > 0) {
+      // Average time per completed stage
+      const avgStepsPerStage = stepCount / completedStages;
+      etaSec = avgStepsPerStage * stagesRemaining * avgStepSec;
+    } else if (stagesRemaining > 0 && avgStepSec > 0 && stepCount > 0) {
+      // Fallback: assume current pace applies to remaining stages
+      // Rough estimate: each stage takes ~stepCount/max(1,completedStages||1) steps
+      etaSec = stagesRemaining * avgStepSec * Math.max(3, stepCount);
+    }
 
     // Current stage elapsed
     const stageSteps = sortedSteps.filter(s => s.document === job.current_document);
@@ -85,12 +95,12 @@ export function AutoRunProgressInfo({
       stepCount,
       avgStepSec,
       stepsPerMin,
-      remainingSteps,
+      stagesRemaining,
       etaSec,
       stageElapsed,
       stageStepCount: stageSteps.length,
     };
-  }, [now, job, steps]);
+  }, [now, job, steps, totalPipelineStages, completedStages]);
 
   const showEta = stats.etaSec > 0 && stats.stepCount >= 2;
 
