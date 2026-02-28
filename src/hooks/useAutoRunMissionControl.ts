@@ -208,14 +208,22 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   // ── Approval ──
   const getPendingDoc = useCallback(async () => {
     if (!job) return null;
+    // Guard: only call if job is actually awaiting approval with a pending doc
+    if (!job.awaiting_approval || !job.pending_doc_id) return null;
     try {
       const result = await callAutoRun('get-pending-doc', { jobId: job.id });
       return result.pending_doc || null;
-    } catch (e: any) { setError(e.message); return null; }
+    } catch (e: any) {
+      // Silently handle stale state — job may have moved on
+      if (e.message?.includes('No pending document')) return null;
+      setError(e.message); return null;
+    }
   }, [job]);
 
   const approveNext = useCallback(async (decision: 'approve' | 'revise' | 'stop') => {
     if (!job || isRunning) return;
+    // Guard: only call if job is actually awaiting approval
+    if (!job.awaiting_approval) return;
     setError(null);
     abortRef.current = false;
     try {
