@@ -1395,7 +1395,7 @@ async function nextStepIndex(supabase: any, jobId: string): Promise<number> {
       .from("auto_run_jobs")
       .select("step_count")
       .eq("id", jobId)
-      .single();
+      .maybeSingle();
     const next = (job?.step_count ?? 0) + 1;
     await supabase
       .from("auto_run_jobs")
@@ -1639,8 +1639,8 @@ Deno.serve(async (req) => {
     // ═══════════════════════════════════════
     if (action === "status") {
       const query = jobId
-        ? supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single()
-        : supabase.from("auto_run_jobs").select("*").eq("project_id", projectId).eq("user_id", userId).order("created_at", { ascending: false }).limit(1).single();
+        ? supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).maybeSingle()
+        : supabase.from("auto_run_jobs").select("*").eq("project_id", projectId).eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
       const { data: job, error } = await query;
       if (error || !job) return respond({ job: null, latest_steps: [], next_action_hint: "No job found" });
 
@@ -1920,7 +1920,7 @@ Deno.serve(async (req) => {
       if (!decision) {
         // Decision is stale — return 409 with current job state so UI can self-heal
         console.warn(`[auto-run] Stale decision: ${choiceId} not in pending_decisions [${pending.map((d:any)=>d.id).join(",")}]`);
-        const { data: freshJob } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+        const { data: freshJob } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
         const { data: freshSteps } = await supabase.from("auto_run_steps").select("*").eq("job_id", jobId).order("step_index", { ascending: false }).limit(10);
         return new Response(JSON.stringify({
           code: "STALE_DECISION",
@@ -2094,6 +2094,8 @@ Deno.serve(async (req) => {
             status: "running",
             stop_reason: null,
             pending_decisions: null,
+            // Clear frontier on stage change — frontier is scoped per document stage
+            frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
           });
           return respondWithJob(supabase, jobId, "run-next");
         } else {
@@ -2311,7 +2313,7 @@ Deno.serve(async (req) => {
             );
             await updateJob(supabase, jobId, { step_count: stepCount });
 
-            const { data: updated } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+            const { data: updated } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
             resumedJob = updated;
           } else {
             // Still return job so frontend can sync UI and decide next action
@@ -2611,7 +2613,10 @@ Deno.serve(async (req) => {
             `AGGREGATE doc "${currentDoc}" is compile-only. Skipping rewrite, advancing to next stage.`);
           const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
           if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
-            await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0 });
+            await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0,
+              // Clear frontier on stage change — frontier is scoped per document stage
+              frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+            });
             return respondWithJob(supabase, jobId, "run-next");
           } else {
             await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied (aggregate skip)" });
@@ -2792,7 +2797,7 @@ Deno.serve(async (req) => {
 
       // If no user selections but allow_defaults is on, auto-accept from pending_decisions
       if (selectedOptions.length === 0) {
-        const { data: preJob } = await supabase.from("auto_run_jobs").select("allow_defaults, pending_decisions").eq("id", jobId).eq("user_id", userId).single();
+        const { data: preJob } = await supabase.from("auto_run_jobs").select("allow_defaults, pending_decisions").eq("id", jobId).eq("user_id", userId).maybeSingle();
         if (preJob?.allow_defaults && Array.isArray(preJob.pending_decisions) && preJob.pending_decisions.length > 0) {
           selectedOptions = preJob.pending_decisions
             .filter((d: any) => d.recommended)
@@ -2924,6 +2929,8 @@ Deno.serve(async (req) => {
           pending_doc_type: null,
           pending_next_doc_type: null,
           error: null,
+          // Clear frontier on stage change — frontier is scoped per document stage
+          ...(nextDoc !== currentDoc ? { frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0 } : {}),
         });
 
         return respondWithJob(supabase, jobId, status === "running" ? "run-next" : "none");
@@ -2980,7 +2987,10 @@ Deno.serve(async (req) => {
             `AGGREGATE doc "${currentDoc}" is compile-only. Skipping rewrite, advancing to next stage.`);
           const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
           if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
-            await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0 });
+            await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0,
+              // Clear frontier on stage change — frontier is scoped per document stage
+              frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+            });
             return respondWithJob(supabase, jobId, "run-next");
           } else {
             await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied (aggregate skip)" });
@@ -4722,7 +4732,7 @@ function respond(data: any, status = 200): Response {
 }
 
 async function respondWithJob(supabase: any, jobId: string, hint?: string): Promise<Response> {
-  const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+  const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
   const { data: steps } = await supabase.from("auto_run_steps").select("*").eq("job_id", jobId).order("step_index", { ascending: false }).limit(10);
   return respond({
     job,
