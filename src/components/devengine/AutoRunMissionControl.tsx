@@ -423,20 +423,19 @@ export function AutoRunMissionControl({
     return { satisfied: satisfied.length, total: ladder.length, stages: ladder, existingDocTypes, approvedDocTypes };
   }, [ladder, existingDocTypes, approvedDocTypes, APPROVAL_REQUIRED_STAGES]);
 
-  const [mode, setMode] = useState<'fast' | 'balanced' | 'premium'>('balanced');
   const [starting, setStarting] = useState(false);
 
   const handlePerfectPackage = useCallback(async () => {
     setStarting(true);
     try {
       await onSaveStorySetup(storySetup);
-      await onStart(mode, startDocument, finalStage);
+      await onStart('balanced', startDocument, finalStage);
     } catch (e: any) {
       toast({ title: 'Auto-Run failed to start', description: e?.message || 'Unknown error', variant: 'destructive' });
     } finally {
       setStarting(false);
     }
-  }, [storySetup, mode, startDocument, finalStage, onSaveStorySetup, onStart]);
+  }, [storySetup, startDocument, finalStage, onSaveStorySetup, onStart]);
 
   const [projectPreFilled, setProjectPreFilled] = useState(false);
   useEffect(() => {
@@ -652,13 +651,13 @@ export function AutoRunMissionControl({
     setStarting(true);
     try {
       await onSaveStorySetup(storySetup);
-      await onStart(mode, startDocument);
+      await onStart('balanced', startDocument);
     } catch (e: any) {
       toast({ title: 'Auto-Run failed to start', description: e?.message || 'Unknown error', variant: 'destructive' });
     } finally {
       setStarting(false);
     }
-  }, [storySetup, mode, startDocument, onSaveStorySetup, onStart]);
+  }, [storySetup, startDocument, onSaveStorySetup, onStart]);
 
   const handleApproveSeedCore = useCallback(async () => {
     setApprovingSeedCore(true);
@@ -1103,14 +1102,6 @@ export function AutoRunMissionControl({
           )}
 
           <div className="flex items-center gap-2">
-            <Select value={mode} onValueChange={(v) => setMode(v as 'fast' | 'balanced' | 'premium')}>
-              <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="fast">⚡ Fast (8)</SelectItem>
-                <SelectItem value="balanced">⚖️ Balanced (12)</SelectItem>
-                <SelectItem value="premium">💎 Premium (18)</SelectItem>
-              </SelectContent>
-            </Select>
             <Button
               size="sm"
               className="h-8 text-xs gap-1.5 flex-1"
@@ -1126,7 +1117,7 @@ export function AutoRunMissionControl({
             </Button>
           </div>
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-            <span>⚡ {mode === 'fast' ? '1 loop/stage, 8 steps' : mode === 'balanced' ? '2 loops/stage, 12 steps' : '3 loops/stage, 18 steps, ≥82 readiness'}</span>
+            <span>⚡ 2 loops/stage, 100 steps</span>
           </div>
 
           {error && (

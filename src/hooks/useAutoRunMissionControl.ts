@@ -200,11 +200,10 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     setError(null);
     abortRef.current = false;
     const mappedStart = mapDocTypeToLadderStage(startDocument);
-    const MODE_STEPS: Record<string, number> = { fast: 8, balanced: 12, premium: 18 };
     try {
       const result = await callAutoRun('start', {
-        projectId, mode, start_document: mappedStart, target_document: targetDocument || 'production_draft',
-        max_total_steps: MODE_STEPS[mode] || 12,
+        projectId, mode: 'balanced', start_document: mappedStart, target_document: targetDocument || 'production_draft',
+        max_total_steps: 100,
       });
       setJob(result.job);
       setSteps(result.latest_steps || []);

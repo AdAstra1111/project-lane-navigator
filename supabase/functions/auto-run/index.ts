@@ -662,9 +662,9 @@ function isStageAtOrBeforeTarget(stage: string, targetDoc: string, format: strin
 
 // ── Mode Config ──
 const MODE_CONFIG: Record<string, { max_stage_loops: number; max_total_steps: number; require_readiness?: number }> = {
-  fast: { max_stage_loops: 1, max_total_steps: 8 },
-  balanced: { max_stage_loops: 2, max_total_steps: 12 },
-  premium: { max_stage_loops: 3, max_total_steps: 18, require_readiness: 82 },
+  fast: { max_stage_loops: 2, max_total_steps: 100 },
+  balanced: { max_stage_loops: 2, max_total_steps: 100 },
+  premium: { max_stage_loops: 3, max_total_steps: 100, require_readiness: 82 },
 };
 
 // ── Format Normalization (canonical) ──
