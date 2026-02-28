@@ -61,6 +61,7 @@ export interface AutoRunJob {
   last_ui_message: string | null;
   approval_required_for_doc_type: string | null;
   pause_reason: string | null;
+  allow_defaults: boolean;
   is_processing: boolean;
   processing_started_at: string | null;
   created_at: string;
