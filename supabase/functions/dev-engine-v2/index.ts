@@ -13163,7 +13163,7 @@ No stubs, no placeholders, no TODO markers.`;
 
     // ── REGEN QUEUE: START ──
     if (action === "regen-insufficient-start") {
-      const { projectId, dryRun: isDry, force: isForce, limit: maxLimit } = body;
+      const { projectId, dryRun: isDry, force: isForce, limit: maxLimit, docTypeWhitelist } = body;
       if (!projectId) throw new Error("projectId required");
 
       const docLimit = Math.min(Math.max(maxLimit || 25, 1), 40);
@@ -13205,9 +13205,16 @@ No stubs, no placeholders, no TODO markers.`;
       const verByDocId = new Map<string, any>();
       for (const v of currentVersions) verByDocId.set(v.document_id, v);
 
-      const scanDocTypes = Array.from(new Set([
-        ...SEED_CORE_TYPES, ...ladder, "beat_sheet", ...Array.from(docSlots.keys()),
-      ])).filter(dt => dt !== "idea");
+      // If caller provided a whitelist (e.g. from DevSeed), restrict scan to those types only
+      let scanDocTypes: string[];
+      if (Array.isArray(docTypeWhitelist) && docTypeWhitelist.length > 0) {
+        const allowed = new Set(docTypeWhitelist as string[]);
+        scanDocTypes = Array.from(allowed).filter(dt => dt !== "idea");
+      } else {
+        scanDocTypes = Array.from(new Set([
+          ...SEED_CORE_TYPES, ...ladder, "beat_sheet", ...Array.from(docSlots.keys()),
+        ])).filter(dt => dt !== "idea");
+      }
 
       const upstreamHints: Record<string, string[]> = {
         project_overview: ["concept_brief", "idea"],

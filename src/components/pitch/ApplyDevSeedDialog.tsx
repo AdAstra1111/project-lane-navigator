@@ -22,6 +22,10 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
+// ── DevSeed whitelist (ONLY these doc_types may be created during DevSeed) ──
+const DEVSEED_DOC_TYPES = ['idea', 'concept_brief', 'treatment', 'character_bible', 'market_sheet'] as const;
+type DevSeedDocType = typeof DEVSEED_DOC_TYPES[number];
+
 // ── Content builders ──────────────────────────────────────────────────
 
 function buildTreatmentContent(title: string, bible: any): string {
@@ -98,16 +102,7 @@ function buildConceptBriefContent(title: string, idea: PitchIdea, devSeed: any):
   return lines.join('\n');
 }
 
-function buildSeasonArcStub(title: string, devSeed: any): string {
-  const lines: string[] = [`# ${title} — Season Arc`, '', '> Draft stub — generate full season arc from Dev Engine.', ''];
-  if (devSeed?.bible_starter?.story_engine) lines.push('## Story Engine', '', devSeed.bible_starter.story_engine, '');
-  if (devSeed?.bible_starter?.themes?.length) lines.push('## Thematic Spine', '', ...devSeed.bible_starter.themes.map((t: string) => `- ${t}`), '');
-  return lines.join('\n');
-}
 
-function buildBeatSheetStub(title: string): string {
-  return [`# ${title} — Beat Sheet`, '', '> Draft stub — generate full beat sheet from Dev Engine.', ''].join('\n');
-}
 
 // ── Canon draft builder ───────────────────────────────────────────────
 
@@ -154,11 +149,16 @@ interface DocStyleMeta {
 async function createDocWithVersion(
   projectId: string,
   userId: string,
-  docType: string,
+  docType: DevSeedDocType,
   title: string,
   content: string,
   styleMeta?: DocStyleMeta,
 ) {
+  // Hard guard: only DevSeed doc types allowed in this codepath
+  if (!(DEVSEED_DOC_TYPES as readonly string[]).includes(docType)) {
+    throw new Error(`DEVSEED_DOC_TYPE_NOT_ALLOWED: "${docType}" is not a valid DevSeed doc type`);
+  }
+
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80);
   const filePath = `${userId}/${projectId}/${slug}.md`;
   const { data: doc, error: docErr } = await supabase
@@ -173,6 +173,7 @@ async function createDocWithVersion(
       extraction_status: 'complete',
       plaintext: content,
       extracted_text: content,
+      doc_role: 'creative_primary',
     } as any)
     .select('id')
     .single();
@@ -190,9 +191,12 @@ async function createDocWithVersion(
     is_current: true,
     created_by: userId,
   };
-  if (styleMeta) {
-    versionPayload.meta_json = styleMeta;
-  }
+  // Always include created_source provenance
+  const metaWithProvenance = {
+    ...(styleMeta || {}),
+    created_source: 'devseed',
+  };
+  versionPayload.meta_json = metaWithProvenance;
 
   const { error: verErr } = await supabase
     .from('project_document_versions')
@@ -200,20 +204,12 @@ async function createDocWithVersion(
 
   if (verErr) {
     console.error(`Version insert failed [${docType}]:`, verErr.message);
-    // Don't throw — doc exists, version is secondary
   }
 
   return doc;
 }
 
-// ── Lane helpers ──────────────────────────────────────────────────────
 
-const SERIES_LANES = ['fast-turnaround', 'vertical-drama', 'tv-series', 'limited-series', 'digital-series'];
-
-function isSeriesLane(lane: string): boolean {
-  const norm = lane.toLowerCase().replace(/[-_\s]+/g, '');
-  return SERIES_LANES.some(s => norm.includes(s.replace(/-/g, '')));
-}
 
 // ── Component ─────────────────────────────────────────────────────────
 
@@ -343,12 +339,8 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             await createDocWithVersion(project.id, user.id, 'market_sheet', `${title} — Market Sheet`, buildMarketSheetContent(title, devSeed.market_rationale, devSeed.nuance_contract), seedStyleMeta);
           }
 
-          // Lane-conditional stubs
-          if (isSeriesLane(lane)) {
-            await createDocWithVersion(project.id, user.id, 'season_arc', `${title} — Season Arc`, buildSeasonArcStub(title, devSeed), seedStyleMeta);
-          } else {
-            await createDocWithVersion(project.id, user.id, 'beat_sheet', `${title} — Beat Sheet`, buildBeatSheetStub(title), seedStyleMeta);
-          }
+          // No lane-conditional stubs — season_arc, beat_sheet, episode_grid etc.
+          // are development artifacts, created only from Project Dev Engine.
         }
 
         // 6. Always plant canon top-level keys from seed (provenance + top-level)
@@ -431,7 +423,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
       let regenResult: any = null;
       if (applyDocs) {
         const startRes = await supabase.functions.invoke('dev-engine-v2', {
-          body: { action: 'regen-insufficient-start', projectId: project.id, dryRun: false },
+          body: { action: 'regen-insufficient-start', projectId: project.id, dryRun: false, docTypeWhitelist: [...DEVSEED_DOC_TYPES] },
         });
         if (startRes.error) throw new Error(startRes.error.message || 'Failed to start doc regen');
         const startData = startRes.data;
@@ -524,7 +516,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
               <Checkbox checked={applyDocs} onCheckedChange={(v) => setApplyDocs(!!v)} className="mt-0.5" />
               <div>
                 <span className="text-sm font-medium">Create starter doc pack</span>
-                <p className="text-xs text-muted-foreground">Concept Brief, Treatment, Character Bible, Market Sheet + lane-specific stubs</p>
+                <p className="text-xs text-muted-foreground">Concept Brief, Treatment, Character Bible, Market Sheet (5 seed docs only)</p>
               </div>
             </label>
 
