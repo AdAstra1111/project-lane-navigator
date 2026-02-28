@@ -1384,7 +1384,90 @@ function tryAutoAcceptDecisions(decisions: NormalizedDecision[], allowDefaults: 
   return selections;
 }
 
-Deno.serve(async (req) => {
+// ── Chunked rewrite pipeline helper ──
+// Falls back to rewrite-plan/rewrite-chunk/rewrite-assemble when a document is too long for single-pass rewrite.
+async function chunkedRewrite(
+  supabase: any, supabaseUrl: string, token: string,
+  params: { projectId: string; documentId: string; versionId: string; approvedNotes: any[]; protectItems: any[]; deliverableType: string; developmentBehavior: string; format: string; selectedOptions?: any[]; globalDirections?: string[]; episode_target_duration_seconds?: number; season_episode_count?: number },
+  jobId: string, stepCount: number
+): Promise<void> {
+  const { projectId, documentId, versionId, approvedNotes, protectItems, deliverableType, format, selectedOptions, globalDirections } = params;
+
+  // Step 1: Plan
+  const planResult = await callEdgeFunctionWithRetry(
+    supabase, supabaseUrl, "dev-engine-v2", {
+      action: "rewrite-plan",
+      projectId, documentId, versionId,
+      approvedNotes, protectItems,
+    }, token, projectId, format, deliverableType, jobId, stepCount
+  );
+  const planRunId = planResult?.result?.planRunId || planResult?.planRunId;
+  const totalChunks = planResult?.result?.totalChunks || planResult?.totalChunks || 1;
+  if (!planRunId) throw new Error("Chunked rewrite plan failed: no planRunId returned");
+
+  // Step 2: Rewrite each chunk
+  const rewrittenChunks: string[] = [];
+  for (let i = 0; i < totalChunks; i++) {
+    const prevEnding = i > 0 ? rewrittenChunks[i - 1].slice(-500) : undefined;
+    const chunkResult = await callEdgeFunctionWithRetry(
+      supabase, supabaseUrl, "dev-engine-v2", {
+        action: "rewrite-chunk",
+        planRunId,
+        chunkIndex: i,
+        previousChunkEnding: prevEnding,
+      }, token, projectId, format, deliverableType, jobId, stepCount
+    );
+    const text = chunkResult?.result?.rewrittenText || chunkResult?.rewrittenText || "";
+    rewrittenChunks.push(text);
+  }
+
+  // Step 3: Assemble
+  const assembledText = rewrittenChunks.join("\n\n");
+  await callEdgeFunctionWithRetry(
+    supabase, supabaseUrl, "dev-engine-v2", {
+      action: "rewrite-assemble",
+      projectId, documentId, versionId,
+      planRunId, assembledText,
+    }, token, projectId, format, deliverableType, jobId, stepCount
+  );
+}
+
+// Wrapper: tries single-pass rewrite, falls back to chunked pipeline on needsPipeline error.
+async function rewriteWithFallback(
+  supabase: any, supabaseUrl: string, token: string,
+  rewriteBody: Record<string, any>,
+  jobId: string, stepCount: number,
+  format: string, deliverableType: string
+): Promise<any> {
+  try {
+    return await callEdgeFunctionWithRetry(
+      supabase, supabaseUrl, "dev-engine-v2", {
+        action: "rewrite",
+        ...rewriteBody,
+      }, token, rewriteBody.projectId, format, deliverableType, jobId, stepCount
+    );
+  } catch (e: any) {
+    // Detect needsPipeline from the error message (400 response gets thrown)
+    if (e.message && (e.message.includes("needsPipeline") || e.message.includes("too long for single-pass"))) {
+      console.log(`[auto-run] Document too long for single-pass, using chunked pipeline`);
+      await chunkedRewrite(supabase, supabaseUrl, token, {
+        projectId: rewriteBody.projectId,
+        documentId: rewriteBody.documentId,
+        versionId: rewriteBody.versionId,
+        approvedNotes: rewriteBody.approvedNotes || [],
+        protectItems: rewriteBody.protectItems || [],
+        deliverableType,
+        developmentBehavior: rewriteBody.developmentBehavior || "market",
+        format,
+        selectedOptions: rewriteBody.selectedOptions,
+        globalDirections: rewriteBody.globalDirections,
+      }, jobId, stepCount);
+      return { chunked: true };
+    }
+    throw e;
+  }
+}
+
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
@@ -2370,9 +2453,8 @@ Deno.serve(async (req) => {
       const behavior = project?.development_behavior || "market";
 
       try {
-        const rewriteResult = await callEdgeFunctionWithRetry(
-          supabase, supabaseUrl, "dev-engine-v2", {
-            action: "rewrite",
+        const rewriteResult = await rewriteWithFallback(
+          supabase, supabaseUrl, token, {
             projectId: job.project_id,
             documentId: doc.id,
             versionId: latestVersion.id,
@@ -2381,7 +2463,7 @@ Deno.serve(async (req) => {
             deliverableType: currentDoc,
             developmentBehavior: behavior,
             format,
-          }, token, job.project_id, format, currentDoc, jobId, stepCount
+          }, jobId, stepCount, format, currentDoc
         );
 
         // Re-fetch latest version after rewrite
@@ -2712,9 +2794,8 @@ Deno.serve(async (req) => {
           {}, undefined, { selectedOptions: rewriteSelectedOptions, globalDirections }
         );
 
-        const rewriteResult = await callEdgeFunctionWithRetry(
-          supabase, supabaseUrl, "dev-engine-v2", {
-            action: "rewrite",
+        const rewriteResult = await rewriteWithFallback(
+          supabase, supabaseUrl, token, {
             projectId: job.project_id,
             documentId: docId,
             versionId: versionId,
@@ -2725,7 +2806,7 @@ Deno.serve(async (req) => {
             format,
             selectedOptions: rewriteSelectedOptions,
             globalDirections,
-          }, token, job.project_id, format, currentDoc, jobId, stepCount
+          }, jobId, stepCount, format, currentDoc
         );
 
         // Re-fetch latest version after rewrite
@@ -3781,9 +3862,8 @@ Deno.serve(async (req) => {
           const protectItems = notes?.protect || analyzeResult?.protect || [];
 
           try {
-            const rewriteResult = await callEdgeFunctionWithRetry(
-              supabase, supabaseUrl, "dev-engine-v2", {
-                action: "rewrite",
+            const rewriteResult = await rewriteWithFallback(
+              supabase, supabaseUrl, token, {
                 projectId: job.project_id,
                 documentId: doc.id,
                 versionId: latestVersion.id,
@@ -3794,7 +3874,7 @@ Deno.serve(async (req) => {
                 format,
                 episode_target_duration_seconds: episodeDuration,
                 season_episode_count: seasonEpisodeCount,
-              }, token, job.project_id, format, currentDoc, jobId, newStep + 2
+              }, jobId, newStep + 2, format, currentDoc
             );
 
             // Re-fetch latest version after rewrite to track new versionId
