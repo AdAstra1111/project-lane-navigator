@@ -12,10 +12,20 @@ import {
 } from "../_shared/convergencePolicy.ts";
 
 // ── Unified score extraction helper ──
+// dev-engine-v2 "analyze" returns { run, analysis: { ci_score, gp_score, ... } }
+// callEdgeFunctionWithRetry wraps that as { result: { run, analysis }, retried }
+// This helper must handle all nesting levels and both ci/ci_score naming conventions.
 function extractCiGp(res: any): { ci: number | null; gp: number | null } {
-  const ci = res?.result?.scores?.ci ?? res?.result?.ci ?? res?.scores?.ci ?? res?.ci ?? null;
-  const gp = res?.result?.scores?.gp ?? res?.result?.gp ?? res?.scores?.gp ?? res?.gp ?? null;
-  return { ci: typeof ci === "number" ? ci : null, gp: typeof gp === "number" ? gp : null };
+  // Unwrap { result, retried } wrapper from callEdgeFunctionWithRetry
+  const inner = res?.result !== undefined ? res.result : res;
+  // Unwrap { analysis } wrapper from dev-engine-v2 analyze response
+  const analysis = inner?.analysis || inner;
+  // Try ci_score first (dev-engine-v2 naming), then ci (legacy/direct)
+  const ciRaw = analysis?.ci_score ?? analysis?.scores?.ci_score ?? analysis?.scores?.ci ?? analysis?.ci
+    ?? inner?.ci_score ?? inner?.ci ?? res?.ci_score ?? res?.ci ?? null;
+  const gpRaw = analysis?.gp_score ?? analysis?.scores?.gp_score ?? analysis?.scores?.gp ?? analysis?.gp
+    ?? inner?.gp_score ?? inner?.gp ?? res?.gp_score ?? res?.gp ?? null;
+  return { ci: typeof ciRaw === "number" ? ciRaw : null, gp: typeof gpRaw === "number" ? gpRaw : null };
 }
 
 // ── Get current accepted version for a document (fail-closed) ──
