@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, FolderPlus, ArrowRight } from 'lucide-react';
+import { Loader2, FolderPlus, ArrowRight, Zap } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,8 @@ import type { CanonJson, CanonCharacter } from '@/hooks/useProjectCanon';
 import { saveProjectLaneRulesetPrefs, type RulesetPrefs } from '@/lib/rulesets/uiState';
 import { buildPrefsDraft } from '@/lib/pitch/devseedHelpers';
 import { getDefaultVoiceForLane } from '@/lib/writingVoices/select';
+import { useDevSeedBackfill } from '@/hooks/useDevSeedBackfill';
+import { DevSeedBackfillProgress } from '@/components/pitch/DevSeedBackfillProgress';
 
 interface Props {
   idea: PitchIdea | null;
@@ -218,18 +220,22 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
+  const [creatingBackfill, setCreatingBackfill] = useState(false);
   const [projectTitle, setProjectTitle] = useState('');
   const [applyDocs, setApplyDocs] = useState(true);
-  const [applyCanon, setApplyCanon] = useState(true); // default ON now
+  const [applyCanon, setApplyCanon] = useState(true);
   const [applyPrefs, setApplyPrefs] = useState(true);
+  const [includeDevPack, setIncludeDevPack] = useState(false);
+  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
+  const backfill = useDevSeedBackfill(createdProjectId || undefined, idea?.id);
 
   if (!idea) return null;
 
   const defaultTitle = idea.title || 'Untitled Project';
 
-  const handleCreate = async () => {
-    if (!user) return;
-    setCreating(true);
+  const handleCreate = async (withBackfill = false): Promise<string | null> => {
+    if (!user) return null;
+    if (withBackfill) setCreatingBackfill(true); else setCreating(true);
     try {
       const title = projectTitle.trim() || defaultTitle;
       const lane = idea.recommended_lane || 'independent-film';
@@ -272,6 +278,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         .single();
 
       if (projErr) throw projErr;
+      setCreatedProjectId(project.id);
 
       // 2. Update pitch idea
       await supabase
@@ -477,10 +484,26 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
 
       onOpenChange(false);
       navigate(`/projects/${project.id}/development`);
+
+      // If backfill mode, enqueue after navigation
+      if (withBackfill) {
+        const lane = idea.recommended_lane || 'independent-film';
+        backfill.startBackfill({
+          pitchIdeaId: idea.id,
+          projectId: project.id,
+          lane,
+          includeDevPack,
+        });
+        toast.success('Backfill pipeline started — check progress in Dev Engine');
+      }
+
+      return project.id;
     } catch (e: any) {
       toast.error(e.message || 'Failed to create project');
+      return null;
     } finally {
       setCreating(false);
+      setCreatingBackfill(false);
     }
   };
 
@@ -537,6 +560,18 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             </label>
           </div>
 
+          {/* Backfill progress panel (shown if active) */}
+          {backfill.job && (
+            <DevSeedBackfillProgress
+              job={backfill.job}
+              items={backfill.items}
+              isRunning={backfill.isRunning}
+              onPause={backfill.pause}
+              onResume={backfill.resume}
+              projectId={createdProjectId || undefined}
+            />
+          )}
+
           <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
             <p className="font-medium text-foreground mb-1">Always created:</p>
             <p>• New project with lane: <span className="text-foreground">{idea.recommended_lane}</span></p>
@@ -560,11 +595,20 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating}>Skip</Button>
-          <Button onClick={handleCreate} disabled={creating} className="gap-1.5">
-            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-            Create & Open Dev Engine
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating || creatingBackfill}>Skip</Button>
+          <Button onClick={() => handleCreate(false)} disabled={creating || creatingBackfill} className="gap-1.5">
+            {creating && !creatingBackfill ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+            Create DevSeed
+          </Button>
+          <Button
+            onClick={() => handleCreate(true)}
+            disabled={creating || creatingBackfill}
+            variant="secondary"
+            className="gap-1.5"
+          >
+            {creatingBackfill ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+            Create + Backfill
           </Button>
         </DialogFooter>
       </DialogContent>
