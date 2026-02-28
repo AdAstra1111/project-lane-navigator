@@ -1132,8 +1132,8 @@ export function AutoRunMissionControl({
                 </div>
               )}
 
-              {/* Risk flags */}
-              {job.last_risk_flags?.length > 0 && (
+              {/* Risk flags — only show when job is not running (stale flags from resolved state shouldn't persist) */}
+              {job.last_risk_flags?.length > 0 && job.status !== 'running' && !hasDecisions && (
                 <div className="flex gap-1 flex-wrap">
                   {job.last_risk_flags.map((f: string, i: number) => (
                     <Badge key={i} variant="outline" className="text-[8px] px-1 py-0 bg-destructive/10 text-destructive border-destructive/30">{f}</Badge>
