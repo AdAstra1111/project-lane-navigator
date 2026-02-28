@@ -1245,11 +1245,12 @@ async function getJob(supabase: any, jobId: string) {
 // Uses two sequential CAS attempts to avoid PostgREST .or() issues.
 async function acquireProcessingLock(supabase: any, jobId: string, userId: string): Promise<any | null> {
   const now = new Date().toISOString();
+  const lockExpires = new Date(Date.now() + 120_000).toISOString(); // 2 min lock
 
   // Attempt A: normal acquire (is_processing = false)
   const { data: rowA } = await supabase
     .from("auto_run_jobs")
-    .update({ is_processing: true, processing_started_at: now })
+    .update({ is_processing: true, processing_started_at: now, lock_expires_at: lockExpires, last_heartbeat_at: now })
     .eq("id", jobId)
     .eq("user_id", userId)
     .eq("status", "running")
@@ -1263,7 +1264,7 @@ async function acquireProcessingLock(supabase: any, jobId: string, userId: strin
   const staleThreshold = new Date(Date.now() - 60_000).toISOString();
   const { data: rowB } = await supabase
     .from("auto_run_jobs")
-    .update({ is_processing: true, processing_started_at: now })
+    .update({ is_processing: true, processing_started_at: now, lock_expires_at: lockExpires, last_heartbeat_at: now })
     .eq("id", jobId)
     .eq("user_id", userId)
     .eq("status", "running")
@@ -1281,7 +1282,7 @@ async function acquireProcessingLock(supabase: any, jobId: string, userId: strin
 async function releaseProcessingLock(supabase: any, jobId: string) {
   await supabase
     .from("auto_run_jobs")
-    .update({ is_processing: false, processing_started_at: null })
+    .update({ is_processing: false, processing_started_at: null, lock_expires_at: null, last_step_at: new Date().toISOString() })
     .eq("id", jobId);
 }
 
@@ -1560,9 +1561,26 @@ Deno.serve(async (req) => {
       const { data: job, error } = await query;
       if (error || !job) return respond({ job: null, latest_steps: [], next_action_hint: "No job found" });
 
+      // Update heartbeat (fire-and-forget, never block status)
+      supabase.from("auto_run_jobs").update({ last_heartbeat_at: new Date().toISOString() }).eq("id", job.id).then(() => {});
+
+      // ── Stuck detection: if lock expired and no progress, mark recoverable ──
+      if (job.status === "running" && job.is_processing && job.processing_started_at) {
+        const lockAge = Date.now() - new Date(job.processing_started_at).getTime();
+        if (lockAge > 120_000) { // 2 minutes
+          console.warn("[auto-run] stuck detection: releasing stale lock", { jobId: job.id, lockAge });
+          await supabase.from("auto_run_jobs").update({
+            is_processing: false,
+            processing_started_at: null,
+            last_error: `Stale lock released after ${Math.round(lockAge / 1000)}s`,
+          }).eq("id", job.id);
+          job.is_processing = false;
+        }
+      }
+
       const { data: steps } = await supabase.from("auto_run_steps").select("*").eq("job_id", job.id).order("step_index", { ascending: false }).limit(10);
 
-      // Include seed pack status in response for debugging
+      // Lightweight seed pack check (just count, no full scan)
       const seedProjectId = job.project_id || projectId;
       let seedPackInfo: { present: number; total: number; missing: string[] } | undefined;
       if (seedProjectId) {
@@ -1576,7 +1594,18 @@ Deno.serve(async (req) => {
         seedPackInfo = { present: SEED_DOC_TYPES.length - seedMissing.length, total: SEED_DOC_TYPES.length, missing: seedMissing };
       }
 
-      return respond({ job, latest_steps: (steps || []).reverse(), next_action_hint: getHint(job), seed_pack: seedPackInfo });
+      return respond({
+        job,
+        latest_steps: (steps || []).reverse(),
+        next_action_hint: getHint(job),
+        seed_pack: seedPackInfo,
+        // Diagnostic fields for observability
+        server_time: new Date().toISOString(),
+        lock_expires_at: job.lock_expires_at,
+        last_step_at: job.last_step_at,
+        last_heartbeat_at: job.last_heartbeat_at,
+        can_run_next: job.status === "running" && !job.is_processing && !job.awaiting_approval,
+      });
     }
 
     // ═══════════════════════════════════════
@@ -3981,20 +4010,25 @@ Deno.serve(async (req) => {
         try {
           const { data: postJob } = await supabase
             .from("auto_run_jobs")
-            .select("status, awaiting_approval, is_processing")
+            .select("status, awaiting_approval, is_processing, step_count, max_total_steps")
             .eq("id", jobId)
             .maybeSingle();
           if (postJob && postJob.status === "running" && !postJob.awaiting_approval && !postJob.is_processing) {
-            console.log("[auto-run] self-chaining run-next after bg task", { jobId });
-            const selfUrl = `${supabaseUrl}/functions/v1/auto-run`;
-            fetch(selfUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${serviceKey}`,
-              },
-              body: JSON.stringify({ action: "run-next", jobId }),
-            }).catch((e: any) => console.error("[auto-run] self-chain fetch failed", e?.message));
+            // Guard: don't chain if step budget exhausted
+            if (postJob.step_count < postJob.max_total_steps) {
+              console.log("[auto-run] self-chaining run-next after bg task", { jobId, step: postJob.step_count, max: postJob.max_total_steps });
+              const selfUrl = `${supabaseUrl}/functions/v1/auto-run`;
+              fetch(selfUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${serviceKey}`,
+                },
+                body: JSON.stringify({ action: "run-next", jobId }),
+              }).catch((e: any) => console.error("[auto-run] self-chain fetch failed", e?.message));
+            } else {
+              console.log("[auto-run] self-chain skipped: step budget exhausted", { jobId, step: postJob.step_count, max: postJob.max_total_steps });
+            }
           }
         } catch (chainErr: any) {
           console.error("[auto-run] self-chain check failed", chainErr?.message);

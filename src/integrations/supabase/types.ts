@@ -475,11 +475,15 @@ export type Database = {
           is_processing: boolean
           last_ci: number | null
           last_confidence: number | null
+          last_error: string | null
           last_gap: number | null
           last_gp: number | null
+          last_heartbeat_at: string | null
           last_readiness: number | null
           last_risk_flags: Json | null
+          last_step_at: string | null
           last_ui_message: string | null
+          lock_expires_at: string | null
           max_stage_loops: number
           max_total_steps: number
           mode: string
@@ -523,11 +527,15 @@ export type Database = {
           is_processing?: boolean
           last_ci?: number | null
           last_confidence?: number | null
+          last_error?: string | null
           last_gap?: number | null
           last_gp?: number | null
+          last_heartbeat_at?: string | null
           last_readiness?: number | null
           last_risk_flags?: Json | null
+          last_step_at?: string | null
           last_ui_message?: string | null
+          lock_expires_at?: string | null
           max_stage_loops?: number
           max_total_steps?: number
           mode?: string
@@ -571,11 +579,15 @@ export type Database = {
           is_processing?: boolean
           last_ci?: number | null
           last_confidence?: number | null
+          last_error?: string | null
           last_gap?: number | null
           last_gp?: number | null
+          last_heartbeat_at?: string | null
           last_readiness?: number | null
           last_risk_flags?: Json | null
+          last_step_at?: string | null
           last_ui_message?: string | null
+          lock_expires_at?: string | null
           max_stage_loops?: number
           max_total_steps?: number
           mode?: string
