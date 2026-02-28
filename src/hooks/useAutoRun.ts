@@ -168,10 +168,13 @@ export function useAutoRun(projectId: string | undefined) {
   const runLoop = useCallback(async (jobId: string) => {
     setIsRunning(true);
     let attempts = 0;
-    while (!abortRef.current && attempts < 50) {
+    let consecutiveWaits = 0;
+    while (!abortRef.current && attempts < 80) {
       attempts++;
       try {
-        await new Promise(r => setTimeout(r, 500));
+        // Back off when the server says "wait" (processing lock held)
+        const delay = consecutiveWaits > 0 ? Math.min(2000, 500 + consecutiveWaits * 500) : 500;
+        await new Promise(r => setTimeout(r, delay));
         const result = await callAutoRun('run-next', { jobId });
         setJob(result.job);
         setSteps(result.latest_steps || []);
@@ -181,6 +184,16 @@ export function useAutoRun(projectId: string | undefined) {
 
         const jobStatus = result.job?.status;
         const stopReason = result.job?.stop_reason;
+        const hint = result.next_action_hint;
+
+        // If server says "wait" (lock held by another invocation), keep polling
+        if (hint === 'wait') {
+          consecutiveWaits++;
+          // Give up after ~90s of continuous waiting (stale lock likely)
+          if (consecutiveWaits > 30) break;
+          continue;
+        }
+        consecutiveWaits = 0;
 
         if (
           !result.job ||
@@ -191,7 +204,7 @@ export function useAutoRun(projectId: string | undefined) {
           jobStatus === 'failed' ||
           jobStatus === 'paused' ||
           result.job?.awaiting_approval ||
-          result.next_action_hint === 'awaiting-approval'
+          hint === 'awaiting-approval'
         ) {
           break;
         }
