@@ -351,8 +351,6 @@ export function AutoRunMissionControl({
       autoApprovedGateRef.current = null;
       return;
     }
-    // Wait until hook settles running flag; otherwise approveNext can be skipped by stale state.
-    if (isRunning) return;
 
     const gateKey = [
       job.id,
@@ -366,7 +364,6 @@ export function AutoRunMissionControl({
     onApproveNext('approve');
   }, [
     safeMode,
-    isRunning,
     job?.id,
     job?.awaiting_approval,
     job?.approval_type,
