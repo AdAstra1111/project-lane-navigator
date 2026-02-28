@@ -3934,18 +3934,75 @@ Deno.serve(async (req) => {
               .order("version_number", { ascending: false }).limit(1);
             const newVersionId = postRewriteVersions?.[0]?.id || rewriteResult?.result?.newVersion?.id || "unknown";
 
-            // D) After rewrite, update job to use new version for next cycle
+            // ── REGRESSION GUARD: re-score post-rewrite and rollback if quality dropped ──
+            const REGRESSION_THRESHOLD = 5;
+            const preRewriteCI = ci;
+            const preRewriteGP = gp;
+            let postCI = ci;
+            let postGP = gp;
+            let regressionDetected = false;
+
+            if (newVersionId && newVersionId !== "unknown") {
+              try {
+                const postScoreResult = await callEdgeFunctionWithRetry(
+                  supabase, supabaseUrl, "dev-engine-v2", {
+                    action: "analyze",
+                    projectId: job.project_id,
+                    documentId: doc.id,
+                    versionId: newVersionId,
+                    deliverableType: currentDoc,
+                    developmentBehavior: behavior,
+                    format,
+                  }, token, job.project_id, format, currentDoc, jobId, newStep + 3
+                );
+                postCI = postScoreResult?.result?.scores?.ci ?? postScoreResult?.result?.ci ?? ci;
+                postGP = postScoreResult?.result?.scores?.gp ?? postScoreResult?.result?.gp ?? gp;
+
+                const ciDrop = preRewriteCI - postCI;
+                const gpDrop = preRewriteGP - postGP;
+
+                if (ciDrop > REGRESSION_THRESHOLD || gpDrop > REGRESSION_THRESHOLD) {
+                  regressionDetected = true;
+                  await logStep(supabase, jobId, null, currentDoc, "regression_rollback",
+                    `Rewrite caused score regression (CI: ${preRewriteCI}→${postCI}, GP: ${preRewriteGP}→${postGP}). Rolling back to previous version.`,
+                    { ci: postCI, gp: postGP, gap: preRewriteCI - postCI },
+                    undefined, { preCI: preRewriteCI, preGP: preRewriteGP, postCI, postGP, rolledBackVersionId: newVersionId, keptVersionId: latestVersion.id }
+                  );
+
+                  // Restore previous version as current
+                  await supabase.rpc("set_current_version", {
+                    p_document_id: doc.id,
+                    p_new_version_id: latestVersion.id,
+                  });
+                }
+              } catch (scoreErr: any) {
+                console.error("Post-rewrite scoring failed, accepting rewrite:", scoreErr.message);
+                await logStep(supabase, jobId, null, currentDoc, "regression_check_failed",
+                  `Post-rewrite score check failed: ${scoreErr.message}. Accepting rewrite.`);
+              }
+            }
+
+            // D) After rewrite, update job to use appropriate version for next cycle
+            const effectiveVersionId = regressionDetected ? latestVersion.id : (newVersionId !== "unknown" ? newVersionId : null);
             await updateJob(supabase, jobId, {
               stage_loop_count: newLoopCount,
-              follow_latest: true,
+              follow_latest: !regressionDetected,
               resume_document_id: doc.id,
-              resume_version_id: newVersionId !== "unknown" ? newVersionId : null,
+              resume_version_id: effectiveVersionId,
+              last_ci: regressionDetected ? preRewriteCI : postCI,
+              last_gp: regressionDetected ? preRewriteGP : postGP,
             });
-            await logStep(supabase, jobId, null, currentDoc, "rewrite", `Applied rewrite (loop ${newLoopCount}/${job.max_stage_loops})`);
-            await logStep(supabase, jobId, null, currentDoc, "rewrite_output_ref",
-              `Rewrite created new versionId=${newVersionId}`,
-              {}, undefined, { docId: doc.id, newVersionId, advanced_to_new_version: true }
-            );
+
+            if (regressionDetected) {
+              await logStep(supabase, jobId, null, currentDoc, "rewrite_rolled_back",
+                `Rewrite rolled back (loop ${newLoopCount}/${job.max_stage_loops}). Kept version with CI=${preRewriteCI}, GP=${preRewriteGP}.`);
+            } else {
+              await logStep(supabase, jobId, null, currentDoc, "rewrite", `Applied rewrite (loop ${newLoopCount}/${job.max_stage_loops}). CI: ${preRewriteCI}→${postCI}, GP: ${preRewriteGP}→${postGP}`);
+              await logStep(supabase, jobId, null, currentDoc, "rewrite_output_ref",
+                `Rewrite created new versionId=${newVersionId}`,
+                {}, undefined, { docId: doc.id, newVersionId, advanced_to_new_version: true }
+              );
+            }
             return respondWithJob(supabase, jobId, "run-next");
           } catch (e: any) {
             await updateJob(supabase, jobId, { status: "failed", error: `Rewrite failed: ${e.message}` });
