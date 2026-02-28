@@ -9783,6 +9783,7 @@ export type Database = {
           stage: string | null
           stale_reason: string | null
           status: string | null
+          style_template_version_id: string | null
           superseded_at: string | null
           superseded_by: string | null
           verification_json: Json | null
@@ -9820,6 +9821,7 @@ export type Database = {
           stage?: string | null
           stale_reason?: string | null
           status?: string | null
+          style_template_version_id?: string | null
           superseded_at?: string | null
           superseded_by?: string | null
           verification_json?: Json | null
@@ -9857,6 +9859,7 @@ export type Database = {
           stage?: string | null
           stale_reason?: string | null
           status?: string | null
+          style_template_version_id?: string | null
           superseded_at?: string | null
           superseded_by?: string | null
           verification_json?: Json | null
@@ -9887,6 +9890,13 @@ export type Database = {
           {
             foreignKeyName: "project_document_versions_parent_version_id_fkey"
             columns: ["parent_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_document_versions_style_template_version_id_fkey"
+            columns: ["style_template_version_id"]
             isOneToOne: false
             referencedRelation: "project_document_versions"
             referencedColumns: ["id"]
