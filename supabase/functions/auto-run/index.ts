@@ -3971,6 +3971,30 @@ Deno.serve(async (req) => {
        } finally {
         // ── ALWAYS release the processing lock ──
         await releaseProcessingLock(supabase, jobId);
+
+        // ── SELF-CHAIN: if job is still running and not awaiting approval,
+        // fire the next step immediately instead of relying on client polling.
+        try {
+          const { data: postJob } = await supabase
+            .from("auto_run_jobs")
+            .select("status, awaiting_approval, is_processing")
+            .eq("id", jobId)
+            .maybeSingle();
+          if (postJob && postJob.status === "running" && !postJob.awaiting_approval && !postJob.is_processing) {
+            console.log("[auto-run] self-chaining run-next after bg task", { jobId });
+            const selfUrl = `${supabaseUrl}/functions/v1/auto-run`;
+            fetch(selfUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${serviceKey}`,
+              },
+              body: JSON.stringify({ action: "run-next", jobId }),
+            }).catch((e: any) => console.error("[auto-run] self-chain fetch failed", e?.message));
+          }
+        } catch (chainErr: any) {
+          console.error("[auto-run] self-chain check failed", chainErr?.message);
+        }
        }
       })(); // end bgTask
 
