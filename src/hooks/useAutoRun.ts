@@ -61,6 +61,9 @@ export interface AutoRunJob {
   last_ui_message: string | null;
   approval_required_for_doc_type: string | null;
   pause_reason: string | null;
+  converge_target_json: { ci: number; gp: number };
+  stage_exhaustion_remaining: number;
+  stage_exhaustion_default: number;
   allow_defaults: boolean;
   is_processing: boolean;
   processing_started_at: string | null;

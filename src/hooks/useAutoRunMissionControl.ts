@@ -452,6 +452,18 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     } catch (e: any) { setError(e.message); }
   }, [job]);
 
+  const continueExhaustion = useCallback(async (bump = 4) => {
+    if (!job) return;
+    abortRef.current = false;
+    setError(null);
+    try {
+      const result = await callAutoRun('continue-exhaustion', { jobId: job.id, bump });
+      setJob(result.job);
+      setSteps(result.latest_steps || []);
+      if (result.job?.status === 'running') setIsRunning(true);
+    } catch (e: any) { setError(e.message); }
+  }, [job]);
+
   return {
     job, steps, isRunning, error, activated,
     // Core actions
@@ -472,5 +484,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     updateStepLimit, resumeFromStepLimit,
     // Auto-decide
     toggleAllowDefaults,
+    // Exhaustion budget
+    continueExhaustion,
   };
 }
