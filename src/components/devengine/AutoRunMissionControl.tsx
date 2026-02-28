@@ -339,9 +339,20 @@ export function AutoRunMissionControl({
 
   // Safe Mode OFF => auto-approve promote/convert gates instead of pausing.
   useEffect(() => {
-    if (!job || safeMode) return;
-    if (!job.awaiting_approval) return;
-    if (job.approval_type !== 'promote' && job.approval_type !== 'convert') return;
+    if (!job || safeMode) {
+      autoApprovedGateRef.current = null;
+      return;
+    }
+    if (!job.awaiting_approval) {
+      autoApprovedGateRef.current = null;
+      return;
+    }
+    if (job.approval_type !== 'promote' && job.approval_type !== 'convert') {
+      autoApprovedGateRef.current = null;
+      return;
+    }
+    // Wait until hook settles running flag; otherwise approveNext can be skipped by stale state.
+    if (isRunning) return;
 
     const gateKey = [
       job.id,
@@ -355,6 +366,7 @@ export function AutoRunMissionControl({
     onApproveNext('approve');
   }, [
     safeMode,
+    isRunning,
     job?.id,
     job?.awaiting_approval,
     job?.approval_type,

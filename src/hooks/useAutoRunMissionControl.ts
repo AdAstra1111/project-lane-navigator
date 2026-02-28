@@ -221,7 +221,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   }, [job]);
 
   const approveNext = useCallback(async (decision: 'approve' | 'revise' | 'stop') => {
-    if (!job || isRunning) return;
+    if (!job) return;
     // Guard: only call if job is actually awaiting approval
     if (!job.awaiting_approval) return;
     setError(null);
@@ -248,7 +248,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       }
       setError(e.message);
     }
-  }, [job, isRunning]);
+  }, [job]);
 
   const approveDecision = useCallback(async (decisionId: string, selectedValue: string) => {
     if (!job) return;
