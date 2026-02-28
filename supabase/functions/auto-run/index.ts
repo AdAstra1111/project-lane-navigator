@@ -1388,11 +1388,12 @@ function tryAutoAcceptDecisions(decisions: NormalizedDecision[], allowDefaults: 
 
 // ── Chunked rewrite pipeline helper ──
 // Falls back to rewrite-plan/rewrite-chunk/rewrite-assemble when a document is too long for single-pass rewrite.
+// Returns { candidateVersionId } from the assemble step's newVersion.
 async function chunkedRewrite(
   supabase: any, supabaseUrl: string, token: string,
   params: { projectId: string; documentId: string; versionId: string; approvedNotes: any[]; protectItems: any[]; deliverableType: string; developmentBehavior: string; format: string; selectedOptions?: any[]; globalDirections?: string[]; episode_target_duration_seconds?: number; season_episode_count?: number },
   jobId: string, stepCount: number
-): Promise<void> {
+): Promise<{ candidateVersionId: string | null }> {
   const { projectId, documentId, versionId, approvedNotes, protectItems, deliverableType, format, selectedOptions, globalDirections } = params;
 
   // Step 1: Plan
@@ -1425,29 +1426,37 @@ async function chunkedRewrite(
 
   // Step 3: Assemble
   const assembledText = rewrittenChunks.join("\n\n");
-  await callEdgeFunctionWithRetry(
+  const assembleResult = await callEdgeFunctionWithRetry(
     supabase, supabaseUrl, "dev-engine-v2", {
       action: "rewrite-assemble",
       projectId, documentId, versionId,
       planRunId, assembledText,
     }, token, projectId, format, deliverableType, jobId, stepCount
   );
+
+  // Extract candidateVersionId from assemble response
+  const candidateVersionId = assembleResult?.result?.newVersion?.id || assembleResult?.newVersion?.id || null;
+  return { candidateVersionId };
 }
 
 // Wrapper: tries single-pass rewrite, falls back to chunked pipeline on needsPipeline error.
+// Returns { candidateVersionId } — explicitly extracted from the rewrite response.
 async function rewriteWithFallback(
   supabase: any, supabaseUrl: string, token: string,
   rewriteBody: Record<string, any>,
   jobId: string, stepCount: number,
   format: string, deliverableType: string
-): Promise<any> {
+): Promise<{ candidateVersionId: string | null; raw?: any }> {
   try {
-    return await callEdgeFunctionWithRetry(
+    const result = await callEdgeFunctionWithRetry(
       supabase, supabaseUrl, "dev-engine-v2", {
         action: "rewrite",
         ...rewriteBody,
       }, token, rewriteBody.projectId, format, deliverableType, jobId, stepCount
     );
+    // Extract candidateVersionId from single-pass rewrite response
+    const candidateVersionId = result?.result?.newVersion?.id || result?.newVersion?.id || null;
+    return { candidateVersionId, raw: result };
   } catch (e: any) {
     // Detect needsPipeline from the error message (400 response gets thrown)
     if (e.message && (
@@ -1456,7 +1465,7 @@ async function rewriteWithFallback(
       e.message.toLowerCase().includes("large-risk doc type")
     )) {
       console.log(`[auto-run] Document requires chunked rewrite pipeline, using chunked pipeline`);
-      await chunkedRewrite(supabase, supabaseUrl, token, {
+      const chunkedResult = await chunkedRewrite(supabase, supabaseUrl, token, {
         projectId: rewriteBody.projectId,
         documentId: rewriteBody.documentId,
         versionId: rewriteBody.versionId,
@@ -1468,7 +1477,7 @@ async function rewriteWithFallback(
         selectedOptions: rewriteBody.selectedOptions,
         globalDirections: rewriteBody.globalDirections,
       }, jobId, stepCount);
-      return { chunked: true };
+      return { candidateVersionId: chunkedResult.candidateVersionId };
     }
     throw e;
   }
@@ -2477,7 +2486,7 @@ Deno.serve(async (req) => {
       const behavior = project?.development_behavior || "market";
 
       try {
-        const rewriteResult = await rewriteWithFallback(
+        const { candidateVersionId: newVersionId_raw } = await rewriteWithFallback(
           supabase, supabaseUrl, token, {
             projectId: job.project_id,
             documentId: doc.id,
@@ -2490,12 +2499,7 @@ Deno.serve(async (req) => {
           }, jobId, stepCount, format, currentDoc
         );
 
-        // Re-fetch latest version after rewrite
-        const { data: postRewriteVersions } = await supabase.from("project_document_versions")
-          .select("id, version_number")
-          .eq("document_id", doc.id)
-          .order("version_number", { ascending: false }).limit(1);
-        const newVersionId = postRewriteVersions?.[0]?.id || "unknown";
+        const newVersionId = newVersionId_raw || "unknown";
 
         const newLoopCount = job.stage_loop_count + 1;
         await logStep(supabase, jobId, stepCount, currentDoc, "manual_rewrite",
@@ -2818,7 +2822,7 @@ Deno.serve(async (req) => {
           {}, undefined, { selectedOptions: rewriteSelectedOptions, globalDirections }
         );
 
-        const rewriteResult = await rewriteWithFallback(
+        const { candidateVersionId: newVersionId_raw } = await rewriteWithFallback(
           supabase, supabaseUrl, token, {
             projectId: job.project_id,
             documentId: docId,
@@ -2833,12 +2837,7 @@ Deno.serve(async (req) => {
           }, jobId, stepCount, format, currentDoc
         );
 
-        // Re-fetch latest version after rewrite
-        const { data: postRewriteVersions } = await supabase.from("project_document_versions")
-          .select("id, version_number")
-          .eq("document_id", docId)
-          .order("version_number", { ascending: false }).limit(1);
-        const newVersionId = postRewriteVersions?.[0]?.id || "unknown";
+        const newVersionId = newVersionId_raw || "unknown";
 
         await logStep(supabase, jobId, stepCount + 1, currentDoc, "decisions_applied_rewrite",
           `Decisions applied, new version: ${newVersionId}`,
@@ -3878,7 +3877,7 @@ Deno.serve(async (req) => {
 
           try {
             // ── 2) CANDIDATE CREATION: rewrite creates new version (NOT promoted) ──
-            const rewriteResult = await rewriteWithFallback(
+            const { candidateVersionId } = await rewriteWithFallback(
               supabase, supabaseUrl, token, {
                 projectId: job.project_id,
                 documentId: doc.id,
@@ -3893,27 +3892,22 @@ Deno.serve(async (req) => {
               }, jobId, newStep + 2, format, currentDoc
             );
 
-            // Fetch candidate versionId (newest version for this doc, NOT current)
-            const { data: postRewriteVersions } = await supabase.from("project_document_versions")
-              .select("id, version_number")
-              .eq("document_id", doc.id)
-              .order("version_number", { ascending: false }).limit(1);
-            const candidateVersionId = postRewriteVersions?.[0]?.id || rewriteResult?.result?.newVersion?.id || null;
-
             if (!candidateVersionId || candidateVersionId === baselineVersionId) {
               // ── FAIL CLOSED: no candidate produced ──
               await logStep(supabase, jobId, null, currentDoc, "rewrite_no_candidate",
-                `Rewrite did not produce a new version. Baseline preserved. Halting.`,
+                `Rewrite did not produce a new version id. Baseline preserved. Halting.`,
                 { ci: baselineCI, gp: baselineGP }, undefined,
-                { baselineVersionId });
+                { baselineVersionId, reason: "CANDIDATE_ID_MISSING", loopCount: newLoopCount });
               await updateJob(supabase, jobId, {
                 stage_loop_count: newLoopCount,
                 follow_latest: false,
                 resume_document_id: doc.id,
                 resume_version_id: baselineVersionId,
+                last_ci: baselineCI,
+                last_gp: baselineGP,
                 status: "paused",
                 pause_reason: "CANDIDATE_ID_MISSING",
-                stop_reason: "Rewrite produced no candidate version. Baseline preserved.",
+                stop_reason: "Rewrite produced no candidate version id; refusing to promote or continue.",
               });
               return respondWithJob(supabase, jobId);
             }
