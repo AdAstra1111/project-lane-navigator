@@ -1590,7 +1590,7 @@ export function AutoRunMissionControl({
               </CardTitle>
             </CardHeader>
             <CardContent className="px-3 pb-3">
-              <ScrollArea className="max-h-[60vh]">
+              <ScrollArea className="h-[60vh]">
                 <StepTimeline steps={steps} onViewOutput={loadStepDoc} />
               </ScrollArea>
             </CardContent>
@@ -1621,7 +1621,7 @@ export function AutoRunMissionControl({
                         <Badge variant="outline" className="text-[8px]">{pendingDoc.doc_type}</Badge>
                         <span>{pendingDoc.char_count?.toLocaleString()} chars</span>
                       </div>
-                      <ScrollArea className="max-h-[60vh] border rounded p-2 bg-muted/20">
+                      <ScrollArea className="h-[60vh] border rounded p-2 bg-muted/20">
                         <pre className="text-[10px] whitespace-pre-wrap font-mono leading-relaxed text-foreground">
                           {pendingDoc.text || pendingDoc.preview || '(empty)'}
                         </pre>
@@ -1684,7 +1684,7 @@ function DocViewer({ text, meta, onCopy, onDownload }: {
         {meta.version != null && <span>v{meta.version}</span>}
         {meta.char_count != null && <span>{meta.char_count.toLocaleString()} chars</span>}
       </div>
-      <ScrollArea className="max-h-[60vh] border rounded p-2 bg-muted/20">
+      <ScrollArea className="h-[60vh] border rounded p-2 bg-muted/20">
         <pre className="text-[10px] whitespace-pre-wrap font-mono leading-relaxed text-foreground">
           {text || '(empty)'}
         </pre>
