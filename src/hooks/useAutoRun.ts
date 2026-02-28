@@ -334,7 +334,17 @@ export function useAutoRun(projectId: string | undefined) {
         runLoopRef.current?.(result.job.id);
       }
     } catch (e: any) {
-      if (e.message?.includes('not awaiting approval')) return;
+      if (e.message?.includes('not awaiting approval')) {
+        try {
+          const status = await callAutoRun('status', { jobId: job.id });
+          setJob(status.job);
+          setSteps(status.latest_steps || []);
+          setIsRunning(status.job?.status === 'running' && !status.job?.awaiting_approval);
+        } catch {
+          // no-op: stale-state sync best effort
+        }
+        return;
+      }
       setError(e.message);
     }
   }, [job, isRunning]);

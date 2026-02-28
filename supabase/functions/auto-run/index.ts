@@ -2081,9 +2081,14 @@ Deno.serve(async (req) => {
 
       const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
       if (jobErr || !job) return respond({ error: "Job not found" }, 404);
-      if (!job.awaiting_approval) return respond({ error: "Job is not awaiting approval" }, 400);
-
-      const stepCount = job.step_count + 1;
+      if (!job.awaiting_approval) {
+        console.warn("[auto-run] approve-next ignored: job is no longer awaiting approval", {
+          jobId,
+          status: job.status,
+          current_document: job.current_document,
+        });
+        return respondWithJob(supabase, jobId, "wait");
+      }
       const currentDoc = job.current_document as DocStage;
 
       if (approvalDecision === "stop") {
