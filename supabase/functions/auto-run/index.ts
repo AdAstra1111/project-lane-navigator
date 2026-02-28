@@ -2798,8 +2798,8 @@ Deno.serve(async (req) => {
           pending_decisions: null,
           awaiting_approval: false,
         });
-        await logStep(supabase, jobId, stepCount + 1, currentDoc, "pause_for_approval",
-          `Step limit (${job.max_total_steps}) reached — auto-paused`,
+        await logStep(supabase, jobId, stepCount + 1, currentDoc, "pause_step_limit",
+          `Auto-paused: step limit reached`,
           { ci: job.last_ci, gp: job.last_gp, gap: job.last_gap, readiness: job.last_readiness },
         );
         return respondWithJob(supabase, jobId, "step-limit-paused");

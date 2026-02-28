@@ -545,6 +545,8 @@ export function AutoRunMissionControl({
 
   const fallbackDecisions = useMemo<PendingDecision[]>(() => {
     if (job?.status !== 'paused') return [];
+    // Skip step-limit pauses entirely — handled by StepBudgetControl
+    if (job?.pause_reason === 'step_limit') return [];
     const pauseStepWithChoices = [...steps]
       .reverse()
       .find((s) => s.action === 'pause_for_approval' && Array.isArray((s.output_ref as any)?.choices));
@@ -554,6 +556,7 @@ export function AutoRunMissionControl({
 
     return choices
       .filter((c: any) => c?.id && c?.question && Array.isArray(c?.options))
+      .filter((c: any) => c.id !== 'raise_step_limit_once')
       .map((c: any) => ({
         id: String(c.id),
         question: String(c.question),
@@ -566,7 +569,7 @@ export function AutoRunMissionControl({
         recommended: c.recommended ? String(c.recommended) : undefined,
         impact: c.impact === 'blocking' ? 'blocking' : 'non_blocking',
       }));
-  }, [job?.status, steps]);
+  }, [job?.status, job?.pause_reason, steps]);
 
   const activeDecisions = useMemo<PendingDecision[]>(() => {
     if (job?.status !== 'paused') return [];

@@ -410,22 +410,21 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     const RESUME_BUMP = 10;
     const HARD_MAX = 1000;
     let newLimit = job.max_total_steps;
+    // Always bump if limit <= used so we never get stuck
     if (newLimit <= job.step_count) {
       newLimit = Math.min(job.step_count + RESUME_BUMP, HARD_MAX);
     }
     abortRef.current = false;
     setError(null);
     try {
-      // Update limit first if needed
-      if (newLimit !== job.max_total_steps) {
-        await callAutoRun('update-step-limit', { jobId: job.id, new_step_limit: newLimit });
-      }
-      // Resume
-      await callAutoRun('resume', { jobId: job.id });
+      // Always update limit to ensure it's above step_count
+      await callAutoRun('update-step-limit', { jobId: job.id, new_step_limit: newLimit });
+      // Resume — also clear pause_reason
+      await callAutoRun('resume', { jobId: job.id, followLatest: true });
       setIsRunning(true);
       refreshStatus();
     } catch (e: any) { setError(e.message); }
-  }, [job, refreshStatus]);
+  }, [job]);
 
   return {
     job, steps, isRunning, error, activated,

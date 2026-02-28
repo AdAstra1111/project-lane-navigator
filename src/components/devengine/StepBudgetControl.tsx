@@ -65,10 +65,10 @@ export function StepBudgetControl({ job, onUpdateLimit, onContinue, isRunning }:
   }, [onContinue]);
 
   // Color based on usage
-  const barColor = pct >= 90
-    ? 'bg-amber-500'
-    : pct >= 100
+  const barColor = pct >= 100
     ? 'bg-destructive'
+    : pct >= 90
+    ? 'bg-amber-500'
     : 'bg-primary';
 
   return (
