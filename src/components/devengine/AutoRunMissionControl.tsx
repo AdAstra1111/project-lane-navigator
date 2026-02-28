@@ -1122,9 +1122,9 @@ export function AutoRunMissionControl({
   // ── Active job → Full Mission Control ──
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 max-h-[calc(100vh-200px)]">
         {/* ══════ LEFT COLUMN ══════ */}
-        <div className="space-y-3">
+        <div className="space-y-3 overflow-y-auto max-h-[calc(100vh-220px)] pr-1">
 
           {/* A) Job Status Card */}
           <Card className="border-primary/20">
@@ -1691,7 +1691,7 @@ export function AutoRunMissionControl({
         </div>
 
         {/* ══════ RIGHT COLUMN ══════ */}
-        <div className="space-y-3">
+        <div className="space-y-3 overflow-y-auto max-h-[calc(100vh-220px)] pr-1">
           {/* Timeline */}
           <Card>
             <CardHeader className="py-2 px-4">
