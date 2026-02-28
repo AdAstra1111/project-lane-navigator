@@ -3423,6 +3423,56 @@ ${qualBindingBlock}${cvNecBlock}
 MATERIAL:\n${version.plaintext}`;
 
       const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
+
+      // ── EPISODE DOC TYPES: Redirect to generate-document chunked pipeline ──
+      // Single-shot LLM calls truncate at high episode counts (e.g., 35 episodes).
+      // Route through the chunked generator which batches episodes in groups of 6.
+      const EPISODE_REDIRECT_SET = new Set(["episode_grid", "vertical_episode_beats", "episode_beats"]);
+      const resolvedTargetForRedirect = (() => {
+        const docTypeMap_local: Record<string, string> = {
+          EPISODE_GRID: "episode_grid", "EPISODE GRID": "episode_grid",
+          VERTICAL_EPISODE_BEATS: "vertical_episode_beats", "VERTICAL EPISODE BEATS": "vertical_episode_beats",
+          EPISODE_BEATS: "episode_beats", "EPISODE BEATS": "episode_beats",
+          EPISODE_BEAT_SHEET: "vertical_episode_beats", "EPISODE BEAT SHEET": "vertical_episode_beats",
+        };
+        return docTypeMap_local[normalizedTarget] || docTypeMap_local[targetOutput?.toUpperCase()] || null;
+      })();
+
+      if (resolvedTargetForRedirect && EPISODE_REDIRECT_SET.has(resolvedTargetForRedirect)) {
+        console.log("[dev-engine-v2] convert: Redirecting episode doc type to generate-document chunked pipeline", { targetOutput, resolvedTargetForRedirect, projectId });
+        const genResp = await fetch(`${supabaseUrl}/functions/v1/generate-document`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: authHeader },
+          body: JSON.stringify({ projectId, docType: resolvedTargetForRedirect }),
+        });
+        const genResult = await genResp.json();
+        if (!genResp.ok || genResult.error) {
+          throw new Error(genResult.error || genResult.message || "Chunked generation failed for episode doc type");
+        }
+
+        // Look up the created document + version
+        let newDocId = genResult.documentId || genResult.document_id || null;
+        let newVersionId = genResult.versionId || genResult.version_id || null;
+        if (!newDocId) {
+          const { data: docs } = await supabase.from("project_documents")
+            .select("id").eq("project_id", projectId).eq("doc_type", resolvedTargetForRedirect)
+            .order("created_at", { ascending: false }).limit(1);
+          newDocId = docs?.[0]?.id || null;
+        }
+        if (newDocId && !newVersionId) {
+          const { data: vers } = await supabase.from("project_document_versions")
+            .select("id").eq("document_id", newDocId)
+            .order("version_number", { ascending: false }).limit(1);
+          newVersionId = vers?.[0]?.id || null;
+        }
+
+        return new Response(JSON.stringify({
+          newDoc: { id: newDocId, doc_type: resolvedTargetForRedirect },
+          newVersion: { id: newVersionId },
+          convert: { converted_text: genResult.content || "", format: resolvedTargetForRedirect, change_summary: "Generated via chunked episode pipeline" },
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       const isDraftScript = targetOutput === "DRAFT_SCRIPT" || normalizedTarget === "SCRIPT" || normalizedTarget === "DRAFT_SCRIPT";
       const model = isDraftScript ? PRO_MODEL : BALANCED_MODEL;
       const maxTok = isDraftScript ? 16000 : 10000;
