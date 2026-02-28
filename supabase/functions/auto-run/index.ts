@@ -2428,6 +2428,97 @@ Deno.serve(async (req) => {
       const currentDoc = job.current_document as DocStage;
       const stepCount = job.step_count + 1;
 
+      const CONTROL_NOTE_IDS = new Set(["raise_step_limit_once", "run_exec_strategy", "force_promote"]);
+      const selectedMap = new Map<string, string>(
+        selectedOptions
+          .filter((s: any) => s?.note_id && s?.option_id)
+          .map((s: any) => [String(s.note_id), String(s.option_id)])
+      );
+      const raiseChoice = selectedMap.get("raise_step_limit_once");
+      const runExecChoice = selectedMap.get("run_exec_strategy");
+      const forcePromoteChoice = selectedMap.get("force_promote");
+      const selectedContentOptions = selectedOptions.filter((s: any) => !CONTROL_NOTE_IDS.has(String(s.note_id)));
+
+      const { data: project } = await supabase.from("projects")
+        .select("format, development_behavior").eq("id", job.project_id).single();
+      const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
+      const behavior = project?.development_behavior || "market";
+
+      // Control-only decisions should not invoke rewrite, otherwise step-limit choices loop forever.
+      if (selectedContentOptions.length === 0 && (raiseChoice || runExecChoice || forcePromoteChoice)) {
+        if (raiseChoice === "no") {
+          await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
+            "User declined step extension — stopping run",
+            {}, undefined, { selectedOptions }
+          );
+          await updateJob(supabase, jobId, {
+            step_count: stepCount,
+            status: "stopped",
+            stop_reason: "User stopped at step limit",
+            pending_decisions: null,
+            awaiting_approval: false,
+            approval_type: null,
+            approval_payload: null,
+            pending_doc_id: null,
+            pending_version_id: null,
+            pending_doc_type: null,
+            pending_next_doc_type: null,
+          });
+          return respondWithJob(supabase, jobId, "none");
+        }
+
+        let maxTotalSteps = job.max_total_steps;
+        if (raiseChoice === "yes") {
+          // Ensure the raised cap is always ahead of the *current* counter.
+          maxTotalSteps = Math.max(job.max_total_steps + 6, (job.step_count || 0) + 6);
+        }
+
+        let status: "running" | "completed" = "running";
+        let stopReason: string | null = null;
+        let nextDoc: DocStage = currentDoc;
+
+        if (forcePromoteChoice === "yes") {
+          const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+          if (next) {
+            nextDoc = next;
+          } else {
+            status = "completed";
+            stopReason = "All stages satisfied up to target";
+          }
+        }
+
+        const controlSummary = [
+          raiseChoice ? `raise_step_limit_once=${raiseChoice}` : null,
+          runExecChoice ? `run_exec_strategy=${runExecChoice}` : null,
+          forcePromoteChoice ? `force_promote=${forcePromoteChoice}` : null,
+        ].filter(Boolean).join(", ");
+
+        await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
+          `Applied control decisions: ${controlSummary || "none"}`,
+          {}, undefined, { selectedOptions }
+        );
+
+        await updateJob(supabase, jobId, {
+          step_count: stepCount,
+          max_total_steps: maxTotalSteps,
+          current_document: nextDoc,
+          stage_loop_count: (forcePromoteChoice === "yes" || runExecChoice === "yes") ? 0 : job.stage_loop_count,
+          status,
+          stop_reason: stopReason,
+          pending_decisions: null,
+          awaiting_approval: false,
+          approval_type: null,
+          approval_payload: null,
+          pending_doc_id: null,
+          pending_version_id: null,
+          pending_doc_type: null,
+          pending_next_doc_type: null,
+          error: null,
+        });
+
+        return respondWithJob(supabase, jobId, status === "running" ? "run-next" : "none");
+      }
+
       // Resolve doc and version — use pending or fall back to latest
       let docId = job.pending_doc_id;
       let versionId = job.pending_version_id;
@@ -2447,11 +2538,6 @@ Deno.serve(async (req) => {
       }
       if (!docId || !versionId) return respond({ error: "No document/version found for current stage" }, 400);
 
-      const { data: project } = await supabase.from("projects")
-        .select("format, development_behavior").eq("id", job.project_id).single();
-      const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
-      const behavior = project?.development_behavior || "market";
-
       // Fetch latest notes for protect items
       const notesResult = await supabase.from("development_runs")
         .select("output_json").eq("document_id", docId).eq("run_type", "NOTES")
@@ -2465,10 +2551,12 @@ Deno.serve(async (req) => {
       ];
       const protectItems = notes?.protect || [];
 
+      const rewriteSelectedOptions = selectedContentOptions.length > 0 ? selectedContentOptions : selectedOptions;
+
       try {
         await logStep(supabase, jobId, stepCount, currentDoc, "apply_decisions",
-          `Applying ${selectedOptions.length} decisions with rewrite`,
-          {}, undefined, { selectedOptions, globalDirections }
+          `Applying ${rewriteSelectedOptions.length} decisions with rewrite`,
+          {}, undefined, { selectedOptions: rewriteSelectedOptions, globalDirections }
         );
 
         const rewriteResult = await callEdgeFunctionWithRetry(
@@ -2482,7 +2570,7 @@ Deno.serve(async (req) => {
             deliverableType: currentDoc,
             developmentBehavior: behavior,
             format,
-            selectedOptions,
+            selectedOptions: rewriteSelectedOptions,
             globalDirections,
           }, token, job.project_id, format, currentDoc, jobId, stepCount
         );
@@ -2496,7 +2584,7 @@ Deno.serve(async (req) => {
 
         await logStep(supabase, jobId, stepCount + 1, currentDoc, "decisions_applied_rewrite",
           `Decisions applied, new version: ${newVersionId}`,
-          {}, undefined, { docId, newVersionId, selectedOptions: selectedOptions.length }
+          {}, undefined, { docId, newVersionId, selectedOptions: rewriteSelectedOptions.length }
         );
 
         await updateJob(supabase, jobId, {
