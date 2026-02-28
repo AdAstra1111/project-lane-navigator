@@ -1,5 +1,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
+import { isAggregate, getRegressionThreshold } from "../_shared/docPolicyRegistry.ts";
+import {
+  DEFAULT_MAX_TOTAL_STEPS,
+  DEFAULT_MAX_STAGE_LOOPS,
+  MAX_TOTAL_ATTEMPTS_PER_TARGET,
+  getAttemptStrategy,
+  selectNotesForStrategy,
+  getForkDirections,
+  selectBestCandidate,
+  type AttemptStrategy,
+} from "../_shared/convergencePolicy.ts";
 
 function waitUntilSafe(p: Promise<any>): boolean {
   try {
@@ -662,9 +673,9 @@ function isStageAtOrBeforeTarget(stage: string, targetDoc: string, format: strin
 
 // ── Mode Config ──
 const MODE_CONFIG: Record<string, { max_stage_loops: number; max_total_steps: number; require_readiness?: number }> = {
-  fast: { max_stage_loops: 2, max_total_steps: 100 },
-  balanced: { max_stage_loops: 2, max_total_steps: 100 },
-  premium: { max_stage_loops: 3, max_total_steps: 100, require_readiness: 82 },
+  fast: { max_stage_loops: DEFAULT_MAX_STAGE_LOOPS, max_total_steps: DEFAULT_MAX_TOTAL_STEPS },
+  balanced: { max_stage_loops: DEFAULT_MAX_STAGE_LOOPS, max_total_steps: DEFAULT_MAX_TOTAL_STEPS },
+  premium: { max_stage_loops: DEFAULT_MAX_STAGE_LOOPS, max_total_steps: DEFAULT_MAX_TOTAL_STEPS, require_readiness: 82 },
 };
 
 // ── Format Normalization (canonical) ──
@@ -3861,43 +3872,266 @@ Deno.serve(async (req) => {
             }
           }
 
-          // No blockers or options already handled — apply rewrite with all notes (with retry)
+          // ── AGGREGATE GUARD: block LLM rewrites for compile-only doc types ──
+          if (isAggregate(currentDoc)) {
+            await logStep(supabase, jobId, null, currentDoc, "aggregate_llm_write_blocked",
+              `Doc type "${currentDoc}" is AGGREGATE (compile-only). LLM rewrite blocked. Skipping stabilise.`,
+              { ci, gp, gap });
+            // Don't halt — just skip rewrite and continue the loop
+            await updateJob(supabase, jobId, { stage_loop_count: newLoopCount });
+            return respondWithJob(supabase, jobId, "run-next");
+          }
+
+          // No blockers or options already handled — apply rewrite with convergence policy
           const notesResult = await supabase.from("development_runs").select("output_json").eq("document_id", doc.id).eq("run_type", "NOTES").order("created_at", { ascending: false }).limit(1).single();
           const notes = notesResult.data?.output_json;
-          const approvedNotes = [
-            ...(notes?.blocking_issues || analyzeResult?.blocking_issues || []),
-            ...(notes?.high_impact_notes || analyzeResult?.high_impact_notes || []),
-          ];
+          const allNotesForStrategy = {
+            blocking_issues: notes?.blocking_issues || analyzeResult?.blocking_issues || [],
+            high_impact_notes: notes?.high_impact_notes || analyzeResult?.high_impact_notes || [],
+            polish_notes: notes?.polish_notes || analyzeResult?.polish_notes || [],
+          };
           const protectItems = notes?.protect || analyzeResult?.protect || [];
+
+          // ── 0) ATTEMPT LADDER: select strategy based on loop count ──
+          const attemptNumber = newLoopCount; // 1-indexed
+          const strategy = getAttemptStrategy(attemptNumber);
+
+          // ── TARGET-LEVEL CAP ──
+          if (attemptNumber > MAX_TOTAL_ATTEMPTS_PER_TARGET) {
+            await logStep(supabase, jobId, null, currentDoc, "max_target_attempts_reached",
+              `Exceeded max target attempts (${MAX_TOTAL_ATTEMPTS_PER_TARGET}). Halting.`,
+              { ci, gp, gap }, undefined, { attemptNumber, strategy });
+            await updateJob(supabase, jobId, {
+              stage_loop_count: newLoopCount,
+              status: "paused",
+              pause_reason: "MAX_TARGET_ATTEMPTS_REACHED",
+              stop_reason: `Exceeded ${MAX_TOTAL_ATTEMPTS_PER_TARGET} attempts for ${currentDoc}. Manual review required.`,
+            });
+            return respondWithJob(supabase, jobId);
+          }
+
+          const { approvedNotes: strategyNotes, globalDirections: strategyDirections } = selectNotesForStrategy(strategy, allNotesForStrategy);
+
+          await logStep(supabase, jobId, null, currentDoc, "convergence_strategy_selected",
+            `Attempt ${attemptNumber}: strategy=${strategy}, notes=${strategyNotes.length}, directions=${strategyDirections.length}`,
+            { ci, gp, gap }, undefined, { attemptNumber, strategy, noteCount: strategyNotes.length });
 
           // ── 1) BASELINE PINNING: capture pre-rewrite state ──
           const baselineVersionId = latestVersion.id;
           const baselineCI = ci;
           const baselineGP = gp;
+          const REGRESSION_THRESHOLD = getRegressionThreshold(currentDoc);
+
+          // ── Helper: score a candidate version ──
+          async function scoreCandidate(candVersionId: string, label: string): Promise<{ ci: number; gp: number } | null> {
+            try {
+              const postScoreResult = await callEdgeFunctionWithRetry(
+                supabase, supabaseUrl, "dev-engine-v2", {
+                  action: "analyze",
+                  projectId: job.project_id,
+                  documentId: doc.id,
+                  versionId: candVersionId,
+                  deliverableType: currentDoc,
+                  developmentBehavior: behavior,
+                  format,
+                }, token, job.project_id, format, currentDoc, jobId, newStep + 3
+              );
+              const candCI = postScoreResult?.result?.scores?.ci ?? postScoreResult?.result?.ci ?? null;
+              const candGP = postScoreResult?.result?.scores?.gp ?? postScoreResult?.result?.gp ?? null;
+              if (candCI === null || candGP === null) return null;
+              return { ci: candCI, gp: candGP };
+            } catch (e: any) {
+              console.error(`[auto-run] scoreCandidate(${label}) failed:`, e.message);
+              return null;
+            }
+          }
+
+          // ── Helper: run acceptance gate on a scored candidate ──
+          function passesAcceptanceGate(candCI: number, candGP: number): { pass: boolean; ciDrop: number; gpDrop: number } {
+            const ciDrop = baselineCI - candCI;
+            const gpDrop = baselineGP - candGP;
+            return { pass: ciDrop <= REGRESSION_THRESHOLD && gpDrop <= REGRESSION_THRESHOLD, ciDrop, gpDrop };
+          }
+
+          // ── Helper: promote a candidate ──
+          async function promoteCandidate(candVersionId: string, candCI: number, candGP: number, meta: Record<string, any>): Promise<boolean> {
+            const { error: promoteErr } = await supabase.rpc("set_current_version", {
+              p_document_id: doc.id,
+              p_new_version_id: candVersionId,
+            });
+            if (promoteErr) {
+              await logStep(supabase, jobId, null, currentDoc, "promote_failed",
+                `set_current_version failed: ${promoteErr.message}. Baseline preserved.`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                { ...meta, error: promoteErr.message });
+              return false;
+            }
+
+            // ── BEST-OF TRACKING ──
+            const bestCI = (job as any).best_ci ?? null;
+            const bestGP = (job as any).best_gp ?? null;
+            const candidateComposite = candCI + candGP;
+            const bestComposite = (bestCI ?? -1) + (bestGP ?? -1);
+            const isBest = bestCI === null || candidateComposite > bestComposite;
+
+            await logStep(supabase, jobId, null, currentDoc, "rewrite_accepted",
+              `Candidate accepted (attempt ${attemptNumber}, ${strategy}). CI: ${baselineCI}→${candCI}, GP: ${baselineGP}→${candGP}${isBest ? ' [NEW BEST]' : ''}`,
+              { ci: candCI, gp: candGP }, undefined,
+              { ...meta, attemptNumber, strategy, isBest });
+
+            const jobUpdate: Record<string, any> = {
+              stage_loop_count: newLoopCount,
+              follow_latest: true,
+              resume_document_id: doc.id,
+              resume_version_id: candVersionId,
+              last_ci: candCI,
+              last_gp: candGP,
+            };
+            if (isBest) {
+              jobUpdate.best_version_id = candVersionId;
+              jobUpdate.best_ci = candCI;
+              jobUpdate.best_gp = candGP;
+              jobUpdate.best_score = candidateComposite;
+            }
+            await updateJob(supabase, jobId, jobUpdate);
+            return true;
+          }
 
           try {
-            // ── 2) CANDIDATE CREATION: rewrite creates new version (NOT promoted) ──
-            const { candidateVersionId } = await rewriteWithFallback(
-              supabase, supabaseUrl, token, {
+            // ── FORK PATH: FORK_CONSERVATIVE_AGGRESSIVE ──
+            if (strategy === "FORK_CONSERVATIVE_AGGRESSIVE") {
+              const forkDirs = getForkDirections();
+              const rewriteBase = {
                 projectId: job.project_id,
                 documentId: doc.id,
                 versionId: baselineVersionId,
-                approvedNotes,
+                approvedNotes: strategyNotes,
                 protectItems,
                 deliverableType: currentDoc,
                 developmentBehavior: behavior,
                 format,
                 episode_target_duration_seconds: episodeDuration,
                 season_episode_count: seasonEpisodeCount,
+              };
+
+              // Generate two candidates in parallel
+              const [conservativeResult, aggressiveResult] = await Promise.allSettled([
+                rewriteWithFallback(supabase, supabaseUrl, token,
+                  { ...rewriteBase, globalDirections: forkDirs.conservative },
+                  jobId, newStep + 2, format, currentDoc),
+                rewriteWithFallback(supabase, supabaseUrl, token,
+                  { ...rewriteBase, globalDirections: forkDirs.aggressive },
+                  jobId, newStep + 3, format, currentDoc),
+              ]);
+
+              const candA = conservativeResult.status === "fulfilled" ? conservativeResult.value.candidateVersionId : null;
+              const candB = aggressiveResult.status === "fulfilled" ? aggressiveResult.value.candidateVersionId : null;
+
+              await logStep(supabase, jobId, null, currentDoc, "fork_candidates_created",
+                `Fork: conservative=${candA || 'FAILED'}, aggressive=${candB || 'FAILED'}`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                { baselineVersionId, candA, candB, attemptNumber, strategy });
+
+              // Score both candidates
+              const scoreA = candA ? await scoreCandidate(candA, "conservative") : null;
+              const scoreB = candB ? await scoreCandidate(candB, "aggressive") : null;
+
+              const candidates = [
+                { ci: scoreA?.ci ?? null, gp: scoreA?.gp ?? null, versionId: candA },
+                { ci: scoreB?.ci ?? null, gp: scoreB?.gp ?? null, versionId: candB },
+              ];
+
+              await logStep(supabase, jobId, null, currentDoc, "fork_candidates_scored",
+                `Conservative: CI=${scoreA?.ci ?? 'N/A'} GP=${scoreA?.gp ?? 'N/A'}, Aggressive: CI=${scoreB?.ci ?? 'N/A'} GP=${scoreB?.gp ?? 'N/A'}`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                { scoreA, scoreB, baselineCI, baselineGP });
+
+              // Run acceptance gate on each
+              const gateA = scoreA ? passesAcceptanceGate(scoreA.ci, scoreA.gp) : null;
+              const gateB = scoreB ? passesAcceptanceGate(scoreB.ci, scoreB.gp) : null;
+
+              const passA = gateA?.pass === true;
+              const passB = gateB?.pass === true;
+
+              if (!passA && !passB) {
+                // Both failed — reject and continue
+                await logStep(supabase, jobId, null, currentDoc, "fork_both_rejected",
+                  `Both fork candidates rejected. Baseline preserved.`,
+                  { ci: baselineCI, gp: baselineGP }, undefined,
+                  { gateA, gateB, attemptNumber, strategy });
+
+                const shouldHalt = newLoopCount >= job.max_stage_loops;
+                await updateJob(supabase, jobId, {
+                  stage_loop_count: newLoopCount,
+                  follow_latest: false,
+                  resume_document_id: doc.id,
+                  resume_version_id: baselineVersionId,
+                  last_ci: baselineCI,
+                  last_gp: baselineGP,
+                  ...(shouldHalt ? {
+                    status: "paused",
+                    pause_reason: "REGRESSION_MAX_ATTEMPTS",
+                    stop_reason: `Fork rejected ${newLoopCount} times. Manual review required.`,
+                  } : {}),
+                });
+                return respondWithJob(supabase, jobId, shouldHalt ? undefined : "run-next");
+              }
+
+              // Pick best passing candidate
+              const bestIdx = selectBestCandidate(
+                candidates.map((c, i) => ({
+                  ...c,
+                  ci: (i === 0 ? passA : passB) ? c.ci : null,
+                  gp: (i === 0 ? passA : passB) ? c.gp : null,
+                  versionId: (i === 0 ? passA : passB) ? c.versionId : null,
+                }))
+              );
+
+              const winner = candidates[bestIdx];
+              const winnerLabel = bestIdx === 0 ? "conservative" : "aggressive";
+              const promoted = await promoteCandidate(
+                winner.versionId!,
+                winner.ci!,
+                winner.gp!,
+                { baselineVersionId, candA, candB, forkWinner: winnerLabel, scoreA, scoreB, gateA, gateB }
+              );
+
+              if (!promoted) {
+                await updateJob(supabase, jobId, {
+                  stage_loop_count: newLoopCount,
+                  follow_latest: false,
+                  resume_document_id: doc.id,
+                  resume_version_id: baselineVersionId,
+                  last_ci: baselineCI,
+                  last_gp: baselineGP,
+                });
+              }
+              return respondWithJob(supabase, jobId, "run-next");
+            }
+
+            // ── SINGLE CANDIDATE PATH (all other strategies) ──
+            const { candidateVersionId } = await rewriteWithFallback(
+              supabase, supabaseUrl, token, {
+                projectId: job.project_id,
+                documentId: doc.id,
+                versionId: baselineVersionId,
+                approvedNotes: strategyNotes,
+                protectItems,
+                deliverableType: currentDoc,
+                developmentBehavior: behavior,
+                format,
+                episode_target_duration_seconds: episodeDuration,
+                season_episode_count: seasonEpisodeCount,
+                globalDirections: strategyDirections.length > 0 ? strategyDirections : undefined,
               }, jobId, newStep + 2, format, currentDoc
             );
 
             if (!candidateVersionId || candidateVersionId === baselineVersionId) {
               // ── FAIL CLOSED: no candidate produced ──
               await logStep(supabase, jobId, null, currentDoc, "rewrite_no_candidate",
-                `Rewrite did not produce a new version id. Baseline preserved. Halting.`,
+                `Rewrite did not produce a new version id (attempt ${attemptNumber}, ${strategy}). Baseline preserved. Halting.`,
                 { ci: baselineCI, gp: baselineGP }, undefined,
-                { baselineVersionId, reason: "CANDIDATE_ID_MISSING", loopCount: newLoopCount });
+                { baselineVersionId, reason: "CANDIDATE_ID_MISSING", loopCount: newLoopCount, attemptNumber, strategy });
               await updateJob(supabase, jobId, {
                 stage_loop_count: newLoopCount,
                 follow_latest: false,
@@ -3913,43 +4147,17 @@ Deno.serve(async (req) => {
             }
 
             await logStep(supabase, jobId, null, currentDoc, "rewrite_candidate_created",
-              `Candidate version ${candidateVersionId} created. Scoring before acceptance.`,
+              `Candidate ${candidateVersionId} created (attempt ${attemptNumber}, ${strategy}). Scoring before acceptance.`,
               { ci: baselineCI, gp: baselineGP }, undefined,
-              { baselineVersionId, candidateVersionId });
+              { baselineVersionId, candidateVersionId, attemptNumber, strategy });
 
-            // ── 3) POST-REWRITE SCORING (MANDATORY — fail closed) ──
-            let candidateCI: number;
-            let candidateGP: number;
-            try {
-              const postScoreResult = await callEdgeFunctionWithRetry(
-                supabase, supabaseUrl, "dev-engine-v2", {
-                  action: "analyze",
-                  projectId: job.project_id,
-                  documentId: doc.id,
-                  versionId: candidateVersionId,
-                  deliverableType: currentDoc,
-                  developmentBehavior: behavior,
-                  format,
-                }, token, job.project_id, format, currentDoc, jobId, newStep + 3
-              );
-              candidateCI = postScoreResult?.result?.scores?.ci ?? postScoreResult?.result?.ci ?? null;
-              candidateGP = postScoreResult?.result?.scores?.gp ?? postScoreResult?.result?.gp ?? null;
-
-              if (candidateCI === null || candidateGP === null) {
-                throw new Error(`Scoring returned null values (CI=${candidateCI}, GP=${candidateGP})`);
-              }
-
-              await logStep(supabase, jobId, null, currentDoc, "rewrite_candidate_scored",
-                `Candidate scored: CI=${candidateCI}, GP=${candidateGP} (baseline CI=${baselineCI}, GP=${baselineGP})`,
-                { ci: candidateCI, gp: candidateGP }, undefined,
-                { baselineVersionId, candidateVersionId, baselineCI, baselineGP, candidateCI, candidateGP });
-
-            } catch (scoreErr: any) {
-              // ── FAIL CLOSED: scoring failure = reject candidate ──
+            // ── POST-REWRITE SCORING (MANDATORY — fail closed) ──
+            const candScore = await scoreCandidate(candidateVersionId, "single");
+            if (!candScore) {
               await logStep(supabase, jobId, null, currentDoc, "post_score_failed",
-                `Post-rewrite scoring failed: ${scoreErr.message}. Candidate rejected. Baseline preserved.`,
+                `Post-rewrite scoring failed (attempt ${attemptNumber}, ${strategy}). Candidate rejected. Baseline preserved.`,
                 { ci: baselineCI, gp: baselineGP }, undefined,
-                { baselineVersionId, candidateVersionId, error: scoreErr.message });
+                { baselineVersionId, candidateVersionId, attemptNumber, strategy });
               await updateJob(supabase, jobId, {
                 stage_loop_count: newLoopCount,
                 follow_latest: false,
@@ -3959,24 +4167,29 @@ Deno.serve(async (req) => {
                 last_gp: baselineGP,
                 pause_reason: "POST_SCORE_FAILED",
                 status: "paused",
-                stop_reason: `Post-rewrite scoring failed: ${scoreErr.message}. Baseline version preserved.`,
+                stop_reason: `Post-rewrite scoring failed. Baseline version preserved.`,
               });
               return respondWithJob(supabase, jobId);
             }
 
-            // ── 4) ACCEPTANCE GATE ──
-            const REGRESSION_THRESHOLD = 5; // TODO: wire to policy layer
-            const ciDrop = baselineCI - candidateCI;
-            const gpDrop = baselineGP - candidateGP;
+            const candidateCI = candScore.ci;
+            const candidateGP = candScore.gp;
 
-            if (ciDrop > REGRESSION_THRESHOLD || gpDrop > REGRESSION_THRESHOLD) {
+            await logStep(supabase, jobId, null, currentDoc, "rewrite_candidate_scored",
+              `Candidate scored: CI=${candidateCI}, GP=${candidateGP} (baseline CI=${baselineCI}, GP=${baselineGP})`,
+              { ci: candidateCI, gp: candidateGP }, undefined,
+              { baselineVersionId, candidateVersionId, baselineCI, baselineGP, candidateCI, candidateGP, attemptNumber, strategy });
+
+            // ── ACCEPTANCE GATE ──
+            const { pass, ciDrop, gpDrop } = passesAcceptanceGate(candidateCI, candidateGP);
+
+            if (!pass) {
               // ── REJECT: candidate regressed beyond threshold ──
               await logStep(supabase, jobId, null, currentDoc, "rewrite_rejected_regression",
-                `Candidate rejected: CI ${baselineCI}→${candidateCI} (drop ${ciDrop}), GP ${baselineGP}→${candidateGP} (drop ${gpDrop}). Threshold=${REGRESSION_THRESHOLD}. Baseline preserved.`,
+                `Candidate rejected (attempt ${attemptNumber}, ${strategy}): CI ${baselineCI}→${candidateCI} (drop ${ciDrop}), GP ${baselineGP}→${candidateGP} (drop ${gpDrop}). Threshold=${REGRESSION_THRESHOLD}. Baseline preserved.`,
                 { ci: baselineCI, gp: baselineGP }, undefined,
-                { baselineVersionId, candidateVersionId, baselineCI, baselineGP, candidateCI, candidateGP, ciDrop, gpDrop, threshold: REGRESSION_THRESHOLD });
+                { baselineVersionId, candidateVersionId, baselineCI, baselineGP, candidateCI, candidateGP, ciDrop, gpDrop, threshold: REGRESSION_THRESHOLD, attemptNumber, strategy });
 
-              // Check if we've exhausted attempts
               const shouldHalt = newLoopCount >= job.max_stage_loops;
               await updateJob(supabase, jobId, {
                 stage_loop_count: newLoopCount,
@@ -3994,16 +4207,15 @@ Deno.serve(async (req) => {
               return respondWithJob(supabase, jobId, shouldHalt ? undefined : "run-next");
             }
 
-            // ── 5) ACCEPT: candidate passed Acceptance Gate — NOW promote ──
-            const { error: promoteErr } = await supabase.rpc("set_current_version", {
-              p_document_id: doc.id,
-              p_new_version_id: candidateVersionId,
-            });
-            if (promoteErr) {
-              await logStep(supabase, jobId, null, currentDoc, "promote_failed",
-                `set_current_version failed: ${promoteErr.message}. Baseline preserved.`,
-                { ci: baselineCI, gp: baselineGP }, undefined,
-                { baselineVersionId, candidateVersionId, error: promoteErr.message });
+            // ── ACCEPT: candidate passed Acceptance Gate — NOW promote ──
+            const promoted = await promoteCandidate(
+              candidateVersionId,
+              candidateCI,
+              candidateGP,
+              { baselineVersionId, candidateVersionId, baselineCI, baselineGP, candidateCI, candidateGP, ciDrop, gpDrop }
+            );
+
+            if (!promoted) {
               await updateJob(supabase, jobId, {
                 stage_loop_count: newLoopCount,
                 follow_latest: false,
@@ -4012,22 +4224,7 @@ Deno.serve(async (req) => {
                 last_ci: baselineCI,
                 last_gp: baselineGP,
               });
-              return respondWithJob(supabase, jobId, "run-next");
             }
-
-            await logStep(supabase, jobId, null, currentDoc, "rewrite_accepted",
-              `Candidate accepted and promoted (loop ${newLoopCount}/${job.max_stage_loops}). CI: ${baselineCI}→${candidateCI}, GP: ${baselineGP}→${candidateGP}`,
-              { ci: candidateCI, gp: candidateGP }, undefined,
-              { baselineVersionId, candidateVersionId, baselineCI, baselineGP, candidateCI, candidateGP, ciDrop, gpDrop });
-
-            await updateJob(supabase, jobId, {
-              stage_loop_count: newLoopCount,
-              follow_latest: true,
-              resume_document_id: doc.id,
-              resume_version_id: candidateVersionId,
-              last_ci: candidateCI,
-              last_gp: candidateGP,
-            });
             return respondWithJob(supabase, jobId, "run-next");
           } catch (e: any) {
             await updateJob(supabase, jobId, { status: "failed", error: `Rewrite failed: ${e.message}` });
