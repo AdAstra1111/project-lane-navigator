@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
-import { isAggregate, getRegressionThreshold, requireDocPolicy } from "../_shared/docPolicyRegistry.ts";
+import { isAggregate, getRegressionThreshold, requireDocPolicy, getDocPolicy } from "../_shared/docPolicyRegistry.ts";
 import {
   DEFAULT_MAX_TOTAL_STEPS,
   DEFAULT_MAX_STAGE_LOOPS,
@@ -2515,6 +2515,21 @@ Deno.serve(async (req) => {
       const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
       const behavior = project?.development_behavior || "market";
 
+      // ── DOC POLICY GUARD (apply-rewrite) ──
+      {
+        const applyPolicy = getDocPolicy(currentDoc);
+        if (applyPolicy.docClass === "AGGREGATE") {
+          await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_llm_write_blocked",
+            `AGGREGATE doc "${currentDoc}" cannot be LLM-rewritten (apply-rewrite). Halting.`);
+          await updateJob(supabase, jobId, { status: "paused", pause_reason: "AGGREGATE_COMPILE_ONLY",
+            stop_reason: `AGGREGATE doc type "${currentDoc}" cannot be LLM-rewritten. Compile-only.` });
+          return respondWithJob(supabase, jobId);
+        }
+        if (applyPolicy.docClass === "UNIT" && applyPolicy.requiresEpisodeIndex) {
+          // UNIT identity validation deferred to engine
+        }
+      }
+
       try {
         const { candidateVersionId: newVersionId_raw } = await rewriteWithFallback(
           supabase, supabaseUrl, token, {
@@ -2845,6 +2860,21 @@ Deno.serve(async (req) => {
       const protectItems = notes?.protect || [];
 
       const rewriteSelectedOptions = selectedContentOptions.length > 0 ? selectedContentOptions : selectedOptions;
+
+      // ── DOC POLICY GUARD (apply-decisions-and-continue) ──
+      {
+        const decPolicy = getDocPolicy(currentDoc);
+        if (decPolicy.docClass === "AGGREGATE") {
+          await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_llm_write_blocked",
+            `AGGREGATE doc "${currentDoc}" cannot be LLM-rewritten (apply-decisions). Halting.`);
+          await updateJob(supabase, jobId, { status: "paused", pause_reason: "AGGREGATE_COMPILE_ONLY",
+            stop_reason: `AGGREGATE doc type "${currentDoc}" cannot be LLM-rewritten. Compile-only.` });
+          return respondWithJob(supabase, jobId);
+        }
+        if (decPolicy.docClass === "UNIT" && decPolicy.requiresEpisodeIndex) {
+          // UNIT identity validation deferred to engine
+        }
+      }
 
       try {
         await logStep(supabase, jobId, stepCount, currentDoc, "apply_decisions",
@@ -3971,38 +4001,60 @@ Deno.serve(async (req) => {
           }
           const baselineVersionId = currentAccepted.id;
 
-          // Re-score baseline to ensure CI/GP correspond to baselineVersionId
+          // ── BASELINE SCORE REUSE OPTIMIZATION ──
+          // If job already cached baseline scores for this exact version, skip redundant analyze call
           let baselineCI: number;
           let baselineGP: number;
-          try {
-            const baselineScoreResult = await callEdgeFunctionWithRetry(
-              supabase, supabaseUrl, "dev-engine-v2", {
-                action: "analyze",
-                projectId: job.project_id,
-                documentId: doc.id,
-                versionId: baselineVersionId,
-                deliverableType: currentDoc,
-                developmentBehavior: behavior,
-                format,
-              }, token, job.project_id, format, currentDoc, jobId, newStep + 2
-            );
-            const baselineScores = extractCiGp(baselineScoreResult);
-            if (baselineScores.ci === null || baselineScores.gp === null) {
-              throw new Error(`Baseline scoring returned nulls (CI=${baselineScores.ci}, GP=${baselineScores.gp})`);
+          const cachedBaselineVersionId = (job as any).best_version_id === baselineVersionId ? null : (job as any)._baseline_version_id;
+          const canReuseBaseline = (job as any).best_version_id !== undefined
+            && typeof (job as any).best_ci === "number"
+            && typeof (job as any).best_gp === "number"
+            && (job as any).best_version_id === baselineVersionId;
+          // Also check if last analyze was for this exact baseline (ci/gp from review step)
+          const lastAnalyzeIsBaseline = latestVersion.id === baselineVersionId
+            && typeof ci === "number" && typeof gp === "number"
+            && ci > 0 && gp > 0;
+
+          if (lastAnalyzeIsBaseline) {
+            // The review step just scored this exact version — reuse those scores
+            baselineCI = ci;
+            baselineGP = gp;
+            await logStep(supabase, jobId, null, currentDoc, "baseline_score_reused",
+              `Reused review scores for baseline ${baselineVersionId}: CI=${baselineCI} GP=${baselineGP}`,
+              { ci: baselineCI, gp: baselineGP }, undefined,
+              { source: "review_step", baselineVersionId });
+          } else {
+            // Must re-score baseline
+            try {
+              const baselineScoreResult = await callEdgeFunctionWithRetry(
+                supabase, supabaseUrl, "dev-engine-v2", {
+                  action: "analyze",
+                  projectId: job.project_id,
+                  documentId: doc.id,
+                  versionId: baselineVersionId,
+                  deliverableType: currentDoc,
+                  developmentBehavior: behavior,
+                  format,
+                }, token, job.project_id, format, currentDoc, jobId, newStep + 2
+              );
+              const baselineScores = extractCiGp(baselineScoreResult);
+              if (baselineScores.ci === null || baselineScores.gp === null) {
+                throw new Error(`Baseline scoring returned nulls (CI=${baselineScores.ci}, GP=${baselineScores.gp})`);
+              }
+              baselineCI = baselineScores.ci;
+              baselineGP = baselineScores.gp;
+            } catch (bsErr: any) {
+              await logStep(supabase, jobId, null, currentDoc, "baseline_score_failed",
+                `Baseline scoring failed: ${bsErr.message}. Halting.`,
+                {}, undefined, { baselineVersionId, error: bsErr.message });
+              await updateJob(supabase, jobId, {
+                stage_loop_count: newLoopCount,
+                status: "paused",
+                pause_reason: "BASELINE_SCORE_FAILED",
+                stop_reason: `Baseline scoring failed for ${currentDoc}: ${bsErr.message}`,
+              });
+              return respondWithJob(supabase, jobId);
             }
-            baselineCI = baselineScores.ci;
-            baselineGP = baselineScores.gp;
-          } catch (bsErr: any) {
-            await logStep(supabase, jobId, null, currentDoc, "baseline_score_failed",
-              `Baseline scoring failed: ${bsErr.message}. Halting.`,
-              {}, undefined, { baselineVersionId, error: bsErr.message });
-            await updateJob(supabase, jobId, {
-              stage_loop_count: newLoopCount,
-              status: "paused",
-              pause_reason: "BASELINE_SCORE_FAILED",
-              stop_reason: `Baseline scoring failed for ${currentDoc}: ${bsErr.message}`,
-            });
-            return respondWithJob(supabase, jobId);
           }
 
           const REGRESSION_THRESHOLD = getRegressionThreshold(currentDoc);
