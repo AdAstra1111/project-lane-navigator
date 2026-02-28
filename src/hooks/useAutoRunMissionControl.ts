@@ -85,10 +85,12 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   }, [existingJob]);
 
   // ── Polling ──
+  // Don't poll when the job has pending decisions — let the user resolve them first
+  const hasPendingDecisions = Array.isArray(job?.pending_decisions) && (job?.pending_decisions as any[]).length > 0;
   useEffect(() => {
-    // Stop polling if no job, not running, or job is paused/awaiting
-    if (!job || !isRunning || job.status !== 'running' || job.awaiting_approval) {
-      if (isRunning && (job?.status !== 'running' || job?.awaiting_approval)) {
+    // Stop polling if no job, not running, or job is paused/awaiting/has pending decisions
+    if (!job || !isRunning || job.status !== 'running' || job.awaiting_approval || hasPendingDecisions) {
+      if (isRunning && (job?.status !== 'running' || job?.awaiting_approval || hasPendingDecisions)) {
         setIsRunning(false);
       }
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -111,11 +113,10 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     };
 
     pollRef.current = setInterval(poll, 3000);
-    // Run immediately too
     poll();
 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [job?.id, isRunning, job?.status, job?.awaiting_approval]);
+  }, [job?.id, isRunning, job?.status, job?.awaiting_approval, hasPendingDecisions]);
 
   // ── Core actions ──
   const refreshStatus = useCallback(async () => {

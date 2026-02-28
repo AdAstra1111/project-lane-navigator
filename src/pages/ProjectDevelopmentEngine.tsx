@@ -1855,6 +1855,7 @@ export default function ProjectDevelopmentEngine() {
                 onStop={autoRun.stop}
                 onClear={autoRun.clear}
                 onApproveDecision={autoRun.approveDecision}
+                onApplyDecisionsAndContinue={autoRun.applyDecisionsAndContinue}
                 onGetPendingDoc={autoRun.getPendingDoc}
                 onApproveNext={autoRun.approveNext}
                 onApproveSeedCore={autoRun.approveSeedCore}
