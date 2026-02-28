@@ -677,8 +677,8 @@ export function SeriesWriterPanel({ projectId }: Props) {
         </div>
       )}
 
-      {/* Master Season Script Panel */}
-      {hasEpisodes && completedCount > 0 && (
+      {/* Master Season Script Panel — only available after all episodes are complete */}
+      {hasEpisodes && isSeasonComplete && (
         <MasterSeasonScriptPanel
           status={masterScript.status}
           isCompiling={masterScript.compile.isPending}
