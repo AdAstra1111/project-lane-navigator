@@ -149,8 +149,6 @@ interface AutoRunMissionControlProps {
   onResumeFromStepLimit: () => Promise<void>;
   /** Auto-decide toggle */
   onToggleAllowDefaults?: (val: boolean) => Promise<void>;
-  /** Exhaustion budget */
-  onContinueExhaustion?: (bump?: number) => Promise<void>;
   /** Analysis data for auto-filling story setup */
   latestAnalysis?: any;
   /** Current document text to show in viewer */
@@ -290,7 +288,6 @@ export function AutoRunMissionControl({
   fetchDocumentText,
   onUpdateStepLimit, onResumeFromStepLimit,
   onToggleAllowDefaults,
-  onContinueExhaustion,
   latestAnalysis, currentDocText, currentDocMeta,
   availableDocuments, project, approvedVersionMap = {},
 }: AutoRunMissionControlProps) {
@@ -590,8 +587,8 @@ export function AutoRunMissionControl({
 
   const fallbackDecisions = useMemo<PendingDecision[]>(() => {
     if (job?.status !== 'paused') return [];
-    // Skip step-limit and stage-exhaustion pauses — handled by dedicated UI
-    if (job?.pause_reason === 'step_limit' || job?.pause_reason === 'stage_exhausted') return [];
+    // Skip step-limit pauses — handled by dedicated UI
+    if (job?.pause_reason === 'step_limit') return [];
     const pauseStepWithChoices = [...steps]
       .reverse()
       .find((s) => s.action === 'pause_for_approval' && Array.isArray((s.output_ref as any)?.choices));
@@ -618,8 +615,8 @@ export function AutoRunMissionControl({
 
   const activeDecisions = useMemo<PendingDecision[]>(() => {
     if (job?.status !== 'paused') return [];
-    // Step-limit and stage-exhaustion pauses are fully owned by dedicated UI — no decisions
-    if (job?.pause_reason === 'step_limit' || job?.pause_reason === 'stage_exhausted') return [];
+    // Step-limit pauses are fully owned by dedicated UI — no decisions
+    if (job?.pause_reason === 'step_limit') return [];
     const raw = Array.isArray(job?.pending_decisions) && job.pending_decisions.length > 0
       ? (job.pending_decisions as PendingDecision[])
       : fallbackDecisions;
@@ -1173,11 +1170,9 @@ export function AutoRunMissionControl({
                 isRunning={isRunning}
               />
 
-              {/* Convergence Target + Stage Exhaustion Budget */}
+              {/* Convergence Target */}
               {(() => {
                 const target = (job as any).converge_target_json || { ci: 90, gp: 90 };
-                const remaining = (job as any).stage_exhaustion_remaining ?? 4;
-                const defaultBudget = (job as any).stage_exhaustion_default ?? 4;
                 const ci = job.last_ci ?? 0;
                 const gp = job.last_gp ?? 0;
                 const ciMet = ci >= target.ci;
@@ -1187,56 +1182,9 @@ export function AutoRunMissionControl({
                     <span className="text-muted-foreground">Target:</span>
                     <span className={ciMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>CI {ci}/{target.ci}</span>
                     <span className={gpMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>GP {gp}/{target.gp}</span>
-                    <span className="text-muted-foreground ml-auto">Exhaustion:</span>
-                    <span className={`font-mono font-semibold ${remaining <= 1 ? 'text-destructive' : remaining <= 2 ? 'text-amber-400' : 'text-foreground'}`}>
-                      {remaining}/{defaultBudget}
-                    </span>
                   </div>
                 );
               })()}
-
-              {/* Stage Exhaustion Pause Banner */}
-              {job.pause_reason === 'stage_exhausted' && (
-                <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-2.5 space-y-2">
-                  <div className="flex items-center gap-1.5">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
-                    <span className="text-xs font-medium">
-                      Stage exhaustion budget reached (CI={job.last_ci ?? '?'}, GP={job.last_gp ?? '?'})
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">
-                    Convergence target not met. Choose how to proceed:
-                  </p>
-                  <div className="flex items-center gap-1.5">
-                    <Button size="sm" className="h-6 text-[9px] gap-1"
-                      onClick={() => onContinueExhaustion?.(4)}
-                      disabled={isRunning}
-                    >
-                      <Play className="h-3 w-3" /> Continue (+4)
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1"
-                      onClick={onForcePromote}
-                      disabled={isRunning}
-                    >
-                      <ArrowUpRight className="h-3 w-3" /> Force-promote
-                    </Button>
-                    <Button size="sm" variant="destructive" className="h-6 text-[9px] gap-1"
-                      onClick={onStop}
-                      disabled={isRunning}
-                    >
-                      <Square className="h-3 w-3" /> Stop
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Soft max-loops warning (non-blocking) */}
-              {job.status === 'running' && job.stage_loop_count >= job.max_stage_loops && (
-                <div className="flex items-center gap-1.5 text-[9px] text-amber-400 bg-amber-500/5 rounded px-2 py-1">
-                  <AlertTriangle className="h-3 w-3 shrink-0" />
-                  <span>Soft limit exceeded (loop {job.stage_loop_count}/{job.max_stage_loops}) — continuing toward convergence</span>
-                </div>
-              )}
 
               {/* Stage info + pipeline progress */}
               <div className="flex items-center gap-2 flex-wrap">

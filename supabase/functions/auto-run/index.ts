@@ -1531,29 +1531,6 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════
-    // ACTION: continue-exhaustion
-    // ═══════════════════════════════════════
-    if (action === "continue-exhaustion") {
-      if (!jobId) return respond({ error: "jobId required" }, 400);
-      const bump = Math.max(1, Math.min(Number(body.bump) || 4, 20));
-      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
-      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
-      const newRemaining = (job.stage_exhaustion_remaining ?? 0) + bump;
-      const stepCount = job.step_count + 1;
-      await logStep(supabase, jobId, stepCount, job.current_document, "exhaustion_budget_extended",
-        `Stage exhaustion budget extended by +${bump} (now ${newRemaining})`);
-      await updateJob(supabase, jobId, {
-        stage_exhaustion_remaining: newRemaining,
-        step_count: stepCount,
-        status: "running",
-        stop_reason: null,
-        pause_reason: null,
-        pending_decisions: null,
-      });
-      return respondWithJob(supabase, jobId, "run-next");
-    }
-
-    // ═══════════════════════════════════════
     if (action === "status") {
       const query = jobId
         ? supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single()
@@ -3847,7 +3824,7 @@ Deno.serve(async (req) => {
           const jobAfterOptions = await getJob(supabase, jobId);
           const hasActiveDecisions = Array.isArray(jobAfterOptions?.pending_decisions) && (jobAfterOptions.pending_decisions as any[]).length > 0;
 
-          // ── SOFT MAX-LOOPS + EXHAUSTION BUDGET (replaces old blocking max-loops) ──
+          // ── SOFT MAX-LOOPS: if past max loops, check convergence ──
           if (!optionsGeneratedThisStep && !hasActiveDecisions && newLoopCount >= job.max_stage_loops) {
             // Parse convergence targets
             const convergeTarget = (typeof job.converge_target_json === 'object' && job.converge_target_json) 
@@ -3856,32 +3833,15 @@ Deno.serve(async (req) => {
             const convergedEnough = (ci >= convergeTarget.ci) && (gp >= convergeTarget.gp);
 
             if (!convergedEnough) {
-              const exhaustionRemaining = job.stage_exhaustion_remaining ?? 4;
-              const exhaustionDefault = job.stage_exhaustion_default ?? 4;
-
-              if (exhaustionRemaining > 0 && job.step_count < job.max_total_steps) {
-                // Soft limit: decrement exhaustion budget and continue
-                await updateJob(supabase, jobId, {
-                  stage_loop_count: newLoopCount,
-                  stage_exhaustion_remaining: exhaustionRemaining - 1,
-                });
+              // Step budget is the only limit — if steps remain, keep going
+              if (job.step_count < job.max_total_steps) {
+                await updateJob(supabase, jobId, { stage_loop_count: newLoopCount });
                 await logStep(supabase, jobId, null, currentDoc, "soft_max_loops_continue",
-                  `Soft limit exceeded; continuing (exhaustion remaining ${exhaustionRemaining - 1}/${exhaustionDefault}) until CI>=${convergeTarget.ci} and GP>=${convergeTarget.gp} or budget exhausted (CI=${ci}, GP=${gp})`
+                  `Soft limit exceeded; continuing until CI>=${convergeTarget.ci} and GP>=${convergeTarget.gp} or step budget exhausted (CI=${ci}, GP=${gp})`
                 );
-                // Fall through to rewrite below — do NOT pause or return
-              } else {
-                // Exhaustion budget depleted — pause with stage_exhausted
-                await updateJob(supabase, jobId, {
-                  stage_loop_count: newLoopCount,
-                  status: "paused",
-                  pause_reason: "stage_exhausted",
-                  stop_reason: `Stage exhaustion budget reached before convergence (CI=${ci}/${convergeTarget.ci}, GP=${gp}/${convergeTarget.gp})`,
-                });
-                await logStep(supabase, jobId, null, currentDoc, "stage_exhausted",
-                  `Stage exhaustion budget depleted (CI=${ci}, GP=${gp}). Pausing for user decision.`
-                );
-                return respondWithJob(supabase, jobId);
+                // Fall through to rewrite below
               }
+              // If step budget exhausted, the step-limit guard at the top of run-next will catch it
             } else {
               // Converged enough — proceed to promotion normally
               const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
