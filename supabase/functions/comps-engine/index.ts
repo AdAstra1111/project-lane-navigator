@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, parseAiJson } from "../_shared/llm.ts";
+import { extractCompsFromText, normalizeTitle } from "../_shared/compTitleExtractor.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,10 +28,14 @@ Deno.serve(async (req) => {
     switch (action) {
       case "find_candidates":
         return await handleFindCandidates(supabase, body, apiKey);
+      case "extract_from_docs":
+        return await handleExtractFromDocs(supabase, body);
       case "lookup_comp":
         return await handleLookupComp(supabase, body, apiKey);
       case "confirm_lookup":
         return await handleConfirmLookup(supabase, body);
+      case "add_manual":
+        return await handleAddManual(supabase, body);
       case "set_influencers":
         return await handleSetInfluencers(supabase, body);
       case "build_engine_profile":
@@ -455,6 +460,140 @@ async function handleConfirmLookup(supabase: any, body: any) {
 
   if (error) return jsonResp({ error: error.message }, 500);
   return jsonResp({ candidate: data });
+}
+
+// ─── extract_from_docs ──────────────────────────────────────────
+
+async function handleExtractFromDocs(supabase: any, body: any) {
+  const { project_id } = body;
+  if (!project_id) return jsonResp({ error: "project_id required" }, 400);
+
+  // 1. Load all project docs with text
+  const { data: docs } = await supabase
+    .from("project_documents")
+    .select("id, title, file_name, doc_type, extracted_text, plaintext, updated_at")
+    .eq("project_id", project_id)
+    .order("updated_at", { ascending: false })
+    .limit(30);
+
+  const allDocs = docs || [];
+  let totalScanned = 0;
+  const allCandidates: any[] = [];
+  const allDropReasons: string[] = [];
+  const docsSummary: any[] = [];
+
+  for (const doc of allDocs) {
+    // Resolve text: plaintext > extracted_text > version plaintext
+    let text = (doc.plaintext || "").trim();
+    if (text.length < 50 && doc.extracted_text) {
+      text = (doc.extracted_text || "").trim();
+    }
+    if (text.length < 50) {
+      const { data: vers } = await supabase
+        .from("project_document_versions")
+        .select("id, plaintext, version_number")
+        .eq("document_id", doc.id)
+        .order("version_number", { ascending: false })
+        .limit(1);
+      if (vers?.[0]?.plaintext?.trim().length > 0) {
+        text = vers[0].plaintext.trim();
+      }
+    }
+    if (text.length < 20) continue;
+
+    const result = extractCompsFromText(text);
+    totalScanned += result.scanned_chars;
+    allDropReasons.push(...result.drop_reasons);
+
+    for (const c of result.candidates) {
+      allCandidates.push({
+        ...c,
+        source_doc_id: doc.id,
+        source_doc_title: doc.title || doc.file_name || "Untitled",
+      });
+    }
+
+    docsSummary.push({
+      doc_id: doc.id,
+      title: doc.title || doc.file_name,
+      doc_type: doc.doc_type,
+      chars: text.length,
+      extracted: result.candidates.length,
+    });
+  }
+
+  // De-dupe across docs
+  const seen = new Set<string>();
+  const uniqueCandidates = allCandidates.filter(c => {
+    if (seen.has(c.normalized_title)) return false;
+    seen.add(c.normalized_title);
+    return true;
+  });
+
+  // 2. Upsert into project_comparables
+  let attached = 0;
+  for (const c of uniqueCandidates) {
+    const { error } = await supabase
+      .from("project_comparables")
+      .upsert({
+        project_id,
+        title: c.title,
+        kind: c.kind !== "unknown" ? c.kind : null,
+        source: "project_docs",
+        source_doc_id: c.source_doc_id,
+        raw_text: c.raw_text,
+        normalized_title: c.normalized_title,
+        confidence: c.confidence,
+        extraction_meta: { source_doc_title: c.source_doc_title },
+      }, { onConflict: "project_id,normalized_title", ignoreDuplicates: false });
+    if (!error) attached++;
+    else console.error("Upsert comp error:", error.message);
+  }
+
+  // 3. Fetch all persisted comparables
+  const { data: persisted } = await supabase
+    .from("project_comparables")
+    .select("*")
+    .eq("project_id", project_id)
+    .order("created_at", { ascending: false });
+
+  return jsonResp({
+    comparables: persisted || [],
+    extraction_summary: {
+      docs_scanned: docsSummary.length,
+      total_chars: totalScanned,
+      candidates_found: allCandidates.length,
+      unique_candidates: uniqueCandidates.length,
+      attached,
+      drop_reasons: allDropReasons.slice(0, 20),
+      docs: docsSummary,
+    },
+  });
+}
+
+// ─── add_manual ─────────────────────────────────────────────────
+
+async function handleAddManual(supabase: any, body: any) {
+  const { project_id, title } = body;
+  if (!project_id || !title) return jsonResp({ error: "project_id, title required" }, 400);
+
+  const normalized = normalizeTitle(title);
+  if (normalized.length < 2) return jsonResp({ error: "Title too short" }, 400);
+
+  const { data, error } = await supabase
+    .from("project_comparables")
+    .upsert({
+      project_id,
+      title: title.trim(),
+      source: "manual",
+      normalized_title: normalized,
+      confidence: 1.0,
+    }, { onConflict: "project_id,normalized_title", ignoreDuplicates: false })
+    .select()
+    .single();
+
+  if (error) return jsonResp({ error: error.message }, 500);
+  return jsonResp({ comparable: data });
 }
 
 // ─── set_influencers ────────────────────────────────────────────

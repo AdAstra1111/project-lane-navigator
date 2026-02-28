@@ -11,7 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   Search, Star, Loader2, FileText, ChevronDown, CheckCircle2, Plus, Eye, Film, Tv, Smartphone,
-  Fingerprint, Upload, Link as LinkIcon, XCircle,
+  Fingerprint, Upload, Link as LinkIcon, XCircle, Sparkles, Trash2,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { INFLUENCE_DIMENSIONS, type InfluenceDimension } from '@/lib/rulesets/types';
@@ -92,12 +92,42 @@ const BUCKET_CONFIG = {
   film: { label: 'Film Comps', icon: Film, description: 'Films with similar premise/tone', color: 'text-muted-foreground' },
 };
 
+interface PersistedComp {
+  id: string;
+  title: string;
+  kind: string | null;
+  source: string;
+  normalized_title: string;
+  confidence: number | null;
+  raw_text: string | null;
+  extraction_meta: any;
+  created_at: string;
+}
+
+interface ExtractionSummary {
+  docs_scanned: number;
+  total_chars: number;
+  candidates_found: number;
+  unique_candidates: number;
+  attached: number;
+  drop_reasons: string[];
+  docs: any[];
+}
+
 export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsPanelProps) {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [selections, setSelections] = useState<Record<string, InfluencerSelection>>({});
   const [saving, setSaving] = useState(false);
   const { user } = useAuth();
+
+  // Persisted comparables from project_comparables table
+  const [persistedComps, setPersistedComps] = useState<PersistedComp[]>([]);
+  const [extracting, setExtracting] = useState(false);
+  const [extractionSummary, setExtractionSummary] = useState<ExtractionSummary | null>(null);
+  const [showExtractionDetails, setShowExtractionDetails] = useState(false);
+  const [manualTitle, setManualTitle] = useState('');
+  const [addingManual, setAddingManual] = useState(false);
 
   // Format filter toggles — defaults differ by lane
   const isVertical = lane === 'vertical_drama';
@@ -123,6 +153,19 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
       }, 0);
     });
   }, [projectId, lane]);
+
+  // Load persisted comparables on mount
+  useEffect(() => {
+    const loadPersistedComps = async () => {
+      const { data } = await (supabase as any)
+        .from('project_comparables')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false });
+      if (data?.length) setPersistedComps(data);
+    };
+    loadPersistedComps();
+  }, [projectId]);
 
   // Wrap setters to track user-initiated changes
   const handleSetIncludeFilms = useCallback((v: boolean) => { userChangedRef.current = true; setIncludeFilms(v); }, []);
@@ -178,6 +221,58 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
     loadExisting();
   }, [projectId, lane]);
 
+  // Extract comps from project docs (deterministic)
+  const extractFromDocs = async () => {
+    setExtracting(true);
+    setExtractionSummary(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('comps-engine', {
+        body: { action: 'extract_from_docs', project_id: projectId },
+      });
+      if (error) throw error;
+      setPersistedComps(data.comparables || []);
+      setExtractionSummary(data.extraction_summary || null);
+      const count = data.extraction_summary?.attached || 0;
+      if (count > 0) {
+        toast.success(`Extracted ${count} comparable title(s) from project docs`);
+      } else {
+        toast.info('No comparable titles detected in project docs');
+      }
+    } catch (err: any) {
+      console.error('Extract comps error:', err);
+      toast.error('Failed to extract comparables');
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  // Add manual comp
+  const addManualComp = async () => {
+    if (!manualTitle.trim()) return;
+    setAddingManual(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('comps-engine', {
+        body: { action: 'add_manual', project_id: projectId, title: manualTitle.trim() },
+      });
+      if (error) throw error;
+      if (data.comparable) {
+        setPersistedComps(prev => [data.comparable, ...prev.filter(c => c.id !== data.comparable.id)]);
+        toast.success(`Added "${manualTitle.trim()}"`);
+        setManualTitle('');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add');
+    } finally {
+      setAddingManual(false);
+    }
+  };
+
+  // Remove comp
+  const removeComp = async (id: string) => {
+    await (supabase as any).from('project_comparables').delete().eq('id', id);
+    setPersistedComps(prev => prev.filter(c => c.id !== id));
+  };
+
   const findCandidates = async () => {
     setLoading(true);
     setSeedSources([]);
@@ -185,6 +280,13 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
     setFallbackReason(null);
     setSeedDebug(null);
     setShowDebug(false);
+
+    // Step 1: If useProjectDocs, extract deterministic comps first
+    if (useProjectDocs) {
+      await extractFromDocs();
+    }
+
+    // Step 2: LLM-based candidate search
     try {
       const { data, error } = await supabase.functions.invoke('comps-engine', {
         body: {
@@ -637,8 +739,109 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
           )}
         </div>
 
+        {/* ── Attached Comparables (persisted) ── */}
+        {(persistedComps.length > 0 || extractionSummary) && (
+          <div className="border-t border-border/30 pt-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                <Sparkles className="h-3 w-3 text-primary" />
+                Attached Comparables ({persistedComps.length})
+              </label>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[10px] gap-1"
+                onClick={extractFromDocs}
+                disabled={extracting}
+              >
+                {extracting ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+                Re-extract from Docs
+              </Button>
+            </div>
+
+            {/* Extraction summary */}
+            {extractionSummary && (
+              <div className="bg-muted/40 rounded-md p-2 space-y-1">
+                <p className="text-[10px] text-muted-foreground">
+                  Parsed <strong>{extractionSummary.candidates_found}</strong> candidates from{' '}
+                  <strong>{extractionSummary.docs_scanned}</strong> doc(s), attached{' '}
+                  <strong>{extractionSummary.attached}</strong>, dropped{' '}
+                  <strong>{extractionSummary.candidates_found - extractionSummary.unique_candidates + extractionSummary.drop_reasons.length}</strong>
+                </p>
+                {extractionSummary.drop_reasons.length > 0 && (
+                  <Collapsible open={showExtractionDetails} onOpenChange={setShowExtractionDetails}>
+                    <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
+                      <ChevronDown className={`h-3 w-3 transition-transform ${showExtractionDetails ? 'rotate-180' : ''}`} />
+                      Drop reasons ({extractionSummary.drop_reasons.length})
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="mt-1 space-y-0.5 max-h-24 overflow-y-auto">
+                        {extractionSummary.drop_reasons.map((r, i) => (
+                          <p key={i} className="text-[9px] text-muted-foreground font-mono">{r}</p>
+                        ))}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
+              </div>
+            )}
+
+            {/* Comp chips */}
+            {persistedComps.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {persistedComps.map(c => (
+                  <div
+                    key={c.id}
+                    className="flex items-center gap-1 bg-primary/5 border border-primary/20 rounded-full px-2.5 py-1 text-[10px]"
+                  >
+                    <span className="font-medium text-foreground">{c.title}</span>
+                    {c.kind && (
+                      <Badge variant="outline" className="text-[8px] px-1 py-0 h-4">{c.kind}</Badge>
+                    )}
+                    <Badge variant="secondary" className="text-[7px] px-1 py-0 h-3.5">
+                      {c.source === 'project_docs' ? 'doc' : c.source}
+                    </Badge>
+                    <button
+                      onClick={() => removeComp(c.id)}
+                      className="text-muted-foreground hover:text-destructive ml-0.5"
+                    >
+                      <XCircle className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {persistedComps.length === 0 && extractionSummary && (
+              <p className="text-[10px] text-muted-foreground text-center py-2">
+                No comparable titles detected in docs. Add one manually below.
+              </p>
+            )}
+
+            {/* Manual add */}
+            <div className="flex gap-2">
+              <Input
+                value={manualTitle}
+                onChange={e => setManualTitle(e.target.value)}
+                placeholder="Add a comp manually…"
+                className="h-7 text-xs"
+                onKeyDown={e => e.key === 'Enter' && addManualComp()}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs shrink-0"
+                onClick={addManualComp}
+                disabled={addingManual || !manualTitle.trim()}
+              >
+                {addingManual ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* ── No Docs Empty State ── */}
-        {candidates.length === 0 && !loading && seedSources.length === 0 && (
+        {candidates.length === 0 && persistedComps.length === 0 && !loading && !extracting && seedSources.length === 0 && (
           <div className="text-center py-4 text-xs text-muted-foreground space-y-1">
             <p>No comparables yet.</p>
             <p>Click <strong>Find Comparables</strong> to auto-seed from project docs, or look up a specific title above.</p>
