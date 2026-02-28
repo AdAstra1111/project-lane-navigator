@@ -1,0 +1,1 @@
+GRANT EXECUTE ON FUNCTION public.increment_step_count(uuid) TO authenticated;
