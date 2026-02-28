@@ -66,6 +66,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   const consecutiveFailuresRef = useRef(0);
   const lastSuccessRef = useRef(Date.now());
   const pollInFlightRef = useRef(false);
+  const doPollRef = useRef<() => Promise<void>>();
 
   // ── Fetch existing job only when user has activated auto-run ──
   const { data: existingJob } = useQuery({
@@ -98,17 +99,21 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     if (pollRef.current) clearTimeout(pollRef.current);
     pollRef.current = setTimeout(() => {
       pollRef.current = null;
-      doPoll();
+      doPollRef.current?.();
     }, delayMs);
   }, []);
 
+  const jobIdRef = useRef(job?.id);
+  jobIdRef.current = job?.id;
+
   const doPoll = useCallback(async () => {
     if (abortRef.current || pollInFlightRef.current) return;
-    if (!job?.id) return;
+    const currentJobId = jobIdRef.current;
+    if (!currentJobId) return;
 
     pollInFlightRef.current = true;
     try {
-      const result = await callAutoRun('status', { jobId: job.id });
+      const result = await callAutoRun('status', { jobId: currentJobId });
 
       // ── Success path ──
       consecutiveFailuresRef.current = 0;
@@ -158,7 +163,10 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     } finally {
       pollInFlightRef.current = false;
     }
-  }, [job?.id, schedulePoll]);
+  }, [schedulePoll]);
+
+  // Keep ref in sync so schedulePoll always calls latest doPoll
+  doPollRef.current = doPoll;
 
   useEffect(() => {
     // Poll whenever backend job is actively running (job.status is source of truth)
@@ -180,7 +188,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     doPoll();
 
     return () => { if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; } };
-  }, [job?.id, job?.status, job?.awaiting_approval, shouldPausePollingForDecisions, isRunning, doPoll]);
+  }, [job?.id, job?.status, job?.awaiting_approval, shouldPausePollingForDecisions, doPoll]);
 
   // ── Core actions ──
   const refreshStatus = useCallback(async () => {
