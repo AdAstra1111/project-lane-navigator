@@ -11,6 +11,7 @@ export interface DevSeedJobItem {
   item_key: string;
   doc_type: string;
   episode_index: number | null;
+  phase?: 'foundation' | 'devpack';
   status: 'queued' | 'claimed' | 'running' | 'complete' | 'failed';
   attempts: number;
   error_code: string | null;
