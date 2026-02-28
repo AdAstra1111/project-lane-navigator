@@ -2,23 +2,25 @@
  * AutoRunProgressPanel — Transparent pipeline progress with stage timeline,
  * approval gating, and pinned input controls.
  *
- * Shows: Stage X/Y, current action, completed stages, approval prompts.
+ * Shows: Stage X/Y, current action, completed stages with CI/GP scores, approval prompts.
  */
+import { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import {
   CheckCircle2, Circle, Loader2, Lock, Play, Pause,
-  AlertTriangle, ArrowRight, Square, RotateCcw,
+  AlertTriangle, Square, RotateCcw,
 } from 'lucide-react';
-import type { AutoRunJob, AutoRunStageHistoryEntry } from '@/hooks/useAutoRun';
+import type { AutoRunJob, AutoRunStep, AutoRunStageHistoryEntry } from '@/hooks/useAutoRun';
 import { getLadderForFormat } from '@/lib/stages/registry';
 import { getDeliverableLabel } from '@/lib/dev-os-config';
 import { cn } from '@/lib/utils';
 
 interface Props {
   job: AutoRunJob;
+  steps: AutoRunStep[];
   format: string;
   isRunning: boolean;
   onPause: () => void;
@@ -43,8 +45,35 @@ const STAGE_STATUS_COLOR = {
   skipped: 'text-muted-foreground/40',
 } as const;
 
+/** Derive the best CI/GP scores per stage from step history */
+function deriveStageScores(steps: AutoRunStep[]): Record<string, { ci: number | null; gp: number | null }> {
+  const scores: Record<string, { ci: number | null; gp: number | null }> = {};
+  // Walk steps in order — last step with scores for a given document wins
+  for (const step of steps) {
+    if (step.ci != null || step.gp != null) {
+      scores[step.document] = {
+        ci: step.ci ?? scores[step.document]?.ci ?? null,
+        gp: step.gp ?? scores[step.document]?.gp ?? null,
+      };
+    }
+  }
+  return scores;
+}
+
+function ScoreBadge({ label, value }: { label: string; value: number | null }) {
+  if (value == null) return null;
+  const color = value >= 90 ? 'text-emerald-400 border-emerald-500/30'
+    : value >= 70 ? 'text-amber-400 border-amber-500/30'
+    : 'text-destructive border-destructive/30';
+  return (
+    <Badge variant="outline" className={cn('text-[7px] px-1 py-0 font-mono tabular-nums', color)}>
+      {label} {value}
+    </Badge>
+  );
+}
+
 export function AutoRunProgressPanel({
-  job, format, isRunning, onPause, onResume, onStop,
+  job, steps, format, isRunning, onPause, onResume, onStop,
   onApproveAndContinue, onReject, className,
 }: Props) {
   const pipeline = getLadderForFormat(format);
@@ -56,6 +85,8 @@ export function AutoRunProgressPanel({
   const isAwaitingApproval = job.awaiting_approval && !!job.approval_required_for_doc_type;
   const isPaused = job.status === 'paused';
   const isStopped = job.status === 'stopped' || job.status === 'failed';
+
+  const stageScores = useMemo(() => deriveStageScores(steps), [steps]);
 
   return (
     <Card className={cn('border-primary/20', className)}>
@@ -129,7 +160,7 @@ export function AutoRunProgressPanel({
           </div>
         )}
 
-        {/* Stage timeline */}
+        {/* Stage timeline with scores */}
         <div className="space-y-0.5">
           <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">
             Pipeline Stages
@@ -151,6 +182,13 @@ export function AutoRunProgressPanel({
               const Icon = STAGE_STATUS_ICON[status];
               const color = STAGE_STATUS_COLOR[status];
 
+              // Scores for this stage
+              const scores = stageScores[stage];
+              // For current stage, prefer job's live scores
+              const displayCi = isCurrent ? (job.last_ci ?? scores?.ci) : scores?.ci;
+              const displayGp = isCurrent ? (job.last_gp ?? scores?.gp) : scores?.gp;
+              const hasScores = displayCi != null || displayGp != null;
+
               return (
                 <div
                   key={stage}
@@ -162,21 +200,23 @@ export function AutoRunProgressPanel({
                 >
                   <Icon className={cn('h-3 w-3 shrink-0', color)} />
                   <span className={cn(
-                    'flex-1',
-                    isCompleted || isPast ? 'text-muted-foreground line-through' : 'text-foreground',
+                    'flex-1 truncate',
+                    isCompleted || isPast ? 'text-muted-foreground' : 'text-foreground',
                     isCurrent && 'font-medium text-primary',
                   )}>
                     {getDeliverableLabel(stage, format)}
                   </span>
+                  {/* CI/GP scores */}
+                  {hasScores && (status === 'completed' || isCurrent) && (
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      <ScoreBadge label="CI" value={displayCi ?? null} />
+                      <ScoreBadge label="GP" value={displayGp ?? null} />
+                    </div>
+                  )}
                   {isApprovalStage && (
-                    <Badge variant="outline" className="text-[7px] px-1 py-0 border-amber-500/30 text-amber-400">
+                    <Badge variant="outline" className="text-[7px] px-1 py-0 border-amber-500/30 text-amber-400 shrink-0">
                       approval needed
                     </Badge>
-                  )}
-                  {historyEntry?.base_version_id && (
-                    <span className="text-[8px] font-mono text-muted-foreground/50">
-                      {historyEntry.base_version_id.slice(0, 6)}
-                    </span>
                   )}
                 </div>
               );
