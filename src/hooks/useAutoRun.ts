@@ -345,6 +345,7 @@ export function useAutoRun(projectId: string | undefined) {
   ) => {
     if (!job) return;
     if (isRunning) return;
+    // Allow empty selectedOptions — backend will auto-accept if allow_defaults is on
     setError(null);
     abortRef.current = false;
     try {
