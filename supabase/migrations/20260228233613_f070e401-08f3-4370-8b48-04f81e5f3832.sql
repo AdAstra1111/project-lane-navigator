@@ -1,0 +1,1 @@
+ALTER TABLE public.auto_run_jobs ADD COLUMN IF NOT EXISTS best_document_id UUID NULL;

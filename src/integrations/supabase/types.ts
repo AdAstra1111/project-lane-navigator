@@ -466,6 +466,7 @@ export type Database = {
           approval_type: string | null
           awaiting_approval: boolean
           best_ci: number | null
+          best_document_id: string | null
           best_gp: number | null
           best_score: number | null
           best_version_id: string | null
@@ -527,6 +528,7 @@ export type Database = {
           approval_type?: string | null
           awaiting_approval?: boolean
           best_ci?: number | null
+          best_document_id?: string | null
           best_gp?: number | null
           best_score?: number | null
           best_version_id?: string | null
@@ -588,6 +590,7 @@ export type Database = {
           approval_type?: string | null
           awaiting_approval?: boolean
           best_ci?: number | null
+          best_document_id?: string | null
           best_gp?: number | null
           best_score?: number | null
           best_version_id?: string | null
