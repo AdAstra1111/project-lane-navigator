@@ -1802,6 +1802,7 @@ export default function ProjectDevelopmentEngine() {
                   {autoRun.activated && autoRun.job && !['completed'].includes(autoRun.job.status) && (
                     <AutoRunProgressPanel
                       job={autoRun.job}
+                      steps={autoRun.steps}
                       format={projectFormat}
                       isRunning={autoRun.isRunning}
                       onPause={autoRun.pause}
