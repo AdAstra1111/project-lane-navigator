@@ -8708,6 +8708,73 @@ export type Database = {
           },
         ]
       }
+      project_comparables: {
+        Row: {
+          confidence: number | null
+          created_at: string
+          extraction_meta: Json | null
+          id: string
+          kind: string | null
+          normalized_title: string
+          project_id: string
+          raw_text: string | null
+          source: string
+          source_doc_id: string | null
+          source_version_id: string | null
+          title: string
+        }
+        Insert: {
+          confidence?: number | null
+          created_at?: string
+          extraction_meta?: Json | null
+          id?: string
+          kind?: string | null
+          normalized_title: string
+          project_id: string
+          raw_text?: string | null
+          source?: string
+          source_doc_id?: string | null
+          source_version_id?: string | null
+          title: string
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string
+          extraction_meta?: Json | null
+          id?: string
+          kind?: string | null
+          normalized_title?: string
+          project_id?: string
+          raw_text?: string | null
+          source?: string
+          source_doc_id?: string | null
+          source_version_id?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_comparables_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_comparables_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_comparables_source_doc_id_fkey"
+            columns: ["source_doc_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_contracts: {
         Row: {
           contract_type: string
