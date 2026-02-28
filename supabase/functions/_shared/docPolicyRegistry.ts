@@ -30,7 +30,7 @@ const REGISTRY: Record<string, DocPolicy> = {
   episode_outline:  { docClass: "UNIT", requiresEpisodeIndex: true, acceptanceProfile: "UNIT_PROFILE_DEFAULT" },
   episode_script:   { docClass: "UNIT", requiresEpisodeIndex: true, acceptanceProfile: "UNIT_PROFILE_DEFAULT" },
 
-  // SINGLE docs
+  // SINGLE docs — every ladder doc type must be registered here
   concept_brief:    { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   logline:          { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   idea:             { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
@@ -49,6 +49,12 @@ const REGISTRY: Record<string, DocPolicy> = {
   documentary_outline: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   vertical_episode_beats: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   vertical_market_sheet: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  // Seed / support doc types that auto-run may encounter
+  project_overview: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  creative_brief:   { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  market_positioning: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  canon:            { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  nec:              { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
 
   // AGGREGATE docs (compile-only — no LLM rewrites)
   episode_grid:           { docClass: "AGGREGATE", acceptanceProfile: "AGG_PROFILE_DEFAULT" },

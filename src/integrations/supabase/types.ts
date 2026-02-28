@@ -477,6 +477,7 @@ export type Database = {
           follow_latest: boolean
           id: string
           is_processing: boolean
+          last_analyzed_version_id: string | null
           last_ci: number | null
           last_confidence: number | null
           last_error: string | null
@@ -533,6 +534,7 @@ export type Database = {
           follow_latest?: boolean
           id?: string
           is_processing?: boolean
+          last_analyzed_version_id?: string | null
           last_ci?: number | null
           last_confidence?: number | null
           last_error?: string | null
@@ -589,6 +591,7 @@ export type Database = {
           follow_latest?: boolean
           id?: string
           is_processing?: boolean
+          last_analyzed_version_id?: string | null
           last_ci?: number | null
           last_confidence?: number | null
           last_error?: string | null
