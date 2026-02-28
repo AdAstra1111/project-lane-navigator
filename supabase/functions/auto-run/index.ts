@@ -1449,8 +1449,12 @@ async function rewriteWithFallback(
     );
   } catch (e: any) {
     // Detect needsPipeline from the error message (400 response gets thrown)
-    if (e.message && (e.message.includes("needsPipeline") || e.message.includes("too long for single-pass"))) {
-      console.log(`[auto-run] Document too long for single-pass, using chunked pipeline`);
+    if (e.message && (
+      e.message.includes("needsPipeline") ||
+      e.message.includes("too long for single-pass") ||
+      e.message.toLowerCase().includes("large-risk doc type")
+    )) {
+      console.log(`[auto-run] Document requires chunked rewrite pipeline, using chunked pipeline`);
       await chunkedRewrite(supabase, supabaseUrl, token, {
         projectId: rewriteBody.projectId,
         documentId: rewriteBody.documentId,
