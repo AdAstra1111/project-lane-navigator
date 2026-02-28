@@ -27,7 +27,7 @@ export interface DevSeedJob {
   project_id: string | null;
   lane: string | null;
   mode: 'minimal' | 'backfill';
-  status: 'queued' | 'running' | 'paused' | 'failed' | 'complete';
+  status: 'queued' | 'running' | 'paused' | 'paused_blocked' | 'failed' | 'complete';
   include_dev_pack: boolean;
   progress_json: {
     total_items: number;
@@ -83,6 +83,8 @@ export function useDevSeedBackfill(projectId: string | undefined, pitchIdeaId: s
       setItems(existingJob.items || []);
       if (existingJob.job.status === 'running') {
         setIsRunning(true);
+      } else {
+        setIsRunning(false);
       }
     }
   }, [existingJob]);
@@ -96,7 +98,11 @@ export function useDevSeedBackfill(projectId: string | undefined, pitchIdeaId: s
       try {
         const result = await callOrchestrator('tick', { jobId: job.id });
         if (result.items) setItems(result.items);
-        if (result.done) {
+        if (result.job) setJob(result.job);
+        if (result.blocked) {
+          // Foundation gate blocked — stop polling
+          setIsRunning(false);
+        } else if (result.done) {
           setJob(prev => prev ? { ...prev, status: 'complete' } : null);
           setIsRunning(false);
           qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
