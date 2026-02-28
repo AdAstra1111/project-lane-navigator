@@ -1276,16 +1276,16 @@ async function updateJob(supabase: any, jobId: string, fields: Record<string, an
 
 // ── Helper: finalize-best — promote best_version_id on job end ──
 // INVARIANT: is_current only changes via set_current_version after promotion gate OR finalize.
-// STAGE-SCOPED: only promotes if best_document_id matches current/resume doc (the doc being finalized).
-async function finalizeBest(supabase: any, jobId: string, job: any): Promise<boolean> {
+// STAGE-SCOPED: only promotes if best_document_id matches the explicit currentDocId (the doc being finalized).
+async function finalizeBest(supabase: any, jobId: string, job: any, explicitCurrentDocId?: string): Promise<boolean> {
   const bestVersionId = job?.best_version_id;
   if (!bestVersionId) return false;
 
   // Stage-scope check: best must belong to the document we're currently working on
   const bestDocId = job?.best_document_id;
-  const currentDocId = job?.resume_document_id || null;
+  const currentDocId = explicitCurrentDocId || job?.resume_document_id || null;
   if (bestDocId && currentDocId && bestDocId !== currentDocId) {
-    console.log("[auto-run] finalizeBest no-op: best_document_id does not match current doc", { bestDocId, currentDocId });
+    console.log("[auto-run] finalizeBest no-op: best_document_id does not match current doc", { bestDocId, currentDocId, explicitCurrentDocId });
     return false;
   }
 
@@ -1299,7 +1299,7 @@ async function finalizeBest(supabase: any, jobId: string, job: any): Promise<boo
 
   // Double-check version belongs to the current working document
   if (currentDocId && ver.document_id !== currentDocId) {
-    console.log("[auto-run] finalizeBest no-op: version document_id mismatch", { versionDocId: ver.document_id, currentDocId });
+    console.log("[auto-run] finalizeBest no-op: version document_id mismatch", { versionDocId: ver.document_id, currentDocId, explicitCurrentDocId });
     return false;
   }
 
@@ -1321,7 +1321,7 @@ async function finalizeBest(supabase: any, jobId: string, job: any): Promise<boo
   await logStep(supabase, jobId, null, job.current_document || "unknown", "finalize_promote_best",
     `Job ending — promoted best version ${bestVersionId} (CI=${job.best_ci}, GP=${job.best_gp}, score=${job.best_score})`,
     { ci: job.best_ci, gp: job.best_gp }, undefined,
-    { best_version_id: bestVersionId, best_document_id: bestDocId, best_ci: job.best_ci, best_gp: job.best_gp, best_score: job.best_score });
+    { best_version_id: bestVersionId, best_document_id: bestDocId, best_ci: job.best_ci, best_gp: job.best_gp, best_score: job.best_score, explicitCurrentDocId });
 
   // Clear frontier fields
   await updateJob(supabase, jobId, {
@@ -1333,7 +1333,7 @@ async function finalizeBest(supabase: any, jobId: string, job: any): Promise<boo
 
 // ── Helper: get job ──
 async function getJob(supabase: any, jobId: string) {
-  const { data } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+  const { data } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
   return data;
 }
 
@@ -1843,10 +1843,10 @@ Deno.serve(async (req) => {
       if (!jobId) return respond({ error: "jobId required" }, 400);
       const newStatus = action === "pause" ? "paused" : "stopped";
       await updateJob(supabase, jobId, { status: newStatus, stop_reason: `User ${action}d` });
-      const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+      const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
       // Finalize-best on stop: promote best version found during the run
       if (action === "stop" && job?.best_version_id) {
-        await finalizeBest(supabase, jobId, job);
+        await finalizeBest(supabase, jobId, job, job.resume_document_id || undefined);
       }
       return respond({ job, latest_steps: [], next_action_hint: action === "pause" ? "resume" : "none" });
     }
@@ -1869,7 +1869,7 @@ Deno.serve(async (req) => {
         resumeUpdates.resume_version_id = null;
       }
       await updateJob(supabase, jobId, resumeUpdates);
-      const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+      const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
       return respond({ job, latest_steps: [], next_action_hint: "run-next" });
     }
 
@@ -2449,6 +2449,8 @@ Deno.serve(async (req) => {
           status: "running", stop_reason: null, error: null,
           awaiting_approval: false, approval_type: null, approval_payload: null,
           pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
+          // Clear frontier on stage change — frontier is scoped per document stage
+          frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
         });
       } else {
         // Target reached
@@ -2475,6 +2477,8 @@ Deno.serve(async (req) => {
       await updateJob(supabase, jobId, {
         current_document: stage, stage_loop_count: 0, step_count: stepCount,
         stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
+        // Clear frontier on stage change — frontier is scoped per document stage
+        frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
       });
       return respondWithJob(supabase, jobId);
     }
@@ -2505,6 +2509,8 @@ Deno.serve(async (req) => {
         status: "running", stop_reason: null,
         awaiting_approval: false, approval_type: null, pending_doc_id: null, pending_version_id: null,
         pending_doc_type: null, pending_next_doc_type: null, pending_decisions: null,
+        // Clear frontier on stage change — frontier is scoped per document stage
+        frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
       });
       return respondWithJob(supabase, jobId, "run-next");
     }
@@ -2527,6 +2533,8 @@ Deno.serve(async (req) => {
         awaiting_approval: false, approval_type: null, approval_payload: null,
         pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
         pending_decisions: null,
+        // Clear frontier on stage change — frontier is scoped per document stage
+        frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
       });
       return respondWithJob(supabase, jobId, "run-next");
     }
@@ -3215,7 +3223,7 @@ Deno.serve(async (req) => {
 
       if (stepCount >= job.max_total_steps) {
         // Finalize-best: promote best version before pausing
-        await finalizeBest(supabase, jobId, job);
+        await finalizeBest(supabase, jobId, job, job.resume_document_id || undefined);
         // Auto-pause with pause_reason='step_limit' — no decision prompt
         await updateJob(supabase, jobId, {
           status: "paused",
@@ -4069,6 +4077,8 @@ Deno.serve(async (req) => {
               await updateJob(supabase, jobId, {
                 current_document: nextAfterAggregate,
                 stage_loop_count: 0,
+                // Clear frontier on stage change — frontier is scoped per document stage
+                frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
               });
               return respondWithJob(supabase, jobId, "run-next");
             } else {
@@ -4277,7 +4287,7 @@ Deno.serve(async (req) => {
               .from("auto_run_jobs")
               .select("frontier_version_id, frontier_attempts")
               .eq("id", jobId)
-              .single();
+              .maybeSingle();
             const prevFrontierVersionId = freshJob?.frontier_version_id ?? null;
             const prevAttempts = freshJob?.frontier_attempts ?? 0;
             const isNewFrontier = prevFrontierVersionId !== candVersionId;
@@ -4391,7 +4401,7 @@ Deno.serve(async (req) => {
                   .from("auto_run_jobs")
                   .select("frontier_attempts")
                   .eq("id", jobId)
-                  .single();
+                  .maybeSingle();
                 const frontierAttempts = freshJobFork?.frontier_attempts ?? 0;
                 if (frontierAttempts < MAX_FRONTIER_ATTEMPTS) {
                   const best = explorable[0];
@@ -4534,7 +4544,7 @@ Deno.serve(async (req) => {
                 .from("auto_run_jobs")
                 .select("frontier_attempts")
                 .eq("id", jobId)
-                .single();
+                .maybeSingle();
               const frontierAttempts = freshJobSingle?.frontier_attempts ?? 0;
               if (frontierAttempts < MAX_FRONTIER_ATTEMPTS) {
                 await setFrontier(candidateVersionId, candidateCI, candidateGP,
