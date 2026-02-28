@@ -2090,6 +2090,7 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId, "wait");
       }
       const currentDoc = job.current_document as DocStage;
+      const stepCount = job.step_count + 1;
 
       if (approvalDecision === "stop") {
         await logStep(supabase, jobId, stepCount, currentDoc, "approval_stop", "User stopped at approval gate");
