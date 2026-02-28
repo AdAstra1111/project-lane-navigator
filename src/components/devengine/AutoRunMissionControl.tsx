@@ -528,8 +528,10 @@ export function AutoRunMissionControl({
     ? (job!.pending_decisions as PendingDecision[]).find(d => d.impact === 'blocking') || (job!.pending_decisions as PendingDecision[])[0]
     : null;
 
-  const hasEscalation = job?.last_risk_flags?.some((f: string) => f.startsWith('hard_gate:'))
-    || job?.stop_reason?.includes('Executive Strategy');
+  const hasEscalation = (job?.status === 'paused' || job?.status === 'stopped' || job?.status === 'failed') && (
+    job?.last_risk_flags?.some((f: string) => f.startsWith('hard_gate:'))
+    || job?.stop_reason?.includes('Executive Strategy')
+  );
 
   const progressPct = job && job.max_total_steps > 0 ? Math.round((job.step_count / job.max_total_steps) * 100) : 0;
   const statusStyle = STATUS_STYLES[job?.status || 'queued'] || STATUS_STYLES.queued;
