@@ -1840,7 +1840,14 @@ Deno.serve(async (req) => {
       } else if (did.includes("budget")) {
         projectUpdates.budget_range = choiceValue;
       } else if (did.includes("format")) {
-        projectUpdates.format = choiceValue;
+        // Normalize: never store decision option IDs (B1-A, B2-A) as format
+        const FORMAT_NORMALIZE: Record<string, string> = {
+          "b1-a": "film", "b1a": "film", "b2-a": "vertical-drama", "b2a": "vertical-drama",
+          "vertical_drama": "vertical-drama", "tv_series": "tv-series", "narrative_feature": "film",
+          "short_film": "short-film", "limited_series": "limited-series",
+        };
+        const normalizedFormat = FORMAT_NORMALIZE[choiceValue.toLowerCase()] || choiceValue;
+        projectUpdates.format = normalizedFormat;
       } else if (did.includes("episode") || did.includes("duration") || did.includes("runtime")) {
         const num = Number(choiceValue);
         if (!isNaN(num)) {

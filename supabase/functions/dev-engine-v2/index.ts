@@ -4564,15 +4564,22 @@ Return ONLY valid JSON matching this schema:
         projectUpdates.budget_range = criteria.budget_range;
       }
       if (criteria.format_subtype) {
-        // Map to DB format
+        // Map to DB format — normalize decision option IDs and underscored variants
         const fmtMap: Record<string, string> = {
-          "vertical-drama": "vertical_drama", "tv-series": "tv_series",
-          "limited-series": "limited_series", "documentary-series": "documentary_series",
-          "hybrid-documentary": "hybrid_documentary", "digital-series": "digital_series",
-          "anim-series": "anim_series", "anim-feature": "anim_feature",
-          "short-film": "short_film",
+          "vertical-drama": "vertical-drama", "tv-series": "tv-series",
+          "limited-series": "limited-series", "documentary-series": "documentary-series",
+          "hybrid-documentary": "hybrid-documentary", "digital-series": "digital-series",
+          "anim-series": "anim-series", "anim-feature": "anim-feature",
+          "short-film": "short-film",
+          // Decision option IDs that must never leak as format
+          "b1-a": "film", "b1a": "film", "b2-a": "vertical-drama", "b2a": "vertical-drama",
+          // Underscored variants
+          "vertical_drama": "vertical-drama", "tv_series": "tv-series",
+          "limited_series": "limited-series", "short_film": "short-film",
+          "narrative_feature": "film",
         };
-        projectUpdates.format = fmtMap[criteria.format_subtype] || criteria.format_subtype;
+        const rawFmt = criteria.format_subtype.toLowerCase();
+        projectUpdates.format = fmtMap[rawFmt] || criteria.format_subtype;
       }
 
       // Write to guardrails_config
