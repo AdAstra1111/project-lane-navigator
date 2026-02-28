@@ -3892,6 +3892,7 @@ export type Database = {
           job_id: string
           output_doc_id: string | null
           output_version_id: string | null
+          phase: string
           status: string
           updated_at: string
         }
@@ -3911,6 +3912,7 @@ export type Database = {
           job_id: string
           output_doc_id?: string | null
           output_version_id?: string | null
+          phase?: string
           status?: string
           updated_at?: string
         }
@@ -3930,6 +3932,7 @@ export type Database = {
           job_id?: string
           output_doc_id?: string | null
           output_version_id?: string | null
+          phase?: string
           status?: string
           updated_at?: string
         }
@@ -21295,6 +21298,7 @@ export type Database = {
           job_id: string
           output_doc_id: string | null
           output_version_id: string | null
+          phase: string
           status: string
           updated_at: string
         }[]

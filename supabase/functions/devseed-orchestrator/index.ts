@@ -4,7 +4,8 @@
  * Actions:
  *   - status: get current job state + items for a pitch idea / project
  *   - enqueue_backfill: create a devseed_job + items for backfill
- *   - tick: claim + process next item(s)
+ *   - tick: claim + process next item(s) — with foundation gate
+ *   - pause / resume
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -14,8 +15,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// DevSeed 5 doc types that get backfilled (quality pass)
-const DEVSEED_DOC_TYPES = ["idea", "concept_brief", "treatment", "character_bible", "market_sheet"];
+// DevSeed 5 doc types — the foundation set
+const FOUNDATION_DOC_TYPES = ["idea", "concept_brief", "treatment", "character_bible", "market_sheet"];
 
 // Development doc types per lane
 const DEV_DOCS_SERIES = ["season_arc", "episode_grid"];
@@ -27,7 +28,6 @@ function getDevDocItems(lane: string, episodeCount: number | null): Array<{ item
     for (const dt of DEV_DOCS_SERIES) {
       items.push({ item_key: dt, doc_type: dt, episode_index: null });
     }
-    // Per-episode beats + scripts if episode count is locked
     if (episodeCount && episodeCount > 0) {
       for (let i = 1; i <= episodeCount; i++) {
         items.push({ item_key: `vertical_episode_beats:E${String(i).padStart(2, "0")}`, doc_type: "vertical_episode_beats", episode_index: i });
@@ -43,6 +43,46 @@ function getDevDocItems(lane: string, episodeCount: number | null): Array<{ item
   return [];
 }
 
+/**
+ * Check if all foundation items are complete (not failed/queued/running).
+ * Returns { allApproved, failed[], incomplete[] }
+ */
+async function checkFoundationGate(sb: any, jobId: string) {
+  const { data: foundationItems } = await sb
+    .from("devseed_job_items")
+    .select("id, item_key, doc_type, status, gate_score, gate_failures, output_doc_id, output_version_id")
+    .eq("job_id", jobId)
+    .eq("phase", "foundation");
+
+  if (!foundationItems || foundationItems.length === 0) {
+    return { allApproved: true, failed: [], incomplete: [] };
+  }
+
+  const failed = foundationItems.filter((i: any) => i.status === "failed");
+  const incomplete = foundationItems.filter((i: any) => !["complete", "failed"].includes(i.status));
+  const withGateFailures = foundationItems.filter((i: any) => i.status === "complete" && i.gate_failures?.length > 0);
+
+  // Foundation gate: all must be complete with no gate failures
+  const allApproved = failed.length === 0 && incomplete.length === 0 && withGateFailures.length === 0;
+
+  return {
+    allApproved,
+    failed: [...failed, ...withGateFailures].map((i: any) => ({
+      item_key: i.item_key,
+      doc_type: i.doc_type,
+      status: i.status,
+      gate_failures: i.gate_failures,
+      output_doc_id: i.output_doc_id,
+      output_version_id: i.output_version_id,
+    })),
+    incomplete: incomplete.map((i: any) => ({
+      item_key: i.item_key,
+      doc_type: i.doc_type,
+      status: i.status,
+    })),
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -56,16 +96,13 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-    // User client for auth
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) throw new Error("Not authenticated");
 
-    // Service client for DB operations
     const sb = createClient(supabaseUrl, serviceKey);
-
     const body = await req.json();
     const { action } = body;
 
@@ -108,11 +145,10 @@ Deno.serve(async (req) => {
         .from("devseed_jobs")
         .select("id, status")
         .eq("project_id", projectId)
-        .in("status", ["queued", "running", "paused"])
+        .in("status", ["queued", "running", "paused", "paused_blocked"])
         .limit(1);
 
       if (existing && existing.length > 0) {
-        // Return existing job
         return new Response(JSON.stringify({ job_id: existing[0].id, resumed: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -133,18 +169,20 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Build item list
-      const items: Array<{ item_key: string; doc_type: string; episode_index: number | null }> = [];
+      // Build item list with phase tags
+      const items: Array<{ item_key: string; doc_type: string; episode_index: number | null; phase: string }> = [];
 
-      // DevSeed 5 quality pass
-      for (const dt of DEVSEED_DOC_TYPES) {
-        items.push({ item_key: dt, doc_type: dt, episode_index: null });
+      // Foundation items (DevSeed 5)
+      for (const dt of FOUNDATION_DOC_TYPES) {
+        items.push({ item_key: dt, doc_type: dt, episode_index: null, phase: "foundation" });
       }
 
       // Dev pack items
       if (includeDevPack) {
         const devItems = getDevDocItems(lane || "feature", episodeCount);
-        items.push(...devItems);
+        for (const di of devItems) {
+          items.push({ ...di, phase: "devpack" });
+        }
       }
 
       // Create job
@@ -165,12 +203,13 @@ Deno.serve(async (req) => {
 
       if (jobErr) throw new Error(`Failed to create job: ${jobErr.message}`);
 
-      // Insert items
+      // Insert items with phase
       const itemRows = items.map(item => ({
         job_id: job.id,
         item_key: item.item_key,
         doc_type: item.doc_type,
         episode_index: item.episode_index,
+        phase: item.phase,
         status: "queued",
       }));
 
@@ -190,17 +229,91 @@ Deno.serve(async (req) => {
       const { jobId } = body;
       if (!jobId) throw new Error("jobId required");
 
-      // Verify job ownership
       const { data: job } = await sb.from("devseed_jobs").select("*").eq("id", jobId).single();
       if (!job) throw new Error("Job not found");
       if (job.created_by !== user.id) throw new Error("Not authorized");
-      if (job.status !== "running") {
+      if (!["running"].includes(job.status)) {
         return new Response(JSON.stringify({ done: job.status === "complete", job }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // Claim next item
+      // ── FOUNDATION GATE: before claiming, check if we're about to enter devpack phase ──
+      // Are there any queued foundation items left?
+      const { data: queuedFoundation } = await sb
+        .from("devseed_job_items")
+        .select("id")
+        .eq("job_id", jobId)
+        .eq("phase", "foundation")
+        .in("status", ["queued", "claimed", "running"])
+        .limit(1);
+
+      const foundationStillProcessing = queuedFoundation && queuedFoundation.length > 0;
+
+      // If foundation is done processing, check gate before allowing devpack
+      if (!foundationStillProcessing) {
+        const { data: devpackQueued } = await sb
+          .from("devseed_job_items")
+          .select("id")
+          .eq("job_id", jobId)
+          .eq("phase", "devpack")
+          .eq("status", "queued")
+          .limit(1);
+
+        const hasDevpackWork = devpackQueued && devpackQueued.length > 0;
+
+        if (hasDevpackWork) {
+          const gate = await checkFoundationGate(sb, jobId);
+          if (!gate.allApproved) {
+            // PAUSE with blockers — do NOT proceed to devpack
+            const blockers = [
+              ...gate.failed.map((f: any) => ({
+                type: "foundation_gate_failed",
+                doc_type: f.doc_type,
+                item_key: f.item_key,
+                gate_failures: f.gate_failures,
+                output_doc_id: f.output_doc_id,
+                output_version_id: f.output_version_id,
+              })),
+              ...gate.incomplete.map((i: any) => ({
+                type: "foundation_incomplete",
+                doc_type: i.doc_type,
+                item_key: i.item_key,
+                status: i.status,
+              })),
+            ];
+
+            await sb.from("devseed_jobs").update({
+              status: "paused_blocked",
+              progress_json: {
+                ...job.progress_json,
+                current_step: null,
+                blockers,
+                last_error: "Foundation docs must be approved before dev pack can proceed",
+              },
+            }).eq("id", jobId);
+
+            const { data: allItems } = await sb
+              .from("devseed_job_items")
+              .select("*")
+              .eq("job_id", jobId)
+              .order("episode_index", { ascending: true, nullsFirst: true })
+              .order("item_key", { ascending: true });
+
+            return new Response(JSON.stringify({
+              done: false,
+              blocked: true,
+              blockers,
+              items: allItems,
+              job: { ...job, status: "paused_blocked" },
+            }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
+      }
+
+      // Claim next item (RPC respects phase ordering: foundation first)
       const { data: claimed } = await sb.rpc("claim_next_devseed_items", {
         p_job_id: jobId,
         p_limit: 1,
@@ -219,7 +332,7 @@ Deno.serve(async (req) => {
         if (!remaining || remaining.length === 0) {
           await sb.from("devseed_jobs").update({
             status: "complete",
-            progress_json: { ...job.progress_json, current_step: null },
+            progress_json: { ...job.progress_json, current_step: null, blockers: [] },
           }).eq("id", jobId);
 
           return new Response(JSON.stringify({ done: true, job: { ...job, status: "complete" } }), {
@@ -236,15 +349,14 @@ Deno.serve(async (req) => {
 
       // Update progress
       await sb.from("devseed_jobs").update({
-        progress_json: { ...job.progress_json, current_step: item.item_key },
+        progress_json: { ...job.progress_json, current_step: item.item_key, blockers: [] },
       }).eq("id", jobId);
 
       // Mark running
       await sb.from("devseed_job_items").update({ status: "running" }).eq("id", item.id);
 
       try {
-        // Process item: call dev-engine-v2 analyze for quality assessment
-        // For now, just check if the doc exists and mark complete
+        // Process item
         const { data: existingDoc } = await sb
           .from("project_documents")
           .select("id")
@@ -256,7 +368,6 @@ Deno.serve(async (req) => {
         let outputVersionId: string | null = null;
 
         if (outputDocId) {
-          // Get current version
           const { data: currentVer } = await sb
             .from("project_document_versions")
             .select("id, version_number, plaintext")
@@ -267,7 +378,6 @@ Deno.serve(async (req) => {
 
           outputVersionId = currentVer?.id || null;
 
-          // Run quality gate via dev-engine-v2 analyze
           if (currentVer?.plaintext && currentVer.plaintext.length > 100) {
             try {
               const analyzeResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
@@ -289,15 +399,45 @@ Deno.serve(async (req) => {
                 const ci = analyzeData?.ci_score || analyzeData?.scores?.ci || null;
                 const failures = analyzeData?.blocking_issues?.map((b: any) => b.title || b.summary || "blocker") || [];
 
-                await sb.from("devseed_job_items").update({
-                  status: "complete",
-                  output_doc_id: outputDocId,
-                  output_version_id: outputVersionId,
-                  gate_score: ci,
-                  gate_failures: failures.length > 0 ? failures : null,
-                }).eq("id", item.id);
+                // For foundation items: if there are blocking issues, mark as FAILED
+                if (item.phase === "foundation" && failures.length > 0) {
+                  await sb.from("devseed_job_items").update({
+                    status: "failed",
+                    output_doc_id: outputDocId,
+                    output_version_id: outputVersionId,
+                    gate_score: ci,
+                    gate_failures: failures,
+                    error_code: "gate_failed",
+                    error_detail: `Foundation gate failed: ${failures.join(", ")}`,
+                  }).eq("id", item.id);
+
+                  // Immediately pause the job — do not continue
+                  await sb.from("devseed_jobs").update({
+                    status: "paused_blocked",
+                    progress_json: {
+                      ...job.progress_json,
+                      current_step: null,
+                      blockers: [{
+                        type: "foundation_gate_failed",
+                        doc_type: item.doc_type,
+                        item_key: item.item_key,
+                        gate_failures: failures,
+                        output_doc_id: outputDocId,
+                        output_version_id: outputVersionId,
+                      }],
+                      last_error: `Foundation doc "${item.doc_type}" failed gate: ${failures[0]}`,
+                    },
+                  }).eq("id", jobId);
+                } else {
+                  await sb.from("devseed_job_items").update({
+                    status: "complete",
+                    output_doc_id: outputDocId,
+                    output_version_id: outputVersionId,
+                    gate_score: ci,
+                    gate_failures: failures.length > 0 ? failures : null,
+                  }).eq("id", item.id);
+                }
               } else {
-                // Analyze failed but doc exists — mark complete anyway
                 await sb.from("devseed_job_items").update({
                   status: "complete",
                   output_doc_id: outputDocId,
@@ -305,7 +445,6 @@ Deno.serve(async (req) => {
                 }).eq("id", item.id);
               }
             } catch {
-              // Non-fatal: mark complete with doc reference
               await sb.from("devseed_job_items").update({
                 status: "complete",
                 output_doc_id: outputDocId,
@@ -313,21 +452,72 @@ Deno.serve(async (req) => {
               }).eq("id", item.id);
             }
           } else {
-            // Doc exists but content too short — mark complete, needs manual work
-            await sb.from("devseed_job_items").update({
-              status: "complete",
-              output_doc_id: outputDocId,
-              output_version_id: outputVersionId,
-              gate_failures: ["content_too_short"],
-            }).eq("id", item.id);
+            // Content too short — for foundation, this is a failure
+            if (item.phase === "foundation") {
+              await sb.from("devseed_job_items").update({
+                status: "failed",
+                output_doc_id: outputDocId,
+                output_version_id: outputVersionId,
+                gate_failures: ["content_too_short"],
+                error_code: "content_too_short",
+                error_detail: "Document content is too short for gate assessment",
+              }).eq("id", item.id);
+
+              await sb.from("devseed_jobs").update({
+                status: "paused_blocked",
+                progress_json: {
+                  ...job.progress_json,
+                  current_step: null,
+                  blockers: [{
+                    type: "foundation_gate_failed",
+                    doc_type: item.doc_type,
+                    item_key: item.item_key,
+                    gate_failures: ["content_too_short"],
+                    output_doc_id: outputDocId,
+                    output_version_id: outputVersionId,
+                  }],
+                  last_error: `Foundation doc "${item.doc_type}" content too short`,
+                },
+              }).eq("id", jobId);
+            } else {
+              await sb.from("devseed_job_items").update({
+                status: "complete",
+                output_doc_id: outputDocId,
+                output_version_id: outputVersionId,
+                gate_failures: ["content_too_short"],
+              }).eq("id", item.id);
+            }
           }
         } else {
-          // Doc doesn't exist yet — mark complete (placeholder for future generation)
-          await sb.from("devseed_job_items").update({
-            status: "complete",
-            error_code: "doc_not_found",
-            error_detail: `No document found for ${item.doc_type}`,
-          }).eq("id", item.id);
+          // Doc doesn't exist — foundation docs MUST exist
+          if (item.phase === "foundation") {
+            await sb.from("devseed_job_items").update({
+              status: "failed",
+              error_code: "doc_not_found",
+              error_detail: `Foundation doc "${item.doc_type}" not found in project`,
+            }).eq("id", item.id);
+
+            await sb.from("devseed_jobs").update({
+              status: "paused_blocked",
+              progress_json: {
+                ...job.progress_json,
+                current_step: null,
+                blockers: [{
+                  type: "foundation_gate_failed",
+                  doc_type: item.doc_type,
+                  item_key: item.item_key,
+                  gate_failures: ["doc_not_found"],
+                }],
+                last_error: `Foundation doc "${item.doc_type}" does not exist`,
+              },
+            }).eq("id", jobId);
+          } else {
+            await sb.from("devseed_job_items").update({
+              status: "complete",
+              error_code: "doc_not_found",
+              error_detail: `No document found for ${item.doc_type}`,
+            }).eq("id", item.id);
+          }
         }
       } catch (err: any) {
         await sb.from("devseed_job_items").update({
@@ -335,31 +525,59 @@ Deno.serve(async (req) => {
           error_code: "processing_error",
           error_detail: err.message,
         }).eq("id", item.id);
+
+        // If foundation item, pause job
+        if (item.phase === "foundation") {
+          await sb.from("devseed_jobs").update({
+            status: "paused_blocked",
+            progress_json: {
+              ...job.progress_json,
+              current_step: null,
+              blockers: [{
+                type: "foundation_gate_failed",
+                doc_type: item.doc_type,
+                item_key: item.item_key,
+                gate_failures: ["processing_error"],
+              }],
+              last_error: err.message,
+            },
+          }).eq("id", jobId);
+        }
       }
 
       // Update progress count
-      const { data: doneCount } = await sb
+      const { count: doneCount } = await sb
         .from("devseed_job_items")
         .select("id", { count: "exact", head: true })
         .eq("job_id", jobId)
         .in("status", ["complete", "failed"]);
 
-      const doneItems = (doneCount as any)?.length || 0;
-      await sb.from("devseed_jobs").update({
-        progress_json: { ...job.progress_json, done_items: doneItems, current_step: null },
-      }).eq("id", jobId);
+      // Re-read job status (may have been paused by foundation failure above)
+      const { data: updatedJob } = await sb.from("devseed_jobs").select("status, progress_json").eq("id", jobId).single();
+      const currentStatus = updatedJob?.status || job.status;
+      const currentProgress = updatedJob?.progress_json || job.progress_json;
 
-      // Check if all items are done
-      const { data: pendingItems } = await sb
-        .from("devseed_job_items")
-        .select("id")
-        .eq("job_id", jobId)
-        .in("status", ["queued", "claimed", "running"])
-        .limit(1);
+      if (currentStatus === "running") {
+        await sb.from("devseed_jobs").update({
+          progress_json: { ...currentProgress, done_items: doneCount || 0 },
+        }).eq("id", jobId);
 
-      const allDone = !pendingItems || pendingItems.length === 0;
-      if (allDone) {
-        await sb.from("devseed_jobs").update({ status: "complete" }).eq("id", jobId);
+        // Check if all items are done
+        const { data: pendingItems } = await sb
+          .from("devseed_job_items")
+          .select("id")
+          .eq("job_id", jobId)
+          .in("status", ["queued", "claimed", "running"])
+          .limit(1);
+
+        if (!pendingItems || pendingItems.length === 0) {
+          await sb.from("devseed_jobs").update({ status: "complete" }).eq("id", jobId);
+        }
+      } else {
+        // Job was paused by foundation gate — just update done_items
+        await sb.from("devseed_jobs").update({
+          progress_json: { ...currentProgress, done_items: doneCount || 0 },
+        }).eq("id", jobId);
       }
 
       // Fetch updated items
@@ -370,10 +588,14 @@ Deno.serve(async (req) => {
         .order("episode_index", { ascending: true, nullsFirst: true })
         .order("item_key", { ascending: true });
 
+      const { data: finalJob } = await sb.from("devseed_jobs").select("*").eq("id", jobId).single();
+
       return new Response(JSON.stringify({
-        done: allDone,
+        done: finalJob?.status === "complete",
+        blocked: finalJob?.status === "paused_blocked",
         processed_item: item.item_key,
         items: allItems,
+        job: finalJob,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -391,7 +613,26 @@ Deno.serve(async (req) => {
     // ── RESUME ──
     if (action === "resume") {
       const { jobId } = body;
-      await sb.from("devseed_jobs").update({ status: "running" }).eq("id", jobId).eq("created_by", user.id);
+      // Reset failed foundation items to queued for retry
+      await sb.from("devseed_job_items")
+        .update({ status: "queued", error_code: null, error_detail: null, gate_failures: null })
+        .eq("job_id", jobId)
+        .eq("status", "failed")
+        .eq("phase", "foundation");
+
+      await sb.from("devseed_jobs").update({
+        status: "running",
+        progress_json: sb.rpc ? undefined : undefined, // handled below
+      }).eq("id", jobId).eq("created_by", user.id);
+
+      // Clear blockers in progress_json
+      const { data: currentJob } = await sb.from("devseed_jobs").select("progress_json").eq("id", jobId).single();
+      if (currentJob) {
+        await sb.from("devseed_jobs").update({
+          progress_json: { ...currentJob.progress_json, blockers: [], last_error: null },
+        }).eq("id", jobId);
+      }
+
       return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
