@@ -51,11 +51,12 @@ export function AutoRunBanner({
   const hasStepError = !!job.error && status === 'running';
   const isFailed = status === 'failed' || hasStepError;
   const hasSelectedVersion = !!selectedDocId && !!selectedVersionId;
+  const isStepLimitPause = job.pause_reason === 'step_limit';
   const hasPendingDecisions = Array.isArray(job.pending_decisions) && job.pending_decisions.length > 0;
-  const needsDecisions = !isFailed && hasPendingDecisions;
-  const needsApproval = !isFailed && !hasPendingDecisions && !!job.awaiting_approval;
+  const needsDecisions = !isFailed && hasPendingDecisions && !isStepLimitPause;
+  const needsApproval = !isFailed && !hasPendingDecisions && !!job.awaiting_approval && !isStepLimitPause;
   const needsCriteria = (job.stop_reason || '').includes('Missing required criteria');
-  const isStaleDoc = (job.stop_reason || '').includes('Document stale vs current criteria');
+  const isStaleDoc = !isStepLimitPause && (job.stop_reason || '').includes('Document stale vs current criteria');
   const staleDiffKeys = isStaleDoc ? (job.stop_reason || '').match(/: (.+?)\./)?.[1] || '' : '';
 
   const handleResumeSelected = async () => {
