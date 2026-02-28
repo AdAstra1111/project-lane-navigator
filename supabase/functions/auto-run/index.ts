@@ -1387,7 +1387,21 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { action, projectId, jobId, mode, start_document, target_document, max_stage_loops, max_total_steps, decision } = body;
+    const { action, projectId, jobId, mode, start_document, target_document, max_stage_loops, max_total_steps, decision, new_step_limit } = body;
+
+    // ═══════════════════════════════════════
+    // ACTION: update-step-limit
+    // ═══════════════════════════════════════
+    if (action === "update-step-limit") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const HARD_MAX_STEPS = 1000;
+      const limit = Math.max(1, Math.min(Number(new_step_limit) || 1, HARD_MAX_STEPS));
+      const { error: updErr } = await supabase.from("auto_run_jobs")
+        .update({ max_total_steps: limit })
+        .eq("id", jobId).eq("user_id", userId);
+      if (updErr) return respond({ error: updErr.message }, 500);
+      return respondWithJob(supabase, jobId, "none");
+    }
 
     // ═══════════════════════════════════════
     // ACTION: status
@@ -1579,6 +1593,7 @@ Deno.serve(async (req) => {
       if (!jobId) return respond({ error: "jobId required" }, 400);
       const resumeUpdates: Record<string, any> = {
         status: "running", stop_reason: null, error: null,
+        pause_reason: null, pending_decisions: null,
         awaiting_approval: false, approval_type: null, approval_payload: null,
         pending_doc_id: null, pending_version_id: null,
         pending_doc_type: null, pending_next_doc_type: null,
@@ -2775,60 +2790,19 @@ Deno.serve(async (req) => {
 
 
       if (stepCount >= job.max_total_steps) {
-        const stepLimitDecisions = [
-          {
-            id: "raise_step_limit_once",
-            question: `Step limit (${job.max_total_steps}) reached. Continue with 6 more steps?`,
-            options: [
-              { value: "yes", why: "Add 6 more steps and continue the current development cycle" },
-              { value: "no", why: "Stop the run here" },
-            ],
-            recommended: "yes",
-            impact: "blocking" as const,
-          },
-          {
-            id: "run_exec_strategy",
-            question: "Run Executive Strategy to diagnose and reposition?",
-            options: [
-              { value: "yes", why: "Recommended when progress has stalled — analyses lane, budget, and qualifications" },
-              { value: "no", why: "Skip strategic review" },
-            ],
-            recommended: "yes",
-            impact: "non_blocking" as const,
-          },
-          {
-            id: "force_promote",
-            question: "Force-promote to the next document stage?",
-            options: [
-              { value: "yes", why: "Skip remaining loops and advance to the next stage immediately" },
-              { value: "no", why: "Stay at current stage" },
-            ],
-            impact: "non_blocking" as const,
-          },
-        ];
-
-        const pendingBundle = {
-          reason: "step_limit_reached",
-          current_document: currentDoc,
-          last_ci: job.last_ci,
-          last_gp: job.last_gp,
-          last_gap: job.last_gap,
-          last_readiness: job.last_readiness,
-          last_risk_flags: job.last_risk_flags,
-          choices: stepLimitDecisions,
-        };
-
+        // Auto-pause with pause_reason='step_limit' — no decision prompt
         await updateJob(supabase, jobId, {
           status: "paused",
-          stop_reason: "Approval required to continue",
-          pending_decisions: stepLimitDecisions,
+          pause_reason: "step_limit",
+          stop_reason: null,
+          pending_decisions: null,
+          awaiting_approval: false,
         });
         await logStep(supabase, jobId, stepCount + 1, currentDoc, "pause_for_approval",
-          `Step limit (${job.max_total_steps}) reached — awaiting user decision`,
+          `Step limit (${job.max_total_steps}) reached — auto-paused`,
           { ci: job.last_ci, gp: job.last_gp, gap: job.last_gap, readiness: job.last_readiness },
-          undefined, pendingBundle
         );
-        return respondWithJob(supabase, jobId, "approve-decision");
+        return respondWithJob(supabase, jobId, "step-limit-paused");
       }
 
       // ── Guard: already at target ──

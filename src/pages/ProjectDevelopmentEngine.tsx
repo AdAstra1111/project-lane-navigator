@@ -1867,6 +1867,8 @@ export default function ProjectDevelopmentEngine() {
                 onSaveLaneBudget={autoRun.saveLaneBudget}
                 onSaveGuardrails={autoRun.saveGuardrails}
                 fetchDocumentText={autoRun.fetchDocumentText}
+                onUpdateStepLimit={autoRun.updateStepLimit}
+                onResumeFromStepLimit={autoRun.resumeFromStepLimit}
                 latestAnalysis={latestAnalysis}
                 currentDocText={versionText}
                 currentDocMeta={{

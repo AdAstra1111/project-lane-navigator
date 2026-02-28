@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { StepBudgetControl } from './StepBudgetControl';
 import { useRegenerateInsufficient, type RegenSummary } from '@/hooks/useRegenerateInsufficient';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
 import { useQueryClient } from '@tanstack/react-query';
@@ -141,6 +142,9 @@ interface AutoRunMissionControlProps {
   onSaveLaneBudget: (lane: string, budget: string) => Promise<void>;
   onSaveGuardrails: (gc: any) => Promise<void>;
   fetchDocumentText: (documentId?: string, versionId?: string) => Promise<DocumentTextResult | null>;
+  /** Step budget control */
+  onUpdateStepLimit: (newLimit: number) => Promise<void>;
+  onResumeFromStepLimit: () => Promise<void>;
   /** Analysis data for auto-filling story setup */
   latestAnalysis?: any;
   /** Current document text to show in viewer */
@@ -278,6 +282,7 @@ export function AutoRunMissionControl({
   onSetStage, onForcePromote, onRestartFromStage,
   onSaveStorySetup, onSaveQualifications, onSaveLaneBudget, onSaveGuardrails,
   fetchDocumentText,
+  onUpdateStepLimit, onResumeFromStepLimit,
   latestAnalysis, currentDocText, currentDocMeta,
   availableDocuments, project, approvedVersionMap = {},
 }: AutoRunMissionControlProps) {
@@ -565,10 +570,11 @@ export function AutoRunMissionControl({
 
   const activeDecisions = useMemo<PendingDecision[]>(() => {
     if (job?.status !== 'paused') return [];
-    if (Array.isArray(job?.pending_decisions) && job.pending_decisions.length > 0) {
-      return job.pending_decisions as PendingDecision[];
-    }
-    return fallbackDecisions;
+    const raw = Array.isArray(job?.pending_decisions) && job.pending_decisions.length > 0
+      ? (job.pending_decisions as PendingDecision[])
+      : fallbackDecisions;
+    // Filter out step-limit decisions — handled by StepBudgetControl
+    return raw.filter(d => d.id !== 'raise_step_limit_once' && !d.id?.endsWith(':raise_step_limit_once'));
   }, [job?.status, job?.pending_decisions, fallbackDecisions]);
 
   const hasDecisions = activeDecisions.length > 0;
@@ -581,7 +587,6 @@ export function AutoRunMissionControl({
     || job?.stop_reason?.includes('Executive Strategy')
   );
 
-  const progressPct = job && job.max_total_steps > 0 ? Math.round((job.step_count / job.max_total_steps) * 100) : 0;
   const statusStyle = STATUS_STYLES[job?.status || 'queued'] || STATUS_STYLES.queued;
 
   // ── All story setup fields ──
@@ -1094,15 +1099,13 @@ export function AutoRunMissionControl({
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-3 space-y-2">
-              {/* Progress */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>Step {job.step_count}/{job.max_total_steps}</span>
-                  <span>Loop {job.stage_loop_count}/{job.max_stage_loops}</span>
-                  <span className="uppercase text-[9px]">{job.mode}</span>
-                </div>
-                <Progress value={progressPct} className="h-1.5" />
-              </div>
+              {/* Step Budget Control */}
+              <StepBudgetControl
+                job={job}
+                onUpdateLimit={onUpdateStepLimit}
+                onContinue={onResumeFromStepLimit}
+                isRunning={isRunning}
+              />
 
               {/* Stage info + pipeline progress */}
               <div className="flex items-center gap-2 flex-wrap">

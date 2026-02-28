@@ -395,6 +395,38 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     }
   }, [job]);
 
+  const updateStepLimit = useCallback(async (newLimit: number) => {
+    if (!job) return;
+    const HARD_MAX = 1000;
+    const clamped = Math.max(1, Math.min(newLimit, HARD_MAX));
+    try {
+      const result = await callAutoRun('update-step-limit', { jobId: job.id, new_step_limit: clamped });
+      if (result.job) setJob(result.job);
+    } catch (e: any) { setError(e.message); }
+  }, [job]);
+
+  const resumeFromStepLimit = useCallback(async () => {
+    if (!job) return;
+    const RESUME_BUMP = 10;
+    const HARD_MAX = 1000;
+    let newLimit = job.max_total_steps;
+    if (newLimit <= job.step_count) {
+      newLimit = Math.min(job.step_count + RESUME_BUMP, HARD_MAX);
+    }
+    abortRef.current = false;
+    setError(null);
+    try {
+      // Update limit first if needed
+      if (newLimit !== job.max_total_steps) {
+        await callAutoRun('update-step-limit', { jobId: job.id, new_step_limit: newLimit });
+      }
+      // Resume
+      await callAutoRun('resume', { jobId: job.id });
+      setIsRunning(true);
+      refreshStatus();
+    } catch (e: any) { setError(e.message); }
+  }, [job, refreshStatus]);
+
   return {
     job, steps, isRunning, error, activated,
     // Core actions
@@ -411,5 +443,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     saveStorySetup, saveQualifications, saveLaneBudget, saveGuardrails,
     // Document text
     fetchDocumentText,
+    // Step budget
+    updateStepLimit, resumeFromStepLimit,
   };
 }
