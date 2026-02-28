@@ -1373,8 +1373,11 @@ function tryAutoAcceptDecisions(decisions: NormalizedDecision[], allowDefaults: 
   for (const d of blocking) {
     if (d.recommended) {
       selections[d.id] = d.recommended;
+    } else if (d.options && d.options.length > 0) {
+      // Auto-decide: pick first option when no recommendation exists
+      selections[d.id] = d.options[0].value;
     } else {
-      return null; // Can't auto-accept — missing recommendation
+      return null; // No options at all — must pause for user
     }
   }
   return selections;
