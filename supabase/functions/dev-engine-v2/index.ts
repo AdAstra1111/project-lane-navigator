@@ -946,10 +946,14 @@ const FORMAT_ALIASES: Record<string, string> = {
   "b2a": "vertical-drama",
   "vertical": "vertical-drama",
   "vertical_drama": "vertical-drama",
+  // Decision option IDs that may leak into format column
+  "b1-a": "film",
+  "b1a": "film",
 };
 
 function resolveFormatAlias(format: string): string {
-  return FORMAT_ALIASES[format] || format;
+  const lower = format.toLowerCase();
+  return FORMAT_ALIASES[lower] || FORMAT_ALIASES[format] || format;
 }
 
 const FORMAT_EXPECTATIONS: Record<string, string> = {
