@@ -2528,11 +2528,16 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
         if (applyPolicy.docClass === "AGGREGATE") {
-          await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_llm_write_blocked",
-            `AGGREGATE doc "${currentDoc}" cannot be LLM-rewritten (apply-rewrite). Halting.`);
-          await updateJob(supabase, jobId, { status: "paused", pause_reason: "AGGREGATE_COMPILE_ONLY",
-            stop_reason: `AGGREGATE doc type "${currentDoc}" cannot be LLM-rewritten. Compile-only.` });
-          return respondWithJob(supabase, jobId);
+          await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_skip_advance",
+            `AGGREGATE doc "${currentDoc}" is compile-only. Skipping rewrite, advancing to next stage.`);
+          const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+          if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
+            await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0 });
+            return respondWithJob(supabase, jobId, "run-next");
+          } else {
+            await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied (aggregate skip)" });
+            return respondWithJob(supabase, jobId);
+          }
         }
         if (applyPolicy.docClass === "UNIT" && applyPolicy.requiresEpisodeIndex) {
           const unitDoc = doc;
@@ -2892,11 +2897,16 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
         if (decPolicy.docClass === "AGGREGATE") {
-          await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_llm_write_blocked",
-            `AGGREGATE doc "${currentDoc}" cannot be LLM-rewritten (apply-decisions). Halting.`);
-          await updateJob(supabase, jobId, { status: "paused", pause_reason: "AGGREGATE_COMPILE_ONLY",
-            stop_reason: `AGGREGATE doc type "${currentDoc}" cannot be LLM-rewritten. Compile-only.` });
-          return respondWithJob(supabase, jobId);
+          await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_skip_advance",
+            `AGGREGATE doc "${currentDoc}" is compile-only. Skipping rewrite, advancing to next stage.`);
+          const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+          if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
+            await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0 });
+            return respondWithJob(supabase, jobId, "run-next");
+          } else {
+            await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied (aggregate skip)" });
+            return respondWithJob(supabase, jobId);
+          }
         }
         if (decPolicy.docClass === "UNIT" && decPolicy.requiresEpisodeIndex) {
           // Fetch the doc record to check meta_json
