@@ -7,7 +7,7 @@ import { loadLanePrefs, loadTeamVoiceProfile } from "../_shared/prefs.ts";
 import { buildTeamVoicePromptBlock } from "../_shared/teamVoice.ts";
 import { isLargeRiskDocType, chunkPlanFor } from "../_shared/largeRiskRouter.ts";
 import { runChunkedGeneration } from "../_shared/chunkRunner.ts";
-import { hasBannedSummarizationLanguage } from "../_shared/chunkValidator.ts";
+import { hasBannedSummarizationLanguage, validateEpisodicChunk, validateEpisodicContent } from "../_shared/chunkValidator.ts";
 import {
   extractFingerprint, computeDeviation, buildTargetFromTeamVoice,
   buildTargetFromWritingVoice, buildStyleEvalMeta, buildStyleRepairPrompt,
@@ -3210,20 +3210,115 @@ MATERIAL TO REWRITE:\n${fullText}`;
       if (!version) throw new Error("Version not found");
 
       const fullText = version.plaintext || "";
-      const CHUNK_TARGET = 12000;
-      const lines = fullText.split("\n");
-      let currentChunk = "";
-      const chunkTexts: string[] = [];
+      const { data: sourceDoc } = await supabase.from("project_documents")
+        .select("doc_type")
+        .eq("id", documentId)
+        .maybeSingle();
+      const sourceDocType = sourceDoc?.doc_type || "script";
 
-      for (const line of lines) {
-        const isSlugline = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/.test(line.trim());
-        if (isSlugline && currentChunk.length >= CHUNK_TARGET) {
-          chunkTexts.push(currentChunk.trim());
-          currentChunk = "";
+      const buildLegacySluglineChunks = (text: string): string[] => {
+        const CHUNK_TARGET = 12000;
+        const lines = text.split("\n");
+        let currentChunk = "";
+        const chunks: string[] = [];
+
+        for (const line of lines) {
+          const isSlugline = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/.test(line.trim());
+          if (isSlugline && currentChunk.length >= CHUNK_TARGET) {
+            chunks.push(currentChunk.trim());
+            currentChunk = "";
+          }
+          currentChunk += line + "\n";
         }
-        currentChunk += line + "\n";
+        if (currentChunk.trim()) chunks.push(currentChunk.trim());
+        return chunks.length > 0 ? chunks : [text];
+      };
+
+      const parseEpisodeBlocks = (raw: string): Array<{ episodeNumber: number; text: string }> => {
+        const headerPattern = /^#{1,4}\s*(?:EPISODE|EP\.?)\s*0?(\d+)\b[^\n]*/gim;
+        const matches = [...raw.matchAll(headerPattern)];
+        if (matches.length === 0) return [];
+
+        const blocks: Array<{ episodeNumber: number; text: string }> = [];
+        for (let i = 0; i < matches.length; i++) {
+          const episodeNumber = parseInt(matches[i][1], 10);
+          const startIdx = matches[i].index!;
+          const endIdx = i < matches.length - 1 ? matches[i + 1].index! : raw.length;
+          const text = raw.slice(startIdx, endIdx).trim();
+          if (episodeNumber >= 1) blocks.push({ episodeNumber, text });
+        }
+        return blocks;
+      };
+
+      let chunkTexts = buildLegacySluglineChunks(fullText);
+      let chunkMeta: Array<{ chunk_index: number; chunk_key: string; label: string; episode_start?: number | null; episode_end?: number | null; section_id?: string | null }> =
+        chunkTexts.map((_, i) => ({
+          chunk_index: i,
+          chunk_key: `chunk_${String(i + 1).padStart(2, "0")}`,
+          label: `Chunk ${i + 1}`,
+        }));
+      let strategy = "legacy_slugline";
+      let resolvedEpisodeCount: number | null = null;
+
+      if (isLargeRiskDocType(sourceDocType)) {
+        try {
+          const episodeBlocks = parseEpisodeBlocks(fullText);
+          const episodeMap = new Map<number, string>(episodeBlocks.map((b) => [b.episodeNumber, b.text]));
+          const maxEpisodeInSource = episodeBlocks.reduce((max, b) => Math.max(max, b.episodeNumber), 0);
+
+          const { data: projectRow } = await supabase.from("projects")
+            .select("season_episode_count")
+            .eq("id", projectId)
+            .maybeSingle();
+
+          const canonicalEpisodeCount = Number(projectRow?.season_episode_count || 0);
+          resolvedEpisodeCount = canonicalEpisodeCount > 0
+            ? canonicalEpisodeCount
+            : (maxEpisodeInSource > 0 ? maxEpisodeInSource : null);
+
+          if (resolvedEpisodeCount && resolvedEpisodeCount > 0) {
+            const plan = chunkPlanFor(sourceDocType, {
+              episodeCount: resolvedEpisodeCount,
+              sceneCount: null,
+            });
+
+            if (plan.strategy === "episodic_indexed") {
+              strategy = "episodic_indexed";
+              chunkMeta = plan.chunks.map((chunk) => ({
+                chunk_index: chunk.chunkIndex,
+                chunk_key: chunk.chunkKey,
+                label: chunk.label,
+                episode_start: chunk.episodeStart ?? null,
+                episode_end: chunk.episodeEnd ?? null,
+                section_id: chunk.sectionId ?? null,
+              }));
+
+              chunkTexts = plan.chunks.map((chunk) => {
+                const start = chunk.episodeStart ?? 0;
+                const end = chunk.episodeEnd ?? 0;
+                const parts: string[] = [];
+                for (let ep = start; ep <= end; ep++) {
+                  const block = episodeMap.get(ep);
+                  if (block) {
+                    parts.push(block);
+                  } else {
+                    parts.push(`## EPISODE ${ep}\n[MISSING IN SOURCE — regenerate this episode fully.]`);
+                  }
+                }
+                return parts.join("\n\n").trim();
+              });
+            }
+          }
+        } catch (episodicPlanErr: any) {
+          console.warn(`[dev-engine-v2] rewrite-plan episodic chunking fallback: ${episodicPlanErr?.message || episodicPlanErr}`);
+        }
       }
-      if (currentChunk.trim()) chunkTexts.push(currentChunk.trim());
+
+      if (chunkTexts.length === 0) {
+        chunkTexts = [fullText];
+        chunkMeta = [{ chunk_index: 0, chunk_key: "chunk_01", label: "Chunk 1" }];
+        strategy = "legacy_slugline";
+      }
 
       const { data: planRun } = await supabase.from("development_runs").insert({
         project_id: projectId,
@@ -3238,6 +3333,10 @@ MATERIAL TO REWRITE:\n${fullText}`;
           approved_notes: approvedNotes || [],
           protect_items: protectItems || [],
           chunk_texts: chunkTexts,
+          doc_type: sourceDocType,
+          strategy,
+          episode_count: resolvedEpisodeCount,
+          chunk_meta: chunkMeta,
         },
       }).select().single();
 
@@ -3258,20 +3357,58 @@ MATERIAL TO REWRITE:\n${fullText}`;
       if (!planRun) throw new Error("Plan run not found");
 
       const plan = planRun.output_json as any;
-      const chunkText = plan.chunk_texts[chunkIndex];
-      if (!chunkText) throw new Error(`Chunk ${chunkIndex} not found`);
+      const chunkText = plan?.chunk_texts?.[chunkIndex];
+      if (chunkText === undefined) throw new Error(`Chunk ${chunkIndex} not found`);
 
       const notesContext = `PROTECT (non-negotiable):\n${JSON.stringify(plan.protect_items || [])}\n\nAPPROVED NOTES:\n${JSON.stringify(plan.approved_notes || [])}`;
       const prevContext = previousChunkEnding
         ? `\n\nPREVIOUS CHUNK ENDING (for continuity):\n${previousChunkEnding}`
         : "";
 
-      const chunkPrompt = `${notesContext}${prevContext}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite this section, applying notes while preserving all scenes and story beats:\n\n${chunkText}`;
+      const strategy = plan?.strategy || "legacy_slugline";
+      const docType = plan?.doc_type || "script";
+      const chunkMeta = Array.isArray(plan?.chunk_meta) ? plan.chunk_meta[chunkIndex] : null;
 
-      console.log(`Rewrite chunk ${chunkIndex + 1}/${plan.total_chunks} (${chunkText.length} chars)`);
-      const rewrittenChunk = await callAI(
-        LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_CHUNK_SYSTEM, chunkPrompt, 0.4, 16000
-      );
+      let rewrittenChunk = "";
+
+      if (strategy === "episodic_indexed" && chunkMeta?.episode_start && chunkMeta?.episode_end) {
+        const start = Number(chunkMeta.episode_start);
+        const end = Number(chunkMeta.episode_end);
+        const expectedEpisodes = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+
+        let repairDirective = "";
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const episodicPrompt = `${notesContext}${prevContext}${repairDirective}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite Episodes ${start}-${end} ONLY.\n\nCRITICAL RULES:\n- Output exactly Episodes ${start} through ${end}.\n- Include explicit headings like \"## EPISODE N\" for each episode.\n- Do NOT omit, merge, summarize, or renumber episodes.\n- Do NOT use summary language (\"remaining episodes\", \"and so on\", \"etc\").\n\nSOURCE EPISODES TO REWRITE:\n${chunkText || "(No source text for this range. Regenerate all episodes in-range fully.)"}`;
+
+          console.log(`Rewrite episodic chunk ${chunkIndex + 1}/${plan.total_chunks} (episodes ${start}-${end})`);
+          rewrittenChunk = await callAI(
+            LOVABLE_API_KEY,
+            BALANCED_MODEL,
+            REWRITE_CHUNK_SYSTEM,
+            episodicPrompt,
+            0.4,
+            20000,
+          );
+
+          const validation = validateEpisodicChunk(rewrittenChunk, expectedEpisodes, docType);
+          if (validation.pass) break;
+
+          if (attempt === 2) {
+            throw new Error(`Episodic chunk validation failed for ${start}-${end}: ${validation.failures.map((f) => f.detail).join("; ")}`);
+          }
+
+          const missing = validation.missingIndices?.length
+            ? ` Missing episodes: ${validation.missingIndices.join(", ")}.`
+            : "";
+          repairDirective = `\n\nREPAIR REQUIRED (attempt ${attempt + 2}/3): Previous output failed validation.${missing} Return COMPLETE content for each required episode with no summaries.`;
+        }
+      } else {
+        const chunkPrompt = `${notesContext}${prevContext}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite this section, applying notes while preserving all scenes and story beats:\n\n${chunkText}`;
+        console.log(`Rewrite chunk ${chunkIndex + 1}/${plan.total_chunks} (${chunkText.length} chars)`);
+        rewrittenChunk = await callAI(
+          LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_CHUNK_SYSTEM, chunkPrompt, 0.4, 16000,
+        );
+      }
 
       return new Response(JSON.stringify({
         chunkIndex,
@@ -3310,6 +3447,39 @@ MATERIAL TO REWRITE:\n${fullText}`;
         runtimeWarning = `This draft estimates ~${Math.round(newMins)} mins (below preferred minimum ${softMin} mins).`;
       }
 
+      let notesCount = 0;
+      let planOutput: any = null;
+      if (planRunId) {
+        const { data: planRun } = await supabase.from("development_runs")
+          .select("output_json").eq("id", planRunId).single();
+        if (planRun) {
+          planOutput = planRun.output_json as any;
+          notesCount = ((planOutput as any).approved_notes || []).length;
+        }
+      }
+
+      if (planOutput?.strategy === "episodic_indexed" && Number(planOutput?.episode_count) > 0) {
+        const expectedEpisodeCount = Number(planOutput.episode_count);
+        const docTypeForValidation = planOutput.doc_type || "episode_grid";
+        const episodicValidation = validateEpisodicContent(assembledText, expectedEpisodeCount, docTypeForValidation);
+
+        if (!episodicValidation.pass) {
+          console.error("[dev-engine-v2] rewrite-assemble coverage failure", {
+            expectedEpisodeCount,
+            missing: episodicValidation.missingIndices,
+            failures: episodicValidation.failures.map((f) => f.detail),
+          });
+          return new Response(JSON.stringify({
+            error: "EPISODE_COVERAGE_FAILED",
+            message: `Assembled rewrite is missing required episodes (expected 1-${expectedEpisodeCount}).`,
+            validation: episodicValidation,
+          }), {
+            status: 422,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
       // Load team voice for meta_json stamping on chunked rewrite (outside retry loop)
       const chunkLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const chunkTvCtx = await loadTeamVoiceContext(supabase, projectId, chunkLane);
@@ -3346,13 +3516,6 @@ MATERIAL TO REWRITE:\n${fullText}`;
         const mergedMeta = { ...(newVersion.meta_json || {}), ...chunkStyleEval.metaFields };
         await supabase.from("project_document_versions").update({ meta_json: mergedMeta }).eq("id", newVersion.id);
         newVersion.meta_json = mergedMeta;
-      }
-
-      let notesCount = 0;
-      if (planRunId) {
-        const { data: planRun } = await supabase.from("development_runs")
-          .select("output_json").eq("id", planRunId).single();
-        if (planRun) notesCount = ((planRun.output_json as any).approved_notes || []).length;
       }
 
       const { data: run } = await supabase.from("development_runs").insert({
