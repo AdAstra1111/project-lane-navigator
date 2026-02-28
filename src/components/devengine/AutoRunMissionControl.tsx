@@ -576,7 +576,7 @@ export function AutoRunMissionControl({
     ? activeDecisions.find(d => d.impact === 'blocking') || activeDecisions[0]
     : null;
 
-  const hasEscalation = (job?.status === 'paused' || job?.status === 'stopped' || job?.status === 'failed') && (
+  const hasEscalation = !hasDecisions && (job?.status === 'paused' || job?.status === 'stopped' || job?.status === 'failed') && (
     job?.last_risk_flags?.some((f: string) => f.startsWith('hard_gate:'))
     || job?.stop_reason?.includes('Executive Strategy')
   );
