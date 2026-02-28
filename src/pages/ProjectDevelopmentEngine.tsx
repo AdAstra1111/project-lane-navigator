@@ -1431,25 +1431,44 @@ export default function ProjectDevelopmentEngine() {
                         text={versionText}
                         title={getDocDisplayName((project as any)?.title, selectedDoc?.doc_type)}
                       />
-                      {/* Set as Season Template — available for episode scripts on series formats */}
-                      {(isSeriesFormat || isVerticalDrama) && (
-                        <ConfirmDialog
-                          title="Set as Season Template (Style Benchmark)?"
-                          description="This sets tone/pacing/quality constraints for generation. It does not change document type or promote to script."
-                          confirmLabel="Set as Season Template"
-                          onConfirm={() => seasonTemplate.mutate({
-                            docType: selectedDoc?.doc_type || '',
-                            versionId: selectedVersionId || '',
-                            versionText,
-                          })}
-                        >
-                          <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1"
-                            disabled={seasonTemplate.isPending}>
-                            {seasonTemplate.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Target className="h-3 w-3" />}
-                            Set as Season Template (Style Benchmark)
-                          </Button>
-                        </ConfirmDialog>
-                      )}
+                      {/* Set / Unset Season Template — available for series formats */}
+                      {(isSeriesFormat || isVerticalDrama) && (() => {
+                        const isActiveTemplate = (project as any)?.season_style_template_version_id === selectedVersionId;
+                        if (isActiveTemplate) {
+                          return (
+                            <ConfirmDialog
+                              title="Remove Season Template?"
+                              description="This will clear the style benchmark. Future generations will not be constrained by this template."
+                              confirmLabel="Remove Template"
+                              onConfirm={() => seasonTemplate.unsetTemplate.mutate()}
+                            >
+                              <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1 border-primary text-primary"
+                                disabled={seasonTemplate.unsetTemplate.isPending}>
+                                {seasonTemplate.unsetTemplate.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Target className="h-3 w-3" />}
+                                Season Template (Active) — Click to Remove
+                              </Button>
+                            </ConfirmDialog>
+                          );
+                        }
+                        return (
+                          <ConfirmDialog
+                            title="Set as Season Template (Style Benchmark)?"
+                            description="This sets tone/pacing/quality constraints for generation. It does not change document type or promote to script."
+                            confirmLabel="Set as Season Template"
+                            onConfirm={() => seasonTemplate.setTemplate.mutate({
+                              docType: selectedDoc?.doc_type || '',
+                              versionId: selectedVersionId || '',
+                              versionText,
+                            })}
+                          >
+                            <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1"
+                              disabled={seasonTemplate.setTemplate.isPending}>
+                              {seasonTemplate.setTemplate.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Target className="h-3 w-3" />}
+                              Set as Season Template (Style Benchmark)
+                            </Button>
+                          </ConfirmDialog>
+                        );
+                      })()}
 
                       {/* Publish as Script — gated by canPromoteToScript() */}
                       {(() => {
