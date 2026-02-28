@@ -131,6 +131,7 @@ interface AutoRunMissionControlProps {
   onGetPendingDoc: () => Promise<any>;
   onApproveNext: (decision: 'approve' | 'revise' | 'stop') => void;
   onApproveDecision: (decisionId: string, selectedValue: string) => void;
+  onApplyDecisionsAndContinue?: (selectedOptions: Array<{ note_id: string; option_id: string; custom_direction?: string }>, globalDirections?: string[]) => Promise<void>;
   onApproveSeedCore: () => Promise<any>;
   onSetStage: (stage: string) => void;
   onForcePromote: () => void;
@@ -154,22 +155,35 @@ interface AutoRunMissionControlProps {
 
 // ── Sub-components ──
 
-function DecisionCard({ decision, onApprove }: { decision: PendingDecision; onApprove: (id: string, val: string) => void }) {
+function DecisionCard({ decision, selectedValue, onSelect }: { 
+  decision: PendingDecision; 
+  selectedValue?: string;
+  onSelect: (id: string, val: string) => void;
+}) {
   return (
     <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-3 space-y-2">
       <div className="flex items-start gap-2">
         <HelpCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-        <p className="text-xs font-medium">{decision.question}</p>
+        <div className="flex-1">
+          <p className="text-xs font-medium">{decision.question}</p>
+          <Badge variant="outline" className={`text-[8px] px-1 py-0 mt-1 ${decision.impact === 'blocking' ? 'bg-destructive/10 text-destructive border-destructive/30' : 'bg-amber-500/10 text-amber-400 border-amber-500/30'}`}>
+            {decision.impact === 'blocking' ? 'Blocking' : 'Optional'}
+          </Badge>
+        </div>
       </div>
       <div className="space-y-1.5">
         {decision.options.map((opt) => (
-          <button key={opt.value} onClick={() => onApprove(decision.id, opt.value)}
+          <button key={opt.value} onClick={() => onSelect(decision.id, opt.value)}
             className={`w-full text-left text-[11px] p-2 rounded border transition-colors hover:bg-primary/10 hover:border-primary/40 ${
+              selectedValue === opt.value ? 'border-primary bg-primary/10 ring-1 ring-primary/30' :
               decision.recommended === opt.value ? 'border-primary/40 bg-primary/5' : 'border-border/50 bg-background'
             }`}>
             <span className="font-medium">{opt.value}</span>
             {decision.recommended === opt.value && (
               <Badge variant="outline" className="text-[8px] px-1 py-0 ml-1.5 bg-primary/10 text-primary border-primary/30">recommended</Badge>
+            )}
+            {selectedValue === opt.value && (
+              <Badge variant="outline" className="text-[8px] px-1 py-0 ml-1.5 bg-emerald-500/10 text-emerald-400 border-emerald-500/30">selected</Badge>
             )}
             <p className="text-muted-foreground mt-0.5">{opt.why}</p>
           </button>
@@ -260,7 +274,7 @@ export function AutoRunMissionControl({
   projectId, currentDeliverable, job, steps, isRunning, error,
   activated, onActivate,
   onStart, onPause, onResume, onSetResumeSource, onStop, onRunNext, onClear,
-  onGetPendingDoc, onApproveNext, onApproveDecision, onApproveSeedCore,
+  onGetPendingDoc, onApproveNext, onApproveDecision, onApplyDecisionsAndContinue, onApproveSeedCore,
   onSetStage, onForcePromote, onRestartFromStage,
   onSaveStorySetup, onSaveQualifications, onSaveLaneBudget, onSaveGuardrails,
   fetchDocumentText,
@@ -302,6 +316,8 @@ export function AutoRunMissionControl({
   const [budget, setBudget] = useState('');
   const [jumpStage, setJumpStage] = useState('');
   const [saving, setSaving] = useState<string | null>(null);
+  const [decisionSelections, setDecisionSelections] = useState<Record<string, string>>({});
+  const [submittingDecisions, setSubmittingDecisions] = useState(false);
   const [showPreflight, setShowPreflight] = useState(false);
   const [preflightErrors, setPreflightErrors] = useState<string[]>([]);
   const [approvingSeedCore, setApprovingSeedCore] = useState(false);
@@ -1331,8 +1347,68 @@ export function AutoRunMissionControl({
           )}
 
           {/* Pending decision cards */}
-          {hasDecisions && blockingDecision && (
-            <DecisionCard decision={blockingDecision} onApprove={onApproveDecision} />
+          {hasDecisions && (
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardContent className="p-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <HelpCircle className="h-4 w-4 text-amber-500" />
+                  <div>
+                    <h3 className="text-sm font-semibold">Decisions Required</h3>
+                    <p className="text-[10px] text-muted-foreground">
+                      {activeDecisions.filter(d => d.impact === 'blocking').length} blocking, {activeDecisions.filter(d => d.impact !== 'blocking').length} optional
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+                  {activeDecisions.map((decision) => (
+                    <DecisionCard 
+                      key={decision.id} 
+                      decision={decision} 
+                      selectedValue={decisionSelections[decision.id]}
+                      onSelect={(id, val) => setDecisionSelections(prev => ({ ...prev, [id]: val }))}
+                    />
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    className="h-8 text-xs gap-1.5 flex-1"
+                    disabled={
+                      submittingDecisions || 
+                      activeDecisions.filter(d => d.impact === 'blocking').some(d => !decisionSelections[d.id])
+                    }
+                    onClick={async () => {
+                      setSubmittingDecisions(true);
+                      try {
+                        if (onApplyDecisionsAndContinue) {
+                          const selectedOptions = Object.entries(decisionSelections).map(([decId, optionId]) => {
+                            // Extract note_id from decision ID format: jobId:stepIndex:noteId
+                            const parts = decId.split(':');
+                            const noteId = parts.length >= 3 ? parts.slice(2).join(':') : decId;
+                            return { note_id: noteId, option_id: optionId };
+                          });
+                          await onApplyDecisionsAndContinue(selectedOptions);
+                          setDecisionSelections({});
+                        } else {
+                          // Fallback to individual approvals
+                          for (const [decId, val] of Object.entries(decisionSelections)) {
+                            await onApproveDecision(decId, val);
+                          }
+                          setDecisionSelections({});
+                        }
+                      } finally {
+                        setSubmittingDecisions(false);
+                      }
+                    }}
+                  >
+                    {submittingDecisions 
+                      ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Applying…</>
+                      : <><CheckCircle2 className="h-3.5 w-3.5" /> Apply Decisions & Continue</>
+                    }
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* D) Interventions Accordion */}
