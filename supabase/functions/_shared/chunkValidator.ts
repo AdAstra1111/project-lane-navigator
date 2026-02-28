@@ -2,7 +2,7 @@
  * Chunk Validator — Hard enforcement against summarization/truncation.
  *
  * Runs after chunk assembly AND on individual chunks.
- * Detects: missing episodes, banned language, incomplete schemas.
+ * Detects: missing episodes, banned language, missing sections, incomplete schemas.
  *
  * Used by: generate-document, dev-engine-v2, auto-run, chunk runner.
  */
@@ -13,8 +13,8 @@ export interface ValidationResult {
   pass: boolean;
   failures: ValidationFailure[];
   missingIndices: number[];
+  missingSections: string[];
   bannedPhraseHits: string[];
-  /** Suggested repair action */
   repairAction: "none" | "regen_missing" | "regen_all";
 }
 
@@ -22,6 +22,7 @@ export interface ValidationFailure {
   type: "missing_episode" | "missing_section" | "banned_phrase" | "density_low" | "wrong_content_type" | "incomplete_schema";
   detail: string;
   indices?: number[];
+  sections?: string[];
 }
 
 // ── Banned Phrases ──
@@ -58,7 +59,7 @@ const BANNED_PATTERNS = [
   /\(episodes?\s+\d+[\s–\-—]+\d+\s+(omitted|skipped|summarized)\)/i,
 ];
 
-// ── Topline Content Detection (wrong content in wrong slot) ──
+// ── Topline Content Detection ──
 
 const TOPLINE_MARKERS = [
   "## LOGLINE",
@@ -101,14 +102,29 @@ function detectCollapsedRanges(text: string): string[] {
   return hits;
 }
 
+// ── Section Heading Detection ──
+
+function findSectionHeadings(content: string): Set<string> {
+  const found = new Set<string>();
+  // Match markdown headings and normalize to lowercase/underscore
+  const headingPattern = /^#{1,4}\s+(.+)$/gm;
+  for (const match of content.matchAll(headingPattern)) {
+    const normalized = match[1].trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+    found.add(normalized);
+  }
+  // Also match bold section markers
+  const boldPattern = /\*\*([A-Z][A-Z\s:]+)\*\*/g;
+  for (const match of content.matchAll(boldPattern)) {
+    const normalized = match[1].trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+    found.add(normalized);
+  }
+  return found;
+}
+
 // ── Public API ──
 
 /**
  * Validate episodic content for completeness.
- *
- * @param content - assembled full text
- * @param expectedCount - canonical episode count (MUST be locked)
- * @param docType - for context-aware checks
  */
 export function validateEpisodicContent(
   content: string,
@@ -161,18 +177,18 @@ export function validateEpisodicContent(
     });
   }
 
-  // 4. Wrong content type (topline in episode slot)
+  // 4. Wrong content type
   if (docType !== "topline_narrative") {
     const toplineHits = TOPLINE_MARKERS.filter(m => content.includes(m));
     if (toplineHits.length >= 2) {
       failures.push({
         type: "wrong_content_type",
-        detail: `Content resembles a Topline Narrative (found ${toplineHits.length} markers). This is the wrong content for ${docType}.`,
+        detail: `Content resembles a Topline Narrative (found ${toplineHits.length} markers). Wrong content for ${docType}.`,
       });
     }
   }
 
-  // 5. Density check — each episode should have minimum content
+  // 5. Density check
   if (foundEpisodes.length > 0 && expectedCount > 0) {
     const avgCharsPerEp = content.length / foundEpisodes.length;
     const minCharsPerEp = docType.includes("script") ? 800 : 100;
@@ -194,6 +210,7 @@ export function validateEpisodicContent(
     pass: failures.length === 0,
     failures,
     missingIndices,
+    missingSections: [],
     bannedPhraseHits: bannedHits,
     repairAction,
   };
@@ -222,7 +239,6 @@ export function validateEpisodicChunk(
     });
   }
 
-  // Banned phrases in chunk
   const lowerContent = chunkContent.toLowerCase();
   for (const phrase of BANNED_PHRASES) {
     if (lowerContent.includes(phrase.toLowerCase())) {
@@ -240,6 +256,7 @@ export function validateEpisodicChunk(
     pass: failures.length === 0,
     failures,
     missingIndices,
+    missingSections: [],
     bannedPhraseHits: bannedHits,
     repairAction: missingIndices.length > 0 ? "regen_missing" : failures.length > 0 ? "regen_all" : "none",
   };
@@ -247,6 +264,7 @@ export function validateEpisodicChunk(
 
 /**
  * Validate sectioned content (scripts, treatments, bibles).
+ * NOW checks actual section completeness against expected sections.
  */
 export function validateSectionedContent(
   content: string,
@@ -255,8 +273,9 @@ export function validateSectionedContent(
 ): ValidationResult {
   const failures: ValidationFailure[] = [];
   const bannedHits: string[] = [];
+  const missingSections: string[] = [];
 
-  // Check for banned phrases
+  // 1. Check for banned phrases
   const lowerContent = content.toLowerCase();
   for (const phrase of BANNED_PHRASES) {
     if (lowerContent.includes(phrase.toLowerCase())) {
@@ -270,7 +289,7 @@ export function validateSectionedContent(
     });
   }
 
-  // Wrong content type check
+  // 2. Wrong content type check
   if (docType !== "topline_narrative") {
     const toplineHits = TOPLINE_MARKERS.filter(m => content.includes(m));
     if (toplineHits.length >= 2) {
@@ -281,7 +300,30 @@ export function validateSectionedContent(
     }
   }
 
-  // Minimum length per section — scripts should be substantial
+  // 3. TRUE SECTION COMPLETENESS CHECK
+  const foundHeadings = findSectionHeadings(content);
+  for (const expectedSection of expectedSections) {
+    const normalized = expectedSection.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+    // Check if any found heading contains or matches the expected section key
+    const found = [...foundHeadings].some(h => 
+      h.includes(normalized) || normalized.includes(h) || h === normalized
+    );
+    // Also do a simple content search for the section name
+    const altFound = lowerContent.includes(normalized.replace(/_/g, " "));
+    if (!found && !altFound) {
+      missingSections.push(expectedSection);
+    }
+  }
+
+  if (missingSections.length > 0) {
+    failures.push({
+      type: "missing_section",
+      detail: `Missing ${missingSections.length} section(s): ${missingSections.join(", ")}`,
+      sections: missingSections,
+    });
+  }
+
+  // 4. Script structure checks
   if (docType.includes("script") || docType === "screenplay_draft" || docType === "production_draft") {
     const sluglineCount = (content.match(/^(INT\.|EXT\.|INT\/EXT\.)\s/gm) || []).length;
     if (sluglineCount < 3) {
@@ -299,18 +341,24 @@ export function validateSectionedContent(
     }
   }
 
+  const repairAction = missingSections.length > 0
+    ? "regen_missing"
+    : failures.length > 0
+    ? "regen_all"
+    : "none";
+
   return {
     pass: failures.length === 0,
     failures,
     missingIndices: [],
+    missingSections,
     bannedPhraseHits: bannedHits,
-    repairAction: failures.length > 0 ? "regen_all" : "none",
+    repairAction,
   };
 }
 
 /**
  * Quick check: does content contain banned summarization language?
- * Lightweight version for inline guards.
  */
 export function hasBannedSummarizationLanguage(content: string): boolean {
   const lower = content.toLowerCase();

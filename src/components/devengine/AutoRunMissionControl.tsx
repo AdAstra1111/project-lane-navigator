@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { ChunkProgressPanel } from '@/components/documents/ChunkProgressPanel';
 import { StepBudgetControl } from './StepBudgetControl';
 import { useRegenerateInsufficient, type RegenSummary } from '@/hooks/useRegenerateInsufficient';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
@@ -1759,7 +1760,16 @@ export function AutoRunMissionControl({
                   )}
                   {viewerLoading && <div className="flex items-center gap-2 text-xs text-muted-foreground py-4"><Loader2 className="h-3 w-3 animate-spin" /> Loading…</div>}
                   {viewerText && docViewerTab === 'current' && (
-                    <DocViewer text={viewerText} meta={viewerMeta} onCopy={copyText} onDownload={downloadTxt} />
+                    <>
+                      {job.pending_doc_id && (
+                        <ChunkProgressPanel 
+                          documentId={job.pending_doc_id} 
+                          versionId={job.pending_version_id}
+                          projectId={job.project_id}
+                        />
+                      )}
+                      <DocViewer text={viewerText} meta={viewerMeta} onCopy={copyText} onDownload={downloadTxt} />
+                    </>
                   )}
                 </TabsContent>
 
