@@ -311,6 +311,7 @@ export function useAutoRun(projectId: string | undefined) {
 
   const getPendingDoc = useCallback(async () => {
     if (!job) return null;
+    if (!job.awaiting_approval || !job.pending_doc_id) return null;
     try {
       const result = await callAutoRun('get-pending-doc', { jobId: job.id });
       return result.pending_doc || null;
