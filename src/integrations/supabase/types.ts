@@ -465,6 +465,10 @@ export type Database = {
           approval_required_for_doc_type: string | null
           approval_type: string | null
           awaiting_approval: boolean
+          best_ci: number | null
+          best_gp: number | null
+          best_score: number | null
+          best_version_id: string | null
           converge_target_json: Json
           created_at: string | null
           current_document: string
@@ -517,6 +521,10 @@ export type Database = {
           approval_required_for_doc_type?: string | null
           approval_type?: string | null
           awaiting_approval?: boolean
+          best_ci?: number | null
+          best_gp?: number | null
+          best_score?: number | null
+          best_version_id?: string | null
           converge_target_json?: Json
           created_at?: string | null
           current_document: string
@@ -569,6 +577,10 @@ export type Database = {
           approval_required_for_doc_type?: string | null
           approval_type?: string | null
           awaiting_approval?: boolean
+          best_ci?: number | null
+          best_gp?: number | null
+          best_score?: number | null
+          best_version_id?: string | null
           converge_target_json?: Json
           created_at?: string | null
           current_document?: string

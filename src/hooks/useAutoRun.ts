@@ -150,7 +150,6 @@ export function useAutoRun(projectId: string | undefined) {
         mode: 'balanced',
         start_document: mappedStart,
         target_document: 'production_draft',
-        max_total_steps: 100,
       });
       setJob(result.job);
       setSteps(result.latest_steps || []);

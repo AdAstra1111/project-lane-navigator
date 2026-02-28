@@ -1,0 +1,5 @@
+ALTER TABLE public.auto_run_jobs
+  ADD COLUMN IF NOT EXISTS best_version_id UUID,
+  ADD COLUMN IF NOT EXISTS best_ci NUMERIC,
+  ADD COLUMN IF NOT EXISTS best_gp NUMERIC,
+  ADD COLUMN IF NOT EXISTS best_score NUMERIC;
