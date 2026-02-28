@@ -127,7 +127,27 @@ export async function ensureDocSlot(
     .select("id")
     .single();
 
-  if (error) throw new Error(`ensureDocSlot(${key}${epSuffix}): ${error.message}`);
+  if (error) {
+    const isDuplicateSlot = error.code === "23505" || (error.message || "").includes("uq_project_documents_project_doc_type");
+    if (isDuplicateSlot) {
+      let retryQuery = supabase
+        .from("project_documents")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("doc_type", key);
+
+      if (epIdx != null) {
+        retryQuery = retryQuery.eq("meta_json->>episode_index", String(epIdx));
+      }
+
+      const { data: racedExisting, error: retryErr } = await retryQuery.limit(1);
+      if (!retryErr && racedExisting && racedExisting.length > 0) {
+        return { documentId: racedExisting[0].id, isNew: false };
+      }
+    }
+
+    throw new Error(`ensureDocSlot(${key}${epSuffix}): ${error.message}`);
+  }
   return { documentId: newDoc.id, isNew: true };
 }
 

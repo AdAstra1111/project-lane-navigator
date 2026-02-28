@@ -3551,18 +3551,13 @@ MATERIAL:\n${version.plaintext}`;
       }
       // resolvedDocType already computed above (before large-risk check)
 
-      const { data: newDoc, error: dErr } = await supabase.from("project_documents").insert({
-        project_id: projectId,
-        user_id: user.id,
-        file_name: `${srcDoc?.title || "Document"} — ${targetOutput}`,
-        file_path: "",
-        extraction_status: "complete",
-        doc_type: resolvedDocType,
-        title: `${srcDoc?.title || "Document"} — ${targetOutput}`,
+      const convertedTitle = `${srcDoc?.title || "Document"} — ${targetOutput}`;
+      const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
+      const slot = await ensureDocSlot(supabase, projectId, user.id, resolvedDocType, {
+        title: convertedTitle,
         source: "generated",
-        plaintext: parsed.converted_text || "",
-      }).select().single();
-      if (dErr) throw dErr;
+      });
+      const newDoc = { id: slot.documentId, doc_type: resolvedDocType, title: convertedTitle };
 
       // Get upstream drift snapshot for inherited_core
       const { data: upstreamVersion } = await supabase.from("project_document_versions")
@@ -3578,23 +3573,20 @@ MATERIAL:\n${version.plaintext}`;
       // Use resolver hash from the resolve result directly
       const convertResolverHash = resolverResult?.resolver_hash || null;
 
-      const { data: newVersion, error: nvErr } = await supabase.from("project_document_versions").insert({
-        document_id: newDoc.id,
-        version_number: 1,
-        label: `Converted from ${srcDoc?.doc_type || "source"}`,
+      const newVersion = await createVer(supabase, {
+        documentId: slot.documentId,
+        docType: resolvedDocType,
         plaintext: parsed.converted_text || "",
-        created_by: user.id,
-        change_summary: parsed.change_summary || "",
-        deliverable_type: resolvedDeliverable,
-        inherited_core: upstreamCore,
-        source_document_ids: [documentId],
-        depends_on: convertDepFields,
-        depends_on_resolver_hash: convertResolverHash,
-      }).select().single();
-      if (nvErr) {
-        console.error("[dev-engine-v2] convert: version insert error:", nvErr);
-        throw nvErr;
-      }
+        label: `Converted from ${srcDoc?.doc_type || "source"}`,
+        createdBy: user.id,
+        approvalStatus: "draft",
+        changeSummary: parsed.change_summary || "",
+        inheritedCore: upstreamCore,
+        sourceDocumentIds: [documentId],
+        deliverableType: resolvedDeliverable,
+        dependsOn: convertDepFields,
+        dependsOnResolverHash: convertResolverHash,
+      });
       if (!newVersion) throw new Error("Failed to create version for converted document");
 
       await supabase.from("development_runs").insert({
@@ -4530,31 +4522,31 @@ Return ONLY valid JSON:
           const convParsed = await parseAIJson(LOVABLE_API_KEY, convRaw);
 
           const resolvedDocType = LADDER[i];
-          const { data: newDoc, error: rebaseDocErr } = await supabase.from("project_documents").insert({
-            project_id: projectId,
-            user_id: user.id,
-            file_name: `${srcDoc?.title || "Document"} — ${LADDER[i]} (rebased)`,
-            file_path: "",
-            extraction_status: "complete",
-            doc_type: resolvedDocType,
-            title: `${srcDoc?.title || "Document"} — ${LADDER[i]} (rebased)`,
+          const rebasedTitle = `${srcDoc?.title || "Document"} — ${LADDER[i]} (rebased)`;
+          const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
+          const slot = await ensureDocSlot(supabase, projectId, user.id, resolvedDocType, {
+            title: rebasedTitle,
             source: "generated",
-            plaintext: convParsed.converted_text || "",
-          }).select("id").single();
-          if (rebaseDocErr || !newDoc) throw rebaseDocErr || new Error("Failed to create rebased document");
+          });
 
-          const { data: newVer } = await supabase.from("project_document_versions").insert({
-            document_id: newDoc.id,
-            version_number: 1,
-            label: `Rebased from ${srcDoc?.doc_type}`,
+          const newVer = await createVer(supabase, {
+            documentId: slot.documentId,
+            docType: resolvedDocType,
             plaintext: convParsed.converted_text || "",
-            created_by: user.id,
-            change_summary: convParsed.change_summary || "Rebased conversion",
-          }).select("id").single();
+            label: `Rebased from ${srcDoc?.doc_type}`,
+            createdBy: user.id,
+            approvalStatus: "draft",
+            changeSummary: convParsed.change_summary || "Rebased conversion",
+            sourceDocumentIds: [currentDocId],
+            metaJson: {
+              generator: "rebase-upstream",
+              rebased_from_version_id: currentVersionId,
+            },
+          });
 
           results.push({
             stage: LADDER[i],
-            documentId: newDoc!.id,
+            documentId: slot.documentId,
             newVersionId: newVer?.id,
             regenerated: true,
             provenance: {
@@ -4563,7 +4555,7 @@ Return ONLY valid JSON:
             },
           });
 
-          currentDocId = newDoc!.id;
+          currentDocId = slot.documentId;
           currentVersionId = newVer!.id;
         }
       }
