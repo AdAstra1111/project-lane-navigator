@@ -100,11 +100,18 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     const poll = async () => {
       if (abortRef.current) return;
       try {
-        const result = await callAutoRun('run-next', { jobId: job.id });
+        // Use 'status' for polling to avoid lock contention — the backend
+        // self-chains run-next after each bg task, so we just need to sync state.
+        const result = await callAutoRun('status', { jobId: job.id });
         setJob(result.job);
         setSteps(result.latest_steps || []);
         if (!result.job || result.job.status !== 'running' || result.job.awaiting_approval) {
           setIsRunning(false);
+        }
+        // If the backend is idle (not processing) and still running, nudge it
+        // with a single run-next in case self-chain was lost.
+        if (result.job?.status === 'running' && !result.job.awaiting_approval && !result.job.is_processing) {
+          callAutoRun('run-next', { jobId: job.id }).catch(() => {});
         }
       } catch (e: any) {
         setError(e.message);
@@ -112,7 +119,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       }
     };
 
-    pollRef.current = setInterval(poll, 3000);
+    pollRef.current = setInterval(poll, 4000);
     poll();
 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
