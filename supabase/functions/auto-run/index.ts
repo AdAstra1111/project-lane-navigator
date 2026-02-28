@@ -2244,7 +2244,7 @@ Deno.serve(async (req) => {
       if (approvalDecision === "revise") {
         await logStep(supabase, jobId, stepCount, currentDoc, "approval_revise", "User requested another rewrite pass");
         await updateJob(supabase, jobId, {
-          step_count: stepCount, status: "running", stop_reason: null,
+          step_count: stepCount, status: "running", stop_reason: null, error: null,
           awaiting_approval: false, approval_type: null, approval_payload: null,
           pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
           stage_loop_count: Math.max(0, job.stage_loop_count - 1), // allow one more loop
@@ -2326,7 +2326,7 @@ Deno.serve(async (req) => {
         await updateJob(supabase, jobId, {
           step_count: stepCount, current_document: nextStage, stage_loop_count: 0,
           stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
-          status: "running", stop_reason: null,
+          status: "running", stop_reason: null, error: null,
           awaiting_approval: false, approval_type: null, approval_payload: null,
           pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
         });
