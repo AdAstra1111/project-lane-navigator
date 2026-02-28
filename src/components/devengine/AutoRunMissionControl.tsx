@@ -331,6 +331,34 @@ export function AutoRunMissionControl({
   const [approvingSeedCore, setApprovingSeedCore] = useState(false);
   const regen = useRegenerateInsufficient(projectId);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
+  const autoApprovedGateRef = useRef<string | null>(null);
+
+  // Safe Mode OFF => auto-approve promote/convert gates instead of pausing.
+  useEffect(() => {
+    if (!job || safeMode) return;
+    if (!job.awaiting_approval) return;
+    if (job.approval_type !== 'promote' && job.approval_type !== 'convert') return;
+
+    const gateKey = [
+      job.id,
+      job.approval_type,
+      job.pending_version_id || job.pending_doc_id || 'none',
+      job.updated_at,
+    ].join(':');
+
+    if (autoApprovedGateRef.current === gateKey) return;
+    autoApprovedGateRef.current = gateKey;
+    onApproveNext('approve');
+  }, [
+    safeMode,
+    job?.id,
+    job?.awaiting_approval,
+    job?.approval_type,
+    job?.pending_version_id,
+    job?.pending_doc_id,
+    job?.updated_at,
+    onApproveNext,
+  ]);
 
   // ── Seed Pack + Pipeline Progress (computed from availableDocuments + ladder) ──
   const projectFormat = (project?.format || 'film').toLowerCase().replace(/_/g, '-');
@@ -1226,7 +1254,7 @@ export function AutoRunMissionControl({
               {/* Safe mode toggle */}
               <div className="flex items-center gap-2 mt-1">
                 <Switch checked={safeMode} onCheckedChange={setSafeMode} className="scale-75" />
-                <span className="text-[9px] text-muted-foreground">Safe Mode (require approval for all promotions)</span>
+                <span className="text-[9px] text-muted-foreground">Safe Mode (require manual approval for promote/convert)</span>
               </div>
               {/* Auto-decide toggle */}
               <div className="flex items-center gap-2 mt-1">
