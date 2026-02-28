@@ -5,6 +5,9 @@ import { composeSystem } from "../_shared/llm.ts";
 import { buildBeatGuidanceBlock, computeBeatTargets } from "../_shared/verticalDramaBeats.ts";
 import { loadLanePrefs, loadTeamVoiceProfile } from "../_shared/prefs.ts";
 import { buildTeamVoicePromptBlock } from "../_shared/teamVoice.ts";
+import { isLargeRiskDocType, chunkPlanFor } from "../_shared/largeRiskRouter.ts";
+import { runChunkedGeneration } from "../_shared/chunkRunner.ts";
+import { hasBannedSummarizationLanguage } from "../_shared/chunkValidator.ts";
 import {
   extractFingerprint, computeDeviation, buildTargetFromTeamVoice,
   buildTargetFromWritingVoice, buildStyleEvalMeta, buildStyleRepairPrompt,
@@ -3046,6 +3049,20 @@ MATERIAL:\n${version.plaintext}`;
       const fullText = version.plaintext || "";
       const LONG_THRESHOLD = 30000;
 
+      // ── LARGE-RISK DOC TYPE: ALWAYS force chunked rewrite regardless of length ──
+      if (isLargeRiskDocType(effectiveDeliverable)) {
+        console.log(`[dev-engine-v2] rewrite: Large-risk doc type "${effectiveDeliverable}" — forcing chunked rewrite (${fullText.length} chars)`);
+        return new Response(JSON.stringify({
+          error: "Large-risk doc type requires chunked rewrite pipeline.",
+          needsPipeline: true,
+          charCount: fullText.length,
+          reason: "large_risk_doc_type",
+          docType: effectiveDeliverable,
+        }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       if (fullText.length > LONG_THRESHOLD) {
         return new Response(JSON.stringify({ error: "Document too long for single-pass rewrite. Use rewrite-plan/rewrite-chunk/rewrite-assemble pipeline.", needsPipeline: true, charCount: fullText.length }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -3470,6 +3487,40 @@ MATERIAL:\n${version.plaintext}`;
           newDoc: { id: newDocId, doc_type: resolvedTargetForRedirect },
           newVersion: { id: newVersionId },
           convert: { converted_text: genResult.content || "", format: resolvedTargetForRedirect, change_summary: "Generated via chunked episode pipeline" },
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Non-episodic large-risk doc: redirect to generate-document for chunked pipeline ──
+      if (isLargeRiskDocType(resolvedDocType)) {
+        console.log("[dev-engine-v2] convert: Large-risk doc type, redirecting to generate-document chunked pipeline", { targetOutput, resolvedDocType, projectId });
+        const genResp = await fetch(`${supabaseUrl}/functions/v1/generate-document`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: authHeader },
+          body: JSON.stringify({ projectId, docType: resolvedDocType }),
+        });
+        const genResult = await genResp.json();
+        if (!genResp.ok || genResult.error) {
+          throw new Error(genResult.error || genResult.message || "Chunked generation failed for large-risk doc type");
+        }
+        let lrDocId = genResult.document_id || null;
+        let lrVersionId = genResult.version_id || null;
+        if (!lrDocId) {
+          const { data: docs } = await supabase.from("project_documents")
+            .select("id").eq("project_id", projectId).eq("doc_type", resolvedDocType)
+            .order("created_at", { ascending: false }).limit(1);
+          lrDocId = docs?.[0]?.id || null;
+        }
+        if (lrDocId && !lrVersionId) {
+          const { data: vers } = await supabase.from("project_document_versions")
+            .select("id").eq("document_id", lrDocId)
+            .order("version_number", { ascending: false }).limit(1);
+          lrVersionId = vers?.[0]?.id || null;
+        }
+        return new Response(JSON.stringify({
+          newDoc: { id: lrDocId, doc_type: resolvedDocType },
+          newVersion: { id: lrVersionId },
+          convert: { converted_text: genResult.content || "", format: resolvedDocType, change_summary: "Generated via chunked large-risk pipeline" },
+          chunked: true,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 

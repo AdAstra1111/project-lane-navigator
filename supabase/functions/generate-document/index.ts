@@ -3,6 +3,9 @@ import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
 import { buildLadderPromptBlock, formatToLane } from "../_shared/documentLadders.ts";
 import { EPISODE_DOC_TYPES, extractEpisodeNumbersFromOutput, detectCollapsedRangeSummaries } from "../_shared/episodeScope.ts";
+import { isLargeRiskDocType, isEpisodicDocType as isLargeRiskEpisodic, chunkPlanFor, strategyFor } from "../_shared/largeRiskRouter.ts";
+import { runChunkedGeneration } from "../_shared/chunkRunner.ts";
+import { validateEpisodicContent, hasBannedSummarizationLanguage } from "../_shared/chunkValidator.ts";
 import {
   buildNuancePromptBlock, computeMetrics, melodramaScore, nuanceScore,
   runGate, buildRepairInstruction, computeFingerprint, computeSimilarityRisk,
@@ -532,8 +535,87 @@ D) OUTPUT CONTRACT — At the top of your response, print:
           message: "Output contains collapsed range summaries — episodes may be abbreviated",
         }));
       }
+    } else if (isLargeRiskDocType(docType) && !isTopline) {
+      // ── Non-episodic large-risk doc: use chunked generation ──
+      console.log(`[generate-document] Large-risk doc type "${docType}" — routing through chunk runner`);
+
+      // Ensure doc record exists first
+      let { data: chunkDocRecord } = await supabase.from("project_documents")
+        .select("id").eq("project_id", projectId).eq("doc_type", docType).single();
+      if (!chunkDocRecord) {
+        const { data: newDoc, error: createErr } = await supabase.from("project_documents")
+          .insert({
+            project_id: projectId, doc_type: docType, user_id: user.id,
+            file_name: `${docType}.md`, file_path: `${projectId}/${docType}.md`,
+            extraction_status: "complete",
+          }).select("id").single();
+        if (createErr) throw new Error(`Failed to create doc record: ${createErr.message}`);
+        chunkDocRecord = newDoc;
+      }
+
+      // Create version placeholder for chunks
+      const { count: chunkVerCount } = await supabase.from("project_document_versions")
+        .select("id", { count: "exact", head: true }).eq("document_id", chunkDocRecord!.id);
+      const chunkVersionNum = (chunkVerCount || 0) + 1;
+      const dependsOnFields = DOC_DEPENDENCY_MAP[docType] || [];
+      const { data: chunkVersion, error: chunkVerErr } = await supabase.from("project_document_versions")
+        .insert({
+          document_id: chunkDocRecord!.id, version_number: chunkVersionNum,
+          status: "draft", plaintext: "", created_by: user.id,
+          depends_on: dependsOnFields, depends_on_resolver_hash: currentHash,
+          inputs_used: inputsUsed,
+        }).select("id").single();
+      if (chunkVerErr) throw new Error(`Failed to create chunk version: ${chunkVerErr.message}`);
+
+      const plan = chunkPlanFor(docType, {
+        episodeCount: resolvedQuals?.season_episode_count,
+        sceneCount: null,
+      });
+
+      const chunkResult = await runChunkedGeneration({
+        supabase, apiKey, projectId,
+        documentId: chunkDocRecord!.id, versionId: chunkVersion!.id,
+        docType, plan, systemPrompt: system, upstreamContent,
+        projectTitle: project.title || "Untitled",
+        additionalContext, model: "google/gemini-2.5-flash",
+        episodeCount: resolvedQuals?.season_episode_count,
+        requestId,
+      });
+
+      content = chunkResult.assembledContent;
+
+      // Update latest_version_id
+      await supabase.from("project_documents")
+        .update({ latest_version_id: chunkVersion!.id, updated_at: new Date().toISOString() })
+        .eq("id", chunkDocRecord!.id);
+
+      // Return early with chunk result
+      return new Response(JSON.stringify({
+        success: chunkResult.success,
+        document_id: chunkDocRecord!.id,
+        version_id: chunkVersion!.id,
+        version_number: chunkVersionNum,
+        mode,
+        resolver_hash: currentHash,
+        inputs_used: inputsUsed,
+        depends_on: dependsOnFields,
+        chunked: true,
+        chunk_stats: {
+          total: chunkResult.totalChunks,
+          completed: chunkResult.completedChunks,
+          failed: chunkResult.failedChunks,
+          validation: chunkResult.validationResult,
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     } else {
       content = await callLLM(apiKey, system, userPrompt);
+
+      // Post-generation banned language check for non-large-risk docs
+      if (hasBannedSummarizationLanguage(content)) {
+        console.warn(`[generate-document] Banned summarization language detected in ${docType}, retrying`);
+        const retrySystem = system + `\n\n⚠️ CRITICAL: Your output contained summarization language ("remaining episodes", "and so on", etc.). This is FORBIDDEN. Output COMPLETE content for every section/item. Never abbreviate or summarize.`;
+        content = await callLLM(apiKey, retrySystem, userPrompt);
+      }
     }
 
     // 6a) Topline placeholder validator (hard gate — never save template)

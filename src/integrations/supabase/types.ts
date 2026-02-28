@@ -9750,6 +9750,69 @@ export type Database = {
           },
         ]
       }
+      project_document_chunks: {
+        Row: {
+          attempts: number
+          char_count: number | null
+          chunk_index: number
+          chunk_key: string
+          content: string | null
+          created_at: string
+          document_id: string
+          error: string | null
+          id: string
+          meta_json: Json | null
+          status: string
+          updated_at: string
+          version_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          char_count?: number | null
+          chunk_index: number
+          chunk_key?: string
+          content?: string | null
+          created_at?: string
+          document_id: string
+          error?: string | null
+          id?: string
+          meta_json?: Json | null
+          status?: string
+          updated_at?: string
+          version_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          char_count?: number | null
+          chunk_index?: number
+          chunk_key?: string
+          content?: string | null
+          created_at?: string
+          document_id?: string
+          error?: string | null
+          id?: string
+          meta_json?: Json | null
+          status?: string
+          updated_at?: string
+          version_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_document_chunks_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_document_chunks_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_document_versions: {
         Row: {
           applied_change_plan: Json | null
@@ -9757,6 +9820,8 @@ export type Database = {
           approval_status: string
           approved_at: string | null
           approved_by: string | null
+          assembled_chunk_count: number | null
+          assembled_from_chunks: boolean | null
           branch_id: string | null
           change_summary: string | null
           created_at: string
@@ -9795,6 +9860,8 @@ export type Database = {
           approval_status?: string
           approved_at?: string | null
           approved_by?: string | null
+          assembled_chunk_count?: number | null
+          assembled_from_chunks?: boolean | null
           branch_id?: string | null
           change_summary?: string | null
           created_at?: string
@@ -9833,6 +9900,8 @@ export type Database = {
           approval_status?: string
           approved_at?: string | null
           approved_by?: string | null
+          assembled_chunk_count?: number | null
+          assembled_from_chunks?: boolean | null
           branch_id?: string | null
           change_summary?: string | null
           created_at?: string
