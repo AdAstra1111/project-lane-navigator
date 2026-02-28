@@ -298,7 +298,7 @@ function extractJSON(raw: string): string {
   return c.trim();
 }
 
-async function callAI(apiKey: string, model: string, system: string, user: string, temperature = 0.3, maxTokens = 8000): Promise<string> {
+async function callAI(apiKey: string, model: string, system: string, user: string, temperature = 0.3, maxTokens = 32000): Promise<string> {
   const MAX_RETRIES = 3;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let response: Response;
@@ -3086,7 +3086,7 @@ TARGET FORMAT: ${targetDocType || "same as source"}
 
 MATERIAL TO REWRITE:\n${fullText}`;
 
-      const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, rewriteSystemPrompt, userPrompt, 0.4, 12000);
+      const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, rewriteSystemPrompt, userPrompt, 0.4, 32000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       if (!parsed) {
         console.error("[dev-engine-v2] rewrite: parseAIJson returned null", raw.slice(0, 300));
@@ -5874,7 +5874,7 @@ Return ONLY valid JSON:
   "changes_summary": "bullet summary of changes applied"
 }`;
       const decisionUserPrompt = `DECISION PLAN:\n${chosenOption.plan_text}\n\nMATERIAL:\n${baseVersion.plaintext.slice(0, 40000)}`;
-      const decisionRaw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, decisionSystem, decisionUserPrompt, 0.3, 12000);
+      const decisionRaw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, decisionSystem, decisionUserPrompt, 0.3, 32000);
       const decisionParsed = await parseAIJson(LOVABLE_API_KEY, decisionRaw);
       const rewrittenText = decisionParsed.rewritten_text || baseVersion.plaintext;
 
@@ -6048,7 +6048,7 @@ Return ONLY valid JSON:
 }`;
 
       const userPrompt = `EDITORIAL PLAN TO APPLY:\n${plan_text}\n\nMATERIAL:\n${version.plaintext.slice(0, 40000)}`;
-      const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, bundleSystem, userPrompt, 0.3, 12000);
+      const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, bundleSystem, userPrompt, 0.3, 32000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       const rewrittenText = parsed.rewritten_text || version.plaintext;
 
@@ -11288,7 +11288,7 @@ ${scenesForPrompt}`;
 
       let patches: any[] = [];
       try {
-        const patchRaw = await callAI(apiKey, BALANCED_MODEL, "You are a screenplay rewrite engine. Return ONLY a valid JSON array of patch objects.", patchPrompt, 0.4, 12000);
+        const patchRaw = await callAI(apiKey, BALANCED_MODEL, "You are a screenplay rewrite engine. Return ONLY a valid JSON array of patch objects.", patchPrompt, 0.4, 32000);
         const parsed = await parseAIJson(apiKey, patchRaw);
         patches = Array.isArray(parsed) ? parsed : (parsed.patches || []);
       } catch (e: any) {

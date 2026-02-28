@@ -76,7 +76,7 @@ async function callLLM(apiKey: string, system: string, user: string, model = "go
       model,
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
       temperature: 0.5,
-      max_tokens: 12000,
+      max_tokens: 65000,
     }),
   });
   if (!res.ok) throw new Error(`LLM call failed: ${res.status}`);
