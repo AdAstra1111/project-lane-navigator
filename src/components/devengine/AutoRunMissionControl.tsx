@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ChunkProgressPanel } from '@/components/documents/ChunkProgressPanel';
 import { StepBudgetControl } from './StepBudgetControl';
+import { AutoRunProgressInfo } from './AutoRunProgressInfo';
 import { useRegenerateInsufficient, type RegenSummary } from '@/hooks/useRegenerateInsufficient';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
 import { useQueryClient } from '@tanstack/react-query';
@@ -1159,6 +1160,15 @@ export function AutoRunMissionControl({
                 onUpdateLimit={onUpdateStepLimit}
                 onContinue={onResumeFromStepLimit}
                 isRunning={isRunning}
+              />
+
+              {/* Progress Info: elapsed, rate, ETA */}
+              <AutoRunProgressInfo
+                job={job}
+                steps={steps}
+                isRunning={isRunning}
+                totalPipelineStages={pipelineProgress.total}
+                completedStages={pipelineProgress.satisfied}
               />
 
               {/* Convergence Target */}
