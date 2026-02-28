@@ -3162,43 +3162,78 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
 
+        // ── Route episode doc types through generate-document (chunked pipeline) ──
+        const EPISODE_DOC_TYPES_SET = new Set(["episode_grid", "vertical_episode_beats", "episode_beats"]);
+        const useChunkedGenerator = EPISODE_DOC_TYPES_SET.has(currentDoc);
+
         try {
-          const { result: convertResult } = await callEdgeFunctionWithRetry(
-            supabase, supabaseUrl, "dev-engine-v2", {
-              action: "convert",
-              projectId: job.project_id,
-              documentId: prevDoc.id,
-              versionId: prevVersion.id,
-              targetOutput: currentDoc.toUpperCase(),
-            }, token, job.project_id, format, currentDoc, jobId, stepCount + 1
-          );
-
-          const newStep = stepCount + 1;
-          await logStep(supabase, jobId, newStep, currentDoc, "generate", `Generated ${currentDoc} from ${prevStage}`, {}, convertResult?.newDoc?.id ? `Created doc ${convertResult.newDoc.id}` : undefined, convertResult?.newDoc ? { docId: convertResult.newDoc.id } : undefined);
-          await updateJob(supabase, jobId, { step_count: newStep, stage_loop_count: 0 });
-
-          // ── APPROVAL GATE: after convert, pause for user to review ──
-          const convertedDocId = convertResult?.newDoc?.id || convertResult?.documentId || null;
+          let convertedDocId: string | null = null;
           let convertedVersionId: string | null = null;
-          if (convertedDocId) {
-            const { data: cvs } = await supabase.from("project_document_versions")
-              .select("id").eq("document_id", convertedDocId)
-              .order("version_number", { ascending: false }).limit(1);
-            convertedVersionId = cvs?.[0]?.id || null;
-          }
-          if (!convertedDocId) {
-            const { data: newDocs } = await supabase.from("project_documents")
-              .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
-              .order("created_at", { ascending: false }).limit(1);
-            const newDocRow = newDocs?.[0];
-            if (newDocRow) {
+
+          if (useChunkedGenerator) {
+            // Use generate-document which has the chunked episode beats pipeline
+            // This prevents truncation for high episode counts (e.g. 35 episodes)
+            console.log("[auto-run] Using generate-document chunked pipeline for", currentDoc, { projectId: job.project_id });
+
+            const genResult = await callEdgeFunction(supabaseUrl, "generate-document", {
+              projectId: job.project_id,
+              docType: currentDoc,
+            }, token);
+
+            convertedDocId = genResult?.documentId || genResult?.document_id || null;
+            convertedVersionId = genResult?.versionId || genResult?.version_id || null;
+
+            // If generate-document didn't return IDs, look them up
+            if (!convertedDocId) {
+              const { data: newDocs } = await supabase.from("project_documents")
+                .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+                .order("created_at", { ascending: false }).limit(1);
+              convertedDocId = newDocs?.[0]?.id || null;
+            }
+            if (convertedDocId && !convertedVersionId) {
               const { data: newVers } = await supabase.from("project_document_versions")
-                .select("id").eq("document_id", newDocRow.id)
+                .select("id").eq("document_id", convertedDocId)
                 .order("version_number", { ascending: false }).limit(1);
               convertedVersionId = newVers?.[0]?.id || null;
             }
+          } else {
+            const { result: convertResult } = await callEdgeFunctionWithRetry(
+              supabase, supabaseUrl, "dev-engine-v2", {
+                action: "convert",
+                projectId: job.project_id,
+                documentId: prevDoc.id,
+                versionId: prevVersion.id,
+                targetOutput: currentDoc.toUpperCase(),
+              }, token, job.project_id, format, currentDoc, jobId, stepCount + 1
+            );
+
+            convertedDocId = convertResult?.newDoc?.id || convertResult?.documentId || null;
+            if (convertedDocId) {
+              const { data: cvs } = await supabase.from("project_document_versions")
+                .select("id").eq("document_id", convertedDocId)
+                .order("version_number", { ascending: false }).limit(1);
+              convertedVersionId = cvs?.[0]?.id || null;
+            }
+            if (!convertedDocId) {
+              const { data: newDocs } = await supabase.from("project_documents")
+                .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+                .order("created_at", { ascending: false }).limit(1);
+              const newDocRow = newDocs?.[0];
+              convertedDocId = newDocRow?.id || null;
+              if (newDocRow) {
+                const { data: newVers } = await supabase.from("project_document_versions")
+                  .select("id").eq("document_id", newDocRow.id)
+                  .order("version_number", { ascending: false }).limit(1);
+                convertedVersionId = newVers?.[0]?.id || null;
+              }
+            }
           }
 
+          const newStep = stepCount + 1;
+          await logStep(supabase, jobId, newStep, currentDoc, "generate", `Generated ${currentDoc} from ${prevStage}${useChunkedGenerator ? ' (chunked pipeline)' : ''}`, {}, convertedDocId ? `Created doc ${convertedDocId}` : undefined, convertedDocId ? { docId: convertedDocId } : undefined);
+          await updateJob(supabase, jobId, { step_count: newStep, stage_loop_count: 0 });
+
+          // ── APPROVAL GATE: after convert, pause for user to review ──
           await logStep(supabase, jobId, null, currentDoc, "approval_required",
             `Review generated ${currentDoc} before continuing`,
             {}, undefined, { docId: convertedDocId, versionId: convertedVersionId, doc_type: currentDoc, from_stage: prevStage }
