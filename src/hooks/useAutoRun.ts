@@ -165,10 +165,8 @@ export function useAutoRun(projectId: string | undefined) {
 
   const runLoop = useCallback(async (jobId: string) => {
     setIsRunning(true);
-    let attempts = 0;
     let consecutiveWaits = 0;
-    while (!abortRef.current && attempts < 80) {
-      attempts++;
+    while (!abortRef.current) {
       try {
         // Back off when the server says "wait" (processing lock held)
         const delay = consecutiveWaits > 0 ? Math.min(2000, 500 + consecutiveWaits * 500) : 500;
@@ -187,8 +185,6 @@ export function useAutoRun(projectId: string | undefined) {
         // If server says "wait" (lock held by another invocation), keep polling
         if (hint === 'wait') {
           consecutiveWaits++;
-          // Give up after ~90s of continuous waiting (stale lock likely)
-          if (consecutiveWaits > 30) break;
           continue;
         }
         consecutiveWaits = 0;
