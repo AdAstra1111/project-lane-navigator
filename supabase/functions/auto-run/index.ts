@@ -3901,9 +3901,9 @@ Deno.serve(async (req) => {
             const candidateVersionId = postRewriteVersions?.[0]?.id || rewriteResult?.result?.newVersion?.id || null;
 
             if (!candidateVersionId || candidateVersionId === baselineVersionId) {
-              // Rewrite produced no new version — keep baseline, log and continue
+              // ── FAIL CLOSED: no candidate produced ──
               await logStep(supabase, jobId, null, currentDoc, "rewrite_no_candidate",
-                `Rewrite did not produce a new version. Keeping baseline.`,
+                `Rewrite did not produce a new version. Baseline preserved. Halting.`,
                 { ci: baselineCI, gp: baselineGP }, undefined,
                 { baselineVersionId });
               await updateJob(supabase, jobId, {
@@ -3911,8 +3911,11 @@ Deno.serve(async (req) => {
                 follow_latest: false,
                 resume_document_id: doc.id,
                 resume_version_id: baselineVersionId,
+                status: "paused",
+                pause_reason: "CANDIDATE_ID_MISSING",
+                stop_reason: "Rewrite produced no candidate version. Baseline preserved.",
               });
-              return respondWithJob(supabase, jobId, "run-next");
+              return respondWithJob(supabase, jobId);
             }
 
             await logStep(supabase, jobId, null, currentDoc, "rewrite_candidate_created",

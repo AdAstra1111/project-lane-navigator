@@ -12731,7 +12731,7 @@ CRITICAL:
 
     // ── ASSEMBLE REWRITTEN SCRIPT ──
     if (action === "assemble_rewritten_script") {
-      const { projectId, sourceDocId, sourceVersionId, runId, rewriteModeSelected, rewriteModeEffective, rewriteModeReason, rewriteModeDebug, rewriteProbe, rewriteScopePlan, rewriteScopeExpandedFrom, rewriteVerification } = body;
+      const { projectId, sourceDocId, sourceVersionId, runId, rewriteModeSelected, rewriteModeEffective, rewriteModeReason, rewriteModeDebug, rewriteProbe, rewriteScopePlan, rewriteScopeExpandedFrom, rewriteVerification, auto_promote } = body;
       if (!runId) {
         return new Response(JSON.stringify({ error: "runId required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -12878,26 +12878,31 @@ CRITICAL:
         newVersion.meta_json = mergedMeta;
       }
 
-      const { error: rpcErr } = await supabase.rpc("set_current_version", {
-        p_document_id: sourceDocId,
-        p_new_version_id: newVersion.id,
-      });
-      if (rpcErr) {
-        // Rollback: delete the version we just inserted so nothing is incorrectly marked current
-        try {
-          await supabase.from("project_document_versions").delete().eq("id", newVersion.id);
-        } catch (delErr: any) {
-          console.error("[scene-rewrite] Failed to rollback version after RPC error:", delErr.message);
+      // Only auto-promote if auto_promote !== false (default: true for backward compat)
+      if (auto_promote !== false) {
+        const { error: rpcErr } = await supabase.rpc("set_current_version", {
+          p_document_id: sourceDocId,
+          p_new_version_id: newVersion.id,
+        });
+        if (rpcErr) {
+          // Rollback: delete the version we just inserted so nothing is incorrectly marked current
+          try {
+            await supabase.from("project_document_versions").delete().eq("id", newVersion.id);
+          } catch (delErr: any) {
+            console.error("[scene-rewrite] Failed to rollback version after RPC error:", delErr.message);
+          }
+          // Mark rewrite_run as failed
+          if (runId) {
+            await supabase.from("rewrite_runs").update({
+              status: "failed",
+              summary: `set_current_version RPC failed: ${rpcErr.message}`,
+              updated_at: new Date().toISOString(),
+            }).eq("id", runId);
+          }
+          throw new Error(`set_current_version RPC failed: ${rpcErr.message}`);
         }
-        // Mark rewrite_run as failed
-        if (runId) {
-          await supabase.from("rewrite_runs").update({
-            status: "failed",
-            summary: `set_current_version RPC failed: ${rpcErr.message}`,
-            updated_at: new Date().toISOString(),
-          }).eq("id", runId);
-        }
-        throw new Error(`set_current_version RPC failed: ${rpcErr.message}`);
+      } else {
+        console.log(`[scene-rewrite] auto_promote=false — skipping set_current_version for version ${newVersion.id}`);
       }
 
       // ── Update rewrite_run status ──
@@ -12944,7 +12949,7 @@ CRITICAL:
         schema_version: SCHEMA_VERSION,
       });
 
-      console.log(`[scene-rewrite] Assembled ${outputs.length}${trulySelective ? `/${totalScenesInAssembly}` : ''} scenes → ${assembledText.length} chars, new version ${newVersion.id} (is_current=true)`);
+      console.log(`[scene-rewrite] Assembled ${outputs.length}${trulySelective ? `/${totalScenesInAssembly}` : ''} scenes → ${assembledText.length} chars, new version ${newVersion.id} (is_current=${auto_promote !== false})`);
 
       return new Response(JSON.stringify({
         newVersionId: newVersion.id,
