@@ -1581,7 +1581,7 @@ export function AutoRunMissionControl({
         </div>
 
         {/* ══════ RIGHT COLUMN ══════ */}
-        <div className="space-y-3">
+        <div className="space-y-3 lg:sticky lg:top-0 lg:self-start lg:max-h-screen lg:overflow-y-auto lg:pb-6">
           {/* Timeline */}
           <Card>
             <CardHeader className="py-2 px-4">
