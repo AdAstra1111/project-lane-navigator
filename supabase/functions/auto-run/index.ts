@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
 
 function waitUntilSafe(p: Promise<any>): boolean {
   try {
@@ -3273,9 +3274,9 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
 
-        // ── Route episode doc types through generate-document (chunked pipeline) ──
+        // ── Route large-risk doc types through generate-document (chunked pipeline) ──
         const EPISODE_DOC_TYPES_SET = new Set(["episode_grid", "vertical_episode_beats", "episode_beats"]);
-        const useChunkedGenerator = EPISODE_DOC_TYPES_SET.has(currentDoc);
+        const useChunkedGenerator = EPISODE_DOC_TYPES_SET.has(currentDoc) || isLargeRiskDocType(currentDoc);
 
         try {
           let convertedDocId: string | null = null;
