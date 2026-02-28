@@ -119,6 +119,7 @@ interface AutoRunMissionControlProps {
   steps: AutoRunStep[];
   isRunning: boolean;
   error: string | null;
+  connectionState?: 'online' | 'reconnecting' | 'disconnected';
   activated: boolean;
   onActivate: () => void;
   onStart: (mode: string, startDoc: string, targetDoc?: string) => void;
@@ -280,7 +281,7 @@ function formatErrorDisplay(err: string | null | undefined): string {
 
 // ── Main Component ──
 export function AutoRunMissionControl({
-  projectId, currentDeliverable, job, steps, isRunning, error,
+  projectId, currentDeliverable, job, steps, isRunning, error, connectionState,
   activated, onActivate,
   onStart, onPause, onResume, onSetResumeSource, onStop, onRunNext, onClear,
   onGetPendingDoc, onApproveNext, onApproveDecision, onApplyDecisionsAndContinue, onApproveSeedCore,
@@ -797,6 +798,17 @@ export function AutoRunMissionControl({
           </div>
         </CardHeader>
         <CardContent className="px-4 pb-4 space-y-3">
+          {/* Connection state banner */}
+          {connectionState === 'reconnecting' && (
+            <div className="p-2 rounded bg-yellow-500/10 border border-yellow-500/20 text-xs text-yellow-400 flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin" /> Reconnecting to backend…
+            </div>
+          )}
+          {connectionState === 'disconnected' && (
+            <div className="p-2 rounded bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+              ⚠ Connection lost — backend continues independently. Retrying…
+            </div>
+          )}
           {job?.status === 'completed' && (
             <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400">
               ✓ {job.stop_reason || 'Target reached'} · {job.step_count} steps

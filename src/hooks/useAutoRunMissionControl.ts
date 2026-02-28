@@ -51,6 +51,8 @@ export interface DocumentTextResult {
   char_count: number;
 }
 
+export type ConnectionState = 'online' | 'reconnecting' | 'disconnected';
+
 export function useAutoRunMissionControl(projectId: string | undefined) {
   const qc = useQueryClient();
   const [job, setJob] = useState<AutoRunJob | null>(null);
@@ -58,8 +60,12 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activated, setActivated] = useState(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>('online');
   const abortRef = useRef(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const consecutiveFailuresRef = useRef(0);
+  const lastSuccessRef = useRef(Date.now());
+  const pollInFlightRef = useRef(false);
 
   // ── Fetch existing job only when user has activated auto-run ──
   const { data: existingJob } = useQuery({
@@ -84,46 +90,90 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     }
   }, [existingJob]);
 
-  // ── Polling ──
-  // Don't poll when the job has pending decisions — let the user resolve them first
+  // ── Resilient Polling with backoff ──
   const hasPendingDecisions = Array.isArray(job?.pending_decisions) && (job?.pending_decisions as any[]).length > 0;
+
+  const schedulePoll = useCallback((delayMs: number) => {
+    if (pollRef.current) clearTimeout(pollRef.current);
+    pollRef.current = setTimeout(() => {
+      pollRef.current = null;
+      doPoll();
+    }, delayMs);
+  }, []);
+
+  const doPoll = useCallback(async () => {
+    if (abortRef.current || pollInFlightRef.current) return;
+    if (!job?.id) return;
+
+    pollInFlightRef.current = true;
+    try {
+      const result = await callAutoRun('status', { jobId: job.id });
+
+      // ── Success path ──
+      consecutiveFailuresRef.current = 0;
+      lastSuccessRef.current = Date.now();
+      setConnectionState('online');
+      setError(null);
+
+      setJob(result.job);
+      setSteps(result.latest_steps || []);
+
+      if (!result.job || result.job.status !== 'running' || result.job.awaiting_approval) {
+        setIsRunning(false);
+        return; // Don't reschedule — polling stops
+      }
+
+      // If backend idle and still running, nudge once
+      if (result.job.status === 'running' && !result.job.awaiting_approval && !result.job.is_processing) {
+        callAutoRun('run-next', { jobId: job.id }).catch(() => {});
+      }
+
+      // Schedule next poll at normal interval
+      schedulePoll(4000);
+
+    } catch (e: any) {
+      // ── Failure path: DO NOT clear job state or stop running ──
+      consecutiveFailuresRef.current += 1;
+      const failures = consecutiveFailuresRef.current;
+      const timeSinceSuccess = Date.now() - lastSuccessRef.current;
+
+      console.warn(`[auto-run poll] failure #${failures}, ${Math.round(timeSinceSuccess / 1000)}s since last success:`, e.message);
+
+      if (failures >= 10 || timeSinceSuccess > 90_000) {
+        setConnectionState('disconnected');
+        setError(`Connection lost — retrying (${failures} failures). Backend continues independently.`);
+      } else {
+        setConnectionState('reconnecting');
+      }
+
+      // Exponential backoff: 2s → max 20s + jitter
+      const backoff = Math.min(20_000, 2000 * Math.pow(1.5, Math.min(failures, 10))) + Math.random() * 1000;
+      schedulePoll(backoff);
+    } finally {
+      pollInFlightRef.current = false;
+    }
+  }, [job?.id, schedulePoll]);
+
   useEffect(() => {
     // Stop polling if no job, not running, or job is paused/awaiting/has pending decisions
     if (!job || !isRunning || job.status !== 'running' || job.awaiting_approval || hasPendingDecisions) {
       if (isRunning && (job?.status !== 'running' || job?.awaiting_approval || hasPendingDecisions)) {
         setIsRunning(false);
       }
-      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; }
       return;
     }
 
-    const poll = async () => {
-      if (abortRef.current) return;
-      try {
-        // Use 'status' for polling to avoid lock contention — the backend
-        // self-chains run-next after each bg task, so we just need to sync state.
-        const result = await callAutoRun('status', { jobId: job.id });
-        setJob(result.job);
-        setSteps(result.latest_steps || []);
-        if (!result.job || result.job.status !== 'running' || result.job.awaiting_approval) {
-          setIsRunning(false);
-        }
-        // If the backend is idle (not processing) and still running, nudge it
-        // with a single run-next in case self-chain was lost.
-        if (result.job?.status === 'running' && !result.job.awaiting_approval && !result.job.is_processing) {
-          callAutoRun('run-next', { jobId: job.id }).catch(() => {});
-        }
-      } catch (e: any) {
-        setError(e.message);
-        setIsRunning(false);
-      }
-    };
+    // Reset failure counters when starting fresh polling
+    consecutiveFailuresRef.current = 0;
+    lastSuccessRef.current = Date.now();
+    setConnectionState('online');
 
-    pollRef.current = setInterval(poll, 4000);
-    poll();
+    // Kick off first poll
+    doPoll();
 
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [job?.id, isRunning, job?.status, job?.awaiting_approval, hasPendingDecisions]);
+    return () => { if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; } };
+  }, [job?.id, isRunning, job?.status, job?.awaiting_approval, hasPendingDecisions, doPoll]);
 
   // ── Core actions ──
   const refreshStatus = useCallback(async () => {
@@ -490,7 +540,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   }, [job]);
 
   return {
-    job, steps, isRunning, error, activated,
+    job, steps, isRunning, error, activated, connectionState,
     // Core actions
     start, pause, resume, stop, runNext, clear, refreshStatus, activate,
     // Approval

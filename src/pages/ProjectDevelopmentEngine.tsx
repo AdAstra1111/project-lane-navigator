@@ -1867,6 +1867,7 @@ export default function ProjectDevelopmentEngine() {
                 steps={autoRun.steps}
                 isRunning={autoRun.isRunning}
                 error={autoRun.error}
+                connectionState={autoRun.connectionState}
                 onStart={autoRun.start}
                 onRunNext={autoRun.runNext}
                 onResume={autoRun.resume}
