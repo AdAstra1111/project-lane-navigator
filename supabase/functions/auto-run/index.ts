@@ -1335,13 +1335,14 @@ function normalizePendingDecisions(rawDecisions: any[], context: string, jobId?:
 function createFallbackDecisions(currentDoc: string, ci: number, gp: number, reason: string): NormalizedDecision[] {
   return [
     {
-      id: "fallback_force_promote",
+      id: "force_promote",
       question: `${reason} at ${currentDoc} (CI:${ci} GP:${gp}). How would you like to proceed?`,
       options: [
         { value: "force_promote", why: "Skip remaining issues and advance to the next stage" },
         { value: "retry", why: "Run another development cycle at the current stage" },
         { value: "stop", why: "Stop the auto-run and review manually" },
       ],
+      recommended: "force_promote",
       impact: "blocking",
     },
 ];
@@ -2499,7 +2500,7 @@ Deno.serve(async (req) => {
       const currentDoc = job.current_document as DocStage;
       const stepCount = job.step_count + 1;
 
-      const CONTROL_NOTE_IDS = new Set(["raise_step_limit_once", "run_exec_strategy", "force_promote"]);
+      const CONTROL_NOTE_IDS = new Set(["raise_step_limit_once", "run_exec_strategy", "force_promote", "fallback_force_promote"]);
       const selectedMap = new Map<string, string>(
         selectedOptions
           .filter((s: any) => s?.note_id && s?.option_id)
@@ -2507,7 +2508,8 @@ Deno.serve(async (req) => {
       );
       const raiseChoice = selectedMap.get("raise_step_limit_once");
       const runExecChoice = selectedMap.get("run_exec_strategy");
-      const forcePromoteChoice = selectedMap.get("force_promote");
+      // Support both legacy "fallback_force_promote" and new "force_promote" IDs
+      const forcePromoteChoice = selectedMap.get("force_promote") || selectedMap.get("fallback_force_promote");
       const selectedContentOptions = selectedOptions.filter((s: any) => !CONTROL_NOTE_IDS.has(String(s.note_id)));
 
       const { data: project } = await supabase.from("projects")
@@ -2517,15 +2519,16 @@ Deno.serve(async (req) => {
 
       // Control-only decisions should not invoke rewrite, otherwise step-limit choices loop forever.
       if (selectedContentOptions.length === 0 && (raiseChoice || runExecChoice || forcePromoteChoice)) {
-        if (raiseChoice === "no") {
+        // Handle "stop" choice from fallback decisions
+        if (raiseChoice === "no" || forcePromoteChoice === "stop") {
           await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
-            "User declined step extension — stopping run",
+            forcePromoteChoice === "stop" ? "User chose to stop and review manually" : "User declined step extension — stopping run",
             {}, undefined, { selectedOptions }
           );
           await updateJob(supabase, jobId, {
             step_count: stepCount,
             status: "stopped",
-            stop_reason: "User stopped at step limit",
+            stop_reason: forcePromoteChoice === "stop" ? "User stopped for manual review" : "User stopped at step limit",
             pending_decisions: null,
             awaiting_approval: false,
             approval_type: null,
@@ -2538,6 +2541,32 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId, "none");
         }
 
+        // Handle "retry" choice — reset loop count and continue
+        if (forcePromoteChoice === "retry") {
+          await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
+            "User chose to retry current stage",
+            {}, undefined, { selectedOptions }
+          );
+          const maxTotalSteps = Math.max(job.max_total_steps + 6, (job.step_count || 0) + 6);
+          await updateJob(supabase, jobId, {
+            step_count: stepCount,
+            max_total_steps: maxTotalSteps,
+            stage_loop_count: 0,
+            status: "running",
+            stop_reason: null,
+            pending_decisions: null,
+            awaiting_approval: false,
+            approval_type: null,
+            approval_payload: null,
+            pending_doc_id: null,
+            pending_version_id: null,
+            pending_doc_type: null,
+            pending_next_doc_type: null,
+            error: null,
+          });
+          return respondWithJob(supabase, jobId, "run-next");
+        }
+
         let maxTotalSteps = job.max_total_steps;
         if (raiseChoice === "yes") {
           // Ensure the raised cap is always ahead of the *current* counter.
@@ -2548,7 +2577,7 @@ Deno.serve(async (req) => {
         let stopReason: string | null = null;
         let nextDoc: DocStage = currentDoc;
 
-        if (forcePromoteChoice === "yes") {
+        if (forcePromoteChoice === "yes" || forcePromoteChoice === "force_promote") {
           const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
           if (next) {
             nextDoc = next;
@@ -2573,7 +2602,7 @@ Deno.serve(async (req) => {
           step_count: stepCount,
           max_total_steps: maxTotalSteps,
           current_document: nextDoc,
-          stage_loop_count: (forcePromoteChoice === "yes" || runExecChoice === "yes") ? 0 : job.stage_loop_count,
+          stage_loop_count: (forcePromoteChoice === "yes" || forcePromoteChoice === "force_promote" || runExecChoice === "yes") ? 0 : job.stage_loop_count,
           status,
           stop_reason: stopReason,
           pending_decisions: null,
