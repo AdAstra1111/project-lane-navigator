@@ -94,22 +94,4 @@ export function getForkDirections(): { conservative: string[]; aggressive: strin
   };
 }
 
-/**
- * Compare two scored candidates and return the better one.
- * Returns index 0 or 1 (or -1 if both failed scoring).
- */
-export function selectBestCandidate(
-  candidates: Array<{ ci: number | null; gp: number | null; versionId: string | null }>,
-): number {
-  const valid = candidates.map((c, i) => ({
-    i,
-    score: (c.ci ?? -1) + (c.gp ?? -1),
-    valid: c.versionId != null && c.ci != null && c.gp != null,
-  }));
-  
-  const passing = valid.filter(v => v.valid);
-  if (passing.length === 0) return -1;
-  
-  passing.sort((a, b) => b.score - a.score);
-  return passing[0].i;
-}
+// selectBestCandidate removed — fork winner selection is inline in auto-run for correctness

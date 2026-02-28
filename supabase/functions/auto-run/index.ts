@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
-import { isAggregate, getRegressionThreshold } from "../_shared/docPolicyRegistry.ts";
+import { isAggregate, getRegressionThreshold, requireDocPolicy } from "../_shared/docPolicyRegistry.ts";
 import {
   DEFAULT_MAX_TOTAL_STEPS,
   DEFAULT_MAX_STAGE_LOOPS,
@@ -8,9 +8,28 @@ import {
   getAttemptStrategy,
   selectNotesForStrategy,
   getForkDirections,
-  selectBestCandidate,
   type AttemptStrategy,
 } from "../_shared/convergencePolicy.ts";
+
+// ── Unified score extraction helper ──
+function extractCiGp(res: any): { ci: number | null; gp: number | null } {
+  const ci = res?.result?.scores?.ci ?? res?.result?.ci ?? res?.scores?.ci ?? res?.ci ?? null;
+  const gp = res?.result?.scores?.gp ?? res?.result?.gp ?? res?.scores?.gp ?? res?.gp ?? null;
+  return { ci: typeof ci === "number" ? ci : null, gp: typeof gp === "number" ? gp : null };
+}
+
+// ── Get current accepted version for a document (fail-closed) ──
+async function getCurrentVersionForDoc(supabase: any, documentId: string): Promise<{ id: string; plaintext: string | null } | null> {
+  const { data } = await supabase
+    .from("project_document_versions")
+    .select("id, plaintext")
+    .eq("document_id", documentId)
+    .eq("is_current", true)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data || null;
+}
 
 function waitUntilSafe(p: Promise<any>): boolean {
   try {
@@ -3872,18 +3891,38 @@ Deno.serve(async (req) => {
             }
           }
 
-          // ── AGGREGATE GUARD: block LLM rewrites for compile-only doc types ──
+          // ── DOC POLICY GUARD: fail closed on unknown doc types ──
+          try {
+            requireDocPolicy(currentDoc);
+          } catch (regErr: any) {
+            await logStep(supabase, jobId, null, currentDoc, "doc_type_unregistered",
+              `Doc type "${currentDoc}" is not in the policy registry. Halting.`,
+              { ci, gp, gap });
+            await updateJob(supabase, jobId, {
+              stage_loop_count: newLoopCount,
+              status: "paused",
+              pause_reason: "DOC_TYPE_UNREGISTERED",
+              stop_reason: `Unregistered doc type: ${currentDoc}. Cannot proceed with rewrite.`,
+            });
+            return respondWithJob(supabase, jobId);
+          }
+
+          // ── AGGREGATE GUARD: block LLM rewrites using docClass ──
           if (isAggregate(currentDoc)) {
             await logStep(supabase, jobId, null, currentDoc, "aggregate_llm_write_blocked",
-              `Doc type "${currentDoc}" is AGGREGATE (compile-only). LLM rewrite blocked. Skipping stabilise.`,
+              `Doc type "${currentDoc}" is AGGREGATE (compile-only). LLM rewrite blocked. Halting stabilise.`,
               { ci, gp, gap });
-            // Don't halt — just skip rewrite and continue the loop
-            await updateJob(supabase, jobId, { stage_loop_count: newLoopCount });
-            return respondWithJob(supabase, jobId, "run-next");
+            await updateJob(supabase, jobId, {
+              stage_loop_count: newLoopCount,
+              status: "paused",
+              pause_reason: "AGGREGATE_COMPILE_ONLY",
+              stop_reason: `AGGREGATE doc type "${currentDoc}" cannot be LLM-rewritten. Compile-only.`,
+            });
+            return respondWithJob(supabase, jobId);
           }
 
           // No blockers or options already handled — apply rewrite with convergence policy
-          const notesResult = await supabase.from("development_runs").select("output_json").eq("document_id", doc.id).eq("run_type", "NOTES").order("created_at", { ascending: false }).limit(1).single();
+          const notesResult = await supabase.from("development_runs").select("output_json").eq("document_id", doc.id).eq("run_type", "NOTES").order("created_at", { ascending: false }).limit(1).maybeSingle();
           const notes = notesResult.data?.output_json;
           const allNotesForStrategy = {
             blocking_issues: notes?.blocking_issues || analyzeResult?.blocking_issues || [],
@@ -3916,10 +3955,56 @@ Deno.serve(async (req) => {
             `Attempt ${attemptNumber}: strategy=${strategy}, notes=${strategyNotes.length}, directions=${strategyDirections.length}`,
             { ci, gp, gap }, undefined, { attemptNumber, strategy, noteCount: strategyNotes.length });
 
-          // ── 1) BASELINE PINNING: capture pre-rewrite state ──
-          const baselineVersionId = latestVersion.id;
-          const baselineCI = ci;
-          const baselineGP = gp;
+          // ── 1) BASELINE PINNING: use current accepted version (not latest) ──
+          const currentAccepted = await getCurrentVersionForDoc(supabase, doc.id);
+          if (!currentAccepted) {
+            await logStep(supabase, jobId, null, currentDoc, "baseline_missing",
+              `No current accepted version found for document ${doc.id}. Halting.`,
+              { ci, gp, gap });
+            await updateJob(supabase, jobId, {
+              stage_loop_count: newLoopCount,
+              status: "paused",
+              pause_reason: "BASELINE_MISSING",
+              stop_reason: `No current accepted version for ${currentDoc}. Cannot establish baseline.`,
+            });
+            return respondWithJob(supabase, jobId);
+          }
+          const baselineVersionId = currentAccepted.id;
+
+          // Re-score baseline to ensure CI/GP correspond to baselineVersionId
+          let baselineCI: number;
+          let baselineGP: number;
+          try {
+            const baselineScoreResult = await callEdgeFunctionWithRetry(
+              supabase, supabaseUrl, "dev-engine-v2", {
+                action: "analyze",
+                projectId: job.project_id,
+                documentId: doc.id,
+                versionId: baselineVersionId,
+                deliverableType: currentDoc,
+                developmentBehavior: behavior,
+                format,
+              }, token, job.project_id, format, currentDoc, jobId, newStep + 2
+            );
+            const baselineScores = extractCiGp(baselineScoreResult);
+            if (baselineScores.ci === null || baselineScores.gp === null) {
+              throw new Error(`Baseline scoring returned nulls (CI=${baselineScores.ci}, GP=${baselineScores.gp})`);
+            }
+            baselineCI = baselineScores.ci;
+            baselineGP = baselineScores.gp;
+          } catch (bsErr: any) {
+            await logStep(supabase, jobId, null, currentDoc, "baseline_score_failed",
+              `Baseline scoring failed: ${bsErr.message}. Halting.`,
+              {}, undefined, { baselineVersionId, error: bsErr.message });
+            await updateJob(supabase, jobId, {
+              stage_loop_count: newLoopCount,
+              status: "paused",
+              pause_reason: "BASELINE_SCORE_FAILED",
+              stop_reason: `Baseline scoring failed for ${currentDoc}: ${bsErr.message}`,
+            });
+            return respondWithJob(supabase, jobId);
+          }
+
           const REGRESSION_THRESHOLD = getRegressionThreshold(currentDoc);
 
           // ── Helper: score a candidate version ──
@@ -3936,10 +4021,10 @@ Deno.serve(async (req) => {
                   format,
                 }, token, job.project_id, format, currentDoc, jobId, newStep + 3
               );
-              const candCI = postScoreResult?.result?.scores?.ci ?? postScoreResult?.result?.ci ?? null;
-              const candGP = postScoreResult?.result?.scores?.gp ?? postScoreResult?.result?.gp ?? null;
-              if (candCI === null || candGP === null) return null;
-              return { ci: candCI, gp: candGP };
+              const scores = extractCiGp(postScoreResult);
+              if (scores.ci === null || scores.gp === null) return null;
+              return { ci: scores.ci, gp: scores.gp };
+              
             } catch (e: any) {
               console.error(`[auto-run] scoreCandidate(${label}) failed:`, e.message);
               return null;
@@ -4077,18 +4162,16 @@ Deno.serve(async (req) => {
                 return respondWithJob(supabase, jobId, shouldHalt ? undefined : "run-next");
               }
 
-              // Pick best passing candidate
-              const bestIdx = selectBestCandidate(
-                candidates.map((c, i) => ({
-                  ...c,
-                  ci: (i === 0 ? passA : passB) ? c.ci : null,
-                  gp: (i === 0 ? passA : passB) ? c.gp : null,
-                  versionId: (i === 0 ? passA : passB) ? c.versionId : null,
-                }))
-              );
+              // Pick best passing candidate — deterministic: max(ci+gp) among passers
+              const passing: Array<{ versionId: string; ci: number; gp: number; label: string }> = [];
+              if (passA && candA && scoreA) passing.push({ versionId: candA, ci: scoreA.ci, gp: scoreA.gp, label: "conservative" });
+              if (passB && candB && scoreB) passing.push({ versionId: candB, ci: scoreB.ci, gp: scoreB.gp, label: "aggressive" });
 
-              const winner = candidates[bestIdx];
-              const winnerLabel = bestIdx === 0 ? "conservative" : "aggressive";
+              // Sort by composite score descending, then by label for determinism
+              passing.sort((a, b) => (b.ci + b.gp) - (a.ci + a.gp) || a.label.localeCompare(b.label));
+
+              const winner = passing[0];
+              const winnerLabel = winner.label;
               const promoted = await promoteCandidate(
                 winner.versionId!,
                 winner.ci!,
