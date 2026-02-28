@@ -1276,9 +1276,18 @@ async function updateJob(supabase: any, jobId: string, fields: Record<string, an
 
 // ── Helper: finalize-best — promote best_version_id on job end ──
 // INVARIANT: is_current only changes via set_current_version after promotion gate OR finalize.
+// STAGE-SCOPED: only promotes if best_document_id matches current/resume doc (the doc being finalized).
 async function finalizeBest(supabase: any, jobId: string, job: any): Promise<boolean> {
   const bestVersionId = job?.best_version_id;
   if (!bestVersionId) return false;
+
+  // Stage-scope check: best must belong to the document we're currently working on
+  const bestDocId = job?.best_document_id;
+  const currentDocId = job?.resume_document_id || null;
+  if (bestDocId && currentDocId && bestDocId !== currentDocId) {
+    console.log("[auto-run] finalizeBest no-op: best_document_id does not match current doc", { bestDocId, currentDocId });
+    return false;
+  }
 
   // Find document for this version
   const { data: ver } = await supabase
@@ -1287,6 +1296,12 @@ async function finalizeBest(supabase: any, jobId: string, job: any): Promise<boo
     .eq("id", bestVersionId)
     .maybeSingle();
   if (!ver) return false;
+
+  // Double-check version belongs to the current working document
+  if (currentDocId && ver.document_id !== currentDocId) {
+    console.log("[auto-run] finalizeBest no-op: version document_id mismatch", { versionDocId: ver.document_id, currentDocId });
+    return false;
+  }
 
   // If already current, no-op
   if (ver.is_current) return false;
@@ -1306,7 +1321,7 @@ async function finalizeBest(supabase: any, jobId: string, job: any): Promise<boo
   await logStep(supabase, jobId, null, job.current_document || "unknown", "finalize_promote_best",
     `Job ending — promoted best version ${bestVersionId} (CI=${job.best_ci}, GP=${job.best_gp}, score=${job.best_score})`,
     { ci: job.best_ci, gp: job.best_gp }, undefined,
-    { best_version_id: bestVersionId, best_ci: job.best_ci, best_gp: job.best_gp, best_score: job.best_score });
+    { best_version_id: bestVersionId, best_document_id: bestDocId, best_ci: job.best_ci, best_gp: job.best_gp, best_score: job.best_score });
 
   // Clear frontier fields
   await updateJob(supabase, jobId, {
@@ -4217,7 +4232,7 @@ Deno.serve(async (req) => {
               return false;
             }
 
-            // ── BEST-OF TRACKING ──
+            // ── BEST-OF TRACKING (only on PROMOTE) ──
             const bestCI = (job as any).best_ci ?? null;
             const bestGP = (job as any).best_gp ?? null;
             const candidateComposite = candCI + candGP;
@@ -4247,27 +4262,31 @@ Deno.serve(async (req) => {
               jobUpdate.best_ci = candCI;
               jobUpdate.best_gp = candGP;
               jobUpdate.best_score = candidateComposite;
+              jobUpdate.best_document_id = doc.id;
             }
             await updateJob(supabase, jobId, jobUpdate);
             return true;
           }
 
           // ── Helper: set frontier (EXPLORE path — does NOT change is_current) ──
+          // INVARIANT: best_* is NOT mutated on EXPLORE. Only PROMOTE updates best_*.
+          // Frontier attempts are read from persisted DB state (not stale in-memory job).
           async function setFrontier(candVersionId: string, candCI: number, candGP: number, meta: Record<string, any>): Promise<void> {
-            const currentFrontier = (job as any).frontier_version_id;
-            const isNewFrontier = currentFrontier !== candVersionId;
-
-            // Update best-of tracking even when exploring
-            const bestCI = (job as any).best_ci ?? null;
-            const bestGP = (job as any).best_gp ?? null;
-            const candidateComposite = candCI + candGP;
-            const bestComposite = (bestCI ?? -1) + (bestGP ?? -1);
-            const isBest = bestCI === null || candidateComposite > bestComposite;
+            // Read latest persisted frontier state to avoid stale in-memory data
+            const { data: freshJob } = await supabase
+              .from("auto_run_jobs")
+              .select("frontier_version_id, frontier_attempts")
+              .eq("id", jobId)
+              .single();
+            const prevFrontierVersionId = freshJob?.frontier_version_id ?? null;
+            const prevAttempts = freshJob?.frontier_attempts ?? 0;
+            const isNewFrontier = prevFrontierVersionId !== candVersionId;
+            const newAttempts = isNewFrontier ? 1 : prevAttempts + 1;
 
             await logStep(supabase, jobId, null, currentDoc, "frontier_set",
-              `Frontier set (attempt ${attemptNumber}, ${strategy}): CI=${candCI}, GP=${candGP}. Baseline preserved (CI=${baselineCI}, GP=${baselineGP}). is_current unchanged.${isBest ? ' [NEW BEST]' : ''}`,
+              `Frontier set (attempt ${attemptNumber}, ${strategy}): CI=${candCI}, GP=${candGP}. Baseline preserved (CI=${baselineCI}, GP=${baselineGP}). is_current unchanged. frontier_attempts=${newAttempts}`,
               { ci: candCI, gp: candGP }, undefined,
-              { ...meta, attemptNumber, strategy, isBest, frontier_version_id: candVersionId });
+              { ...meta, attemptNumber, strategy, frontier_version_id: candVersionId, frontier_attempts: newAttempts, prevAttempts, isNewFrontier });
 
             const jobUpdate: Record<string, any> = {
               stage_loop_count: newLoopCount,
@@ -4277,16 +4296,11 @@ Deno.serve(async (req) => {
               frontier_version_id: candVersionId,
               frontier_ci: candCI,
               frontier_gp: candGP,
-              frontier_attempts: isNewFrontier ? 1 : ((job as any).frontier_attempts || 0) + 1,
+              frontier_attempts: newAttempts,
               last_ci: candCI,
               last_gp: candGP,
             };
-            if (isBest) {
-              jobUpdate.best_version_id = candVersionId;
-              jobUpdate.best_ci = candCI;
-              jobUpdate.best_gp = candGP;
-              jobUpdate.best_score = candidateComposite;
-            }
+            // NOTE: best_* is NOT updated on EXPLORE — only PROMOTE updates best_*
             await updateJob(supabase, jobId, jobUpdate);
           }
 
@@ -4370,9 +4384,15 @@ Deno.serve(async (req) => {
               }
 
               // Try EXPLORE (frontier) — pick best explorable
+              // Read persisted frontier state for deterministic attempt counting
               const explorable = allCandidates.filter(c => c.decision === "EXPLORE");
               if (explorable.length > 0) {
-                const frontierAttempts = (job as any).frontier_attempts || 0;
+                const { data: freshJobFork } = await supabase
+                  .from("auto_run_jobs")
+                  .select("frontier_attempts")
+                  .eq("id", jobId)
+                  .single();
+                const frontierAttempts = freshJobFork?.frontier_attempts ?? 0;
                 if (frontierAttempts < MAX_FRONTIER_ATTEMPTS) {
                   const best = explorable[0];
                   await setFrontier(best.versionId, best.ci, best.gp,
@@ -4509,7 +4529,13 @@ Deno.serve(async (req) => {
 
             if (gateDecision === "EXPLORE") {
               // ── EXPLORE: quality search — set frontier, do NOT change is_current ──
-              const frontierAttempts = (job as any).frontier_attempts || 0;
+              // Read persisted frontier state for deterministic attempt counting
+              const { data: freshJobSingle } = await supabase
+                .from("auto_run_jobs")
+                .select("frontier_attempts")
+                .eq("id", jobId)
+                .single();
+              const frontierAttempts = freshJobSingle?.frontier_attempts ?? 0;
               if (frontierAttempts < MAX_FRONTIER_ATTEMPTS) {
                 await setFrontier(candidateVersionId, candidateCI, candidateGP,
                   { baselineVersionId, singleInputVersionId, candidateVersionId, baselineCI, baselineGP, candidateCI, candidateGP, ciDrop, gpDrop, worstDrop });
