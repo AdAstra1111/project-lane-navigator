@@ -58,7 +58,7 @@ function deriveStyleProfile(text: string, docType: string): Record<string, any> 
 export function useSeasonTemplate(projectId: string | undefined) {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  const setTemplate = useMutation({
     mutationFn: async ({ docType, versionId, versionText }: SetSeasonTemplateParams) => {
       if (!projectId) throw new Error('No project ID');
 
@@ -79,7 +79,6 @@ export function useSeasonTemplate(projectId: string | undefined) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-      // Explicit: season_template_set event — no promotion events emitted
       console.log('[SeasonTemplate] event_type=season_template_set — no promotion_suggested emitted');
       toast.success('Season template set (style benchmark). No publishing changes made.');
     },
@@ -87,4 +86,31 @@ export function useSeasonTemplate(projectId: string | undefined) {
       toast.error(error.message || 'Failed to set season template');
     },
   });
+
+  const unsetTemplate = useMutation({
+    mutationFn: async () => {
+      if (!projectId) throw new Error('No project ID');
+
+      const { error } = await (supabase as any)
+        .from('projects')
+        .update({
+          season_style_template_doc_type: null,
+          season_style_template_version_id: null,
+          season_style_profile: null,
+        })
+        .eq('id', projectId);
+
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      toast.success('Season template removed.');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to unset season template');
+    },
+  });
+
+  return { setTemplate, unsetTemplate };
 }
