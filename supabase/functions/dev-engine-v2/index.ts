@@ -3490,6 +3490,15 @@ MATERIAL:\n${version.plaintext}`;
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // ── Resolve doc type early so large-risk check can use it ──
+      const VALID_DELIVERABLES_SET = new Set(["idea","topline_narrative","concept_brief","market_sheet","treatment","story_outline","character_bible","beat_sheet","feature_script","episode_script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats","season_master_script","vertical_market_sheet"]);
+      let resolvedDocType = docTypeMap[targetOutput] || docTypeMap[normalizedTarget] || docTypeMap[(targetOutput || "").toUpperCase()] || "other";
+      if (resolvedDocType === "other") {
+        const aggressive = (targetOutput || "").toLowerCase().replace(/[\s\-()0-9]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+        const fuzzy = [...VALID_DELIVERABLES_SET].find(d => aggressive.includes(d) || d.includes(aggressive));
+        resolvedDocType = fuzzy || "feature_script";
+      }
+
       // ── Non-episodic large-risk doc: redirect to generate-document for chunked pipeline ──
       if (isLargeRiskDocType(resolvedDocType)) {
         console.log("[dev-engine-v2] convert: Large-risk doc type, redirecting to generate-document chunked pipeline", { targetOutput, resolvedDocType, projectId });
@@ -3540,15 +3549,7 @@ MATERIAL:\n${version.plaintext}`;
       } else {
         parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       }
-      let resolvedDocType = docTypeMap[targetOutput] || docTypeMap[normalizedTarget] || docTypeMap[(targetOutput || "").toUpperCase()] || "other";
-
-      const VALID_DELIVERABLES_SET = new Set(["idea","topline_narrative","concept_brief","market_sheet","treatment","story_outline","character_bible","beat_sheet","feature_script","episode_script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats","season_master_script","vertical_market_sheet"]);
-      if (resolvedDocType === "other") {
-        // Fuzzy match: strip numbers, parens, normalize
-        const aggressive = (targetOutput || "").toLowerCase().replace(/[\s\-()0-9]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
-        const fuzzy = [...VALID_DELIVERABLES_SET].find(d => aggressive.includes(d) || d.includes(aggressive));
-        resolvedDocType = fuzzy || "feature_script"; // Never fall through to "other"
-      }
+      // resolvedDocType already computed above (before large-risk check)
 
       const { data: newDoc, error: dErr } = await supabase.from("project_documents").insert({
         project_id: projectId,
