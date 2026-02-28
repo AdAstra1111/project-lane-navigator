@@ -3976,18 +3976,23 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId);
           }
 
-          // ── AGGREGATE GUARD: block LLM rewrites using docClass ──
+          // ── AGGREGATE GUARD: skip LLM rewrites, auto-advance to next stage ──
           if (isAggregate(currentDoc)) {
-            await logStep(supabase, jobId, null, currentDoc, "aggregate_llm_write_blocked",
-              `Doc type "${currentDoc}" is AGGREGATE (compile-only). LLM rewrite blocked. Halting stabilise.`,
+            await logStep(supabase, jobId, null, currentDoc, "aggregate_skip_advance",
+              `Doc type "${currentDoc}" is AGGREGATE (compile-only). Skipping LLM rewrite, advancing to next stage.`,
               { ci, gp, gap });
-            await updateJob(supabase, jobId, {
-              stage_loop_count: newLoopCount,
-              status: "paused",
-              pause_reason: "AGGREGATE_COMPILE_ONLY",
-              stop_reason: `AGGREGATE doc type "${currentDoc}" cannot be LLM-rewritten. Compile-only.`,
-            });
-            return respondWithJob(supabase, jobId);
+            const nextAfterAggregate = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+            if (nextAfterAggregate && isStageAtOrBeforeTarget(nextAfterAggregate, job.target_document, format)) {
+              await updateJob(supabase, jobId, {
+                current_document: nextAfterAggregate,
+                stage_loop_count: 0,
+              });
+              return respondWithJob(supabase, jobId, "run-next");
+            } else {
+              await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied up to target (aggregate skip)" });
+              await logStep(supabase, jobId, null, currentDoc, "stop", "All stages satisfied up to target after aggregate skip");
+              return respondWithJob(supabase, jobId);
+            }
           }
 
           // No blockers or options already handled — apply rewrite with convergence policy
