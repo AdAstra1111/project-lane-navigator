@@ -522,10 +522,42 @@ export function AutoRunMissionControl({
     URL.revokeObjectURL(url);
   };
 
-  const isDecisionState = job?.status === 'paused' && job?.pending_decisions && job.pending_decisions.length > 0;
-  const hasDecisions = !!isDecisionState;
+  const fallbackDecisions = useMemo<PendingDecision[]>(() => {
+    if (job?.status !== 'paused') return [];
+    const pauseStepWithChoices = [...steps]
+      .reverse()
+      .find((s) => s.action === 'pause_for_approval' && Array.isArray((s.output_ref as any)?.choices));
+
+    const choices = (pauseStepWithChoices?.output_ref as any)?.choices;
+    if (!Array.isArray(choices) || choices.length === 0) return [];
+
+    return choices
+      .filter((c: any) => c?.id && c?.question && Array.isArray(c?.options))
+      .map((c: any) => ({
+        id: String(c.id),
+        question: String(c.question),
+        options: c.options
+          .filter((o: any) => o?.value)
+          .map((o: any) => ({
+            value: String(o.value),
+            why: String(o.why || ''),
+          })),
+        recommended: c.recommended ? String(c.recommended) : undefined,
+        impact: c.impact === 'blocking' ? 'blocking' : 'non_blocking',
+      }));
+  }, [job?.status, steps]);
+
+  const activeDecisions = useMemo<PendingDecision[]>(() => {
+    if (job?.status !== 'paused') return [];
+    if (Array.isArray(job?.pending_decisions) && job.pending_decisions.length > 0) {
+      return job.pending_decisions as PendingDecision[];
+    }
+    return fallbackDecisions;
+  }, [job?.status, job?.pending_decisions, fallbackDecisions]);
+
+  const hasDecisions = activeDecisions.length > 0;
   const blockingDecision = hasDecisions
-    ? (job!.pending_decisions as PendingDecision[]).find(d => d.impact === 'blocking') || (job!.pending_decisions as PendingDecision[])[0]
+    ? activeDecisions.find(d => d.impact === 'blocking') || activeDecisions[0]
     : null;
 
   const hasEscalation = (job?.status === 'paused' || job?.status === 'stopped' || job?.status === 'failed') && (
@@ -1437,13 +1469,25 @@ export function AutoRunMissionControl({
                   <span className="flex items-center gap-1.5 text-destructive"><AlertTriangle className="h-3 w-3" /> Escalation Required</span>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-2 pb-3">
-                  <p className="text-[10px] text-muted-foreground">Auto-run cannot proceed without a strategic decision.</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {hasDecisions
+                      ? 'Choose a resolution option above to clear the blocker.'
+                      : 'No resolution options are loaded yet. Generate options to continue.'}
+                  </p>
                   <div className="flex gap-1.5 flex-wrap">
+                    {!hasDecisions && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[10px] gap-1"
+                        onClick={onRunNext}
+                        disabled={job?.status !== 'paused'}
+                      >
+                        <Zap className="h-3 w-3" /> Generate Options
+                      </Button>
+                    )}
                     <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" onClick={onForcePromote}>
                       <ArrowUpRight className="h-3 w-3" /> Force Promote
-                    </Button>
-                    <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" onClick={onPause}>
-                      <Pause className="h-3 w-3" /> Pause for Manual Editing
                     </Button>
                   </div>
                 </AccordionContent>
