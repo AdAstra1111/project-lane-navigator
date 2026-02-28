@@ -4142,7 +4142,7 @@ Deno.serve(async (req) => {
         console.log("[auto-run] run-next returning early (fire-and-forget, no waitUntil)", { jobId });
       }
       // Always return immediately — heavy work continues in background
-      return respondWithJob(supabase, jobId, "run-next");
+      return respondWithJob(supabase, jobId);
       } finally {
         // Only release lock if bgTask was NOT spawned.
         // If bgTask was spawned, it owns the lock and releases in its own finally.

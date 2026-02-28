@@ -92,6 +92,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
 
   // ── Resilient Polling with backoff ──
   const hasPendingDecisions = Array.isArray(job?.pending_decisions) && (job?.pending_decisions as any[]).length > 0;
+  const shouldPausePollingForDecisions = job?.status === 'paused' && hasPendingDecisions;
 
   const schedulePoll = useCallback((delayMs: number) => {
     if (pollRef.current) clearTimeout(pollRef.current);
@@ -118,20 +119,22 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       setJob(result.job);
       setSteps(result.latest_steps || []);
 
-      if (!result.job || result.job.status !== 'running' || result.job.awaiting_approval) {
-        setIsRunning(false);
+      const running = !!result.job && result.job.status === 'running' && !result.job.awaiting_approval;
+      setIsRunning(running);
+
+      if (!running) {
         return; // Don't reschedule — polling stops
       }
 
       // If backend idle and still running, nudge run-next
-      if (result.job.status === 'running' && !result.job.awaiting_approval && !result.job.is_processing) {
-        callAutoRun('run-next', { jobId: job.id }).catch((nudgeErr) => {
+      if (!result.job.is_processing) {
+        callAutoRun('run-next', { jobId: result.job.id }).catch((nudgeErr) => {
           console.warn('[auto-run poll] nudge run-next failed:', nudgeErr.message);
         });
       }
 
       // Schedule next poll — shorter interval when idle to catch dropped chains
-      const interval = (result.job.status === 'running' && !result.job.is_processing) ? 3000 : 5000;
+      const interval = result.job.is_processing ? 5000 : 3000;
       schedulePoll(interval);
 
     } catch (e: any) {
@@ -158,9 +161,10 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   }, [job?.id, schedulePoll]);
 
   useEffect(() => {
-    // Stop polling if no job, not running, or job is paused/awaiting/has pending decisions
-    if (!job || !isRunning || job.status !== 'running' || job.awaiting_approval || hasPendingDecisions) {
-      if (isRunning && (job?.status !== 'running' || job?.awaiting_approval || hasPendingDecisions)) {
+    // Poll whenever backend job is actively running (job.status is source of truth)
+    const shouldPoll = !!job && job.status === 'running' && !job.awaiting_approval && !shouldPausePollingForDecisions;
+    if (!shouldPoll) {
+      if (isRunning && (!job || job.status !== 'running' || job.awaiting_approval || shouldPausePollingForDecisions)) {
         setIsRunning(false);
       }
       if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; }
@@ -176,7 +180,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     doPoll();
 
     return () => { if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; } };
-  }, [job?.id, isRunning, job?.status, job?.awaiting_approval, hasPendingDecisions, doPoll]);
+  }, [job?.id, job?.status, job?.awaiting_approval, shouldPausePollingForDecisions, isRunning, doPoll]);
 
   // ── Core actions ──
   const refreshStatus = useCallback(async () => {
