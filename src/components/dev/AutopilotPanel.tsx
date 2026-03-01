@@ -5,7 +5,10 @@
  * Phase 1: DevSeed (apply_seed_intel_pack + regen_foundation)
  * Phase 2: Auto-Run ladder (start on DevSeed completion, show status)
  *
- * Backend edge functions are NOT renamed — this is a UI presentation change.
+ * GATES: All progression-affecting gates are DB-persisted or derived from DB.
+ * - handoff is DB-driven (checks autoRunJob existence + devseed status)
+ * - awaiting_approval / pending_decisions surfaced as blocking UI
+ * - allow_defaults=true passed explicitly at start
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
@@ -14,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AutopilotProgress, type AutopilotState } from '@/components/pitch/AutopilotProgress';
-import { Loader2, Play, Pause, Rocket, AlertTriangle, Mic, Search, ExternalLink, CheckCircle, Clock } from 'lucide-react';
+import { Loader2, Play, Pause, Rocket, AlertTriangle, Mic, Search, ExternalLink, CheckCircle, Clock, ArrowRight } from 'lucide-react';
 import { getDefaultVoiceForLane } from '@/lib/writingVoices/select';
 import { loadProjectLaneRulesetPrefs, saveProjectLaneRulesetPrefs } from '@/lib/rulesets/uiState';
 
@@ -82,8 +85,8 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
   // Phase 2: Auto-Run state
   const [autoRunJob, setAutoRunJob] = useState<any>(null);
   const [autoRunLoading, setAutoRunLoading] = useState(false);
-  const handoffStartedRef = useRef(false);
-  const canonPopulatedRef = useRef(false);
+  // handoffInFlight prevents concurrent handoff calls within a single mount cycle
+  const handoffInFlightRef = useRef(false);
 
   // Next Actions state
   const [hasComparables, setHasComparables] = useState<boolean | null>(null);
@@ -171,12 +174,14 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
 
   useEffect(() => { fetchAutoRunStatus(); }, [fetchAutoRunStatus]);
 
-  // Poll auto-run status while running
+  // Poll auto-run status while running or awaiting approval
   useEffect(() => {
-    if (!autoRunJob || !['queued', 'running'].includes(autoRunJob.status)) return;
+    if (!autoRunJob) return;
+    const shouldPoll = ['queued', 'running'].includes(autoRunJob.status) || autoRunJob.awaiting_approval;
+    if (!shouldPoll) return;
     const interval = setInterval(fetchAutoRunStatus, 5000);
     return () => clearInterval(interval);
-  }, [autoRunJob?.status, fetchAutoRunStatus]);
+  }, [autoRunJob?.status, autoRunJob?.awaiting_approval, fetchAutoRunStatus]);
 
   // ═══ Check comparables ═══
   useEffect(() => {
@@ -218,29 +223,34 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
     }
   }, [projectId]);
 
-  // ═══ PHASE 1→2 HANDOFF: On DevSeed completion, start Auto-Run ═══
+  // ═══ PHASE 1→2 HANDOFF: DB-driven (survives refresh) ═══
+  // Triggers when: devseed complete AND no auto-run job exists yet
+  // Guard: handoffInFlightRef prevents concurrent calls within same mount
   useEffect(() => {
     if (autopilot?.status !== 'complete') return;
-    if (handoffStartedRef.current) return;
-    if (autoRunJob && ['queued', 'running', 'completed'].includes(autoRunJob.status)) return;
-
-    handoffStartedRef.current = true;
+    // If a job already exists in any non-terminal state, skip handoff
+    if (autoRunJob && !['failed', 'stopped'].includes(autoRunJob.status)) return;
+    // Also skip if we already have a completed job
+    if (autoRunJob?.status === 'completed') return;
+    // In-flight guard for this mount cycle
+    if (handoffInFlightRef.current) return;
+    handoffInFlightRef.current = true;
 
     const doHandoff = async () => {
-      // Canon baseline population (non-blocking, best-effort)
-      if (!canonPopulatedRef.current) {
-        canonPopulatedRef.current = true;
-        populateCanonBaseline(projectId).catch(() => {});
-      }
+      // Canon baseline population (non-blocking, best-effort, idempotent)
+      populateCanonBaseline(projectId).catch(() => {});
 
-      // Start Auto-Run
+      // Start Auto-Run with explicit allow_defaults for unblocked progression
       setAutoRunLoading(true);
       try {
-        const result = await callAutoRun('start', { projectId });
+        const result = await callAutoRun('start', {
+          projectId,
+          allow_defaults: true,
+        });
         if (mountedRef.current) {
           setAutoRunJob(result.job);
         }
-        // Fire non-blocking tick
+        // Fire non-blocking tick to begin advancing
         callAutoRun('run-next', { jobId: result.job.id }).then(tickResult => {
           if (mountedRef.current && tickResult?.job) setAutoRunJob(tickResult.job);
         }).catch(() => {});
@@ -254,6 +264,7 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
         }
       } finally {
         if (mountedRef.current) setAutoRunLoading(false);
+        handoffInFlightRef.current = false;
       }
     };
 
@@ -263,8 +274,6 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
   // ═══ Start / Resume / Pause (DevSeed) ═══
   const handleStart = useCallback(async () => {
     abortRef.current = false;
-    handoffStartedRef.current = false;
-    canonPopulatedRef.current = false;
     try {
       const { data, error } = await supabase.functions.invoke('devseed-autopilot', {
         body: {
@@ -322,6 +331,21 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
     }
   }, [projectId]);
 
+  // ═══ Auto-Run resume handler (for blocked states) ═══
+  const handleAutoRunResume = useCallback(async () => {
+    if (!autoRunJob?.id) return;
+    try {
+      const result = await callAutoRun('resume', { jobId: autoRunJob.id, followLatest: true });
+      if (mountedRef.current && result?.job) setAutoRunJob(result.job);
+      // Fire non-blocking tick
+      callAutoRun('run-next', { jobId: autoRunJob.id }).then(tickResult => {
+        if (mountedRef.current && tickResult?.job) setAutoRunJob(tickResult.job);
+      }).catch(() => {});
+    } catch (err: any) {
+      toast.error('Failed to resume auto-run: ' + (err?.message || 'Unknown error'));
+    }
+  }, [autoRunJob?.id]);
+
   // ═══ Find Comparables CTA ═══
   const handleFindComparables = useCallback(async () => {
     if (!lane) return;
@@ -364,6 +388,11 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
   const autoRunRunning = autoRunStatus === 'running' || autoRunStatus === 'queued';
   const autoRunComplete = autoRunStatus === 'completed';
   const autoRunFailed = autoRunStatus === 'failed' || autoRunStatus === 'stopped';
+  const autoRunPaused = autoRunStatus === 'paused';
+  const autoRunBlocked = autoRunJob?.awaiting_approval === true;
+  const autoRunStopReason = autoRunJob?.stop_reason;
+  const autoRunApprovalType = autoRunJob?.approval_type;
+  const autoRunUiMessage = autoRunJob?.last_ui_message;
 
   // Phase status helpers
   const getPhase0Status = () => {
@@ -384,6 +413,7 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
     if (!isSeedComplete) return 'pending';
     if (autoRunLoading) return 'starting';
     if (autoRunComplete) return 'done';
+    if (autoRunBlocked || autoRunPaused) return 'blocked';
     if (autoRunRunning) return 'running';
     if (autoRunFailed) return 'error';
     return 'pending';
@@ -396,7 +426,8 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
       case 'starting':
       case 'checking': return <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />;
       case 'error': return <AlertTriangle className="h-3.5 w-3.5 text-destructive" />;
-      case 'warning': return <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />;
+      case 'warning':
+      case 'blocked': return <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />;
       case 'paused': return <Pause className="h-3.5 w-3.5 text-muted-foreground" />;
       default: return <Clock className="h-3.5 w-3.5 text-muted-foreground" />;
     }
@@ -405,6 +436,22 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
   // Build Mission Control URL
   const missionControlUrl = `/projects/${projectId}/development?tab=autorun`;
 
+  // Describe the blocking reason for the user
+  const getBlockingDescription = () => {
+    if (autoRunApprovalType === 'input_incomplete') {
+      return autoRunUiMessage || 'Some required documents are missing content. Add content and resume.';
+    }
+    if (autoRunApprovalType === 'seed_core_officialize') {
+      return 'Seed documents need to be approved before proceeding.';
+    }
+    if (autoRunStopReason?.startsWith('Approval required')) {
+      return autoRunStopReason;
+    }
+    if (autoRunUiMessage) return autoRunUiMessage;
+    if (autoRunStopReason) return autoRunStopReason;
+    return 'Auto-Run is paused and needs your input to continue.';
+  };
+
   return (
     <Card className="border-primary/20">
       <CardHeader className="py-3 px-4 flex-row items-center justify-between space-y-0">
@@ -412,8 +459,9 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
           <Rocket className="h-4 w-4 text-primary" />
           <CardTitle className="text-sm">Project Autopilot</CardTitle>
           {autoRunComplete && isSeedComplete && <Badge variant="default" className="text-[10px] h-5">Complete</Badge>}
-          {(isRunning || autoRunRunning) && <Badge variant="secondary" className="text-[10px] h-5">Running</Badge>}
-          {hasError && !isRunning && <Badge variant="destructive" className="text-[10px] h-5">Error</Badge>}
+          {(isRunning || autoRunRunning) && !autoRunBlocked && <Badge variant="secondary" className="text-[10px] h-5">Running</Badge>}
+          {(autoRunBlocked || autoRunPaused) && <Badge variant="outline" className="text-[10px] h-5 border-amber-500/50 text-amber-600">Blocked</Badge>}
+          {hasError && !isRunning && !autoRunBlocked && <Badge variant="destructive" className="text-[10px] h-5">Error</Badge>}
           {isPaused && !hasError && <Badge variant="secondary" className="text-[10px] h-5">Paused</Badge>}
         </div>
         <div className="flex gap-2">
@@ -490,13 +538,44 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
               Phase 2: Develop (Auto-Run)
             </span>
             {autoRunComplete && <Badge variant="default" className="text-[10px] h-5">Done</Badge>}
-            {autoRunRunning && <Badge variant="secondary" className="text-[10px] h-5">Running</Badge>}
+            {autoRunRunning && !autoRunBlocked && <Badge variant="secondary" className="text-[10px] h-5">Running</Badge>}
             {autoRunFailed && <Badge variant="destructive" className="text-[10px] h-5">Failed</Badge>}
             {autoRunLoading && <Badge variant="secondary" className="text-[10px] h-5">Starting…</Badge>}
+            {(autoRunBlocked || autoRunPaused) && <Badge variant="outline" className="text-[10px] h-5 border-amber-500/50 text-amber-600">Needs Input</Badge>}
           </div>
 
-          {/* Auto-Run details when available */}
-          {autoRunJob && (
+          {/* ═══ BLOCKING DECISION UI ═══ */}
+          {autoRunJob && (autoRunBlocked || autoRunPaused) && (
+            <div className="px-3 py-2.5 text-xs space-y-2 border border-amber-500/30 rounded bg-amber-500/5">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                <div className="space-y-1 flex-1">
+                  <p className="font-medium text-foreground">Blocking Decision</p>
+                  <p className="text-muted-foreground">{getBlockingDescription()}</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={handleAutoRunResume}
+                  className="h-6 text-[10px] gap-1"
+                >
+                  <ArrowRight className="h-3 w-3" />
+                  Resume Auto-Run
+                </Button>
+                <a href={missionControlUrl}>
+                  <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1">
+                    <ExternalLink className="h-3 w-3" />
+                    Open Mission Control
+                  </Button>
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Auto-Run details when available and not blocked */}
+          {autoRunJob && !autoRunBlocked && !autoRunPaused && (
             <div className="px-3 py-2 text-xs space-y-1 border border-border/20 rounded">
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Current stage:</span>
