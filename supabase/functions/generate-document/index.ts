@@ -68,11 +68,11 @@ const UPSTREAM_DEPS: Record<string, string[]> = {
 };
 
 // ── Cycle & self-dep guard (runs once at cold start) ──
+let DEP_GRAPH_VALID = true;
 try {
   for (const [dt, deps] of Object.entries(UPSTREAM_DEPS)) {
     if (deps.includes(dt)) throw new Error(`UPSTREAM_DEPS self-dep: ${dt}`);
   }
-  // BFS cycle check
   for (const start of Object.keys(UPSTREAM_DEPS)) {
     const visited = new Set<string>();
     const queue = [...(UPSTREAM_DEPS[start] || [])];
@@ -85,6 +85,7 @@ try {
     }
   }
 } catch (e: any) {
+  DEP_GRAPH_VALID = false;
   console.error(`[generate-document] FATAL dep graph error: ${e.message}`);
 }
 
@@ -94,21 +95,33 @@ const CONVERGENCE_HEADINGS = [
   "## Convergence Guidance (Audience Appetite Context)",
 ];
 const MAX_GUIDANCE_EXTRACT_CHARS = 2000;
+const MAX_SECTION_CHARS = 1200;
 
 function extractConvergenceGuidance(upstreamBlocks: Map<string, string>): string {
   const extracts: string[] = [];
+  const seen = new Set<string>();
   // Deterministic order: concept_brief first, then market_sheet
   for (const dt of ["concept_brief", "market_sheet"]) {
     const text = upstreamBlocks.get(dt);
     if (!text) continue;
     for (const heading of CONVERGENCE_HEADINGS) {
+      if (seen.has(heading)) continue; // first occurrence only across all docs
       const idx = text.indexOf(heading);
       if (idx === -1) continue;
-      const afterHeading = text.slice(idx);
-      // Find next ## heading (or end)
-      const nextH2 = afterHeading.indexOf("\n## ", heading.length);
-      const section = nextH2 > 0 ? afterHeading.slice(0, nextH2).trim() : afterHeading.trim();
-      if (section.length > 0) extracts.push(section);
+      seen.add(heading);
+      // Find end of heading line, then search for next ## from there
+      const headingEnd = text.indexOf("\n", idx + heading.length);
+      if (headingEnd === -1) {
+        // heading is at very end with no newline
+        const section = text.slice(idx).trim();
+        if (section.length > 0) extracts.push(section.slice(0, MAX_SECTION_CHARS));
+        continue;
+      }
+      const afterHeadingLine = text.slice(headingEnd + 1);
+      const nextH2 = afterHeadingLine.search(/^\s*## /m);
+      const bodyText = nextH2 >= 0 ? afterHeadingLine.slice(0, nextH2).trim() : afterHeadingLine.trim();
+      const fullSection = text.slice(idx, headingEnd + 1) + bodyText;
+      if (fullSection.length > 0) extracts.push(fullSection.slice(0, MAX_SECTION_CHARS));
     }
   }
   if (extracts.length === 0) return "";
@@ -201,6 +214,9 @@ Deno.serve(async (req) => {
 
     // Ping support
     if ((body as any).action === "ping") return jsonRes({ ok: true, function: "generate-document" });
+
+    // Dep graph validity gate
+    if (!DEP_GRAPH_VALID) return jsonRes({ error: "DEP_GRAPH_INVALID", message: "UPSTREAM_DEPS contains a cycle or self-dependency. Cannot proceed." }, 500);
 
     const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext } = body;
 
