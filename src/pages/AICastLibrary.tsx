@@ -1,16 +1,23 @@
 /**
  * AI Cast Library — Global actor list + create + detail management.
  */
-import { useState } from 'react';
-import { Users, Plus, Loader2, CheckCircle2, Search, Tag, Sparkles, ChevronRight, ImagePlus, ShieldCheck, Trash2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Users, Plus, Loader2, CheckCircle2, Search, Tag, Sparkles, ChevronRight, ImagePlus, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useAIActors, useAIActor, useAICastMutations } from '@/lib/aiCast/useAICast';
+import { aiCastApi } from '@/lib/aiCast/aiCastApi';
 import type { AIActor, AIActorVersion, AIActorAsset } from '@/lib/aiCast/aiCastApi';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
+
+const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 
 export default function AICastLibrary() {
   const { data, isLoading } = useAIActors();
@@ -147,9 +154,175 @@ function CreateActorForm({ onCreated }: { onCreated: (id: string) => void }) {
   );
 }
 
+function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string }) {
+  const { approveVersion, generateScreenTest, deleteAsset } = useAICastMutations();
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AIActorAsset | null>(null);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    e.target.value = '';
+
+    setUploading(true);
+    let successCount = 0;
+
+    for (const file of Array.from(files)) {
+      if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+        toast.error(`"${file.name}" is not a supported image type (JPG, PNG, WEBP).`);
+        continue;
+      }
+      if (file.size > MAX_IMAGE_SIZE) {
+        toast.error(`"${file.name}" exceeds the 10MB limit.`);
+        continue;
+      }
+
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const rand = Math.random().toString(36).slice(2, 8);
+      const storagePath = `actors/${actorId}/${ver.id}/reference/${Date.now()}_${rand}.${ext}`;
+
+      try {
+        const { error: uploadErr } = await supabase.storage
+          .from('ai-media')
+          .upload(storagePath, file, { contentType: file.type, upsert: false });
+
+        if (uploadErr) {
+          toast.error(`Upload failed for "${file.name}": ${uploadErr.message}`);
+          continue;
+        }
+
+        const { data: urlData } = supabase.storage.from('ai-media').getPublicUrl(storagePath);
+
+        await aiCastApi.addAsset(ver.id, {
+          asset_type: 'reference_image',
+          storage_path: storagePath,
+          public_url: urlData.publicUrl,
+          meta_json: {
+            filename: file.name,
+            size: file.size,
+            content_type: file.type,
+            uploaded_at: new Date().toISOString(),
+          },
+        });
+        successCount++;
+      } catch (err: any) {
+        toast.error(`Failed for "${file.name}": ${err.message}`);
+      }
+    }
+
+    if (successCount > 0) {
+      toast.success(`Uploaded ${successCount} reference image${successCount > 1 ? 's' : ''}`);
+      queryClient.invalidateQueries({ queryKey: ['ai-actor', actorId] });
+    }
+    setUploading(false);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await aiCastApi.deleteAsset(deleteTarget.id);
+      toast.success('Asset deleted');
+      queryClient.invalidateQueries({ queryKey: ['ai-actor', actorId] });
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+    setDeleteTarget(null);
+  };
+
+  return (
+    <div className="border border-border/50 rounded-lg p-4 space-y-3 bg-card/30">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium">Version {ver.version_number}</span>
+          {ver.is_approved && (
+            <Badge variant="outline" className="text-[10px] h-5 gap-0.5 text-emerald-600 border-emerald-600/30">
+              <ShieldCheck className="h-2.5 w-2.5" /> Approved
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {!ver.is_approved && (
+            <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+              onClick={() => approveVersion.mutate({ actorId, versionId: ver.id })}
+              disabled={approveVersion.isPending}>
+              <ShieldCheck className="h-3 w-3" /> Approve
+            </Button>
+          )}
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}>
+            {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+            Upload Ref Images
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            className="hidden"
+            onChange={handleUpload}
+          />
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+            onClick={() => generateScreenTest.mutate({ actorId, versionId: ver.id, count: 4 })}
+            disabled={generateScreenTest.isPending}>
+            {generateScreenTest.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            Screen Test
+          </Button>
+        </div>
+      </div>
+
+      {/* Assets grid */}
+      {ver.ai_actor_assets && ver.ai_actor_assets.length > 0 ? (
+        <div className="grid grid-cols-4 gap-2">
+          {ver.ai_actor_assets.map((asset: AIActorAsset) => (
+            <div key={asset.id} className="relative group rounded-lg overflow-hidden border border-border/30 aspect-square bg-muted/10">
+              {asset.public_url ? (
+                <img src={asset.public_url} alt={asset.asset_type} className="w-full h-full object-cover" />
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  <ImagePlus className="h-5 w-5" />
+                </div>
+              )}
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background/80 to-transparent p-1">
+                <span className="text-[9px] text-white/80">{asset.asset_type.replace(/_/g, ' ')}</span>
+              </div>
+              <button
+                onClick={() => setDeleteTarget(asset)}
+                className="absolute top-1 right-1 p-1 rounded bg-background/70 text-destructive opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">No assets yet. Upload reference images or run a screen test.</p>
+      )}
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Delete Asset</DialogTitle>
+            <DialogDescription className="text-xs">
+              Are you sure you want to delete this {deleteTarget?.asset_type.replace(/_/g, ' ')}? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button size="sm" variant="destructive" className="h-8 text-xs" onClick={confirmDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 function ActorDetail({ actorId, onBack }: { actorId: string; onBack: () => void }) {
   const { data, isLoading } = useAIActor(actorId);
-  const { updateActor, approveVersion, generateScreenTest, createVersion } = useAICastMutations();
+  const { updateActor, createVersion } = useAICastMutations();
   const actor: AIActor | undefined = data?.actor;
 
   const [editName, setEditName] = useState('');
@@ -173,7 +346,6 @@ function ActorDetail({ actorId, onBack }: { actorId: string; onBack: () => void 
   }
 
   const versions: AIActorVersion[] = actor.ai_actor_versions || [];
-  const latestVersion = versions[versions.length - 1];
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
@@ -211,55 +383,7 @@ function ActorDetail({ actorId, onBack }: { actorId: string; onBack: () => void 
         </div>
 
         {versions.map((ver) => (
-          <div key={ver.id} className="border border-border/50 rounded-lg p-4 space-y-3 bg-card/30">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium">Version {ver.version_number}</span>
-                {ver.is_approved && (
-                  <Badge variant="outline" className="text-[10px] h-5 gap-0.5 text-emerald-600 border-emerald-600/30">
-                    <ShieldCheck className="h-2.5 w-2.5" /> Approved
-                  </Badge>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {!ver.is_approved && (
-                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                    onClick={() => approveVersion.mutate({ actorId, versionId: ver.id })}
-                    disabled={approveVersion.isPending}>
-                    <ShieldCheck className="h-3 w-3" /> Approve
-                  </Button>
-                )}
-                <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                  onClick={() => generateScreenTest.mutate({ actorId, versionId: ver.id, count: 4 })}
-                  disabled={generateScreenTest.isPending}>
-                  {generateScreenTest.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                  Screen Test
-                </Button>
-              </div>
-            </div>
-
-            {/* Assets grid */}
-            {ver.ai_actor_assets && ver.ai_actor_assets.length > 0 ? (
-              <div className="grid grid-cols-4 gap-2">
-                {ver.ai_actor_assets.map((asset: AIActorAsset) => (
-                  <div key={asset.id} className="relative group rounded-lg overflow-hidden border border-border/30 aspect-square bg-muted/10">
-                    {asset.public_url ? (
-                      <img src={asset.public_url} alt={asset.asset_type} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-muted-foreground">
-                        <ImagePlus className="h-5 w-5" />
-                      </div>
-                    )}
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background/80 to-transparent p-1">
-                      <span className="text-[9px] text-white/80">{asset.asset_type.replace(/_/g, ' ')}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-muted-foreground">No assets yet. Run a screen test to generate reference images.</p>
-            )}
-          </div>
+          <VersionCard key={ver.id} ver={ver} actorId={actorId} />
         ))}
       </div>
     </div>
