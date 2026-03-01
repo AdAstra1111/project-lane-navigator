@@ -146,6 +146,7 @@ export default function PitchIdeas() {
               differentiation_move: idea.differentiation_move || '',
               tone_tag: idea.tone_tag || '',
               format_summary: idea.format_summary || '',
+              signals_metadata: data?.signals_metadata || null,
             },
             score_market_heat: idea.score_market_heat || 0,
             score_feasibility: idea.score_feasibility || 0,

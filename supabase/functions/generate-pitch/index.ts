@@ -132,6 +132,7 @@ serve(async (req) => {
     // ── Auto-fields: resolve via fallback ladder (deterministic, no LLM) ──
     let autoFieldsBlock = "";
     let convergenceBlock = "";
+    let convergenceSummary: any = null;
     const resolutionMeta: Record<string, { status: string; scope: string; note?: string }> = {};
 
     if (resolvedAutoFields.length > 0) {
@@ -208,6 +209,14 @@ serve(async (req) => {
           if (convergenceSignals.length > 0) {
             const profile = buildConvergenceProfile(convergenceSignals, castTrends);
             convergenceBlock = buildConvergenceBlock(profile);
+            // Compact summary for downstream persistence (no full text block)
+            convergenceSummary = {
+              genre_heat: profile.genre_heat.slice(0, 5).map(g => ({ genre: g.genre, score: g.score })),
+              tone_style: { tone_band: profile.tone_style.tone_band, pacing: profile.tone_style.pacing },
+              comparable_titles: profile.comparable_candidates.slice(0, 5).map(c => c.title),
+              risks: profile.risks.slice(0, 5).map(r => ({ label: r.label, severity: r.severity })),
+              constraints_notes: profile.constraints_notes.slice(0, 3),
+            };
             console.log(`[generate-pitch] convergence: signals=${convergenceSignals.length}, cast=${castTrends.length}, comps=${profile.comparable_candidates.length}, genres=${profile.genre_heat.length}`);
             warnings.push(`convergence_applied:signals=${convergenceSignals.length}`);
           }
@@ -763,6 +772,7 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
       applied: signalsApplied,
       rationale: signalsRationale,
       convergence_applied: convergenceBlock.length > 0,
+      convergence_summary: convergenceSummary,
     };
 
     // Attach resolution meta for auto-fields transparency
