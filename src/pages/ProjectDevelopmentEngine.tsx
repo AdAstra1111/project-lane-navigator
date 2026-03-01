@@ -1037,8 +1037,8 @@ export default function ProjectDevelopmentEngine() {
         />
       </div>
 
-      {/* ═══ SIMPLE MODE ═══ */}
-      {viewMode === 'simple' && (
+      {/* ═══ SIMPLE MODE / ADVANCED MODE ═══ */}
+      {viewMode === 'simple' ? (
         <DevEngineSimpleView
           projectId={projectId!}
           projectTitle={(project as any)?.title || ''}
@@ -1060,9 +1060,8 @@ export default function ProjectDevelopmentEngine() {
           seedDocs={seedStatus.docs}
           seedLoading={seedStatus.isLoading}
         />
-      )}
-
-      <div className={viewMode === 'simple' ? 'hidden' : ''}>
+      ) : (
+      <div data-devengine-advanced-wrapper>
       {/* ═══ SEED APPLIED BANNER ═══ */}
       {seedDraft && projectId && rulesetUserId && (
         <SeedAppliedBanner
@@ -2056,7 +2055,9 @@ export default function ProjectDevelopmentEngine() {
             )}
           </Tabs>
         </div>
-      </div>
+      )}
+
+      {/* ═══ SHARED OVERLAYS (visible in both modes) ═══ */}
 
       {/* Drift Override Dialog */}
       <Dialog open={driftOverrideOpen} onOpenChange={setDriftOverrideOpen}>
@@ -2143,6 +2144,7 @@ export default function ProjectDevelopmentEngine() {
         }}
       />
 
+    </div>
     </>
   );
 }
