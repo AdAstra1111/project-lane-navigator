@@ -103,16 +103,17 @@ export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const qc = useQueryClient();
-  const initialTab = searchParams.get('tab') || 'notes';
+  const VALID_TABS = new Set(['notes', 'issues', 'convergence', 'qualifications', 'autorun', 'series-scripts', 'criteria', 'package', 'canon', 'provenance', 'scenes', 'quality', 'docsets', 'timeline']);
+  const initialTab = (() => { const t = searchParams.get('tab'); return t && VALID_TABS.has(t) ? t : 'notes'; })();
   const [intelligenceTab, setIntelligenceTab] = useState(initialTab);
 
   // Sync tab from URL when searchParams change (e.g. navigated with ?tab=autorun)
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam && tabParam !== intelligenceTab) {
+    if (tabParam && VALID_TABS.has(tabParam) && tabParam !== intelligenceTab) {
       setIntelligenceTab(tabParam);
     }
-  }, [searchParams.get('tab')]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
 

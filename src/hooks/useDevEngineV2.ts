@@ -110,8 +110,11 @@ export function useDevEngineV2(projectId: string | undefined) {
         .order('created_at', { ascending: false });
       if (error) throw error;
       // Filter out system/internal docs from the Dev Engine creative view
+      // Seed pack doc types are always shown regardless of doc_role
+      const SEED_PACK_TYPES = new Set(['project_overview', 'creative_brief', 'market_positioning', 'canon', 'nec']);
       const allDocs = (data || []) as DevDocument[];
       return allDocs.filter(d => {
+        if (SEED_PACK_TYPES.has(d.doc_type)) return true;
         const role = (d as any).doc_role || 'creative_primary';
         return ['creative_primary', 'creative_supporting', 'derived_output'].includes(role);
       });
