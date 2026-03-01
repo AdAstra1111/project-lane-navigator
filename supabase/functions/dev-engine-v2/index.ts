@@ -1752,8 +1752,11 @@ serve(async (req) => {
         } else {
           throw new Error("Invalid token claims");
         }
-      } catch {
-        throw new Error("Unauthorized");
+      } catch (authErr: any) {
+        console.error("[dev-engine-v2] JWT parse failed:", authErr?.message, "token prefix:", token.slice(0, 20) + "...");
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
     }
 
