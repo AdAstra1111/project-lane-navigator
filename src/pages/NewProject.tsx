@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, ArrowRight, Check, Loader2, Building2, Lightbulb, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Loader2, Building2, Lightbulb, Sparkles, Palette, Camera, Blend } from 'lucide-react';
 import { ProcessStageProgress, type ProcessStage } from '@/components/ProcessStageProgress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import { FORMAT_META } from '@/lib/mode-engine';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { type ProductionModality, MODALITY_LABELS, MODALITY_DESCRIPTIONS } from '@/config/productionModality';
 
 const ANALYSE_STAGES: ProcessStage[] = [
   { label: 'Uploading documents…', durationSec: 10 },
@@ -44,6 +45,7 @@ export default function NewProject() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [ideaText, setIdeaText] = useState('');
   const [ideaLoading, setIdeaLoading] = useState(false);
+  const [selectedModality, setSelectedModality] = useState<ProductionModality>('live_action');
   const [form, setForm] = useState<ProjectInput>({
     title: '',
     format: 'film',
@@ -75,7 +77,7 @@ export default function NewProject() {
 
   const handleSubmit = async () => {
     try {
-      const result = await createProject.mutateAsync({ input: form, files, companyId: selectedCompanyId || undefined });
+      const result = await createProject.mutateAsync({ input: form, files, companyId: selectedCompanyId || undefined, productionModality: selectedModality });
       navigate(`/projects/${result.id}`);
     } catch (err: any) {
       const message = err?.message || 'Failed to create project';
@@ -249,6 +251,38 @@ export default function NewProject() {
                   </div>
                 </div>
 
+                {/* Production Modality selector */}
+                <div className="space-y-3">
+                  <Label className="text-foreground">Production Modality</Label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {([
+                      { value: 'live_action' as ProductionModality, icon: Camera, color: 'text-primary' },
+                      { value: 'animation' as ProductionModality, icon: Palette, color: 'text-yellow-400' },
+                      { value: 'hybrid' as ProductionModality, icon: Blend, color: 'text-violet-400' },
+                    ]).map(opt => {
+                      const Icon = opt.icon;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setSelectedModality(opt.value)}
+                          className={cn(
+                            'glass-card rounded-lg p-3 text-left transition-all duration-200',
+                            selectedModality === opt.value
+                              ? 'border-primary/60 bg-primary/10 text-foreground'
+                              : 'hover:border-border text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <Icon className={cn('h-4 w-4', selectedModality === opt.value ? opt.color : '')} />
+                            <span className="font-medium text-sm">{MODALITY_LABELS[opt.value]}</span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">{MODALITY_DESCRIPTIONS[opt.value]}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 {companies.length > 0 && (
                   <div className="space-y-3">
                     <Label className="text-foreground">Production Company <span className="text-muted-foreground font-normal">(optional)</span></Label>
