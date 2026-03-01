@@ -1077,11 +1077,13 @@ export default function ProjectDevelopmentEngine() {
         />
       )}
 
-      {/* ═══ AUTOPILOT PANEL ═══ */}
+      {/* ═══ PROJECT AUTOPILOT PANEL ═══ */}
       {projectId && (
         <AutopilotPanel
           projectId={projectId}
           pitchIdeaId={project?.source_pitch_idea_id}
+          lane={project?.assigned_lane || null}
+          format={normalizedFormat || null}
         />
       )}
 
