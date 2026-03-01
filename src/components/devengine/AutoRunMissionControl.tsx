@@ -30,6 +30,10 @@ import type { AutoRunJob, AutoRunStep, PendingDecision } from '@/hooks/useAutoRu
 import type { DocumentTextResult } from '@/hooks/useAutoRunMissionControl';
 import type { DeliverableType } from '@/lib/dev-os-config';
 
+// ── Execution mode (explicit, no schema changes) ──
+export const AUTO_RUN_EXECUTION_MODE: 'full' | 'staged' = 'full';
+const EXECUTION_MODE_LABEL: Record<string, string> = { full: 'Full Ladder', staged: 'Staged Ladder' };
+
 // ── Constants ──
 const LADDER_LABELS: Record<string, string> = {
   idea: 'Idea', topline_narrative: 'Topline', concept_brief: 'Concept Brief',
@@ -1214,6 +1218,9 @@ export function AutoRunMissionControl({
                 <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ml-auto ${statusStyle.color}`}>
                   {isRunning && <Loader2 className="h-2.5 w-2.5 animate-spin mr-1" />}
                   {statusStyle.label}
+                </Badge>
+                <Badge variant="outline" className="text-[8px] px-1.5 py-0 bg-muted text-muted-foreground">
+                  {EXECUTION_MODE_LABEL[AUTO_RUN_EXECUTION_MODE]}
                 </Badge>
               </CardTitle>
             </CardHeader>
