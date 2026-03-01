@@ -1175,6 +1175,10 @@ async function callEdgeFunction(
   supabaseUrl: string, functionName: string, body: any, token: string
 ): Promise<any> {
   const url = `${supabaseUrl}/functions/v1/${functionName}`;
+  // DEBUG: temporary log to verify token forwarding (remove after verification)
+  const hasBearer = token && token.length > 20;
+  const tokenRole = hasBearer ? (() => { try { const p = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); return p.role || "unknown"; } catch { return "parse_error"; } })() : "missing";
+  console.log(`[auto-run] callEdgeFunction → ${functionName}: token_present=${hasBearer}, role=${tokenRole}, token_prefix=${token?.slice(0, 15)}...`);
   let resp: Response;
   try {
     resp = await fetch(url, {
