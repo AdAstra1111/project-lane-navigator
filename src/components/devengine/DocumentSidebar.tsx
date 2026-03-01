@@ -10,11 +10,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck, GripVertical, Package } from 'lucide-react';
+import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck, GripVertical, Package, ChevronRight } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 import { getDocTypeLabel, getDocDisplayName } from '@/lib/can-promote-to-script';
+
+const SYSTEM_DOC_TYPES = new Set(['project_overview', 'creative_brief', 'market_positioning', 'canon', 'nec']);
 
 const STORAGE_KEY = 'devEngine.leftTrayWidth';
 const MIN_WIDTH = 200;
@@ -96,6 +99,64 @@ export function DocumentSidebar({
     setPasteText('');
   };
 
+  const renderDocItem = (doc: any) => {
+    const hasApproved = !!approvedVersionMap[doc.id];
+    const docTypeLabel = getDocTypeLabel(doc.doc_type, format);
+    const displayName = getDocDisplayName(projectTitle, doc.doc_type, format);
+    return (
+      <div
+        key={doc.id}
+        className={`w-full text-left p-2 rounded-md transition-colors text-sm cursor-pointer ${
+          selectedDocId === doc.id
+            ? 'bg-primary/10 border border-primary/30'
+            : 'hover:bg-muted/50 border border-transparent'
+        }`}
+        onClick={() => selectDocument(doc.id)}
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <p className={`font-medium text-foreground text-[11px] ${
+              selectedDocId === doc.id ? 'line-clamp-2' : 'truncate'
+            }`} aria-label={displayName}>{displayName}</p>
+          </TooltipTrigger>
+          <TooltipContent side="right" className="max-w-[300px] text-xs">
+            <p>{displayName}</p>
+            <p className="text-muted-foreground text-[10px]">{docTypeLabel}</p>
+          </TooltipContent>
+        </Tooltip>
+        <div className="flex items-center justify-between mt-1">
+          <div className="flex items-center gap-1">
+            <Badge variant="outline" className="text-[8px] px-1 py-0">
+              {docTypeLabel}
+            </Badge>
+            {hasApproved && (
+              <Badge variant="outline" className="text-[7px] px-1 py-0 h-3 border-yellow-500/40 text-yellow-500 bg-yellow-500/10"
+                aria-label="Approved version exists">
+                <ShieldCheck className="h-2.5 w-2.5" />
+              </Badge>
+            )}
+            <span className="text-[9px] text-muted-foreground">
+              {doc.source === 'generated' ? '✨' : doc.source === 'paste' ? '📋' : '📄'}
+            </span>
+          </div>
+          <div onClick={e => e.stopPropagation()}>
+            <ConfirmDialog
+              title="Delete Document"
+              description={`Delete "${displayName}" and all its versions?`}
+              confirmLabel="Delete"
+              variant="destructive"
+              onConfirm={() => deleteDocument.mutate(doc.id)}
+            >
+              <button className="p-0.5 rounded text-muted-foreground hover:text-destructive transition-colors">
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </ConfirmDialog>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="relative flex" style={{ width }}>
       <div className="flex-1 min-w-0 space-y-3">
@@ -144,63 +205,27 @@ export function DocumentSidebar({
         </CardHeader>
         <CardContent className="px-2 pb-2">
           <div className="max-h-[calc(100vh-420px)] overflow-y-auto space-y-1">
-            {documents.map(doc => {
-              const hasApproved = !!approvedVersionMap[doc.id];
-              const docTypeLabel = getDocTypeLabel(doc.doc_type, format);
-              const displayName = getDocDisplayName(projectTitle, doc.doc_type, format);
+            {/* System Docs group */}
+            {(() => {
+              const systemDocs = documents.filter(d => SYSTEM_DOC_TYPES.has(d.doc_type));
+              const regularDocs = documents.filter(d => !SYSTEM_DOC_TYPES.has(d.doc_type));
               return (
-              <div
-                key={doc.id}
-                className={`w-full text-left p-2 rounded-md transition-colors text-sm cursor-pointer ${
-                  selectedDocId === doc.id
-                    ? 'bg-primary/10 border border-primary/30'
-                    : 'hover:bg-muted/50 border border-transparent'
-                }`}
-                onClick={() => selectDocument(doc.id)}
-              >
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <p className={`font-medium text-foreground text-[11px] ${
-                      selectedDocId === doc.id ? 'line-clamp-2' : 'truncate'
-                    }`} aria-label={displayName}>{displayName}</p>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-[300px] text-xs">
-                    <p>{displayName}</p>
-                    <p className="text-muted-foreground text-[10px]">{docTypeLabel}</p>
-                  </TooltipContent>
-                </Tooltip>
-                <div className="flex items-center justify-between mt-1">
-                  <div className="flex items-center gap-1">
-                    <Badge variant="outline" className="text-[8px] px-1 py-0">
-                      {docTypeLabel}
-                    </Badge>
-                    {hasApproved && (
-                      <Badge variant="outline" className="text-[7px] px-1 py-0 h-3 border-yellow-500/40 text-yellow-500 bg-yellow-500/10"
-                        aria-label="Approved version exists">
-                        <ShieldCheck className="h-2.5 w-2.5" />
-                      </Badge>
-                    )}
-                    <span className="text-[9px] text-muted-foreground">
-                      {doc.source === 'generated' ? '✨' : doc.source === 'paste' ? '📋' : '📄'}
-                    </span>
-                  </div>
-                  <div onClick={e => e.stopPropagation()}>
-                    <ConfirmDialog
-                      title="Delete Document"
-                      description={`Delete "${displayName}" and all its versions?`}
-                      confirmLabel="Delete"
-                      variant="destructive"
-                      onConfirm={() => deleteDocument.mutate(doc.id)}
-                    >
-                      <button className="p-0.5 rounded text-muted-foreground hover:text-destructive transition-colors">
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </ConfirmDialog>
-                  </div>
-                </div>
-              </div>
+                <>
+                  {systemDocs.length > 0 && (
+                    <Collapsible defaultOpen={false}>
+                      <CollapsibleTrigger className="w-full flex items-center gap-1 px-2 py-1 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
+                        <ChevronRight className="h-3 w-3 transition-transform data-[state=open]:rotate-90" />
+                        System Docs ({systemDocs.length})
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-0.5 pl-1 border-l border-border/40 ml-2 mb-2">
+                        {systemDocs.map(doc => renderDocItem(doc))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                  {regularDocs.map(doc => renderDocItem(doc))}
+                </>
               );
-            })}
+            })()}
             {documents.length === 0 && !docsLoading && (
               <p className="text-[10px] text-muted-foreground p-3 text-center">No documents yet.</p>
             )}
