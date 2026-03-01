@@ -1719,16 +1719,16 @@ serve(async (req) => {
 
     const authHeader = req.headers.get("Authorization");
 
-    let userId: string;
+    let userId: string | null;
     let actor: "user" | "service_role" = "user";
-    let user: { id: string; email?: string };
+    let user: { id: string | null; email?: string };
 
     if (!authHeader?.startsWith("Bearer ") && AUTH_OPTIONAL_ACTIONS.has(action) && allowNoAuth) {
       // No-auth path — dev/CI only
       console.log("[dev-engine-v2] NOAUTH regen-queue allowed (dev only)", { action });
-      userId = "service_role";
+      userId = null;
       actor = "service_role";
-      user = { id: "service_role", email: "service_role@internal" };
+      user = { id: null, email: "service_role@internal" };
     } else if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1739,19 +1739,28 @@ serve(async (req) => {
       try {
         const payloadB64 = token.split(".")[1];
         if (!payloadB64) throw new Error("Invalid token");
-        // Ensure proper base64 padding for atob
+        // URL-safe base64 decode with proper padding
         const padded = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
         const paddedFull = padded + "=".repeat((4 - (padded.length % 4)) % 4);
-        const payload = JSON.parse(atob(paddedFull));
+        let payload: any;
+        try {
+          payload = JSON.parse(atob(paddedFull));
+        } catch (_decodeErr) {
+          throw new Error("JWT base64 decode failed");
+        }
         if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
         if (payload.role === "service_role") {
-          userId = "service_role";
+          // Service role: skip userId requirement, use null for DB inserts (nullable UUID columns)
+          // Extract body.userId if auto-run forwarded the real user id
+          const bodyUserId = body?.userId || body?.user_id || null;
+          userId = bodyUserId;
           actor = "service_role";
-          user = { id: "service_role", email: "service_role@internal" };
-          console.log("[dev-engine-v2] service_role actor accepted");
+          user = { id: bodyUserId, email: "service_role@internal" };
+          console.log("[dev-engine-v2] auth ok", { role: "service_role", hasUserId: !!bodyUserId });
         } else if (payload.sub) {
           userId = payload.sub;
           user = { id: payload.sub, email: payload.email };
+          console.log("[dev-engine-v2] auth ok", { role: "user", hasUserId: true });
         } else {
           throw new Error("Invalid token claims");
         }
