@@ -156,11 +156,33 @@ async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiK
   if (selectedUnits.length === 0) return json({ error: "No matching units" }, 400);
   const chosenKeys = selectedUnits.map((u: any) => u.unit_key);
 
-  // Compute a stable cast_context_hash for audit (no schema change needed)
+  // ── Stable cast context hash (deterministic, no schema change) ──
+  function stableStringify(val: unknown): string {
+    if (val === null || val === undefined) return "null";
+    if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") return JSON.stringify(val);
+    if (Array.isArray(val)) return "[" + val.map(stableStringify).join(",") + "]";
+    if (typeof val === "object") {
+      const keys = Object.keys(val as Record<string, unknown>).sort();
+      return "{" + keys.map(k => JSON.stringify(k) + ":" + stableStringify((val as any)[k])).join(",") + "}";
+    }
+    return JSON.stringify(val);
+  }
+
   let castContextHash: string | null = null;
   if (castContext && Array.isArray(castContext) && castContext.length > 0) {
-    const sorted = JSON.stringify(castContext, Object.keys(castContext).sort());
-    const hashBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sorted)));
+    const normalized = [...castContext]
+      .sort((a: any, b: any) => (a.character_key || a.actor_name || "").localeCompare(b.character_key || b.actor_name || ""))
+      .map((entry: any) => ({
+        character_key: entry.character_key || null,
+        actor_name: entry.actor_name || null,
+        description: entry.description || null,
+        negative_prompt: entry.negative_prompt || null,
+        wardrobe_pack: entry.wardrobe_pack || null,
+        recipe: entry.recipe || {},
+        reference_images: [...(entry.reference_images || [])].sort(),
+      }));
+    const canonical = stableStringify(normalized);
+    const hashBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
     castContextHash = Array.from(hashBytes).map(b => b.toString(16).padStart(2, "0")).join("");
     console.log(`[storyboard-engine] cast_context_hash=${castContextHash} actors=${castContext.length}`);
   }
@@ -175,7 +197,6 @@ async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiK
   }).select().single();
   if (runErr) return json({ error: "Failed to create run: " + runErr.message }, 500);
 
-  // Persist cast_context_hash on the first panel row's panel_payload for audit trail
   const _castAudit = castContextHash ? { cast_context_hash: castContextHash } : null;
 
   try {
@@ -424,11 +445,9 @@ Return ONLY valid JSON`;
       if (!uk) continue;
       const panels = (unitPanels.panels || []).slice(0, 6);
       for (const panel of panels) {
-        const payload = { ...panel };
-        // Embed cast_context_hash in first panel's payload for audit
-        if (_castAudit && panelRows.length === 0) {
-          payload._audit = _castAudit;
-        }
+        const payload: any = { ...panel };
+        // Embed cast_context_hash on every panel for deterministic audit
+        if (_castAudit) payload._audit = _castAudit;
         panelRows.push({
           project_id: projectId,
           run_id: run.id,
