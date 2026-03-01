@@ -71,68 +71,163 @@ serve(async (req) => {
       }
     }
 
-    // ── Auto-fields: resolve from Trends (deterministic, no LLM) ──
+    // ── Placeholder defense: reject manual_criteria that look like placeholders ──
+    const warnings: string[] = [];
+    const placeholderPattern = /^e\.g\.\s|^eg\s|^example:|^placeholder/i;
+    if (manual_criteria && typeof manual_criteria === "object") {
+      const mc = manual_criteria as Record<string, unknown>;
+      const effectiveAutoFields = new Set<string>(Array.isArray(auto_fields) ? auto_fields : []);
+      for (const [key, val] of Object.entries(mc)) {
+        if (typeof val === "string" && placeholderPattern.test(val.trim())) {
+          delete mc[key];
+          effectiveAutoFields.add(key);
+          warnings.push(`manual_criteria_rejected_placeholder:${key}`);
+        }
+      }
+      // Rebuild auto_fields with any newly-added placeholder rejections
+      if (warnings.length > 0) {
+        (body as any).auto_fields = [...effectiveAutoFields].sort();
+      }
+    }
+    const resolvedAutoFields: string[] = Array.isArray((body as any).auto_fields || auto_fields)
+      ? [...((body as any).auto_fields || auto_fields)].sort()
+      : [];
+
+    // ── Lane defaults (deterministic, no LLM) ──
+    const LANE_DEFAULTS: Record<string, Record<string, string>> = {
+      "independent-film": { budgetBand: "low", region: "Global", audience: "Adult (25–54)", rating: "R" },
+      "studio-streamer": { budgetBand: "high", region: "North America", audience: "Young Adult (18–34)", platformTarget: "Netflix" },
+      "genre-market": { budgetBand: "micro", region: "Global", audience: "Young Adult (18–34)" },
+      "prestige-awards": { budgetBand: "mid", region: "Europe", audience: "Adult (25–54)", rating: "R" },
+      "fast-turnaround": { budgetBand: "ultra-low", region: "Global", audience: "Young Adult (18–34)" },
+      "low-budget": { budgetBand: "micro", region: "Global" },
+      "international-copro": { budgetBand: "mid", region: "Europe" },
+    };
+
+    // ── Field-to-category mapping for trend lookups ──
+    const FIELD_CATEGORIES: Record<string, string[]> = {
+      genre: ["genre"],
+      subgenre: ["genre", "subgenre"],
+      audience: ["audience"],
+      settingType: ["setting", "world"],
+      locationVibe: ["setting", "world", "location"],
+      arenaProfession: ["setting", "world", "profession", "arena"],
+      toneAnchor: ["tone"],
+      platformTarget: ["platform", "distribution"],
+      culturalTag: ["cultural", "culture", "style"],
+      region: ["region", "territory", "market"],
+      lane: ["lane", "monetisation"],
+      budgetBand: ["budget"],
+      differentiateBy: ["differentiation", "novelty"],
+      rating: ["rating", "audience"],
+      languageTerritory: ["language", "territory", "market"],
+    };
+
+    // ── Confidence thresholds: narrow fields need high confidence ──
+    const HIGH_CONFIDENCE_FIELDS = new Set(["subgenre", "toneAnchor", "culturalTag", "locationVibe", "arenaProfession"]);
+    const getMinStrength = (field: string) => HIGH_CONFIDENCE_FIELDS.has(field) ? 6 : 4;
+
+    // ── Auto-fields: resolve via fallback ladder (deterministic, no LLM) ──
     let autoFieldsBlock = "";
-    if (auto_fields && Array.isArray(auto_fields) && auto_fields.length > 0) {
+    const resolutionMeta: Record<string, { status: string; scope: string; note?: string }> = {};
+
+    if (resolvedAutoFields.length > 0) {
       try {
         const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
         const autoSupa = createClient(supabaseUrl, supabaseKey);
-        const { data: signals } = await autoSupa
+
+        // Determine lane from manual_criteria or hardCriteria
+        const effectiveLane = (manual_criteria as any)?.lane || hardCriteria?.lane || "";
+
+        // Step 1: Fetch lane+production_type scoped signals
+        let laneSignals: any[] = [];
+        if (effectiveLane) {
+          const { data } = await autoSupa
+            .from("trend_signals")
+            .select("category, label, strength, velocity, explanation, production_type")
+            .eq("production_type", typeLabel)
+            .eq("status", "active")
+            .ilike("explanation", `%${effectiveLane}%`)
+            .order("strength", { ascending: false })
+            .limit(30);
+          laneSignals = data || [];
+        }
+
+        // Step 2: Fetch production_type scoped signals (broader)
+        const { data: prodSignals } = await autoSupa
           .from("trend_signals")
-          .select("category, label, strength, velocity, explanation")
+          .select("category, label, strength, velocity, explanation, production_type")
           .eq("production_type", typeLabel)
           .eq("status", "active")
           .order("strength", { ascending: false })
-          .limit(20);
+          .limit(30);
+        const productionSignals = prodSignals || [];
 
-        if (signals && signals.length > 0) {
-          const trendParts: string[] = [];
-          trendParts.push("The following guidance is derived from current market Trends for unspecified criteria fields:");
+        // Step 3: Fetch global signals (any production type)
+        const { data: globalData } = await autoSupa
+          .from("trend_signals")
+          .select("category, label, strength, velocity, explanation, production_type")
+          .eq("status", "active")
+          .order("strength", { ascending: false })
+          .limit(30);
+        const globalSignals = globalData || [];
 
-          const byCategory = (cat: string[]) => signals.filter((s: any) => cat.includes((s.category || "").toLowerCase()));
+        // Get lane defaults
+        const currentLaneDefaults = LANE_DEFAULTS[effectiveLane] || {};
 
-          for (const field of (auto_fields as string[]).sort()) {
-            const genreS = byCategory(["genre"]);
-            const audienceS = byCategory(["audience"]);
-            const settingS = byCategory(["setting", "world"]);
-            const toneS = byCategory(["tone"]);
-            const platformS = byCategory(["platform", "distribution"]);
-            switch (field) {
-              case "genre":
-                if (genreS.length > 0) trendParts.push(`Trending genres: ${genreS.slice(0, 3).map((s: any) => `${s.label} (${s.strength}/10)`).join(", ")}. Lean toward these.`);
-                break;
-              case "audience":
-                if (audienceS.length > 0) trendParts.push(`Trending audiences: ${audienceS.slice(0, 2).map((s: any) => s.label).join(", ")}.`);
-                break;
-              case "settingType": case "locationVibe": case "arenaProfession":
-                if (settingS.length > 0) trendParts.push(`Trending worlds: ${settingS.slice(0, 3).map((s: any) => s.label).join(", ")}.`);
-                break;
-              case "toneAnchor":
-                if (toneS.length > 0) trendParts.push(`Trending tones: ${toneS.slice(0, 2).map((s: any) => s.label).join(", ")}.`);
-                break;
-              case "platformTarget":
-                if (platformS.length > 0) trendParts.push(`Trending platforms: ${platformS.slice(0, 2).map((s: any) => s.label).join(", ")}.`);
-                break;
-              case "region": trendParts.push("Select most commercially viable region from trends."); break;
-              case "lane": trendParts.push("Select most viable monetisation lane from market conditions."); break;
-              case "budgetBand": trendParts.push("Choose budget band matching current market appetite."); break;
-              case "differentiateBy": trendParts.push("Differentiate via strongest market gap."); break;
-              case "rating": trendParts.push("Select rating fitting target audience and platform trends."); break;
-              case "culturalTag": trendParts.push("Choose cultural anchor from trending cultural movements if relevant."); break;
-              case "subgenre": trendParts.push("Choose subgenre from trending sub-categories."); break;
-              case "languageTerritory": trendParts.push("Choose language/territory from trending markets."); break;
-            }
-          }
+        const trendParts: string[] = [];
+        trendParts.push("The following guidance is derived from current market Trends for unspecified criteria fields:");
 
-          if (trendParts.length > 1) {
-            autoFieldsBlock = `\n\n=== TRENDS-DERIVED GUIDANCE (soft constraints for unspecified fields) ===\n${trendParts.join("\n")}\n=== END TRENDS GUIDANCE ===\n`;
+        const tryResolve = (field: string, signals: any[], scope: string): string | null => {
+          const cats = FIELD_CATEGORIES[field];
+          if (!cats) return null;
+          const minStr = getMinStrength(field);
+          const matches = signals
+            .filter((s: any) => cats.includes((s.category || "").toLowerCase()) && (s.strength || 0) >= minStr)
+            .sort((a: any, b: any) => (b.strength || 0) - (a.strength || 0) || (a.label || "").localeCompare(b.label || ""));
+          if (matches.length === 0) return null;
+          resolutionMeta[field] = { status: scope === "lane_trends" ? "resolved" : "fallback", scope };
+          return matches.slice(0, 3).map((s: any) => `${s.label} (${s.strength}/10)`).join(", ");
+        };
+
+        for (const field of resolvedAutoFields) {
+          // Fallback ladder: lane → production → global → lane_default → unresolved
+          let resolved = tryResolve(field, laneSignals, "lane_trends");
+          if (!resolved) resolved = tryResolve(field, productionSignals, "production_trends");
+          if (!resolved) resolved = tryResolve(field, globalSignals, "global_trends");
+
+          if (resolved) {
+            // Build prompt guidance
+            const fieldLabel = field.replace(/([A-Z])/g, " $1").trim();
+            trendParts.push(`${fieldLabel}: ${resolved}. Use as guidance.`);
+            warnings.push(`auto_field_${resolutionMeta[field].status}:${field}:${resolutionMeta[field].scope}`);
+          } else if (currentLaneDefaults[field]) {
+            // Lane default fallback
+            resolutionMeta[field] = { status: "fallback", scope: "lane_default", note: `default=${currentLaneDefaults[field]}` };
+            const fieldLabel = field.replace(/([A-Z])/g, " $1").trim();
+            trendParts.push(`${fieldLabel}: ${currentLaneDefaults[field]} (lane default).`);
+            warnings.push(`auto_field_fallback:${field}:lane_default`);
+          } else {
+            // Unresolved — omit, do not constrain
+            resolutionMeta[field] = { status: "unresolved", scope: "unresolved" };
+            warnings.push(`auto_field_unresolved:${field}`);
           }
         }
-        console.log(`[generate-pitch] auto_fields=${auto_fields.length}, trends_block=${autoFieldsBlock.length > 0}`);
+
+        if (trendParts.length > 1) {
+          autoFieldsBlock = `\n\n=== TRENDS-DERIVED GUIDANCE (soft constraints for unspecified fields) ===\n${trendParts.join("\n")}\n=== END TRENDS GUIDANCE ===\n`;
+        }
+        console.log(`[generate-pitch] auto_fields=${resolvedAutoFields.length}, resolved=${Object.values(resolutionMeta).filter(r => r.status === "resolved").length}, fallback=${Object.values(resolutionMeta).filter(r => r.scope !== "unresolved" && r.status === "fallback").length}, unresolved=${Object.values(resolutionMeta).filter(r => r.scope === "unresolved").length}`);
       } catch (e) {
         console.warn("[generate-pitch] Trends auto-fields fetch failed (non-fatal):", e);
+        // Mark all as unresolved
+        for (const field of resolvedAutoFields) {
+          resolutionMeta[field] = { status: "unresolved", scope: "unresolved", note: "fetch_error" };
+          warnings.push(`auto_field_unresolved:${field}`);
+        }
       }
     }
+
 
     // ── Signal context injection ──
     let signalBlock = "";
@@ -534,6 +629,12 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
       influence_value: signalInfluence,
       applied: signalsApplied,
       rationale: signalsRationale,
+    };
+
+    // Attach resolution meta for auto-fields transparency
+    ideas.resolution_meta = {
+      auto_field_status: resolutionMeta,
+      warnings,
     };
 
     console.log(`[generate-pitch] Returning ${ideas.ideas.length} ideas successfully`);
