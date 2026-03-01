@@ -1173,7 +1173,7 @@ export function AutoRunMissionControl({
 
               {/* Convergence Target */}
               {(() => {
-                const target = (job as any).converge_target_json || { ci: 90, gp: 90 };
+                const target = (job as any).converge_target_json || { ci: 100, gp: 100 };
                 const ci = job.last_ci ?? 0;
                 const gp = job.last_gp ?? 0;
                 const ciMet = ci >= target.ci;
