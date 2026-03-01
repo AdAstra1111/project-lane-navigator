@@ -14,6 +14,7 @@ import {
   selectBestAttempt, STYLE_ENGINE_VERSION,
   type StyleTarget, type StyleEvalResult, type StyleFingerprint, type StyleDeviation,
 } from "../_shared/styleDeviation.ts";
+import { buildEffectiveProfileContextBlock } from "../_shared/effective-profile-context.ts";
 
 // ── NEC (Narrative Energy Contract) Guardrail Loader ──
 const NEC_MAX_CHARS = 3000;
@@ -1632,69 +1633,7 @@ EPISODE LENGTH RULES (canonical — authoritative, ignore all other references):
 - If generating a grid or beat sheet: include episode_duration_target_seconds=${targetSeconds ?? minSeconds} for every episode row.`;
 }
 
-// ── Effective Profile compiler (deterministic, no LLM, inline) ──
-// Mirrors src/lib/preference-compiler.ts logic for edge function context
-
-const LANE_VOICE_DEFAULTS: Record<string, { tone_band?: string; pacing?: string }> = {
-  "independent-film": { tone_band: "dramatic", pacing: "measured" },
-  "studio-streamer": { tone_band: "elevated", pacing: "accelerating" },
-  "prestige-awards": { tone_band: "restrained", pacing: "deliberate" },
-  "genre-market": { tone_band: "heightened", pacing: "accelerating" },
-  "fast-turnaround": { tone_band: "punchy", pacing: "accelerating" },
-};
-
-function compileEffectiveProfileFromCanon(canonJson: any, project: any): string {
-  const pack = canonJson?.seed_intel_pack;
-  if (!pack) return "";
-
-  const lane = project?.assigned_lane || "independent-film";
-  const defaults = LANE_VOICE_DEFAULTS[lane] || {};
-  const packTone = pack.tone_style_signals || {};
-
-  // Comparables: canon explicit > pack candidates
-  let comps: any[] = [];
-  if (Array.isArray(canonJson.comparables) && canonJson.comparables.length > 0) {
-    comps = canonJson.comparables;
-  } else if (Array.isArray(pack.comparable_candidates)) {
-    comps = pack.comparable_candidates;
-  }
-
-  const parts: string[] = [];
-  parts.push(`Market Profile: ${lane}`);
-
-  // Top 6 comps
-  const topComps = comps.filter((c: any) => c.title).slice(0, 6);
-  if (topComps.length > 0) {
-    const lines = topComps.map((c: any, i: number) => {
-      const axis = c.reference_axis ? ` [${c.reference_axis}]` : "";
-      const w = c.weight != null ? ` w=${c.weight}` : "";
-      const r = c.reason ? ` — ${c.reason}` : "";
-      return `  ${i + 1}. ${c.title}${axis}${w}${r}`;
-    });
-    parts.push(`Comparable References:\n${lines.join("\n")}`);
-  }
-
-  // Voice
-  const voiceParts: string[] = [];
-  const toneBand = project?.tone || packTone.tone_band || defaults.tone_band;
-  const pacing = packTone.pacing || defaults.pacing;
-  if (toneBand) voiceParts.push(`tone=${toneBand}`);
-  if (pacing) voiceParts.push(`pacing=${pacing}`);
-  if (packTone.dialogue_density) voiceParts.push(`dialogue_density=${packTone.dialogue_density}`);
-  if (voiceParts.length > 0) parts.push(`Voice Profile: ${voiceParts.join(", ")}`);
-
-  // Constraints
-  const pc = pack.constraints_suggestions || {};
-  const cParts: string[] = [];
-  if (project?.budget_range || pc.budget_band) cParts.push(`budget=${project?.budget_range || pc.budget_band}`);
-  if (pc.runtime_band) cParts.push(`runtime=${pc.runtime_band}`);
-  if (pc.rating) cParts.push(`rating=${pc.rating}`);
-  if (cParts.length > 0) parts.push(`Constraints: ${cParts.join(", ")}`);
-
-  if (parts.length <= 1) return ""; // Only market profile, not worth injecting
-
-  return `\n=== EFFECTIVE PROFILE (from Seed Intel Pack) ===\n${parts.join("\n")}\n=== END EFFECTIVE PROFILE ===`;
-}
+// ── Effective Profile: uses shared module from _shared/effective-profile-context.ts ──
 
 
 const CRITERIA_SNAPSHOT_KEYS = [
@@ -2164,10 +2103,10 @@ Format: ${rq.format}.${episodeLengthBlock}`;
       // ── Effective Profile Context (from seed_intel_pack in canon) ──
       let effectiveProfileContext = "";
       try {
-        if (canonJson?.seed_intel_pack) {
-          const ep = compileEffectiveProfileFromCanon(canonJson, project);
-          if (ep) effectiveProfileContext = ep;
-        }
+        if (canonJson?.seed_intel_pack || (Array.isArray(canonJson?.comparables) && canonJson.comparables.length > 0)) {
+            const ep = buildEffectiveProfileContextBlock({ canonJson, project });
+            if (ep) effectiveProfileContext = ep;
+          }
       } catch (e) {
         console.warn("[dev-engine-v2] Effective profile build failed (non-fatal):", e);
       }

@@ -552,9 +552,31 @@ async function applySeedIntelPack(
 
   // Overwrite seed_intel_pack deterministically
   existing.seed_intel_pack = pack;
+  warnings.push("seed_intel_pack_written");
+
+  // ── Legacy comparable key normalization (_source/_locked → source/locked) ──
+  if (Array.isArray(existing.comparables)) {
+    let normalized = false;
+    existing.comparables = existing.comparables.map((c: any) => {
+      const out = { ...c };
+      if (out.source === undefined && out._source !== undefined) {
+        out.source = out._source;
+        normalized = true;
+      }
+      if (out.locked === undefined && out._locked !== undefined) {
+        out.locked = out._locked;
+        normalized = true;
+      }
+      delete out._source;
+      delete out._locked;
+      return out;
+    });
+    if (normalized) {
+      warnings.push("comparables_normalized:legacy__source__locked");
+    }
+  }
 
   // Init comparables if empty or only contains seed-pack-sourced non-locked items
-  let compsInitialized = false;
   if (initComps && Array.isArray(pack.comparable_candidates) && pack.comparable_candidates.length > 0) {
     const currentComps = Array.isArray(existing.comparables) ? existing.comparables : [];
     const hasUserCurated = currentComps.some(
@@ -575,7 +597,7 @@ async function applySeedIntelPack(
           locked: false,
           reason: c.reason,
         }));
-      compsInitialized = true;
+      warnings.push(`comparables_initialized_from_pack:n=${Math.min(pack.comparable_candidates.length, compsMax)}`);
     } else {
       warnings.push("comparables_preserved:user_curated_or_locked_items_exist");
     }
@@ -595,15 +617,16 @@ async function applySeedIntelPack(
   }
 
   console.log(
-    `[canon-decisions] APPLY_SEED_INTEL_PACK: comps_initialized=${compsInitialized}, ` +
+    `[canon-decisions] APPLY_SEED_INTEL_PACK: ` +
     `demand_signals=${pack.demand_signals?.length || 0}, ` +
     `comparable_candidates=${pack.comparable_candidates?.length || 0}`
   );
 
+  // Response contract: only docs_scanned, docs_modified, modified_document_ids
+  // All other info goes into warnings[]
   return {
     docs_scanned: 1,
     docs_modified: 1,
     modified_document_ids: [],
-    comps_initialized: compsInitialized,
   };
 }
