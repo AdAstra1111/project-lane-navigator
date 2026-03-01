@@ -650,9 +650,10 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
       parts.push('canon planted');
       if (applyPrefs) parts.push('lane prefs set');
 
-      // 10. Start autopilot if enabled
+      // 10. Start autopilot if enabled — run DevSeed stages, then hand off to Auto-Run
       if (enableAutopilot) {
         try {
+          // Start devseed-autopilot (apply_seed_intel_pack + regen_foundation only)
           const { data: autopilotRes } = await supabase.functions.invoke('devseed-autopilot', {
             body: {
               action: 'start',
@@ -661,7 +662,6 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
               options: {
                 apply_seed_intel_pack: true,
                 regen_foundation: applyDocs,
-                generate_primary_script: true,
               },
             },
           });
@@ -669,8 +669,18 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           if (autopilotRes?.autopilot) {
             setAutopilotState(autopilotRes.autopilot);
             parts.push('autopilot started');
-            // Start tick loop
+            // Run devseed tick loop to completion, then start Auto-Run
             runAutopilotTicks(project.id);
+          }
+
+          // Start Auto-Run job for ongoing development
+          try {
+            await supabase.functions.invoke('auto-run', {
+              body: { action: 'start', projectId: project.id },
+            });
+            parts.push('auto-run started');
+          } catch (arErr: any) {
+            console.error('[DevSeed] auto-run start failed (non-fatal):', arErr?.message);
           }
         } catch (apErr: any) {
           console.error('[DevSeed] autopilot start failed (non-fatal):', apErr?.message);
@@ -680,9 +690,11 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
 
       toast.success(parts.join(', '));
 
-      // If autopilot is running, don't navigate yet — show progress
-      if (!enableAutopilot) {
-        onOpenChange(false);
+      // Always navigate to development page — use autorun tab if autopilot enabled
+      onOpenChange(false);
+      if (enableAutopilot) {
+        navigate(`/projects/${project.id}/development?tab=autorun`);
+      } else {
         navigate(`/projects/${project.id}/development`);
       }
 
@@ -780,9 +792,9 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
                   <Bot className="h-3.5 w-3.5 text-primary" />
                   Autorun Autopilot
                 </span>
-                <p className="text-xs text-muted-foreground">
-                  Apply trends intelligence, regenerate stubs, and generate primary script automatically
-                </p>
+                 <p className="text-xs text-muted-foreground">
+                   Apply trends intelligence, regenerate stubs, and hand off to Auto-Run for development
+                 </p>
               </div>
             </label>
           </div>
