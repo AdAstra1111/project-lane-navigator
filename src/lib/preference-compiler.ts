@@ -33,6 +33,7 @@ export interface EffectiveConstraints {
 
 export interface EffectiveProfile {
   lane: string;
+  market_profile: string; // same as lane (assigned_lane is already market-lane style)
   comparables: ComparableCandidate[];
   voice_profile: VoiceProfile;
   style_targets: StyleTargets;
@@ -162,10 +163,71 @@ export function compileEffectiveProfile(input: CompileInput): EffectiveProfile {
 
   return {
     lane,
+    market_profile: lane, // assigned_lane is already market-lane style (studio-streamer, independent-film, etc.)
     comparables,
     voice_profile: voiceProfile,
     style_targets: styleTargets,
     constraints,
     intel_pack_applied: intelApplied,
   };
+}
+
+// ── Deterministic prompt context block builder ──
+
+/**
+ * Builds a prompt-injectable text block from an EffectiveProfile.
+ * Used by engines (dev-engine-v2, etc.) to inject seed intelligence into prompts.
+ * Deterministic, stable ordering, clamped length.
+ */
+export function buildEffectiveProfileContextBlock(profile: EffectiveProfile): string {
+  if (!profile.intel_pack_applied && profile.comparables.length === 0) return '';
+
+  const parts: string[] = [];
+
+  // Lane + market profile
+  parts.push(`Market Profile: ${profile.market_profile}`);
+
+  // Top comparables (max 6)
+  const topComps = profile.comparables
+    .filter(c => c.title)
+    .slice(0, 6);
+  if (topComps.length > 0) {
+    const compLines = topComps.map((c, i) => {
+      const axis = c.reference_axis ? ` [${c.reference_axis}]` : '';
+      const weight = c.weight != null ? ` w=${c.weight}` : '';
+      const reason = c.reason ? ` — ${c.reason}` : '';
+      return `  ${i + 1}. ${c.title}${axis}${weight}${reason}`;
+    });
+    parts.push(`Comparable References:\n${compLines.join('\n')}`);
+  }
+
+  // Voice
+  const voice = profile.voice_profile;
+  const voiceParts: string[] = [];
+  if (voice.tone_band) voiceParts.push(`tone=${voice.tone_band}`);
+  if (voice.pacing) voiceParts.push(`pacing=${voice.pacing}`);
+  if (voice.dialogue_density) voiceParts.push(`dialogue_density=${voice.dialogue_density}`);
+  if (voice.humor_darkness) voiceParts.push(`humor=${voice.humor_darkness}`);
+  if (voiceParts.length > 0) {
+    parts.push(`Voice Profile: ${voiceParts.join(', ')}`);
+  }
+
+  // Constraints
+  const c = profile.constraints;
+  const cParts: string[] = [];
+  if (c.budget_band) cParts.push(`budget=${c.budget_band}`);
+  if (c.runtime_band) cParts.push(`runtime=${c.runtime_band}`);
+  if (c.rating) cParts.push(`rating=${c.rating}`);
+  if (cParts.length > 0) {
+    parts.push(`Constraints: ${cParts.join(', ')}`);
+  }
+
+  // Style targets
+  if (profile.style_targets.primary_axis) {
+    parts.push(`Primary Style Axis: ${profile.style_targets.primary_axis}`);
+  }
+
+  if (parts.length === 0) return '';
+
+  return `\n=== EFFECTIVE PROFILE (from Seed Intel Pack) ===\n${parts.join('\n')}\n=== END EFFECTIVE PROFILE ===`;
 }
