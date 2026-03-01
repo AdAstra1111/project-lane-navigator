@@ -1427,10 +1427,10 @@ async function getJob(supabase: any, jobId: string) {
 // Returns the locked job row if acquired, or null if another invocation holds the lock.
 // Uses two sequential CAS attempts to avoid PostgREST .or() issues.
 // When actor is "service_role", the user_id filter is skipped so self-chaining works.
-async function acquireProcessingLock(supabase: any, jobId: string, userId: string): Promise<any | null> {
+async function acquireProcessingLock(supabase: any, jobId: string, userId: string | null, isServiceActor = false): Promise<any | null> {
   const now = new Date().toISOString();
   const lockExpires = new Date(Date.now() + 120_000).toISOString(); // 2 min lock
-  const isService = userId === "service_role";
+  const isService = isServiceActor || !userId;
 
   // Attempt A: normal acquire (is_processing = false)
   let qA = supabase
@@ -1690,43 +1690,74 @@ Deno.serve(async (req) => {
     console.log("[auto-run] auth: using service_role token for downstream calls, incoming token verified separately");
 
     // Verify user — allow service_role tokens for internal CI/automation
-    let userId: string;
+    let userId: string | null = null;
     let actor: "user" | "service_role" = "user";
-    try {
-      const payloadB64 = incomingToken.split(".")[1];
-      if (!payloadB64) throw new Error("Invalid token");
-      const jwtPayload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
-      if (jwtPayload.exp && jwtPayload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
-      if (jwtPayload.role === "service_role") {
-        userId = "service_role";
-        actor = "service_role";
-        console.log("[auto-run] service_role actor accepted");
-      } else {
-        const { data: { user }, error: userErr } = await supabase.auth.getUser(incomingToken);
-        if (userErr || !user) return respond({ error: "Unauthorized" }, 401);
-        userId = user.id;
+
+    // Check raw service key FIRST (non-JWT keys like sb_secret_...)
+    if (incomingToken === serviceKey) {
+      actor = "service_role";
+      console.log("[auto-run] service_role actor accepted (raw key match)");
+    } else if (incomingToken.split(".").length === 3) {
+      // JWT path
+      try {
+        const seg = incomingToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        const padded = seg + "=".repeat((4 - (seg.length % 4)) % 4);
+        const jwtPayload = JSON.parse(atob(padded));
+        if (jwtPayload.exp && jwtPayload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
+        if (jwtPayload.role === "service_role") {
+          actor = "service_role";
+          console.log("[auto-run] service_role actor accepted (JWT claim)");
+        } else if (jwtPayload.sub) {
+          userId = jwtPayload.sub;
+        } else {
+          throw new Error("Invalid token claims");
+        }
+      } catch (e: any) {
+        console.error("[auto-run] JWT parse failed:", e?.message);
+        // Fallback: try getUser for user JWTs
+        try {
+          const { data: { user }, error: userErr } = await supabase.auth.getUser(incomingToken);
+          if (userErr || !user) return respond({ error: "Unauthorized" }, 401);
+          userId = user.id;
+        } catch {
+          return respond({ error: "Unauthorized" }, 401);
+        }
       }
-    } catch (e: any) {
-      console.error("[auto-run] auth error", e?.message);
+    } else {
+      // Not a JWT and not the service key
       return respond({ error: "Unauthorized" }, 401);
     }
 
-    // Set request-scoped userId for downstream calls (so dev-engine-v2 gets real user_id even with service_role token)
-    _requestScopedUserId = userId !== "service_role" ? userId : null;
-    // If service_role, try to get userId from body
-    const body = await req.json();
-    if (!_requestScopedUserId && body?.userId) {
-      _requestScopedUserId = body.userId;
+    // For non-service actors that didn't get userId from JWT, verify via getUser
+    if (actor !== "service_role" && !userId) {
+      try {
+        const { data: { user }, error: userErr } = await supabase.auth.getUser(incomingToken);
+        if (userErr || !user) return respond({ error: "Unauthorized" }, 401);
+        userId = user.id;
+      } catch {
+        return respond({ error: "Unauthorized" }, 401);
+      }
     }
+
+    // Parse body early
+    const body = await req.json();
+
+    // Set request-scoped userId for downstream calls
+    // For service_role: use forwarded userId from body, or null (NEVER "service_role")
+    if (actor === "service_role") {
+      userId = body?.userId || body?.user_id || null;
+    }
+    _requestScopedUserId = userId;
+
     const { action, projectId, jobId, mode, start_document, target_document, max_stage_loops, max_total_steps, decision, new_step_limit } = body;
 
-    console.log("[auto-run] request", { action, hasAuthHeader: !!authHeader });
+    console.log("[auto-run] auth", { fn: "auto-run", isServiceRole: actor === "service_role", hasActorUserId: !!userId, hasForwardedUserId: !!(body?.userId || body?.user_id), action });
 
     // ═══════════════════════════════════════
     // ACTION: ping (reachability check)
     // ═══════════════════════════════════════
     if (action === "ping") {
-      return respond({ ok: true });
+      return respond({ ok: true, function: "auto-run" });
     }
 
     // ═══════════════════════════════════════
@@ -1837,8 +1868,16 @@ Deno.serve(async (req) => {
       // ── Ensure seed pack docs exist before downstream generation ──
       const seedResult = await ensureSeedPack(supabase, supabaseUrl, projectId, token);
 
+      // Ensure we have a valid userId for the job insert (NOT NULL column)
+      let jobUserId = userId;
+      if (!jobUserId) {
+        const { data: projOwner } = await supabase.from("projects").select("user_id").eq("id", projectId).single();
+        jobUserId = projOwner?.user_id || null;
+      }
+      if (!jobUserId) return respond({ error: "Cannot determine user_id for job. Provide userId in body." }, 400);
+
       const { data: job, error } = await supabase.from("auto_run_jobs").insert({
-        user_id: userId,
+        user_id: jobUserId,
         project_id: projectId,
         status: "running",
         mode: mode || "balanced",
@@ -3290,7 +3329,7 @@ Deno.serve(async (req) => {
       if (preJob.status !== "running") return respond({ job: preJob, latest_steps: [], next_action_hint: getHint(preJob) });
 
       // ── SINGLE-FLIGHT LOCK: acquire processing lock ──
-      const job = await acquireProcessingLock(supabase, jobId, userId);
+      const job = await acquireProcessingLock(supabase, jobId, userId, actor === "service_role");
       if (!job) {
         console.log("[auto-run] run-next lock not acquired (another invocation processing)", { jobId });
         return respondWithJob(supabase, jobId, "wait");

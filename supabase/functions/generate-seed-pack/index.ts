@@ -198,9 +198,13 @@ serve(async (req) => {
       actorUserId = authUser.id;
     }
 
-    console.log("[generate-seed-pack] auth", { isServiceRole, hasUserToken: !!token });
+    console.log("[generate-seed-pack] auth", { fn: "generate-seed-pack", isServiceRole, hasActorUserId: !!actorUserId, action: null });
 
     const body: SeedPackPayload = await req.json();
+
+    // Ping support
+    if ((body as any).action === "ping") return jsonRes({ ok: true, function: "generate-seed-pack" });
+
     const { projectId, pitch, lane, targetPlatform, riskOverride, commitOnly, necOverride } = body;
 
     console.log("[generate-seed-pack] start", { projectId, lane, commitOnly: !!commitOnly });

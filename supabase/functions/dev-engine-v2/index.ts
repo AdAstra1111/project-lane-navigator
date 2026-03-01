@@ -1802,6 +1802,15 @@ serve(async (req) => {
       }
     }
 
+    // ═══════════════════════════════════════
+    // ACTION: ping (reachability check)
+    // ═══════════════════════════════════════
+    if (action === "ping") {
+      return new Response(JSON.stringify({ ok: true, function: "dev-engine-v2" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ══════════════════════════════════════════════
     // ANALYZE — strict routing: deliverable → format → behavior
     // ══════════════════════════════════════════════
