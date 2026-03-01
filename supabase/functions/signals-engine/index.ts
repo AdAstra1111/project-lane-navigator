@@ -236,8 +236,13 @@ serve(async (req) => {
       // Remove stop words from all features
       const uniqueFeatures = [...new Set(features)].filter(f => !STOP_WORDS.has(f));
 
-      // Save features
-      await supabase.from("projects").update({ project_features: uniqueFeatures as any }).eq("id", projectId);
+      // Save features — MERGE into existing project_features to preserve production_modality and other keys
+      const { data: existingProj } = await supabase.from("projects").select("project_features").eq("id", projectId).single();
+      const existingFeatures = (existingProj?.project_features && typeof existingProj.project_features === 'object' && !Array.isArray(existingProj.project_features))
+        ? existingProj.project_features as Record<string, unknown>
+        : {};
+      const mergedFeatures = { ...existingFeatures, signal_tags: uniqueFeatures };
+      await supabase.from("projects").update({ project_features: mergedFeatures as any }).eq("id", projectId);
 
       // 3) Fetch active signals
       const formatBucket = getFormatBucket(project.format);

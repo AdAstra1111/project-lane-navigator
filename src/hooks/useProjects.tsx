@@ -72,8 +72,15 @@ export function useProjects() {
       const fallbackClassification = classifyProject(input);
       const analysisPasses = null;
 
-      // Build project_features with modality
-      const projectFeatures = setProjectModality({}, productionModality || 'live_action');
+      // Format↔Modality normalization: anim-* formats imply animation modality if not explicitly set
+      let effectiveModality = productionModality || 'live_action';
+      const fmt = (input.format || '').toLowerCase().replace(/_/g, '-');
+      if (/^anim-/.test(fmt) && (!productionModality || productionModality === 'live_action')) {
+        effectiveModality = 'animation';
+      }
+
+      // Build project_features with modality (merge-safe)
+      const projectFeatures = setProjectModality({}, effectiveModality);
 
       // 4. Insert project
       const { data: project, error: insertError } = await supabase

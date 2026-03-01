@@ -383,13 +383,22 @@ serve(async (req) => {
     let nuanceBlock = "";
     let driftBlock = "";
 
+    let dbModality: string | null = null;
+
     if (projectId) {
       const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
       const supa = createClient(supabaseUrl, supabaseKey);
 
       const { data: proj } = await supa.from("projects")
-        .select("assigned_lane, signals_influence, signals_apply, production_format")
+        .select("assigned_lane, signals_influence, signals_apply, production_format, project_features, user_id")
         .eq("id", projectId).single();
+
+      // ── Trust model: read modality from DB, ignore body override ──
+      if (proj) {
+        const { getProjectModality: gpm } = await import("../_shared/productionModality.ts");
+        dbModality = gpm(proj.project_features as Record<string, any> | null);
+        console.log(`[generate-pitch] modality_source=project_features modality=${dbModality}`);
+      }
 
       const lane = proj?.assigned_lane || "independent-film";
 
@@ -549,10 +558,18 @@ serve(async (req) => {
     const guardrails = buildGuardrailBlock({ productionType: typeLabel, engineName: "generate-pitch" });
     console.log(`[generate-pitch] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}, batch=${batchSize}`);
 
-    // ── Production Modality block (additive; empty for live_action) ──
-    const pitchModality = body.productionModality || "live_action";
+    // ── Production Modality block (DB-sourced when projectId present; validated fallback otherwise) ──
+    let pitchModality: string;
+    if (dbModality) {
+      pitchModality = dbModality;
+      // Already logged above with modality_source=project_features
+    } else {
+      const { PRODUCTION_MODALITIES: PM } = await import("../_shared/productionModality.ts");
+      const requested = body.productionModality || "live_action";
+      pitchModality = PM.includes(requested) ? requested : "live_action";
+      console.log(`[generate-pitch] modality_source=request_preview_default modality=${pitchModality}`);
+    }
     const modalityBlock = buildModalityPromptBlock(pitchModality);
-    console.log(`[generate-pitch] production_modality=${pitchModality}`);
 
     const systemPrompt = `You are IFFY's Development Pitch Engine — an expert development executive who generates production-ready concept pitches for the entertainment industry.
 
