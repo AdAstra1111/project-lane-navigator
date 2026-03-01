@@ -158,6 +158,7 @@ function AutoIndicator({ fieldKey, editedFields, resolutionMeta }: { fieldKey: s
       lane_trends: 'Trends',
       production_trends: 'Production Trends',
       global_trends: 'Global Trends',
+      broad_trends: 'Broad Trends',
       lane_default: 'Lane Default',
       unresolved: 'No signal',
     };
