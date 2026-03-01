@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Json } from '@/integrations/supabase/types';
 import { Project, ProjectInput, ProjectDocument } from '@/lib/types';
+import { setProjectModality, type ProductionModality } from '@/config/productionModality';
 import { classifyProject } from '@/lib/lane-classifier';
 import { toast } from 'sonner';
 
@@ -57,7 +58,7 @@ export function useProjects() {
   });
 
   const createProject = useMutation({
-    mutationFn: async ({ input, files, companyId }: { input: ProjectInput; files: File[]; companyId?: string }) => {
+    mutationFn: async ({ input, files, companyId, productionModality }: { input: ProjectInput; files: File[]; companyId?: string; productionModality?: ProductionModality }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
@@ -70,6 +71,9 @@ export function useProjects() {
       // 2. Use rules-based lane classification only (no AI analysis on upload)
       const fallbackClassification = classifyProject(input);
       const analysisPasses = null;
+
+      // Build project_features with modality
+      const projectFeatures = setProjectModality({}, productionModality || 'live_action');
 
       // 4. Insert project
       const { data: project, error: insertError } = await supabase
@@ -91,6 +95,7 @@ export function useProjects() {
             : null,
           document_urls: documentPaths,
           analysis_passes: analysisPasses as unknown as Json,
+          project_features: projectFeatures as unknown as Json,
         })
         .select()
         .single();

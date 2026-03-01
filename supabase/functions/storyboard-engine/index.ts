@@ -8,6 +8,7 @@ import { enforceCinematicQuality } from "../_shared/cinematic-kernel.ts";
 import { adaptStoryboardPanelsWithMode } from "../_shared/cinematic-adapters.ts";
 import { selectCikModel } from "../_shared/cik/modelRouter.ts";
 import { buildStoryboardRepairInstruction } from "../_shared/cinematic-repair.ts";
+import { getProjectModality, buildModalityPromptBlock } from "../_shared/productionModality.ts";
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const IMAGE_MODEL = "google/gemini-2.5-flash-image";
@@ -131,12 +132,14 @@ async function handleListCanonicalUnits(db: any, body: any) {
 async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiKey: string) {
   const { projectId, unitKeys: requestedKeys, stylePreset = "cinematic_realism", aspectRatio = "16:9", castContext } = body;
 
-  // Read project lane once for CIK lane-aware checks
+  // Read project lane + modality once for prompt injection
   let projectLane: string | undefined;
+  let projectModality = 'live_action';
   try {
-    const { data: projRow } = await db.from("projects").select("assigned_lane").eq("id", projectId).single();
+    const { data: projRow } = await db.from("projects").select("assigned_lane, project_features").eq("id", projectId).single();
     projectLane = projRow?.assigned_lane || undefined;
-  } catch { /* no lane available — defaults apply */ }
+    projectModality = getProjectModality(projRow?.project_features);
+  } catch { /* no lane/modality available — defaults apply */ }
 
   const { data: allUnits } = await db.from("visual_units").select("*").eq("project_id", projectId);
   if (!allUnits || allUnits.length === 0) return json({ error: "No canonical visual units found" }, 400);
@@ -299,7 +302,11 @@ Return ONLY valid JSON`;
       castContextBlock = `\n\n=== AI CAST CONTEXT ===\nWhen these characters appear in panels, use these identity descriptions consistently.\nDo NOT depict real/recognizable people.\n${castLines.join("\n\n")}\n=== END CAST CONTEXT ===\n`;
     }
 
-    const fullPanelSystemPrompt = panelSystemPrompt + castContextBlock;
+    // Inject modality block additively (empty string for live_action → no change)
+    const modalityBlock = buildModalityPromptBlock(projectModality as any);
+    console.log(`[storyboard-engine] production_modality=${projectModality}`);
+
+    const fullPanelSystemPrompt = panelSystemPrompt + castContextBlock + modalityBlock;
 
     let panelsByUnit: any[];
 

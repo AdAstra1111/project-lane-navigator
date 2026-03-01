@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 import { buildConvergenceProfile, buildConvergenceBlock } from "../_shared/convergence-profile.ts";
 import type { EdgeTrendSignal, EdgeCastTrend } from "../_shared/convergence-profile.ts";
+import { buildModalityPromptBlock } from "../_shared/productionModality.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -548,12 +549,17 @@ serve(async (req) => {
     const guardrails = buildGuardrailBlock({ productionType: typeLabel, engineName: "generate-pitch" });
     console.log(`[generate-pitch] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}, batch=${batchSize}`);
 
+    // ── Production Modality block (additive; empty for live_action) ──
+    const pitchModality = body.productionModality || "live_action";
+    const modalityBlock = buildModalityPromptBlock(pitchModality);
+    console.log(`[generate-pitch] production_modality=${pitchModality}`);
+
     const systemPrompt = `You are IFFY's Development Pitch Engine — an expert development executive who generates production-ready concept pitches for the entertainment industry.
 
 ${guardrails.textBlock}
 
 PRODUCTION TYPE: ${typeLabel}
-ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}${convergenceBlock}
+ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}${convergenceBlock}${modalityBlock}
 
 Generate exactly ${batchSize} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
 
