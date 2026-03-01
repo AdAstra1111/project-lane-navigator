@@ -125,15 +125,15 @@ Deno.serve(async (req) => {
       const userClient = createClient(supabaseUrl, anonKey, {
         global: { headers: { Authorization: authHeader } },
       });
-      const { data, error } = await userClient.auth.getClaims(token);
-      if (error || !data?.claims) {
+      const { data: userData, error: userError } = await userClient.auth.getUser(token);
+      if (userError || !userData?.user) {
         return jsonRes({ error: "Unauthorized" }, 401, req);
       }
-      if (data.claims.role === "service_role") {
+      if (userData.user.role === "service_role") {
         isServiceRole = true;
         userId = body.userId || null;
       } else {
-        userId = data.claims.sub as string;
+        userId = userData.user.id;
       }
     }
 
