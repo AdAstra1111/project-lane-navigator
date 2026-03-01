@@ -441,6 +441,12 @@ export function AutoRunMissionControl({
   );
 
   // Seed pack status: version-aware via dedicated hook
+  // Auto-refetch when auto-run pauses for seed core approval
+  useEffect(() => {
+    if (job?.status === 'paused' && job?.stop_reason === 'SEED_CORE_NOT_OFFICIAL') {
+      qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
+    }
+  }, [job?.status, job?.stop_reason, projectId, qc]);
   const seedPack = useSeedPackStatus(projectId);
   const seedStatus = useMemo(() => {
     const present = seedPack.docs.filter(d => d.status !== 'missing').map(d => d.doc_type);
