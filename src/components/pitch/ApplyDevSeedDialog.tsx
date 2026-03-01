@@ -54,7 +54,7 @@ function buildCharacterBibleContent(title: string, characters: any[]): string {
   return lines.join('\n');
 }
 
-function buildMarketSheetContent(title: string, market: any, nuance: any): string {
+function buildMarketSheetContent(title: string, market: any, nuance: any, convergenceSummary?: any): string {
   const lines: string[] = [`# ${title} — Market Sheet`, ''];
   if (nuance) {
     lines.push('## Nuance Contract', '');
@@ -91,6 +91,40 @@ function buildMarketSheetContent(title: string, market: any, nuance: any): strin
     for (const r of market.risk_summary) lines.push(`- **${r.risk}** → ${r.mitigation}`);
     lines.push('');
   }
+
+  // ── Convergence Guidance section (from pitch trend signals — guidance only, not canon) ──
+  if (convergenceSummary) {
+    const cs = convergenceSummary;
+    lines.push('## Convergence Guidance (Audience Appetite Context)', '');
+    if (Array.isArray(cs.genre_heat) && cs.genre_heat.length > 0) {
+      lines.push('**Genre Heat:**');
+      for (const g of cs.genre_heat) lines.push(`- ${g.genre} (heat=${g.score})`);
+      lines.push('');
+    }
+    if (cs.tone_style?.tone_band || cs.tone_style?.pacing) {
+      const parts: string[] = [];
+      if (cs.tone_style.tone_band) parts.push(`tone=${cs.tone_style.tone_band}`);
+      if (cs.tone_style.pacing) parts.push(`pacing=${cs.tone_style.pacing}`);
+      lines.push(`**Tone/Style:** ${parts.join(', ')}`, '');
+    }
+    if (Array.isArray(cs.comparable_titles) && cs.comparable_titles.length > 0) {
+      lines.push('**Audience Reference Points** (tonal/market anchors — do not clone):');
+      for (const t of cs.comparable_titles) lines.push(`- ${t}`);
+      lines.push('');
+    }
+    if (Array.isArray(cs.constraints_notes) && cs.constraints_notes.length > 0) {
+      lines.push('**Market Constraints:**');
+      for (const n of cs.constraints_notes) lines.push(`- ${n}`);
+      lines.push('');
+    }
+    if (Array.isArray(cs.risks) && cs.risks.length > 0) {
+      lines.push('**Saturation Risks:**');
+      for (const r of cs.risks) lines.push(`- [${r.severity}] ${r.label}`);
+      lines.push('');
+    }
+    lines.push('> *This is guidance only (not canon). Used to align voice/tone/pacing/world density while staying original.*', '');
+  }
+
   return lines.join('\n');
 }
 
@@ -462,9 +496,13 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             }
           }
 
-          // Market Sheet
+          // Market Sheet (with convergence guidance if available)
           if (devSeed.market_rationale) {
-            await createDocWithVersion(project.id, user.id, 'market_sheet', `${title} — Market Sheet`, buildMarketSheetContent(title, devSeed.market_rationale, devSeed.nuance_contract), seedStyleMeta);
+            const rawResp = idea.raw_response as any || {};
+            const convergenceSummary = rawResp.signals_metadata?.convergence_applied
+              ? rawResp.signals_metadata.convergence_summary
+              : undefined;
+            await createDocWithVersion(project.id, user.id, 'market_sheet', `${title} — Market Sheet`, buildMarketSheetContent(title, devSeed.market_rationale, devSeed.nuance_contract, convergenceSummary), seedStyleMeta);
           }
 
           // No lane-conditional stubs — season_arc, beat_sheet, episode_grid etc.
