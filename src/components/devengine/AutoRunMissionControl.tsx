@@ -30,9 +30,8 @@ import type { AutoRunJob, AutoRunStep, PendingDecision } from '@/hooks/useAutoRu
 import type { DocumentTextResult } from '@/hooks/useAutoRunMissionControl';
 import type { DeliverableType } from '@/lib/dev-os-config';
 
-// ── Execution mode (explicit, no schema changes) ──
-export const AUTO_RUN_EXECUTION_MODE: 'full' | 'staged' = 'full';
-const EXECUTION_MODE_LABEL: Record<string, string> = { full: 'Full Ladder', staged: 'Staged Ladder' };
+// ── Execution mode (from shared config) ──
+import { AUTO_RUN_EXECUTION_MODE, EXECUTION_MODE_LABEL } from '@/lib/autoRunConfig';
 
 // ── Constants ──
 const LADDER_LABELS: Record<string, string> = {
@@ -1222,6 +1221,11 @@ export function AutoRunMissionControl({
                 <Badge variant="outline" className="text-[8px] px-1.5 py-0 bg-muted text-muted-foreground">
                   {EXECUTION_MODE_LABEL[AUTO_RUN_EXECUTION_MODE]}
                 </Badge>
+                {['queued', 'running'].includes(job?.status || '') && (
+                  <Badge variant="outline" className="text-[8px] px-1.5 py-0 bg-emerald-500/15 text-emerald-400 border-emerald-500/30">
+                    <Radio className="h-2.5 w-2.5 mr-0.5 animate-pulse" /> Autopilot
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-3 space-y-2">
