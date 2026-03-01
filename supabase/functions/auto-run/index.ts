@@ -4513,9 +4513,9 @@ Deno.serve(async (req) => {
           }
           let baselineVersionId = currentAccepted.id;
 
-          // ── BASELINE REANCHOR TO BEST ──
+          // ── BASELINE REANCHOR TO BEST (READ-ONLY — never mutates is_current) ──
           // If job.best_version_id exists for this document and the baseline has collapsed,
-          // re-anchor to best to prevent regression loops.
+          // re-anchor baselineVersionId in-memory only to prevent regression loops.
           {
             const bestVersionId = (job as any).best_version_id;
             const bestDocId = (job as any).best_document_id;
@@ -4524,84 +4524,94 @@ Deno.serve(async (req) => {
             
             if (bestVersionId && bestDocId === doc.id && bestVersionId !== baselineVersionId
                 && typeof bestCI === "number" && typeof bestGP === "number") {
-              // Check if current baseline is materially worse than best
-              // We need baseline scores - do a quick lookup from job cache or skip
+              // We need baseline scores. If last_analyzed doesn't match baseline, we must
+              // re-score baseline first (handled in BASELINE SCORE REUSE below).
+              // For re-anchor check, use job cache if available, otherwise skip (will be caught after scoring).
               const jobLastAnalyzed = (job as any).last_analyzed_version_id;
               const jobLastCI = (job as any).last_ci;
               const jobLastGP = (job as any).last_gp;
               
-              if (jobLastAnalyzed === baselineVersionId && typeof jobLastCI === "number" && typeof jobLastGP === "number") {
+              if (typeof jobLastCI === "number" && typeof jobLastGP === "number") {
+                // Use cached scores as proxy (even if from different version — conservative check)
                 const baselineComposite = jobLastCI + jobLastGP;
                 const bestComposite = bestCI + bestGP;
                 const REANCHOR_MARGIN = 20; // composite must be this much worse
                 
                 if (bestComposite - baselineComposite >= REANCHOR_MARGIN) {
-                  // Re-anchor baseline to best
-                  const { error: reanchorErr } = await supabase.rpc("set_current_version", {
-                    p_document_id: doc.id,
-                    p_new_version_id: bestVersionId,
-                  });
-                  if (!reanchorErr) {
-                    await logStep(supabase, jobId, null, currentDoc, "baseline_reanchored_to_best",
-                      `Baseline collapsed (CI=${jobLastCI} GP=${jobLastGP}, composite=${baselineComposite}) below best (CI=${bestCI} GP=${bestGP}, composite=${bestComposite}). Re-anchored to best version ${bestVersionId}.`,
-                      { ci: bestCI, gp: bestGP }, undefined,
-                      { old_baseline: baselineVersionId, new_baseline: bestVersionId, old_ci: jobLastCI, old_gp: jobLastGP, best_ci: bestCI, best_gp: bestGP, margin: bestComposite - baselineComposite, REANCHOR_MARGIN });
-                    baselineVersionId = bestVersionId;
-                    currentAccepted = await getCurrentVersionForDoc(supabase, doc.id);
-                  }
+                  // READ-ONLY re-anchor: only change in-memory variable, NOT is_current in DB
+                  await logStep(supabase, jobId, null, currentDoc, "baseline_reanchored_to_best",
+                    `Baseline collapsed (CI=${jobLastCI} GP=${jobLastGP}, composite=${baselineComposite}) below best (CI=${bestCI} GP=${bestGP}, composite=${bestComposite}). Read-only re-anchor to best version ${bestVersionId}. is_current NOT changed.`,
+                    { ci: bestCI, gp: bestGP }, undefined,
+                    { old_baseline: baselineVersionId, new_baseline: bestVersionId, old_ci: jobLastCI, old_gp: jobLastGP, best_ci: bestCI, best_gp: bestGP, margin: bestComposite - baselineComposite, REANCHOR_MARGIN, reason: 'read_only_reanchor' });
+                  baselineVersionId = bestVersionId;
+                  // Do NOT call set_current_version — is_current stays unchanged
+                  // Do NOT reload currentAccepted — we're using bestVersionId as read-anchor only
                 }
               }
             }
           }
 
           // ── BASELINE SCORE REUSE OPTIMIZATION ──
-          // Reuse cached scores ONLY if last_analyzed_version_id === baselineVersionId
+          // Reuse cached scores ONLY if last_analyzed_version_id === baselineVersionId AND scores are present
           let baselineCI: number;
           let baselineGP: number;
-          const jobLastAnalyzed = (job as any).last_analyzed_version_id;
-          const jobLastCI = (job as any).last_ci;
-          const jobLastGP = (job as any).last_gp;
-          const canReuseFromJob = jobLastAnalyzed === baselineVersionId
-            && typeof jobLastCI === "number" && typeof jobLastGP === "number";
+          {
+            const jobLastAnalyzed2 = (job as any).last_analyzed_version_id;
+            const jobLastCI2 = (job as any).last_ci;
+            const jobLastGP2 = (job as any).last_gp;
+            const canReuseFromJob = jobLastAnalyzed2 === baselineVersionId
+              && typeof jobLastCI2 === "number" && typeof jobLastGP2 === "number";
 
-          if (canReuseFromJob) {
-            baselineCI = jobLastCI;
-            baselineGP = jobLastGP;
-            await logStep(supabase, jobId, null, currentDoc, "baseline_score_reused",
-              `Reused job-cached scores for baseline ${baselineVersionId}: CI=${baselineCI} GP=${baselineGP}`,
-              { ci: baselineCI, gp: baselineGP }, undefined,
-              { source: "job_cache", baselineVersionId, last_analyzed_version_id: jobLastAnalyzed });
-          } else {
-            // Must re-score baseline
-            try {
-              const baselineScoreResult = await callEdgeFunctionWithRetry(
-                supabase, supabaseUrl, "dev-engine-v2", {
-                  action: "analyze",
-                  projectId: job.project_id,
-                  documentId: doc.id,
-                  versionId: baselineVersionId,
-                  deliverableType: currentDoc,
-                  developmentBehavior: behavior,
-                  format,
-                }, token, job.project_id, format, currentDoc, jobId, newStep + 2
-              );
-              const baselineScores = extractCiGp(baselineScoreResult);
-              if (baselineScores.ci === null || baselineScores.gp === null) {
-                throw new Error(`Baseline scoring returned nulls (CI=${baselineScores.ci}, GP=${baselineScores.gp})`);
+            if (canReuseFromJob) {
+              baselineCI = jobLastCI2;
+              baselineGP = jobLastGP2;
+              await logStep(supabase, jobId, null, currentDoc, "baseline_score_reused",
+                `Reused job-cached scores for baseline ${baselineVersionId}: CI=${baselineCI} GP=${baselineGP}`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                { source: "job_cache", baselineVersionId, last_analyzed_version_id: jobLastAnalyzed2 });
+            } else {
+              // Must re-score baseline (mismatch or missing scores)
+              await logStep(supabase, jobId, null, currentDoc, "baseline_score_rescored",
+                `Re-scoring baseline ${baselineVersionId} (last_analyzed=${jobLastAnalyzed2 || 'null'}, mismatch=${jobLastAnalyzed2 !== baselineVersionId})`,
+                {}, undefined,
+                { baselineVersionId, last_analyzed_version_id: jobLastAnalyzed2, reason: jobLastAnalyzed2 !== baselineVersionId ? 'version_mismatch' : 'scores_missing' });
+              try {
+                const baselineScoreResult = await callEdgeFunctionWithRetry(
+                  supabase, supabaseUrl, "dev-engine-v2", {
+                    action: "analyze",
+                    projectId: job.project_id,
+                    documentId: doc.id,
+                    versionId: baselineVersionId,
+                    deliverableType: currentDoc,
+                    developmentBehavior: behavior,
+                    format,
+                  }, token, job.project_id, format, currentDoc, jobId, newStep + 2
+                );
+                const baselineScores = extractCiGp(baselineScoreResult);
+                if (baselineScores.ci === null || baselineScores.gp === null) {
+                  throw new Error(`Baseline scoring returned nulls (CI=${baselineScores.ci}, GP=${baselineScores.gp})`);
+                }
+                baselineCI = baselineScores.ci;
+                baselineGP = baselineScores.gp;
+
+                // Update job cache with fresh baseline scores
+                await updateJob(supabase, jobId, {
+                  last_analyzed_version_id: baselineVersionId,
+                  last_ci: baselineCI,
+                  last_gp: baselineGP,
+                });
+              } catch (bsErr: any) {
+                await logStep(supabase, jobId, null, currentDoc, "baseline_score_failed",
+                  `Baseline scoring failed: ${bsErr.message}. Halting.`,
+                  {}, undefined, { baselineVersionId, error: bsErr.message });
+                await updateJob(supabase, jobId, {
+                  stage_loop_count: newLoopCount,
+                  status: "paused",
+                  pause_reason: "BASELINE_SCORE_FAILED",
+                  stop_reason: `Baseline scoring failed for ${currentDoc}: ${bsErr.message}`,
+                });
+                return respondWithJob(supabase, jobId);
               }
-              baselineCI = baselineScores.ci;
-              baselineGP = baselineScores.gp;
-            } catch (bsErr: any) {
-              await logStep(supabase, jobId, null, currentDoc, "baseline_score_failed",
-                `Baseline scoring failed: ${bsErr.message}. Halting.`,
-                {}, undefined, { baselineVersionId, error: bsErr.message });
-              await updateJob(supabase, jobId, {
-                stage_loop_count: newLoopCount,
-                status: "paused",
-                pause_reason: "BASELINE_SCORE_FAILED",
-                stop_reason: `Baseline scoring failed for ${currentDoc}: ${bsErr.message}`,
-              });
-              return respondWithJob(supabase, jobId);
             }
           }
 
@@ -4815,6 +4825,21 @@ Deno.serve(async (req) => {
 
               const candA = conservativeResult.status === "fulfilled" ? conservativeResult.value.candidateVersionId : null;
               const candB = aggressiveResult.status === "fulfilled" ? aggressiveResult.value.candidateVersionId : null;
+
+              // Stamp criteria on fork candidates
+              for (const forkCandId of [candA, candB].filter(Boolean)) {
+                try {
+                  const candText = await supabase.from("project_document_versions").select("plaintext").eq("id", forkCandId).maybeSingle();
+                  const candMeasured = estimateDurationSeconds(candText?.data?.plaintext || "");
+                  await supabase.from("project_document_versions").update({
+                    criteria_hash: currentCriteriaHash,
+                    criteria_json: latestCriteriaSnapshot,
+                    measured_metrics_json: { measured_duration_seconds: candMeasured, estimated_at: new Date().toISOString(), estimator: 'edge_deterministic' },
+                  }).eq("id", forkCandId);
+                } catch (stampErr: any) {
+                  console.warn(`[auto-run] fork candidate stamp failed for ${forkCandId}:`, stampErr?.message);
+                }
+              }
 
               await logStep(supabase, jobId, null, currentDoc, "fork_candidates_created",
                 `Fork: conservative=${candA || 'FAILED'}, aggressive=${candB || 'FAILED'}`,
