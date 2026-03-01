@@ -273,19 +273,7 @@ You MUST call submit_pitches with ALL ${batchSize} ideas.`;
 - Risk Level: ${riskLevel || "medium"}
 ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar — fresh original concepts."}`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        tools: [
+    const toolsDef = [
           {
             type: "function",
             function: {
@@ -355,42 +343,81 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
               },
             },
           },
-        ],
-        tool_choice: { type: "function", function: { name: "submit_pitches" } },
-      }),
-    });
+        ];
 
-    console.log(`[generate-pitch] AI response status: ${response.status}`);
+    // Retry helper: attempts the AI call, retries once on 524 timeout with reduced batch
+    async function callAI(currentBatchSize: number, attempt: number): Promise<any> {
+      const currentSystemPrompt = attempt > 0
+        ? systemPrompt.replace(`Generate exactly ${batchSize}`, `Generate exactly ${currentBatchSize}`).replace(`ALL ${batchSize} ideas`, `ALL ${currentBatchSize} ideas`)
+        : systemPrompt;
+      const currentUserPrompt = attempt > 0
+        ? userPrompt.replace(`Generate ${batchSize}`, `Generate ${currentBatchSize}`)
+        : userPrompt;
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again shortly." }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      console.log(`[generate-pitch] AI call attempt ${attempt + 1}, batch=${currentBatchSize}`);
+
+      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: currentSystemPrompt },
+            { role: "user", content: currentUserPrompt },
+          ],
+          tools: toolsDef,
+          tool_choice: { type: "function", function: { name: "submit_pitches" } },
+        }),
+      });
+
+      console.log(`[generate-pitch] AI response status: ${resp.status}`);
+
+      if (!resp.ok) {
+        if (resp.status === 429) {
+          return { _httpError: true, status: 429, error: "Rate limit exceeded. Please try again shortly." };
+        }
+        if (resp.status === 402) {
+          return { _httpError: true, status: 402, error: "Usage limit reached. Please add credits." };
+        }
+        const t = await resp.text();
+        console.error("AI error:", resp.status, t);
+        throw new Error("AI generation failed");
       }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Usage limit reached. Please add credits." }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+
+      const result = await resp.json();
+
+      // Handle gateway 200-with-error-body (e.g. provider timeout 524)
+      if (result.error) {
+        const errCode = result.error?.code || 0;
+        console.error(`AI gateway error (200 body, attempt ${attempt + 1}):`, JSON.stringify(result.error));
+
+        if (errCode === 524 && attempt === 0) {
+          // Retry with smaller batch
+          const reducedBatch = Math.max(3, Math.ceil(currentBatchSize / 2));
+          console.log(`[generate-pitch] 524 timeout — retrying with reduced batch ${reducedBatch}`);
+          return callAI(reducedBatch, attempt + 1);
+        }
+
+        const normalized =
+          errCode === 524 ? "AI provider timed out. Please retry with fewer ideas." :
+          errCode === 429 ? "Rate limited — please try again later." :
+          errCode === 402 ? "Payment required — please add credits." :
+          "AI generation failed.";
+        return { _httpError: true, status: 500, error: normalized };
       }
-      const t = await response.text();
-      console.error("AI error:", response.status, t);
-      throw new Error("AI generation failed");
+
+      return result;
     }
 
-    const result = await response.json();
+    const result = await callAI(batchSize, 0);
 
-    // Handle gateway 200-with-error-body (e.g. provider timeout 524)
-    if (result.error) {
-      const errCode = result.error?.code || 0;
-      console.error("AI gateway error (200 body):", JSON.stringify(result.error));
-      const normalized =
-        errCode === 524 ? "AI provider timed out. Please retry." :
-        errCode === 429 ? "Rate limited — please try again later." :
-        errCode === 402 ? "Payment required — please add credits." :
-        "AI generation failed.";
-      return new Response(JSON.stringify({ error: normalized }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Handle error responses from callAI
+    if (result._httpError) {
+      return new Response(JSON.stringify({ error: result.error }), {
+        status: result.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
