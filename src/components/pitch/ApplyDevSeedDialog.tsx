@@ -301,6 +301,28 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
     runAutopilotTicks(createdProjectId);
   }, [createdProjectId, idea?.id, runAutopilotTicks]);
 
+  // ── Status poller: keep UI in sync even if tick loop exits early ──
+  useEffect(() => {
+    if (!createdProjectId || !enableAutopilot || !open) return;
+    // Don't poll if already complete
+    if (autopilotState?.status === 'complete') return;
+
+    const poll = async () => {
+      try {
+        const { data } = await supabase.functions.invoke('devseed-autopilot', {
+          body: { action: 'status', projectId: createdProjectId },
+        });
+        if (data?.autopilot) setAutopilotState(data.autopilot);
+      } catch { /* silent */ }
+    };
+
+    // Initial fetch (covers dialog reopen / refresh scenarios)
+    if (!autopilotState) poll();
+
+    const interval = setInterval(poll, 2500);
+    return () => clearInterval(interval);
+  }, [createdProjectId, enableAutopilot, open, autopilotState?.status]);
+
   if (!idea) return null;
 
   const handleCreate = async (withBackfill = false): Promise<string | null> => {
@@ -652,7 +674,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
     }
   };
 
-  const showAutopilotPanel = autopilotState != null;
+  const showAutopilotPanel = autopilotState != null || (createdProjectId != null && enableAutopilot);
   const autopilotDone = autopilotState?.status === 'complete';
   const autopilotRunning = autopilotState?.status === 'running' || autopilotTicking;
 
@@ -777,9 +799,9 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
               }}>
                 Close
               </Button>
-              <Button onClick={handleNavigateToProject} className="gap-1.5" disabled={autopilotRunning && !autopilotDone}>
+              <Button onClick={handleNavigateToProject} className="gap-1.5">
                 <ArrowRight className="h-4 w-4" />
-                {autopilotDone ? 'Open Project' : 'Open Project (in progress)'}
+                {autopilotDone ? 'Open Project' : autopilotRunning ? 'Open Project (in progress)' : 'Open Project'}
               </Button>
             </>
           ) : (
