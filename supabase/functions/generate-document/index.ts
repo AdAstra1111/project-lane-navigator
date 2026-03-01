@@ -106,15 +106,40 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user } } = await supabase.auth.getUser(token);
-    if (!user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+
+    // Detect service-role caller (raw key match OR JWT with role claim)
+    let isServiceRole = false;
+    if (token === serviceKey) {
+      isServiceRole = true;
+    } else if (token.split(".").length === 3) {
+      try {
+        const payloadB64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        const padded = payloadB64 + "=".repeat((4 - payloadB64.length % 4) % 4);
+        const payload = JSON.parse(atob(padded));
+        if (payload.role === "service_role") isServiceRole = true;
+      } catch { /* not a JWT, fall through */ }
     }
+
+    let actorUserId: string | null = null;
+    if (!isServiceRole) {
+      const { data: { user }, error: userErr } = await supabase.auth.getUser(token);
+      if (userErr || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      actorUserId = user.id;
+    }
+
+    console.log("[generate-document] auth", { isServiceRole, hasUser: !!actorUserId });
 
     const body = await req.json();
     const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext } = body;
+
+    // For service-role callers, accept forwarded user_id from body
+    if (isServiceRole && body.user_id && !actorUserId) {
+      actorUserId = body.user_id;
+    }
 
     // Extract nuance parameters (with defaults)
     const nuanceParams: NuanceParams = {
@@ -545,7 +570,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
       if (!chunkDocRecord) {
         const { data: newDoc, error: createErr } = await supabase.from("project_documents")
           .insert({
-            project_id: projectId, doc_type: docType, user_id: user.id,
+            project_id: projectId, doc_type: docType, user_id: actorUserId,
             file_name: `${docType}.md`, file_path: `${projectId}/${docType}.md`,
             extraction_status: "complete",
           }).select("id").single();
@@ -561,7 +586,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
       const { data: chunkVersion, error: chunkVerErr } = await supabase.from("project_document_versions")
         .insert({
           document_id: chunkDocRecord!.id, version_number: chunkVersionNum,
-          status: "draft", plaintext: "", created_by: user.id,
+          status: "draft", plaintext: "", created_by: actorUserId,
           depends_on: dependsOnFields, depends_on_resolver_hash: currentHash,
           inputs_used: inputsUsed,
         }).select("id").single();
@@ -752,7 +777,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         .insert({
           project_id: projectId,
           doc_type: docType,
-          user_id: user.id,
+          user_id: actorUserId,
           file_name: `${docType}.md`,
           file_path: `${projectId}/${docType}.md`,
           extraction_status: "complete",
@@ -778,7 +803,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         version_number: versionNumber,
         status: mode === "final" ? "final" : "draft",
         plaintext: content,
-        created_by: user.id,
+        created_by: actorUserId,
         depends_on: dependsOn,
         depends_on_resolver_hash: currentHash,
         inputs_used: inputsUsed,
@@ -832,7 +857,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
     try {
       await supabase.from("nuance_runs").insert({
         project_id: projectId,
-        user_id: user.id,
+        user_id: actorUserId,
         document_id: docRecord!.id,
         version_id: newVersion!.id,
         doc_type: docType,
