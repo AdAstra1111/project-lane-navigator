@@ -150,6 +150,8 @@ interface AutoRunMissionControlProps {
   onResumeFromStepLimit: () => Promise<void>;
   /** Auto-decide toggle */
   onToggleAllowDefaults?: (val: boolean) => Promise<void>;
+  /** Update convergence target */
+  onUpdateTarget?: (ci: number, gp: number) => Promise<void>;
   /** Analysis data for auto-filling story setup */
   latestAnalysis?: any;
   /** Current document text to show in viewer */
@@ -208,6 +210,8 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
     rewrite: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
     generate: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
     promotion_check: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    finalize_promote_best: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    promote_failed: 'bg-destructive/15 text-destructive border-destructive/30',
     approval_required: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
     stop: 'bg-destructive/15 text-destructive border-destructive/30',
     start: 'bg-muted text-muted-foreground',
@@ -234,7 +238,12 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <Badge variant="outline" className={`text-[8px] px-1.5 py-0 ${color}`}>{step.action}</Badge>
+                <Badge variant="outline" className={`text-[8px] px-1.5 py-0 ${color}`}>{
+                  step.action === 'promotion_check' ? 'evaluation' :
+                  step.action === 'finalize_promote_best' ? '✓ promoted' :
+                  step.action === 'promote_failed' ? '✗ promote failed' :
+                  step.action
+                }</Badge>
                 <Badge variant="outline" className="text-[8px] px-1 py-0">{LADDER_LABELS[step.document] || step.document}</Badge>
                 {step.readiness != null && (
                   <span className="text-[8px] text-muted-foreground">R:{step.readiness}</span>
@@ -289,6 +298,7 @@ export function AutoRunMissionControl({
   fetchDocumentText,
   onUpdateStepLimit, onResumeFromStepLimit,
   onToggleAllowDefaults,
+  onUpdateTarget,
   latestAnalysis, currentDocText, currentDocMeta,
   availableDocuments, project, approvedVersionMap = {},
 }: AutoRunMissionControlProps) {
@@ -1178,11 +1188,32 @@ export function AutoRunMissionControl({
                 const gp = job.last_gp ?? 0;
                 const ciMet = ci >= target.ci;
                 const gpMet = gp >= target.gp;
+                const isLow = target.ci < 50 || target.gp < 50;
                 return (
-                  <div className="flex items-center gap-3 text-[9px] flex-wrap">
-                    <span className="text-muted-foreground">Target:</span>
-                    <span className={ciMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>CI {ci}/100</span>
-                    <span className={gpMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>GP {gp}/100</span>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-3 text-[9px] flex-wrap">
+                      <span className="text-muted-foreground">Target:</span>
+                      <span className={ciMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>CI {ci}/{target.ci}</span>
+                      <span className={gpMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>GP {gp}/{target.gp}</span>
+                      <Button variant="ghost" size="sm" className="h-4 px-1 text-[8px] text-muted-foreground"
+                        onClick={() => {
+                          const newCi = prompt('CI target (0-100):', String(target.ci));
+                          const newGp = prompt('GP target (0-100):', String(target.gp));
+                          if (newCi !== null && newGp !== null) {
+                            const ciVal = Math.max(0, Math.min(100, parseInt(newCi) || 100));
+                            const gpVal = Math.max(0, Math.min(100, parseInt(newGp) || 100));
+                            onUpdateTarget?.(ciVal, gpVal);
+                          }
+                        }}>
+                        <Settings2 className="h-2.5 w-2.5 mr-0.5" />Edit
+                      </Button>
+                    </div>
+                    {isLow && (
+                      <div className="flex items-center gap-1 text-[8px] text-amber-400">
+                        <AlertTriangle className="h-3 w-3" />
+                        Target is unusually low — <button className="underline" onClick={() => onUpdateTarget?.(100, 100)}>reset to 100/100?</button>
+                      </div>
+                    )}
                   </div>
                 );
               })()}

@@ -1,0 +1,1 @@
+ALTER TABLE public.auto_run_jobs ALTER COLUMN converge_target_json SET DEFAULT '{"ci":100,"gp":100}'::jsonb;
