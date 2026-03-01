@@ -29,6 +29,7 @@ export default function PitchIdeas() {
   const [editedFields, setEditedFields] = useState<EditedFieldsMap>(() => initEditedFields());
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [resolutionMeta, setResolutionMeta] = useState<Record<string, { status: string; scope: string; note?: string }>>({});
   const [promoteIdea, setPromoteIdea] = useState<PitchIdea | null>(null);
   const [applyIdea, setApplyIdea] = useState<PitchIdea | null>(null);
 
@@ -104,6 +105,10 @@ export default function PitchIdeas() {
       if (data?.error) throw new Error(data.error);
 
       const pitchIdeas = data?.ideas;
+      // Capture resolution meta for UI transparency
+      if (data?.resolution_meta?.auto_field_status) {
+        setResolutionMeta(data.resolution_meta.auto_field_status);
+      }
       console.log('[PitchIdeas] Ideas to save:', pitchIdeas?.length, 'first title:', pitchIdeas?.[0]?.title);
       if (!Array.isArray(pitchIdeas) || pitchIdeas.length === 0) {
         throw new Error('No ideas returned. Please retry.');
@@ -261,6 +266,7 @@ export default function PitchIdeas() {
           hasProject={!!selectedProject && selectedProject !== '__none__'}
           editedFields={editedFields}
           onEditedFieldsChange={setEditedFields}
+          resolutionMeta={resolutionMeta}
         />
 
         <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />
