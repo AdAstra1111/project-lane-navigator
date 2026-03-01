@@ -1,11 +1,11 @@
 /**
- * Edge-compatible SeedIntelPack normalizer for Convergence Context.
+ * Convergence Profile Builder — Edge-compatible, pure functions.
  *
- * Ported from src/lib/trends/seed-intel-pack.ts — pure functions only.
+ * Builds a deterministic Convergence Context Profile from already-fetched
+ * trend_signals + cast_trends rows. Used by generate-pitch to inject
+ * market-grounded creative DNA into pitch generation.
+ *
  * No DB calls, no fetch, no Deno/browser deps.
- *
- * Used by generate-pitch to build a deterministic Convergence Context Profile
- * from already-fetched trend_signals + cast_trends rows.
  */
 
 // ── Minimal signal shape (matches columns fetched by generate-pitch) ──
@@ -260,7 +260,13 @@ export function buildConvergenceProfile(
     tone_style: toneStyle,
     constraints_notes: constraintsNotes,
     risks: clamp(
-      stableSort(risks as any, "severity" as any, "label" as any),
+      [...risks].sort((a, b) => {
+        const RANK: Record<string, number> = { high: 2, medium: 1, low: 0 };
+        const ra = RANK[a.severity] ?? 0;
+        const rb = RANK[b.severity] ?? 0;
+        if (rb !== ra) return rb - ra;
+        return a.label.localeCompare(b.label);
+      }),
       8,
     ),
     summary_notes: summaryNotes,

@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
-import { buildConvergenceProfile, buildConvergenceBlock } from "../_shared/seed-intel-pack.ts";
-import type { EdgeTrendSignal, EdgeCastTrend } from "../_shared/seed-intel-pack.ts";
+import { buildConvergenceProfile, buildConvergenceBlock } from "../_shared/convergence-profile.ts";
+import type { EdgeTrendSignal, EdgeCastTrend } from "../_shared/convergence-profile.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -189,12 +189,18 @@ serve(async (req) => {
           // Fetch active cast trends with similar scope
           let castQuery = autoSupa
             .from("cast_trends")
-            .select("actor_name, trend_type, market_alignment, strength, velocity, genre_relevance, budget_tier, status, production_type")
+            .select("actor_name, trend_type, market_alignment, strength, velocity, genre_relevance, budget_tier, status, production_type, region")
             .eq("status", "active")
             .order("strength", { ascending: false })
             .limit(15);
 
           if (typeLabel) castQuery = castQuery.eq("production_type", typeLabel);
+
+          // Region scoping: prefer region from manual_criteria or hardCriteria
+          const effectiveRegion = (manual_criteria as any)?.region || hardCriteria?.region || region || "";
+          if (effectiveRegion && effectiveRegion.toLowerCase() !== "global") {
+            castQuery = castQuery.eq("region", effectiveRegion);
+          }
 
           const { data: castData } = await castQuery;
           const castTrends: EdgeCastTrend[] = (castData || []) as EdgeCastTrend[];
