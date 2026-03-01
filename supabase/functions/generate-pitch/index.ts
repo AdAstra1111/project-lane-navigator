@@ -223,27 +223,86 @@ serve(async (req) => {
           return matches.slice(0, 3).map((s: any) => `${s.name} (${s.strength}/10)`).join(", ");
         };
 
+        // ── Broad fallback: aggregate tags from best available signal set ──
+        const baseSignals = laneSignals.length > 0 ? laneSignals : productionSignals.length > 0 ? productionSignals : globalSignals;
+        const BROAD_TAG_MAP: Record<string, string> = {
+          genre: "genre_tags", subgenre: "genre_tags", settingType: "genre_tags",
+          toneAnchor: "tone_tags", culturalTag: "tone_tags",
+          platformTarget: "format_tags",
+        };
+        const BROAD_SCALAR_MAP: Record<string, string> = {
+          budgetBand: "budget_tier", region: "region", languageTerritory: "region",
+        };
+        const broadMinScore = (field: string) => HIGH_CONFIDENCE_FIELDS.has(field) ? 18 : 10;
+        const broadMinCount = (field: string) => HIGH_CONFIDENCE_FIELDS.has(field) ? 3 : 2;
+
+        const tryBroadResolve = (field: string): string | null => {
+          // Tag-based broad aggregate
+          const tagCol = BROAD_TAG_MAP[field];
+          if (tagCol) {
+            const agg: Map<string, { score: number; count: number }> = new Map();
+            for (const s of baseSignals) {
+              const tags: string[] = s[tagCol] || [];
+              for (const t of tags) {
+                const key = t.trim();
+                if (!key) continue;
+                const cur = agg.get(key) || { score: 0, count: 0 };
+                agg.set(key, { score: cur.score + (s.strength || 0), count: cur.count + 1 });
+              }
+            }
+            const sorted = [...agg.entries()]
+              .sort((a, b) => b[1].score - a[1].score || a[0].toLowerCase().localeCompare(b[0].toLowerCase()));
+            const top = sorted.filter(([, v]) => v.score >= broadMinScore(field) || v.count >= broadMinCount(field));
+            if (top.length > 0) {
+              return top.slice(0, 3).map(([tag, v]) => `${tag} (weight=${Math.round(v.score)})`).join(", ");
+            }
+            return null;
+          }
+          // Scalar-based broad aggregate (mode)
+          const scalarCol = BROAD_SCALAR_MAP[field];
+          if (scalarCol) {
+            const freq: Map<string, number> = new Map();
+            for (const s of baseSignals) {
+              const val = (s[scalarCol] || "").trim();
+              if (!val) continue;
+              freq.set(val, (freq.get(val) || 0) + 1);
+            }
+            const sorted = [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+            if (sorted.length > 0 && sorted[0][1] >= broadMinCount(field)) {
+              return sorted.slice(0, 2).map(([v, c]) => `${v} (n=${c})`).join(", ");
+            }
+            return null;
+          }
+          return null;
+        };
+
         for (const field of resolvedAutoFields) {
-          // Fallback ladder: lane → production → global → lane_default → unresolved
+          // Fallback ladder: lane → production → global → lane_default → broad_trends → unresolved
           let resolved = tryResolve(field, laneSignals, "lane_trends");
           if (!resolved) resolved = tryResolve(field, productionSignals, "production_trends");
           if (!resolved) resolved = tryResolve(field, globalSignals, "global_trends");
 
           if (resolved) {
-            // Build prompt guidance
             const fieldLabel = field.replace(/([A-Z])/g, " $1").trim();
             trendParts.push(`${fieldLabel}: ${resolved}. Use as guidance.`);
             warnings.push(`auto_field_${resolutionMeta[field].status}:${field}:${resolutionMeta[field].scope}`);
           } else if (currentLaneDefaults[field]) {
-            // Lane default fallback
             resolutionMeta[field] = { status: "fallback", scope: "lane_default", note: `default=${currentLaneDefaults[field]}` };
             const fieldLabel = field.replace(/([A-Z])/g, " $1").trim();
             trendParts.push(`${fieldLabel}: ${currentLaneDefaults[field]} (lane default).`);
             warnings.push(`auto_field_fallback:${field}:lane_default`);
           } else {
-            // Unresolved — omit, do not constrain
-            resolutionMeta[field] = { status: "unresolved", scope: "unresolved" };
-            warnings.push(`auto_field_unresolved:${field}`);
+            // Broad trends fallback
+            const broadResult = tryBroadResolve(field);
+            if (broadResult) {
+              resolutionMeta[field] = { status: "fallback", scope: "broad_trends", note: "derived_from_aggregates" };
+              const fieldLabel = field.replace(/([A-Z])/g, " $1").trim();
+              trendParts.push(`${fieldLabel}: ${broadResult}. Derived from aggregate trend signals.`);
+              warnings.push(`auto_field_fallback:${field}:broad_trends`);
+            } else {
+              resolutionMeta[field] = { status: "unresolved", scope: "unresolved" };
+              warnings.push(`auto_field_unresolved:${field}`);
+            }
           }
         }
 
