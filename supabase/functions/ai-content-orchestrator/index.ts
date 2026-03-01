@@ -328,11 +328,25 @@ async function handleTick(
     switch (`${state.mode}::${currentStep}`) {
       // ── STORYBOARD ──
       case "storyboard::create_panels": {
+        // Fetch cast context if available (additive — no-op when empty)
+        let castContext: any[] | undefined;
+        try {
+          const castResp = await callEngine(supabaseUrl, serviceKey, "ai-cast", {
+            action: "get_cast_context",
+            projectId,
+            userId,
+          });
+          if (castResp?.cast_context?.length) castContext = castResp.cast_context;
+        } catch (e: any) {
+          console.warn("[orchestrator] cast context fetch skipped:", e.message);
+        }
+
         const resp = await callEngine(supabaseUrl, serviceKey, "storyboard-engine", {
           action: "create_run_and_panels",
           projectId,
           stylePreset: state.preset === "fast" ? "cinematic" : "cinematic",
           aspectRatio: "16:9",
+          ...(castContext ? { castContext } : {}),
         });
         state.storyboard_run_id = resp.runId;
         break;

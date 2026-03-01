@@ -1,0 +1,1 @@
+ALTER TABLE public.storyboard_runs ADD COLUMN IF NOT EXISTS meta_json jsonb DEFAULT '{}'::jsonb;

@@ -7,7 +7,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-const BUILD = "ai-cast-v1";
+const BUILD = "ai-cast-v2";
 
 function corsHeaders(req: Request) {
   const origin = req.headers.get("Origin") || "*";
@@ -27,8 +27,6 @@ function jsonRes(data: any, status = 200, req: Request) {
 }
 
 const MAX_SCREEN_TEST_STILLS = 12;
-const MAX_SCREEN_TEST_CLIPS = 3;
-const MAX_ATTEMPTS_PER_ITEM = 2;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -103,7 +101,6 @@ Deno.serve(async (req) => {
 
       case "update_actor": {
         const { actorId, name, description, negative_prompt, tags, status } = body;
-        // Verify ownership
         const { data: existing } = await db.from("ai_actors").select("id").eq("id", actorId).eq("user_id", userId).single();
         if (!existing) return jsonRes({ error: "Actor not found or access denied" }, 404, req);
 
@@ -144,7 +141,6 @@ Deno.serve(async (req) => {
         const { data: actor } = await db.from("ai_actors").select("id").eq("id", actorId).eq("user_id", userId).single();
         if (!actor) return jsonRes({ error: "Actor not found" }, 404, req);
 
-        // Get max version
         const { data: versions } = await db.from("ai_actor_versions")
           .select("version_number")
           .eq("actor_id", actorId)
@@ -167,6 +163,13 @@ Deno.serve(async (req) => {
         const { data: actor } = await db.from("ai_actors").select("id").eq("id", actorId).eq("user_id", userId).single();
         if (!actor) return jsonRes({ error: "Actor not found" }, 404, req);
 
+        // Single approved version rule: unapprove all others first
+        await db.from("ai_actor_versions")
+          .update({ is_approved: false })
+          .eq("actor_id", actorId)
+          .neq("id", versionId);
+
+        // Approve the chosen version
         const { data, error } = await db.from("ai_actor_versions")
           .update({ is_approved: true })
           .eq("id", versionId)
@@ -204,148 +207,65 @@ Deno.serve(async (req) => {
 
       case "delete_asset": {
         const { assetId } = body;
+        if (!assetId) return jsonRes({ error: "assetId required" }, 400, req);
+
+        // Verify ownership chain: asset → version → actor.user_id == userId
+        const { data: asset } = await db.from("ai_actor_assets")
+          .select("id, actor_version_id, ai_actor_versions!inner(actor_id, ai_actors!inner(user_id))")
+          .eq("id", assetId)
+          .single();
+
+        if (!asset) return jsonRes({ error: "Asset not found" }, 404, req);
+        const ownerUserId = (asset as any).ai_actor_versions?.ai_actors?.user_id;
+        if (ownerUserId !== userId) {
+          return jsonRes({ error: "Access denied — you do not own this asset" }, 403, req);
+        }
+
         const { error } = await db.from("ai_actor_assets").delete().eq("id", assetId);
         if (error) throw error;
         return jsonRes({ deleted: true }, 200, req);
       }
 
       case "generate_screen_test": {
-        const { actorId, versionId, count } = body;
-        const { data: actor } = await db.from("ai_actors")
-          .select("*, ai_actor_versions(*)")
-          .eq("id", actorId)
-          .eq("user_id", userId)
-          .single();
-        if (!actor) return jsonRes({ error: "Actor not found" }, 404, req);
-
-        const version = (actor as any).ai_actor_versions?.find((v: any) => v.id === versionId);
-        if (!version) return jsonRes({ error: "Version not found" }, 404, req);
-
-        // Check existing assets to avoid duplicates (resumability)
-        const { data: existingAssets } = await db.from("ai_actor_assets")
-          .select("id, asset_type, meta_json")
-          .eq("actor_version_id", versionId)
-          .eq("asset_type", "screen_test_still");
-
-        const existingCount = existingAssets?.length || 0;
-        const requestedCount = Math.min(count || 4, MAX_SCREEN_TEST_STILLS);
-        const toGenerate = Math.max(0, requestedCount - existingCount);
-
-        if (toGenerate === 0) {
-          return jsonRes({ message: "Screen test already complete", existing: existingCount }, 200, req);
-        }
-
-        // Generate using Lovable AI gateway
-        const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
-        if (!lovableApiKey) {
-          return jsonRes({ error: "LOVABLE_API_KEY not configured" }, 500, req);
-        }
-
-        const results: any[] = [];
-        const prompt = buildScreenTestPrompt(actor, version);
-
-        for (let i = 0; i < toGenerate; i++) {
-          let attempts = 0;
-          let success = false;
-          while (attempts < MAX_ATTEMPTS_PER_ITEM && !success) {
-            attempts++;
-            try {
-              const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${lovableApiKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  model: "google/gemini-2.5-flash-image",
-                  messages: [{ role: "user", content: `${prompt}\n\nVariation ${existingCount + i + 1} of ${requestedCount}. Show a different angle/expression. Seed: ${Date.now()}-${i}-${attempts}` }],
-                  modalities: ["image", "text"],
-                }),
-              });
-
-              if (!aiResp.ok) {
-                const errText = await aiResp.text();
-                console.error(`Screen test gen attempt ${attempts} failed:`, errText);
-                continue;
-              }
-
-              const aiData = await aiResp.json();
-              const imageData = aiData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-
-              if (!imageData) {
-                console.warn("No image returned from AI");
-                continue;
-              }
-
-              // Upload to storage
-              const fileName = `${actorId}/${versionId}/screen_test_${existingCount + i + 1}_${Date.now()}.png`;
-              const base64Data = imageData.replace(/^data:image\/\w+;base64,/, "");
-              const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-
-              const { error: uploadErr } = await db.storage
-                .from("ai-media")
-                .upload(`actors/${fileName}`, binaryData, { contentType: "image/png", upsert: true });
-
-              if (uploadErr) {
-                console.error("Upload error:", uploadErr);
-                continue;
-              }
-
-              const { data: urlData } = db.storage.from("ai-media").getPublicUrl(`actors/${fileName}`);
-
-              // Store asset record
-              const { data: asset, error: assetErr } = await db.from("ai_actor_assets").insert({
-                actor_version_id: versionId,
-                asset_type: "screen_test_still",
-                storage_path: `actors/${fileName}`,
-                public_url: urlData.publicUrl,
-                meta_json: { variation: existingCount + i + 1, attempts, seed: `${Date.now()}-${i}` },
-              }).select("*").single();
-
-              if (assetErr) throw assetErr;
-              results.push(asset);
-              success = true;
-            } catch (err: any) {
-              console.error(`Screen test gen error:`, err.message);
-            }
-          }
-        }
-
+        // Screen test generation is not available at runtime.
+        // Upload reference images manually via the UI instead.
         return jsonRes({
-          generated: results.length,
-          total: existingCount + results.length,
-          assets: results,
-        }, 200, req);
+          error: "Screen test generation is not configured. Please upload reference images manually via the AI Cast Library.",
+          code: "SCREEN_TEST_NOT_CONFIGURED",
+        }, 501, req);
       }
 
       case "get_cast_context": {
         const { projectId } = body;
         if (!projectId) return jsonRes({ error: "projectId required" }, 400, req);
 
-        // Verify project access
-        if (!isServiceRole) {
-          const { data: hasAccess } = await db.rpc("has_project_access", {
-            _user_id: userId,
-            _project_id: projectId,
-          });
-          if (!hasAccess) return jsonRes({ error: "Access denied" }, 403, req);
-        }
+        // Verify project access — for service role, still verify the provided userId has access
+        const { data: hasAccess } = await db.rpc("has_project_access", {
+          _user_id: userId,
+          _project_id: projectId,
+        });
+        if (!hasAccess) return jsonRes({ error: "Access denied" }, 403, req);
 
-        // Get all cast mappings for the project
+        // Get all cast mappings for the project, ensuring actors belong to the calling user
         const { data: castMappings, error: castErr } = await db
           .from("project_ai_cast")
           .select(`
             character_key, wardrobe_pack, notes,
-            ai_actors(id, name, description, negative_prompt, tags),
+            ai_actors!inner(id, name, description, negative_prompt, tags, user_id),
             ai_actor_versions(id, version_number, recipe_json, is_approved)
           `)
           .eq("project_id", projectId);
 
         if (castErr) throw castErr;
 
+        // Filter to only actors owned by the caller (cross-user actors blocked)
+        const ownedMappings = (castMappings || []).filter(
+          (m: any) => (m as any).ai_actors?.user_id === userId
+        );
+
         // For each mapping, get reference assets
         const castContext: any[] = [];
-        for (const mapping of castMappings || []) {
+        for (const mapping of ownedMappings) {
           const actor = (mapping as any).ai_actors;
           const version = (mapping as any).ai_actor_versions;
 
@@ -381,23 +301,3 @@ Deno.serve(async (req) => {
     return jsonRes({ error: err.message || "Internal error" }, 500, req);
   }
 });
-
-function buildScreenTestPrompt(actor: any, version: any): string {
-  const recipe = version.recipe_json || {};
-  const invariants = (recipe.invariants || []).join(". ");
-  const cameraRules = (recipe.camera_rules || []).join(". ");
-  const lightingRules = (recipe.lighting_rules || []).join(". ");
-
-  return [
-    `Generate a photorealistic portrait of a FULLY FICTIONAL, ORIGINAL character.`,
-    `DO NOT depict any real, recognizable person or celebrity.`,
-    `Character name: "${actor.name}".`,
-    actor.description ? `Description: ${actor.description}` : "",
-    invariants ? `Identity invariants: ${invariants}` : "",
-    cameraRules ? `Camera: ${cameraRules}` : "",
-    lightingRules ? `Lighting: ${lightingRules}` : "",
-    actor.negative_prompt ? `MUST NOT include: ${actor.negative_prompt}` : "",
-    `Produce a clean, cinematic headshot suitable for production reference.`,
-    `The person must be clearly fictional and not resemble any known individual.`,
-  ].filter(Boolean).join("\n");
-}
