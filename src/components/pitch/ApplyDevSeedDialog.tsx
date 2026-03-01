@@ -17,6 +17,8 @@ import { buildPrefsDraft } from '@/lib/pitch/devseedHelpers';
 import { getDefaultVoiceForLane } from '@/lib/writingVoices/select';
 import { useDevSeedBackfill } from '@/hooks/useDevSeedBackfill';
 import { DevSeedBackfillProgress } from '@/components/pitch/DevSeedBackfillProgress';
+import { buildSeedIntelPack } from '@/lib/trends/seed-intel-pack';
+import { useActiveSignals, useActiveCastTrends } from '@/hooks/useTrends';
 
 interface Props {
   idea: PitchIdea | null;
@@ -228,6 +230,8 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
   const [includeDevPack, setIncludeDevPack] = useState(false);
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
   const backfill = useDevSeedBackfill(createdProjectId || undefined, idea?.id);
+  const { data: allSignals = [] } = useActiveSignals();
+  const { data: allCast = [] } = useActiveCastTrends();
 
   if (!idea) return null;
 
@@ -382,6 +386,32 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         }
         merged.seed_draft = seedDraft;
         if (history.length > 0) merged.seed_draft_history = history;
+
+        // ── Seed Intel Pack: build from active trends and inject into canon ──
+        const productionType = idea.production_type || 'film';
+        const pack = buildSeedIntelPack(allSignals, allCast, {
+          lane,
+          productionType,
+        });
+        // Always overwrite deterministically (new generated_at)
+        merged.seed_intel_pack = pack;
+        console.log(`[DevSeed] seed_intel_pack built: ${pack.demand_signals.length} demand signals, ${pack.comparable_candidates.length} comp candidates, ${pack.genre_heat.length} genre heat`);
+
+        // Init comparables from pack only if canon.comparables is empty
+        if (
+          pack.comparable_candidates.length > 0 &&
+          (!merged.comparables || (Array.isArray(merged.comparables) && (merged.comparables as any[]).length === 0))
+        ) {
+          merged.comparables = pack.comparable_candidates.map(c => ({
+            ...c,
+            confidence: c.confidence || 'medium',
+            _source: 'seed_intel_pack',
+            _locked: false,
+          }));
+          console.log(`[DevSeed] Initialized ${pack.comparable_candidates.length} comparables from pack`);
+        } else if (pack.comparable_candidates.length > 0) {
+          console.log(`[DevSeed] Comparables already present in canon — no-op`);
+        }
 
         await (supabase as any)
           .from('project_canon')
