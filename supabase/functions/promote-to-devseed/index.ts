@@ -58,6 +58,39 @@ serve(async (req) => {
       score_total: idea.score_total,
     };
 
+    // ── Build convergence guidance block from pitch metadata (if present) ──
+    let convergenceGuidanceBlock = "";
+    const rawResponse = idea.raw_response || {};
+    const sm = rawResponse.signals_metadata;
+    if (sm?.convergence_applied && sm?.convergence_summary) {
+      const cs = sm.convergence_summary;
+      const parts: string[] = [];
+
+      if (Array.isArray(cs.genre_heat) && cs.genre_heat.length > 0) {
+        parts.push(`Genre Heat:\n${cs.genre_heat.map((g: any) => `  - ${g.genre} (heat=${g.score})`).join("\n")}`);
+      }
+      if (cs.tone_style?.tone_band || cs.tone_style?.pacing) {
+        const tsParts: string[] = [];
+        if (cs.tone_style.tone_band) tsParts.push(`tone=${cs.tone_style.tone_band}`);
+        if (cs.tone_style.pacing) tsParts.push(`pacing=${cs.tone_style.pacing}`);
+        parts.push(`Tone/Style: ${tsParts.join(", ")}`);
+      }
+      if (Array.isArray(cs.comparable_titles) && cs.comparable_titles.length > 0) {
+        parts.push(`Audience Reference Points (do NOT clone plots — tonal/market anchors only):\n${cs.comparable_titles.map((t: string) => `  - ${t}`).join("\n")}`);
+      }
+      if (Array.isArray(cs.constraints_notes) && cs.constraints_notes.length > 0) {
+        parts.push(`Market Constraints:\n${cs.constraints_notes.map((n: string) => `  - ${n}`).join("\n")}`);
+      }
+      if (Array.isArray(cs.risks) && cs.risks.length > 0) {
+        parts.push(`Saturation Risks:\n${cs.risks.map((r: any) => `  - [${r.severity}] ${r.label}`).join("\n")}`);
+      }
+
+      if (parts.length > 0) {
+        convergenceGuidanceBlock = `\n\n=== CONVERGENCE GUIDANCE (FROM PITCH — AUDIENCE APPETITE CONTEXT) ===\n${parts.join("\n")}\n\nINSTRUCTION:\n- Treat as strong recommendations for voice, tone, pacing, and world density.\n- Stay original; do not clone plots or characters from reference titles.\n- Keep one "novelty slot" consistent with the pitch's differentiation move.\n- Do NOT write this guidance into canon — use it to shape the creative DNA of foundation docs.\n=== END CONVERGENCE GUIDANCE ===\n`;
+        console.log(`[promote-to-devseed] Convergence guidance injected: ${cs.genre_heat?.length || 0} genres, ${cs.comparable_titles?.length || 0} comps`);
+      }
+    }
+
     // Generate DevSeed via AI
     const systemPrompt = `You are IFFY's DevSeed Generator. Given a pitch idea, create a comprehensive development seed document with three sections:
 
@@ -81,7 +114,7 @@ serve(async (req) => {
    - Buyer Positioning: which buyers/platforms, pitch angle for each
    - Timing: market window, trend alignment
    - Risk Summary: top 3 risks with mitigations
-
+${convergenceGuidanceBlock}
 Output as a JSON object with keys: bible_starter, nuance_contract, market_rationale. Each should be a well-structured object.`;
 
     // Fetch with retry for transient gateway errors (502/503)
