@@ -43,7 +43,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const STAGES = [
   "apply_seed_intel_pack",
   "regen_foundation",
-  "generate_primary_script",
 ] as const;
 type StageName = typeof STAGES[number];
 
@@ -64,7 +63,6 @@ interface AutopilotState {
   options: {
     apply_seed_intel_pack: boolean;
     regen_foundation: boolean;
-    generate_primary_script: boolean;
   };
   stages: Record<StageName, StageState>;
   last_error?: { message: string; stage: string; at: string } | null;
@@ -79,10 +77,7 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
-function resolvePrimaryScriptDocType(lane?: string | null): "season_script" | "episode_script" {
-  if (lane === "series") return "episode_script";
-  return "season_script";
-}
+// generate_primary_script removed — DevSeed no longer creates scripts.
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -204,12 +199,10 @@ Deno.serve(async (req) => {
         options: {
           apply_seed_intel_pack: opts.apply_seed_intel_pack !== false,
           regen_foundation: opts.regen_foundation !== false,
-          generate_primary_script: opts.generate_primary_script !== false,
         },
         stages: existing?.stages || {
           apply_seed_intel_pack: makeStageState(),
           regen_foundation: makeStageState(),
-          generate_primary_script: makeStageState(),
         },
         last_error: null,
         pitch_idea_id: pitchIdeaId || existing?.pitch_idea_id,
@@ -315,8 +308,6 @@ Deno.serve(async (req) => {
           await executeApplySeedIntelPack(sb, supabaseUrl, authHeader, projectId, autopilot, userId);
         } else if (nextStage === "regen_foundation") {
           await executeRegenFoundation(sb, supabaseUrl, authHeader, projectId, autopilot, userId);
-        } else if (nextStage === "generate_primary_script") {
-          await executeGeneratePrimaryScript(sb, supabaseUrl, authHeader, projectId, project, autopilot, userId);
         }
 
         // Mark stage done
@@ -604,105 +595,5 @@ async function executeRegenFoundation(
   console.log(`[devseed-autopilot] regen_foundation done: ${regenCount}/${total}`);
 }
 
-async function executeGeneratePrimaryScript(
-  sb: any, supabaseUrl: string, authHeader: string,
-  projectId: string, project: any, autopilot: AutopilotState, userId: string,
-) {
-  const lane = project.assigned_lane || "independent-film";
-  const primaryDocType = resolvePrimaryScriptDocType(lane);
-
-  // Check if primary script doc already exists (idempotent)
-  const { data: existingDocs } = await sb
-    .from("project_documents")
-    .select("id")
-    .eq("project_id", projectId)
-    .eq("doc_type", primaryDocType)
-    .limit(1);
-
-  if (existingDocs && existingDocs.length > 0) {
-    const docId = existingDocs[0].id;
-
-    // Check if it has a current version with content
-    const { data: currentVer } = await sb
-      .from("project_document_versions")
-      .select("id, plaintext")
-      .eq("document_id", docId)
-      .eq("is_current", true)
-      .limit(1)
-      .maybeSingle();
-
-    if (currentVer?.plaintext && currentVer.plaintext.length > 200) {
-      autopilot.stages.generate_primary_script.doc_id = docId;
-      autopilot.stages.generate_primary_script.version_id = currentVer.id;
-      autopilot.stages.generate_primary_script.notes = "already_exists";
-      console.log(`[devseed-autopilot] primary script already exists: ${docId}`);
-      return;
-    }
-  }
-
-  // Find the best source document to convert from (treatment > concept_brief > idea)
-  const SOURCE_PRIORITY = ["treatment", "concept_brief", "idea"];
-  let sourceDocId: string | null = null;
-  let sourceVersionId: string | null = null;
-
-  for (const docType of SOURCE_PRIORITY) {
-    const { data: docs } = await sb
-      .from("project_documents")
-      .select("id")
-      .eq("project_id", projectId)
-      .eq("doc_type", docType)
-      .limit(1);
-
-    if (docs && docs.length > 0) {
-      const { data: ver } = await sb
-        .from("project_document_versions")
-        .select("id, plaintext")
-        .eq("document_id", docs[0].id)
-        .eq("is_current", true)
-        .limit(1)
-        .maybeSingle();
-
-      if (ver?.plaintext && ver.plaintext.length > 50) {
-        sourceDocId = docs[0].id;
-        sourceVersionId = ver.id;
-        console.log(`[devseed-autopilot] using source ${docType} (${docs[0].id}) for primary script`);
-        break;
-      }
-    }
-  }
-
-  if (!sourceDocId || !sourceVersionId) {
-    autopilot.stages.generate_primary_script.notes = "no_source_document";
-    throw new Error("No source document available for script generation");
-  }
-
-  // Use dev-engine-v2 convert to generate the primary script
-  const convertResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: authHeader,
-    },
-    body: JSON.stringify({
-      action: "convert",
-      projectId,
-      documentId: sourceDocId,
-      versionId: sourceVersionId,
-      targetOutput: primaryDocType,
-      userId,
-    }),
-  });
-
-  const convertData = await convertResp.json();
-  if (!convertResp.ok) {
-    throw new Error(convertData.error || `convert to ${primaryDocType} failed`);
-  }
-
-  const newDocId = convertData.document_id || convertData.documentId || convertData.doc_id;
-  const newVersionId = convertData.version_id || convertData.versionId;
-
-  autopilot.stages.generate_primary_script.doc_id = newDocId || null;
-  autopilot.stages.generate_primary_script.version_id = newVersionId || null;
-  autopilot.stages.generate_primary_script.notes = `generated ${primaryDocType}`;
-  console.log(`[devseed-autopilot] primary script generated: ${primaryDocType} doc=${newDocId}`);
-}
+// executeGeneratePrimaryScript removed — DevSeed no longer generates scripts.
+// Script generation is handled by the Auto-Run system.

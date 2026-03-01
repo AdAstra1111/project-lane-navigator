@@ -45,6 +45,12 @@ export const BASE_DOC_TYPES: Record<string, DocTypeMeta> = {
   episode_grid:            { label: 'Episode Grid',            description: 'Grid of all episodes with hooks/turns' },
   vertical_episode_beats:  { label: 'Vertical Episode Beats',  description: 'Beat sheets for vertical drama episodes' },
   topline_narrative:       { label: 'Topline Narrative',       description: 'Synopsis + logline + story pillars' },
+  // Seed pack doc types
+  project_overview:        { label: 'Project Overview',        description: 'High-level project summary for packaging' },
+  creative_brief:          { label: 'Creative Brief',          description: 'Creative vision and artistic direction' },
+  market_positioning:      { label: 'Market Positioning',      description: 'Market positioning and sales strategy' },
+  canon:                   { label: 'Canon Snapshot',          description: 'Canonical world/character state snapshot' },
+  nec:                     { label: 'NEC',                     description: 'Narrative Evaluation Card — quality assessment' },
 };
 
 export const LANE_DOC_LADDERS: Record<LaneKey, string[]> = {
