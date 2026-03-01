@@ -673,11 +673,15 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             runAutopilotTicks(project.id);
           }
 
-          // Start Auto-Run job for ongoing development
+          // Start Auto-Run job for ongoing development + fire first tick
           try {
             await supabase.functions.invoke('auto-run', {
               body: { action: 'start', projectId: project.id },
             });
+            // Fire first tick so job is visible immediately in the Auto-Run tab
+            supabase.functions.invoke('auto-run', {
+              body: { action: 'tick', projectId: project.id },
+            }).catch(() => {}); // non-blocking
             parts.push('auto-run started');
           } catch (arErr: any) {
             console.error('[DevSeed] auto-run start failed (non-fatal):', arErr?.message);
