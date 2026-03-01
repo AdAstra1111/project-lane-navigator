@@ -56,43 +56,8 @@ function buildCharacterBibleContent(title: string, characters: any[]): string {
 
 function buildMarketSheetContent(title: string, market: any, nuance: any, convergenceSummary?: any): string {
   const lines: string[] = [`# ${title} — Market Sheet`, ''];
-  if (nuance) {
-    lines.push('## Nuance Contract', '');
-    if (nuance.restraint_level != null) lines.push(`**Restraint Level:** ${nuance.restraint_level}/10`);
-    if (nuance.restraint_rationale) lines.push(`*${nuance.restraint_rationale}*`);
-    if (nuance.conflict_mode) lines.push(`**Conflict Mode:** ${nuance.conflict_mode}`);
-    if (nuance.complexity_cap) {
-      const cc = nuance.complexity_cap;
-      lines.push(`**Complexity Cap:** ${cc.max_plot_threads || '?'} threads / ${cc.max_factions || '?'} factions / ${cc.max_core_characters || '?'} core characters`);
-    }
-    if (nuance.melodrama_guard) lines.push(`**Melodrama Guard:** ${nuance.melodrama_guard}`);
-    if (nuance.tone_boundaries) lines.push(`**Tone Boundaries:** ${nuance.tone_boundaries}`);
-    lines.push('');
-  }
-  if (market.lane_justification) lines.push('## Lane Justification', '', market.lane_justification, '');
-  if (market.timing) lines.push('## Market Timing', '', market.timing, '');
-  if (market.comparable_analysis?.length) {
-    lines.push('## Comparable Analysis', '');
-    for (const comp of market.comparable_analysis) {
-      lines.push(`### ${comp.title}`);
-      if (comp.relevance) lines.push(`**Relevance:** ${comp.relevance}`);
-      if (comp.take) lines.push(`**Take:** ${comp.take}`);
-      if (comp.avoid) lines.push(`**Avoid:** ${comp.avoid}`);
-      lines.push('');
-    }
-  }
-  if (market.buyer_positioning?.length) {
-    lines.push('## Buyer Positioning', '');
-    for (const bp of market.buyer_positioning) lines.push(`- **${bp.buyer}:** ${bp.angle}`);
-    lines.push('');
-  }
-  if (market.risk_summary?.length) {
-    lines.push('## Risk Summary', '');
-    for (const r of market.risk_summary) lines.push(`- **${r.risk}** → ${r.mitigation}`);
-    lines.push('');
-  }
 
-  // ── Convergence Guidance section (from pitch trend signals — guidance only, not canon) ──
+  // ── Convergence Guidance near top (truncation-safe placement) ──
   if (convergenceSummary) {
     const cs = convergenceSummary;
     lines.push('## Convergence Guidance (Audience Appetite Context)', '');
@@ -123,6 +88,37 @@ function buildMarketSheetContent(title: string, market: any, nuance: any, conver
       lines.push('');
     }
     lines.push('> *This is guidance only (not canon). Used to align voice/tone/pacing/world density while staying original.*', '');
+  }
+
+  // ── Standard market content ──
+  if (nuance) {
+    lines.push('## Nuance Contract', '');
+    if (nuance.restraint != null) lines.push(`**Restraint Level:** ${nuance.restraint}`);
+    if (nuance.story_engine) lines.push(`**Story Engine:** ${nuance.story_engine}`);
+    if (nuance.causal_grammar) lines.push(`**Causal Grammar:** ${nuance.causal_grammar}`);
+    if (nuance.drama_budget != null) lines.push(`**Drama Budget:** ${nuance.drama_budget}`);
+    if (nuance.anti_tropes?.length) lines.push(`**Anti-Tropes:** ${nuance.anti_tropes.join(', ')}`);
+    lines.push('');
+  }
+  if (market?.comparable_projects?.length) {
+    lines.push('## Comparable Projects', '');
+    for (const comp of market.comparable_projects) {
+      lines.push(`### ${comp.title || 'Untitled'}`);
+      if (comp.relevance) lines.push(`**Relevance:** ${comp.relevance}`);
+      if (comp.emulate) lines.push(`**Emulate:** ${comp.emulate}`);
+      if (comp.avoid) lines.push(`**Avoid:** ${comp.avoid}`);
+      lines.push('');
+    }
+  }
+  if (market?.buyer_positioning?.length) {
+    lines.push('## Buyer Positioning', '');
+    for (const bp of market.buyer_positioning) lines.push(`- **${bp.buyer}:** ${bp.angle}`);
+    lines.push('');
+  }
+  if (market?.risk_summary?.length) {
+    lines.push('## Risk Summary', '');
+    for (const r of market.risk_summary) lines.push(`- **${r.risk}** → ${r.mitigation}`);
+    lines.push('');
   }
 
   return lines.join('\n');
@@ -186,19 +182,21 @@ function buildConceptBriefContent(title: string, idea: PitchIdea, devSeed: any, 
   const lines: string[] = [`# ${title} — Concept Brief`, ''];
   if (idea.logline) lines.push('## Logline', '', idea.logline, '');
   if (idea.one_page_pitch) lines.push('## Premise', '', idea.one_page_pitch, '');
+
+  // ── Creative DNA Targets near top (truncation-safe placement) ──
+  const dnaSection = buildCreativeDnaTargetsSection(
+    convergenceSummary,
+    (idea as any).differentiation_move || (idea.raw_response as any)?.idea?.differentiation_move,
+  );
+  if (dnaSection) lines.push(dnaSection);
+
+  // ── Remaining concept brief fields ──
   if (idea.genre) lines.push(`**Genre:** ${idea.genre}`);
   if (idea.recommended_lane) lines.push(`**Lane:** ${idea.recommended_lane}`);
   if (idea.budget_band) lines.push(`**Budget Band:** ${idea.budget_band}`);
   if (idea.why_us) lines.push('', '## Why Us', '', idea.why_us);
   if (devSeed?.bible_starter?.story_engine) lines.push('', '## Story Engine', '', devSeed.bible_starter.story_engine);
   lines.push('');
-
-  // Append Creative DNA Targets from convergence (guidance only)
-  const dnaSection = buildCreativeDnaTargetsSection(
-    convergenceSummary,
-    (idea as any).differentiation_move || (idea.raw_response as any)?.idea?.differentiation_move,
-  );
-  if (dnaSection) lines.push(dnaSection);
 
   return lines.join('\n');
 }

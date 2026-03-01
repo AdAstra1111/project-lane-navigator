@@ -42,19 +42,19 @@ const DOC_DEPENDENCY_MAP: Record<string, string[]> = {
 const UPSTREAM_DEPS: Record<string, string[]> = {
   logline: ["idea_brief"],
   one_pager: ["idea_brief", "logline"],
-  long_synopsis: ["one_pager", "logline", "concept_brief", "market_sheet"],
+  long_synopsis: ["one_pager", "logline"],
   treatment: ["long_synopsis", "character_bible", "concept_brief", "market_sheet"],
-  character_bible: ["idea_brief", "logline", "concept_brief", "market_sheet"],
-  feature_outline: ["treatment", "character_bible", "concept_brief", "market_sheet"],
+  character_bible: ["idea_brief", "logline", "concept_brief"],
+  feature_outline: ["treatment", "character_bible"],
   screenplay_draft: ["feature_outline", "character_bible", "treatment"],
   series_overview: ["idea_brief", "logline", "concept_brief", "market_sheet"],
   season_arc: ["series_overview", "character_bible", "concept_brief", "market_sheet"],
-  episode_grid: ["season_arc", "character_bible", "concept_brief", "market_sheet"],
-  vertical_episode_beats: ["episode_grid", "season_arc", "character_bible", "format_rules", "concept_brief", "market_sheet"],
-  pilot_outline: ["episode_grid", "character_bible", "concept_brief", "market_sheet"],
+  episode_grid: ["season_arc", "character_bible", "concept_brief"],
+  vertical_episode_beats: ["episode_grid", "season_arc", "character_bible", "format_rules"],
+  pilot_outline: ["episode_grid", "character_bible"],
   pilot_script: ["pilot_outline", "character_bible"],
-  format_rules: ["idea_brief", "concept_brief", "market_sheet"],
-  vertical_market_sheet: ["idea_brief", "concept_brief", "market_sheet"],
+  format_rules: ["idea_brief", "concept_brief"],
+  vertical_market_sheet: ["idea_brief", "concept_brief"],
   season_scripts_bundle: ["episode_grid", "vertical_episode_beats", "character_bible"],
   future_seasons_map: ["season_arc", "series_overview"],
   topline_narrative: ["idea", "idea_brief", "concept_brief", "market_sheet", "vertical_market_sheet", "blueprint"],
@@ -66,6 +66,61 @@ const UPSTREAM_DEPS: Record<string, string[]> = {
   story_arc_plan: ["doc_premise_brief", "research_dossier"],
   shoot_plan: ["story_arc_plan"],
 };
+
+// ── Cycle & self-dep guard (runs once at cold start) ──
+try {
+  for (const [dt, deps] of Object.entries(UPSTREAM_DEPS)) {
+    if (deps.includes(dt)) throw new Error(`UPSTREAM_DEPS self-dep: ${dt}`);
+  }
+  // BFS cycle check
+  for (const start of Object.keys(UPSTREAM_DEPS)) {
+    const visited = new Set<string>();
+    const queue = [...(UPSTREAM_DEPS[start] || [])];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      if (cur === start) throw new Error(`UPSTREAM_DEPS cycle: ${start} → ... → ${start}`);
+      if (visited.has(cur)) continue;
+      visited.add(cur);
+      for (const dep of (UPSTREAM_DEPS[cur] || [])) queue.push(dep);
+    }
+  }
+} catch (e: any) {
+  console.error(`[generate-document] FATAL dep graph error: ${e.message}`);
+}
+
+// ── Convergence guidance section extractor (pure string, no LLM) ──
+const CONVERGENCE_HEADINGS = [
+  "## Creative DNA Targets (From Trend Convergence)",
+  "## Convergence Guidance (Audience Appetite Context)",
+];
+const MAX_GUIDANCE_EXTRACT_CHARS = 2000;
+
+function extractConvergenceGuidance(upstreamBlocks: Map<string, string>): string {
+  const extracts: string[] = [];
+  // Deterministic order: concept_brief first, then market_sheet
+  for (const dt of ["concept_brief", "market_sheet"]) {
+    const text = upstreamBlocks.get(dt);
+    if (!text) continue;
+    for (const heading of CONVERGENCE_HEADINGS) {
+      const idx = text.indexOf(heading);
+      if (idx === -1) continue;
+      const afterHeading = text.slice(idx);
+      // Find next ## heading (or end)
+      const nextH2 = afterHeading.indexOf("\n## ", heading.length);
+      const section = nextH2 > 0 ? afterHeading.slice(0, nextH2).trim() : afterHeading.trim();
+      if (section.length > 0) extracts.push(section);
+    }
+  }
+  if (extracts.length === 0) return "";
+  let combined = extracts.join("\n\n");
+  if (combined.length > MAX_GUIDANCE_EXTRACT_CHARS) {
+    combined = combined.slice(0, MAX_GUIDANCE_EXTRACT_CHARS) + "\n[truncated]";
+  }
+  return `=== CONVERGENCE GUIDANCE EXTRACT (FROM DOCS) ===\n${combined}\n=== END CONVERGENCE GUIDANCE EXTRACT ===`;
+}
+
+// ── Per-doc context cap ──
+const MAX_PER_DOC_CHARS = 12000;
 
 // ─── LLM Gateway ───
 
@@ -191,6 +246,7 @@ Deno.serve(async (req) => {
     const upstreamTypes = UPSTREAM_DEPS[docType] || [];
     const inputsUsed: Record<string, any> = {};
     let upstreamContent = "";
+    const upstreamBlocks = new Map<string, string>();
 
     if (upstreamTypes.length > 0) {
       // Get all project_documents for this project
@@ -218,10 +274,26 @@ Deno.serve(async (req) => {
             version_id: version.id,
             version_number: version.version_number,
           };
-          upstreamContent += `\n\n--- ${doc.doc_type.toUpperCase()} (v${version.version_number}) ---\n${version.plaintext || "(empty)"}`;
+          let plaintext = version.plaintext || "(empty)";
+          // Per-doc cap to keep prompt size stable
+          if (plaintext.length > MAX_PER_DOC_CHARS) {
+            const headChars = Math.floor(MAX_PER_DOC_CHARS * 0.6);
+            const tailChars = MAX_PER_DOC_CHARS - headChars;
+            plaintext = plaintext.slice(0, headChars) + "\n\n[...content trimmed for context budget...]\n\n" + plaintext.slice(-tailChars);
+          }
+          upstreamBlocks.set(doc.doc_type, plaintext);
+          upstreamContent += `\n\n--- ${doc.doc_type.toUpperCase()} (v${version.version_number}) ---\n${plaintext}`;
         }
       }
     }
+
+    // 3b) Extract convergence guidance as compact preface (truncation-safe)
+    const guidanceExtract = extractConvergenceGuidance(upstreamBlocks);
+    if (guidanceExtract) {
+      upstreamContent = `\n\n${guidanceExtract}\n${upstreamContent}`;
+    }
+
+    console.log(`[generate-document] context: docType=${docType} upstreamTypes=${upstreamTypes.length} totalChars=${upstreamContent.length} guidanceExtracted=${!!guidanceExtract}`);
 
     // 4) Build prompt with HARD BINDING
     const durMin = resolvedQuals.episode_target_duration_min_seconds || resolvedQuals.episode_target_duration_seconds || null;
