@@ -24,7 +24,7 @@ import { toast } from '@/hooks/use-toast';
 import {
   Play, Pause, Square, RotateCcw, Zap, AlertTriangle, CheckCircle2, Loader2,
   Eye, FileText, Copy, Download, ChevronRight, Shield, Rocket, Settings2,
-  HelpCircle, ArrowUpRight, Radio, Film,
+  HelpCircle, ArrowUpRight, Radio, Film, Clock,
 } from 'lucide-react';
 import type { AutoRunJob, AutoRunStep, PendingDecision } from '@/hooks/useAutoRun';
 import type { DocumentTextResult } from '@/hooks/useAutoRunMissionControl';
@@ -236,6 +236,9 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
     rewrite_accepted: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
     rewrite_rejected_regression: 'bg-destructive/15 text-destructive border-destructive/30',
     frontier_set: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    criteria_stale_provenance: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+    criteria_fail_duration_exhausted: 'bg-destructive/15 text-destructive border-destructive/30',
+    duration_repair_attempt: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
   };
 
   return (
@@ -263,9 +266,12 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
                   step.action === 'gate_decision' ? '⚖ gate' :
                   step.action === 'stagnation_no_blocker_progress' ? '⚠ stagnation' :
                   step.action === 'rewrite_accepted' ? '✓ accepted' :
-                  step.action === 'rewrite_rejected_regression' ? '✗ rejected' :
-                  step.action === 'frontier_set' ? '↗ frontier' :
-                  step.action
+                   step.action === 'rewrite_rejected_regression' ? '✗ rejected' :
+                   step.action === 'frontier_set' ? '↗ frontier' :
+                   step.action === 'criteria_stale_provenance' ? '⚠ stale criteria' :
+                   step.action === 'criteria_fail_duration_exhausted' ? '✗ duration fail' :
+                   step.action === 'duration_repair_attempt' ? '⏱ duration repair' :
+                   step.action
                 }</Badge>
                 <Badge variant="outline" className="text-[8px] px-1 py-0">{LADDER_LABELS[step.document] || step.document}</Badge>
                 {/* Blocker count badge from output_ref */}
@@ -1358,6 +1364,61 @@ export function AutoRunMissionControl({
                           {(job as any).last_blocker_count} blockers remaining
                         </Badge>
                       )}
+                      <div className="flex gap-1.5">
+                        <Button size="sm" className="h-6 text-[9px] gap-1" onClick={() => onResume(true)}>
+                          <Play className="h-3 w-3" /> Resume (retry)
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {/* Duration criteria panels */}
+                  {job.pause_reason === 'CRITERIA_STALE_PROVENANCE' && (
+                    <div className="space-y-1.5 mt-1">
+                      <div className="flex items-center gap-1.5">
+                        <AlertTriangle className="h-3 w-3 text-orange-400 shrink-0" />
+                        <span className="text-[10px] font-medium text-foreground">Criteria Provenance Changed</span>
+                      </div>
+                      <div className="text-[9px] text-muted-foreground">
+                        The project criteria (duration, episode count, etc.) changed since this document was last analyzed.
+                        This is a true criteria change, not a scoring issue.
+                      </div>
+                      <div className="flex gap-1.5">
+                        <Button size="sm" className="h-6 text-[9px] gap-1" onClick={() => onResume(true)}>
+                          <Play className="h-3 w-3" /> Regenerate with new criteria
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1" onClick={() => onResume(true)}>
+                          Continue anyway
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {job.pause_reason === 'CRITERIA_FAIL_DURATION' && (
+                    <div className="space-y-1.5 mt-1">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="h-3 w-3 text-amber-400 shrink-0" />
+                        <span className="text-[10px] font-medium text-foreground">Duration Target Not Met</span>
+                      </div>
+                      {(() => {
+                        const dt = (job.approval_payload as any)?.duration_target;
+                        if (!dt) return null;
+                        const delta = dt.measured - Math.round((dt.min + dt.max) / 2);
+                        return (
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[9px] bg-muted/30 rounded p-2 font-mono">
+                            <span className="text-muted-foreground">Target range:</span>
+                            <span>{dt.min}–{dt.max}s</span>
+                            <span className="text-muted-foreground">Measured:</span>
+                            <span className={dt.measured < dt.min || dt.measured > dt.max ? 'text-destructive' : 'text-emerald-400'}>{dt.measured}s</span>
+                            <span className="text-muted-foreground">Delta:</span>
+                            <span className={delta > 0 ? 'text-amber-400' : 'text-sky-400'}>{delta > 0 ? '+' : ''}{delta}s</span>
+                            <span className="text-muted-foreground">Repair attempts:</span>
+                            <span>{(job.approval_payload as any)?.duration_repair_attempts || 0}/2</span>
+                          </div>
+                        );
+                      })()}
+                      <div className="text-[9px] text-muted-foreground">
+                        Duration repair attempts exhausted. The document for <strong>{job.current_document}</strong> does not meet the target duration.
+                        Consider manually editing the document length, then resume.
+                      </div>
                       <div className="flex gap-1.5">
                         <Button size="sm" className="h-6 text-[9px] gap-1" onClick={() => onResume(true)}>
                           <Play className="h-3 w-3" /> Resume (retry)

@@ -9947,6 +9947,8 @@ export type Database = {
           change_summary: string | null
           created_at: string
           created_by: string
+          criteria_hash: string | null
+          criteria_json: Json | null
           deliverable_type: string | null
           depends_on: Json | null
           depends_on_resolver_hash: string | null
@@ -9960,6 +9962,7 @@ export type Database = {
           is_current: boolean
           is_stale: boolean | null
           label: string | null
+          measured_metrics_json: Json | null
           meta_json: Json | null
           parent_version_id: string | null
           plaintext: string
@@ -9987,6 +9990,8 @@ export type Database = {
           change_summary?: string | null
           created_at?: string
           created_by: string
+          criteria_hash?: string | null
+          criteria_json?: Json | null
           deliverable_type?: string | null
           depends_on?: Json | null
           depends_on_resolver_hash?: string | null
@@ -10000,6 +10005,7 @@ export type Database = {
           is_current?: boolean
           is_stale?: boolean | null
           label?: string | null
+          measured_metrics_json?: Json | null
           meta_json?: Json | null
           parent_version_id?: string | null
           plaintext?: string
@@ -10027,6 +10033,8 @@ export type Database = {
           change_summary?: string | null
           created_at?: string
           created_by?: string
+          criteria_hash?: string | null
+          criteria_json?: Json | null
           deliverable_type?: string | null
           depends_on?: Json | null
           depends_on_resolver_hash?: string | null
@@ -10040,6 +10048,7 @@ export type Database = {
           is_current?: boolean
           is_stale?: boolean | null
           label?: string | null
+          measured_metrics_json?: Json | null
           meta_json?: Json | null
           parent_version_id?: string | null
           plaintext?: string
