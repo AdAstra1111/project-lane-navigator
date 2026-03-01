@@ -4262,15 +4262,86 @@ Deno.serve(async (req) => {
             `Attempt ${attemptNumber}: strategy=${strategy}, notes=${strategyNotes.length}, directions=${strategyDirections.length}`,
             { ci, gp, gap }, undefined, { attemptNumber, strategy, noteCount: strategyNotes.length });
 
-          // ── 1) BASELINE PINNING: use current accepted version (not latest) ──
-          const currentAccepted = await getCurrentVersionForDoc(supabase, doc.id);
+          // ── 1) BASELINE PINNING: ensure current accepted baseline exists (auto-repair/seed once) ──
+          let currentAccepted = await getCurrentVersionForDoc(supabase, doc.id);
           if (!currentAccepted) {
-            // Count existing versions for diagnostic metadata
+            const { data: latestAnyVersion } = await supabase.from("project_document_versions")
+              .select("id, version_number")
+              .eq("document_id", doc.id)
+              .order("version_number", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (latestAnyVersion?.id) {
+              const { error: repairErr } = await supabase.rpc("set_current_version", {
+                p_document_id: doc.id,
+                p_new_version_id: latestAnyVersion.id,
+              });
+              if (!repairErr) {
+                await logStep(supabase, jobId, null, currentDoc, "baseline_repaired",
+                  `Repaired missing baseline by promoting latest version ${latestAnyVersion.id} as current.`,
+                  { ci, gp, gap }, undefined, { documentId: doc.id, docType: currentDoc, chosenVersionId: latestAnyVersion.id });
+                currentAccepted = await getCurrentVersionForDoc(supabase, doc.id);
+              }
+            }
+          }
+
+          if (!currentAccepted) {
+            const seedText = (doc.plaintext || doc.extracted_text || "").trim();
+            if (seedText.length > 0) {
+              const { data: maxRow } = await supabase.from("project_document_versions")
+                .select("version_number")
+                .eq("document_id", doc.id)
+                .order("version_number", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              const nextVersion = (maxRow?.version_number || 0) + 1;
+
+              const { data: seededVersion, error: seedErr } = await supabase.from("project_document_versions").insert({
+                document_id: doc.id,
+                version_number: nextVersion,
+                plaintext: seedText,
+                is_current: true,
+                status: "draft",
+                label: "baseline_seed",
+                created_by: job.user_id,
+                approval_status: "draft",
+                deliverable_type: currentDoc,
+                meta_json: { seed_source: "auto_run_baseline_seed", seeded_at: new Date().toISOString() },
+              }).select("id").single();
+
+              if (!seedErr && seededVersion?.id) {
+                await supabase.from("project_documents").update({ latest_version_id: seededVersion.id }).eq("id", doc.id);
+                await logStep(supabase, jobId, null, currentDoc, "baseline_seeded",
+                  `Seeded baseline from document plaintext and set version ${seededVersion.id} as current.`,
+                  { ci, gp, gap }, undefined, { documentId: doc.id, docType: currentDoc, seededVersionId: seededVersion.id });
+                currentAccepted = await getCurrentVersionForDoc(supabase, doc.id);
+              }
+            }
+          }
+
+          if (!currentAccepted) {
             const { count: versionCount } = await supabase.from("project_document_versions")
               .select("id", { count: "exact", head: true })
               .eq("document_id", doc.id);
+            const hasSeedText = (doc.plaintext || doc.extracted_text || "").trim().length > 0;
+
+            if (!hasSeedText && (!versionCount || versionCount === 0)) {
+              await logStep(supabase, jobId, null, currentDoc, "baseline_missing_no_text",
+                `No baseline exists and no plaintext source is available for ${currentDoc}.`,
+                { ci, gp, gap }, undefined, { documentId: doc.id, docType: currentDoc, versionCount: versionCount ?? 0 });
+              await updateJob(supabase, jobId, {
+                stage_loop_count: newLoopCount,
+                status: "paused",
+                pause_reason: "BASELINE_MISSING_NO_TEXT",
+                stop_reason: `No baseline and no plaintext source for ${currentDoc}. Create content first, then resume.`,
+                approval_payload: { documentId: doc.id, docType: currentDoc, versionCount: versionCount ?? 0 },
+              });
+              return respondWithJob(supabase, jobId);
+            }
+
             await logStep(supabase, jobId, null, currentDoc, "baseline_missing",
-              `No current accepted version found for document ${doc.id} (${versionCount ?? 0} versions exist). Use "Repair Baseline" to fix.`,
+              `No current accepted version found for document ${doc.id} (${versionCount ?? 0} versions exist).`,
               { ci, gp, gap }, undefined, { documentId: doc.id, docType: currentDoc, versionCount: versionCount ?? 0 });
             await updateJob(supabase, jobId, {
               stage_loop_count: newLoopCount,
