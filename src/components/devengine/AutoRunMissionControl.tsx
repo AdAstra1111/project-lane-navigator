@@ -268,6 +268,8 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
                   step.action === 'rewrite_accepted' ? '✓ accepted' :
                    step.action === 'rewrite_rejected_regression' ? '✗ rejected' :
                    step.action === 'frontier_set' ? '↗ frontier' :
+                   step.action === 'baseline_reanchored_to_best' ? '⚡ reanchored to best' :
+                   step.action === 'stale_document_detected' ? '⚠ legacy stale (pre-fix)' :
                    step.action === 'criteria_stale_provenance' ? '⚠ stale criteria' :
                    step.action === 'criteria_fail_duration_exhausted' ? '✗ duration fail' :
                    step.action === 'duration_repair_attempt' ? '⏱ duration repair' :
@@ -1292,7 +1294,49 @@ export function AutoRunMissionControl({
                 </div>
               )}
 
-              {/* Risk flags — only show when job is not running (stale flags from resolved state shouldn't persist) */}
+              {/* Version Provenance Panel */}
+              {(() => {
+                const bestVer = (job as any).best_version_id;
+                const frontierVer = (job as any).frontier_version_id;
+                const resumeVer = (job as any).resume_version_id;
+                const bestCI = (job as any).best_ci;
+                const bestGP = (job as any).best_gp;
+                const frontierCI = (job as any).frontier_ci;
+                const frontierGP = (job as any).frontier_gp;
+                const bestBlockers = (job as any).best_blocker_count;
+                if (!bestVer && !frontierVer && !resumeVer) return null;
+                return (
+                  <div className="p-2 rounded border border-border/30 bg-muted/10 space-y-1">
+                    <div className="text-[8px] font-semibold text-muted-foreground uppercase tracking-wide">Version Provenance</div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[9px] font-mono">
+                      {resumeVer && (
+                        <>
+                          <span className="text-muted-foreground">Baseline:</span>
+                          <span title={resumeVer}>{resumeVer.slice(0, 8)}…</span>
+                        </>
+                      )}
+                      {bestVer && (
+                        <>
+                          <span className="text-muted-foreground">Best:</span>
+                          <span title={bestVer} className="text-emerald-400">
+                            {bestVer.slice(0, 8)}… {bestCI != null && `CI:${bestCI} GP:${bestGP}`}
+                            {bestBlockers != null && ` B:${bestBlockers}`}
+                          </span>
+                        </>
+                      )}
+                      {frontierVer && (
+                        <>
+                          <span className="text-muted-foreground">Frontier:</span>
+                          <span title={frontierVer} className="text-violet-400">
+                            {frontierVer.slice(0, 8)}… {frontierCI != null && `CI:${frontierCI} GP:${frontierGP}`}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {job.last_risk_flags?.length > 0 && job.status !== 'running' && !hasDecisions && (
                 <div className="flex gap-1 flex-wrap">
                   {job.last_risk_flags.map((f: string, i: number) => (

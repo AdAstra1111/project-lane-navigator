@@ -3846,8 +3846,15 @@ Deno.serve(async (req) => {
       const measuredDuration = estimateDurationSeconds(reviewTextForDuration);
       const currentCriteriaHash = computeCriteriaHashEdge(latestCriteriaSnapshot);
       
-      // Get version's criteria_hash (from project_document_versions if available)
-      const versionCriteriaHash = latestVersion?.criteria_hash || null;
+      // Get version's criteria_hash — fetch from DB if not already in latestVersion
+      let versionCriteriaHash: string | null = latestVersion?.criteria_hash || null;
+      if (!versionCriteriaHash && latestVersion?.id) {
+        const { data: verRow } = await supabase.from("project_document_versions")
+          .select("criteria_hash")
+          .eq("id", latestVersion.id)
+          .maybeSingle();
+        versionCriteriaHash = verRow?.criteria_hash || null;
+      }
       
       const criteriaResult = classifyCriteriaEdge({
         versionCriteriaHash,
@@ -3920,12 +3927,12 @@ Deno.serve(async (req) => {
         // Fall through to normal analysis+rewrite flow — the rewrite will include duration guidance
       }
 
-      // Store measured metrics on the version for future reference
-      if (latestVersion?.id && measuredDuration > 0) {
+      // Store measured metrics on the version for future reference (always, even if duration=0)
+      if (latestVersion?.id) {
         await supabase.from("project_document_versions").update({
           criteria_hash: currentCriteriaHash,
           criteria_json: latestCriteriaSnapshot,
-          measured_metrics_json: { measured_duration_seconds: measuredDuration, estimated_at: new Date().toISOString() },
+          measured_metrics_json: { measured_duration_seconds: measuredDuration, estimated_at: new Date().toISOString(), estimator: 'edge_deterministic' },
         }).eq("id", latestVersion.id);
       }
 
@@ -4504,7 +4511,48 @@ Deno.serve(async (req) => {
             });
             return respondWithJob(supabase, jobId);
           }
-          const baselineVersionId = currentAccepted.id;
+          let baselineVersionId = currentAccepted.id;
+
+          // ── BASELINE REANCHOR TO BEST ──
+          // If job.best_version_id exists for this document and the baseline has collapsed,
+          // re-anchor to best to prevent regression loops.
+          {
+            const bestVersionId = (job as any).best_version_id;
+            const bestDocId = (job as any).best_document_id;
+            const bestCI = (job as any).best_ci;
+            const bestGP = (job as any).best_gp;
+            
+            if (bestVersionId && bestDocId === doc.id && bestVersionId !== baselineVersionId
+                && typeof bestCI === "number" && typeof bestGP === "number") {
+              // Check if current baseline is materially worse than best
+              // We need baseline scores - do a quick lookup from job cache or skip
+              const jobLastAnalyzed = (job as any).last_analyzed_version_id;
+              const jobLastCI = (job as any).last_ci;
+              const jobLastGP = (job as any).last_gp;
+              
+              if (jobLastAnalyzed === baselineVersionId && typeof jobLastCI === "number" && typeof jobLastGP === "number") {
+                const baselineComposite = jobLastCI + jobLastGP;
+                const bestComposite = bestCI + bestGP;
+                const REANCHOR_MARGIN = 20; // composite must be this much worse
+                
+                if (bestComposite - baselineComposite >= REANCHOR_MARGIN) {
+                  // Re-anchor baseline to best
+                  const { error: reanchorErr } = await supabase.rpc("set_current_version", {
+                    p_document_id: doc.id,
+                    p_new_version_id: bestVersionId,
+                  });
+                  if (!reanchorErr) {
+                    await logStep(supabase, jobId, null, currentDoc, "baseline_reanchored_to_best",
+                      `Baseline collapsed (CI=${jobLastCI} GP=${jobLastGP}, composite=${baselineComposite}) below best (CI=${bestCI} GP=${bestGP}, composite=${bestComposite}). Re-anchored to best version ${bestVersionId}.`,
+                      { ci: bestCI, gp: bestGP }, undefined,
+                      { old_baseline: baselineVersionId, new_baseline: bestVersionId, old_ci: jobLastCI, old_gp: jobLastGP, best_ci: bestCI, best_gp: bestGP, margin: bestComposite - baselineComposite, REANCHOR_MARGIN });
+                    baselineVersionId = bestVersionId;
+                    currentAccepted = await getCurrentVersionForDoc(supabase, doc.id);
+                  }
+                }
+              }
+            }
+          }
 
           // ── BASELINE SCORE REUSE OPTIMIZATION ──
           // Reuse cached scores ONLY if last_analyzed_version_id === baselineVersionId
@@ -4901,6 +4949,17 @@ Deno.serve(async (req) => {
                 stop_reason: "Rewrite produced no candidate version id; refusing to promote or continue.",
               });
               return respondWithJob(supabase, jobId);
+            }
+
+            // Stamp criteria on new candidate version
+            if (candidateVersionId) {
+              const candText = await supabase.from("project_document_versions").select("plaintext").eq("id", candidateVersionId).maybeSingle();
+              const candMeasured = estimateDurationSeconds(candText?.data?.plaintext || "");
+              await supabase.from("project_document_versions").update({
+                criteria_hash: currentCriteriaHash,
+                criteria_json: latestCriteriaSnapshot,
+                measured_metrics_json: { measured_duration_seconds: candMeasured, estimated_at: new Date().toISOString(), estimator: 'edge_deterministic' },
+              }).eq("id", candidateVersionId);
             }
 
             await logStep(supabase, jobId, null, currentDoc, "rewrite_candidate_created",
