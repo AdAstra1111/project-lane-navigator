@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, FolderPlus, ArrowRight, Zap } from 'lucide-react';
+import { Loader2, FolderPlus, ArrowRight, Zap, Bot } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import { buildPrefsDraft } from '@/lib/pitch/devseedHelpers';
 import { getDefaultVoiceForLane } from '@/lib/writingVoices/select';
 import { useDevSeedBackfill } from '@/hooks/useDevSeedBackfill';
 import { DevSeedBackfillProgress } from '@/components/pitch/DevSeedBackfillProgress';
+import { AutopilotProgress, type AutopilotState } from '@/components/pitch/AutopilotProgress';
 import { buildSeedIntelPack } from '@/lib/trends/seed-intel-pack';
 import { useActiveSignals, useActiveCastTrends } from '@/hooks/useTrends';
 
@@ -228,18 +229,85 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
   const [applyCanon, setApplyCanon] = useState(true);
   const [applyPrefs, setApplyPrefs] = useState(true);
   const [includeDevPack, setIncludeDevPack] = useState(false);
+  const [enableAutopilot, setEnableAutopilot] = useState(true);
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
+  const [autopilotState, setAutopilotState] = useState<AutopilotState | null>(null);
+  const [autopilotTicking, setAutopilotTicking] = useState(false);
+  const autopilotAbortRef = useRef(false);
   const backfill = useDevSeedBackfill(createdProjectId || undefined, idea?.id);
   const { data: allSignals = [] } = useActiveSignals();
   const { data: allCast = [] } = useActiveCastTrends();
 
-  if (!idea) return null;
+  const defaultTitle = idea?.title || 'Untitled Project';
 
-  const defaultTitle = idea.title || 'Untitled Project';
+  // ── Autopilot tick loop ──
+  const runAutopilotTicks = useCallback(async (projectId: string) => {
+    if (autopilotAbortRef.current) return;
+    setAutopilotTicking(true);
+
+    try {
+      let done = false;
+      let iterations = 0;
+      const MAX_ITERATIONS = 20;
+
+      while (!done && iterations < MAX_ITERATIONS && !autopilotAbortRef.current) {
+        iterations++;
+        const { data, error } = await supabase.functions.invoke('devseed-autopilot', {
+          body: { action: 'tick', projectId },
+        });
+
+        if (error) {
+          console.error('[autopilot tick] error:', error.message);
+          break;
+        }
+
+        const result = data as any;
+        if (result?.autopilot) {
+          setAutopilotState(result.autopilot);
+        }
+
+        done = result?.done === true || result?.message === 'not_running';
+
+        if (!done) {
+          // Small delay between ticks
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+    } catch (err: any) {
+      console.error('[autopilot tick] exception:', err.message);
+    } finally {
+      setAutopilotTicking(false);
+    }
+  }, []);
+
+  const handleResumeAutopilot = useCallback(async () => {
+    if (!createdProjectId) return;
+    autopilotAbortRef.current = false;
+
+    // Re-start the autopilot
+    const { data } = await supabase.functions.invoke('devseed-autopilot', {
+      body: {
+        action: 'start',
+        projectId: createdProjectId,
+        pitchIdeaId: idea?.id,
+      },
+    });
+
+    if (data?.autopilot) {
+      setAutopilotState(data.autopilot);
+    }
+
+    // Run tick loop
+    runAutopilotTicks(createdProjectId);
+  }, [createdProjectId, idea?.id, runAutopilotTicks]);
+
+  if (!idea) return null;
 
   const handleCreate = async (withBackfill = false): Promise<string | null> => {
     if (!user) return null;
     if (withBackfill) setCreatingBackfill(true); else setCreating(true);
+    autopilotAbortRef.current = false;
+
     try {
       const title = projectTitle.trim() || defaultTitle;
       const lane = idea.recommended_lane || 'independent-film';
@@ -388,56 +456,56 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         if (history.length > 0) merged.seed_draft_history = history;
 
         // ── Seed Intel Pack: build from active trends and apply via canon-decisions ──
-        const productionType = idea.production_type || 'film';
-        const pack = buildSeedIntelPack(allSignals, allCast, {
-          lane,
-          productionType,
-        });
-        console.log(`[DevSeed] seed_intel_pack built: ${pack.demand_signals.length} demand signals, ${pack.comparable_candidates.length} comp candidates, ${pack.genre_heat.length} genre heat`);
-
-        // Route through canon-decisions for auditable mutation
-        try {
-          const cdRes = await supabase.functions.invoke('canon-decisions', {
-            body: {
-              action: 'create_and_apply',
-              projectId: project.id,
-              decision: {
-                type: 'APPLY_SEED_INTEL_PACK',
-                payload: {
-                  seed_intel_pack: pack,
-                  init_comparables_if_empty: true,
-                  comparables_from_pack_max: 12,
-                  source_label: 'seed_intel_pack',
-                },
-              },
-              apply: { mode: 'auto' },
-            },
+        // (Only if autopilot is OFF — autopilot handles this server-side)
+        if (!enableAutopilot) {
+          const productionType = idea.production_type || 'film';
+          const pack = buildSeedIntelPack(allSignals, allCast, {
+            lane,
+            productionType,
           });
-          const cdData = cdRes.data as any;
-          if (cdData?.ok) {
-            console.log(`[DevSeed] canon-decisions APPLY_SEED_INTEL_PACK success: decisionId=${cdData.decisionId}, comps_initialized=${cdData.applied?.comps_initialized}`);
-            if (cdData.applied?.warnings?.length) {
-              console.warn(`[DevSeed] canon-decisions warnings:`, cdData.applied.warnings);
+          console.log(`[DevSeed] seed_intel_pack built: ${pack.demand_signals.length} demand signals, ${pack.comparable_candidates.length} comp candidates, ${pack.genre_heat.length} genre heat`);
+
+          // Route through canon-decisions for auditable mutation
+          try {
+            const cdRes = await supabase.functions.invoke('canon-decisions', {
+              body: {
+                action: 'create_and_apply',
+                projectId: project.id,
+                decision: {
+                  type: 'APPLY_SEED_INTEL_PACK',
+                  payload: {
+                    seed_intel_pack: pack,
+                    init_comparables_if_empty: true,
+                    comparables_from_pack_max: 12,
+                    source_label: 'seed_intel_pack',
+                  },
+                },
+                apply: { mode: 'auto' },
+              },
+            });
+            const cdData = cdRes.data as any;
+            if (cdData?.ok) {
+              console.log(`[DevSeed] canon-decisions APPLY_SEED_INTEL_PACK success: decisionId=${cdData.decisionId}`);
+            } else {
+              console.error(`[DevSeed] canon-decisions APPLY_SEED_INTEL_PACK failed:`, cdData?.error || cdRes.error);
             }
-          } else {
-            console.error(`[DevSeed] canon-decisions APPLY_SEED_INTEL_PACK failed:`, cdData?.error || cdRes.error);
+          } catch (cdErr: any) {
+            console.error(`[DevSeed] canon-decisions invocation failed (non-fatal):`, cdErr?.message);
           }
-        } catch (cdErr: any) {
-          console.error(`[DevSeed] canon-decisions invocation failed (non-fatal):`, cdErr?.message);
         }
 
         // 7. Optional: Apply lane prefs (merge-safe)
         if (applyPrefs) {
-          const prefsDraft = buildPrefsDraft(devSeed, lane);
+          const prefsDraftForPrefs = buildPrefsDraft(devSeed, lane);
           // Set default writing voice if not already present
-          if (!prefsDraft.writing_voice) {
+          if (!prefsDraftForPrefs.writing_voice) {
             const defaultVoice = getDefaultVoiceForLane(lane);
             if (defaultVoice) {
-              (prefsDraft as any).writing_voice = defaultVoice;
+              (prefsDraftForPrefs as any).writing_voice = defaultVoice;
             }
           }
-          if (Object.keys(prefsDraft).length > 0) {
-            await saveProjectLaneRulesetPrefs(project.id, lane, prefsDraft as RulesetPrefs, user.id);
+          if (Object.keys(prefsDraftForPrefs).length > 0) {
+            await saveProjectLaneRulesetPrefs(project.id, lane, prefsDraftForPrefs as RulesetPrefs, user.id);
           } else {
             toast.info('No prefs suggestions in seed');
           }
@@ -464,9 +532,9 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           .eq('project_id', project.id);
       }
 
-      // 8. Auto-fill stubs: run queued regeneration with tick polling
+      // 8. Auto-fill stubs — only if autopilot is OFF (autopilot handles regen server-side)
       let regenResult: any = null;
-      if (applyDocs) {
+      if (applyDocs && !enableAutopilot) {
         const startRes = await supabase.functions.invoke('dev-engine-v2', {
           body: { action: 'regen-insufficient-start', projectId: project.id, dryRun: false, docTypeWhitelist: [...DEVSEED_DOC_TYPES] },
         });
@@ -518,18 +586,50 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
       if (applyDocs && regenResult?.items?.length) parts.push(`autofilled ${regenResult.items.filter((i: any) => i.status === 'regenerated').length} docs`);
       parts.push('canon planted');
       if (applyPrefs) parts.push('lane prefs set');
+
+      // 10. Start autopilot if enabled
+      if (enableAutopilot) {
+        try {
+          const { data: autopilotRes } = await supabase.functions.invoke('devseed-autopilot', {
+            body: {
+              action: 'start',
+              projectId: project.id,
+              pitchIdeaId: idea.id,
+              options: {
+                apply_seed_intel_pack: true,
+                regen_foundation: applyDocs,
+                generate_primary_script: true,
+              },
+            },
+          });
+
+          if (autopilotRes?.autopilot) {
+            setAutopilotState(autopilotRes.autopilot);
+            parts.push('autopilot started');
+            // Start tick loop
+            runAutopilotTicks(project.id);
+          }
+        } catch (apErr: any) {
+          console.error('[DevSeed] autopilot start failed (non-fatal):', apErr?.message);
+          toast.error('Autopilot failed to start — project created successfully');
+        }
+      }
+
       toast.success(parts.join(', '));
 
-      onOpenChange(false);
-      navigate(`/projects/${project.id}/development`);
+      // If autopilot is running, don't navigate yet — show progress
+      if (!enableAutopilot) {
+        onOpenChange(false);
+        navigate(`/projects/${project.id}/development`);
+      }
 
       // If backfill mode, enqueue after navigation
-      if (withBackfill) {
-        const lane = idea.recommended_lane || 'independent-film';
+      if (withBackfill && !enableAutopilot) {
+        const backfillLane = idea.recommended_lane || 'independent-film';
         backfill.startBackfill({
           pitchIdeaId: idea.id,
           projectId: project.id,
-          lane,
+          lane: backfillLane,
           includeDevPack,
         });
         toast.success('Backfill pipeline started — check progress in Dev Engine');
@@ -544,6 +644,17 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
       setCreatingBackfill(false);
     }
   };
+
+  const handleNavigateToProject = () => {
+    if (createdProjectId) {
+      onOpenChange(false);
+      navigate(`/projects/${createdProjectId}/development`);
+    }
+  };
+
+  const showAutopilotPanel = autopilotState != null;
+  const autopilotDone = autopilotState?.status === 'complete';
+  const autopilotRunning = autopilotState?.status === 'running' || autopilotTicking;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -566,6 +677,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
               onChange={e => setProjectTitle(e.target.value)}
               placeholder={defaultTitle}
               className="h-9"
+              disabled={showAutopilotPanel}
             />
           </div>
 
@@ -574,7 +686,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             <p className="text-xs font-medium text-foreground">Apply options</p>
 
             <label className="flex items-start gap-2 cursor-pointer">
-              <Checkbox checked={applyDocs} onCheckedChange={(v) => setApplyDocs(!!v)} className="mt-0.5" />
+              <Checkbox checked={applyDocs} onCheckedChange={(v) => setApplyDocs(!!v)} className="mt-0.5" disabled={showAutopilotPanel} />
               <div>
                 <span className="text-sm font-medium">Create starter doc pack</span>
                 <p className="text-xs text-muted-foreground">Concept Brief, Treatment, Character Bible, Market Sheet (5 seed docs only)</p>
@@ -582,7 +694,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             </label>
 
             <label className="flex items-start gap-2 cursor-pointer">
-              <Checkbox checked={applyCanon} onCheckedChange={(v) => setApplyCanon(!!v)} className="mt-0.5" />
+              <Checkbox checked={applyCanon} onCheckedChange={(v) => setApplyCanon(!!v)} className="mt-0.5" disabled={showAutopilotPanel} />
               <div>
                 <span className="text-sm font-medium">Apply Canon draft</span>
                 <p className="text-xs text-muted-foreground">Seed logline, characters, world rules, tone into project canon (editable, not locked)</p>
@@ -590,13 +702,36 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             </label>
 
             <label className="flex items-start gap-2 cursor-pointer">
-              <Checkbox checked={applyPrefs} onCheckedChange={(v) => setApplyPrefs(!!v)} className="mt-0.5" />
+              <Checkbox checked={applyPrefs} onCheckedChange={(v) => setApplyPrefs(!!v)} className="mt-0.5" disabled={showAutopilotPanel} />
               <div>
                 <span className="text-sm font-medium">Apply Lane Prefs suggestions</span>
                 <p className="text-xs text-muted-foreground">Set restraint level and conflict mode from nuance contract</p>
               </div>
             </label>
+
+            {/* Autopilot toggle */}
+            <label className="flex items-start gap-2 cursor-pointer border-t border-border/30 pt-3">
+              <Checkbox checked={enableAutopilot} onCheckedChange={(v) => setEnableAutopilot(!!v)} className="mt-0.5" disabled={showAutopilotPanel} />
+              <div>
+                <span className="text-sm font-medium flex items-center gap-1.5">
+                  <Bot className="h-3.5 w-3.5 text-primary" />
+                  Autorun Autopilot
+                </span>
+                <p className="text-xs text-muted-foreground">
+                  Apply trends intelligence, regenerate stubs, and generate primary script automatically
+                </p>
+              </div>
+            </label>
           </div>
+
+          {/* Autopilot progress panel */}
+          {showAutopilotPanel && autopilotState && (
+            <AutopilotProgress
+              autopilot={autopilotState}
+              onResume={handleResumeAutopilot}
+              isResuming={autopilotTicking}
+            />
+          )}
 
           {/* Backfill progress panel (shown if active) */}
           {backfill.job && (
@@ -634,20 +769,39 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         </div>
 
         <DialogFooter className="flex-col sm:flex-row gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating || creatingBackfill}>Skip</Button>
-          <Button onClick={() => handleCreate(false)} disabled={creating || creatingBackfill} className="gap-1.5">
-            {creating && !creatingBackfill ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-            Create DevSeed
-          </Button>
-          <Button
-            onClick={() => handleCreate(true)}
-            disabled={creating || creatingBackfill}
-            variant="secondary"
-            className="gap-1.5"
-          >
-            {creatingBackfill ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-            Create + Backfill
-          </Button>
+          {showAutopilotPanel ? (
+            <>
+              <Button variant="outline" onClick={() => {
+                autopilotAbortRef.current = true;
+                onOpenChange(false);
+              }}>
+                Close
+              </Button>
+              <Button onClick={handleNavigateToProject} className="gap-1.5" disabled={autopilotRunning && !autopilotDone}>
+                <ArrowRight className="h-4 w-4" />
+                {autopilotDone ? 'Open Project' : 'Open Project (in progress)'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating || creatingBackfill}>Skip</Button>
+              <Button onClick={() => handleCreate(false)} disabled={creating || creatingBackfill} className="gap-1.5">
+                {creating && !creatingBackfill ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                {enableAutopilot ? 'Create + Autopilot' : 'Create DevSeed'}
+              </Button>
+              {!enableAutopilot && (
+                <Button
+                  onClick={() => handleCreate(true)}
+                  disabled={creating || creatingBackfill}
+                  variant="secondary"
+                  className="gap-1.5"
+                >
+                  {creatingBackfill ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                  Create + Backfill
+                </Button>
+              )}
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
