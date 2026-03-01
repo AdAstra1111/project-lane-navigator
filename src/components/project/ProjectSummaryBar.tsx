@@ -1,9 +1,9 @@
 /**
  * Sticky project summary bar — always visible at top of project page.
- * Shows title, production type, lane, readiness, mode toggle, behavior badge, and primary CTA.
+ * Shows title, production type, lane, readiness, mode toggle, behavior badge, modality, and primary CTA.
  */
 
-import { Gauge, ArrowRight } from 'lucide-react';
+import { Gauge, ArrowRight, Camera, Palette, Blend } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LaneBadge } from '@/components/LaneBadge';
@@ -14,6 +14,7 @@ import type { ReadinessResult } from '@/lib/readiness-score';
 import { getFormatMeta } from '@/lib/mode-engine';
 import type { PackagingMode, PackagingStage } from '@/lib/role-gravity-engine';
 import { BEHAVIOR_LABELS, BEHAVIOR_COLORS, type DevelopmentBehavior } from '@/lib/dev-os-config';
+import { getProjectModality, MODALITY_LABELS, type ProductionModality } from '@/config/productionModality';
 import { RenameProjectDialog } from '@/components/project/RenameProjectDialog';
 import { useProjects } from '@/hooks/useProjects';
 import { toast } from 'sonner';
@@ -24,9 +25,17 @@ interface Props {
   onBestAction?: () => void;
 }
 
+const MODALITY_ICONS: Record<ProductionModality, typeof Camera> = {
+  live_action: Camera,
+  animation: Palette,
+  hybrid: Blend,
+};
+
 export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
   const formatMeta = getFormatMeta(project.format);
   const behavior = (project.development_behavior as DevelopmentBehavior) || 'market';
+  const modality = getProjectModality((project as any).project_features);
+  const ModalityIcon = MODALITY_ICONS[modality];
   const { renameProject } = useProjects();
 
   const handleRename = async (newTitle: string) => {
@@ -60,6 +69,14 @@ export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
         <Badge variant="outline" className={`text-[10px] ${BEHAVIOR_COLORS[behavior]}`}>
           {BEHAVIOR_LABELS[behavior]}
         </Badge>
+
+        {/* Modality badge — only shown for non-default */}
+        {modality !== 'live_action' && (
+          <Badge variant="outline" className="text-[10px] border-yellow-500/40 text-yellow-400">
+            <ModalityIcon className="h-3 w-3 mr-1" />
+            {MODALITY_LABELS[modality]}
+          </Badge>
+        )}
 
         {/* Readiness chip */}
         {readiness && (
