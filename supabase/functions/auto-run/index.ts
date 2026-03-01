@@ -1667,22 +1667,32 @@ async function rewriteWithFallback(
   }
 }
 
+// v2 — bulletproof ping (GET + POST action:ping) before any auth/ladder checks
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return respond({ ok: true });
-
-  // GET → unauthenticated ping
-  if (req.method === "GET") {
-    return respond({ ok: true, ts: new Date().toISOString(), function: "auto-run" });
+  // 1) CORS preflight — always first
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
 
-  // Parse body safely
+  // 2) GET → unauthenticated ping (no body read, no auth, no ladder check)
+  if (req.method === "GET") {
+    return new Response(
+      JSON.stringify({ ok: true, ts: new Date().toISOString(), function: "auto-run" }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  // 3) Parse body safely ONCE for all POST paths
   let body: any = {};
   try { body = await req.json(); } catch { body = {}; }
   const action = body.action || null;
 
-  // Unauthenticated ping action
+  // 4) POST ping → unauthenticated, before ladder/auth
   if (action === "ping") {
-    return respond({ ok: true, ts: new Date().toISOString(), function: "auto-run" });
+    return new Response(
+      JSON.stringify({ ok: true, ts: new Date().toISOString(), function: "auto-run" }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 
   try {
