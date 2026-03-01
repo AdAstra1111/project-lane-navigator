@@ -11827,6 +11827,139 @@ ${scenesForPrompt}`;
       });
     }
 
+    if (action === "canon_os_extract_from_seed_docs") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // Check if canon already has rich fields populated
+      const { data: existing } = await supabase.from("project_canon")
+        .select("canon_json").eq("project_id", projectId).maybeSingle();
+
+      const cj = (existing?.canon_json || {}) as any;
+      const hasLogline = typeof cj.logline === "string" && cj.logline.trim().length > 0;
+      const hasPremise = typeof cj.premise === "string" && cj.premise.trim().length > 0;
+      const hasCharacters = Array.isArray(cj.characters) && cj.characters.length > 0;
+      const hasWorldRules = Array.isArray(cj.world_rules) && cj.world_rules.length > 0;
+      const hasToneStyle = typeof cj.tone_style === "string" && cj.tone_style.trim().length > 0;
+
+      // Idempotent: if all populated, skip
+      if (hasLogline && hasPremise && hasCharacters && hasWorldRules && hasToneStyle) {
+        return new Response(JSON.stringify({ updated: false, reason: "already_populated" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Read foundation docs
+      const { data: docs } = await supabase.from("project_documents")
+        .select("doc_type, plaintext, extracted_text")
+        .eq("project_id", projectId)
+        .in("doc_type", ["idea", "concept_brief", "treatment", "character_bible", "market_sheet"]);
+
+      if (!docs || docs.length === 0) {
+        return new Response(JSON.stringify({ updated: false, reason: "no_seed_docs" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Build concatenated context from seed docs
+      const docContext = docs.map((d: any) => {
+        const text = (d.plaintext || d.extracted_text || "").trim();
+        return text ? `--- ${d.doc_type.toUpperCase()} ---\n${text.slice(0, 6000)}` : "";
+      }).filter(Boolean).join("\n\n");
+
+      if (docContext.length < 50) {
+        return new Response(JSON.stringify({ updated: false, reason: "insufficient_content" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Determine which fields need filling
+      const missing: string[] = [];
+      if (!hasLogline) missing.push("logline");
+      if (!hasPremise) missing.push("premise");
+      if (!hasCharacters) missing.push("characters");
+      if (!hasWorldRules) missing.push("world_rules");
+      if (!hasToneStyle) missing.push("tone_style");
+
+      const systemPrompt = `You are a script development assistant. Extract canonical project facts from the provided development documents.
+
+Return ONLY valid JSON with these fields (only include fields listed in MISSING):
+- logline: string (one sentence, max 200 chars)
+- premise: string (2-4 sentences, max 500 chars)
+- characters: array of objects [{name, role, description}] (main characters only, max 10)
+- world_rules: array of strings (key world/story rules, max 8)
+- tone_style: string (1-2 sentences describing tone and visual style)
+
+MISSING FIELDS TO FILL: ${missing.join(", ")}
+Only output the missing fields. Do not include fields that are not in the MISSING list.`;
+
+      const userPrompt = `PROJECT DOCUMENTS:\n\n${docContext}`;
+
+      const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, systemPrompt, userPrompt, 0.2, 4000);
+      const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+
+      if (!parsed || typeof parsed !== "object") {
+        console.warn("[dev-engine-v2] canon_os_extract_from_seed_docs: LLM parse failed");
+        return new Response(JSON.stringify({ updated: false, reason: "parse_failed" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Build safe patch: only fill missing fields
+      const patch: any = {};
+      if (!hasLogline && typeof parsed.logline === "string" && parsed.logline.trim()) {
+        patch.logline = parsed.logline.trim().slice(0, 300);
+      }
+      if (!hasPremise && typeof parsed.premise === "string" && parsed.premise.trim()) {
+        patch.premise = parsed.premise.trim().slice(0, 600);
+      }
+      if (!hasCharacters && Array.isArray(parsed.characters) && parsed.characters.length > 0) {
+        patch.characters = parsed.characters.slice(0, 10);
+      }
+      if (!hasWorldRules && Array.isArray(parsed.world_rules) && parsed.world_rules.length > 0) {
+        patch.world_rules = parsed.world_rules.slice(0, 8);
+      }
+      if (!hasToneStyle && typeof parsed.tone_style === "string" && parsed.tone_style.trim()) {
+        patch.tone_style = parsed.tone_style.trim().slice(0, 400);
+      }
+
+      if (Object.keys(patch).length === 0) {
+        return new Response(JSON.stringify({ updated: false, reason: "no_extractable_fields" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Apply via canonical canon_os_update merge path
+      const pointerVer = await getPointerCanonVersion(supabase, projectId);
+      let currentJson: any = {};
+      if (pointerVer?.canon_json) {
+        currentJson = pointerVer.canon_json;
+      } else {
+        const { data: current } = await supabase.from("project_canon")
+          .select("canon_json").eq("project_id", projectId).maybeSingle();
+        currentJson = current?.canon_json || {};
+      }
+
+      const merged = mergeCanonSafe(currentJson, patch);
+      await supabase.from("project_canon")
+        .update({ canon_json: merged, updated_by: user.id })
+        .eq("project_id", projectId);
+
+      const { data: version } = await supabase.from("project_canon_versions")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      if (version) {
+        await supabase.from("projects").update({ canon_version_id: version.id }).eq("id", projectId);
+      }
+
+      console.log("[dev-engine-v2] canon_os_extract_from_seed_docs: populated", { projectId, fields: Object.keys(patch) });
+
+      return new Response(JSON.stringify({ updated: true, fields: Object.keys(patch), canon: version }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (action === "canon_os_approve") {
       const { projectId, canonId } = body;
       if (!projectId || !canonId) throw new Error("projectId and canonId required");
