@@ -274,7 +274,7 @@ async function attemptAutoRegenInputs(
     const regenResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ action: "regenerate-insufficient-docs", projectId, dryRun: false }),
+      body: JSON.stringify({ action: "regenerate-insufficient-docs", projectId, dryRun: false, userId: _requestScopedUserId || undefined }),
     });
 
     const raw = await regenResp.text();
@@ -338,6 +338,7 @@ async function ensureSeedPack(
   supabaseUrl: string,
   projectId: string,
   token: string,
+  userId?: string | null,
 ): Promise<{ ensured: boolean; missing: string[]; failed: boolean; fail_type?: 'SEED_PACK_FAILED' | 'SEED_PACK_INCOMPLETE' | 'SEED_PACK_FAILED_HTTP' | 'SEED_PACK_FAILED_LOGIC'; error?: string; warnings?: { doc_type: string; reason: string; chars: number }[]; seed_http_status?: number; seed_debug?: Record<string, any> }> {
   const { data: existingDocs } = await supabase
     .from("project_documents")
@@ -449,7 +450,7 @@ async function ensureSeedPack(
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ projectId, pitch, lane }),
+      body: JSON.stringify({ projectId, pitch, lane, userId: userId || undefined }),
     });
 
     const raw = await seedRes.text();
@@ -1895,9 +1896,6 @@ Deno.serve(async (req) => {
       // ── Preflight qualification resolver at start ──
       const preflight = await runPreflight(supabase, projectId, fmt, effectiveStartDoc, true);
 
-      // ── Ensure seed pack docs exist before downstream generation ──
-      const seedResult = await ensureSeedPack(supabase, supabaseUrl, projectId, token);
-
       // Ensure we have a valid userId for the job insert (NOT NULL column)
       let jobUserId = userId;
       if (!jobUserId) {
@@ -1905,6 +1903,10 @@ Deno.serve(async (req) => {
         jobUserId = projOwner?.user_id || null;
       }
       if (!jobUserId) return respond({ error: "Cannot determine user_id for job. Provide userId in body." }, 400);
+      _requestScopedUserId = jobUserId;
+
+      // ── Ensure seed pack docs exist before downstream generation ──
+      const seedResult = await ensureSeedPack(supabase, supabaseUrl, projectId, token, jobUserId);
 
       const { data: job, error } = await supabase.from("auto_run_jobs").insert({
         user_id: jobUserId,
@@ -3381,7 +3383,7 @@ Deno.serve(async (req) => {
       try {
       // ── Ensure seed pack on resume (hard guard) ──
       console.log("[auto-run] before ensureSeedPack", { projectId: job.project_id });
-      const seedResult = await ensureSeedPack(supabase, supabaseUrl, job.project_id, token);
+      const seedResult = await ensureSeedPack(supabase, supabaseUrl, job.project_id, token, job.user_id);
       console.log("[auto-run] after ensureSeedPack", { failed: seedResult.failed, missing: seedResult.missing });
       if (seedResult.failed) {
         const stopReason = seedResult.fail_type || "SEED_PACK_INCOMPLETE";
