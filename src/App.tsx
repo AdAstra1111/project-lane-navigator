@@ -81,6 +81,8 @@ const TrailerHub = lazy(() => import("./pages/TrailerHub"));
 const Showcase = lazy(() => import("./pages/Showcase"));
 const CanonPlaceholder = lazy(() => import("./pages/CanonPlaceholder"));
 const AIContentPage = lazy(() => import("./pages/AIContentPage"));
+const AICastLibrary = lazy(() => import("./pages/AICastLibrary"));
+const ProjectCasting = lazy(() => import("./pages/ProjectCasting"));
 const DemoDashboard = lazy(() => import("./pages/DemoDashboard"));
 
 
@@ -165,6 +167,7 @@ const AnimatedRoutes = () => {
           <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
           <Route path="/coverage-lab" element={<ProtectedRoute><CoverageLab /></ProtectedRoute>} />
           <Route path="/pitch-ideas" element={<ProtectedRoute><PitchIdeas /></ProtectedRoute>} />
+          <Route path="/ai-cast" element={<ProtectedRoute><AICastLibrary /></ProtectedRoute>} />
           <Route path="/calibration-lab" element={<ProtectedRoute><CalibrationLab /></ProtectedRoute>} />
           <Route path="/demo" element={<GuidedDemo />} />
           <Route path="/demo/cinematic" element={<CinematicDemo />} />
@@ -199,6 +202,7 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/trailer" element={<ProtectedRoute><ProjectShell><TrailerHub /></ProjectShell></ProtectedRoute>} />
           <Route path="/projects/:id/produce" element={<ProtectedRoute><ProjectShell><ProducerCockpit /></ProjectShell></ProtectedRoute>} />
           <Route path="/projects/:id/ai-content" element={<ProtectedRoute><ProjectShell><AIContentPage /></ProjectShell></ProtectedRoute>} />
+          <Route path="/projects/:id/casting" element={<ProtectedRoute><ProjectShell><ProjectCasting /></ProjectShell></ProtectedRoute>} />
           <Route path="/showcase" element={<ProtectedRoute><Showcase /></ProtectedRoute>} />
 
           <Route path="/processing" element={<Processing />} />

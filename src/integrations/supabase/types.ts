@@ -14,6 +14,118 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_actor_assets: {
+        Row: {
+          actor_version_id: string
+          asset_type: string
+          created_at: string
+          id: string
+          meta_json: Json
+          public_url: string
+          storage_path: string
+        }
+        Insert: {
+          actor_version_id: string
+          asset_type?: string
+          created_at?: string
+          id?: string
+          meta_json?: Json
+          public_url?: string
+          storage_path?: string
+        }
+        Update: {
+          actor_version_id?: string
+          asset_type?: string
+          created_at?: string
+          id?: string
+          meta_json?: Json
+          public_url?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_actor_assets_actor_version_id_fkey"
+            columns: ["actor_version_id"]
+            isOneToOne: false
+            referencedRelation: "ai_actor_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_actor_versions: {
+        Row: {
+          actor_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_approved: boolean
+          recipe_json: Json
+          version_number: number
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_approved?: boolean
+          recipe_json?: Json
+          version_number?: number
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_approved?: boolean
+          recipe_json?: Json
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_actor_versions_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "ai_actors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_actors: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          name: string
+          negative_prompt: string
+          status: string
+          tags: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          id?: string
+          name?: string
+          negative_prompt?: string
+          status?: string
+          tags?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          name?: string
+          negative_prompt?: string
+          status?: string
+          tags?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ai_generated_media: {
         Row: {
           created_at: string
@@ -8143,6 +8255,71 @@ export type Database = {
           },
           {
             foreignKeyName: "project_activity_log_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_ai_cast: {
+        Row: {
+          ai_actor_id: string
+          ai_actor_version_id: string | null
+          character_key: string
+          created_at: string
+          id: string
+          notes: string | null
+          project_id: string
+          updated_at: string
+          wardrobe_pack: string | null
+        }
+        Insert: {
+          ai_actor_id: string
+          ai_actor_version_id?: string | null
+          character_key?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          project_id: string
+          updated_at?: string
+          wardrobe_pack?: string | null
+        }
+        Update: {
+          ai_actor_id?: string
+          ai_actor_version_id?: string | null
+          character_key?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          project_id?: string
+          updated_at?: string
+          wardrobe_pack?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_ai_cast_ai_actor_id_fkey"
+            columns: ["ai_actor_id"]
+            isOneToOne: false
+            referencedRelation: "ai_actors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_ai_cast_ai_actor_version_id_fkey"
+            columns: ["ai_actor_version_id"]
+            isOneToOne: false
+            referencedRelation: "ai_actor_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_ai_cast_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_ai_cast_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
