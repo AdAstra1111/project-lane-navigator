@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
+import { buildConvergenceProfile, buildConvergenceBlock } from "../_shared/seed-intel-pack.ts";
+import type { EdgeTrendSignal, EdgeCastTrend } from "../_shared/seed-intel-pack.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -129,6 +131,7 @@ serve(async (req) => {
 
     // ── Auto-fields: resolve via fallback ladder (deterministic, no LLM) ──
     let autoFieldsBlock = "";
+    let convergenceBlock = "";
     const resolutionMeta: Record<string, { status: string; scope: string; note?: string }> = {};
 
     if (resolvedAutoFields.length > 0) {
@@ -173,6 +176,38 @@ serve(async (req) => {
           .order("strength", { ascending: false })
           .limit(30);
         const globalSignals = globalData || [];
+
+        // ── Convergence Context: fetch cast_trends + build profile ──
+        convergenceBlock = "";
+        try {
+          // Use the best available signal set (same ladder semantics)
+          const convergenceSignals: EdgeTrendSignal[] =
+            laneSignals.length > 0 ? laneSignals :
+            productionSignals.length > 0 ? productionSignals :
+            globalSignals;
+
+          // Fetch active cast trends with similar scope
+          let castQuery = autoSupa
+            .from("cast_trends")
+            .select("actor_name, trend_type, market_alignment, strength, velocity, genre_relevance, budget_tier, status, production_type")
+            .eq("status", "active")
+            .order("strength", { ascending: false })
+            .limit(15);
+
+          if (typeLabel) castQuery = castQuery.eq("production_type", typeLabel);
+
+          const { data: castData } = await castQuery;
+          const castTrends: EdgeCastTrend[] = (castData || []) as EdgeCastTrend[];
+
+          if (convergenceSignals.length > 0) {
+            const profile = buildConvergenceProfile(convergenceSignals, castTrends);
+            convergenceBlock = buildConvergenceBlock(profile);
+            console.log(`[generate-pitch] convergence: signals=${convergenceSignals.length}, cast=${castTrends.length}, comps=${profile.comparable_candidates.length}, genres=${profile.genre_heat.length}`);
+            warnings.push(`convergence_applied:signals=${convergenceSignals.length}`);
+          }
+        } catch (e) {
+          console.warn("[generate-pitch] Convergence profile build failed (non-fatal):", e);
+        }
 
         // Get lane defaults
         const currentLaneDefaults = LANE_DEFAULTS[effectiveLane] || {};
@@ -503,7 +538,7 @@ serve(async (req) => {
 ${guardrails.textBlock}
 
 PRODUCTION TYPE: ${typeLabel}
-ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}
+ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}${convergenceBlock}
 
 Generate exactly ${batchSize} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
 
@@ -721,6 +756,7 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
       influence_value: signalInfluence,
       applied: signalsApplied,
       rationale: signalsRationale,
+      convergence_applied: convergenceBlock.length > 0,
     };
 
     // Attach resolution meta for auto-fields transparency
