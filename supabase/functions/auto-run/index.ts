@@ -1246,10 +1246,16 @@ function computePromotion(
   return { recommendation, readiness_score: readinessScore, confidence, risk_flags, reasons };
 }
 
+// Request-scoped userId for forwarding to downstream edge functions
+let _requestScopedUserId: string | null = null;
+
 // ── Helper: call another edge function (with retry on qualification errors) ──
 async function callEdgeFunction(
-  supabaseUrl: string, functionName: string, body: any, token: string
+  supabaseUrl: string, functionName: string, body: any, token: string, forwardUserId?: string | null
 ): Promise<any> {
+  // Inject userId into body so dev-engine-v2 can use it for created_by/user_id in service_role mode
+  const effectiveUserId = forwardUserId ?? _requestScopedUserId;
+  const enrichedBody = effectiveUserId ? { ...body, userId: effectiveUserId } : body;
   const url = `${supabaseUrl}/functions/v1/${functionName}`;
   // DEBUG: temporary log to verify token forwarding (remove after verification)
   const hasBearer = token && token.length > 20;
@@ -1263,7 +1269,7 @@ async function callEdgeFunction(
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(enrichedBody),
     });
   } catch (fetchErr: any) {
     throw Object.assign(new Error(`${functionName} network error: ${fetchErr.message}`), {
@@ -1292,10 +1298,10 @@ async function callEdgeFunction(
 async function callEdgeFunctionWithRetry(
   supabase: any, supabaseUrl: string, functionName: string, body: any, token: string,
   projectId: string, format: string, currentDoc: DocStage,
-  jobId: string, stepCount: number
+  jobId: string, stepCount: number, forwardUserId?: string | null
 ): Promise<{ result: any; retried: boolean }> {
   try {
-    const result = await callEdgeFunction(supabaseUrl, functionName, body, token);
+    const result = await callEdgeFunction(supabaseUrl, functionName, body, token, forwardUserId);
     return { result, retried: false };
   } catch (e: any) {
     if (!isQualificationError(e.message)) throw e;
@@ -1309,7 +1315,7 @@ async function callEdgeFunctionWithRetry(
     }
 
     // Retry once
-    const result = await callEdgeFunction(supabaseUrl, functionName, body, token);
+    const result = await callEdgeFunction(supabaseUrl, functionName, body, token, forwardUserId);
     return { result, retried: true };
   }
 }
@@ -1705,7 +1711,13 @@ Deno.serve(async (req) => {
       return respond({ error: "Unauthorized" }, 401);
     }
 
+    // Set request-scoped userId for downstream calls (so dev-engine-v2 gets real user_id even with service_role token)
+    _requestScopedUserId = userId !== "service_role" ? userId : null;
+    // If service_role, try to get userId from body
     const body = await req.json();
+    if (!_requestScopedUserId && body?.userId) {
+      _requestScopedUserId = body.userId;
+    }
     const { action, projectId, jobId, mode, start_document, target_document, max_stage_loops, max_total_steps, decision, new_step_limit } = body;
 
     // ═══════════════════════════════════════
@@ -3273,6 +3285,11 @@ Deno.serve(async (req) => {
       if (!job) {
         console.log("[auto-run] run-next lock not acquired (another invocation processing)", { jobId });
         return respondWithJob(supabase, jobId, "wait");
+      }
+
+      // Ensure downstream calls carry the real user_id from the job
+      if (!_requestScopedUserId && job.user_id) {
+        _requestScopedUserId = job.user_id;
       }
 
       const currentDoc = job.current_document as DocStage;
