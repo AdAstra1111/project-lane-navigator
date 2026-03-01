@@ -1591,17 +1591,23 @@ Deno.serve(async (req) => {
     if (!authHeader?.startsWith("Bearer ")) {
       return respond({ error: "Unauthorized" }, 401);
     }
-    const token = authHeader.replace("Bearer ", "");
+    const incomingToken = authHeader.replace("Bearer ", "");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
+    // Use serviceKey for ALL downstream edge function calls.
+    // The user JWT may expire during long-running background tasks or self-chained requests.
+    // Since auto-run already operates with service_role privileges, this is safe.
+    const token = serviceKey;
+    console.log("[auto-run] auth: using service_role token for downstream calls, incoming token verified separately");
+
     // Verify user — allow service_role tokens for internal CI/automation
     let userId: string;
     let actor: "user" | "service_role" = "user";
     try {
-      const payloadB64 = token.split(".")[1];
+      const payloadB64 = incomingToken.split(".")[1];
       if (!payloadB64) throw new Error("Invalid token");
       const jwtPayload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
       if (jwtPayload.exp && jwtPayload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
@@ -1610,7 +1616,7 @@ Deno.serve(async (req) => {
         actor = "service_role";
         console.log("[auto-run] service_role actor accepted");
       } else {
-        const { data: { user }, error: userErr } = await supabase.auth.getUser(token);
+        const { data: { user }, error: userErr } = await supabase.auth.getUser(incomingToken);
         if (userErr || !user) return respond({ error: "Unauthorized" }, 401);
         userId = user.id;
       }
