@@ -387,36 +387,44 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         merged.seed_draft = seedDraft;
         if (history.length > 0) merged.seed_draft_history = history;
 
-        // ── Seed Intel Pack: build from active trends and inject into canon ──
+        // ── Seed Intel Pack: build from active trends and apply via canon-decisions ──
         const productionType = idea.production_type || 'film';
         const pack = buildSeedIntelPack(allSignals, allCast, {
           lane,
           productionType,
         });
-        // Always overwrite deterministically (new generated_at)
-        merged.seed_intel_pack = pack;
         console.log(`[DevSeed] seed_intel_pack built: ${pack.demand_signals.length} demand signals, ${pack.comparable_candidates.length} comp candidates, ${pack.genre_heat.length} genre heat`);
 
-        // Init comparables from pack only if canon.comparables is empty
-        if (
-          pack.comparable_candidates.length > 0 &&
-          (!merged.comparables || (Array.isArray(merged.comparables) && (merged.comparables as any[]).length === 0))
-        ) {
-          merged.comparables = pack.comparable_candidates.map(c => ({
-            ...c,
-            confidence: c.confidence || 'medium',
-            _source: 'seed_intel_pack',
-            _locked: false,
-          }));
-          console.log(`[DevSeed] Initialized ${pack.comparable_candidates.length} comparables from pack`);
-        } else if (pack.comparable_candidates.length > 0) {
-          console.log(`[DevSeed] Comparables already present in canon — no-op`);
+        // Route through canon-decisions for auditable mutation
+        try {
+          const cdRes = await supabase.functions.invoke('canon-decisions', {
+            body: {
+              action: 'create_and_apply',
+              projectId: project.id,
+              decision: {
+                type: 'APPLY_SEED_INTEL_PACK',
+                payload: {
+                  seed_intel_pack: pack,
+                  init_comparables_if_empty: true,
+                  comparables_from_pack_max: 12,
+                  source_label: 'seed_intel_pack',
+                },
+              },
+              apply: { mode: 'auto' },
+            },
+          });
+          const cdData = cdRes.data as any;
+          if (cdData?.ok) {
+            console.log(`[DevSeed] canon-decisions APPLY_SEED_INTEL_PACK success: decisionId=${cdData.decisionId}, comps_initialized=${cdData.applied?.comps_initialized}`);
+            if (cdData.applied?.warnings?.length) {
+              console.warn(`[DevSeed] canon-decisions warnings:`, cdData.applied.warnings);
+            }
+          } else {
+            console.error(`[DevSeed] canon-decisions APPLY_SEED_INTEL_PACK failed:`, cdData?.error || cdRes.error);
+          }
+        } catch (cdErr: any) {
+          console.error(`[DevSeed] canon-decisions invocation failed (non-fatal):`, cdErr?.message);
         }
-
-        await (supabase as any)
-          .from('project_canon')
-          .update({ canon_json: merged, updated_by: user.id })
-          .eq('project_id', project.id);
 
         // 7. Optional: Apply lane prefs (merge-safe)
         if (applyPrefs) {

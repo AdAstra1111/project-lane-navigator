@@ -131,7 +131,7 @@ Deno.serve(async (req) => {
   }
 
   if (req.method === "GET") {
-    return jsonRes({ ok: true, build: "canon-decisions-v3" }, 200, req);
+    return jsonRes({ ok: true, build: "canon-decisions-v4" }, 200, req);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
   }
 
   if (body.action === "ping") {
-    return jsonRes({ ok: true, build: "canon-decisions-v3" }, 200, req);
+    return jsonRes({ ok: true, build: "canon-decisions-v4" }, 200, req);
   }
 
   const { action, projectId, decision, apply, userId: bodyUserId } = body;
@@ -215,6 +215,8 @@ Deno.serve(async (req) => {
         const ek = (payload.entity_kind || "character").toLowerCase();
         const on = (payload.old_name || "").toLowerCase().replace(/\s+/g, "_");
         decisionKey = `rename_${ek}_${on}`;
+      } else if (decisionType === "APPLY_SEED_INTEL_PACK") {
+        decisionKey = `apply_seed_intel_pack`;
       } else {
         decisionKey = `canon_${decisionType.toLowerCase()}_${Date.now()}`;
       }
@@ -266,6 +268,8 @@ Deno.serve(async (req) => {
       let applied: any;
       if (decisionType === "RENAME_ENTITY" && applyMode === "auto") {
         applied = await applyRenameEntity(sb, projectId, payload, actorUserId, warnings);
+      } else if (decisionType === "APPLY_SEED_INTEL_PACK" && applyMode === "auto") {
+        applied = await applySeedIntelPack(sb, projectId, payload, actorUserId, warnings);
       } else {
         applied = await markOutOfSync(sb, projectId, decisionType, warnings);
       }
@@ -292,12 +296,22 @@ function buildTitle(type: string, payload: any): string {
   if (type === "RENAME_ENTITY") {
     return `Rename ${payload.entity_kind || "character"}: ${payload.old_name} → ${payload.new_name}`;
   }
+  if (type === "APPLY_SEED_INTEL_PACK") {
+    const packAt = payload.seed_intel_pack?.generated_at || "unknown";
+    return `Apply Seed Intel Pack (${packAt})`;
+  }
   return `Canon Decision: ${type}`;
 }
 
 function buildText(type: string, payload: any): string {
   if (type === "RENAME_ENTITY") {
     return `Rename all occurrences of "${payload.old_name}" to "${payload.new_name}" (${payload.entity_kind || "character"}).${payload.notes ? " Notes: " + payload.notes : ""}`;
+  }
+  if (type === "APPLY_SEED_INTEL_PACK") {
+    const pack = payload.seed_intel_pack;
+    const comps = pack?.comparable_candidates?.length || 0;
+    const signals = pack?.demand_signals?.length || 0;
+    return `Seed Intel Pack applied: ${comps} comparables, ${signals} demand signals. Source: ${payload.source_label || "seed_intel_pack"}`;
   }
   return JSON.stringify(payload);
 }
@@ -501,5 +515,95 @@ async function markOutOfSync(
     docs_scanned: docs.length,
     docs_modified: modifiedIds.length,
     modified_document_ids: modifiedIds,
+  };
+}
+
+// ════════════════════════════════════════════════════════════════
+// APPLY_SEED_INTEL_PACK: Deterministic canon mutation
+// Writes seed_intel_pack + optionally inits comparables
+// ════════════════════════════════════════════════════════════════
+async function applySeedIntelPack(
+  sb: any,
+  projectId: string,
+  payload: any,
+  actorUserId: string,
+  warnings: string[]
+) {
+  const pack = payload.seed_intel_pack;
+  if (!pack || typeof pack !== "object") {
+    warnings.push("no_pack_provided");
+    return { docs_scanned: 0, docs_modified: 0, modified_document_ids: [] };
+  }
+
+  const initComps = payload.init_comparables_if_empty !== false;
+  const compsMax = typeof payload.comparables_from_pack_max === "number"
+    ? payload.comparables_from_pack_max : 12;
+  const sourceLabel = payload.source_label || "seed_intel_pack";
+
+  // Load existing canon
+  const { data: canonRow } = await sb
+    .from("project_canon")
+    .select("canon_json")
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  const existing = (canonRow?.canon_json && typeof canonRow.canon_json === "object")
+    ? { ...canonRow.canon_json } : {};
+
+  // Overwrite seed_intel_pack deterministically
+  existing.seed_intel_pack = pack;
+
+  // Init comparables if empty or only contains seed-pack-sourced non-locked items
+  let compsInitialized = false;
+  if (initComps && Array.isArray(pack.comparable_candidates) && pack.comparable_candidates.length > 0) {
+    const currentComps = Array.isArray(existing.comparables) ? existing.comparables : [];
+    const hasUserCurated = currentComps.some(
+      (c: any) => c.locked === true || (c.source && c.source !== sourceLabel)
+    );
+
+    if (currentComps.length === 0 || !hasUserCurated) {
+      existing.comparables = pack.comparable_candidates
+        .slice(0, compsMax)
+        .map((c: any) => ({
+          title: c.title,
+          type: c.type,
+          year: c.year,
+          reference_axis: c.reference_axis,
+          weight: c.weight,
+          source: sourceLabel,
+          confidence: c.confidence || "medium",
+          locked: false,
+          reason: c.reason,
+        }));
+      compsInitialized = true;
+    } else {
+      warnings.push("comparables_preserved:user_curated_or_locked_items_exist");
+    }
+  }
+
+  // Write back via project_canon update
+  const { error: updateErr } = await safeUpdate(
+    sb,
+    "project_canon",
+    { project_id: projectId },
+    { canon_json: existing, updated_by: actorUserId },
+    warnings
+  );
+
+  if (updateErr) {
+    throw new Error(`Canon update failed: ${updateErr.message}`);
+  }
+
+  console.log(
+    `[canon-decisions] APPLY_SEED_INTEL_PACK: comps_initialized=${compsInitialized}, ` +
+    `demand_signals=${pack.demand_signals?.length || 0}, ` +
+    `comparable_candidates=${pack.comparable_candidates?.length || 0}`
+  );
+
+  return {
+    docs_scanned: 1,
+    docs_modified: 1,
+    modified_document_ids: [],
+    comps_initialized: compsInitialized,
   };
 }
