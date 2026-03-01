@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { PRODUCTION_MODALITIES } from "../_shared/productionModality.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -196,6 +197,50 @@ Deno.serve(async (req) => {
     const safePatch: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(effectivePatch)) {
       if (PATCHABLE_COLUMNS.has(key)) safePatch[key] = value;
+    }
+
+    // ── Safe merge for project_features (never clobber existing keys) ──
+    if ("project_features" in safePatch) {
+      const incomingFeatures = safePatch.project_features;
+      delete safePatch.project_features; // handle separately
+
+      if (incomingFeatures && typeof incomingFeatures === "object" && !Array.isArray(incomingFeatures)) {
+        // Load existing project_features from DB
+        const { data: existingRow } = await sbAdmin
+          .from("projects")
+          .select("project_features")
+          .eq("id", projectId)
+          .single();
+
+        const existing = (existingRow?.project_features && typeof existingRow.project_features === "object" && !Array.isArray(existingRow.project_features))
+          ? existingRow.project_features as Record<string, unknown>
+          : {};
+
+        // Validate production_modality if present in incoming
+        const incoming = incomingFeatures as Record<string, unknown>;
+        if ("production_modality" in incoming) {
+          if (!PRODUCTION_MODALITIES.includes(incoming.production_modality as string)) {
+            // Invalid modality: preserve existing or default
+            incoming.production_modality = existing.production_modality || "live_action";
+            logs.push(`project_features: invalid production_modality rejected, kept=${incoming.production_modality}`);
+          }
+        }
+
+        const merged = { ...existing, ...incoming };
+        // Ensure production_modality is never removed
+        if (!merged.production_modality && existing.production_modality) {
+          merged.production_modality = existing.production_modality;
+        }
+
+        const addedKeys = Object.keys(incoming).filter(k => !(k in existing));
+        const overwrittenKeys = Object.keys(incoming).filter(k => k in existing && existing[k] !== incoming[k]);
+        logs.push(`[apply-project-change] project_features_write=merge keys_added=[${addedKeys.join(",")}] keys_overwritten=[${overwrittenKeys.join(",")}]`);
+
+        safePatch.project_features = merged;
+      } else {
+        logs.push(`[apply-project-change] project_features_write=rejected reason=non_object_type`);
+        // Do NOT apply non-object project_features; preserve existing
+      }
     }
 
     let patchApplied = false;

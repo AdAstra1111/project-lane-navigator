@@ -132,14 +132,19 @@ async function handleListCanonicalUnits(db: any, body: any) {
 async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiKey: string) {
   const { projectId, unitKeys: requestedKeys, stylePreset = "cinematic_realism", aspectRatio = "16:9", castContext } = body;
 
-  // Read project lane + modality once for prompt injection
+  // Read project lane + modality once for prompt injection (fail loudly on auth/fetch errors)
   let projectLane: string | undefined;
   let projectModality = 'live_action';
-  try {
-    const { data: projRow } = await db.from("projects").select("assigned_lane, project_features").eq("id", projectId).single();
-    projectLane = projRow?.assigned_lane || undefined;
-    projectModality = getProjectModality(projRow?.project_features);
-  } catch { /* no lane/modality available — defaults apply */ }
+  const { data: projRow, error: projFetchErr } = await db.from("projects").select("assigned_lane, project_features").eq("id", projectId).single();
+  if (projFetchErr) {
+    console.error(`[storyboard-engine] project fetch failed for ${projectId}: ${projFetchErr.message}`);
+    // Non-fatal for lane/modality: defaults apply, but log loudly
+  }
+  if (projRow) {
+    projectLane = projRow.assigned_lane || undefined;
+    projectModality = getProjectModality(projRow.project_features);
+  }
+  console.log(`[storyboard-engine] production_modality=${projectModality} lane=${projectLane || "unknown"}`);
 
   const { data: allUnits } = await db.from("visual_units").select("*").eq("project_id", projectId);
   if (!allUnits || allUnits.length === 0) return json({ error: "No canonical visual units found" }, 400);
