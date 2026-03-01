@@ -1,3 +1,4 @@
+const BUILD = "AUTORUN_BUILD_MARKER_2026_03_01_A";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
 import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy } from "../_shared/docPolicyRegistry.ts";
@@ -1667,33 +1668,38 @@ async function rewriteWithFallback(
   }
 }
 
-// v2 — bulletproof ping (GET + POST action:ping) before any auth/ladder checks
+// v3 — bulletproof ping with build marker
 Deno.serve(async (req) => {
-  // 1) CORS preflight — always first
+  const pingJson = { ok: true, ts: new Date().toISOString(), function: "auto-run", build: BUILD };
+
+  // 1) CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  // 2) GET → unauthenticated ping (no body read, no auth, no ladder check)
+  // 2) GET → unauthenticated ping (NO body read, NO auth, NO ladder check)
   if (req.method === "GET") {
-    return new Response(
-      JSON.stringify({ ok: true, ts: new Date().toISOString(), function: "auto-run" }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify(pingJson), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
-  // 3) Parse body safely ONCE for all POST paths
+  // 3) Parse body safely ONCE
   let body: any = {};
   try { body = await req.json(); } catch { body = {}; }
   const action = body.action || null;
 
-  // 4) POST ping → unauthenticated, before ladder/auth
+  // 4) POST ping → unauthenticated
   if (action === "ping") {
-    return new Response(
-      JSON.stringify({ ok: true, ts: new Date().toISOString(), function: "auto-run" }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify(pingJson), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
+
+  // 5) All other actions proceed to auth/ladder logic
+  console.log("[auto-run] reached_main", { method: req.method, action });
 
   try {
     if (!FORMAT_LADDERS || typeof FORMAT_LADDERS !== "object" || Object.keys(FORMAT_LADDERS).length === 0) {
