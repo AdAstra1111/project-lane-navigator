@@ -17,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AutopilotProgress, type AutopilotState } from '@/components/pitch/AutopilotProgress';
-import { Loader2, Play, Pause, Rocket, AlertTriangle, Mic, Search, ExternalLink, CheckCircle, Clock, ArrowRight } from 'lucide-react';
+import { Loader2, Play, Pause, Rocket, AlertTriangle, Mic, Search, ExternalLink, CheckCircle, Clock, ArrowRight, FileText } from 'lucide-react';
 import { getDefaultVoiceForLane } from '@/lib/writingVoices/select';
 import { loadProjectLaneRulesetPrefs, saveProjectLaneRulesetPrefs } from '@/lib/rulesets/uiState';
 
@@ -26,6 +26,9 @@ interface Props {
   pitchIdeaId?: string | null;
   lane?: string | null;
   format?: string | null;
+  documents?: Array<{ id: string; doc_type: string }>;
+  approvedVersionMap?: Record<string, any>;
+  onSelectDocument?: (docId: string) => void;
 }
 
 // ─── Auto-Run caller (mirrors canonical pattern from useAutoRun.ts) ───
@@ -70,7 +73,7 @@ async function populateCanonBaseline(projectId: string): Promise<boolean> {
   }
 }
 
-export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) {
+export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents, approvedVersionMap, onSelectDocument }: Props) {
   const [autopilot, setAutopilot] = useState<AutopilotState | null>(null);
   const [loading, setLoading] = useState(true);
   const [ticking, setTicking] = useState(false);
@@ -563,52 +566,101 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
           </div>
 
           {/* ═══ BLOCKING DECISION UI ═══ */}
-          {autoRunJob && (autoRunBlocked || autoRunPaused) && (
-            <div className="px-3 py-2.5 text-xs space-y-2 border border-amber-500/30 rounded bg-amber-500/5">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
-                <div className="space-y-1 flex-1">
-                  <p className="font-medium text-foreground">Blocking Decision</p>
-                  <p className="text-muted-foreground">{getBlockingDescription()}</p>
-                  {/* Show specific doc/stage details */}
-                  <div className="flex flex-wrap gap-1.5 mt-1">
-                    {autoRunJob.current_document && (
-                      <Badge variant="outline" className="text-[9px] h-4">
-                        Stage: {autoRunJob.current_document.replace(/_/g, ' ')}
-                      </Badge>
-                    )}
-                    {autoRunJob.approval_required_for_doc_type && (
-                      <Badge variant="outline" className="text-[9px] h-4 border-amber-500/40 text-amber-600">
-                        Needs: {autoRunJob.approval_required_for_doc_type.replace(/_/g, ' ')}
-                      </Badge>
-                    )}
-                    {autoRunJob.pending_doc_type && autoRunJob.pending_doc_type !== autoRunJob.approval_required_for_doc_type && (
-                      <Badge variant="outline" className="text-[9px] h-4">
-                        Pending: {autoRunJob.pending_doc_type.replace(/_/g, ' ')}
-                      </Badge>
+          {autoRunJob && (autoRunBlocked || autoRunPaused) && (() => {
+            // Resolve blocking doc type
+            const blockingDocType = autoRunJob.approval_required_for_doc_type
+              || autoRunJob.pending_doc_type
+              || autoRunJob.current_document;
+            // Resolve docId from doc_type via passed documents
+            const docIdByType = new Map((documents || []).map((d: { id: string; doc_type: string }) => [d.doc_type, d.id]));
+            const blockingDocId = blockingDocType ? docIdByType.get(blockingDocType) : undefined;
+            // Compute unapproved doc types (only when awaiting approval)
+            const unapprovedDocTypes = (autoRunBlocked && documents && approvedVersionMap)
+              ? documents
+                  .filter((d: { id: string; doc_type: string }) => !(approvedVersionMap as any)[d.id])
+                  .map((d: { id: string; doc_type: string }) => d.doc_type)
+                  .slice(0, 8) // cap to avoid overwhelming
+              : [];
+
+            return (
+              <div className="px-3 py-2.5 text-xs space-y-2 border border-amber-500/30 rounded bg-amber-500/5">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                  <div className="space-y-1 flex-1">
+                    <p className="font-medium text-foreground">Blocking Decision</p>
+                    <p className="text-muted-foreground">{getBlockingDescription()}</p>
+                    {/* Show specific doc/stage details */}
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {autoRunJob.current_document && (
+                        <Badge variant="outline" className="text-[9px] h-4">
+                          Stage: {autoRunJob.current_document.replace(/_/g, ' ')}
+                        </Badge>
+                      )}
+                      {autoRunJob.approval_required_for_doc_type && (
+                        <Badge variant="outline" className="text-[9px] h-4 border-amber-500/40 text-amber-600">
+                          Needs: {autoRunJob.approval_required_for_doc_type.replace(/_/g, ' ')}
+                        </Badge>
+                      )}
+                      {autoRunJob.pending_doc_type && autoRunJob.pending_doc_type !== autoRunJob.approval_required_for_doc_type && (
+                        <Badge variant="outline" className="text-[9px] h-4">
+                          Pending: {autoRunJob.pending_doc_type.replace(/_/g, ' ')}
+                        </Badge>
+                      )}
+                    </div>
+                    {/* Unapproved docs list */}
+                    {unapprovedDocTypes.length > 0 && (
+                      <div className="mt-1.5 space-y-0.5">
+                        <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Unapproved documents</p>
+                        <div className="flex flex-wrap gap-1">
+                          {unapprovedDocTypes.map((dt: string) => (
+                            <Badge
+                              key={dt}
+                              variant="outline"
+                              className={`text-[9px] h-4 cursor-pointer hover:bg-muted/50 ${dt === blockingDocType ? 'border-amber-500/40 text-amber-600' : ''}`}
+                              onClick={() => {
+                                const docId = docIdByType.get(dt);
+                                if (docId && onSelectDocument) onSelectDocument(docId);
+                              }}
+                            >
+                              {dt.replace(/_/g, ' ')}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="default"
-                  onClick={handleAutoRunResume}
-                  className="h-6 text-[10px] gap-1"
-                >
-                  <ArrowRight className="h-3 w-3" />
-                  Resume Auto-Run
-                </Button>
-                <a href={missionControlUrl}>
-                  <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1">
-                    <ExternalLink className="h-3 w-3" />
-                    Open Mission Control
+                <div className="flex flex-wrap gap-2">
+                  {blockingDocId && onSelectDocument && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => onSelectDocument(blockingDocId)}
+                      className="h-6 text-[10px] gap-1"
+                    >
+                      <FileText className="h-3 w-3" />
+                      Open Required Doc
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={handleAutoRunResume}
+                    className="h-6 text-[10px] gap-1"
+                  >
+                    <ArrowRight className="h-3 w-3" />
+                    Resume Auto-Run
                   </Button>
-                </a>
+                  <a href={missionControlUrl}>
+                    <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1">
+                      <ExternalLink className="h-3 w-3" />
+                      Open Mission Control
+                    </Button>
+                  </a>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Auto-Run details when available and not blocked */}
           {autoRunJob && !autoRunBlocked && !autoRunPaused && (
