@@ -86,8 +86,21 @@ export function useAICastMutations() {
   const generateScreenTest = useMutation({
     mutationFn: (params: { actorId: string; versionId: string; count?: number }) =>
       aiCastApi.generateScreenTest(params.actorId, params.versionId, params.count),
-    onSuccess: (data) => { toast.success(`Generated ${data.generated} screen test stills`); invalidate(); },
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: (data) => {
+      if (data.code === 'SCREEN_TEST_NOT_CONFIGURED') {
+        toast.info('Screen test generation not available — upload reference images manually.');
+      } else {
+        toast.success(`Generated ${data.generated} screen test stills`);
+      }
+      invalidate();
+    },
+    onError: (e: Error) => {
+      if (e.message?.includes('not configured')) {
+        toast.info('Screen test generation not available — upload reference images manually.');
+      } else {
+        toast.error(e.message);
+      }
+    },
   });
 
   return { createActor, updateActor, createVersion, approveVersion, addAsset, deleteAsset, generateScreenTest };

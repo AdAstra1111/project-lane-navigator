@@ -129,7 +129,7 @@ async function handleListCanonicalUnits(db: any, body: any) {
 
 // ─── create_run_and_panels ───
 async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiKey: string) {
-  const { projectId, unitKeys: requestedKeys, stylePreset = "cinematic_realism", aspectRatio = "16:9" } = body;
+  const { projectId, unitKeys: requestedKeys, stylePreset = "cinematic_realism", aspectRatio = "16:9", castContext } = body;
 
   // Read project lane once for CIK lane-aware checks
   let projectLane: string | undefined;
@@ -156,7 +156,11 @@ async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiK
   if (selectedUnits.length === 0) return json({ error: "No matching units" }, 400);
   const chosenKeys = selectedUnits.map((u: any) => u.unit_key);
 
-  // Insert run — created_by set explicitly
+  // Insert run — created_by set explicitly, castContext stored for auditability
+  const runMeta: any = {};
+  if (castContext && Array.isArray(castContext) && castContext.length > 0) {
+    runMeta.cast_context = castContext;
+  }
   const { data: run, error: runErr } = await db.from("storyboard_runs").insert({
     project_id: projectId,
     unit_keys: chosenKeys,
@@ -164,6 +168,7 @@ async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiK
     aspect_ratio: aspectRatio,
     status: "pending",
     created_by: userId,
+    meta_json: Object.keys(runMeta).length > 0 ? runMeta : undefined,
   }).select().single();
   if (runErr) return json({ error: "Failed to create run: " + runErr.message }, 500);
 
@@ -251,6 +256,24 @@ CIK QUALITY MINIMUMS (MUST SATISFY):
 
 Return ONLY valid JSON`;
 
+    // Inject cast context into prompt if available (additive — no change when absent)
+    let castContextBlock = "";
+    if (castContext && Array.isArray(castContext) && castContext.length > 0) {
+      const castLines = castContext.map((c: any) => {
+        const parts = [`Character: "${c.character_key}" → Actor: "${c.actor_name}"`];
+        if (c.description) parts.push(`  Description: ${c.description}`);
+        if (c.negative_prompt) parts.push(`  MUST NOT: ${c.negative_prompt}`);
+        const recipe = c.recipe || {};
+        if (recipe.invariants?.length) parts.push(`  Identity invariants: ${recipe.invariants.join("; ")}`);
+        if (recipe.camera_rules?.length) parts.push(`  Camera rules: ${recipe.camera_rules.join("; ")}`);
+        if (recipe.lighting_rules?.length) parts.push(`  Lighting rules: ${recipe.lighting_rules.join("; ")}`);
+        return parts.join("\n");
+      });
+      castContextBlock = `\n\n=== AI CAST CONTEXT ===\nWhen these characters appear in panels, use these identity descriptions consistently.\nDo NOT depict real/recognizable people.\n${castLines.join("\n\n")}\n=== END CAST CONTEXT ===\n`;
+    }
+
+    const fullPanelSystemPrompt = panelSystemPrompt + castContextBlock;
+
     let panelsByUnit: any[];
 
     if (unitDescriptions.length <= PANELS_BATCH_SIZE) {
@@ -258,7 +281,7 @@ Return ONLY valid JSON`;
       const parsed = await callLLMWithJsonRetry({
         apiKey,
         model: MODELS.BALANCED,
-        system: panelSystemPrompt,
+        system: fullPanelSystemPrompt,
         user: JSON.stringify(unitDescriptions).slice(0, 14000),
         temperature: 0.4,
         maxTokens: 10000,
@@ -273,7 +296,7 @@ Return ONLY valid JSON`;
         llmOpts: {
           apiKey,
           model: MODELS.BALANCED,
-          system: panelSystemPrompt,
+          system: fullPanelSystemPrompt,
           temperature: 0.4,
           maxTokens: 6000,
         },
@@ -334,7 +357,7 @@ Return ONLY valid JSON`;
       modelRouter: { attempt0: sbRouter0, attempt1: sbRouter1 },
       regenerateOnce: async (repairInstruction: string) => {
         // Re-run the same generation with repair instruction injected
-        const repairedSystemPrompt = panelSystemPrompt + "\n\n" + repairInstruction;
+        const repairedSystemPrompt = fullPanelSystemPrompt + "\n\n" + repairInstruction;
         let repairedPanels: any[];
         if (unitDescriptions.length <= PANELS_BATCH_SIZE) {
           const reParsed = await callLLMWithJsonRetry({
