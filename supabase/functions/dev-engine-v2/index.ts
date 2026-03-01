@@ -1734,41 +1734,50 @@ serve(async (req) => {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     } else {
-      // Normal JWT validation
       const token = authHeader.replace("Bearer ", "");
-      try {
-        const payloadB64 = token.split(".")[1];
-        if (!payloadB64) throw new Error("Invalid token");
-        // URL-safe base64 decode with proper padding
-        const padded = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
-        const paddedFull = padded + "=".repeat((4 - (padded.length % 4)) % 4);
-        let payload: any;
+
+      // ── Check if raw service-role key (non-JWT, e.g. sb_secret_...) ──
+      const envServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (envServiceKey && token === envServiceKey) {
+        const bodyUserId = body?.userId || body?.user_id || null;
+        userId = bodyUserId;
+        actor = "service_role";
+        user = { id: bodyUserId, email: "service_role@internal" };
+        console.log("[dev-engine-v2] auth ok (raw service key)", { hasUserId: !!bodyUserId });
+      } else {
+        // Normal JWT validation
         try {
-          payload = JSON.parse(atob(paddedFull));
-        } catch (_decodeErr) {
-          throw new Error("JWT base64 decode failed");
+          const payloadB64 = token.split(".")[1];
+          if (!payloadB64) throw new Error("Invalid token");
+          // URL-safe base64 decode with proper padding
+          const padded = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
+          const paddedFull = padded + "=".repeat((4 - (padded.length % 4)) % 4);
+          let payload: any;
+          try {
+            payload = JSON.parse(atob(paddedFull));
+          } catch (_decodeErr) {
+            throw new Error("JWT base64 decode failed");
+          }
+          if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
+          if (payload.role === "service_role") {
+            const bodyUserId = body?.userId || body?.user_id || null;
+            userId = bodyUserId;
+            actor = "service_role";
+            user = { id: bodyUserId, email: "service_role@internal" };
+            console.log("[dev-engine-v2] auth ok", { role: "service_role", hasUserId: !!bodyUserId });
+          } else if (payload.sub) {
+            userId = payload.sub;
+            user = { id: payload.sub, email: payload.email };
+            console.log("[dev-engine-v2] auth ok", { role: "user", hasUserId: true });
+          } else {
+            throw new Error("Invalid token claims");
+          }
+        } catch (authErr: any) {
+          console.error("[dev-engine-v2] JWT parse failed:", authErr?.message, "token prefix:", token.slice(0, 20) + "...");
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
         }
-        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
-        if (payload.role === "service_role") {
-          // Service role: skip userId requirement, use null for DB inserts (nullable UUID columns)
-          // Extract body.userId if auto-run forwarded the real user id
-          const bodyUserId = body?.userId || body?.user_id || null;
-          userId = bodyUserId;
-          actor = "service_role";
-          user = { id: bodyUserId, email: "service_role@internal" };
-          console.log("[dev-engine-v2] auth ok", { role: "service_role", hasUserId: !!bodyUserId });
-        } else if (payload.sub) {
-          userId = payload.sub;
-          user = { id: payload.sub, email: payload.email };
-          console.log("[dev-engine-v2] auth ok", { role: "user", hasUserId: true });
-        } else {
-          throw new Error("Invalid token claims");
-        }
-      } catch (authErr: any) {
-        console.error("[dev-engine-v2] JWT parse failed:", authErr?.message, "token prefix:", token.slice(0, 20) + "...");
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
       }
     }
 
