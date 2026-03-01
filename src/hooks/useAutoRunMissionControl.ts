@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { AutoRunJob, AutoRunStep } from '@/hooks/useAutoRun';
 import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
+import { AUTO_RUN_EXECUTION_MODE } from '@/lib/autoRunConfig';
 
 // ── API helper ──
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
@@ -214,7 +215,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     const mappedStart = mapDocTypeToLadderStage(startDocument);
     try {
       const result = await callAutoRun('start', {
-        projectId, mode: 'balanced', start_document: mappedStart, target_document: targetDocument || 'production_draft',
+        projectId, mode: AUTO_RUN_EXECUTION_MODE === 'full' ? 'balanced' : 'staged', start_document: mappedStart, target_document: targetDocument || 'production_draft',
         max_total_steps: 100,
       });
       setJob(result.job);
