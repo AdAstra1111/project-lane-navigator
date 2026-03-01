@@ -17693,7 +17693,6 @@ export type Database = {
           created_by: string | null
           error: string | null
           id: string
-          meta_json: Json | null
           project_id: string
           source_visual_unit_run_id: string | null
           status: string
@@ -17706,7 +17705,6 @@ export type Database = {
           created_by?: string | null
           error?: string | null
           id?: string
-          meta_json?: Json | null
           project_id: string
           source_visual_unit_run_id?: string | null
           status?: string
@@ -17719,7 +17717,6 @@ export type Database = {
           created_by?: string | null
           error?: string | null
           id?: string
-          meta_json?: Json | null
           project_id?: string
           source_visual_unit_run_id?: string | null
           status?: string
