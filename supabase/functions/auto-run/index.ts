@@ -923,6 +923,82 @@ function compareSnapshots(a: CriteriaSnapshot | null, b: CriteriaSnapshot | null
   return diffs;
 }
 
+// ── Deterministic Duration Estimator (single source of truth) ──
+const DURATION_DIALOGUE_WPS = 2.5;
+const DURATION_ACTION_WPS = 1.5;
+const DURATION_SLUGLINE_SEC = 2;
+const DURATION_PAREN_SEC = 1;
+const DURATION_BEAT_SEC = 0.5;
+const DURATION_CUE_RE = /^[A-Z][A-Z\s.'()\-]{1,40}[:]\s*/;
+const DURATION_SLUG_RE = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s/i;
+const DURATION_PAREN_RE = /^\s*\(.*\)\s*$/;
+
+function estimateDurationSeconds(documentText: string): number {
+  if (!documentText || documentText.trim().length === 0) return 0;
+  const lines = documentText.split('\n');
+  let total = 0;
+  let inDialogue = false;
+  for (const line of lines) {
+    const t = line.trim();
+    if (t.length === 0) { total += DURATION_BEAT_SEC; inDialogue = false; continue; }
+    if (DURATION_SLUG_RE.test(t)) { total += DURATION_SLUGLINE_SEC; inDialogue = false; continue; }
+    if (DURATION_PAREN_RE.test(t)) { total += DURATION_PAREN_SEC; continue; }
+    if (DURATION_CUE_RE.test(t)) {
+      inDialogue = true; total += 1;
+      const after = t.replace(DURATION_CUE_RE, '').trim();
+      if (after.length > 0) total += after.split(/\s+/).filter(w => w.length > 0).length / DURATION_DIALOGUE_WPS;
+      continue;
+    }
+    const words = t.split(/\s+/).filter(w => w.length > 0).length;
+    total += words / (inDialogue ? DURATION_DIALOGUE_WPS : DURATION_ACTION_WPS);
+  }
+  return Math.round(total);
+}
+
+// ── Criteria hash (stable, deterministic) ──
+function computeCriteriaHashEdge(criteria: Record<string, any>): string {
+  const sorted = Object.keys(criteria)
+    .filter(k => criteria[k] != null && k !== 'updated_at')
+    .sort()
+    .map(k => `${k}=${JSON.stringify(criteria[k])}`)
+    .join('|');
+  let hash = 5381;
+  for (let i = 0; i < sorted.length; i++) {
+    hash = ((hash << 5) + hash + sorted.charCodeAt(i)) & 0xffffffff;
+  }
+  return `ch_${(hash >>> 0).toString(36)}`;
+}
+
+type CriteriaClassification = 'OK' | 'CRITERIA_STALE_PROVENANCE' | 'CRITERIA_FAIL_DURATION';
+
+function classifyCriteriaEdge(opts: {
+  versionCriteriaHash: string | null;
+  currentCriteriaHash: string | null;
+  measuredDurationSeconds: number;
+  targetMin: number | null;
+  targetMax: number | null;
+  targetScalar: number | null;
+}): { classification: CriteriaClassification; detail: string } {
+  // 1. True provenance mismatch
+  if (opts.versionCriteriaHash && opts.currentCriteriaHash
+      && opts.versionCriteriaHash !== opts.currentCriteriaHash) {
+    return { classification: 'CRITERIA_STALE_PROVENANCE', detail: `Criteria hash mismatch: ${opts.versionCriteriaHash} vs ${opts.currentCriteriaHash}` };
+  }
+  // 2. Duration check (with 10% tolerance)
+  const min = opts.targetMin ?? opts.targetScalar ?? 0;
+  const max = opts.targetMax ?? opts.targetScalar ?? Infinity;
+  if (min > 0 || (max > 0 && max < Infinity)) {
+    const tolMin = Math.floor(min * 0.9);
+    const tolMax = Math.ceil(max * 1.1);
+    if (opts.measuredDurationSeconds < tolMin || opts.measuredDurationSeconds > tolMax) {
+      const mid = Math.round((min + max) / 2);
+      const delta = opts.measuredDurationSeconds - mid;
+      return { classification: 'CRITERIA_FAIL_DURATION', detail: `Duration ${opts.measuredDurationSeconds}s vs target ${min}-${max}s (delta: ${delta > 0 ? '+' : ''}${delta}s)` };
+    }
+  }
+  return { classification: 'OK', detail: 'Criteria met' };
+}
+
 async function runPreflight(
   supabase: any, projectId: string, format: string, currentDoc: DocStage, allowDefaults = true
 ): Promise<PreflightResult> {
@@ -3765,26 +3841,92 @@ Deno.serve(async (req) => {
         );
       }
 
-      // ── Staleness detection: check if doc's last analysis snapshot differs from current ──
-      const { data: lastAnalyzeRun } = await supabase.from("development_runs")
-        .select("output_json").eq("document_id", doc.id).eq("run_type", "ANALYZE")
-        .order("created_at", { ascending: false }).limit(1).single();
-      const docSnapshot = lastAnalyzeRun?.output_json?.criteria_snapshot || null;
-      const staleDiffKeys = compareSnapshots(docSnapshot, latestCriteriaSnapshot);
+      // ── Criteria classification: separate STALE_PROVENANCE from FAILS_CRITERIA_DURATION ──
+      const reviewTextForDuration = latestVersion?.plaintext || doc.extracted_text || doc.plaintext || "";
+      const measuredDuration = estimateDurationSeconds(reviewTextForDuration);
+      const currentCriteriaHash = computeCriteriaHashEdge(latestCriteriaSnapshot);
+      
+      // Get version's criteria_hash (from project_document_versions if available)
+      const versionCriteriaHash = latestVersion?.criteria_hash || null;
+      
+      const criteriaResult = classifyCriteriaEdge({
+        versionCriteriaHash,
+        currentCriteriaHash,
+        measuredDurationSeconds: measuredDuration,
+        targetMin: latestCriteriaSnapshot.episode_target_duration_min_seconds ?? null,
+        targetMax: latestCriteriaSnapshot.episode_target_duration_max_seconds ?? null,
+        targetScalar: latestCriteriaSnapshot.episode_target_duration_seconds ?? null,
+      });
 
-      if (staleDiffKeys.length > 0) {
-        const diffStr = staleDiffKeys.join(", ");
-        await logStep(supabase, jobId, stepCount + 1, currentDoc, "stale_document_detected",
-          `Document stale vs current criteria: ${diffStr}`,
-          { risk_flags: ["stale_document"] },
+      if (criteriaResult.classification === 'CRITERIA_STALE_PROVENANCE') {
+        // True provenance mismatch — criteria actually changed mid-run
+        await logStep(supabase, jobId, stepCount + 1, currentDoc, "criteria_stale_provenance",
+          `Criteria provenance mismatch: ${criteriaResult.detail}`,
+          { risk_flags: ["criteria_stale_provenance"] },
         );
         await updateJob(supabase, jobId, {
           step_count: stepCount + 1,
           status: "paused",
-          stop_reason: `Document stale vs current criteria: ${diffStr}. Regenerate or approve continuing.`,
-          last_risk_flags: [...(job.last_risk_flags || []), "stale_document"],
+          pause_reason: "CRITERIA_STALE_PROVENANCE",
+          stop_reason: `Criteria changed since last analysis: ${criteriaResult.detail}. Regenerate or approve continuing.`,
+          last_risk_flags: [...(job.last_risk_flags || []), "criteria_stale_provenance"],
+          last_ui_message: `⚠ Criteria provenance mismatch detected`,
         });
         return respondWithJob(supabase, jobId, "rebase-required");
+      }
+      
+      if (criteriaResult.classification === 'CRITERIA_FAIL_DURATION') {
+        // Duration doesn't meet target — attempt bounded repair (max 2)
+        const durationRepairAttempts = (job as any).duration_repair_attempts || 0;
+        
+        if (durationRepairAttempts >= 2) {
+          // Already tried 2 repairs — pause with clear explanation
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "criteria_fail_duration_exhausted",
+            `Duration repair exhausted after ${durationRepairAttempts} attempts. ${criteriaResult.detail}`,
+            { risk_flags: ["criteria_fail_duration"] },
+          );
+          await updateJob(supabase, jobId, {
+            step_count: stepCount + 1,
+            status: "paused",
+            pause_reason: "CRITERIA_FAIL_DURATION",
+            stop_reason: `Duration target not met after ${durationRepairAttempts} repair attempts. ${criteriaResult.detail}`,
+            last_risk_flags: [...(job.last_risk_flags || []), "criteria_fail_duration"],
+            last_ui_message: `⚠ Duration ${measuredDuration}s does not meet target — repair attempts exhausted`,
+          });
+          return respondWithJob(supabase, jobId, "criteria-fail-duration");
+        }
+        
+        // Attempt duration repair rewrite
+        const targetMin = latestCriteriaSnapshot.episode_target_duration_min_seconds ?? latestCriteriaSnapshot.episode_target_duration_seconds ?? 0;
+        const targetMax = latestCriteriaSnapshot.episode_target_duration_max_seconds ?? latestCriteriaSnapshot.episode_target_duration_seconds ?? 0;
+        const targetMid = Math.round((targetMin + targetMax) / 2);
+        const targetWordCount = Math.round(targetMid * DURATION_ACTION_WPS); // approximate words needed
+        
+        await logStep(supabase, jobId, stepCount + 1, currentDoc, "duration_repair_attempt",
+          `Duration repair #${durationRepairAttempts + 1}: measured=${measuredDuration}s target=${targetMin}-${targetMax}s delta=${measuredDuration - targetMid}s`,
+          { risk_flags: ["criteria_fail_duration", "duration_repair"] },
+        );
+        
+        // Update repair count — continue to rewrite with duration guidance
+        // The rewrite will happen in the normal flow below with duration context injected
+        await updateJob(supabase, jobId, {
+          step_count: stepCount + 1,
+          last_ui_message: `Duration repair #${durationRepairAttempts + 1}: ${measuredDuration}s → target ${targetMin}-${targetMax}s`,
+        });
+        // Store repair count in job metadata (using approval_payload as scratch)
+        await supabase.from("auto_run_jobs").update({
+          approval_payload: { ...(job.approval_payload || {}), duration_repair_attempts: durationRepairAttempts + 1, duration_target: { min: targetMin, max: targetMax, measured: measuredDuration } },
+        }).eq("id", jobId);
+        // Fall through to normal analysis+rewrite flow — the rewrite will include duration guidance
+      }
+
+      // Store measured metrics on the version for future reference
+      if (latestVersion?.id && measuredDuration > 0) {
+        await supabase.from("project_document_versions").update({
+          criteria_hash: currentCriteriaHash,
+          criteria_json: latestCriteriaSnapshot,
+          measured_metrics_json: { measured_duration_seconds: measuredDuration, estimated_at: new Date().toISOString() },
+        }).eq("id", latestVersion.id);
       }
 
       // Resolve the actual text being fed into analysis (version plaintext > doc extracted_text > doc plaintext)
