@@ -1,0 +1,1 @@
+ALTER TABLE public.storyboard_runs DROP COLUMN IF EXISTS meta_json;

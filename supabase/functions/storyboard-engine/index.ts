@@ -156,11 +156,15 @@ async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiK
   if (selectedUnits.length === 0) return json({ error: "No matching units" }, 400);
   const chosenKeys = selectedUnits.map((u: any) => u.unit_key);
 
-  // Insert run — created_by set explicitly, castContext stored for auditability
-  const runMeta: any = {};
+  // Compute a stable cast_context_hash for audit (no schema change needed)
+  let castContextHash: string | null = null;
   if (castContext && Array.isArray(castContext) && castContext.length > 0) {
-    runMeta.cast_context = castContext;
+    const sorted = JSON.stringify(castContext, Object.keys(castContext).sort());
+    const hashBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sorted)));
+    castContextHash = Array.from(hashBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    console.log(`[storyboard-engine] cast_context_hash=${castContextHash} actors=${castContext.length}`);
   }
+
   const { data: run, error: runErr } = await db.from("storyboard_runs").insert({
     project_id: projectId,
     unit_keys: chosenKeys,
@@ -168,9 +172,11 @@ async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiK
     aspect_ratio: aspectRatio,
     status: "pending",
     created_by: userId,
-    meta_json: Object.keys(runMeta).length > 0 ? runMeta : undefined,
   }).select().single();
   if (runErr) return json({ error: "Failed to create run: " + runErr.message }, 500);
+
+  // Persist cast_context_hash on the first panel row's panel_payload for audit trail
+  const _castAudit = castContextHash ? { cast_context_hash: castContextHash } : null;
 
   try {
     const unitDescriptions = selectedUnits.map((u: any) => {
@@ -418,13 +424,18 @@ Return ONLY valid JSON`;
       if (!uk) continue;
       const panels = (unitPanels.panels || []).slice(0, 6);
       for (const panel of panels) {
+        const payload = { ...panel };
+        // Embed cast_context_hash in first panel's payload for audit
+        if (_castAudit && panelRows.length === 0) {
+          payload._audit = _castAudit;
+        }
         panelRows.push({
           project_id: projectId,
           run_id: run.id,
           unit_key: uk,
           panel_index: panel.panel_index || panelRows.filter((r: any) => r.unit_key === uk).length + 1,
           status: "proposed",
-          panel_payload: panel,
+          panel_payload: payload,
           created_by: userId,
         });
       }
