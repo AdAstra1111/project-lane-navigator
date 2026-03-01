@@ -54,11 +54,20 @@ function waitUntilSafe(p: Promise<any>): boolean {
   return false;
 }
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, apikey, x-client-info, content-type, prefer, accept, origin",
-};
+// Dynamic CORS: echo request origin to support credentials
+let _currentReqOrigin = "*";
+function getCorsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": _currentReqOrigin,
+    "Vary": "Origin",
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, apikey, x-client-info, content-type, prefer, accept, origin, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+// Backwards-compat: corsHeaders used throughout file as a plain object
+const corsHeaders = new Proxy({}, { get(_t, prop) { return getCorsHeaders()[prop as keyof ReturnType<typeof getCorsHeaders>]; }, ownKeys() { return Object.keys(getCorsHeaders()); }, getOwnPropertyDescriptor(_t, prop) { const h = getCorsHeaders(); if (prop in h) return { configurable: true, enumerable: true, value: h[prop as keyof typeof h] }; return undefined; }, has(_t, prop) { return prop in getCorsHeaders(); } }) as Record<string, string>;
 
 // ── Document Ladders ──────────────────────────────────────────────────────────
 // SINGLE SOURCE OF TRUTH: supabase/functions/_shared/stage-ladders.ts
@@ -1667,13 +1676,16 @@ async function rewriteWithFallback(
   }
 }
 
-// v3 — bulletproof ping with build marker
+// v4 — dynamic CORS with origin echo for credentials support
 Deno.serve(async (req) => {
+  // Set module-level origin for dynamic CORS headers used everywhere
+  _currentReqOrigin = req.headers.get("origin") || "*";
+
   const pingJson = { ok: true, ts: new Date().toISOString(), function: "auto-run", build: BUILD };
 
-  // 1) CORS preflight
+  // 1) CORS preflight — 204 with headers only
   if (req.method === "OPTIONS") {
-    return new Response("ok", { status: 200, headers: corsHeaders });
+    return new Response(null, { status: 204, headers: getCorsHeaders() });
   }
 
   // 2) GET → unauthenticated ping (NO body read, NO auth, NO ladder check)
@@ -1692,7 +1704,7 @@ Deno.serve(async (req) => {
   }
 
   // 5) All other actions proceed to auth/ladder logic
-  console.log("[auto-run] request_in", { method: req.method, hasAuth: !!req.headers.get("authorization") });
+  console.log("[auto-run] request_in", { method: req.method, origin: req.headers.get("origin"), hasAuth: !!req.headers.get("authorization") });
   console.log("[auto-run] reached_main", { method: req.method, action });
 
   try {
