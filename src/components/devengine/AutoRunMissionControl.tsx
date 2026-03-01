@@ -231,6 +231,11 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
     baseline_seeded: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
     aggregate_compile_skipped: 'bg-muted text-muted-foreground',
     aggregate_skip_advance: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+    gate_decision: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    stagnation_no_blocker_progress: 'bg-destructive/15 text-destructive border-destructive/30',
+    rewrite_accepted: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    rewrite_rejected_regression: 'bg-destructive/15 text-destructive border-destructive/30',
+    frontier_set: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
   };
 
   return (
@@ -255,9 +260,30 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
                   step.action === 'baseline_repaired' ? '✓ baseline repaired' :
                   step.action === 'baseline_seeded' ? '✓ baseline seeded' :
                   step.action === 'aggregate_compile_skipped' ? 'compile cached' :
+                  step.action === 'gate_decision' ? '⚖ gate' :
+                  step.action === 'stagnation_no_blocker_progress' ? '⚠ stagnation' :
+                  step.action === 'rewrite_accepted' ? '✓ accepted' :
+                  step.action === 'rewrite_rejected_regression' ? '✗ rejected' :
+                  step.action === 'frontier_set' ? '↗ frontier' :
                   step.action
                 }</Badge>
                 <Badge variant="outline" className="text-[8px] px-1 py-0">{LADDER_LABELS[step.document] || step.document}</Badge>
+                {/* Blocker count badge from output_ref */}
+                {(() => {
+                  const ref = step.output_ref as any;
+                  const bcBefore = ref?.blocker_count_before;
+                  const bcAfter = ref?.blocker_count_after;
+                  if (bcBefore != null && bcAfter != null) {
+                    const improved = bcAfter < bcBefore;
+                    const same = bcAfter === bcBefore;
+                    return (
+                      <Badge variant="outline" className={`text-[7px] px-1 py-0 font-mono ${improved ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : same ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-destructive/10 text-destructive border-destructive/30'}`}>
+                        B:{bcBefore}→{bcAfter}{improved ? '✓' : ''}
+                      </Badge>
+                    );
+                  }
+                  return null;
+                })()}
                 {step.readiness != null && (
                   <span className="text-[8px] text-muted-foreground">R:{step.readiness}</span>
                 )}
@@ -1314,6 +1340,28 @@ export function AutoRunMissionControl({
                       <div className="text-[9px] text-muted-foreground">
                         No baseline could be seeded for <strong>{job.current_document}</strong> because no plaintext source exists.
                         Generate content for this stage (or upstream stage) and then resume.
+                      </div>
+                    </div>
+                  )}
+                  {job.pause_reason === 'STAGNATION_NO_BLOCKER_PROGRESS' && (
+                    <div className="space-y-1.5 mt-1">
+                      <div className="flex items-center gap-1.5">
+                        <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />
+                        <span className="text-[10px] font-medium text-foreground">Blocker Stagnation</span>
+                      </div>
+                      <div className="text-[9px] text-muted-foreground">
+                        Blockers for <strong>{job.current_document}</strong> have not decreased across multiple attempts.
+                        Consider editing the document manually to address structural issues, then resume.
+                      </div>
+                      {(job as any).last_blocker_count != null && (
+                        <Badge variant="outline" className="text-[8px] px-1.5 py-0 bg-destructive/10 text-destructive border-destructive/30">
+                          {(job as any).last_blocker_count} blockers remaining
+                        </Badge>
+                      )}
+                      <div className="flex gap-1.5">
+                        <Button size="sm" className="h-6 text-[9px] gap-1" onClick={() => onResume(true)}>
+                          <Play className="h-3 w-3" /> Resume (retry)
+                        </Button>
                       </div>
                     </div>
                   )}
