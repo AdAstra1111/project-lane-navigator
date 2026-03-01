@@ -1671,7 +1671,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const { data: steps } = await supabase.from("auto_run_steps").select("*").eq("job_id", job.id).order("step_index", { ascending: false }).limit(10);
+      const { data: steps } = await supabase.from("auto_run_steps").select("*").eq("job_id", job.id).order("step_index", { ascending: false }).limit(200);
 
       // Lightweight seed pack check (just count, no full scan)
       const seedProjectId = job.project_id || projectId;
@@ -2033,7 +2033,7 @@ Deno.serve(async (req) => {
         // Decision is stale — return 409 with current job state so UI can self-heal
         console.warn(`[auto-run] Stale decision: ${choiceId} not in pending_decisions [${pending.map((d:any)=>d.id).join(",")}]`);
         const { data: freshJob } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
-        const { data: freshSteps } = await supabase.from("auto_run_steps").select("*").eq("job_id", jobId).order("step_index", { ascending: false }).limit(10);
+        const { data: freshSteps } = await supabase.from("auto_run_steps").select("*").eq("job_id", jobId).order("step_index", { ascending: false }).limit(200);
         return new Response(JSON.stringify({
           code: "STALE_DECISION",
           job: freshJob,
@@ -5015,7 +5015,7 @@ function respond(data: any, status = 200): Response {
 
 async function respondWithJob(supabase: any, jobId: string, hint?: string): Promise<Response> {
   const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
-  const { data: steps } = await supabase.from("auto_run_steps").select("*").eq("job_id", jobId).order("step_index", { ascending: false }).limit(10);
+  const { data: steps } = await supabase.from("auto_run_steps").select("*").eq("job_id", jobId).order("step_index", { ascending: false }).limit(200);
   return respond({
     job,
     latest_steps: (steps || []).reverse(),
