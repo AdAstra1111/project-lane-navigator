@@ -962,6 +962,8 @@ async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<
   let canonDurMin: number | undefined;
   let canonDurMax: number | undefined;
   let canonDurScalar: number | undefined;
+  let canonDurSource: string | undefined;
+  let canonDurLocked = false;
   try {
     const { data: canonRow } = await supabase.from("project_canon")
       .select("canon_json")
@@ -975,7 +977,9 @@ async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<
         if (typeof eds.min === "number") canonDurMin = eds.min;
         if (typeof eds.max === "number") canonDurMax = eds.max;
         canonDurScalar = Math.round(((canonDurMin ?? 0) + (canonDurMax ?? 0)) / 2) || undefined;
-        console.log(`[buildCriteriaSnapshot] Canon duration override: ${canonDurMin}-${canonDurMax}s (locked=${!!fmtBlock.episode_duration_locked})`);
+        canonDurLocked = !!fmtBlock.episode_duration_locked;
+        canonDurSource = fmtBlock.episode_duration_source || "canon";
+        console.log(`[buildCriteriaSnapshot] Canon duration override: ${canonDurMin}-${canonDurMax}s (source=${canonDurSource}, locked=${canonDurLocked})`);
       }
       // Legacy canon keys
       if (canonDurMin == null) {
@@ -985,6 +989,7 @@ async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<
           canonDurMin = lm;
           canonDurMax = lx;
           canonDurScalar = Math.round(((canonDurMin ?? 0) + (canonDurMax ?? 0)) / 2) || undefined;
+          canonDurSource = "canon_legacy";
         }
       }
     }
@@ -994,6 +999,10 @@ async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<
   const durMin = canonDurMin ?? quals.episode_target_duration_min_seconds ?? p.episode_target_duration_min_seconds ?? undefined;
   const durMax = canonDurMax ?? quals.episode_target_duration_max_seconds ?? p.episode_target_duration_max_seconds ?? undefined;
   const durScalar = canonDurScalar ?? quals.episode_target_duration_seconds ?? p.episode_target_duration_seconds ?? undefined;
+
+  // Track source for downstream logging
+  const durSource = canonDurMin != null ? (canonDurSource || "canon") : undefined;
+  const durLocked = canonDurMin != null ? canonDurLocked : false;
 
   return {
     format_subtype: quals.format_subtype || fmt,
@@ -1007,7 +1016,10 @@ async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<
     budget_range: p.budget_range || quals.budget_range || undefined,
     development_behavior: p.development_behavior || undefined,
     updated_at: new Date().toISOString(),
-  };
+    // Extra metadata for duration logging (not in CRITERIA_SNAPSHOT_KEYS but accessible downstream)
+    _duration_source: durSource,
+    _duration_locked: durLocked,
+  } as CriteriaSnapshot;
 }
 
 function compareSnapshots(a: CriteriaSnapshot | null, b: CriteriaSnapshot | null): string[] {
