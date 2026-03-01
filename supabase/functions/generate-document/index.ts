@@ -105,14 +105,14 @@ function extractConvergenceGuidance(upstreamBlocks: Map<string, string>): string
     const text = upstreamBlocks.get(dt);
     if (!text) continue;
     for (const heading of CONVERGENCE_HEADINGS) {
-      if (seen.has(heading)) continue; // first occurrence only across all docs
+      const dedupKey = `${dt}::${heading}`;
+      if (seen.has(dedupKey)) continue;
       const idx = text.indexOf(heading);
       if (idx === -1) continue;
-      seen.add(heading);
+      seen.add(dedupKey);
       // Find end of heading line, then search for next ## from there
       const headingEnd = text.indexOf("\n", idx + heading.length);
       if (headingEnd === -1) {
-        // heading is at very end with no newline
         const section = text.slice(idx).trim();
         if (section.length > 0) extracts.push(section.slice(0, MAX_SECTION_CHARS));
         continue;
@@ -120,7 +120,7 @@ function extractConvergenceGuidance(upstreamBlocks: Map<string, string>): string
       const afterHeadingLine = text.slice(headingEnd + 1);
       const nextH2 = afterHeadingLine.search(/^\s*## /m);
       const bodyText = nextH2 >= 0 ? afterHeadingLine.slice(0, nextH2).trim() : afterHeadingLine.trim();
-      const fullSection = text.slice(idx, headingEnd + 1) + bodyText;
+      const fullSection = (text.slice(idx, headingEnd + 1) + "\n" + bodyText).trim();
       if (fullSection.length > 0) extracts.push(fullSection.slice(0, MAX_SECTION_CHARS));
     }
   }
