@@ -1852,6 +1852,93 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════
+    // ACTION: repair-baseline
+    // ═══════════════════════════════════════
+    if (action === "repair-baseline") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const { strategy } = body; // "promote_best_scored" | "promote_latest"
+      if (!strategy || !["promote_best_scored", "promote_latest"].includes(strategy)) {
+        return respond({ error: "strategy must be 'promote_best_scored' or 'promote_latest'" }, 400);
+      }
+      const job = await getJob(supabase, jobId);
+      if (!job) return respond({ error: "Job not found" }, 404);
+      if (job.pause_reason !== "BASELINE_MISSING") {
+        return respond({ error: "Job is not paused for BASELINE_MISSING" }, 400);
+      }
+
+      // Find the document that's missing a baseline
+      const currentDoc = job.current_document;
+      const { data: doc } = await supabase.from("project_documents")
+        .select("id, doc_type")
+        .eq("project_id", job.project_id)
+        .eq("doc_type", currentDoc)
+        .limit(1).maybeSingle();
+      if (!doc) return respond({ error: `No document found for doc_type=${currentDoc}` }, 404);
+
+      // Get all versions for this document
+      const { data: versions } = await supabase.from("project_document_versions")
+        .select("id, version_number, plaintext")
+        .eq("document_id", doc.id)
+        .order("version_number", { ascending: false });
+      if (!versions || versions.length === 0) {
+        return respond({ error: "No versions exist for this document — cannot repair" }, 400);
+      }
+
+      let chosenVersionId: string;
+      if (strategy === "promote_best_scored") {
+        // Try to find the best-scored version from development_runs
+        const versionIds = versions.map((v: any) => v.id);
+        const { data: runs } = await supabase.from("development_runs")
+          .select("version_id, output_json")
+          .in("version_id", versionIds)
+          .eq("run_type", "ANALYZE")
+          .order("created_at", { ascending: false });
+
+        let bestScore = -1;
+        let bestId = versions[0].id; // fallback to latest
+        for (const run of (runs || [])) {
+          const analysis = run.output_json;
+          const ci = analysis?.ci_score ?? analysis?.scores?.ci_score ?? 0;
+          const gp = analysis?.gp_score ?? analysis?.scores?.gp_score ?? 0;
+          const combined = (typeof ci === "number" ? ci : 0) + (typeof gp === "number" ? gp : 0);
+          if (combined > bestScore) {
+            bestScore = combined;
+            bestId = run.version_id;
+          }
+        }
+        chosenVersionId = bestId;
+      } else {
+        // promote_latest: highest version_number
+        chosenVersionId = versions[0].id;
+      }
+
+      // Promote via set_current_version
+      const { error: promoteErr } = await supabase.rpc("set_current_version", {
+        p_document_id: doc.id,
+        p_new_version_id: chosenVersionId,
+      });
+      if (promoteErr) {
+        return respond({ error: `Failed to repair baseline: ${promoteErr.message}` }, 500);
+      }
+
+      await logStep(supabase, jobId, null, currentDoc, "baseline_repaired",
+        `Baseline repaired via ${strategy}: version ${chosenVersionId} set as current.`,
+        {}, undefined, { strategy, chosenVersionId, documentId: doc.id, versionCount: versions.length });
+
+      // Resume the job
+      await updateJob(supabase, jobId, {
+        status: "running",
+        pause_reason: null,
+        stop_reason: null,
+        error: null,
+        pending_decisions: null,
+        awaiting_approval: false,
+      });
+
+      return respondWithJob(supabase, jobId, "run-next");
+    }
+
+    // ═══════════════════════════════════════
     // ACTION: pause / stop
     // ═══════════════════════════════════════
     if (action === "pause" || action === "stop") {
@@ -4091,11 +4178,40 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId);
           }
 
-          // ── AGGREGATE GUARD: skip LLM rewrites, auto-advance to next stage ──
+          // ── AGGREGATE GUARD: skip LLM rewrites, compile-only with caching ──
           if (isAggregate(currentDoc)) {
-            await logStep(supabase, jobId, null, currentDoc, "aggregate_skip_advance",
-              `Doc type "${currentDoc}" is AGGREGATE (compile-only). Skipping LLM rewrite, advancing to next stage.`,
-              { ci, gp, gap });
+            // Compute source version key — current versions of all UNIT docs in this project
+            const { data: unitDocs } = await supabase.from("project_documents")
+              .select("id, doc_type")
+              .eq("project_id", job.project_id)
+              .in("doc_type", ["episode_outline", "episode_script"]);
+            const unitDocIds = (unitDocs || []).map((d: any) => d.id);
+            let sourceVersionKey = "[]";
+            if (unitDocIds.length > 0) {
+              const { data: unitVersions } = await supabase.from("project_document_versions")
+                .select("id, document_id")
+                .in("document_id", unitDocIds)
+                .eq("is_current", true)
+                .order("document_id");
+              const sortedIds = (unitVersions || []).map((v: any) => v.id).sort();
+              sourceVersionKey = JSON.stringify(sortedIds);
+            }
+
+            // Check if current aggregate version was compiled with this same source key
+            const aggCurrentVer = await getCurrentVersionForDoc(supabase, doc.id);
+            const aggMeta = aggCurrentVer ? (aggCurrentVer as any).meta_json : null;
+            const cachedKey = aggMeta?.source_version_key;
+
+            if (cachedKey === sourceVersionKey && aggCurrentVer) {
+              await logStep(supabase, jobId, null, currentDoc, "aggregate_compile_skipped",
+                `Aggregate "${currentDoc}" already compiled with current source versions. Skipping.`,
+                { ci, gp, gap }, undefined, { sourceVersionKey });
+            } else {
+              await logStep(supabase, jobId, null, currentDoc, "aggregate_skip_advance",
+                `Doc type "${currentDoc}" is AGGREGATE (compile-only). Skipping LLM rewrite, advancing to next stage.`,
+                { ci, gp, gap });
+            }
+
             const nextAfterAggregate = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
             if (nextAfterAggregate && isStageAtOrBeforeTarget(nextAfterAggregate, job.target_document, format)) {
               await updateJob(supabase, jobId, {
@@ -4149,14 +4265,19 @@ Deno.serve(async (req) => {
           // ── 1) BASELINE PINNING: use current accepted version (not latest) ──
           const currentAccepted = await getCurrentVersionForDoc(supabase, doc.id);
           if (!currentAccepted) {
+            // Count existing versions for diagnostic metadata
+            const { count: versionCount } = await supabase.from("project_document_versions")
+              .select("id", { count: "exact", head: true })
+              .eq("document_id", doc.id);
             await logStep(supabase, jobId, null, currentDoc, "baseline_missing",
-              `No current accepted version found for document ${doc.id}. Halting.`,
-              { ci, gp, gap });
+              `No current accepted version found for document ${doc.id} (${versionCount ?? 0} versions exist). Use "Repair Baseline" to fix.`,
+              { ci, gp, gap }, undefined, { documentId: doc.id, docType: currentDoc, versionCount: versionCount ?? 0 });
             await updateJob(supabase, jobId, {
               stage_loop_count: newLoopCount,
               status: "paused",
               pause_reason: "BASELINE_MISSING",
               stop_reason: `No current accepted version for ${currentDoc}. Cannot establish baseline.`,
+              approval_payload: { documentId: doc.id, docType: currentDoc, versionCount: versionCount ?? 0 },
             });
             return respondWithJob(supabase, jobId);
           }

@@ -152,6 +152,8 @@ interface AutoRunMissionControlProps {
   onToggleAllowDefaults?: (val: boolean) => Promise<void>;
   /** Update convergence target */
   onUpdateTarget?: (ci: number, gp: number) => Promise<void>;
+  /** Repair baseline when BASELINE_MISSING */
+  onRepairBaseline?: (strategy: 'promote_best_scored' | 'promote_latest') => Promise<void>;
   /** Analysis data for auto-filling story setup */
   latestAnalysis?: any;
   /** Current document text to show in viewer */
@@ -223,6 +225,10 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
     pause_for_approval: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
     decision_applied: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
     decisions_rewrite_failed: 'bg-destructive/15 text-destructive border-destructive/30',
+    baseline_missing: 'bg-destructive/15 text-destructive border-destructive/30',
+    baseline_repaired: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    aggregate_compile_skipped: 'bg-muted text-muted-foreground',
+    aggregate_skip_advance: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
   };
 
   return (
@@ -242,6 +248,9 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
                   step.action === 'promotion_check' ? 'evaluation' :
                   step.action === 'finalize_promote_best' ? '✓ promoted' :
                   step.action === 'promote_failed' ? '✗ promote failed' :
+                  step.action === 'baseline_missing' ? '⚠ baseline missing' :
+                  step.action === 'baseline_repaired' ? '✓ baseline repaired' :
+                  step.action === 'aggregate_compile_skipped' ? 'compile cached' :
                   step.action
                 }</Badge>
                 <Badge variant="outline" className="text-[8px] px-1 py-0">{LADDER_LABELS[step.document] || step.document}</Badge>
@@ -299,6 +308,7 @@ export function AutoRunMissionControl({
   onUpdateStepLimit, onResumeFromStepLimit,
   onToggleAllowDefaults,
   onUpdateTarget,
+  onRepairBaseline,
   latestAnalysis, currentDocText, currentDocMeta,
   availableDocuments, project, approvedVersionMap = {},
 }: AutoRunMissionControlProps) {
@@ -1272,6 +1282,28 @@ export function AutoRunMissionControl({
                         : <><RotateCcw className="h-3 w-3" /> Fix Inputs (Regenerate Insufficient Docs)</>
                       }
                     </Button>
+                  )}
+                  {job.pause_reason === 'BASELINE_MISSING' && (
+                    <div className="space-y-1.5 mt-1">
+                      <div className="text-[9px] text-muted-foreground">
+                        No current version set for <strong>{job.current_document}</strong>.
+                        {(job.approval_payload as any)?.versionCount > 0
+                          ? ` ${(job.approval_payload as any).versionCount} version(s) exist — choose a repair strategy:`
+                          : ' No versions exist — generate the document first.'}
+                      </div>
+                      {(job.approval_payload as any)?.versionCount > 0 && (
+                        <div className="flex gap-1.5">
+                          <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1"
+                            onClick={() => onRepairBaseline?.('promote_best_scored')}>
+                            <CheckCircle2 className="h-3 w-3" /> Use Best Scored
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1"
+                            onClick={() => onRepairBaseline?.('promote_latest')}>
+                            <ArrowUpRight className="h-3 w-3" /> Use Latest
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
