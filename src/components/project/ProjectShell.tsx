@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import {
-  LayoutGrid, FileText, BookOpen, Image, Film, Briefcase,
+  LayoutGrid, FileText, BookOpen, Image, Film, Briefcase, Sparkles,
   PanelRightOpen, PanelRightClose, ArrowLeft, Loader2,
   CheckCircle2, AlertTriangle, ArrowRight, X,
 } from 'lucide-react';
@@ -54,6 +54,7 @@ function buildRailLinks(projectId: string): RailLink[] {
     { icon: BookOpen,   label: 'Canon',       to: `${p}/canon`,       modes: ['develop'] },
     { icon: Image,      label: 'Visual Dev',  to: `${p}/visual-dev`,  modes: ['produce'] },
     { icon: Film,       label: 'Trailer',     to: `${p}/trailer`,     modes: ['produce'] },
+    { icon: Sparkles,   label: 'AI Content',  to: `${p}/ai-content`,  modes: ['produce'] },
     { icon: Briefcase,  label: 'Produce',     to: `${p}/produce`,     modes: ['produce'] },
   ];
 }
