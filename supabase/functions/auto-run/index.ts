@@ -56,9 +56,8 @@ function waitUntilSafe(p: Promise<any>): boolean {
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, apikey, x-client-info, content-type, prefer, accept, origin",
 };
 
 // ── Document Ladders ──────────────────────────────────────────────────────────
@@ -1674,15 +1673,12 @@ Deno.serve(async (req) => {
 
   // 1) CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { status: 200, headers: corsHeaders });
   }
 
   // 2) GET → unauthenticated ping (NO body read, NO auth, NO ladder check)
   if (req.method === "GET") {
-    return new Response(JSON.stringify(pingJson), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonRes(pingJson, 200);
   }
 
   // 3) Parse body safely ONCE
@@ -1692,13 +1688,11 @@ Deno.serve(async (req) => {
 
   // 4) POST ping → unauthenticated
   if (action === "ping") {
-    return new Response(JSON.stringify(pingJson), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonRes(pingJson, 200);
   }
 
   // 5) All other actions proceed to auth/ladder logic
+  console.log("[auto-run] request_in", { method: req.method, hasAuth: !!req.headers.get("authorization") });
   console.log("[auto-run] reached_main", { method: req.method, action });
 
   try {
@@ -2194,12 +2188,12 @@ Deno.serve(async (req) => {
         console.warn(`[auto-run] Stale decision: ${choiceId} not in pending_decisions [${pending.map((d:any)=>d.id).join(",")}]`);
         const { data: freshJob } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
         const { data: freshSteps } = await supabase.from("auto_run_steps").select("*").eq("job_id", jobId).order("step_index", { ascending: false }).limit(200);
-        return new Response(JSON.stringify({
+        return jsonRes({
           code: "STALE_DECISION",
           job: freshJob,
           latest_steps: (freshSteps || []).reverse(),
           next_action_hint: getHint(freshJob),
-        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }, 409);
       }
       // Extract the base decision key (last segment after colons) for special-case matching
       const matchedId = decision.id;
@@ -5316,18 +5310,26 @@ Deno.serve(async (req) => {
 
     return respond({ error: `Unknown action: ${action}` }, 400);
   } catch (e: any) {
-    return respond({ error: e.message || "Internal error" }, 500);
+    return jsonRes(
+      {
+        error: e?.message || "Internal error",
+        stack_hint: e?.stack ? String(e.stack).split("\n")[0] : undefined,
+      },
+      500,
+    );
   }
 });
 
 // ── Response Helpers ──
 
-function respond(data: any, status = 200): Response {
-  return new Response(JSON.stringify(data), {
+function jsonRes(payload: any, status = 200): Response {
+  return new Response(JSON.stringify(payload), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
+
+const respond = jsonRes;
 
 async function respondWithJob(supabase: any, jobId: string, hint?: string): Promise<Response> {
   const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
