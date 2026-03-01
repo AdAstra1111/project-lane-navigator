@@ -97,11 +97,14 @@ import { SeedAppliedBanner } from '@/components/devengine/SeedAppliedBanner';
 import { StyleSourcesPanel } from '@/components/devengine/StyleSourcesPanel';
 import { StyleScoreBadge, StyleEvalPanel } from '@/components/devengine/StyleEvalPanel';
 import { AutopilotPanel } from '@/components/dev/AutopilotPanel';
+import { DevEngineSimpleView } from '@/components/devengine/DevEngineSimpleView';
+import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const viewMode = searchParams.get('mode') === 'simple' ? 'simple' : 'advanced';
   const qc = useQueryClient();
   const VALID_TABS = new Set(['notes', 'issues', 'convergence', 'qualifications', 'autorun', 'series-scripts', 'criteria', 'package', 'canon', 'provenance', 'scenes', 'quality', 'docsets', 'timeline']);
   const initialTab = (() => { const t = searchParams.get('tab'); return t && VALID_TABS.has(t) ? t : 'notes'; })();
@@ -247,6 +250,7 @@ export default function ProjectDevelopmentEngine() {
   const rewritePipeline = useRewritePipeline(projectId);
   const sceneRewrite = useSceneRewritePipeline(projectId);
   const autoRun = useAutoRunMissionControl(projectId);
+  const seedStatus = useSeedPackStatus(projectId);
   const { resolveOnEntry, currentResolverHash, resolvedQuals } = useStageResolve(projectId);
   const { propose } = useDecisionCommit(projectId);
   const { packageStatus: packageStatusData, currentResolverHash: pkgResolverHash } = useDocumentPackage(projectId);
@@ -990,8 +994,21 @@ export default function ProjectDevelopmentEngine() {
     <>
     <div className="max-w-[1800px] mx-auto px-4 py-4 space-y-3">
 
-      {/* ═══ CONTEXT BADGES ═══ */}
+      {/* ═══ MODE TOGGLE + CONTEXT BADGES ═══ */}
       <div className="flex flex-wrap items-center gap-1.5">
+        <Button
+          variant={viewMode === 'simple' ? 'default' : 'outline'}
+          size="sm"
+          className="h-6 text-[10px] px-2"
+          onClick={() => {
+            setSearchParams(prev => {
+              prev.set('mode', viewMode === 'simple' ? 'advanced' : 'simple');
+              return prev;
+            });
+          }}
+        >
+          {viewMode === 'simple' ? '◆ Simple' : '○ Simple'}
+        </Button>
         <Badge variant="outline" className={`text-[10px] ${BEHAVIOR_COLORS[projectBehavior]}`}>
           {BEHAVIOR_LABELS[projectBehavior]}
         </Badge>
@@ -1020,6 +1037,32 @@ export default function ProjectDevelopmentEngine() {
         />
       </div>
 
+      {/* ═══ SIMPLE MODE ═══ */}
+      {viewMode === 'simple' && (
+        <DevEngineSimpleView
+          projectId={projectId!}
+          projectTitle={(project as any)?.title || ''}
+          format={normalizedFormat}
+          documents={documents}
+          docsLoading={docsLoading}
+          approvedVersionMap={approvedVersionMap}
+          selectedDocId={selectedDocId}
+          selectedVersionId={selectedVersionId}
+          versionText={versionText}
+          selectDocument={selectDocument}
+          setSelectedVersionId={setSelectedVersionId}
+          autoRunJob={autoRun.job}
+          autoRunSteps={autoRun.steps}
+          autoRunIsRunning={autoRun.isRunning}
+          autoRunConnectionState={autoRun.connectionState}
+          autoRunError={autoRun.error}
+          autoRunActivated={autoRun.activated}
+          seedDocs={seedStatus.docs}
+          seedLoading={seedStatus.isLoading}
+        />
+      )}
+
+      <div className={viewMode === 'simple' ? 'hidden' : ''}>
       {/* ═══ SEED APPLIED BANNER ═══ */}
       {seedDraft && projectId && rulesetUserId && (
         <SeedAppliedBanner
@@ -2013,6 +2056,7 @@ export default function ProjectDevelopmentEngine() {
             )}
           </Tabs>
         </div>
+      </div>
 
       {/* Drift Override Dialog */}
       <Dialog open={driftOverrideOpen} onOpenChange={setDriftOverrideOpen}>
@@ -2099,6 +2143,7 @@ export default function ProjectDevelopmentEngine() {
         }}
       />
 
+    </div>
     </>
   );
 }
