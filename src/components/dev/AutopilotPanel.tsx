@@ -85,6 +85,8 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
   // Phase 2: Auto-Run state
   const [autoRunJob, setAutoRunJob] = useState<any>(null);
   const [autoRunLoading, setAutoRunLoading] = useState(false);
+  // statusCheckedRef: true once the initial auto-run status fetch completes (prevents handoff race)
+  const statusCheckedRef = useRef(false);
   // handoffInFlight prevents concurrent handoff calls within a single mount cycle
   const handoffInFlightRef = useRef(false);
 
@@ -169,6 +171,8 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
       }
     } catch {
       // no job yet — normal
+    } finally {
+      statusCheckedRef.current = true;
     }
   }, [projectId]);
 
@@ -228,6 +232,8 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
   // Guard: handoffInFlightRef prevents concurrent calls within same mount
   useEffect(() => {
     if (autopilot?.status !== 'complete') return;
+    // CRITICAL: Wait until initial status check has completed to avoid race
+    if (!statusCheckedRef.current) return;
     // If a job already exists in any non-terminal state, skip handoff
     if (autoRunJob && !['failed', 'stopped'].includes(autoRunJob.status)) return;
     // Also skip if we already have a completed job
@@ -237,6 +243,18 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
     handoffInFlightRef.current = true;
 
     const doHandoff = async () => {
+      // Double-check via fresh DB status to prevent duplicate starts
+      try {
+        const freshStatus = await callAutoRun('status', { projectId });
+        if (freshStatus?.job && !['failed', 'stopped'].includes(freshStatus.job.status)) {
+          if (mountedRef.current) setAutoRunJob(freshStatus.job);
+          handoffInFlightRef.current = false;
+          return;
+        }
+      } catch {
+        // No existing job — proceed to start
+      }
+
       // Canon baseline population (non-blocking, best-effort, idempotent)
       populateCanonBaseline(projectId).catch(() => {});
 
@@ -552,6 +570,24 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
                 <div className="space-y-1 flex-1">
                   <p className="font-medium text-foreground">Blocking Decision</p>
                   <p className="text-muted-foreground">{getBlockingDescription()}</p>
+                  {/* Show specific doc/stage details */}
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {autoRunJob.current_document && (
+                      <Badge variant="outline" className="text-[9px] h-4">
+                        Stage: {autoRunJob.current_document.replace(/_/g, ' ')}
+                      </Badge>
+                    )}
+                    {autoRunJob.approval_required_for_doc_type && (
+                      <Badge variant="outline" className="text-[9px] h-4 border-amber-500/40 text-amber-600">
+                        Needs: {autoRunJob.approval_required_for_doc_type.replace(/_/g, ' ')}
+                      </Badge>
+                    )}
+                    {autoRunJob.pending_doc_type && autoRunJob.pending_doc_type !== autoRunJob.approval_required_for_doc_type && (
+                      <Badge variant="outline" className="text-[9px] h-4">
+                        Pending: {autoRunJob.pending_doc_type.replace(/_/g, ' ')}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex gap-2">
