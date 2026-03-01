@@ -289,6 +289,17 @@ export function useAutoRun(projectId: string | undefined) {
     }
   }, [job]);
 
+  const updateTarget = useCallback(async (ci: number, gp: number) => {
+    if (!job) return;
+    setError(null);
+    try {
+      const result = await callAutoRun('update-target', { jobId: job.id, ci, gp });
+      setJob(result.job);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }, [job]);
+
   const clear = useCallback(() => {
     setJob(null);
     setSteps([]);
@@ -391,5 +402,5 @@ export function useAutoRun(projectId: string | undefined) {
     }
   }, [job, isRunning]);
 
-  return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear, approveDecision, getPendingDoc, approveNext, applyDecisionsAndContinue, approveSeedCore };
+  return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear, approveDecision, getPendingDoc, approveNext, applyDecisionsAndContinue, approveSeedCore, updateTarget };
 }

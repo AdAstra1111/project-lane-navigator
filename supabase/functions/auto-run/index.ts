@@ -1740,6 +1740,7 @@ Deno.serve(async (req) => {
         current_document: effectiveStartDoc,
         max_stage_loops: effectiveMaxLoops,
         max_total_steps: effectiveMaxSteps,
+        converge_target_json: body.converge_target_json || { ci: 100, gp: 100 },
       }).select("*").single();
 
       if (error) throw new Error(`Failed to create job: ${error.message}`);
@@ -1834,6 +1835,20 @@ Deno.serve(async (req) => {
       }
 
       return respond({ job, latest_steps: [], next_action_hint: "run-next" });
+    }
+
+    // ═══════════════════════════════════════
+    // ACTION: update-target
+    // ═══════════════════════════════════════
+    if (action === "update-target") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const { ci, gp } = body;
+      if (typeof ci !== "number" || typeof gp !== "number" || ci < 0 || ci > 100 || gp < 0 || gp > 100) {
+        return respond({ error: "ci and gp must be numbers 0-100" }, 400);
+      }
+      await updateJob(supabase, jobId, { converge_target_json: { ci, gp } });
+      const { data: updatedJob } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
+      return respond({ job: updatedJob });
     }
 
     // ═══════════════════════════════════════
@@ -3092,7 +3107,6 @@ Deno.serve(async (req) => {
       const stageLoopCount = job.stage_loop_count;
 
 
-
       // bgTask owns the lock once spawned — its own finally releases it.
       // We track whether bgTask was spawned to avoid double-release.
       let bgTaskSpawned = false;
@@ -4028,7 +4042,7 @@ Deno.serve(async (req) => {
             // Parse convergence targets
             const convergeTarget = (typeof job.converge_target_json === 'object' && job.converge_target_json) 
               ? job.converge_target_json as { ci: number; gp: number }
-              : { ci: 90, gp: 90 };
+              : { ci: 100, gp: 100 };
             const convergedEnough = (ci >= convergeTarget.ci) && (gp >= convergeTarget.gp);
 
             if (!convergedEnough) {

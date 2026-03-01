@@ -512,6 +512,15 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     } catch (e: any) { setError(e.message); }
   }, [job]);
 
+  const updateTarget = useCallback(async (ci: number, gp: number) => {
+    if (!job) return;
+    setError(null);
+    try {
+      const result = await callAutoRun('update-target', { jobId: job.id, ci, gp });
+      if (result.job) setJob(result.job);
+    } catch (e: any) { setError(e.message); }
+  }, [job]);
+
   const toggleAllowDefaults = useCallback(async (val: boolean) => {
     if (!job) return;
     try {
@@ -562,5 +571,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     updateStepLimit, resumeFromStepLimit,
     // Auto-decide
     toggleAllowDefaults,
+    // Target
+    updateTarget,
   };
 }
