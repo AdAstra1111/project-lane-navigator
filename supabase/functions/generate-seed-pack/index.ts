@@ -5,8 +5,8 @@ import { upsertDoc, SEED_CORE_TYPES } from "../_shared/doc-os.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, apikey, x-client-info, content-type, prefer, accept, origin, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 interface SeedPackPayload {
@@ -148,11 +148,19 @@ Tailor content to the lane (${lane}) and format (${format}).`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
+  let body: any = {};
+  try {
+    body = await req.json();
+  } catch {
+    body = {};
   }
 
   try {
-    const authHeader = req.headers.get("Authorization") || "";
+    const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+    const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const apiKey = Deno.env.get("LOVABLE_API_KEY");
@@ -161,54 +169,44 @@ serve(async (req) => {
       return jsonRes({ error: "AI API key not configured" }, 500);
     }
 
-    // ── Auth gate: support both user JWTs and service_role tokens ──
-    const token = authHeader.replace(/^Bearer\s+/i, "");
+    const forwardedUserId = body?.userId ?? body?.user_id ?? null;
     let actorUserId: string | null = null;
     let isServiceRole = false;
 
-    // Detect service_role: raw key match OR JWT with role=service_role
-    if (serviceKey && token === serviceKey) {
+    if (serviceKey && bearer === serviceKey) {
       isServiceRole = true;
-    } else if (token.split(".").length === 3) {
+    } else if (bearer.split(".").length === 3) {
       try {
-        let seg = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        let seg = bearer.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
         seg += "=".repeat((4 - (seg.length % 4)) % 4);
         const payload = JSON.parse(atob(seg));
         if (payload.role === "service_role") isServiceRole = true;
-      } catch { /* not a JWT or decode failed */ }
+      } catch {
+        // ignore decode errors
+      }
     }
 
-    // Build clients up-front
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceClient = createClient(supabaseUrl, serviceKey);
     const rlsClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
+      global: { headers: { Authorization: authHeader || `Bearer ${bearer}` } },
     });
     const db = isServiceRole ? serviceClient : rlsClient;
 
     if (isServiceRole) {
-      // Extract userId from body for audit fields
-      const preBody = await req.clone().json();
-      actorUserId = preBody?.userId || preBody?.user_id || null;
-      console.log("[generate-seed-pack] service_role body userId check", { bodyUserId: preBody?.userId, bodyUser_id: preBody?.user_id, resolved: actorUserId });
+      actorUserId = forwardedUserId;
     } else {
-      const { data: { user: authUser }, error: authErr } = await rlsClient.auth.getUser();
+      const { data: { user: authUser }, error: authErr } = await rlsClient.auth.getUser(bearer);
       if (authErr || !authUser) {
         return jsonRes({ error: "Unauthorized" }, 401);
       }
       actorUserId = authUser.id;
     }
 
-    console.log("[generate-seed-pack] auth", { fn: "generate-seed-pack", isServiceRole, hasActorUserId: !!actorUserId, action: null });
-
-    const body: SeedPackPayload = await req.json();
-
     // Ping support
     if ((body as any).action === "ping") return jsonRes({ ok: true, function: "generate-seed-pack" });
 
-    const { projectId, pitch, lane, targetPlatform, riskOverride, commitOnly, necOverride } = body;
-
-    console.log("[generate-seed-pack] start", { projectId, lane, commitOnly: !!commitOnly });
+    const { projectId, pitch, lane, targetPlatform, riskOverride, commitOnly, necOverride } = body as SeedPackPayload;
 
     if (!projectId || !pitch || !lane) {
       return jsonRes({ success: false, insertedCount: 0, updatedCount: 0, error: "projectId, pitch, and lane are required" }, 400);
@@ -225,15 +223,25 @@ serve(async (req) => {
       return jsonRes({ error: "Project not found or access denied" }, 404);
     }
 
-    // Fallback: if service_role and no userId forwarded, use project owner
+    // Fallback: service_role without forwarded userId => project owner
     if (isServiceRole && !actorUserId) {
-      const { data: projOwner } = await db.from("projects").select("user_id").eq("id", projectId).single();
-      actorUserId = projOwner?.user_id || null;
-      console.log("[generate-seed-pack] userId fallback from project owner", { actorUserId });
+      const { data: ownerProject } = await serviceClient
+        .from("projects")
+        .select("user_id")
+        .eq("id", projectId)
+        .single();
+      actorUserId = ownerProject?.user_id ?? null;
     }
 
+    console.log("[generate-seed-pack] auth", {
+      isServiceRole,
+      hasForwardedUserId: !!forwardedUserId,
+      hasActorUserId: !!actorUserId,
+      projectId,
+    });
+
     if (!actorUserId) {
-      return jsonRes({ error: "Cannot determine user_id for document creation. Pass userId in body." }, 400);
+      return jsonRes({ error: "MISSING_USER_ID", detail: "No forwarded userId and project has no user_id" }, 400);
     }
 
     const adminClient = createClient(supabaseUrl, serviceKey);
