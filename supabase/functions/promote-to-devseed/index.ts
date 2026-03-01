@@ -248,8 +248,8 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
     }
 
     // Auto-extract episode count from format_summary and persist as devseed canon
-    const rawResponse = idea.raw_response || {};
-    const formatSummary = rawResponse.format_summary || rawResponse.format || '';
+    const ideaRawResponse = idea.raw_response || {};
+    const formatSummary = ideaRawResponse.format_summary || ideaRawResponse.format || '';
     let extractedEpCount: number | null = null;
     const epMatch = formatSummary.match(/(\d+)\s*x\s*/i) || formatSummary.match(/(\d+)\s*episodes/i);
     if (epMatch) extractedEpCount = parseInt(epMatch[1]);
