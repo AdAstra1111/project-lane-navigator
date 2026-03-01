@@ -1181,8 +1181,8 @@ export function AutoRunMissionControl({
                 return (
                   <div className="flex items-center gap-3 text-[9px] flex-wrap">
                     <span className="text-muted-foreground">Target:</span>
-                    <span className={ciMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>CI {ci}/{target.ci}</span>
-                    <span className={gpMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>GP {gp}/{target.gp}</span>
+                    <span className={ciMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>CI {ci}/100</span>
+                    <span className={gpMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>GP {gp}/100</span>
                   </div>
                 );
               })()}
