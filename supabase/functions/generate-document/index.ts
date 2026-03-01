@@ -90,56 +90,66 @@ async function callLLM(apiKey: string, system: string, user: string, model = "go
 // ─── Handler ───
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const jsonRes = (payload: Record<string, any>, status = 200) => new Response(JSON.stringify(payload), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
+  if (req.method === "OPTIONS") return jsonRes({ ok: true });
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const authHeader = req.headers.get("authorization") || "";
+    const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!bearer) return jsonRes({ error: "Unauthorized" }, 401);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const apiKey = Deno.env.get("LOVABLE_API_KEY") || serviceKey;
-    const supabase = createClient(supabaseUrl, serviceKey);
 
-    const token = authHeader.replace("Bearer ", "");
+    const body = await req.json();
+    const forwardedUserId = body?.userId ?? body?.user_id ?? null;
 
     // Detect service-role caller (raw key match OR JWT with role claim)
     let isServiceRole = false;
-    if (token === serviceKey) {
+    if (bearer === serviceKey) {
       isServiceRole = true;
-    } else if (token.split(".").length === 3) {
+    } else if (bearer.split(".").length === 3) {
       try {
-        const payloadB64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        const payloadB64 = bearer.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
         const padded = payloadB64 + "=".repeat((4 - payloadB64.length % 4) % 4);
         const payload = JSON.parse(atob(padded));
         if (payload.role === "service_role") isServiceRole = true;
-      } catch { /* not a JWT, fall through */ }
+      } catch {
+        // not a JWT, continue in user-auth path
+      }
     }
+
+    const serviceClient = createClient(supabaseUrl, serviceKey);
+    const rlsClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: `Bearer ${bearer}` } },
+    });
 
     let actorUserId: string | null = null;
     if (!isServiceRole) {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser(token);
-      if (userErr || !user) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+      const { data: { user }, error: userErr } = await rlsClient.auth.getUser(bearer);
+      if (userErr || !user) return jsonRes({ error: "Unauthorized" }, 401);
       actorUserId = user.id;
+    } else {
+      actorUserId = forwardedUserId;
     }
 
-    console.log("[generate-document] auth", { isServiceRole, hasUser: !!actorUserId });
+    const db = isServiceRole ? serviceClient : rlsClient;
+    const supabase = db;
 
-    const body = await req.json();
     const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext } = body;
 
-    // For service-role callers, accept forwarded user id from body
-    if (isServiceRole && !actorUserId) {
-      actorUserId = body.user_id || body.userId || null;
-    }
+    console.log("[generate-document] auth", {
+      isService: isServiceRole,
+      hasBearer: !!bearer,
+      hasForwardedUserId: !!forwardedUserId,
+      action: body?.action ?? body?.type ?? null,
+    });
 
     // Extract nuance parameters (with defaults)
     const nuanceParams: NuanceParams = {
@@ -151,11 +161,7 @@ Deno.serve(async (req) => {
       diversify: body.nuance?.diversify ?? true,
     };
 
-    if (!projectId || !docType) {
-      return new Response(JSON.stringify({ error: "projectId and docType required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (!projectId || !docType) return jsonRes({ error: "projectId and docType required" }, 400);
 
     // 1) Resolve qualifications
     const resolveRes = await fetch(`${supabaseUrl}/functions/v1/resolve-qualifications`, {
@@ -174,10 +180,14 @@ Deno.serve(async (req) => {
 
     // 2) Load project metadata
     const { data: project } = await supabase.from("projects")
-      .select("title, format, pipeline_stage, guardrails_config, season_style_template_version_id, season_style_profile")
+      .select("title, format, pipeline_stage, guardrails_config, season_style_template_version_id, season_style_profile, user_id")
       .eq("id", projectId).single();
 
     if (!project) throw new Error("Project not found");
+
+    if (isServiceRole && !actorUserId) {
+      actorUserId = project.user_id || null;
+    }
 
     // 3) Load upstream documents
     const upstreamTypes = UPSTREAM_DEPS[docType] || [];
@@ -901,8 +911,9 @@ D) OUTPUT CONTRACT — At the top of your response, print:
     });
   } catch (e: any) {
     console.error("[generate-document] error:", e);
-    return new Response(JSON.stringify({ error: e.message || "Internal error" }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonRes({
+      error: e?.message || "Internal error",
+      detail: e?.stack ? String(e.stack).split("\n").slice(0, 2).join(" | ") : undefined,
+    }, 500);
   }
 });
