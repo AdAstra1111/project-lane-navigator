@@ -179,7 +179,7 @@ export default function SeriesWriter() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('projects')
-        .select('title, format, season_episode_count, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds')
+        .select('title, format, season_episode_count, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, development_behavior')
         .eq('id', projectId!)
         .single();
       if (error) throw error;
@@ -1190,6 +1190,8 @@ export default function SeriesWriter() {
                         onApplyFix={(issueId, selectedFixOption) => canonAudit.applyFix.mutate({ issueId, selectedFixOption })}
                         onDismiss={(issueId) => canonAudit.dismissIssue.mutate(issueId)}
                         hasScript={!!selectedEpisode?.script_id}
+                        projectId={projectId}
+                        isCanonLocked={(project as any)?.development_behavior === 'sequential_canon_locked'}
                       />
                       <EpisodeDevNotesPanel
                         run={devValidation.devNotesRun || null}

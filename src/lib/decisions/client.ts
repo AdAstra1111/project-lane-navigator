@@ -63,3 +63,34 @@ export async function listResolvedNotes(projectId: string) {
 export async function clearReconcile(projectId: string, documentId?: string) {
   return callDecisionsEngine('clear-reconcile', { projectId, documentId });
 }
+
+/**
+ * Apply a canonical rename across all project documents.
+ */
+export async function applyCanonRename(params: {
+  projectId: string;
+  oldName: string;
+  newName: string;
+  entityKind?: 'character' | 'location' | 'organization' | 'other';
+  notes?: string | null;
+}) {
+  const resp = await supabase.functions.invoke('canon-decisions', {
+    body: {
+      action: 'create_and_apply',
+      projectId: params.projectId,
+      decision: {
+        type: 'RENAME_ENTITY',
+        payload: {
+          entity_kind: params.entityKind || 'character',
+          old_name: params.oldName,
+          new_name: params.newName,
+          notes: params.notes || null,
+        },
+      },
+      apply: { mode: 'auto' },
+    },
+  });
+  if (resp.error) throw new Error(resp.error.message || 'Canon rename failed');
+  if (resp.data?.error) throw new Error(resp.data.error);
+  return resp.data;
+}
