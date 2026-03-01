@@ -334,9 +334,11 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
       const title = projectTitle.trim() || defaultTitle;
       const lane = idea.recommended_lane || 'independent-film';
 
-      // Read devseed canon for episode count, fallback to parsing format_summary
+      // Read devseed canon for episode count + duration
       const devseedCanon = (idea as any).devseed_canon_json || {};
       let canonEpisodeCount = devseedCanon.season_episode_count;
+      let canonDurMin: number | null = typeof devseedCanon.episode_length_seconds_min === 'number' ? devseedCanon.episode_length_seconds_min : null;
+      let canonDurMax: number | null = typeof devseedCanon.episode_length_seconds_max === 'number' ? devseedCanon.episode_length_seconds_max : null;
 
       // Auto-extract from raw_response format_summary if not explicitly set
       if (!canonEpisodeCount || typeof canonEpisodeCount !== 'number') {
@@ -346,7 +348,24 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         if (match) canonEpisodeCount = parseInt(match[1]);
       }
 
-      // 1. Create project — copy canonical episode count from devseed
+      // Auto-extract duration from format_summary (e.g. "30 x 2-3 min")
+      if (canonDurMin == null && canonDurMax == null) {
+        const raw = idea.raw_response as any || {};
+        const fmt = raw.format_summary || raw.format || '';
+        const durMatch = fmt.match(/(\d+)\s*[-–]\s*(\d+)\s*min/i);
+        if (durMatch) {
+          canonDurMin = parseInt(durMatch[1]) * 60;
+          canonDurMax = parseInt(durMatch[2]) * 60;
+        } else {
+          const singleMatch = fmt.match(/(\d+)\s*min/i);
+          if (singleMatch) {
+            canonDurMin = parseInt(singleMatch[1]) * 60;
+            canonDurMax = canonDurMin;
+          }
+        }
+      }
+
+      // 1. Create project — copy canonical episode count + duration from devseed
       const projectInsert: Record<string, any> = {
         title,
         user_id: user.id,
@@ -363,6 +382,14 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         projectInsert.season_episode_count = canonEpisodeCount;
         projectInsert.season_episode_count_locked = true;
         projectInsert.season_episode_count_source = 'devseed';
+      }
+
+      // Copy canonical duration into project columns
+      if (canonDurMin != null && canonDurMax != null) {
+        projectInsert.episode_target_duration_min_seconds = canonDurMin;
+        projectInsert.episode_target_duration_max_seconds = canonDurMax;
+        projectInsert.episode_target_duration_seconds = Math.round((canonDurMin + canonDurMax) / 2);
+        console.log(`[DevSeed] Episode duration from devseed: ${canonDurMin}-${canonDurMax}s`);
       }
 
       const { data: project, error: projErr } = await supabase
@@ -473,6 +500,20 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           if (val && !merged[key]) {
             merged[key] = val;
           }
+        }
+
+        // ── Plant canonical duration in canon_json.format block ──
+        if (canonDurMin != null && canonDurMax != null) {
+          merged.format = {
+            ...(typeof merged.format === 'object' && merged.format ? merged.format : {}),
+            episode_duration_seconds: { min: canonDurMin, max: canonDurMax },
+            episode_duration_source: 'devseed',
+            episode_duration_locked: true,
+          };
+          // Also plant legacy keys for backward compat
+          merged.episode_length_seconds_min = canonDurMin;
+          merged.episode_length_seconds_max = canonDurMax;
+          console.log(`[DevSeed] Planted canonical duration in canon_json.format: ${canonDurMin}-${canonDurMax}s (locked)`);
         }
         merged.seed_draft = seedDraft;
         if (history.length > 0) merged.seed_draft_history = history;

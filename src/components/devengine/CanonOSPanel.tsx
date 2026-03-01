@@ -13,7 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   BookOpen, ChevronDown, Loader2, ShieldCheck, Plus, Trash2,
-  Save, RefreshCw, PenLine, FileText,
+  Save, RefreshCw, PenLine, FileText, Lock, Unlock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCanonOS } from '@/hooks/useCanonOS';
@@ -201,6 +201,31 @@ export function CanonOSPanel({ projectId }: Props) {
                   <Input type="number" value={draft.episode_length_seconds_max ?? ''} onChange={e => updateField('episode_length_seconds_max', e.target.value ? Number(e.target.value) : null)} className="h-7 text-xs" />
                 </div>
               </div>
+              {/* Duration source & lock info */}
+              {(() => {
+                const fmtBlock = (draft as any).format;
+                const source = fmtBlock?.episode_duration_source;
+                const locked = fmtBlock?.episode_duration_locked;
+                if (!source && !locked) return null;
+                return (
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge variant="outline" className="text-[9px] gap-1">
+                      {locked ? <Lock className="h-2.5 w-2.5" /> : <Unlock className="h-2.5 w-2.5" />}
+                      {source || 'unknown'}
+                      {locked ? ' (locked)' : ' (editable)'}
+                    </Badge>
+                    <button
+                      className="text-[9px] text-muted-foreground hover:text-foreground underline"
+                      onClick={() => {
+                        const cur = (draft as any).format || {};
+                        updateField('format' as any, { ...cur, episode_duration_locked: !locked });
+                      }}
+                    >
+                      {locked ? 'Unlock' : 'Lock'}
+                    </button>
+                  </div>
+                );
+              })()}
               <div>
                 <Label className="text-[10px] text-muted-foreground">Tone</Label>
                 <Input value={(draft.tone as string) || ''} onChange={e => updateField('tone', e.target.value)} className="h-7 text-xs" />
