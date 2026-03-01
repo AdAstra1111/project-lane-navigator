@@ -87,14 +87,14 @@ Deno.serve(async (req) => {
             blueprint: "blueprint", beat_sheet: "blueprint", character_bible: "character_bible",
             episode_grid: "episode_grid", season_arc: "season_arc",
             documentary_outline: "documentary_outline", format_rules: "format_rules",
-            episode_script: "episode_script", feature_script: "feature_script",
-            production_draft: "production_draft", script_pdf: "feature_script",
+            episode_script: "episode_script", season_script: "season_script",
+            feature_script: "feature_script", script_pdf: "feature_script",
           };
 
           const BUNDLE_ROLES: Record<string, string[]> = {
-            PACKAGE: ["concept", "market", "deck", "blueprint", "character_bible", "episode_script", "feature_script", "episode_grid", "season_arc", "format_rules", "documentary_outline"],
-            NARRATIVE: ["feature_script", "episode_script", "episode_grid", "season_arc", "blueprint", "character_bible"],
-            COMMERCIAL: ["market", "deck", "concept", "feature_script", "episode_script"],
+            PACKAGE: ["concept", "market", "deck", "blueprint", "character_bible", "episode_script", "season_script", "feature_script", "episode_grid", "season_arc", "format_rules", "documentary_outline"],
+            NARRATIVE: ["feature_script", "episode_script", "season_script", "episode_grid", "season_arc", "blueprint", "character_bible"],
+            COMMERCIAL: ["market", "deck", "concept", "feature_script", "episode_script", "season_script"],
             DOCU_REALITY: ["documentary_outline", "deck", "market", "concept", "feature_script"],
           };
           const desiredRoles = new Set(BUNDLE_ROLES[bundleKey || "PACKAGE"] || BUNDLE_ROLES.PACKAGE);
@@ -373,6 +373,7 @@ function resolveRole(version: any, parentDoc: any): string {
     documentary_outline: "documentary_outline", doc_outline: "documentary_outline",
     format_rules: "format_rules",
     script: "feature_script", feature_script: "feature_script",
+    season_script: "season_script",
     script_pdf: "feature_script",
     pilot_script: "episode_script", episode_script: "episode_script",
     episode_1_script: "episode_script",
@@ -404,9 +405,9 @@ function buildRoleMap(
   versionMap: Map<string, any>,
 ): { versionId: string; role: string }[] {
   const BUNDLE_ROLES: Record<string, string[]> = {
-    PACKAGE: ["concept", "market", "deck", "blueprint", "character_bible", "episode_script", "feature_script", "episode_grid", "season_arc", "format_rules", "documentary_outline"],
-    NARRATIVE: ["feature_script", "episode_script", "episode_grid", "season_arc", "blueprint", "character_bible"],
-    COMMERCIAL: ["market", "deck", "concept", "feature_script", "episode_script"],
+    PACKAGE: ["concept", "market", "deck", "blueprint", "character_bible", "episode_script", "season_script", "feature_script", "episode_grid", "season_arc", "format_rules", "documentary_outline"],
+    NARRATIVE: ["feature_script", "episode_script", "season_script", "episode_grid", "season_arc", "blueprint", "character_bible"],
+    COMMERCIAL: ["market", "deck", "concept", "feature_script", "episode_script", "season_script"],
     DOCU_REALITY: ["documentary_outline", "deck", "market", "concept", "feature_script"],
   };
 

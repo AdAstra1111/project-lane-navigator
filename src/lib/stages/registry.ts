@@ -28,6 +28,7 @@ export type DeliverableStage =
   | 'episode_beats'
   | 'feature_script'
   | 'episode_script'
+  | 'season_script'
   | 'season_master_script'
   | 'production_draft'
   | 'deck'
@@ -137,6 +138,7 @@ export const DOC_TYPE_TO_LADDER_STAGE: Record<string, DeliverableStage> = {
   episode_beats:           'episode_beats',
   feature_script:          'feature_script',
   episode_script:          'episode_script',
+  season_script:           'season_script',
   season_master_script:    'season_master_script',
   production_draft:        'production_draft',
   deck:                    'deck',

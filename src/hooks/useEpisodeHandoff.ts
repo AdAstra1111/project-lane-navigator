@@ -97,13 +97,22 @@ export function useEpisodeHandoff(projectId: string) {
       }
 
       // Create a project_document for the dev engine work
+      // For vertical_drama, use season_script; for series, use episode_script
+      const { data: proj } = await supabase
+        .from('projects')
+        .select('assigned_lane')
+        .eq('id', projectId)
+        .single();
+      const isVerticalDrama = proj?.assigned_lane === 'vertical_drama';
+      const scriptDocType = isVerticalDrama ? 'season_script' : 'episode_script';
+
       const docTitle = `EP ${String(params.episodeNumber).padStart(2, '0')} — Dev Engine Work`;
       const { data: doc, error: docErr } = await supabase
         .from('project_documents')
         .insert({
           project_id: projectId,
           user_id: user.id,
-          doc_type: 'episode_script',
+          doc_type: scriptDocType,
           title: docTitle,
           file_name: `ep${String(params.episodeNumber).padStart(2, '0')}_dev.md`,
           file_path: `${projectId}/dev-engine/ep${String(params.episodeNumber).padStart(2, '0')}_dev.md`,

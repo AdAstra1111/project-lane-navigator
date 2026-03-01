@@ -12,6 +12,7 @@ export type CoverageRole =
   | 'blueprint'
   | 'character_bible'
   | 'episode_script'
+  | 'season_script'
   | 'feature_script'
   | 'episode_grid'
   | 'season_arc'
@@ -28,6 +29,7 @@ export const COVERAGE_ROLE_LABELS: Record<CoverageRole, string> = {
   blueprint: 'Blueprint / Series Bible',
   character_bible: 'Character Bible',
   episode_script: 'Episode Script',
+  season_script: 'Season Script',
   feature_script: 'Feature Script',
   episode_grid: 'Episode Grid',
   season_arc: 'Season Arc',

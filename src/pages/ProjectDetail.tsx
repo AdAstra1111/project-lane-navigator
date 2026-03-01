@@ -231,7 +231,7 @@ export default function ProjectDetail() {
       const scriptDoc = documents.find(d => getText(d) && d.file_name.match(/\.(pdf|txt|fdx|fountain|docx|doc|md)$/i));
       if (scriptDoc) return getText(scriptDoc);
       // Check for dev-engine script docs or script_pdf
-      const devScript = documents.find(d => getText(d) && ((d.doc_type as string) === 'script' || (d.doc_type as string) === 'feature_script' || (d.doc_type as string) === 'episode_script' || (d.doc_type as string) === 'script_pdf' || d.doc_type === 'treatment'));
+      const devScript = documents.find(d => getText(d) && ((d.doc_type as string) === 'script' || (d.doc_type as string) === 'feature_script' || (d.doc_type as string) === 'episode_script' || (d.doc_type as string) === 'season_script' || (d.doc_type as string) === 'script_pdf' || d.doc_type === 'treatment'));
       if (devScript) return getText(devScript);
       const anyDoc = documents.find(d => getText(d));
       if (anyDoc) return getText(anyDoc);

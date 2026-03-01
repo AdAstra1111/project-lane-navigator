@@ -28,7 +28,7 @@ interface Props {
   activeText?: string;
 }
 
-const SCRIPT_DOC_TYPES = ['script', 'screenplay', 'episode_script', 'complete_season_script'];
+const SCRIPT_DOC_TYPES = ['script', 'screenplay', 'episode_script', 'season_script', 'complete_season_script'];
 
 export function StyleSourcesPanel({ projectId, userId, lane, activeText }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);

@@ -30,8 +30,8 @@ function adminClient() {
 
 const DOC_TYPE_PRIORITY = [
   "shot_list", "scene_list", "screenplay", "script", "episode_script",
-  "beat_sheet", "character_bible", "series_overview", "season_arc",
-  "episode_grid", "lookbook", "world_tone",
+  "season_script", "beat_sheet", "character_bible", "series_overview",
+  "season_arc", "episode_grid", "lookbook", "world_tone",
 ];
 
 // ─── select_sources ───

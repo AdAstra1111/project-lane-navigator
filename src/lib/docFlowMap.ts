@@ -45,12 +45,12 @@ const VERTICAL_DRAMA_CONFIG: DocFlowConfig = {
     { key: 'season_arc',   label: 'Season Arc',           docTypes: ['season_arc'] },
     { key: 'ep_grid',      label: 'Episode Grid',         docTypes: ['episode_grid'] },
     { key: 'ep_beats',     label: 'Episode Beats',        docTypes: ['vertical_episode_beats'] },
-    { key: 'ep_script',    label: 'Episode Script',       docTypes: ['episode_script'] },
-    { key: 'series_writer',label: 'Series Writer',        docTypes: ['episode_script'] },
+    { key: 'ep_script',    label: 'Season Script',        docTypes: ['season_script'] },
+    { key: 'series_writer',label: 'Series Writer',        docTypes: ['season_script'] },
     { key: 'master',       label: 'Master Season Script', docTypes: ['season_master_script'] },
   ],
   allowedConversions: [],
-  primaryFlow: ['episode_grid', 'vertical_episode_beats', 'episode_script', 'season_master_script'],
+  primaryFlow: ['episode_grid', 'vertical_episode_beats', 'season_script', 'season_master_script'],
   hiddenDocTypes: ['feature_script', 'production_draft', 'market_sheet', 'story_outline', 'beat_sheet'],
 };
 

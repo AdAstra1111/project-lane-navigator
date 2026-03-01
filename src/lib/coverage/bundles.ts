@@ -10,6 +10,7 @@ import { isDocumentaryFormat } from '@/lib/types';
 export function getBundleDefinitions(format: string): BundleDef[] {
   const f = normalizeFormat(format);
   const isSeries = isSeriesFormat(f);
+  const isVerticalDrama = f === 'vertical-drama';
   const isDoc = isDocumentaryFormat(f);
 
   const bundles: BundleDef[] = [];
@@ -21,7 +22,7 @@ export function getBundleDefinitions(format: string): BundleDef[] {
     description: 'Creative + commercial evaluation of the full project package.',
     roles: [
       'topline', 'concept', 'market', 'deck', 'blueprint', 'character_bible',
-      isSeries ? 'episode_script' : 'feature_script',
+      isVerticalDrama ? 'season_script' : isSeries ? 'episode_script' : 'feature_script',
       'episode_grid', 'season_arc', 'format_rules',
       isDoc ? 'documentary_outline' : null,
     ].filter(Boolean) as CoverageRole[],
@@ -32,7 +33,7 @@ export function getBundleDefinitions(format: string): BundleDef[] {
       deck: 9,
       blueprint: 13,
       character_bible: 10,
-      [isSeries ? 'episode_script' : 'feature_script']: 25,
+      [isVerticalDrama ? 'season_script' : isSeries ? 'episode_script' : 'feature_script']: 25,
       episode_grid: 5,
       season_arc: 5,
       format_rules: 5,
@@ -41,7 +42,16 @@ export function getBundleDefinitions(format: string): BundleDef[] {
   });
 
   // NARRATIVE
-  if (isSeries) {
+  if (isVerticalDrama) {
+    bundles.push({
+      key: 'NARRATIVE',
+      name: 'Narrative Coverage',
+      description: 'Season arc coherence, episode structure, and character consistency.',
+      roles: ['topline', 'season_script', 'episode_grid', 'season_arc', 'blueprint', 'character_bible'],
+      weights: { topline: 5, season_script: 33, episode_grid: 18, season_arc: 18, blueprint: 14, character_bible: 12 },
+      minDocs: 1,
+    });
+  } else if (isSeries) {
     bundles.push({
       key: 'NARRATIVE',
       name: 'Narrative Coverage',

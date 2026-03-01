@@ -34,6 +34,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   season_arc: 'Season Arc',
   episode_grid: 'Episode Grid',
   episode_script: 'Episode Script',
+  season_script: 'Season Script',
   script_coverage: 'Coverage',
   brief: 'Brief',
   notes: 'Notes',
