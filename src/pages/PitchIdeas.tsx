@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { initEditedFields, normalizePitchCriteria, type EditedFieldsMap } from '@/lib/pitch/normalizePitchCriteria';
 import { motion } from 'framer-motion';
 import { Lightbulb, Loader2, Download, RefreshCw, Globe } from 'lucide-react';
 import { Header } from '@/components/Header';
@@ -25,6 +26,7 @@ export default function PitchIdeas() {
   const [generating, setGenerating] = useState(false);
   const [generateFailed, setGenerateFailed] = useState(false);
   const [criteria, setCriteria] = useState<HardCriteria>({ ...EMPTY_CRITERIA });
+  const [editedFields, setEditedFields] = useState<EditedFieldsMap>(() => initEditedFields());
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState('');
   const [promoteIdea, setPromoteIdea] = useState<PitchIdea | null>(null);
@@ -39,7 +41,7 @@ export default function PitchIdeas() {
       .sort((a, b) => (Number(b.score_total) || 0) - (Number(a.score_total) || 0));
   }, [ideas, statusFilter]);
 
-  const clean = (v: string) => (!v || v === '__any__' || v === '__none__') ? '' : v;
+  
 
   const generate = useCallback(async () => {
     if (!criteria.productionType) {
@@ -50,44 +52,27 @@ export default function PitchIdeas() {
     setGenerateFailed(false);
 
     try {
+      // Normalize: only user-edited fields go as manual_criteria; rest are auto_fields
+      const normalized = normalizePitchCriteria(criteria as unknown as Record<string, unknown>, editedFields);
+
       const { data, error } = await supabase.functions.invoke('generate-pitch', {
         body: {
           productionType: criteria.productionType,
-          genre: clean(criteria.genre),
-          subgenre: clean(criteria.subgenre),
-          budgetBand: clean(criteria.budgetBand),
-          region: clean(criteria.region),
-          platformTarget: clean(criteria.platformTarget),
-          riskLevel: criteria.riskLevel || 'medium',
           count: 10,
           projectId: (!selectedProject || selectedProject === '__none__') ? undefined : selectedProject,
-          hardCriteria: {
-            culturalTag: clean(criteria.culturalTag),
-            toneAnchor: clean(criteria.toneAnchor),
-            lane: clean(criteria.lane),
-            rating: clean(criteria.rating),
-            audience: clean(criteria.audience),
-            languageTerritory: clean(criteria.languageTerritory),
-            epLength: criteria.epLength || undefined,
-            epCount: criteria.epCount || undefined,
-            runtimeMin: criteria.runtimeMin || undefined,
-            runtimeMax: criteria.runtimeMax || undefined,
-            settingType: clean(criteria.settingType),
-            locationVibe: clean(criteria.locationVibe),
-            arenaProfession: clean(criteria.arenaProfession),
-            romanceTropes: criteria.romanceTropes,
-            heatLevel: clean(criteria.heatLevel),
-            obstacleType: clean(criteria.obstacleType),
-            mustHaveTropes: criteria.mustHaveTropes,
-            avoidTropes: criteria.avoidTropes,
-            prohibitedComps: criteria.prohibitedComps,
-            locationsMax: criteria.locationsMax || undefined,
-            castSizeMax: criteria.castSizeMax || undefined,
-            starRole: clean(criteria.starRole),
-            noveltyLevel: criteria.noveltyLevel || 'balanced',
-            differentiateBy: clean(criteria.differentiateBy),
-          },
-          briefNotes: criteria.notes || undefined,
+          // New contract: manual_criteria + auto_fields
+          manual_criteria: normalized.manual_criteria,
+          auto_fields: normalized.auto_fields,
+          meta: normalized.meta,
+          // Legacy top-level fields for backward compat with current backend
+          genre: normalized.manual_criteria.genre || '',
+          subgenre: normalized.manual_criteria.subgenre || '',
+          budgetBand: normalized.manual_criteria.budgetBand || '',
+          region: normalized.manual_criteria.region || '',
+          platformTarget: normalized.manual_criteria.platformTarget || '',
+          riskLevel: (normalized.manual_criteria.riskLevel as string) || 'medium',
+          hardCriteria: normalized.manual_criteria,
+          briefNotes: (normalized.manual_criteria.notes as string) || undefined,
         },
       });
 
@@ -274,6 +259,8 @@ export default function PitchIdeas() {
           onGenerate={generate}
           generating={generating}
           hasProject={!!selectedProject && selectedProject !== '__none__'}
+          editedFields={editedFields}
+          onEditedFieldsChange={setEditedFields}
         />
 
         <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />

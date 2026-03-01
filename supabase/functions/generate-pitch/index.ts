@@ -10,11 +10,14 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const body = await req.json();
     const {
       productionType, genre, subgenre, budgetBand, region, platformTarget,
       audienceDemo, riskLevel, count, coverageContext, feedbackContext,
       briefNotes, projectId, skipSignals, hardCriteria,
-    } = await req.json();
+      // New contract fields
+      manual_criteria, auto_fields, meta,
+    } = body;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
@@ -65,6 +68,69 @@ serve(async (req) => {
       if (hardCriteria.differentiateBy) parts.push(`Differentiate By: ${hardCriteria.differentiateBy} — this should be each concept's key distinctive element.`);
       if (parts.length > 0) {
         hardCriteriaBlock = `\n\n=== HARD CRITERIA (NON-NEGOTIABLE — reject any concept that violates these) ===\n${parts.join('\n')}\n=== END HARD CRITERIA ===\n`;
+      }
+    }
+
+    // ── Auto-fields: resolve from Trends (deterministic, no LLM) ──
+    let autoFieldsBlock = "";
+    if (auto_fields && Array.isArray(auto_fields) && auto_fields.length > 0) {
+      try {
+        const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+        const autoSupa = createClient(supabaseUrl, supabaseKey);
+        const { data: signals } = await autoSupa
+          .from("trend_signals")
+          .select("category, label, strength, velocity, explanation")
+          .eq("production_type", typeLabel)
+          .eq("status", "active")
+          .order("strength", { ascending: false })
+          .limit(20);
+
+        if (signals && signals.length > 0) {
+          const trendParts: string[] = [];
+          trendParts.push("The following guidance is derived from current market Trends for unspecified criteria fields:");
+
+          const byCategory = (cat: string[]) => signals.filter((s: any) => cat.includes((s.category || "").toLowerCase()));
+
+          for (const field of (auto_fields as string[]).sort()) {
+            const genreS = byCategory(["genre"]);
+            const audienceS = byCategory(["audience"]);
+            const settingS = byCategory(["setting", "world"]);
+            const toneS = byCategory(["tone"]);
+            const platformS = byCategory(["platform", "distribution"]);
+            switch (field) {
+              case "genre":
+                if (genreS.length > 0) trendParts.push(`Trending genres: ${genreS.slice(0, 3).map((s: any) => `${s.label} (${s.strength}/10)`).join(", ")}. Lean toward these.`);
+                break;
+              case "audience":
+                if (audienceS.length > 0) trendParts.push(`Trending audiences: ${audienceS.slice(0, 2).map((s: any) => s.label).join(", ")}.`);
+                break;
+              case "settingType": case "locationVibe": case "arenaProfession":
+                if (settingS.length > 0) trendParts.push(`Trending worlds: ${settingS.slice(0, 3).map((s: any) => s.label).join(", ")}.`);
+                break;
+              case "toneAnchor":
+                if (toneS.length > 0) trendParts.push(`Trending tones: ${toneS.slice(0, 2).map((s: any) => s.label).join(", ")}.`);
+                break;
+              case "platformTarget":
+                if (platformS.length > 0) trendParts.push(`Trending platforms: ${platformS.slice(0, 2).map((s: any) => s.label).join(", ")}.`);
+                break;
+              case "region": trendParts.push("Select most commercially viable region from trends."); break;
+              case "lane": trendParts.push("Select most viable monetisation lane from market conditions."); break;
+              case "budgetBand": trendParts.push("Choose budget band matching current market appetite."); break;
+              case "differentiateBy": trendParts.push("Differentiate via strongest market gap."); break;
+              case "rating": trendParts.push("Select rating fitting target audience and platform trends."); break;
+              case "culturalTag": trendParts.push("Choose cultural anchor from trending cultural movements if relevant."); break;
+              case "subgenre": trendParts.push("Choose subgenre from trending sub-categories."); break;
+              case "languageTerritory": trendParts.push("Choose language/territory from trending markets."); break;
+            }
+          }
+
+          if (trendParts.length > 1) {
+            autoFieldsBlock = `\n\n=== TRENDS-DERIVED GUIDANCE (soft constraints for unspecified fields) ===\n${trendParts.join("\n")}\n=== END TRENDS GUIDANCE ===\n`;
+          }
+        }
+        console.log(`[generate-pitch] auto_fields=${auto_fields.length}, trends_block=${autoFieldsBlock.length > 0}`);
+      } catch (e) {
+        console.warn("[generate-pitch] Trends auto-fields fetch failed (non-fatal):", e);
       }
     }
 
@@ -250,7 +316,7 @@ serve(async (req) => {
 ${guardrails.textBlock}
 
 PRODUCTION TYPE: ${typeLabel}
-ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${nuanceBlock}${driftBlock}
+ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}
 
 Generate exactly ${batchSize} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
 
