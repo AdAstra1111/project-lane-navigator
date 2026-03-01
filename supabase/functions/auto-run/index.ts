@@ -1720,6 +1720,15 @@ Deno.serve(async (req) => {
     }
     const { action, projectId, jobId, mode, start_document, target_document, max_stage_loops, max_total_steps, decision, new_step_limit } = body;
 
+    console.log("[auto-run] request", { action, hasAuthHeader: !!authHeader });
+
+    // ═══════════════════════════════════════
+    // ACTION: ping (reachability check)
+    // ═══════════════════════════════════════
+    if (action === "ping") {
+      return respond({ ok: true });
+    }
+
     // ═══════════════════════════════════════
     // ACTION: update-step-limit
     // ═══════════════════════════════════════
