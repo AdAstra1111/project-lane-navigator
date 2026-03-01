@@ -161,31 +161,44 @@ serve(async (req) => {
       return jsonRes({ error: "AI API key not configured" }, 500);
     }
 
-    // Support service_role raw key (from auto-run) or normal JWT
+    // ── Auth gate: support both user JWTs and service_role tokens ──
     const token = authHeader.replace(/^Bearer\s+/i, "");
-    let user: { id: string } | null = null;
+    let actorUserId: string | null = null;
     let isServiceRole = false;
 
+    // Detect service_role: raw key match OR JWT with role=service_role
     if (serviceKey && token === serviceKey) {
-      // Service role caller — extract userId from body
       isServiceRole = true;
+    } else if (token.split(".").length === 3) {
+      try {
+        let seg = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        seg += "=".repeat((4 - (seg.length % 4)) % 4);
+        const payload = JSON.parse(atob(seg));
+        if (payload.role === "service_role") isServiceRole = true;
+      } catch { /* not a JWT or decode failed */ }
+    }
+
+    // Build clients up-front
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const serviceClient = createClient(supabaseUrl, serviceKey);
+    const rlsClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const db = isServiceRole ? serviceClient : rlsClient;
+
+    if (isServiceRole) {
+      // Extract userId from body for audit fields; allow null
       const preBody = await req.clone().json();
-      const bodyUserId = preBody?.userId || preBody?.user_id || null;
-      if (bodyUserId) {
-        user = { id: bodyUserId };
-      } else {
-        user = { id: "service_role" };
-      }
+      actorUserId = preBody?.userId || preBody?.user_id || null;
     } else {
-      const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-        global: { headers: { Authorization: authHeader } },
-      });
-      const { data: { user: authUser }, error: authErr } = await anonClient.auth.getUser();
+      const { data: { user: authUser }, error: authErr } = await rlsClient.auth.getUser();
       if (authErr || !authUser) {
         return jsonRes({ error: "Unauthorized" }, 401);
       }
-      user = authUser;
+      actorUserId = authUser.id;
     }
+
+    console.log("[generate-seed-pack] auth", { isServiceRole, hasUserToken: !!token });
 
     const body: SeedPackPayload = await req.json();
     const { projectId, pitch, lane, targetPlatform, riskOverride, commitOnly, necOverride } = body;
@@ -196,13 +209,8 @@ serve(async (req) => {
       return jsonRes({ success: false, insertedCount: 0, updatedCount: 0, error: "projectId, pitch, and lane are required" }, 400);
     }
 
-    // Access check — service role uses admin client, normal uses RLS-scoped client
-    const queryClient = isServiceRole
-      ? createClient(supabaseUrl, serviceKey)
-      : createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-          global: { headers: { Authorization: authHeader } },
-        });
-    const { data: project, error: projErr } = await queryClient
+    // Access check via db (RLS-scoped for users, admin for service_role)
+    const { data: project, error: projErr } = await db
       .from("projects")
       .select("id, title, format, genres, assigned_lane, budget_range, tone, target_audience")
       .eq("id", projectId)
@@ -260,7 +268,7 @@ serve(async (req) => {
             is_current: true,
             status: "draft",
             label: `nec_edited_v${nextVersion}`,
-            created_by: user.id,
+            created_by: actorUserId,
             approval_status: "draft",
             meta_json: provenance,
           });
@@ -275,7 +283,7 @@ serve(async (req) => {
           .from("project_documents")
           .insert({
             project_id: projectId,
-            user_id: user.id,
+            user_id: actorUserId,
             title: necCfg.title,
             doc_type: necCfg.doc_type,
             ingestion_source: "seed",
@@ -302,7 +310,7 @@ serve(async (req) => {
             is_current: true,
             status: "draft",
             label: "nec_edited_v1",
-            created_by: user.id,
+            created_by: actorUserId,
             approval_status: "draft",
             meta_json: provenance,
           });
@@ -446,7 +454,7 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
       try {
         const result = await upsertDoc(adminClient, {
           projectId,
-          userId: user.id,
+          userId: actorUserId,
           docType: cfg.doc_type,
           plaintext: content,
           label: `seed_v1`,
