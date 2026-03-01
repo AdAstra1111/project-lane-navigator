@@ -10,6 +10,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { MODE_GENRES, MODE_BUDGETS } from '@/lib/constants';
 import type { ProjectFormat } from '@/lib/types';
+import { PITCH_CRITERIA_SCHEMA, isFieldEmpty } from '@/lib/pitch/pitchCriteriaSchema';
+import type { EditedFieldsMap } from '@/lib/pitch/normalizePitchCriteria';
+import { markEdited } from '@/lib/pitch/normalizePitchCriteria';
 
 export interface HardCriteria {
   // Core
@@ -131,6 +134,20 @@ interface Props {
   onGenerate: () => void;
   generating: boolean;
   hasProject: boolean;
+  editedFields: EditedFieldsMap;
+  onEditedFieldsChange: (edited: EditedFieldsMap) => void;
+}
+
+/** Tiny Auto/Manual indicator for optional fields */
+function AutoIndicator({ fieldKey, editedFields }: { fieldKey: string; editedFields: EditedFieldsMap }) {
+  const def = PITCH_CRITERIA_SCHEMA.find(f => f.key === fieldKey);
+  if (!def?.optional || !def.autoWhenMissing) return null;
+  const isEdited = editedFields[fieldKey] === true;
+  return (
+    <span className={`text-[9px] uppercase tracking-wider font-medium ml-1 ${isEdited ? 'text-primary' : 'text-muted-foreground/60'}`}>
+      {isEdited ? 'Manual' : 'Auto'}
+    </span>
+  );
 }
 
 function TagInput({ value, onChange, placeholder, variant = 'default' }: { value: string[]; onChange: (v: string[]) => void; placeholder: string; variant?: 'default' | 'destructive' }) {
@@ -159,8 +176,16 @@ function TagInput({ value, onChange, placeholder, variant = 'default' }: { value
   );
 }
 
-export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, hasProject }: Props) {
-  const update = (patch: Partial<HardCriteria>) => onChange({ ...criteria, ...patch });
+export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, hasProject, editedFields, onEditedFieldsChange }: Props) {
+  /** Update value AND mark field as edited */
+  const update = (patch: Partial<HardCriteria>) => {
+    let newEdited = editedFields;
+    for (const key of Object.keys(patch)) {
+      newEdited = markEdited(newEdited, key);
+    }
+    onEditedFieldsChange(newEdited);
+    onChange({ ...criteria, ...patch });
+  };
 
   const genres = useMemo(() => {
     if (!criteria.productionType) return [];
@@ -190,7 +215,7 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
           Hard Criteria
         </CardTitle>
         <CardDescription>
-          Non-negotiable constraints for slate generation.
+          Non-negotiable constraints for slate generation. Unset optional fields use Trends automatically.
           {!hasProject && <Badge variant="outline" className="ml-2 text-xs">Global Mode</Badge>}
         </CardDescription>
       </CardHeader>
@@ -215,7 +240,7 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Genre *</Label>
+                <Label className="text-xs text-muted-foreground">Genre <AutoIndicator fieldKey="genre" editedFields={editedFields} /></Label>
                 <Select value={criteria.genre} onValueChange={v => update({ genre: v })} disabled={!criteria.productionType}>
                   <SelectTrigger><SelectValue placeholder="Any genre" /></SelectTrigger>
                   <SelectContent>
@@ -225,14 +250,14 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Subgenre</Label>
+                <Label className="text-xs text-muted-foreground">Subgenre <AutoIndicator fieldKey="subgenre" editedFields={editedFields} /></Label>
                 <Input value={criteria.subgenre} onChange={e => update({ subgenre: e.target.value })} placeholder='e.g. "workplace romance"' className="h-9" />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Cultural / Style Anchor</Label>
+                <Label className="text-xs text-muted-foreground">Cultural / Style Anchor <AutoIndicator fieldKey="culturalTag" editedFields={editedFields} /></Label>
                 <Select value={criteria.culturalTag} onValueChange={v => update({ culturalTag: v })}>
                   <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                   <SelectContent>
@@ -242,11 +267,11 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Tone Anchor</Label>
+                <Label className="text-xs text-muted-foreground">Tone Anchor <AutoIndicator fieldKey="toneAnchor" editedFields={editedFields} /></Label>
                 <Input value={criteria.toneAnchor} onChange={e => update({ toneAnchor: e.target.value })} placeholder='e.g. "sweet but sharp"' className="h-9" />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Lane</Label>
+                <Label className="text-xs text-muted-foreground">Lane <AutoIndicator fieldKey="lane" editedFields={editedFields} /></Label>
                 <Select value={criteria.lane} onValueChange={v => update({ lane: v })}>
                   <SelectTrigger><SelectValue placeholder="Any lane" /></SelectTrigger>
                   <SelectContent>
@@ -260,7 +285,7 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
             {/* Format constraints */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Budget Band</Label>
+                <Label className="text-xs text-muted-foreground">Budget Band <AutoIndicator fieldKey="budgetBand" editedFields={editedFields} /></Label>
                 <Select value={criteria.budgetBand} onValueChange={v => update({ budgetBand: v })} disabled={!criteria.productionType}>
                   <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
                   <SelectContent>
@@ -300,7 +325,7 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
           <TabsContent value="world" className="space-y-4 mt-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Setting Type</Label>
+                <Label className="text-xs text-muted-foreground">Setting Type <AutoIndicator fieldKey="settingType" editedFields={editedFields} /></Label>
                 <Select value={criteria.settingType} onValueChange={v => update({ settingType: v })}>
                   <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
                   <SelectContent>
@@ -310,16 +335,16 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Location Vibe</Label>
+                <Label className="text-xs text-muted-foreground">Location Vibe <AutoIndicator fieldKey="locationVibe" editedFields={editedFields} /></Label>
                 <Input value={criteria.locationVibe} onChange={e => update({ locationVibe: e.target.value })} placeholder='e.g. "Tokyo nightlife"' className="h-9" />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Arena / Profession</Label>
+                <Label className="text-xs text-muted-foreground">Arena / Profession <AutoIndicator fieldKey="arenaProfession" editedFields={editedFields} /></Label>
                 <Input value={criteria.arenaProfession} onChange={e => update({ arenaProfession: e.target.value })} placeholder='e.g. "idol industry"' className="h-9" />
               </div>
             </div>
 
-            {/* Romance-specific (always visible but highlighted when romance genre) */}
+            {/* Romance-specific */}
             <div className={`space-y-3 rounded-md p-3 ${isRomanceGenre ? 'border border-primary/30 bg-primary/5' : 'border border-border/30'}`}>
               <Label className="text-xs font-medium text-muted-foreground flex items-center gap-2">
                 Romance Specifics {isRomanceGenre && <Badge variant="default" className="text-[10px]">Active</Badge>}
@@ -367,7 +392,7 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
           <TabsContent value="audience" className="space-y-4 mt-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Audience</Label>
+                <Label className="text-xs text-muted-foreground">Audience <AutoIndicator fieldKey="audience" editedFields={editedFields} /></Label>
                 <Select value={criteria.audience} onValueChange={v => update({ audience: v })}>
                   <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
                   <SelectContent>
@@ -377,7 +402,7 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Rating</Label>
+                <Label className="text-xs text-muted-foreground">Rating <AutoIndicator fieldKey="rating" editedFields={editedFields} /></Label>
                 <Select value={criteria.rating} onValueChange={v => update({ rating: v })}>
                   <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
                   <SelectContent>
@@ -387,14 +412,14 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Language / Territory</Label>
+                <Label className="text-xs text-muted-foreground">Language / Territory <AutoIndicator fieldKey="languageTerritory" editedFields={editedFields} /></Label>
                 <Input value={criteria.languageTerritory} onChange={e => update({ languageTerritory: e.target.value })} placeholder='e.g. "Japanese", "bilingual"' className="h-9" />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Region</Label>
+                <Label className="text-xs text-muted-foreground">Region <AutoIndicator fieldKey="region" editedFields={editedFields} /></Label>
                 <Select value={criteria.region} onValueChange={v => update({ region: v })}>
                   <SelectTrigger><SelectValue placeholder="Global" /></SelectTrigger>
                   <SelectContent>
@@ -404,7 +429,7 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Platform Target</Label>
+                <Label className="text-xs text-muted-foreground">Platform Target <AutoIndicator fieldKey="platformTarget" editedFields={editedFields} /></Label>
                 <Select value={criteria.platformTarget} onValueChange={v => update({ platformTarget: v })} disabled={!criteria.productionType}>
                   <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
                   <SelectContent>
@@ -430,7 +455,7 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Differentiate By</Label>
+                <Label className="text-xs text-muted-foreground">Differentiate By <AutoIndicator fieldKey="differentiateBy" editedFields={editedFields} /></Label>
                 <Select value={criteria.differentiateBy} onValueChange={v => update({ differentiateBy: v })}>
                   <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
                   <SelectContent>
