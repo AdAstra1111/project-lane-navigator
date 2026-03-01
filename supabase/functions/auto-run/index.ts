@@ -3726,6 +3726,7 @@ Deno.serve(async (req) => {
             const genResult = await callEdgeFunction(supabaseUrl, "generate-document", {
               projectId: job.project_id,
               docType: currentDoc,
+              userId: job.user_id,
             }, token);
 
             convertedDocId = genResult?.documentId || genResult?.document_id || null;
