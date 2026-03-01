@@ -25,54 +25,105 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// ── Schema discovery cache (per invocation) ──
-const _schemaCache = new Map<string, Set<string>>();
+// ════════════════════════════════════════════════════════════════
+// SAFE DB HELPERS — strip unknown columns on error, retry
+// ════════════════════════════════════════════════════════════════
 
-async function discoverColumns(sb: any, tableName: string): Promise<Set<string>> {
-  if (_schemaCache.has(tableName)) return _schemaCache.get(tableName)!;
-  try {
-    const { data } = await sb.rpc("", {}).maybeSingle(); // won't use this
-  } catch { /* ignore */ }
-  // Use raw SQL via information_schema
-  const { data, error } = await sb
-    .from("information_schema.columns" as any)
-    .select("column_name")
-    .eq("table_schema", "public")
-    .eq("table_name", tableName);
-  const cols = new Set<string>();
-  if (!error && data) {
-    for (const row of data) cols.add(row.column_name);
-  }
-  if (cols.size === 0) {
-    // Fallback: try a limit-0 select to get column names from response shape
-    const { data: sampleData } = await sb.from(tableName).select("*").limit(0);
-    // If we get column info from an empty result, we can't infer columns this way
-    // Last resort: hardcode known columns for decision_ledger
-    if (tableName === "decision_ledger") {
-      for (const c of [
-        "id", "project_id", "decision_key", "title", "decision_text",
-        "decision_value", "scope", "targets", "source", "source_run_id",
-        "source_note_id", "source_issue_id", "status", "superseded_by",
-        "created_by", "created_at",
-      ]) cols.add(c);
-    } else if (tableName === "project_document_versions") {
-      for (const c of [
-        "id", "document_id", "version_number", "plaintext", "status",
-        "is_current", "created_by", "created_at", "label",
-        "approval_status", "deliverable_type", "meta_json",
-      ]) cols.add(c);
-    } else if (tableName === "project_documents") {
-      for (const c of [
-        "id", "project_id", "doc_type", "title", "user_id",
-        "needs_reconcile", "reconcile_reasons", "updated_at",
-        "latest_version_id", "meta_json",
-      ]) cols.add(c);
-    }
-  }
-  console.log(`[canon-decisions] discovered ${cols.size} columns for ${tableName}: ${[...cols].join(", ")}`);
-  _schemaCache.set(tableName, cols);
-  return cols;
+const REQUIRED_KEYS = new Set(["project_id", "document_id", "plaintext"]);
+const MAX_STRIP_RETRIES = 8;
+
+function parseUnknownColumn(errMsg: string): string | null {
+  // Postgres: column "xyz" of relation "table" does not exist
+  let m = errMsg.match(/column "([^"]+)" of relation "[^"]+" does not exist/i);
+  if (m) return m[1];
+  // PostgREST schema cache: Could not find the "xyz" column
+  m = errMsg.match(/Could not find the "([^"]+)" column/i);
+  if (m) return m[1];
+  // PostgREST: "Could not find the 'xyz' column"
+  m = errMsg.match(/Could not find the '([^']+)' column/i);
+  if (m) return m[1];
+  return null;
 }
+
+function stripKey(obj: Record<string, any>, key: string): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const k of Object.keys(obj)) {
+    if (k !== key) out[k] = obj[k];
+  }
+  return out;
+}
+
+async function safeInsert(
+  sb: any,
+  table: string,
+  row: Record<string, any>,
+  selectCols: string,
+  warnings: string[]
+): Promise<{ data: any; error: any }> {
+  let current = { ...row };
+  for (let i = 0; i < MAX_STRIP_RETRIES; i++) {
+    const { data, error } = await sb
+      .from(table)
+      .insert(current as any)
+      .select(selectCols)
+      .single();
+    if (!error) return { data, error: null };
+    const badCol = parseUnknownColumn(error.message || "");
+    if (!badCol || REQUIRED_KEYS.has(badCol)) return { data: null, error };
+    warnings.push(`schema_strip:${table}.${badCol}`);
+    current = stripKey(current, badCol);
+    if (Object.keys(current).length === 0) return { data: null, error };
+  }
+  // Final attempt after max strips
+  const { data, error } = await sb
+    .from(table)
+    .insert(current as any)
+    .select(selectCols)
+    .single();
+  return { data, error };
+}
+
+async function safeUpdate(
+  sb: any,
+  table: string,
+  match: Record<string, any>,
+  patch: Record<string, any>,
+  warnings: string[]
+): Promise<{ data: any; error: any; stripped_all: boolean }> {
+  let currentPatch = { ...patch };
+  for (let i = 0; i < MAX_STRIP_RETRIES; i++) {
+    if (Object.keys(currentPatch).length === 0) {
+      return { data: null, error: null, stripped_all: true };
+    }
+    let q = sb.from(table).update(currentPatch as any);
+    for (const [k, v] of Object.entries(match)) {
+      q = q.eq(k, v);
+    }
+    const { data, error } = await q;
+    if (!error) return { data, error: null, stripped_all: false };
+    const badCol = parseUnknownColumn(error.message || "");
+    if (!badCol) return { data: null, error, stripped_all: false };
+    // Check if bad col is in match keys — if so, this table doesn't support the filter
+    if (badCol in match) {
+      warnings.push(`schema_strip:${table}.${badCol}(filter)`);
+      return { data: null, error: null, stripped_all: true };
+    }
+    if (REQUIRED_KEYS.has(badCol)) return { data: null, error, stripped_all: false };
+    warnings.push(`schema_strip:${table}.${badCol}`);
+    currentPatch = stripKey(currentPatch, badCol);
+  }
+  if (Object.keys(currentPatch).length === 0) {
+    return { data: null, error: null, stripped_all: true };
+  }
+  let q = sb.from(table).update(currentPatch as any);
+  for (const [k, v] of Object.entries(match)) {
+    q = q.eq(k, v);
+  }
+  const { data, error } = await q;
+  return { data, error, stripped_all: false };
+}
+
+// ════════════════════════════════════════════════════════════════
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -80,7 +131,7 @@ Deno.serve(async (req) => {
   }
 
   if (req.method === "GET") {
-    return jsonRes({ ok: true, build: "canon-decisions-v2" }, 200, req);
+    return jsonRes({ ok: true, build: "canon-decisions-v3" }, 200, req);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -96,7 +147,7 @@ Deno.serve(async (req) => {
   }
 
   if (body.action === "ping") {
-    return jsonRes({ ok: true, build: "canon-decisions-v2" }, 200, req);
+    return jsonRes({ ok: true, build: "canon-decisions-v3" }, 200, req);
   }
 
   const { action, projectId, decision, apply, userId: bodyUserId } = body;
@@ -112,12 +163,9 @@ Deno.serve(async (req) => {
 
   let actorUserId: string | null = null;
 
-  // Priority 1: explicit body.userId (for orchestrators)
   if (bodyUserId && UUID_RE.test(bodyUserId)) {
     actorUserId = bodyUserId;
   } else if (isServiceRole) {
-    // Priority 2: service-role → fallback to project owner
-    // NEVER call auth.getUser() with service-role token
     const sbAdmin = createClient(supabaseUrl, serviceKey);
     const { data: proj } = await sbAdmin
       .from("projects")
@@ -126,7 +174,6 @@ Deno.serve(async (req) => {
       .single();
     actorUserId = proj?.user_id || null;
   } else {
-    // Priority 3: normal user JWT — validate via auth.getUser()
     const sbUser = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
@@ -137,14 +184,12 @@ Deno.serve(async (req) => {
     actorUserId = userData.user.id;
   }
 
-  // Hard guard: never null
   if (!actorUserId || !UUID_RE.test(actorUserId)) {
     return jsonRes({ error: "Cannot determine valid actor user ID" }, 400, req);
   }
 
   const sb = createClient(supabaseUrl, serviceKey);
 
-  // Authz
   const { data: hasAccess } = await sb.rpc("has_project_access", {
     _user_id: actorUserId,
     _project_id: projectId,
@@ -164,9 +209,6 @@ Deno.serve(async (req) => {
       const payload = decision.payload;
       const warnings: string[] = [];
 
-      // ── Discover decision_ledger schema ──
-      const dlCols = await discoverColumns(sb, "decision_ledger");
-
       // ── Build decision_key ──
       let decisionKey: string | null = null;
       if (decisionType === "RENAME_ENTITY") {
@@ -177,65 +219,48 @@ Deno.serve(async (req) => {
         decisionKey = `canon_${decisionType.toLowerCase()}_${Date.now()}`;
       }
 
-      // ── Supersede prior active ──
-      if (dlCols.has("decision_key") && dlCols.has("status")) {
-        await sb
-          .from("decision_ledger")
-          .update({ status: "superseded" } as any)
-          .eq("project_id", projectId)
-          .eq("decision_key", decisionKey)
-          .eq("status", "active");
-      } else {
-        warnings.push("supersede=skipped_no_decision_key_column");
+      // ── Supersede prior active decisions ──
+      const { stripped_all: supersedeStripped } = await safeUpdate(
+        sb,
+        "decision_ledger",
+        { project_id: projectId, decision_key: decisionKey, status: "active" },
+        { status: "superseded" },
+        warnings
+      );
+      if (supersedeStripped) {
+        warnings.push("supersede=skipped_no_supported_columns");
       }
 
-      // ── Build insert payload ──
-      const insertRow: Record<string, any> = {};
-      insertRow.project_id = projectId;
-
-      if (dlCols.has("status")) insertRow.status = "active";
-      if (dlCols.has("decision_key")) insertRow.decision_key = decisionKey;
-      if (dlCols.has("title")) insertRow.title = buildTitle(decisionType, payload);
-      if (dlCols.has("decision_text")) insertRow.decision_text = buildText(decisionType, payload);
-      if (dlCols.has("scope")) insertRow.scope = "project";
-      if (dlCols.has("source")) insertRow.source = "canon_decision";
-
-      // created_by / user_id attribution
-      if (dlCols.has("created_by")) {
-        insertRow.created_by = actorUserId;
-      } else if (dlCols.has("user_id")) {
-        insertRow.user_id = actorUserId;
-      } else if (dlCols.has("actor_user_id")) {
-        insertRow.actor_user_id = actorUserId;
-      }
-
-      // Type column
-      if (dlCols.has("decision_type")) {
-        insertRow.decision_type = decisionType;
-      } else if (dlCols.has("type")) {
-        insertRow.type = decisionType;
-      } else if (dlCols.has("kind")) {
-        insertRow.kind = decisionType;
-      }
-
-      // JSON payload — find best column
+      // ── Build maximal insert row ──
       const jsonPayload = { type: decisionType, ...payload };
-      const jsonColCandidates = ["decision_value", "payload_json", "meta_json", "decision_json"];
-      const jsonCol = jsonColCandidates.find((c) => dlCols.has(c));
-      if (jsonCol) {
-        insertRow[jsonCol] = jsonPayload;
-      } else {
-        warnings.push("storage=partial_no_json_column");
-      }
+      const nowISO = new Date().toISOString();
 
-      const { data: dec, error: decErr } = await sb
-        .from("decision_ledger")
-        .insert(insertRow as any)
-        .select("id")
-        .single();
+      const insertRow: Record<string, any> = {
+        project_id: projectId,
+        status: "active",
+        decision_key: decisionKey,
+        title: buildTitle(decisionType, payload),
+        decision_text: buildText(decisionType, payload),
+        decision_value: jsonPayload,
+        scope: "project",
+        source: "canon_decision",
+        created_by: actorUserId,
+        user_id: actorUserId,
+        actor_user_id: actorUserId,
+        decision_type: decisionType,
+        type: decisionType,
+        kind: decisionType,
+        payload_json: jsonPayload,
+        meta_json: jsonPayload,
+        decision_json: jsonPayload,
+      };
+
+      const { data: dec, error: decErr } = await safeInsert(
+        sb, "decision_ledger", insertRow, "id", warnings
+      );
 
       if (decErr) throw decErr;
-      const decisionId = (dec as any)?.id || null;
+      const decisionId = dec?.id || null;
 
       // ── Apply dispatcher ──
       let applied: any;
@@ -296,15 +321,8 @@ async function applyRenameEntity(
   }
 
   const escaped = escapeRegex(oldName);
-
-  // Safe regex WITHOUT lookbehind:
-  // Group 1 = boundary prefix (start-of-string OR non-word char)
-  // Group 2 = the old name
-  // Lookahead ensures non-word char or end follows (including possessive 's)
   const re = new RegExp(
-    `(^|[^\\w])` +
-    `(${escaped})` +
-    `(?=[^\\w]|$)`,
+    `(^|[^\\w])(${escaped})(?=[^\\w]|$)`,
     "g"
   );
 
@@ -320,39 +338,31 @@ async function applyRenameEntity(
 
   const docIds = docs.map((d: any) => d.id);
 
-  // Discover version columns
-  const verCols = await discoverColumns(sb, "project_document_versions");
-
-  if (!verCols.has("plaintext")) {
-    warnings.push("versioning=no_plaintext_column");
-    return { docs_scanned: docs.length, docs_modified: 0, modified_document_ids: [] };
-  }
-
-  // Fetch current versions — adapt to whether is_current exists
+  // Try fetching current versions with is_current first
   let versions: any[] = [];
-  if (verCols.has("is_current")) {
-    const { data } = await sb
-      .from("project_document_versions")
-      .select("id, document_id, version_number, plaintext, status, is_current")
-      .in("document_id", docIds)
-      .eq("is_current", true);
-    versions = data || [];
+  const { data: verData, error: verErr } = await sb
+    .from("project_document_versions")
+    .select("id, document_id, version_number, plaintext, status")
+    .in("document_id", docIds)
+    .eq("is_current", true);
+
+  if (!verErr && verData) {
+    versions = verData;
   } else {
-    // Fallback: get latest version per doc by version_number desc
-    // Fetch all and deduplicate client-side
-    const { data } = await sb
+    // is_current may not exist or query failed — fallback to latest by version_number
+    if (verErr) warnings.push("schema_strip:project_document_versions.is_current(filter)");
+    const { data: fallbackData } = await sb
       .from("project_document_versions")
       .select("id, document_id, version_number, plaintext, status")
       .in("document_id", docIds)
       .order("version_number", { ascending: false });
     const seen = new Set<string>();
-    for (const v of data || []) {
+    for (const v of fallbackData || []) {
       if (!seen.has(v.document_id)) {
         seen.add(v.document_id);
         versions.push(v);
       }
     }
-    warnings.push("versioning=no_is_current_column");
   }
 
   const modifiedIds: string[] = [];
@@ -360,7 +370,6 @@ async function applyRenameEntity(
   for (const ver of versions) {
     if (!ver.plaintext) continue;
 
-    // Apply rename — callback preserves the prefix character
     const updated = ver.plaintext.replace(
       re,
       (_match: string, prefix: string) => `${prefix}${newName}`
@@ -370,38 +379,44 @@ async function applyRenameEntity(
 
     const nextVersion = (ver.version_number || 0) + 1;
 
-    // Mark old version not current (if column exists)
-    if (verCols.has("is_current")) {
-      await sb
-        .from("project_document_versions")
-        .update({ is_current: false } as any)
-        .eq("id", ver.id);
-    }
+    // Mark old version not current
+    await safeUpdate(
+      sb,
+      "project_document_versions",
+      { id: ver.id },
+      { is_current: false },
+      warnings
+    );
 
-    // Build new version row
+    // Build maximal new version row
     const newVerRow: Record<string, any> = {
       document_id: ver.document_id,
       plaintext: updated,
+      version_number: nextVersion,
+      status: ver.status || "draft",
+      is_current: true,
+      label: `v${nextVersion} (rename: ${oldName}→${newName})`,
+      created_by: actorUserId,
+      user_id: actorUserId,
     };
 
-    if (verCols.has("version_number")) newVerRow.version_number = nextVersion;
-    if (verCols.has("status")) newVerRow.status = ver.status || "draft";
-    if (verCols.has("is_current")) newVerRow.is_current = true;
-    if (verCols.has("label")) newVerRow.label = `v${nextVersion} (rename: ${oldName}→${newName})`;
-
-    if (verCols.has("created_by")) {
-      newVerRow.created_by = actorUserId;
-    } else if (verCols.has("user_id")) {
-      newVerRow.user_id = actorUserId;
+    const { error: insertErr } = await safeInsert(
+      sb, "project_document_versions", newVerRow, "id", warnings
+    );
+    if (insertErr) {
+      console.error(`[canon-decisions] version insert error for doc ${ver.document_id}:`, insertErr);
+      warnings.push(`version_insert_failed:${ver.document_id}`);
+      continue;
     }
 
-    await sb.from("project_document_versions").insert(newVerRow as any);
-
-    // Update project_documents.updated_at
-    await sb
-      .from("project_documents")
-      .update({ updated_at: new Date().toISOString() } as any)
-      .eq("id", ver.document_id);
+    // Touch project_documents.updated_at
+    await safeUpdate(
+      sb,
+      "project_documents",
+      { id: ver.document_id },
+      { updated_at: new Date().toISOString() },
+      warnings
+    );
 
     modifiedIds.push(ver.document_id);
   }
@@ -414,7 +429,7 @@ async function applyRenameEntity(
 }
 
 // ════════════════════════════════════════════════════════════════
-// MARK ONLY: flag docs out-of-sync (schema-adaptive, never hard-fails)
+// MARK ONLY: flag docs out-of-sync (safe-update, never hard-fails)
 // ════════════════════════════════════════════════════════════════
 async function markOutOfSync(
   sb: any,
@@ -431,58 +446,60 @@ async function markOutOfSync(
     return { docs_scanned: 0, docs_modified: 0, modified_document_ids: [] };
   }
 
-  const docCols = await discoverColumns(sb, "project_documents");
+  const modifiedIds: string[] = [];
 
-  // Determine which flag mechanism to use
-  if (docCols.has("needs_reconcile")) {
-    const updatePayload: Record<string, any> = { needs_reconcile: true };
-    if (docCols.has("reconcile_reasons")) {
-      updatePayload.reconcile_reasons = [decisionType];
-    }
-    for (const doc of docs) {
-      await sb
-        .from("project_documents")
-        .update(updatePayload as any)
-        .eq("id", doc.id);
-    }
-    return {
-      docs_scanned: docs.length,
-      docs_modified: docs.length,
-      modified_document_ids: docs.map((d: any) => d.id),
-    };
-  }
+  for (const doc of docs) {
+    // Try setting needs_reconcile + reconcile_reasons first
+    const { stripped_all } = await safeUpdate(
+      sb,
+      "project_documents",
+      { id: doc.id },
+      { needs_reconcile: true, reconcile_reasons: [decisionType] },
+      warnings
+    );
 
-  if (docCols.has("meta_json")) {
-    for (const doc of docs) {
-      // Fetch existing meta_json to merge
-      const { data: existing } = await sb
-        .from("project_documents")
-        .select("meta_json")
-        .eq("id", doc.id)
-        .single();
-      const meta = (existing?.meta_json && typeof existing.meta_json === "object")
+    if (!stripped_all) {
+      modifiedIds.push(doc.id);
+      continue;
+    }
+
+    // Fallback: try meta_json merge
+    const { data: existing } = await sb
+      .from("project_documents")
+      .select("meta_json")
+      .eq("id", doc.id)
+      .single();
+
+    if (existing) {
+      const meta = (existing.meta_json && typeof existing.meta_json === "object")
         ? { ...existing.meta_json }
         : {};
       meta.out_of_sync_with_canon = true;
       meta.out_of_sync_reason = decisionType;
       meta.out_of_sync_at = new Date().toISOString();
-      await sb
-        .from("project_documents")
-        .update({ meta_json: meta } as any)
-        .eq("id", doc.id);
+
+      const { stripped_all: metaStripped } = await safeUpdate(
+        sb,
+        "project_documents",
+        { id: doc.id },
+        { meta_json: meta },
+        warnings
+      );
+      if (!metaStripped) {
+        modifiedIds.push(doc.id);
+        continue;
+      }
     }
-    return {
-      docs_scanned: docs.length,
-      docs_modified: docs.length,
-      modified_document_ids: docs.map((d: any) => d.id),
-    };
+    // If both approaches stripped all, this doc couldn't be marked
   }
 
-  // No supported columns — skip gracefully
-  warnings.push("mark_only=no_supported_fields");
+  if (modifiedIds.length === 0) {
+    warnings.push("mark_only=no_supported_fields");
+  }
+
   return {
     docs_scanned: docs.length,
-    docs_modified: 0,
-    modified_document_ids: [],
+    docs_modified: modifiedIds.length,
+    modified_document_ids: modifiedIds,
   };
 }
