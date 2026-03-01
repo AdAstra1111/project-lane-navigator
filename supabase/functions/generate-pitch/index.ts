@@ -389,16 +389,53 @@ serve(async (req) => {
       const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
       const supa = createClient(supabaseUrl, supabaseKey);
 
-      const { data: proj } = await supa.from("projects")
+      const { data: proj, error: projErr } = await supa.from("projects")
         .select("assigned_lane, signals_influence, signals_apply, production_format, project_features, user_id")
         .eq("id", projectId).single();
 
-      // ── Trust model: read modality from DB, ignore body override ──
-      if (proj) {
-        const { getProjectModality: gpm } = await import("../_shared/productionModality.ts");
-        dbModality = gpm(proj.project_features as Record<string, any> | null);
-        console.log(`[generate-pitch] modality_source=project_features modality=${dbModality}`);
+      if (projErr || !proj) {
+        console.error(`[generate-pitch] project fetch failed: ${projErr?.message || "not found"}`);
+        return new Response(JSON.stringify({ error: "Project not found" }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
+
+      // ── Ownership enforcement: derive request user, reject if mismatch ──
+      const authHeader = req.headers.get("Authorization") || "";
+      let requestUserId: string | null = null;
+      if (authHeader.startsWith("Bearer ")) {
+        const token = authHeader.replace("Bearer ", "").trim();
+        // Check if this is the service role key itself
+        if (token === supabaseKey) {
+          // Service-role call: trust body.userId if provided
+          requestUserId = body.userId || null;
+          console.log(`[generate-pitch] auth=service_role forwarded_user=${requestUserId || "none"}`);
+        } else {
+          try {
+            const payload = JSON.parse(atob(token.split(".")[1]));
+            requestUserId = payload.sub || null;
+          } catch { /* invalid token */ }
+        }
+      }
+
+      // Verify ownership or collaboration access
+      if (requestUserId) {
+        const { data: hasAccess } = await supa.rpc("has_project_access", {
+          _user_id: requestUserId,
+          _project_id: projectId,
+        });
+        if (!hasAccess) {
+          console.warn(`[generate-pitch] ownership_denied user=${requestUserId} project=${projectId} owner=${proj.user_id}`);
+          return new Response(JSON.stringify({ error: "Forbidden: no project access" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      // ── Trust model: read modality from DB, ignore body override ──
+      const { getProjectModality: gpm } = await import("../_shared/productionModality.ts");
+      dbModality = gpm(proj.project_features as Record<string, any> | null);
+      console.log(`[generate-pitch] modality_source=project_features modality=${dbModality}`);
 
       const lane = proj?.assigned_lane || "independent-film";
 
