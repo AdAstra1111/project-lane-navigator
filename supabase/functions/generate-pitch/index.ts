@@ -139,15 +139,17 @@ serve(async (req) => {
         // Determine lane from manual_criteria or hardCriteria
         const effectiveLane = (manual_criteria as any)?.lane || hardCriteria?.lane || "";
 
-        // Step 1: Fetch lane+production_type scoped signals
+        const SIGNAL_SELECT = "name, category, strength, velocity, explanation, production_type, genre_tags, tone_tags, format_tags, lane_relevance, budget_tier, target_buyer, region";
+
+        // Step 1: Fetch lane+production_type scoped signals (structured lane_relevance filter)
         let laneSignals: any[] = [];
         if (effectiveLane) {
           const { data } = await autoSupa
             .from("trend_signals")
-            .select("category, label, strength, velocity, explanation, production_type")
+            .select(SIGNAL_SELECT)
             .eq("production_type", typeLabel)
             .eq("status", "active")
-            .ilike("explanation", `%${effectiveLane}%`)
+            .contains("lane_relevance", [effectiveLane])
             .order("strength", { ascending: false })
             .limit(30);
           laneSignals = data || [];
@@ -156,7 +158,7 @@ serve(async (req) => {
         // Step 2: Fetch production_type scoped signals (broader)
         const { data: prodSignals } = await autoSupa
           .from("trend_signals")
-          .select("category, label, strength, velocity, explanation, production_type")
+          .select(SIGNAL_SELECT)
           .eq("production_type", typeLabel)
           .eq("status", "active")
           .order("strength", { ascending: false })
@@ -166,7 +168,7 @@ serve(async (req) => {
         // Step 3: Fetch global signals (any production type)
         const { data: globalData } = await autoSupa
           .from("trend_signals")
-          .select("category, label, strength, velocity, explanation, production_type")
+          .select(SIGNAL_SELECT)
           .eq("status", "active")
           .order("strength", { ascending: false })
           .limit(30);
@@ -178,16 +180,47 @@ serve(async (req) => {
         const trendParts: string[] = [];
         trendParts.push("The following guidance is derived from current market Trends for unspecified criteria fields:");
 
+        // Tag-based fields resolve from structured tag arrays instead of category
+        const TAG_FIELD_MAP: Record<string, string> = {
+          genre: "genre_tags", subgenre: "genre_tags", toneAnchor: "tone_tags",
+          culturalTag: "tone_tags", settingType: "genre_tags",
+        };
+
         const tryResolve = (field: string, signals: any[], scope: string): string | null => {
+          const minStr = getMinStrength(field);
+          const eligible = signals.filter((s: any) => (s.strength || 0) >= minStr);
+
+          // Strategy 1: Use structured tags if available for this field
+          const tagCol = TAG_FIELD_MAP[field];
+          if (tagCol) {
+            const tagValues: Map<string, number> = new Map();
+            for (const s of eligible) {
+              const tags: string[] = s[tagCol] || [];
+              for (const t of tags) {
+                const existing = tagValues.get(t) || 0;
+                tagValues.set(t, existing + (s.strength || 0));
+              }
+            }
+            if (tagValues.size > 0) {
+              const sorted = [...tagValues.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+              resolutionMeta[field] = { status: scope === "lane_trends" ? "resolved" : "fallback", scope };
+              return sorted.slice(0, 3).map(([tag, score]) => `${tag} (${Math.round(score)}/10)`).join(", ");
+            }
+          }
+
+          // Strategy 2: Category-based matching (fuzzy keyword contains)
           const cats = FIELD_CATEGORIES[field];
           if (!cats) return null;
-          const minStr = getMinStrength(field);
-          const matches = signals
-            .filter((s: any) => cats.includes((s.category || "").toLowerCase()) && (s.strength || 0) >= minStr)
-            .sort((a: any, b: any) => (b.strength || 0) - (a.strength || 0) || (a.label || "").localeCompare(b.label || ""));
+          const catNorm = (c: string) => (c || "").toLowerCase().trim();
+          const matches = eligible
+            .filter((s: any) => {
+              const sc = catNorm(s.category);
+              return cats.some(c => sc.includes(c) || c.includes(sc));
+            })
+            .sort((a: any, b: any) => (b.strength || 0) - (a.strength || 0) || (a.name || "").localeCompare(b.name || ""));
           if (matches.length === 0) return null;
           resolutionMeta[field] = { status: scope === "lane_trends" ? "resolved" : "fallback", scope };
-          return matches.slice(0, 3).map((s: any) => `${s.label} (${s.strength}/10)`).join(", ");
+          return matches.slice(0, 3).map((s: any) => `${s.name} (${s.strength}/10)`).join(", ");
         };
 
         for (const field of resolvedAutoFields) {
