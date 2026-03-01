@@ -128,7 +128,61 @@ function buildMarketSheetContent(title: string, market: any, nuance: any, conver
   return lines.join('\n');
 }
 
-function buildConceptBriefContent(title: string, idea: PitchIdea, devSeed: any): string {
+function buildCreativeDnaTargetsSection(convergenceSummary: any, differentiationMove?: string): string {
+  if (!convergenceSummary) return '';
+  const cs = convergenceSummary;
+  const lines: string[] = ['## Creative DNA Targets (From Trend Convergence)', ''];
+
+  // Voice / pacing targets
+  if (cs.tone_style?.tone_band || cs.tone_style?.pacing) {
+    lines.push('**Voice / Pacing Targets:**');
+    if (cs.tone_style.tone_band) lines.push(`- Tone band: ${cs.tone_style.tone_band}`);
+    if (cs.tone_style.pacing) lines.push(`- Pacing: ${cs.tone_style.pacing}`);
+    lines.push('');
+  }
+
+  // Genre blend emphasis
+  if (Array.isArray(cs.genre_heat) && cs.genre_heat.length > 0) {
+    lines.push('**Genre Blend Emphasis:**');
+    for (const g of cs.genre_heat.slice(0, 5)) lines.push(`- ${g.genre} (heat=${g.score})`);
+    lines.push('');
+  }
+
+  // Anchor references
+  if (Array.isArray(cs.comparable_titles) && cs.comparable_titles.length > 0) {
+    lines.push('**Anchor References** (tonal/market anchors — do NOT clone plots or characters):');
+    for (const t of cs.comparable_titles.slice(0, 5)) lines.push(`- ${t}`);
+    lines.push('');
+  }
+
+  // World density / scale constraints
+  if (Array.isArray(cs.constraints_notes) && cs.constraints_notes.length > 0) {
+    lines.push('**World Density / Scale Constraints:**');
+    for (const n of cs.constraints_notes) lines.push(`- ${n}`);
+    lines.push('');
+  }
+
+  // Avoid / mitigate
+  if (Array.isArray(cs.risks) && cs.risks.length > 0) {
+    lines.push('**Saturation — Avoid / Mitigate:**');
+    for (const r of cs.risks.slice(0, 5)) lines.push(`- [${r.severity}] ${r.label}`);
+    lines.push('');
+  }
+
+  // Novelty slot
+  lines.push('**Alignment Principle:**');
+  lines.push('- Align 70–80% to the targets above (what audiences demonstrably want).');
+  lines.push('- Reserve 20–30% for a novelty slot — a fresh angle, subversion, or world twist.');
+  if (differentiationMove) {
+    lines.push(`- Differentiation move from pitch: *${differentiationMove}*`);
+  }
+  lines.push('');
+
+  lines.push('> *Guidance only (not canon). Use to shape voice/tone/pacing/world density while staying original.*', '');
+  return lines.join('\n');
+}
+
+function buildConceptBriefContent(title: string, idea: PitchIdea, devSeed: any, convergenceSummary?: any): string {
   const lines: string[] = [`# ${title} — Concept Brief`, ''];
   if (idea.logline) lines.push('## Logline', '', idea.logline, '');
   if (idea.one_page_pitch) lines.push('## Premise', '', idea.one_page_pitch, '');
@@ -138,6 +192,14 @@ function buildConceptBriefContent(title: string, idea: PitchIdea, devSeed: any):
   if (idea.why_us) lines.push('', '## Why Us', '', idea.why_us);
   if (devSeed?.bible_starter?.story_engine) lines.push('', '## Story Engine', '', devSeed.bible_starter.story_engine);
   lines.push('');
+
+  // Append Creative DNA Targets from convergence (guidance only)
+  const dnaSection = buildCreativeDnaTargetsSection(
+    convergenceSummary,
+    (idea as any).differentiation_move || (idea.raw_response as any)?.idea?.differentiation_move,
+  );
+  if (dnaSection) lines.push(dnaSection);
+
   return lines.join('\n');
 }
 
@@ -485,8 +547,12 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
 
         // 5. Create full starter doc pack
         if (applyDocs) {
-          // Concept Brief (always)
-          await createDocWithVersion(project.id, user.id, 'concept_brief', `${title} — Concept Brief`, buildConceptBriefContent(title, idea, devSeed), seedStyleMeta);
+          // Concept Brief (always) — with Creative DNA Targets from convergence if available
+          const rawRespCb = idea.raw_response as any || {};
+          const convergenceSummaryCb = rawRespCb.signals_metadata?.convergence_applied
+            ? rawRespCb.signals_metadata.convergence_summary
+            : undefined;
+          await createDocWithVersion(project.id, user.id, 'concept_brief', `${title} — Concept Brief`, buildConceptBriefContent(title, idea, devSeed, convergenceSummaryCb), seedStyleMeta);
 
           // Treatment + Character Bible
           if (devSeed.bible_starter) {
