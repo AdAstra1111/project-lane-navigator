@@ -161,12 +161,30 @@ serve(async (req) => {
       return jsonRes({ error: "AI API key not configured" }, 500);
     }
 
-    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authErr } = await anonClient.auth.getUser();
-    if (authErr || !user) {
-      return jsonRes({ error: "Unauthorized" }, 401);
+    // Support service_role raw key (from auto-run) or normal JWT
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    let user: { id: string } | null = null;
+    let isServiceRole = false;
+
+    if (serviceKey && token === serviceKey) {
+      // Service role caller — extract userId from body
+      isServiceRole = true;
+      const preBody = await req.clone().json();
+      const bodyUserId = preBody?.userId || preBody?.user_id || null;
+      if (bodyUserId) {
+        user = { id: bodyUserId };
+      } else {
+        user = { id: "service_role" };
+      }
+    } else {
+      const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user: authUser }, error: authErr } = await anonClient.auth.getUser();
+      if (authErr || !authUser) {
+        return jsonRes({ error: "Unauthorized" }, 401);
+      }
+      user = authUser;
     }
 
     const body: SeedPackPayload = await req.json();
@@ -178,8 +196,13 @@ serve(async (req) => {
       return jsonRes({ success: false, insertedCount: 0, updatedCount: 0, error: "projectId, pitch, and lane are required" }, 400);
     }
 
-    // Access check via RLS-scoped client
-    const { data: project, error: projErr } = await anonClient
+    // Access check — service role uses admin client, normal uses RLS-scoped client
+    const queryClient = isServiceRole
+      ? createClient(supabaseUrl, serviceKey)
+      : createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+          global: { headers: { Authorization: authHeader } },
+        });
+    const { data: project, error: projErr } = await queryClient
       .from("projects")
       .select("id, title, format, genres, assigned_lane, budget_range, tone, target_audience")
       .eq("id", projectId)
