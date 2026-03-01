@@ -196,27 +196,47 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    // Decode JWT claims locally — avoids session lookup failures for ES256 tokens
-    const token = authHeader.replace("Bearer ", "");
-    let userId: string;
-    try {
-      const payloadB64 = token.split(".")[1];
-      if (!payloadB64) throw new Error("bad token");
-      const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
-      if (!payload.sub) throw new Error("no sub");
-      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("expired");
-      userId = payload.sub;
-    } catch {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Use service client for DB operations
     const supabase = createClient(supabaseUrl, serviceKey);
 
+    const token = authHeader.replace("Bearer ", "");
+    let userId: string | null = null;
+    let isServiceRole = false;
+
+    // Accept service-role callers (raw key match or JWT role claim)
+    if (token === serviceKey) {
+      isServiceRole = true;
+    } else if (token.split(".").length === 3) {
+      try {
+        const payloadB64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        const padded = payloadB64 + "=".repeat((4 - payloadB64.length % 4) % 4);
+        const payload = JSON.parse(atob(padded));
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (payload.role === "service_role") isServiceRole = true;
+        if (typeof payload.sub === "string" && payload.sub.length > 0) userId = payload.sub;
+      } catch {
+        // fall through to getUser() for non-service callers
+      }
+    }
+
+    if (!isServiceRole && !userId) {
+      const { data: { user }, error: userErr } = await supabase.auth.getUser(token);
+      if (userErr || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = user.id;
+    }
+
     const body = await req.json();
+    if (isServiceRole && !userId) {
+      userId = body?.user_id || body?.userId || "service_role";
+    }
+
     const { projectId } = body;
     if (!projectId) {
       return new Response(JSON.stringify({ error: "projectId required" }), {

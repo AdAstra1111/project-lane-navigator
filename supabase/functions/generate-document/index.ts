@@ -136,9 +136,9 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext } = body;
 
-    // For service-role callers, accept forwarded user_id from body
-    if (isServiceRole && body.user_id && !actorUserId) {
-      actorUserId = body.user_id;
+    // For service-role callers, accept forwarded user id from body
+    if (isServiceRole && !actorUserId) {
+      actorUserId = body.user_id || body.userId || null;
     }
 
     // Extract nuance parameters (with defaults)
@@ -375,7 +375,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         document_id: (body as any)?.documentId ?? (body as any)?.document_id ?? null,
         doc_type: docType,
         project_format: project?.format ?? null,
-        user_id: user?.id ?? null,
+        user_id: actorUserId,
       }));
 
       // B) DIAG_EP_COUNT — Episode Count Resolution
