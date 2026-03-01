@@ -226,7 +226,9 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
     decision_applied: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
     decisions_rewrite_failed: 'bg-destructive/15 text-destructive border-destructive/30',
     baseline_missing: 'bg-destructive/15 text-destructive border-destructive/30',
+    baseline_missing_no_text: 'bg-destructive/15 text-destructive border-destructive/30',
     baseline_repaired: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    baseline_seeded: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
     aggregate_compile_skipped: 'bg-muted text-muted-foreground',
     aggregate_skip_advance: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
   };
@@ -249,7 +251,9 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
                   step.action === 'finalize_promote_best' ? '✓ promoted' :
                   step.action === 'promote_failed' ? '✗ promote failed' :
                   step.action === 'baseline_missing' ? '⚠ baseline missing' :
+                  step.action === 'baseline_missing_no_text' ? '✗ baseline missing (no text)' :
                   step.action === 'baseline_repaired' ? '✓ baseline repaired' :
+                  step.action === 'baseline_seeded' ? '✓ baseline seeded' :
                   step.action === 'aggregate_compile_skipped' ? 'compile cached' :
                   step.action
                 }</Badge>
@@ -1303,6 +1307,14 @@ export function AutoRunMissionControl({
                           </Button>
                         </div>
                       )}
+                    </div>
+                  )}
+                  {job.pause_reason === 'BASELINE_MISSING_NO_TEXT' && (
+                    <div className="space-y-1.5 mt-1">
+                      <div className="text-[9px] text-muted-foreground">
+                        No baseline could be seeded for <strong>{job.current_document}</strong> because no plaintext source exists.
+                        Generate content for this stage (or upstream stage) and then resume.
+                      </div>
                     </div>
                   )}
                 </div>
