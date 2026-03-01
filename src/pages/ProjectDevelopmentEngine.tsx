@@ -96,6 +96,7 @@ import { useProjectRuleset } from '@/hooks/useProjectRuleset';
 import { SeedAppliedBanner } from '@/components/devengine/SeedAppliedBanner';
 import { StyleSourcesPanel } from '@/components/devengine/StyleSourcesPanel';
 import { StyleScoreBadge, StyleEvalPanel } from '@/components/devengine/StyleEvalPanel';
+import { AutopilotPanel } from '@/components/dev/AutopilotPanel';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -1021,6 +1022,14 @@ export default function ProjectDevelopmentEngine() {
           onSelectDoc={selectDocument}
           prefsExist={lanePrefsExist}
           onPrefsApplied={() => refetchLanePrefs()}
+        />
+      )}
+
+      {/* ═══ AUTOPILOT PANEL ═══ */}
+      {projectId && (
+        <AutopilotPanel
+          projectId={projectId}
+          pitchIdeaId={project?.source_pitch_idea_id}
         />
       )}
 
