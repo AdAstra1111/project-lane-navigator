@@ -1739,7 +1739,10 @@ serve(async (req) => {
       try {
         const payloadB64 = token.split(".")[1];
         if (!payloadB64) throw new Error("Invalid token");
-        const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+        // Ensure proper base64 padding for atob
+        const padded = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
+        const paddedFull = padded + "=".repeat((4 - (padded.length % 4)) % 4);
+        const payload = JSON.parse(atob(paddedFull));
         if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
         if (payload.role === "service_role") {
           userId = "service_role";
