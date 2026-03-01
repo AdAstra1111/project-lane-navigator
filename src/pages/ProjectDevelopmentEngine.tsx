@@ -1084,6 +1084,9 @@ export default function ProjectDevelopmentEngine() {
           pitchIdeaId={project?.source_pitch_idea_id}
           lane={project?.assigned_lane || null}
           format={normalizedFormat || null}
+          documents={documents?.map((d: any) => ({ id: d.id, doc_type: d.doc_type })) || []}
+          approvedVersionMap={approvedVersionMap as Record<string, any>}
+          onSelectDocument={selectDocument}
         />
       )}
 
