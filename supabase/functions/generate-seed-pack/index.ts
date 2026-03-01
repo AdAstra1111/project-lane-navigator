@@ -187,9 +187,10 @@ serve(async (req) => {
     const db = isServiceRole ? serviceClient : rlsClient;
 
     if (isServiceRole) {
-      // Extract userId from body for audit fields; allow null
+      // Extract userId from body for audit fields
       const preBody = await req.clone().json();
       actorUserId = preBody?.userId || preBody?.user_id || null;
+      console.log("[generate-seed-pack] service_role body userId check", { bodyUserId: preBody?.userId, bodyUser_id: preBody?.user_id, resolved: actorUserId });
     } else {
       const { data: { user: authUser }, error: authErr } = await rlsClient.auth.getUser();
       if (authErr || !authUser) {
@@ -222,6 +223,17 @@ serve(async (req) => {
 
     if (projErr || !project) {
       return jsonRes({ error: "Project not found or access denied" }, 404);
+    }
+
+    // Fallback: if service_role and no userId forwarded, use project owner
+    if (isServiceRole && !actorUserId) {
+      const { data: projOwner } = await db.from("projects").select("user_id").eq("id", projectId).single();
+      actorUserId = projOwner?.user_id || null;
+      console.log("[generate-seed-pack] userId fallback from project owner", { actorUserId });
+    }
+
+    if (!actorUserId) {
+      return jsonRes({ error: "Cannot determine user_id for document creation. Pass userId in body." }, 400);
     }
 
     const adminClient = createClient(supabaseUrl, serviceKey);
