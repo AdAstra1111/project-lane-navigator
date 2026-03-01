@@ -42,82 +42,25 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
   return result;
 }
 
-// ─── Canon baseline populator ───
+// ─── Canon baseline populator (uses dev-engine-v2 LLM action, not UI heuristics) ───
 async function populateCanonBaseline(projectId: string): Promise<boolean> {
   try {
-    // Check if canon already has content
-    const { data: existing } = await (supabase as any)
-      .from('project_canon')
-      .select('canon_json')
-      .eq('project_id', projectId)
-      .maybeSingle();
-
-    const cj = existing?.canon_json || {};
-    const hasLogline = typeof cj.logline === 'string' && cj.logline.trim().length > 0;
-    const hasPremise = typeof cj.premise === 'string' && cj.premise.trim().length > 0;
-    const hasCharacters = Array.isArray(cj.characters) && cj.characters.length > 0;
-
-    // If already populated, skip
-    if (hasLogline && hasPremise && hasCharacters) return false;
-
-    // Use canon_os_initialize to set up baseline from project metadata
+    // Step 1: Ensure canon row exists via canonical initialize
     await supabase.functions.invoke('dev-engine-v2', {
       body: { action: 'canon_os_initialize', projectId },
     });
 
-    // Now try to extract richer canon from seed docs
-    // Read foundation docs to build canon baseline
-    const { data: docs } = await (supabase as any)
-      .from('project_documents')
-      .select('doc_type, plaintext, extracted_text')
-      .eq('project_id', projectId)
-      .in('doc_type', ['idea', 'concept_brief', 'treatment', 'character_bible', 'market_sheet']);
+    // Step 2: Extract canon fields from seed docs via single LLM pass
+    const { data, error } = await supabase.functions.invoke('dev-engine-v2', {
+      body: { action: 'canon_os_extract_from_seed_docs', projectId },
+    });
 
-    if (!docs || docs.length === 0) return false;
-
-    // Build a patch from available doc content
-    const patch: Record<string, any> = {};
-    for (const doc of docs) {
-      const text = doc.plaintext || doc.extracted_text || '';
-      if (!text.trim()) continue;
-
-      if (doc.doc_type === 'idea' && !hasLogline) {
-        // Use first meaningful line as logline
-        const lines = text.split('\n').filter((l: string) => l.trim().length > 10);
-        if (lines.length > 0) patch.logline = lines[0].trim().slice(0, 300);
-        if (lines.length > 1 && !hasPremise) patch.premise = lines.slice(1, 4).join(' ').trim().slice(0, 600);
-      }
-      if (doc.doc_type === 'concept_brief') {
-        if (!patch.premise && !hasPremise) {
-          const lines = text.split('\n').filter((l: string) => l.trim().length > 10);
-          patch.premise = lines.slice(0, 5).join(' ').trim().slice(0, 600);
-        }
-      }
-      if (doc.doc_type === 'treatment') {
-        if (!patch.world_rules) {
-          patch.world_rules = patch.world_rules || [];
-        }
-        if (!patch.tone_style) {
-          patch.tone_style = text.slice(0, 200).trim();
-        }
-      }
-      if (doc.doc_type === 'character_bible' && !hasCharacters) {
-        // Extract character names (simple heuristic: lines starting with uppercase word followed by colon or dash)
-        const charLines = text.split('\n').filter((l: string) => /^[A-Z][A-Za-z\s]+[\-–:]/m.test(l.trim()));
-        if (charLines.length > 0) {
-          patch.characters = charLines.slice(0, 20).map((l: string) => l.trim().slice(0, 200));
-        }
-      }
+    if (error) {
+      console.warn('[ProjectAutopilot] canon extraction error (non-fatal):', error.message);
+      return false;
     }
 
-    // Only update if we have something new
-    if (Object.keys(patch).length > 0) {
-      await supabase.functions.invoke('dev-engine-v2', {
-        body: { action: 'canon_os_update', projectId, patch },
-      });
-      return true;
-    }
-    return false;
+    return data?.updated === true;
   } catch (err) {
     console.warn('[ProjectAutopilot] canon baseline population failed (non-fatal):', err);
     return false;
@@ -331,7 +274,6 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format }: Props) 
           options: {
             apply_seed_intel_pack: true,
             regen_foundation: true,
-            generate_primary_script: true,
           },
         },
       });
