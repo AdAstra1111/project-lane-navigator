@@ -16,6 +16,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   vertical_episode_beats: 'Episode Beats',
   episode_beats: 'Episode Beats',
   episode_script: 'Episode Script',
+  season_script: 'Season Script',
   season_master_script: 'Master Season Script',
   story_outline: 'Story Outline',
   beat_sheet: 'Beat Sheet',
@@ -84,11 +85,11 @@ export function groupDevpackItems(items: any[]): DevpackSection[] {
   const gridItems = items.filter(i => i.doc_type === 'episode_grid');
   const arcItems = items.filter(i => i.doc_type === 'season_arc');
   const beatsItems = items.filter(i => ['vertical_episode_beats', 'episode_beats'].includes(i.doc_type));
-  const scriptItems = items.filter(i => i.doc_type === 'episode_script');
+  const scriptItems = items.filter(i => i.doc_type === 'episode_script' || i.doc_type === 'season_script');
   const masterItems = items.filter(i => i.doc_type === 'season_master_script');
   const featureItems = items.filter(i => ['story_outline', 'beat_sheet'].includes(i.doc_type));
   const other = items.filter(i =>
-    !['episode_grid', 'season_arc', 'vertical_episode_beats', 'episode_beats', 'episode_script', 'season_master_script', 'story_outline', 'beat_sheet'].includes(i.doc_type)
+    !['episode_grid', 'season_arc', 'vertical_episode_beats', 'episode_beats', 'episode_script', 'season_script', 'season_master_script', 'story_outline', 'beat_sheet'].includes(i.doc_type)
   );
 
   if (arcItems.length) sections.push({ key: 'arc', label: 'Season Arc', items: arcItems });

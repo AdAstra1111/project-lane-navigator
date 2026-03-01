@@ -15,6 +15,7 @@ export type DocTypeKey =
   | 'episode_grid'
   | 'season_arc'
   | 'episode_script'
+  | 'season_script'
   | 'feature_script'
   | 'format_rules'
   | 'production_draft'
@@ -37,6 +38,7 @@ export const DOC_TYPE_KEY_LABELS: Record<DocTypeKey, string> = {
   episode_grid: 'Episode Grid',
   season_arc: 'Season Arc',
   episode_script: 'Episode Script (Pilot)',
+  season_script: 'Season Script',
   feature_script: 'Feature Script',
   format_rules: 'Format Rules',
   production_draft: 'Production Draft',
@@ -99,6 +101,7 @@ const KEY_MAP: Record<string, DocTypeKey> = {
   feature_script: 'feature_script',
   pilot_script: 'episode_script',
   episode_script: 'episode_script',
+  season_script: 'season_script',
   episode_1_script: 'episode_script',
   production_draft: 'production_draft',
   trailer_script: 'trailer_script',

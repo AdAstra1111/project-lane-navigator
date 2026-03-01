@@ -45,14 +45,14 @@ function decisionTextFromNote(note: any, option?: any): string {
 }
 
 const CATEGORY_TARGETS: Record<string, string[]> = {
-  structural: ["blueprint", "beat_sheet", "feature_script", "episode_script", "season_arc"],
-  character: ["character_bible", "feature_script", "episode_script", "blueprint"],
-  escalation: ["blueprint", "beat_sheet", "feature_script", "episode_script"],
+  structural: ["blueprint", "beat_sheet", "feature_script", "episode_script", "season_script", "season_arc"],
+  character: ["character_bible", "feature_script", "episode_script", "season_script", "blueprint"],
+  escalation: ["blueprint", "beat_sheet", "feature_script", "episode_script", "season_script"],
   lane: ["market_sheet", "deck", "concept_brief"],
   packaging: ["market_sheet", "deck", "concept_brief"],
-  pacing: ["blueprint", "beat_sheet", "feature_script", "episode_script"],
-  hook: ["concept_brief", "deck", "feature_script", "episode_script"],
-  format: ["format_rules", "episode_script", "feature_script", "episode_grid", "season_arc"],
+  pacing: ["blueprint", "beat_sheet", "feature_script", "episode_script", "season_script"],
+  hook: ["concept_brief", "deck", "feature_script", "episode_script", "season_script"],
+  format: ["format_rules", "episode_script", "season_script", "feature_script", "episode_grid", "season_arc"],
 };
 
 Deno.serve(async (req) => {

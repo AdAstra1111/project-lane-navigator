@@ -36,6 +36,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   treatment: 'Treatment',
   feature_script: 'Feature Script',
   episode_script: 'Episode Script',
+  season_script: 'Season Script',
 };
 
 export function CanonPackManager({ projectId, canonPackId }: CanonPackManagerProps) {

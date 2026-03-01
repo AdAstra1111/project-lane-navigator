@@ -579,6 +579,7 @@ const MIN_CHARS_BY_DOC_TYPE: Record<string, number> = {
   market_sheet: 700,
   vertical_market_sheet: 700,
   episode_script: 2000,
+  season_script: 2000,
   feature_script: 2000,
   season_master_script: 2000,
   production_draft: 2000,
@@ -2690,6 +2691,7 @@ Deno.serve(async (req) => {
                 character_bible:"character_bible",character:"character_bible",episode_grid:"episode_grid",
                 season_arc:"season_arc",documentary_outline:"documentary_outline",script:"feature_script",
                 feature_script:"feature_script",pilot_script:"episode_script",episode_script:"episode_script",
+                season_script:"season_script",
                 episode_1_script:"episode_script",production_draft:"production_draft",format_rules:"format_rules",
               };
               if (KEY_MAP_LOCAL[norm]) {

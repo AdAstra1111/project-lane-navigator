@@ -131,7 +131,7 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
   // ── Empty state ──
   if (!sg.projectState?.has_scenes && !sg.isLoading) {
     const scriptDoc = (documents || []).find((d: any) =>
-      d.doc_type === 'script' || d.doc_type === 'feature_script' || d.doc_type === 'episode_script' || d.doc_type === 'script_pdf' || d.doc_type === 'treatment'
+      d.doc_type === 'script' || d.doc_type === 'feature_script' || d.doc_type === 'episode_script' || d.doc_type === 'season_script' || d.doc_type === 'script_pdf' || d.doc_type === 'treatment'
     );
     return (
       <div className="space-y-4">

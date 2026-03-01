@@ -51,6 +51,7 @@ export const BASE_DOC_TYPES: Record<string, DocTypeMeta> = {
   episode_beats:           { label: 'Episode Beats',           description: 'Beat sheets for series episodes' },
   feature_script:          { label: 'Feature Script',          description: 'Full screenplay for film / feature' },
   episode_script:          { label: 'Episode Script',          description: 'Script for a single episode' },
+  season_script:           { label: 'Season Script',           description: 'Full-season continuous script (vertical drama / feature)' },
   season_master_script:    { label: 'Season Master Script',    description: 'Compiled season scripts' },
   production_draft:        { label: 'Production Draft',        description: 'Final production-ready draft' },
   deck:                    { label: 'Deck',                    description: 'Pitch deck / lookbook' },
@@ -84,7 +85,7 @@ export const LANE_DOC_LADDERS: Record<LaneKey, string[]> = {
   vertical_drama: [
     'idea', 'concept_brief', 'vertical_market_sheet', 'format_rules',
     'character_bible', 'season_arc', 'episode_grid', 'vertical_episode_beats',
-    'episode_script', 'season_master_script',
+    'season_script', 'season_master_script',
   ],
   documentary: [
     'idea', 'concept_brief', 'market_sheet', 'documentary_outline', 'deck',
