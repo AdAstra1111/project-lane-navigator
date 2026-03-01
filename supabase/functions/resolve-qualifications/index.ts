@@ -184,58 +184,61 @@ function resolveQualificationsCore(input: any) {
 // ─── Edge function handler ───
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const jsonRes = (payload: Record<string, any>, status = 200) => new Response(JSON.stringify(payload), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
+  if (req.method === "OPTIONS") return jsonRes({ ok: true });
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+    const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!bearer) return jsonRes({ error: "Unauthorized" }, 401);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    const token = authHeader.replace("Bearer ", "");
-    let userId: string | null = null;
     let isServiceRole = false;
+    let userId: string | null = null;
 
-    // Accept service-role callers (raw key match or JWT role claim)
-    if (token === serviceKey) {
+    // Accept service-role callers: raw key match OR JWT with role claim
+    if (bearer === serviceKey) {
       isServiceRole = true;
-    } else if (token.split(".").length === 3) {
+    } else if (bearer.split(".").length === 3) {
       try {
-        const payloadB64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-        const padded = payloadB64 + "=".repeat((4 - payloadB64.length % 4) % 4);
+        const seg = bearer.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        const padded = seg + "=".repeat((4 - (seg.length % 4)) % 4);
         const payload = JSON.parse(atob(padded));
         if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-          return new Response(JSON.stringify({ error: "Unauthorized" }), {
-            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return jsonRes({ error: "Unauthorized" }, 401);
         }
         if (payload.role === "service_role") isServiceRole = true;
         if (typeof payload.sub === "string" && payload.sub.length > 0) userId = payload.sub;
       } catch {
-        // fall through to getUser() for non-service callers
+        // fall through to getUser()
       }
     }
 
     if (!isServiceRole && !userId) {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser(token);
-      if (userErr || !user) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+      const { data: { user }, error: userErr } = await supabase.auth.getUser(bearer);
+      if (userErr || !user) return jsonRes({ error: "Unauthorized" }, 401);
       userId = user.id;
     }
 
-    const body = await req.json();
+    let body: any = {};
+    try { body = await req.json(); } catch {}
+
+    const forwardedUserId = body?.userId || body?.user_id || null;
     if (isServiceRole && !userId) {
-      userId = body?.user_id || body?.userId || "service_role";
+      userId = forwardedUserId; // nullable — NEVER "service_role"
     }
+
+    console.log("[resolve-qualifications] auth", { fn: "resolve-qualifications", isServiceRole, hasActorUserId: !!userId, hasForwardedUserId: !!forwardedUserId, action: body?.action ?? null });
+
+    // Ping support
+    if (body?.action === "ping") return jsonRes({ ok: true, function: "resolve-qualifications" });
 
     const { projectId } = body;
     if (!projectId) {
@@ -311,12 +314,8 @@ Deno.serve(async (req) => {
 
     await supabase.from("projects").update(updatePayload).eq("id", projectId);
 
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonRes(result);
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message || "Internal error" }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonRes({ error: e.message || "Internal error" }, 500);
   }
 });

@@ -142,14 +142,12 @@ Deno.serve(async (req) => {
     const db = isServiceRole ? serviceClient : rlsClient;
     const supabase = db;
 
-    const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext } = body;
+    console.log("[generate-document] auth", { fn: "generate-document", isServiceRole, hasActorUserId: !!actorUserId, hasForwardedUserId: !!forwardedUserId, action: body?.action ?? null });
 
-    console.log("[generate-document] auth", {
-      isService: isServiceRole,
-      hasBearer: !!bearer,
-      hasForwardedUserId: !!forwardedUserId,
-      action: body?.action ?? body?.type ?? null,
-    });
+    // Ping support
+    if ((body as any).action === "ping") return jsonRes({ ok: true, function: "generate-document" });
+
+    const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext } = body;
 
     // Extract nuance parameters (with defaults)
     const nuanceParams: NuanceParams = {
