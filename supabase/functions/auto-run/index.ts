@@ -1670,6 +1670,21 @@ async function rewriteWithFallback(
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  // GET → unauthenticated ping
+  if (req.method === "GET") {
+    return respond({ ok: true, ts: new Date().toISOString(), function: "auto-run" });
+  }
+
+  // Parse body safely
+  let body: any = {};
+  try { body = await req.json(); } catch { body = {}; }
+  const action = body.action || null;
+
+  // Unauthenticated ping action
+  if (action === "ping") {
+    return respond({ ok: true, ts: new Date().toISOString(), function: "auto-run" });
+  }
+
   try {
     if (!FORMAT_LADDERS || typeof FORMAT_LADDERS !== "object" || Object.keys(FORMAT_LADDERS).length === 0) {
       return respond({ error: "STAGE_LADDERS_LOAD_FAILED" }, 500);
@@ -1740,8 +1755,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Parse body early
-    const body = await req.json();
+    // Body already parsed above (before auth gate)
 
     // Set request-scoped userId for downstream calls
     // For service_role: use forwarded userId from body, or null (NEVER "service_role")
