@@ -550,6 +550,20 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     } catch (e: any) { setError(e.message); }
   }, [job]);
 
+  const repairBaseline = useCallback(async (strategy: 'promote_best_scored' | 'promote_latest') => {
+    if (!job) return;
+    setError(null);
+    abortRef.current = false;
+    try {
+      const result = await callAutoRun('repair-baseline', { jobId: job.id, strategy });
+      setJob(result.job);
+      setSteps(result.latest_steps || []);
+      if (result.job?.status === 'running') {
+        setIsRunning(true);
+      }
+    } catch (e: any) { setError(e.message); }
+  }, [job]);
+
 
   return {
     job, steps, isRunning, error, activated, connectionState,
@@ -573,5 +587,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     toggleAllowDefaults,
     // Target
     updateTarget,
+    // Baseline repair
+    repairBaseline,
   };
 }
