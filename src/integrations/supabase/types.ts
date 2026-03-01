@@ -465,6 +465,8 @@ export type Database = {
           approval_required_for_doc_type: string | null
           approval_type: string | null
           awaiting_approval: boolean
+          best_blocker_count: number | null
+          best_blocker_score: number | null
           best_ci: number | null
           best_document_id: string | null
           best_gp: number | null
@@ -483,6 +485,7 @@ export type Database = {
           id: string
           is_processing: boolean
           last_analyzed_version_id: string | null
+          last_blocker_count: number | null
           last_ci: number | null
           last_confidence: number | null
           last_error: string | null
@@ -513,6 +516,7 @@ export type Database = {
           stage_exhaustion_remaining: number
           stage_history: Json | null
           stage_loop_count: number
+          stagnation_no_blocker_count: number | null
           start_document: string
           status: string
           step_count: number
@@ -527,6 +531,8 @@ export type Database = {
           approval_required_for_doc_type?: string | null
           approval_type?: string | null
           awaiting_approval?: boolean
+          best_blocker_count?: number | null
+          best_blocker_score?: number | null
           best_ci?: number | null
           best_document_id?: string | null
           best_gp?: number | null
@@ -545,6 +551,7 @@ export type Database = {
           id?: string
           is_processing?: boolean
           last_analyzed_version_id?: string | null
+          last_blocker_count?: number | null
           last_ci?: number | null
           last_confidence?: number | null
           last_error?: string | null
@@ -575,6 +582,7 @@ export type Database = {
           stage_exhaustion_remaining?: number
           stage_history?: Json | null
           stage_loop_count?: number
+          stagnation_no_blocker_count?: number | null
           start_document: string
           status?: string
           step_count?: number
@@ -589,6 +597,8 @@ export type Database = {
           approval_required_for_doc_type?: string | null
           approval_type?: string | null
           awaiting_approval?: boolean
+          best_blocker_count?: number | null
+          best_blocker_score?: number | null
           best_ci?: number | null
           best_document_id?: string | null
           best_gp?: number | null
@@ -607,6 +617,7 @@ export type Database = {
           id?: string
           is_processing?: boolean
           last_analyzed_version_id?: string | null
+          last_blocker_count?: number | null
           last_ci?: number | null
           last_confidence?: number | null
           last_error?: string | null
@@ -637,6 +648,7 @@ export type Database = {
           stage_exhaustion_remaining?: number
           stage_history?: Json | null
           stage_loop_count?: number
+          stagnation_no_blocker_count?: number | null
           start_document?: string
           status?: string
           step_count?: number

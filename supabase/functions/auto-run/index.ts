@@ -3955,9 +3955,9 @@ Deno.serve(async (req) => {
           { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags }
         );
 
-        // Update job scores + last_analyzed_version_id (step_count maintained by nextStepIndex)
+        // Update job scores + last_analyzed_version_id + blocker tracking
         await updateJob(supabase, jobId, {
-          last_ci: ci, last_gp: gp, last_gap: gap,
+          last_ci: ci, last_gp: gp, last_gap: gap, last_blocker_count: blockersCount,
           last_readiness: promo.readiness_score, last_confidence: promo.confidence,
           last_risk_flags: promo.risk_flags,
           last_analyzed_version_id: latestVersion.id,
@@ -4415,12 +4415,24 @@ Deno.serve(async (req) => {
             }
           }
 
-          const REGRESSION_THRESHOLD = getRegressionThreshold(currentDoc); // PROMOTE_DELTA
-          const EXPLORE_THRESHOLD = getExploreThreshold(currentDoc);       // EXPLORE_DELTA
-          const MAX_FRONTIER_ATTEMPTS = getMaxFrontierAttempts(currentDoc);
+          const BASE_REGRESSION_THRESHOLD = getRegressionThreshold(currentDoc); // PROMOTE_DELTA — unchanged
+          const BASE_EXPLORE_THRESHOLD = getExploreThreshold(currentDoc);       // EXPLORE_DELTA
+          const BASE_MAX_FRONTIER_ATTEMPTS = getMaxFrontierAttempts(currentDoc);
 
-          // ── Helper: score a candidate version ──
-          async function scoreCandidate(candVersionId: string, label: string): Promise<{ ci: number; gp: number } | null> {
+          // ── BLOCKER-AWARE THRESHOLD WIDENING ──
+          // When hard_gate blockers are present, allow wider exploration to remove them
+          // PROMOTE threshold stays strict — only explore gets widened
+          const hasBlockers = blockersCount > 0;
+          const REGRESSION_THRESHOLD = BASE_REGRESSION_THRESHOLD; // NEVER widened
+          const EXPLORE_THRESHOLD = hasBlockers ? BASE_EXPLORE_THRESHOLD + 10 : BASE_EXPLORE_THRESHOLD;
+          const MAX_FRONTIER_ATTEMPTS = hasBlockers ? BASE_MAX_FRONTIER_ATTEMPTS + 5 : BASE_MAX_FRONTIER_ATTEMPTS;
+
+          if (hasBlockers) {
+            console.log(`[auto-run] blocker-aware widening: EXPLORE ${BASE_EXPLORE_THRESHOLD}→${EXPLORE_THRESHOLD}, MAX_FRONTIER ${BASE_MAX_FRONTIER_ATTEMPTS}→${MAX_FRONTIER_ATTEMPTS}, blockers=${blockersCount}`);
+          }
+
+          // ── Helper: score a candidate version (returns CI/GP + blocker count) ──
+          async function scoreCandidate(candVersionId: string, label: string): Promise<{ ci: number; gp: number; blockerCount: number } | null> {
             try {
               const postScoreResult = await callEdgeFunctionWithRetry(
                 supabase, supabaseUrl, "dev-engine-v2", {
@@ -4435,7 +4447,11 @@ Deno.serve(async (req) => {
               );
               const scores = extractCiGp(postScoreResult);
               if (scores.ci === null || scores.gp === null) return null;
-              return { ci: scores.ci, gp: scores.gp };
+              // Extract blocker count from analyze result
+              const inner = postScoreResult?.result !== undefined ? postScoreResult.result : postScoreResult;
+              const analysisObj = inner?.analysis || inner || {};
+              const candBlockers = pickArray(analysisObj, ["blocking_issues", "blockers", "scores.blocking_issues"]);
+              return { ci: scores.ci, gp: scores.gp, blockerCount: candBlockers.length };
               
             } catch (e: any) {
               console.error(`[auto-run] scoreCandidate(${label}) failed:`, e.message);
@@ -4455,7 +4471,7 @@ Deno.serve(async (req) => {
           }
 
           // ── Helper: promote a candidate (ONLY called when gate says PROMOTE) ──
-          async function promoteCandidate(candVersionId: string, candCI: number, candGP: number, meta: Record<string, any>): Promise<boolean> {
+          async function promoteCandidate(candVersionId: string, candCI: number, candGP: number, meta: Record<string, any>, candBlockerCount?: number): Promise<boolean> {
             const { error: promoteErr } = await supabase.rpc("set_current_version", {
               p_document_id: doc.id,
               p_new_version_id: candVersionId,
@@ -4468,17 +4484,34 @@ Deno.serve(async (req) => {
               return false;
             }
 
-            // ── BEST-OF TRACKING (only on PROMOTE) ──
+            // ── BLOCKER-AWARE BEST-OF TRACKING (only on PROMOTE) ──
+            // Priority: lower blocker_count first, then higher (ci+gp) composite
             const bestCI = (job as any).best_ci ?? null;
             const bestGP = (job as any).best_gp ?? null;
+            const bestBlockerCount = (job as any).best_blocker_count ?? null;
             const candidateComposite = candCI + candGP;
             const bestComposite = (bestCI ?? -1) + (bestGP ?? -1);
-            const isBest = bestCI === null || candidateComposite > bestComposite;
+            const cbc = candBlockerCount ?? 0;
+
+            let isBest = false;
+            if (bestCI === null) {
+              isBest = true; // first promotion
+            } else if (bestBlockerCount !== null && cbc < bestBlockerCount) {
+              isBest = true; // fewer blockers wins
+            } else if ((bestBlockerCount === null || cbc === bestBlockerCount) && candidateComposite > bestComposite) {
+              isBest = true; // same blockers, higher score wins
+            }
+
+            // ── STAGNATION TRACKING ──
+            const lastBlockerCount = (job as any).last_blocker_count ?? null;
+            const prevStagnation = (job as any).stagnation_no_blocker_count ?? 0;
+            const blockersImproved = lastBlockerCount !== null && cbc < lastBlockerCount;
+            const stagnationCount = (hasBlockers && !blockersImproved && lastBlockerCount !== null) ? prevStagnation + 1 : 0;
 
             await logStep(supabase, jobId, null, currentDoc, "rewrite_accepted",
-              `Candidate accepted (attempt ${attemptNumber}, ${strategy}). CI: ${baselineCI}→${candCI}, GP: ${baselineGP}→${candGP}${isBest ? ' [NEW BEST]' : ''}`,
+              `Candidate accepted (attempt ${attemptNumber}, ${strategy}). CI: ${baselineCI}→${candCI}, GP: ${baselineGP}→${candGP}. Blockers: ${blockersCount}→${cbc}${blockersImproved ? ' ✓ improved' : ''}${isBest ? ' [NEW BEST]' : ''}`,
               { ci: candCI, gp: candGP }, undefined,
-              { ...meta, attemptNumber, strategy, isBest });
+              { ...meta, attemptNumber, strategy, isBest, blocker_count_before: blockersCount, blocker_count_after: cbc, blockers_improved: blockersImproved, stagnation_count: stagnationCount });
 
             const jobUpdate: Record<string, any> = {
               stage_loop_count: newLoopCount,
@@ -4487,6 +4520,8 @@ Deno.serve(async (req) => {
               resume_version_id: candVersionId,
               last_ci: candCI,
               last_gp: candGP,
+              last_blocker_count: cbc,
+              stagnation_no_blocker_count: stagnationCount,
               // Clear frontier on successful promotion
               frontier_version_id: null,
               frontier_ci: null,
@@ -4499,6 +4534,8 @@ Deno.serve(async (req) => {
               jobUpdate.best_gp = candGP;
               jobUpdate.best_score = candidateComposite;
               jobUpdate.best_document_id = doc.id;
+              jobUpdate.best_blocker_count = cbc;
+              jobUpdate.best_blocker_score = cbc; // simple weight = count for now
             }
             await updateJob(supabase, jobId, jobUpdate);
             return true;
@@ -4538,6 +4575,23 @@ Deno.serve(async (req) => {
             };
             // NOTE: best_* is NOT updated on EXPLORE — only PROMOTE updates best_*
             await updateJob(supabase, jobId, jobUpdate);
+          }
+
+          // ── STAGNATION DETECTION: if blockers haven't decreased in 4 attempts, pause ──
+          const prevStagnationCount = (job as any).stagnation_no_blocker_count ?? 0;
+          const STAGNATION_LIMIT = 4;
+          if (hasBlockers && prevStagnationCount >= STAGNATION_LIMIT) {
+            await logStep(supabase, jobId, null, currentDoc, "stagnation_no_blocker_progress",
+              `Blocker count has not decreased in ${prevStagnationCount} consecutive attempts (blockers=${blockersCount}). Pausing for review.`,
+              { ci: baselineCI, gp: baselineGP }, undefined,
+              { blockersCount, stagnation_count: prevStagnationCount, STAGNATION_LIMIT });
+            await updateJob(supabase, jobId, {
+              stage_loop_count: newLoopCount,
+              status: "paused",
+              pause_reason: "STAGNATION_NO_BLOCKER_PROGRESS",
+              stop_reason: `Blockers (${blockersCount}) have not decreased in ${prevStagnationCount} attempts. Consider structural changes or manual editing.`,
+            });
+            return respondWithJob(supabase, jobId);
           }
 
           try {
@@ -4591,13 +4645,13 @@ Deno.serve(async (req) => {
               const gateB = scoreB ? threeWayGate(scoreB.ci, scoreB.gp) : null;
 
               // Collect all scored candidates with their gate decisions
-              type ForkCandidate = { versionId: string; ci: number; gp: number; label: string; decision: GateDecision };
+              type ForkCandidate = { versionId: string; ci: number; gp: number; blockerCount: number; label: string; decision: GateDecision };
               const allCandidates: ForkCandidate[] = [];
-              if (candA && scoreA && gateA) allCandidates.push({ versionId: candA, ci: scoreA.ci, gp: scoreA.gp, label: "conservative", decision: gateA.decision });
-              if (candB && scoreB && gateB) allCandidates.push({ versionId: candB, ci: scoreB.ci, gp: scoreB.gp, label: "aggressive", decision: gateB.decision });
+              if (candA && scoreA && gateA) allCandidates.push({ versionId: candA, ci: scoreA.ci, gp: scoreA.gp, blockerCount: scoreA.blockerCount, label: "conservative", decision: gateA.decision });
+              if (candB && scoreB && gateB) allCandidates.push({ versionId: candB, ci: scoreB.ci, gp: scoreB.gp, blockerCount: scoreB.blockerCount, label: "aggressive", decision: gateB.decision });
 
-              // Sort by composite score descending for determinism
-              allCandidates.sort((a, b) => (b.ci + b.gp) - (a.ci + a.gp) || a.label.localeCompare(b.label));
+              // Sort: fewer blockers first, then higher composite score
+              allCandidates.sort((a, b) => (a.blockerCount - b.blockerCount) || ((b.ci + b.gp) - (a.ci + a.gp)) || a.label.localeCompare(b.label));
 
               // Try PROMOTE first
               const promotable = allCandidates.filter(c => c.decision === "PROMOTE");
@@ -4605,7 +4659,8 @@ Deno.serve(async (req) => {
                 const winner = promotable[0];
                 const promoted = await promoteCandidate(
                   winner.versionId, winner.ci, winner.gp,
-                  { baselineVersionId, forkInputVersionId, candA, candB, forkWinner: winner.label, scoreA, scoreB, gateA, gateB }
+                  { baselineVersionId, forkInputVersionId, candA, candB, forkWinner: winner.label, scoreA, scoreB, gateA, gateB },
+                  winner.blockerCount
                 );
                 if (!promoted) {
                   await updateJob(supabase, jobId, {
@@ -4734,14 +4789,24 @@ Deno.serve(async (req) => {
 
             const candidateCI = candScore.ci;
             const candidateGP = candScore.gp;
+            const candidateBlockerCount = candScore.blockerCount;
 
             await logStep(supabase, jobId, null, currentDoc, "rewrite_candidate_scored",
-              `Candidate scored: CI=${candidateCI}, GP=${candidateGP} (baseline CI=${baselineCI}, GP=${baselineGP})`,
+              `Candidate scored: CI=${candidateCI}, GP=${candidateGP}, blockers=${candidateBlockerCount} (baseline CI=${baselineCI}, GP=${baselineGP}, blockers=${blockersCount}). Blockers ${candidateBlockerCount < blockersCount ? 'improved ✓' : candidateBlockerCount === blockersCount ? 'unchanged' : 'worsened ✗'}`,
               { ci: candidateCI, gp: candidateGP }, undefined,
-              { baselineVersionId, singleInputVersionId, candidateVersionId, baselineCI, baselineGP, candidateCI, candidateGP, attemptNumber, strategy });
+              { baselineVersionId, singleInputVersionId, candidateVersionId, baselineCI, baselineGP, candidateCI, candidateGP,
+                blocker_count_before: blockersCount, blocker_count_after: candidateBlockerCount, blockers_improved: candidateBlockerCount < blockersCount,
+                attemptNumber, strategy });
 
             // ── THREE-WAY ACCEPTANCE GATE ──
             const { decision: gateDecision, ciDrop, gpDrop, worstDrop } = threeWayGate(candidateCI, candidateGP);
+
+            await logStep(supabase, jobId, null, currentDoc, "gate_decision",
+              `Gate: ${gateDecision} | CI ${baselineCI}→${candidateCI} (drop ${ciDrop}), GP ${baselineGP}→${candidateGP} (drop ${gpDrop}) | blockers ${blockersCount}→${candidateBlockerCount} | PROMOTE_DELTA=${REGRESSION_THRESHOLD}, EXPLORE_DELTA=${EXPLORE_THRESHOLD}`,
+              { ci: candidateCI, gp: candidateGP }, undefined,
+              { decision: gateDecision, ciDrop, gpDrop, worstDrop, REGRESSION_THRESHOLD, EXPLORE_THRESHOLD,
+                blocker_count_before: blockersCount, blocker_count_after: candidateBlockerCount, blockers_improved: candidateBlockerCount < blockersCount,
+                hasBlockers, attemptNumber, strategy });
 
             if (gateDecision === "PROMOTE") {
               // ── PROMOTE: candidate passed tight threshold — change is_current ──
@@ -4749,7 +4814,8 @@ Deno.serve(async (req) => {
                 candidateVersionId,
                 candidateCI,
                 candidateGP,
-                { baselineVersionId, singleInputVersionId, candidateVersionId, baselineCI, baselineGP, candidateCI, candidateGP, ciDrop, gpDrop }
+                { baselineVersionId, singleInputVersionId, candidateVersionId, baselineCI, baselineGP, candidateCI, candidateGP, ciDrop, gpDrop },
+                candidateBlockerCount
               );
               if (!promoted) {
                 await updateJob(supabase, jobId, {
