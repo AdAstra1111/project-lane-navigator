@@ -783,25 +783,74 @@ async function resolveSeriesQualifications(
     .eq("id", projectId).single();
   if (!project) return { episode_target_duration_seconds: null, episode_target_duration_min_seconds: null, episode_target_duration_max_seconds: null, season_episode_count: null, source: { duration: null, count: null } };
 
+  // ── PRIORITY 0: Read canonical duration from project_canon.canon_json ──
+  // This is the HIGHEST priority source — user/devseed-defined, potentially locked.
+  let canonDurMin: number | null = null;
+  let canonDurMax: number | null = null;
+  let canonDurLocked = false;
+  let canonDurSource: string | null = null;
+  try {
+    const { data: canonRow } = await supabase.from("project_canon")
+      .select("canon_json")
+      .eq("project_id", projectId)
+      .maybeSingle();
+    const cj = canonRow?.canon_json;
+    if (cj) {
+      // Check canon_json.format.episode_duration_seconds (new canonical model)
+      const fmtBlock = cj.format;
+      if (fmtBlock?.episode_duration_seconds) {
+        const eds = fmtBlock.episode_duration_seconds;
+        if (typeof eds.min === "number") canonDurMin = eds.min;
+        if (typeof eds.max === "number") canonDurMax = eds.max;
+        canonDurLocked = !!fmtBlock.episode_duration_locked;
+        canonDurSource = fmtBlock.episode_duration_source || "canon";
+      }
+      // Fallback: legacy canon_json keys (episode_length_seconds_min/max)
+      if (canonDurMin == null && canonDurMax == null) {
+        const legMin = typeof cj.episode_length_seconds_min === "number" ? cj.episode_length_seconds_min : null;
+        const legMax = typeof cj.episode_length_seconds_max === "number" ? cj.episode_length_seconds_max : null;
+        if (legMin != null || legMax != null) {
+          canonDurMin = legMin;
+          canonDurMax = legMax;
+          canonDurSource = "canon_legacy";
+        }
+      }
+    }
+  } catch { /* canon read failed — continue with lower-priority sources */ }
+
   const gc = project.guardrails_config || {};
   const quals = gc?.overrides?.qualifications || {};
   const defaults = FORMAT_DEFAULTS[fmt] || {};
 
-  // Duration range resolution: project columns → guardrails → defaults → legacy scalar fallback
+  // Duration range resolution: canon_json → project columns → guardrails → defaults
   let durMin: number | null = null;
   let durMax: number | null = null;
   let durScalar: number | null = null;
-  let durSource: "project_column" | "guardrails" | "defaults" | null = null;
+  let durSource: "canon" | "canon_legacy" | "project_column" | "guardrails" | "defaults" | null = null;
+  let durLocked = false;
 
-  if (project.episode_target_duration_min_seconds || project.episode_target_duration_max_seconds) {
+  // PRIORITY 0: Canon (locked takes absolute precedence)
+  if (canonDurMin != null || canonDurMax != null) {
+    durMin = canonDurMin;
+    durMax = canonDurMax;
+    durSource = (canonDurSource as any) || "canon";
+    durLocked = canonDurLocked;
+    console.log(`[resolveSeriesQualifications] Canon duration: ${durMin}-${durMax}s source=${durSource} locked=${durLocked}`);
+  }
+  // PRIORITY 1: Project columns (only if canon didn't define it OR canon isn't locked)
+  else if (project.episode_target_duration_min_seconds || project.episode_target_duration_max_seconds) {
     durMin = project.episode_target_duration_min_seconds;
     durMax = project.episode_target_duration_max_seconds;
     durSource = "project_column";
-  } else if (quals.episode_target_duration_min_seconds || quals.episode_target_duration_max_seconds) {
+  }
+  // PRIORITY 2: Guardrails overrides
+  else if (quals.episode_target_duration_min_seconds || quals.episode_target_duration_max_seconds) {
     durMin = quals.episode_target_duration_min_seconds;
     durMax = quals.episode_target_duration_max_seconds;
     durSource = "guardrails";
-  } else if (defaults.episode_target_duration_min_seconds || defaults.episode_target_duration_max_seconds) {
+  }
+  // PRIORITY 3: Lane defaults (ONLY if nothing else defined)
+  else if (defaults.episode_target_duration_min_seconds || defaults.episode_target_duration_max_seconds) {
     durMin = defaults.episode_target_duration_min_seconds ?? null;
     durMax = defaults.episode_target_duration_max_seconds ?? null;
     durSource = "defaults";
@@ -839,7 +888,8 @@ async function resolveSeriesQualifications(
   }
 
   // Persist-on-resolve: write defaults back so engine never re-asks
-  const needsPersist = (durSource === "defaults" || countSource === "defaults") && SERIES_FORMATS.includes(fmt);
+  // IMPORTANT: Never persist-on-resolve if canon is locked — canon is truth
+  const needsPersist = !durLocked && (durSource === "defaults" || countSource === "defaults") && SERIES_FORMATS.includes(fmt);
   if (needsPersist) {
     const newGc = { ...gc };
     newGc.overrides = newGc.overrides || {};
@@ -907,12 +957,50 @@ async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<
   const gc = p.guardrails_config || {};
   const quals = gc?.overrides?.qualifications || {};
   const fmt = normalizeFormat(p.format);
+
+  // ── Read canonical duration from project_canon (highest priority) ──
+  let canonDurMin: number | undefined;
+  let canonDurMax: number | undefined;
+  let canonDurScalar: number | undefined;
+  try {
+    const { data: canonRow } = await supabase.from("project_canon")
+      .select("canon_json")
+      .eq("project_id", projectId)
+      .maybeSingle();
+    const cj = canonRow?.canon_json;
+    if (cj) {
+      const fmtBlock = cj.format;
+      if (fmtBlock?.episode_duration_seconds) {
+        const eds = fmtBlock.episode_duration_seconds;
+        if (typeof eds.min === "number") canonDurMin = eds.min;
+        if (typeof eds.max === "number") canonDurMax = eds.max;
+        canonDurScalar = Math.round(((canonDurMin ?? 0) + (canonDurMax ?? 0)) / 2) || undefined;
+        console.log(`[buildCriteriaSnapshot] Canon duration override: ${canonDurMin}-${canonDurMax}s (locked=${!!fmtBlock.episode_duration_locked})`);
+      }
+      // Legacy canon keys
+      if (canonDurMin == null) {
+        const lm = typeof cj.episode_length_seconds_min === "number" ? cj.episode_length_seconds_min : undefined;
+        const lx = typeof cj.episode_length_seconds_max === "number" ? cj.episode_length_seconds_max : undefined;
+        if (lm != null || lx != null) {
+          canonDurMin = lm;
+          canonDurMax = lx;
+          canonDurScalar = Math.round(((canonDurMin ?? 0) + (canonDurMax ?? 0)) / 2) || undefined;
+        }
+      }
+    }
+  } catch { /* continue without canon */ }
+
+  // Duration: canon → project columns → guardrails (NO defaults here — resolveSeriesQualifications handles that)
+  const durMin = canonDurMin ?? quals.episode_target_duration_min_seconds ?? p.episode_target_duration_min_seconds ?? undefined;
+  const durMax = canonDurMax ?? quals.episode_target_duration_max_seconds ?? p.episode_target_duration_max_seconds ?? undefined;
+  const durScalar = canonDurScalar ?? quals.episode_target_duration_seconds ?? p.episode_target_duration_seconds ?? undefined;
+
   return {
     format_subtype: quals.format_subtype || fmt,
     season_episode_count: quals.season_episode_count || p.season_episode_count || undefined,
-    episode_target_duration_seconds: quals.episode_target_duration_seconds || p.episode_target_duration_seconds || undefined,
-    episode_target_duration_min_seconds: quals.episode_target_duration_min_seconds || p.episode_target_duration_min_seconds || undefined,
-    episode_target_duration_max_seconds: quals.episode_target_duration_max_seconds || p.episode_target_duration_max_seconds || undefined,
+    episode_target_duration_seconds: durScalar,
+    episode_target_duration_min_seconds: durMin,
+    episode_target_duration_max_seconds: durMax,
     target_runtime_min_low: quals.target_runtime_min_low || undefined,
     target_runtime_min_high: quals.target_runtime_min_high || undefined,
     assigned_lane: p.assigned_lane || quals.assigned_lane || undefined,
@@ -4009,8 +4097,16 @@ Deno.serve(async (req) => {
         const targetMid = Math.round((targetMin + targetMax) / 2);
         const targetWordCount = Math.round(targetMid * DURATION_ACTION_WPS); // approximate words needed
         
+        // Determine source label for logging
+        const durSourceLabel = (() => {
+          try {
+            // Check if canon defined & locked
+            const snap = latestCriteriaSnapshot as any;
+            return snap._duration_source ? `source=${snap._duration_source}${snap._duration_locked ? ', locked' : ''}` : '';
+          } catch { return ''; }
+        })();
         await logStep(supabase, jobId, stepCount + 1, currentDoc, "duration_repair_attempt",
-          `Duration repair #${durationRepairAttempts + 1}: measured=${measuredDuration}s target=${targetMin}-${targetMax}s delta=${measuredDuration - targetMid}s`,
+          `Duration repair #${durationRepairAttempts + 1}: measured=${measuredDuration}s target=${targetMin}-${targetMax}s delta=${measuredDuration - targetMid}s${durSourceLabel ? ` (${durSourceLabel})` : ''}`,
           { risk_flags: ["criteria_fail_duration", "duration_repair"] },
         );
         
