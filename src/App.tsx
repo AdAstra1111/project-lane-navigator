@@ -80,6 +80,7 @@ const VisualDevHub = lazy(() => import("./pages/VisualDevHub"));
 const TrailerHub = lazy(() => import("./pages/TrailerHub"));
 const Showcase = lazy(() => import("./pages/Showcase"));
 const CanonPlaceholder = lazy(() => import("./pages/CanonPlaceholder"));
+const AIContentPage = lazy(() => import("./pages/AIContentPage"));
 const DemoDashboard = lazy(() => import("./pages/DemoDashboard"));
 
 
@@ -197,6 +198,7 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/canon" element={<ProtectedRoute><ProjectShell><CanonPlaceholder /></ProjectShell></ProtectedRoute>} />
           <Route path="/projects/:id/trailer" element={<ProtectedRoute><ProjectShell><TrailerHub /></ProjectShell></ProtectedRoute>} />
           <Route path="/projects/:id/produce" element={<ProtectedRoute><ProjectShell><ProducerCockpit /></ProjectShell></ProtectedRoute>} />
+          <Route path="/projects/:id/ai-content" element={<ProtectedRoute><ProjectShell><AIContentPage /></ProjectShell></ProtectedRoute>} />
           <Route path="/showcase" element={<ProtectedRoute><Showcase /></ProtectedRoute>} />
 
           <Route path="/processing" element={<Processing />} />
