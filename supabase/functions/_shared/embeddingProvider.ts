@@ -5,9 +5,9 @@
 
 import { GATEWAY_URL, MODELS } from "./llm.ts";
 
-const DIMENSION = 64;
-const EMBEDDING_MODEL = "llm-tool-call-64d"; // logical name for provenance
-const MAX_RETRIES = 2;
+const DIMENSION = 1536;
+const EMBEDDING_MODEL = "text-embedding-3-small";
+const MAX_RETRIES = 3;
 
 export { DIMENSION, EMBEDDING_MODEL };
 
@@ -19,7 +19,7 @@ export async function createEmbedding(
   text: string,
   apiKey: string,
 ): Promise<number[]> {
-  const truncated = text.slice(0, 12000); // keep payload sane
+  const truncated = text.slice(0, 8000);
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -30,18 +30,19 @@ export async function createEmbedding(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: MODELS.FAST_LITE,
+          model: MODELS.FAST,
           messages: [
             {
               role: "system",
-              content: `You are a semantic fingerprint generator. Produce exactly ${DIMENSION} floating-point numbers between -1 and 1 that capture the semantic meaning of the input text. Each number represents a different semantic axis. Return via the tool call. Output ONLY numbers, no text.`,
+              content: `You are a numerical vector generator. When given text, you MUST call store_embedding with an array of exactly ${DIMENSION} floating-point numbers. These numbers represent a semantic fingerprint of the input. Do not output any text — only call the tool.`,
             },
             {
               role: "user",
-              content: `Generate exactly ${DIMENSION} numbers for this text:\n\n${truncated}`,
+              content: truncated,
             },
           ],
           temperature: 0,
+          max_tokens: 16000,
           tools: [
             {
               type: "function",
