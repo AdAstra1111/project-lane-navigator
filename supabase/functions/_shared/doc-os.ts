@@ -209,6 +209,8 @@ export async function createVersion(
     approval_status: opts.approvalStatus || "draft",
     deliverable_type: opts.deliverableType || key,
     meta_json: opts.metaJson || {},
+    // Provenance invariant: generator_id must never be null for system writes
+    generator_id: opts.generatorId || "system",
   };
 
   if (opts.changeSummary) insertPayload.change_summary = opts.changeSummary;
