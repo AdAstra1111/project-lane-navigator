@@ -406,13 +406,14 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
   const canStart = !autopilot || status === 'idle';
   const canResume = (hasError || isPaused) && !ticking;
 
-  // Phase 2 derived state
+  // Phase 2 derived state — blocked/paused override running
   const autoRunStatus = autoRunJob?.status;
-  const autoRunRunning = autoRunStatus === 'running' || autoRunStatus === 'queued';
+  const autoRunBlocked = autoRunJob?.awaiting_approval === true;
+  const autoRunPaused = autoRunStatus === 'paused';
   const autoRunComplete = autoRunStatus === 'completed';
   const autoRunFailed = autoRunStatus === 'failed' || autoRunStatus === 'stopped';
-  const autoRunPaused = autoRunStatus === 'paused';
-  const autoRunBlocked = autoRunJob?.awaiting_approval === true;
+  // "Running" only when truly running and NOT blocked/paused
+  const autoRunRunning = (autoRunStatus === 'running' || autoRunStatus === 'queued') && !autoRunBlocked && !autoRunPaused;
   const autoRunStopReason = autoRunJob?.stop_reason;
   const autoRunApprovalType = autoRunJob?.approval_type;
   const autoRunUiMessage = autoRunJob?.last_ui_message;
