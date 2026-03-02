@@ -39,25 +39,30 @@ export const TONES = [
 
 type LabelValue = { value: string; label: string };
 
+/** Helper: ensure 'Animation' appears in every genre list */
+function withAnimation(genres: string[]): string[] {
+  return genres.includes('Animation') ? genres : [...genres, 'Animation'];
+}
+
 export const MODE_GENRES: Record<ProjectFormat, string[]> = {
   film: [...GENRES],
   'tv-series': [...GENRES],
-  'short-film': ['Drama', 'Comedy', 'Horror', 'Sci-Fi', 'Animation', 'Experimental', 'Documentary', 'Musical', 'Thriller', 'Romance'],
-  documentary: ['Social Issue', 'Political', 'Nature / Environment', 'Historical', 'True Crime', 'Music / Arts', 'Sports', 'Science / Tech', 'Portrait / Biography', 'Investigative'],
-  'documentary-series': ['Social Issue', 'Political', 'Nature / Environment', 'Historical', 'True Crime', 'Music / Arts', 'Sports', 'Science / Tech', 'Portrait / Biography', 'Investigative'],
-  'hybrid-documentary': ['Documentary-Fiction', 'Scripted Reality', 'Animated Documentary', 'Essay Film', 'Docudrama', 'Experimental Documentary', 'Investigative Hybrid', 'Personal Hybrid'],
-  'digital-series': ['Comedy', 'Drama', 'Reality', 'Talk Show', 'Docuseries', 'Animation', 'Sketch', 'Gaming', 'Lifestyle', 'Educational'],
-  commercial: ['Automotive', 'FMCG / CPG', 'Tech / Digital', 'Fashion / Beauty', 'Food & Beverage', 'Finance', 'Healthcare', 'Luxury', 'Telecoms', 'Sports / Fitness', 'Travel', 'Public Sector / NGO'],
-  'branded-content': ['Lifestyle', 'Adventure', 'Culture', 'Social Impact', 'Music', 'Sports', 'Tech', 'Fashion', 'Food', 'Travel', 'Sustainability', 'Education'],
-  'music-video': ['Pop', 'Hip-Hop / Rap', 'Rock', 'R&B / Soul', 'Electronic', 'Country', 'Latin', 'Indie', 'Classical', 'World Music'],
-  'proof-of-concept': ['Drama', 'Sci-Fi', 'Horror', 'Fantasy', 'Action', 'Thriller', 'Animation', 'Comedy', 'Experimental'],
-  hybrid: ['Transmedia', 'Interactive', 'Immersive', 'Mixed Reality', 'Documentary-Fiction', 'Cross-Platform', 'Experiential', 'Installation'],
-  'vertical-drama': ['Romance', 'Drama', 'Thriller', 'Comedy', 'Fantasy', 'Horror', 'Action', 'Mystery', 'Revenge', 'Workplace'],
-  'limited-series': ['Drama', 'Thriller', 'Mystery', 'Crime', 'Romance', 'Sci-Fi', 'Horror', 'Comedy', 'War', 'Fantasy'],
-  'anim-feature': ['Adventure', 'Comedy', 'Fantasy', 'Sci-Fi', 'Action', 'Drama', 'Musical', 'Horror', 'Family'],
-  'anim-series': ['Adventure', 'Comedy', 'Fantasy', 'Sci-Fi', 'Action', 'Drama', 'Educational', 'Preschool', 'Family'],
-  reality: ['Competition', 'Dating', 'Lifestyle', 'Makeover', 'Travel', 'Food', 'Business', 'Social Experiment', 'Talent', 'Docusoap'],
-  'podcast-ip': ['True Crime', 'Comedy', 'Interview', 'Storytelling', 'Investigation', 'Science', 'Culture', 'Business', 'Horror Fiction', 'History'],
+  'short-film': withAnimation(['Drama', 'Comedy', 'Horror', 'Sci-Fi', 'Animation', 'Experimental', 'Documentary', 'Musical', 'Thriller', 'Romance']),
+  documentary: withAnimation(['Social Issue', 'Political', 'Nature / Environment', 'Historical', 'True Crime', 'Music / Arts', 'Sports', 'Science / Tech', 'Portrait / Biography', 'Investigative']),
+  'documentary-series': withAnimation(['Social Issue', 'Political', 'Nature / Environment', 'Historical', 'True Crime', 'Music / Arts', 'Sports', 'Science / Tech', 'Portrait / Biography', 'Investigative']),
+  'hybrid-documentary': withAnimation(['Documentary-Fiction', 'Scripted Reality', 'Animated Documentary', 'Essay Film', 'Docudrama', 'Experimental Documentary', 'Investigative Hybrid', 'Personal Hybrid']),
+  'digital-series': withAnimation(['Comedy', 'Drama', 'Reality', 'Talk Show', 'Docuseries', 'Animation', 'Sketch', 'Gaming', 'Lifestyle', 'Educational']),
+  commercial: withAnimation(['Automotive', 'FMCG / CPG', 'Tech / Digital', 'Fashion / Beauty', 'Food & Beverage', 'Finance', 'Healthcare', 'Luxury', 'Telecoms', 'Sports / Fitness', 'Travel', 'Public Sector / NGO']),
+  'branded-content': withAnimation(['Lifestyle', 'Adventure', 'Culture', 'Social Impact', 'Music', 'Sports', 'Tech', 'Fashion', 'Food', 'Travel', 'Sustainability', 'Education']),
+  'music-video': withAnimation(['Pop', 'Hip-Hop / Rap', 'Rock', 'R&B / Soul', 'Electronic', 'Country', 'Latin', 'Indie', 'Classical', 'World Music']),
+  'proof-of-concept': withAnimation(['Drama', 'Sci-Fi', 'Horror', 'Fantasy', 'Action', 'Thriller', 'Animation', 'Comedy', 'Experimental']),
+  hybrid: withAnimation(['Transmedia', 'Interactive', 'Immersive', 'Mixed Reality', 'Documentary-Fiction', 'Cross-Platform', 'Experiential', 'Installation']),
+  'vertical-drama': withAnimation(['Romance', 'Drama', 'Thriller', 'Comedy', 'Fantasy', 'Horror', 'Action', 'Mystery', 'Revenge', 'Workplace']),
+  'limited-series': withAnimation(['Drama', 'Thriller', 'Mystery', 'Crime', 'Romance', 'Sci-Fi', 'Horror', 'Comedy', 'War', 'Fantasy']),
+  'anim-feature': withAnimation(['Adventure', 'Comedy', 'Fantasy', 'Sci-Fi', 'Action', 'Drama', 'Musical', 'Horror', 'Family']),
+  'anim-series': withAnimation(['Adventure', 'Comedy', 'Fantasy', 'Sci-Fi', 'Action', 'Drama', 'Educational', 'Preschool', 'Family']),
+  reality: withAnimation(['Competition', 'Dating', 'Lifestyle', 'Makeover', 'Travel', 'Food', 'Business', 'Social Experiment', 'Talent', 'Docusoap']),
+  'podcast-ip': withAnimation(['True Crime', 'Comedy', 'Interview', 'Storytelling', 'Investigation', 'Science', 'Culture', 'Business', 'Horror Fiction', 'History']),
 };
 
 export const MODE_AUDIENCES: Record<ProjectFormat, LabelValue[]> = {
