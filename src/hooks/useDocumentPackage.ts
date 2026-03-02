@@ -4,7 +4,8 @@ import { toast } from 'sonner';
 import { getDocPackage, getRequiredDocsForStage, getDocOrderPrefix } from '@/lib/document-packages';
 import { approveAndActivateMany } from '@/lib/active-folder/approveAndActivate';
 
-export type ConnectedReason = 'resolver_hash' | 'generator_known' | 'none';
+export type CriteriaConnectedReason = 'resolver_hash' | 'none';
+export type ProvenanceReason = 'generator_id' | 'seed_snapshot' | 'source' | 'none';
 
 export interface PackageDocStatus {
   docType: string;
@@ -13,8 +14,10 @@ export interface PackageDocStatus {
   latestVersionId: string | null;
   status: 'missing' | 'draft' | 'final' | 'superseded' | 'stale';
   resolverHash: string | null;
-  connected: boolean;
-  connectedReason: ConnectedReason;
+  criteriaConnected: boolean;
+  criteriaConnectedReason: CriteriaConnectedReason;
+  provenanceKnown: boolean;
+  provenanceReason: ProvenanceReason;
   exportPath: string | null;
   updatedAt: string | null;
   required: boolean;
@@ -92,16 +95,16 @@ export function useDocumentPackage(projectId: string | undefined) {
           status = 'draft';
         }
 
-        // Canonical connected computation — single source of truth
-        // A version is "connected" if it has a resolver hash (primary) or a known generator (persisted provenance)
-        let connected = false;
-        let connectedReason: ConnectedReason = 'none';
-        if (version?.depends_on_resolver_hash) {
-          connected = true;
-          connectedReason = 'resolver_hash';
-        } else if (version?.generator_id) {
-          connected = true;
-          connectedReason = 'generator_known';
+        // Criteria-connected: STRICT — only when resolver hash is present
+        const criteriaConnected = !!version?.depends_on_resolver_hash;
+        const criteriaConnectedReason: CriteriaConnectedReason = criteriaConnected ? 'resolver_hash' : 'none';
+
+        // Provenance: LOOSE — origin is known via generator_id, seed snapshot, or source
+        let provenanceKnown = false;
+        let provenanceReason: ProvenanceReason = 'none';
+        if (version?.generator_id) {
+          provenanceKnown = true;
+          provenanceReason = 'generator_id';
         }
 
         return {
@@ -111,8 +114,10 @@ export function useDocumentPackage(projectId: string | undefined) {
           latestVersionId: doc?.latest_version_id || null,
           status,
           resolverHash: version?.depends_on_resolver_hash || null,
-          connected,
-          connectedReason,
+          criteriaConnected,
+          criteriaConnectedReason,
+          provenanceKnown,
+          provenanceReason,
           exportPath: doc?.latest_export_path || null,
           updatedAt: doc?.updated_at || null,
           required: requiredDocs.includes(docType),

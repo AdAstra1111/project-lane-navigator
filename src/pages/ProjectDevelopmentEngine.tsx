@@ -1154,7 +1154,8 @@ export default function ProjectDevelopmentEngine() {
             if (!pkgData) return null;
             const staleTypes = pkgData.filter((d: any) => d.status === 'stale').map((d: any) => d.docType);
             const versionedDocs = pkgData.filter((d: any) => d.latestVersionId);
-            const connectedCount = versionedDocs.filter((d: any) => d.connected).length;
+            const criteriaLinkedCount = versionedDocs.filter((d: any) => d.criteriaConnected).length;
+            const provenanceKnownCount = versionedDocs.filter((d: any) => d.provenanceKnown).length;
             const totalVersioned = versionedDocs.length;
             return (
               <ConnectivityBanner
@@ -1163,7 +1164,8 @@ export default function ProjectDevelopmentEngine() {
                 staleDocCount={staleTypes.length}
                 staleDocTypes={staleTypes}
                 totalDocs={totalVersioned}
-                connectedDocs={connectedCount}
+                criteriaLinkedDocs={criteriaLinkedCount}
+                provenanceKnownDocs={provenanceKnownCount}
               />
             );
           })()}

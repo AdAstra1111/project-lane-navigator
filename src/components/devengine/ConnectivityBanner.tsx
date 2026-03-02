@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle, Link2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Link2, RefreshCw, Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -11,7 +11,8 @@ interface ConnectivityBannerProps {
   staleDocCount: number;
   staleDocTypes: string[];
   totalDocs: number;
-  connectedDocs: number;
+  criteriaLinkedDocs: number;
+  provenanceKnownDocs: number;
 }
 
 export function ConnectivityBanner({
@@ -20,7 +21,8 @@ export function ConnectivityBanner({
   staleDocCount,
   staleDocTypes,
   totalDocs,
-  connectedDocs,
+  criteriaLinkedDocs,
+  provenanceKnownDocs,
 }: ConnectivityBannerProps) {
   const qc = useQueryClient();
 
@@ -41,12 +43,33 @@ export function ConnectivityBanner({
     onError: (err: any) => toast.error('Regeneration failed: ' + err.message),
   });
 
-  if (staleDocCount === 0 && connectedDocs === totalDocs) {
+  const missingCriteriaLink = totalDocs - criteriaLinkedDocs;
+  const unknownProvenance = totalDocs - provenanceKnownDocs;
+
+  // All good: every doc has criteria link and no stale
+  if (staleDocCount === 0 && criteriaLinkedDocs === totalDocs) {
     return (
       <div className="flex items-center gap-2 p-2 rounded-lg bg-primary/5 border border-primary/20 text-xs">
         <CheckCircle className="h-3.5 w-3.5 text-primary shrink-0" />
-        <span className="text-foreground">All documents connected</span>
+        <span className="text-foreground">All documents criteria-linked</span>
         <Badge variant="outline" className="text-[9px] ml-auto">{currentResolverHash}</Badge>
+      </div>
+    );
+  }
+
+  // No staleness and all provenance known (just missing criteria hash — common for seed docs before qualifications resolve)
+  if (staleDocCount === 0 && missingCriteriaLink > 0 && unknownProvenance === 0) {
+    return (
+      <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50 border border-border text-xs">
+        <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <div className="flex-1">
+          <p className="font-medium text-foreground">
+            {missingCriteriaLink} missing criteria link{missingCriteriaLink > 1 ? 's' : ''}
+          </p>
+          <p className="text-[10px] text-muted-foreground">
+            Origin known (provenance tracked). Run qualifications to establish criteria links.
+          </p>
+        </div>
       </div>
     );
   }
@@ -57,13 +80,15 @@ export function ConnectivityBanner({
       <div className="flex-1">
         <p className="font-medium text-foreground">
           {staleDocCount > 0 ? `${staleDocCount} stale doc${staleDocCount > 1 ? 's' : ''}` : ''}
-          {staleDocCount > 0 && connectedDocs < totalDocs ? ' · ' : ''}
-          {connectedDocs < totalDocs ? `${totalDocs - connectedDocs} unconnected` : ''}
+          {staleDocCount > 0 && missingCriteriaLink > 0 ? ' · ' : ''}
+          {missingCriteriaLink > 0 ? `${missingCriteriaLink} missing criteria link${missingCriteriaLink > 1 ? 's' : ''}` : ''}
         </p>
         <p className="text-[10px] text-muted-foreground">
           {staleDocCount > 0
             ? 'Canonical qualifications changed — regenerate affected docs.'
-            : 'Some documents lack provenance tracking.'}
+            : unknownProvenance > 0
+              ? `${unknownProvenance} doc${unknownProvenance > 1 ? 's' : ''} lack provenance tracking.`
+              : 'Run qualifications to establish criteria links.'}
         </p>
       </div>
       <div className="flex gap-1.5 shrink-0">
