@@ -8,7 +8,7 @@ export type DocTypeKey =
   | 'concept_brief'
   | 'character_bible'
   | 'market_sheet'
-  | 'blueprint'
+  | 'treatment'
   | 'beat_sheet'
   | 'deck'
   | 'documentary_outline'
@@ -31,7 +31,7 @@ export const DOC_TYPE_KEY_LABELS: Record<DocTypeKey, string> = {
   concept_brief: 'Concept Brief',
   character_bible: 'Character Bible',
   market_sheet: 'Market Sheet',
-  blueprint: 'Blueprint / Series Bible',
+  treatment: 'Treatment / Series Bible',
   beat_sheet: 'Beat Sheet',
   deck: 'Deck',
   documentary_outline: 'Documentary Outline',
@@ -85,8 +85,9 @@ const KEY_MAP: Record<string, DocTypeKey> = {
   deck: 'deck',
   pitch_deck: 'deck',
   lookbook: 'deck',
-  blueprint: 'blueprint',
-  series_bible: 'blueprint',
+  blueprint: 'treatment',
+  series_bible: 'treatment',
+  treatment: 'treatment',
   beat_sheet: 'beat_sheet',
   character_bible: 'character_bible',
   character: 'character_bible',
@@ -116,7 +117,7 @@ const TITLE_HINTS: [RegExp, DocTypeKey][] = [
   [/market\s*(sheet|positioning)/i, 'market_sheet'],
   [/\bdeck\b/i, 'deck'],
   [/\blookbook\b/i, 'deck'],
-  [/blueprint|series\s*bible/i, 'blueprint'],
+  [/blueprint|series\s*bible|treatment/i, 'treatment'],
   [/beat\s*sheet/i, 'beat_sheet'],
   [/character\s*bible/i, 'character_bible'],
   [/episode\s*grid/i, 'episode_grid'],

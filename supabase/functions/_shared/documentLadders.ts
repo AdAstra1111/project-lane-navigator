@@ -51,6 +51,9 @@ export const BASE_DOC_TYPES: Record<string, DocTypeMeta> = {
   market_positioning:      { label: 'Market Positioning',      description: 'Market positioning and sales strategy' },
   canon:                   { label: 'Canon Snapshot',          description: 'Canonical world/character state snapshot' },
   nec:                     { label: 'NEC',                     description: 'Narrative Evaluation Card — quality assessment' },
+  // Derived (non-ladder) doc types
+  scene_graph:             { label: 'Scene Index',             description: 'Deterministic scene segmentation index' },
+  change_report:           { label: 'Change Report',           description: 'Deterministic diff and impact analysis' },
 };
 
 export const LANE_DOC_LADDERS: Record<LaneKey, string[]> = {
