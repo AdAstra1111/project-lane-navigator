@@ -107,7 +107,17 @@ export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { mode: uiMode, setMode: setUIMode } = useUIMode();
-  const viewMode = uiMode; // 'simple' = clean, 'advanced' = full telemetry
+  // PATCH 3: When ?tab=autorun, default to simple view for this session without overwriting saved preference
+  const [autorunSessionOverride, setAutorunSessionOverride] = useState<boolean>(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return t === 'autorun';
+  });
+  const viewMode = autorunSessionOverride ? 'simple' : uiMode;
+  const handleToggleMode = useCallback(() => {
+    // User explicitly toggled — clear session override and persist preference
+    setAutorunSessionOverride(false);
+    setUIMode(uiMode === 'simple' ? 'advanced' : 'simple');
+  }, [uiMode, setUIMode]);
   const qc = useQueryClient();
   const VALID_TABS = new Set(['notes', 'issues', 'convergence', 'qualifications', 'autorun', 'series-scripts', 'criteria', 'package', 'canon', 'provenance', 'scenes', 'quality', 'docsets', 'timeline']);
   const initialTab = (() => { const t = searchParams.get('tab'); return t && VALID_TABS.has(t) ? t : 'notes'; })();
@@ -1002,7 +1012,7 @@ export default function ProjectDevelopmentEngine() {
         job={autoRun.job}
         isRunning={autoRun.isRunning}
         uiMode={viewMode}
-        onToggleMode={() => setUIMode(viewMode === 'simple' ? 'advanced' : 'simple')}
+        onToggleMode={handleToggleMode}
         executionMode={deriveExecutionMode(autoRun.job)}
         onSetExecutionMode={(mode: ExecutionMode) => {
           if (!autoRun.job?.id) return;

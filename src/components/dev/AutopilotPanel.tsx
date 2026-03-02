@@ -502,28 +502,75 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
     })();
   }, [fullAutopilot, autoRunJob?.id, autoRunJob?.status, autoRunJob?.pending_decisions]);
 
-  // PATCH B2: Auto-resume from DEV_ENGINE_UNAVAILABLE when Full Autopilot is ON
-  const devEngineRecoverRef = useRef<string | null>(null);
+  // PATCH B2: Bounded auto-recovery from DEV_ENGINE_UNAVAILABLE (max 3, backoff 5/15/30s)
+  const devEngineRecoverRef = useRef<{ jobId: string; pauseEpoch: string; attempt: number; exhausted: boolean } | null>(null);
+  const devEngineRecoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [devEngineRecoverExhausted, setDevEngineRecoverExhausted] = useState(false);
+
   useEffect(() => {
     if (!fullAutopilot || !autoRunJob) return;
-    if (autoRunJob.status !== 'paused') { devEngineRecoverRef.current = null; return; }
-    if (autoRunJob.stop_reason !== 'DEV_ENGINE_UNAVAILABLE') return;
-
-    const recoverKey = `${autoRunJob.id}:${autoRunJob.updated_at}`;
-    if (devEngineRecoverRef.current === recoverKey) return;
-    devEngineRecoverRef.current = recoverKey;
-
-    console.log('[AutopilotPanel] AUTO_RECOVER_DEV_ENGINE_UNAVAILABLE', { jobId: autoRunJob.id });
-    (async () => {
-      try {
-        const result = await callAutoRun('resume', { jobId: autoRunJob.id, followLatest: true });
-        if (mountedRef.current && result?.job) setAutoRunJob(result.job);
-        const tickResult = await callAutoRun('run-next', { jobId: autoRunJob.id });
-        if (mountedRef.current && tickResult?.job) setAutoRunJob(tickResult.job);
-      } catch (err: any) {
-        console.warn('[AutopilotPanel] AUTO_RECOVER_DEV_ENGINE_UNAVAILABLE failed:', err?.message);
+    // Reset if job is no longer paused or stop_reason changed
+    if (autoRunJob.status !== 'paused' || autoRunJob.stop_reason !== 'DEV_ENGINE_UNAVAILABLE') {
+      if (devEngineRecoverRef.current) {
+        devEngineRecoverRef.current = null;
+        setDevEngineRecoverExhausted(false);
       }
-    })();
+      if (devEngineRecoverTimerRef.current) { clearTimeout(devEngineRecoverTimerRef.current); devEngineRecoverTimerRef.current = null; }
+      return;
+    }
+
+    const BACKOFF_SCHEDULE = [5000, 15000, 30000];
+    const MAX_ATTEMPTS = BACKOFF_SCHEDULE.length;
+    const pauseEpoch = autoRunJob.updated_at || autoRunJob.id;
+
+    // Initialize or check existing recovery state
+    const prev = devEngineRecoverRef.current;
+    if (prev && prev.jobId === autoRunJob.id && prev.pauseEpoch === pauseEpoch) {
+      // Already tracking this pause episode — do nothing (timer is running or exhausted)
+      return;
+    }
+
+    // New pause episode — start bounded recovery
+    const state = { jobId: autoRunJob.id, pauseEpoch, attempt: 0, exhausted: false };
+    devEngineRecoverRef.current = state;
+    setDevEngineRecoverExhausted(false);
+
+    const attemptRecover = async (attemptIndex: number) => {
+      if (!mountedRef.current) return;
+      const cur = devEngineRecoverRef.current;
+      if (!cur || cur.jobId !== state.jobId || cur.pauseEpoch !== state.pauseEpoch) return;
+      if (cur.exhausted) return;
+
+      console.log(`[AutopilotPanel] AUTO_RECOVER_DEV_ENGINE_UNAVAILABLE attempt=${attemptIndex + 1}/${MAX_ATTEMPTS}`, { jobId: state.jobId });
+      try {
+        const result = await callAutoRun('resume', { jobId: state.jobId, followLatest: true });
+        if (mountedRef.current && result?.job) setAutoRunJob(result.job);
+        const tickResult = await callAutoRun('run-next', { jobId: state.jobId });
+        if (mountedRef.current && tickResult?.job) {
+          setAutoRunJob(tickResult.job);
+          // If job is no longer paused with same stop_reason, recovery succeeded — ref will reset on next effect
+          return;
+        }
+      } catch (err: any) {
+        console.warn(`[AutopilotPanel] AUTO_RECOVER_DEV_ENGINE_UNAVAILABLE attempt=${attemptIndex + 1} failed:`, err?.message);
+      }
+
+      // Schedule next attempt or exhaust
+      const nextAttempt = attemptIndex + 1;
+      if (nextAttempt >= MAX_ATTEMPTS) {
+        if (devEngineRecoverRef.current) devEngineRecoverRef.current.exhausted = true;
+        setDevEngineRecoverExhausted(true);
+        console.warn('[AutopilotPanel] AUTO_RECOVER_DEV_ENGINE_UNAVAILABLE exhausted after 3 attempts');
+        return;
+      }
+      devEngineRecoverRef.current = { ...state, attempt: nextAttempt };
+      devEngineRecoverTimerRef.current = setTimeout(() => attemptRecover(nextAttempt), BACKOFF_SCHEDULE[nextAttempt]);
+    };
+
+    // First attempt after initial delay
+    devEngineRecoverTimerRef.current = setTimeout(() => attemptRecover(0), BACKOFF_SCHEDULE[0]);
+
+    return () => { if (devEngineRecoverTimerRef.current) { clearTimeout(devEngineRecoverTimerRef.current); devEngineRecoverTimerRef.current = null; } };
   }, [fullAutopilot, autoRunJob?.id, autoRunJob?.status, autoRunJob?.stop_reason, autoRunJob?.updated_at]);
 
   // ═══ Find Comparables CTA ═══
@@ -817,12 +864,22 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
                       Open Required Doc
                     </Button>
                   )}
-                  {/* PATCH C2: Show "Recovering…" when Full Autopilot auto-recovering from transient error */}
-                  {fullAutopilot && autoRunStopReason === 'DEV_ENGINE_UNAVAILABLE' ? (
+                  {/* PATCH C2: Show "Recovering…" or exhausted state for transient error */}
+                  {fullAutopilot && autoRunStopReason === 'DEV_ENGINE_UNAVAILABLE' && !devEngineRecoverExhausted ? (
                     <Badge variant="outline" className="text-[10px] h-6 gap-1 border-primary/40 text-primary">
                       <Loader2 className="h-3 w-3 animate-spin" />
                       Recovering…
                     </Badge>
+                  ) : fullAutopilot && autoRunStopReason === 'DEV_ENGINE_UNAVAILABLE' && devEngineRecoverExhausted ? (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={handleAutoRunResume}
+                      className="h-6 text-[10px] gap-1"
+                    >
+                      <AlertTriangle className="h-3 w-3" />
+                      Recovery failed — Resume
+                    </Button>
                   ) : (
                     <Button
                       size="sm"
