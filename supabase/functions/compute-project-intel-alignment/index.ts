@@ -16,7 +16,7 @@ function jsonRes(body: any, status = 200) {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method === "GET") return jsonRes({ ok: true, build: "compute-project-intel-alignment-v2" });
+  if (req.method === "GET") return jsonRes({ ok: true, build: "compute-project-intel-alignment-v3" });
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -42,7 +42,7 @@ serve(async (req) => {
     const { data: run, error: runErr } = await sb
       .from("intel_runs")
       .insert({
-        engine_name: "project-alignment-v2",
+        engine_name: "project-alignment-v3",
         trigger: body.trigger || "manual",
         scope: "project",
         requested_filters: { project_id },
@@ -54,7 +54,7 @@ serve(async (req) => {
     if (runErr || !run) return jsonRes({ error: "Failed to create run", detail: runErr?.message }, 500);
     const runId = run.id;
 
-    // Load project embedding
+    // Load project embedding (prefer logline, then summary)
     const { data: projVec } = await sb
       .from("project_vectors")
       .select("embedding")
@@ -64,7 +64,6 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    // If no logline, try summary
     let projectEmbedding = projVec?.embedding;
     if (!projectEmbedding) {
       const { data: summaryVec } = await sb
@@ -79,55 +78,48 @@ serve(async (req) => {
     }
 
     const usedPgvector = !!projectEmbedding;
+    let usedDbSimilarity = false;
     let topMatches: any[] = [];
 
     if (usedPgvector) {
-      // Use pgvector cosine similarity via RPC-like raw query
-      // Since we can't run raw SQL from JS client, compute similarity in-app
-      // Load signals with embeddings
-      const { data: signals } = await sb
-        .from("trend_signals")
-        .select("id, name, strength, velocity, saturation_risk, category, dimension, modality, embedding, cycle_phase")
-        .eq("status", "active")
-        .not("embedding", "is", null);
+      // ===== FIX #1: Use DB-side pgvector similarity via match_trend_signals RPC =====
+      const { data: rpcMatches, error: rpcErr } = await sb.rpc("match_trend_signals", {
+        _project_embedding: projectEmbedding,
+        _min_strength: 1,
+        _limit: 30,
+      });
 
-      if (signals && signals.length > 0) {
-        // Compute cosine similarity in JS (embeddings are arrays)
-        const projEmb = typeof projectEmbedding === "string" 
-          ? JSON.parse(projectEmbedding) 
-          : projectEmbedding;
-        
-        const scored = signals.map(sig => {
-          const sigEmb = typeof sig.embedding === "string" 
-            ? JSON.parse(sig.embedding) 
-            : sig.embedding;
-          
-          const similarity = cosineSimilarity(projEmb, sigEmb);
-          const base = similarity * 100;
-          const strengthWeight = (sig.strength || 5) / 10;
-          const velocityWeight = sig.velocity === "Rising" ? 1.1 : sig.velocity === "Declining" ? 0.85 : 1.0;
-          const satPenalty = sig.saturation_risk === "High" ? 0.85 : sig.saturation_risk === "Medium" ? 0.93 : 1.0;
+      if (rpcErr) {
+        console.error("match_trend_signals RPC error, falling back to tag scoring:", rpcErr.message);
+        // Fall through to tag-intersection fallback below
+      } else if (rpcMatches && rpcMatches.length > 0) {
+        usedDbSimilarity = true;
+        topMatches = rpcMatches.map((m: any) => {
+          const base = m.similarity * 100;
+          const strengthWeight = (m.strength || 5) / 10;
+          const velocityWeight = m.velocity === "Rising" ? 1.1 : m.velocity === "Declining" ? 0.85 : 1.0;
+          const satPenalty = m.saturation_risk === "High" ? 0.85 : m.saturation_risk === "Medium" ? 0.93 : 1.0;
           const finalScore = base * strengthWeight * velocityWeight * satPenalty;
 
           return {
-            signal_id: sig.id,
-            name: sig.name,
-            similarity: Math.round(similarity * 1000) / 1000,
-            strength: sig.strength,
-            velocity: sig.velocity,
-            saturation_risk: sig.saturation_risk,
-            dimension: sig.dimension,
-            modality: sig.modality,
-            cycle_phase: sig.cycle_phase,
+            signal_id: m.signal_id,
+            name: m.name,
+            similarity: Math.round(m.similarity * 1000) / 1000,
+            strength: m.strength,
+            velocity: m.velocity,
+            saturation_risk: m.saturation_risk,
+            dimension: m.dimension,
+            modality: m.modality,
+            cycle_phase: m.cycle_phase,
             final_score: Math.round(finalScore * 100) / 100,
           };
         });
-
-        scored.sort((a, b) => b.final_score - a.final_score);
-        topMatches = scored.slice(0, 30);
+        topMatches.sort((a: any, b: any) => b.final_score - a.final_score);
       }
-    } else {
-      // Fallback: tag intersection scoring
+    }
+
+    // Tag-intersection fallback (no embedding OR RPC failed)
+    if (topMatches.length === 0) {
       const { data: project } = await sb
         .from("projects")
         .select("genre, format, assigned_lane")
@@ -147,7 +139,6 @@ serve(async (req) => {
           const sigGenres = (sig.genre_tags || []).map((t: string) => t.toLowerCase());
           const sigFormats = (sig.format_tags || []).map((t: string) => t.toLowerCase());
 
-          // Tag intersection
           const genreOverlap = projGenres.filter((g: string) => sigGenres.includes(g)).length;
           const formatMatch = sigFormats.includes(projFormat) ? 1 : 0;
           const intersectionScore = (genreOverlap + formatMatch) / Math.max(1, projGenres.length + 1);
@@ -257,6 +248,7 @@ serve(async (req) => {
       stats: {
         signals_analyzed: topMatches.length > 0 ? topMatches.length : 0,
         used_pgvector: usedPgvector,
+        used_db_similarity: usedDbSimilarity,
         alignment_score,
         opportunity_score,
         risk_score,
@@ -270,6 +262,7 @@ serve(async (req) => {
       advisory_only: true,
       run_id: runId,
       used_pgvector: usedPgvector,
+      used_db_similarity: usedDbSimilarity,
       ...result,
       breakdown,
     });
@@ -278,15 +271,3 @@ serve(async (req) => {
     return jsonRes({ error: err instanceof Error ? err.message : "Unknown error" }, 500);
   }
 });
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (!a || !b || a.length !== b.length || a.length === 0) return 0;
-  let dot = 0, magA = 0, magB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    magA += a[i] * a[i];
-    magB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(magA) * Math.sqrt(magB);
-  return denom === 0 ? 0 : dot / denom;
-}

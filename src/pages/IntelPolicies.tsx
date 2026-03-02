@@ -74,22 +74,32 @@ export default function IntelPolicies() {
       return;
     }
 
-    const row = {
-      scope_type: editing.scope_type,
-      scope_key: editing.scope_key,
-      enabled: editing.enabled,
-      priority: editing.priority || 0,
-      policy: parsed,
-      updated_at: new Date().toISOString(),
-    };
-
     if (editing.id) {
+      // Update: set updated_by, don't overwrite created_by
+      const row = {
+        scope_type: editing.scope_type,
+        scope_key: editing.scope_key,
+        enabled: editing.enabled,
+        priority: editing.priority || 0,
+        policy: parsed,
+        updated_at: new Date().toISOString(),
+        updated_by: (await supabase.auth.getUser()).data.user?.id || null,
+      };
       const { error } = await supabase.from("intel_policies").update(row as any).eq("id", editing.id);
-      if (error) { toast.error(error.message); return; }
+      if (error) { console.error("Policy update error:", error); toast.error(error.message); return; }
       toast.success("Policy updated");
     } else {
+      // Insert: let DB default created_by = auth.uid()
+      const row = {
+        scope_type: editing.scope_type,
+        scope_key: editing.scope_key,
+        enabled: editing.enabled,
+        priority: editing.priority || 0,
+        policy: parsed,
+        updated_at: new Date().toISOString(),
+      };
       const { error } = await supabase.from("intel_policies").insert(row as any);
-      if (error) { toast.error(error.message); return; }
+      if (error) { console.error("Policy insert error:", error); toast.error(error.message); return; }
       toast.success("Policy created");
     }
     setEditOpen(false);
