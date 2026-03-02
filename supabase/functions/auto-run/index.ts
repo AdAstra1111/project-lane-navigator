@@ -3766,6 +3766,171 @@ Deno.serve(async (req) => {
       const episodeDuration = resolvedQuals.episode_target_duration_seconds;
       const seasonEpisodeCount = resolvedQuals.season_episode_count;
 
+      // ═══════════════════════════════════════
+      // PREWRITE_SETUP GATE — ensure canon OS, writing voice, and comparables
+      // exist before ANY writing stage executes.
+      // ═══════════════════════════════════════
+      {
+        const WRITING_STAGES = new Set([
+          "feature_script", "season_script", "episode_script",
+          "season_master_script", "production_draft",
+        ]);
+
+        if (WRITING_STAGES.has(currentDoc)) {
+          console.log("[auto-run] PREWRITE_SETUP gate entered", { jobId, currentDoc, format });
+          const setupMissing: string[] = [];
+          const setupResolved: string[] = [];
+
+          // 1) Canon OS — world_rules + logline + premise + characters
+          const { data: canonRow } = await supabase.from("project_canon")
+            .select("canon_json").eq("project_id", job.project_id).maybeSingle();
+          const cj = (canonRow?.canon_json || {}) as any;
+          const hasWorldRules = Array.isArray(cj.world_rules) && cj.world_rules.length > 0;
+          const hasLogline = typeof cj.logline === "string" && cj.logline.trim().length > 0;
+          const hasPremise = typeof cj.premise === "string" && cj.premise.trim().length > 0;
+          const hasCharacters = Array.isArray(cj.characters) && cj.characters.length > 0;
+
+          if (!hasWorldRules || !hasLogline || !hasPremise || !hasCharacters) {
+            // Attempt auto-populate via canon_os_extract_from_seed_docs
+            console.log("[auto-run] PREWRITE_SETUP: canon OS incomplete, attempting extract", {
+              hasWorldRules, hasLogline, hasPremise, hasCharacters,
+            });
+            let extractOk = false;
+            for (let attempt = 0; attempt < 3; attempt++) {
+              try {
+                const extractResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({
+                    action: "canon_os_extract_from_seed_docs",
+                    projectId: job.project_id,
+                  }),
+                });
+                if (extractResp.ok) {
+                  const extractResult = await extractResp.json();
+                  console.log("[auto-run] PREWRITE_SETUP: canon extract result", extractResult);
+                  if (extractResult.updated || extractResult.reason === "already_populated") {
+                    extractOk = true;
+                    setupResolved.push("canon_os");
+                    break;
+                  }
+                }
+                // Backoff on transient failure
+                if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 3000));
+              } catch (e: any) {
+                console.warn("[auto-run] PREWRITE_SETUP: canon extract attempt failed", { attempt, error: e.message });
+                if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 3000));
+              }
+            }
+            if (!extractOk) {
+              // Re-check after attempts — may have partially populated
+              const { data: recheck } = await supabase.from("project_canon")
+                .select("canon_json").eq("project_id", job.project_id).maybeSingle();
+              const rcj = (recheck?.canon_json || {}) as any;
+              const recheckOk = (Array.isArray(rcj.world_rules) && rcj.world_rules.length > 0)
+                && (typeof rcj.logline === "string" && rcj.logline.trim().length > 0);
+              if (!recheckOk) setupMissing.push("canon_os_world_rules");
+            }
+          }
+
+          // 2) Writing Voice — check project_lane_prefs
+          const lane = project?.assigned_lane || "independent-film";
+          const { data: prefsRow } = await supabase.from("project_lane_prefs")
+            .select("prefs").eq("project_id", job.project_id).eq("lane", lane).maybeSingle();
+          const lanePrefs = prefsRow?.prefs || {};
+          const hasVoice = !!(lanePrefs as any).writing_voice?.id || !!(lanePrefs as any).team_voice?.id;
+
+          if (!hasVoice) {
+            if (allowDefaults) {
+              // Auto-select default voice based on lane group
+              // Lane group mapping (mirrors src/lib/writingVoices/select.ts)
+              const ln = lane.toLowerCase().replace(/[-_\s]+/g, "");
+              let laneGroup = "feature";
+              if (ln.includes("verticaldrama") || ln.includes("fastturnaround") || ln === "vertical") laneGroup = "vertical";
+              else if (ln.includes("documentary")) laneGroup = "documentary";
+              else if (ln.includes("series") || ln === "tvseries" || ln === "limitedseries" || ln === "digitalseries") laneGroup = "series";
+
+              // Default voice IDs per lane group (first preset in each group)
+              const DEFAULT_VOICE_IDS: Record<string, { id: string; label: string }> = {
+                vertical: { id: "high_heat_addictive_vertical", label: "High-Heat Addictive" },
+                series: { id: "prestige_intimate_series", label: "Prestige Intimate" },
+                feature: { id: "cinematic_clean_feature", label: "Cinematic Clean" },
+                documentary: { id: "investigative_doc", label: "Investigative" },
+              };
+              const defaultVoice = DEFAULT_VOICE_IDS[laneGroup] || DEFAULT_VOICE_IDS.feature;
+
+              // Persist the voice in project_lane_prefs
+              const mergedPrefs = { ...lanePrefs, writing_voice: defaultVoice };
+              await supabase.from("project_lane_prefs").upsert({
+                project_id: job.project_id,
+                lane,
+                prefs: mergedPrefs,
+              }, { onConflict: "project_id,lane" });
+
+              setupResolved.push(`writing_voice=${defaultVoice.id}`);
+              console.log("[auto-run] PREWRITE_SETUP: auto-set writing voice", defaultVoice);
+            } else {
+              setupMissing.push("writing_voice");
+            }
+          }
+
+          // 3) Comparables — check canon_json.comparables or comparable_candidates table
+          const hasCanonComps = Array.isArray(cj.comparables) && cj.comparables.length > 0;
+          let hasTableComps = false;
+          if (!hasCanonComps) {
+            const { count } = await supabase.from("comparable_candidates")
+              .select("id", { count: "exact", head: true })
+              .eq("project_id", job.project_id);
+            hasTableComps = (count || 0) > 0;
+          }
+
+          if (!hasCanonComps && !hasTableComps) {
+            // Check if seed_intel_pack has comparable_candidates to init from
+            const packComps = cj.seed_intel_pack?.comparable_candidates;
+            if (Array.isArray(packComps) && packComps.length > 0) {
+              // Init comparables from pack into canon_json.comparables
+              const { data: currentCanon } = await supabase.from("project_canon")
+                .select("canon_json").eq("project_id", job.project_id).maybeSingle();
+              const updatedCanon = { ...(currentCanon?.canon_json || {}), comparables: packComps.slice(0, 12) };
+              await supabase.from("project_canon")
+                .update({ canon_json: updatedCanon, updated_by: job.user_id })
+                .eq("project_id", job.project_id);
+              setupResolved.push(`comparables_from_pack=${packComps.length}`);
+              console.log("[auto-run] PREWRITE_SETUP: init comparables from seed_intel_pack", { count: packComps.length });
+            } else if (!allowDefaults) {
+              setupMissing.push("comparables");
+            }
+            // If allowDefaults=true and no pack comps, proceed without — comparables are recommended but not blocking
+          }
+
+          // Log the setup gate result
+          if (setupResolved.length > 0 || setupMissing.length > 0) {
+            await logStep(supabase, jobId, stepCount, currentDoc, "prewrite_setup",
+              setupMissing.length > 0
+                ? `PREWRITE_SETUP incomplete: missing=[${setupMissing.join(",")}] resolved=[${setupResolved.join(",")}]`
+                : `PREWRITE_SETUP complete: resolved=[${setupResolved.join(",")}]`,
+              {}, undefined, { setupMissing, setupResolved },
+            );
+          }
+
+          // If critical setup is missing and !allowDefaults, pause
+          if (setupMissing.length > 0 && !allowDefaults) {
+            await updateJob(supabase, jobId, {
+              status: "paused",
+              stop_reason: `PREWRITE_SETUP_INCOMPLETE: ${setupMissing.join(", ")}`,
+              awaiting_approval: true,
+              approval_type: "prewrite_setup",
+              last_ui_message: `Writing cannot begin: ${setupMissing.join(", ")} must be configured. Set them in the project settings and resume.`,
+            });
+            return respondWithJob(supabase, jobId, "prewrite-setup-incomplete");
+          }
+          // If critical canon is missing even with allowDefaults, warn but proceed
+          if (setupMissing.includes("canon_os_world_rules")) {
+            console.warn("[auto-run] PREWRITE_SETUP: proceeding without world rules (canon extract failed)", { jobId });
+          }
+        }
+      }
+
       // ── IDEA auto-upshift: skip thin ideas directly to concept_brief ──
       if (currentDoc === "idea") {
         const { data: ideaDocs } = await supabase.from("project_documents")
