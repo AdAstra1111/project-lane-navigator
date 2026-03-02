@@ -69,7 +69,7 @@ export default function IntelDashboard() {
     toast.info("Backfilling signal embeddings…");
     try {
       const { data, error } = await supabase.functions.invoke("embed-trend-signal-vectors", {
-        body: { only_missing: true, limit: 50, trigger: "manual_backfill" },
+        body: { only_missing: true, limit: 10, trigger: "manual_backfill" },
       });
       if (error) throw error;
       toast.success(`Signals embedded: ${data?.processed || 0}, skipped: ${data?.skipped || 0}`);
