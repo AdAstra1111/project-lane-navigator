@@ -3826,6 +3826,7 @@ MATERIAL:\n${version.plaintext}`;
         deliverableType: resolvedDeliverable,
         dependsOn: convertDepFields,
         dependsOnResolverHash: convertResolverHash,
+        generatorId: body?.generatorId || "dev-engine-v2-convert",
       });
       if (!newVersion) throw new Error("Failed to create version for converted document");
 

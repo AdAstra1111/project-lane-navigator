@@ -27,8 +27,8 @@ export const STAGE_LADDERS = {
     "architecture":          "story_outline",
     "plot_architecture":     "story_outline",
     "episode_beat_sheet":    "beat_sheet",
-    "script":                "feature_script",
-    "feature_script":        "feature_script",
+    "script":                "feature_script", // NOTE: VD projects must override to season_script at runtime
+    "feature_script":        "feature_script", // NOTE: VD projects must override to season_script at runtime
     "pilot_script":          "episode_script",
     "episode_script":        "episode_script",
     "season_script":         "season_script",
