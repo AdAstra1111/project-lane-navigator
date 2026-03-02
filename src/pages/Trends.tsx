@@ -32,24 +32,32 @@ export default function Trends() {
         toast({ title: 'Not authenticated', description: 'Please sign in first.', variant: 'destructive' });
         return;
       }
+      // Use batch refresh (scheduled-refresh-trends) for global cooldown
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/refresh-trends`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scheduled-refresh-trends`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ production_type: selectedType }),
+          body: JSON.stringify({ trigger: 'manual' }),
         }
       );
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Refresh failed');
-      }
       const result = await response.json();
+      if (response.status === 429) {
+        toast({
+          title: 'Cooldown active',
+          description: `All trends are on cooldown until ${new Date(result.next_allowed_at).toLocaleString()}.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(result.error || 'Refresh failed');
+      }
       queryClient.invalidateQueries({ queryKey: ['trend-signals'] });
       queryClient.invalidateQueries({ queryKey: ['cast-trends'] });
       toast({
-        title: 'Trends refreshed',
-        description: `${result.signals_updated} signals and ${result.cast_updated} ${typeConfig?.castLabel?.toLowerCase() || 'cast trends'} updated for ${typeConfig?.label || selectedType}.`,
+        title: 'All trends refreshed',
+        description: `${result.refreshed_types_count || 0} types refreshed successfully.`,
       });
     } catch (e: any) {
       console.error('Refresh failed:', e);

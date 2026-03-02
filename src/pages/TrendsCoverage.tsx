@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, RefreshCw, Zap, Clock, Activity, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, RefreshCw, Zap, Clock, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
@@ -32,10 +32,8 @@ export default function TrendsCoverage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
-  const [refreshingAll, setRefreshingAll] = useState(false);
-  const [refreshingType, setRefreshingType] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
-  const [cooldownError, setCooldownError] = useState<string | null>(null);
+  const [cooldownUntil, setCooldownUntil] = useState<string | null>(null);
   const { toast } = useToast();
 
   const fetchCoverage = async () => {
@@ -66,6 +64,14 @@ export default function TrendsCoverage() {
         .limit(1);
       if (runs && runs.length > 0) {
         setLastRun(runs[0] as any);
+        // Compute global cooldown from last successful run (6h window)
+        const lastAt = new Date((runs[0] as any).created_at).getTime();
+        const cooldownEnd = lastAt + 6 * 3600_000;
+        if (Date.now() < cooldownEnd) {
+          setCooldownUntil(new Date(cooldownEnd).toISOString());
+        } else {
+          setCooldownUntil(null);
+        }
       }
     } catch {
       // Non-critical
@@ -74,40 +80,19 @@ export default function TrendsCoverage() {
 
   useEffect(() => { fetchCoverage(); fetchLastRun(); }, []);
 
+  // Clear cooldown when it expires
+  useEffect(() => {
+    if (!cooldownUntil) return;
+    const remaining = new Date(cooldownUntil).getTime() - Date.now();
+    if (remaining <= 0) { setCooldownUntil(null); return; }
+    const timer = setTimeout(() => setCooldownUntil(null), remaining);
+    return () => clearTimeout(timer);
+  }, [cooldownUntil]);
+
+  const isCooldownActive = !!cooldownUntil && new Date(cooldownUntil).getTime() > Date.now();
+
   const handleRefreshAll = async () => {
     setRefreshing(true);
-    setCooldownError(null);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const cooldowns: string[] = [];
-      for (const type of data?.required_types || []) {
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/refresh-trends`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ production_type: type, scope: 'one' }),
-        });
-        if (res.status === 429) {
-          const errData = await res.json();
-          cooldowns.push(`${type} (until ${new Date(errData.next_allowed_at).toLocaleString()})`);
-          continue;
-        }
-      }
-      if (cooldowns.length > 0) {
-        setCooldownError(`Cooldown active: ${cooldowns.join(', ')}`);
-      }
-      toast({ title: 'Refresh complete', description: 'All required types refreshed.' });
-      await Promise.all([fetchCoverage(), fetchLastRun()]);
-    } catch (e: any) {
-      toast({ title: 'Refresh failed', description: e.message, variant: 'destructive' });
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  const handleRefreshRequiredTypes = async () => {
-    setRefreshingAll(true);
-    setCooldownError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
@@ -117,47 +102,22 @@ export default function TrendsCoverage() {
         body: JSON.stringify({ trigger: 'manual' }),
       });
       const result = await res.json();
-      const cooldowns = Object.entries(result.results || {})
-        .filter(([, r]: [string, any]) => r.status === 429)
-        .map(([type]: [string, any]) => type);
-      if (cooldowns.length > 0) {
-        setCooldownError(`Cooldown active for: ${cooldowns.join(', ')}`);
-      }
-      const successCount = Object.values(result.results || {}).filter((r: any) => r.ok).length;
-      toast({ title: 'Refresh complete', description: `${successCount}/${Object.keys(result.results || {}).length} types refreshed.` });
-      await Promise.all([fetchCoverage(), fetchLastRun()]);
-    } catch (e: any) {
-      toast({ title: 'Refresh failed', description: e.message, variant: 'destructive' });
-    } finally {
-      setRefreshingAll(false);
-    }
-  };
-
-  const handleRefreshType = async (type: string) => {
-    setRefreshingType(type);
-    setCooldownError(null);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/refresh-trends`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ production_type: type, scope: 'one', trigger: 'manual' }),
-      });
       if (res.status === 429) {
-        const errData = await res.json();
-        setCooldownError(`${type}: cooldown active until ${new Date(errData.next_allowed_at).toLocaleString()}`);
-      } else if (res.ok) {
-        toast({ title: `${type} refreshed`, description: 'Signals and cast updated.' });
+        setCooldownUntil(result.next_allowed_at || null);
+        toast({ title: 'Cooldown active', description: `All trends are on cooldown until ${new Date(result.next_allowed_at).toLocaleString()}.`, variant: 'destructive' });
       } else {
-        const errData = await res.json();
-        toast({ title: `Refresh failed for ${type}`, description: errData.error || 'Unknown error', variant: 'destructive' });
+        if (result.global_cooldown_until) {
+          setCooldownUntil(result.global_cooldown_until);
+        }
+        const successCount = result.refreshed_types_count || 0;
+        const total = result.attempted?.length || 0;
+        toast({ title: 'Batch refresh complete', description: `${successCount}/${total} types refreshed successfully.` });
       }
       await Promise.all([fetchCoverage(), fetchLastRun()]);
     } catch (e: any) {
       toast({ title: 'Refresh failed', description: e.message, variant: 'destructive' });
     } finally {
-      setRefreshingType(null);
+      setRefreshing(false);
     }
   };
 
@@ -191,13 +151,9 @@ export default function TrendsCoverage() {
       subtitle="Audit production_type coverage across trend_signals and cast_trends."
       rightSlot={
         <div className="flex items-center gap-2 flex-wrap">
-          <Button size="sm" onClick={handleRefreshRequiredTypes} disabled={refreshingAll} className="h-8 text-xs">
-            <Activity className={`h-3.5 w-3.5 mr-1 ${refreshingAll ? 'animate-pulse' : ''}`} />
-            {refreshingAll ? 'Refreshing…' : 'Refresh Required Types'}
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleRefreshAll} disabled={refreshing} className="h-8 text-xs">
-            <RefreshCw className={`h-3.5 w-3.5 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Refreshing…' : 'Refresh All'}
+          <Button size="sm" onClick={handleRefreshAll} disabled={refreshing || isCooldownActive} className="h-8 text-xs">
+            <Activity className={`h-3.5 w-3.5 mr-1 ${refreshing ? 'animate-pulse' : ''}`} />
+            {refreshing ? 'Refreshing All…' : 'Refresh All Types'}
           </Button>
           {hasMissing && (
             <Button variant="outline" size="sm" onClick={handleBackfill} disabled={backfilling} className="h-8 text-xs">
@@ -209,6 +165,17 @@ export default function TrendsCoverage() {
         </div>
       }
     >
+      {/* Global Cooldown Banner */}
+      {isCooldownActive && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400 flex items-center gap-2">
+          <Clock className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            <span className="font-medium">Cooldown active</span> — all trend types are on cooldown until{' '}
+            <span className="font-semibold text-foreground">{new Date(cooldownUntil!).toLocaleString()}</span>
+          </span>
+        </div>
+      )}
+
       {/* Last Refresh Run */}
       {lastRun && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground rounded-lg border border-border/30 px-3 py-2 bg-muted/20 flex-wrap">
@@ -222,31 +189,6 @@ export default function TrendsCoverage() {
           <span>{lastRun.cast_total} cast</span>
           <span>·</span>
           <span>{lastRun.citations_total} citations</span>
-        </div>
-      )}
-
-      {/* Quick Actions: per-type refresh */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-muted-foreground">Quick refresh:</span>
-        {(data?.required_types || ['film', 'tv-series', 'vertical-drama', 'animation']).map(type => (
-          <Button
-            key={type}
-            variant="outline"
-            size="sm"
-            className="h-7 text-[11px] px-2.5"
-            disabled={refreshingType === type}
-            onClick={() => handleRefreshType(type)}
-          >
-            <Sparkles className={`h-3 w-3 mr-1 ${refreshingType === type ? 'animate-spin' : ''}`} />
-            {type}
-          </Button>
-        ))}
-      </div>
-
-      {/* Cooldown warning */}
-      {cooldownError && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-          <span className="font-medium">Cooldown:</span> {cooldownError}
         </div>
       )}
 
@@ -293,16 +235,12 @@ export default function TrendsCoverage() {
           loading={loading}
           rows={data?.trend_signals.by_type || []}
           total={data?.trend_signals.total || 0}
-          onRefreshType={handleRefreshType}
-          refreshingType={refreshingType}
         />
         <CoverageTable
           title="cast_trends"
           loading={loading}
           rows={data?.cast_trends.by_type || []}
           total={data?.cast_trends.total || 0}
-          onRefreshType={handleRefreshType}
-          refreshingType={refreshingType}
         />
       </div>
 
@@ -315,13 +253,11 @@ export default function TrendsCoverage() {
   );
 }
 
-function CoverageTable({ title, loading, rows, total, onRefreshType, refreshingType }: {
+function CoverageTable({ title, loading, rows, total }: {
   title: string;
   loading: boolean;
   rows: { production_type: string; count: number }[];
   total: number;
-  onRefreshType: (type: string) => void;
-  refreshingType: string | null;
 }) {
   return (
     <div className="rounded-xl border border-border/40 bg-card/50">
@@ -336,21 +272,9 @@ function CoverageTable({ title, loading, rows, total, onRefreshType, refreshingT
           <p className="text-xs text-muted-foreground py-3 text-center">No data.</p>
         ) : (
           rows.map(row => (
-            <div key={row.production_type} className="flex items-center justify-between py-1.5 border-b border-border/20 last:border-0 group">
+            <div key={row.production_type} className="flex items-center justify-between py-1.5 border-b border-border/20 last:border-0">
               <span className="text-sm text-foreground">{row.production_type}</span>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="text-[10px] font-mono h-5">{row.count}</Badge>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={() => onRefreshType(row.production_type)}
-                  disabled={refreshingType === row.production_type}
-                  title={`Refresh ${row.production_type}`}
-                >
-                  <RefreshCw className={`h-3 w-3 ${refreshingType === row.production_type ? 'animate-spin' : ''}`} />
-                </Button>
-              </div>
+              <Badge variant="outline" className="text-[10px] font-mono h-5">{row.count}</Badge>
             </div>
           ))
         )}
