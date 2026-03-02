@@ -1,12 +1,13 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Radio, TrendingUp, Users, Filter } from 'lucide-react';
+import { Radio, TrendingUp, Users, Filter, AlertTriangle } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useActiveSignals, useActiveCastTrends, PRODUCTION_TYPE_TREND_CATEGORIES } from '@/hooks/useTrends';
+import { useActiveSignals, useActiveCastTrends, useSignalCount, useCastTrendsCount, PRODUCTION_TYPE_TREND_CATEGORIES } from '@/hooks/useTrends';
 import { PRODUCTION_MODALITIES, MODALITY_LABELS, type ProductionModality } from '@/config/productionModality';
+import { Link } from 'react-router-dom';
 
 const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([value, config]) => ({
   value,
@@ -46,6 +47,10 @@ export default function TrendsExplorer() {
   const { data: castTrends = [], isLoading: castLoading } = useActiveCastTrends({
     productionType: effectiveFilter,
   });
+
+  // Count hooks for diagnostic messages
+  const { data: signalDbCount = 0 } = useSignalCount(effectiveFilter);
+  const { data: castDbCount = 0 } = useCastTrendsCount(effectiveFilter);
 
   // Client-side lane filter for "Lane Trends"
   const laneSignals = useMemo(() => {
@@ -165,7 +170,15 @@ export default function TrendsExplorer() {
                 {signalsLoading ? (
                   <p className="text-sm text-muted-foreground py-4 text-center animate-pulse">Loading signals…</p>
                 ) : globalSignals.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center">No active signals found for this filter.</p>
+                  <div className="py-4 text-center space-y-2">
+                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      DB has {signalDbCount} active trend_signals for production_type="{effectiveFilter}"
+                    </div>
+                    <Link to="/trends/coverage" className="text-xs text-primary hover:underline">
+                      Open Trends Coverage →
+                    </Link>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {globalSignals.map((s, i) => (
@@ -188,7 +201,15 @@ export default function TrendsExplorer() {
                 {castLoading ? (
                   <p className="text-sm text-muted-foreground py-4 text-center animate-pulse">Loading cast trends…</p>
                 ) : castTrends.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center">No active cast trends found.</p>
+                  <div className="py-4 text-center space-y-2">
+                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      DB has {castDbCount} active cast_trends for production_type="{effectiveFilter}"
+                    </div>
+                    <Link to="/trends/coverage" className="text-xs text-primary hover:underline">
+                      Open Trends Coverage →
+                    </Link>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {castTrends.slice(0, 10).map((ct, i) => (

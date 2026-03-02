@@ -239,3 +239,9 @@ verify_jwt = false
 
 [functions.trailer-cinematic-engine]
 verify_jwt = false
+
+[functions.trends-coverage-audit]
+verify_jwt = false
+
+[functions.backfill-trends-types]
+verify_jwt = false
