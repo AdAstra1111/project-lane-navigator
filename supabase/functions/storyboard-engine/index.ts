@@ -664,9 +664,12 @@ Deno.serve(async (req) => {
 
     const db = adminClient();
 
-    // Verify access with fallback
+    // Verify access — hard-stop on failure (no fallback, no defaults)
     const hasAccess = await verifyAccess(db, userId, projectId);
-    if (!hasAccess) return json({ error: "Forbidden" }, 403);
+    if (!hasAccess) {
+      console.warn(`[storyboard-engine] access_denied user=${userId} project=${projectId}`);
+      return json({ error: "Forbidden: no project access" }, 403);
+    }
 
     const apiKey = Deno.env.get("LOVABLE_API_KEY") || "";
 

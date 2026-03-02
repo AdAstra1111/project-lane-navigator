@@ -9,6 +9,18 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+/**
+ * Map production modality → cast_trends production_type filter.
+ * - animation → "animation" (strict filter)
+ * - hybrid → null (no restriction — broader pool; prompt reflects hybrid modality)
+ * - live_action / null → null (no change to existing behavior)
+ */
+function modalityToTrendsFilter(modality: string | null): string | null {
+  if (modality === "animation") return "animation";
+  // hybrid: no production_type restriction (broader pool), prompt will reflect hybrid modality
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -130,6 +142,26 @@ serve(async (req) => {
     const HIGH_CONFIDENCE_FIELDS = new Set(["subgenre", "toneAnchor", "culturalTag", "locationVibe", "arenaProfession"]);
     const getMinStrength = (field: string) => HIGH_CONFIDENCE_FIELDS.has(field) ? 6 : 4;
 
+    // ── Early modality derivation (must happen before auto-fields uses dbModality) ──
+    let dbModality: string | null = null;
+    if (projectId) {
+      try {
+        const { createClient: createEarlyClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+        const earlySupa = createEarlyClient(supabaseUrl, supabaseKey);
+        const { data: earlyProj } = await earlySupa.from("projects")
+          .select("project_features")
+          .eq("id", projectId)
+          .single();
+        if (earlyProj) {
+          const { getProjectModality: gpmEarly } = await import("../_shared/productionModality.ts");
+          dbModality = gpmEarly(earlyProj.project_features as Record<string, any> | null);
+          console.log(`[generate-pitch] early_modality=${dbModality}`);
+        }
+      } catch (e) {
+        console.warn(`[generate-pitch] early modality fetch failed (non-fatal):`, e);
+      }
+    }
+
     // ── Auto-fields: resolve via fallback ladder (deterministic, no LLM) ──
     let autoFieldsBlock = "";
     let convergenceBlock = "";
@@ -198,19 +230,16 @@ serve(async (req) => {
 
           if (typeLabel) castQuery = castQuery.eq("production_type", typeLabel);
 
-          // ── Modality-aware cast_trends filtering ──
-          // If dbModality is set and not live_action, use it to scope/weight cast trends
-          if (dbModality && dbModality !== "live_action") {
-            // Map modality → production_type filter for cast_trends
-            // animation → filter to animation; hybrid → include both (no extra filter, broader pool)
-            if (dbModality === "animation") {
-              castQuery = castQuery.eq("production_type", "animation");
-              console.log(`[generate-pitch] cast_trends: modality_filter=animation`);
-            } else {
-              // hybrid: no additional filter — broader pool captures both
-              console.log(`[generate-pitch] cast_trends: modality_filter=hybrid (no restriction)`);
-            }
+          // ── Modality-aware cast_trends filtering (deterministic) ──
+          // dbModality is derived early (before auto-fields) when projectId exists.
+          // animation → filter to animation production_type only
+          // hybrid → no production_type restriction (broader pool); prompt reflects hybrid modality
+          // live_action or null → no change to existing behavior
+          const trendsModalityFilter = modalityToTrendsFilter(dbModality);
+          if (trendsModalityFilter) {
+            castQuery = castQuery.eq("production_type", trendsModalityFilter);
           }
+          console.log(`[generate-pitch] trends_filter production_type=${trendsModalityFilter || "none"}`);
 
           // Region scoping: prefer region from manual_criteria or hardCriteria
           const effectiveRegion = (manual_criteria as any)?.region || hardCriteria?.region || region || "";
@@ -396,8 +425,6 @@ serve(async (req) => {
     // ── Nuance / Drift context ──
     let nuanceBlock = "";
     let driftBlock = "";
-
-    let dbModality: string | null = null;
 
     if (projectId) {
       const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
