@@ -4,7 +4,8 @@
  * No new data fetching — all data is passed from ProjectDevelopmentEngine.
  */
 import { useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { useUIMode } from '@/hooks/useUIMode';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -87,7 +88,7 @@ export function DevEngineSimpleView({
   seedDocs, seedLoading,
 }: DevEngineSimpleViewProps) {
   const navigate = useNavigate();
-  const [, setSearchParams] = useSearchParams();
+  const { setMode } = useUIMode();
   const [docTab, setDocTab] = useState<'current' | 'approved'>('current');
 
   // ── Derive current/last/next step deterministically ──
@@ -194,13 +195,7 @@ export function DevEngineSimpleView({
                 variant="link"
                 size="sm"
                 className="text-[10px] p-0 h-auto mt-1"
-                onClick={() => {
-                  setSearchParams(prev => {
-                    prev.set('mode', 'advanced');
-                    prev.set('tab', 'autorun');
-                    return prev;
-                  });
-                }}
+                onClick={() => setMode('advanced')}
               >
                 Open Mission Control →
               </Button>
@@ -264,13 +259,7 @@ export function DevEngineSimpleView({
                 variant="outline"
                 size="sm"
                 className="w-full text-[10px] h-7 mt-1"
-                onClick={() => {
-                  setSearchParams(prev => {
-                    prev.set('mode', 'advanced');
-                    prev.set('tab', 'autorun');
-                    return prev;
-                  });
-                }}
+                onClick={() => setMode('advanced')}
               >
                 Open Mission Control <ArrowRight className="h-3 w-3 ml-1" />
               </Button>
