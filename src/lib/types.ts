@@ -234,6 +234,7 @@ export interface Project {
   episode_target_duration_seconds?: number | null;
   episode_target_duration_min_seconds?: number | null;
   episode_target_duration_max_seconds?: number | null;
+  project_features?: Record<string, any> | null;
 }
 
 export const LANE_LABELS: Record<MonetisationLane, string> = {
