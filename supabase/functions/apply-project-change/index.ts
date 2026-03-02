@@ -200,6 +200,8 @@ Deno.serve(async (req) => {
     }
 
     // ── Safe merge for project_features (never clobber existing keys) ──
+    const ALLOWED_PROJECT_FEATURE_KEYS = new Set(["production_modality", "signal_tags"]);
+
     if ("project_features" in safePatch) {
       const incomingFeatures = safePatch.project_features;
       delete safePatch.project_features; // handle separately
@@ -216,24 +218,38 @@ Deno.serve(async (req) => {
           ? existingRow.project_features as Record<string, unknown>
           : {};
 
-        // Validate production_modality if present in incoming
+        // Whitelist incoming keys — reject unknown keys with logging
         const incoming = incomingFeatures as Record<string, unknown>;
-        if ("production_modality" in incoming) {
-          if (!PRODUCTION_MODALITIES.includes(incoming.production_modality as string)) {
+        const rejectedKeys: string[] = [];
+        const filteredIncoming: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(incoming)) {
+          if (ALLOWED_PROJECT_FEATURE_KEYS.has(k)) {
+            filteredIncoming[k] = v;
+          } else {
+            rejectedKeys.push(k);
+          }
+        }
+        if (rejectedKeys.length > 0) {
+          logs.push(`[apply-project-change] project_features_keys_rejected=[${rejectedKeys.join(",")}]`);
+        }
+
+        // Validate production_modality if present in filtered incoming
+        if ("production_modality" in filteredIncoming) {
+          if (!PRODUCTION_MODALITIES.includes(filteredIncoming.production_modality as string)) {
             // Invalid modality: preserve existing or default
-            incoming.production_modality = existing.production_modality || "live_action";
-            logs.push(`project_features: invalid production_modality rejected, kept=${incoming.production_modality}`);
+            filteredIncoming.production_modality = existing.production_modality || "live_action";
+            logs.push(`project_features: invalid production_modality rejected, kept=${filteredIncoming.production_modality}`);
           }
         }
 
-        const merged = { ...existing, ...incoming };
+        const merged = { ...existing, ...filteredIncoming };
         // Ensure production_modality is never removed
         if (!merged.production_modality && existing.production_modality) {
           merged.production_modality = existing.production_modality;
         }
 
-        const addedKeys = Object.keys(incoming).filter(k => !(k in existing));
-        const overwrittenKeys = Object.keys(incoming).filter(k => k in existing && existing[k] !== incoming[k]);
+        const addedKeys = Object.keys(filteredIncoming).filter(k => !(k in existing));
+        const overwrittenKeys = Object.keys(filteredIncoming).filter(k => k in existing && existing[k] !== filteredIncoming[k]);
         logs.push(`[apply-project-change] project_features_write=merge keys_added=[${addedKeys.join(",")}] keys_overwritten=[${overwrittenKeys.join(",")}]`);
 
         safePatch.project_features = merged;

@@ -27,10 +27,16 @@ function json(data: unknown, status = 200) {
   });
 }
 
-function parseUserId(token: string): string {
-  const payload = JSON.parse(atob(token.split(".")[1]));
-  if (!payload.sub || (payload.exp && payload.exp < Date.now() / 1000)) throw new Error("expired");
-  return payload.sub;
+/** Derive user ID via Supabase Auth (canonical pattern — no manual JWT decode) */
+async function deriveUserId(authHeader: string): Promise<string> {
+  const { createClient: createAuthClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const sbUser = createAuthClient(Deno.env.get("SUPABASE_URL")!, anonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: userData, error: authErr } = await sbUser.auth.getUser();
+  if (authErr || !userData?.user) throw new Error("Unauthorized: invalid token");
+  return userData.user.id;
 }
 
 function adminClient() {
@@ -653,9 +659,9 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization") || "";
     if (!authHeader.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
-    const token = authHeader.replace("Bearer ", "");
     let userId: string;
-    try { userId = parseUserId(token); } catch { return json({ error: "Invalid token" }, 401); }
+    try { userId = await deriveUserId(authHeader); } catch { return json({ error: "Invalid token" }, 401); }
+    console.log(`[storyboard-engine] auth=user_scoped user_id=${userId}`);
 
     const body = await req.json();
     const action = body.action;
