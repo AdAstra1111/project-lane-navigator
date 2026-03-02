@@ -434,9 +434,9 @@ export function AutoRunMissionControl({
   ]);
 
   // ── Seed Pack + Pipeline Progress (computed from availableDocuments + ladder) ──
-  const projectFormat = (project?.format || 'film').toLowerCase().replace(/_/g, '-');
-  const ladder = useMemo(() => getLadderForFormat(projectFormat), [projectFormat]);
-  const finalStage = ladder[ladder.length - 1];
+  const projectFormat = (project?.format || '').toLowerCase().replace(/_/g, '-');
+  const ladder = useMemo(() => getLadderForFormat(projectFormat) ?? [], [projectFormat]);
+  const finalStage = ladder.length > 0 ? ladder[ladder.length - 1] : null;
 
   const existingDocTypes = useMemo(
     () => new Set((availableDocuments || []).map(d => d.doc_type)),

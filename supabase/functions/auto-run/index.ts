@@ -89,9 +89,10 @@ function canonicalDocType(raw: string): string {
 
 type DocStage = string;
 
-function getLadderForJob(format: string): string[] {
-  const key = (format || "film").toLowerCase().replace(/[_ ]+/g, "-");
-  return FORMAT_LADDERS[key] ?? FORMAT_LADDERS["film"];
+function getLadderForJob(format: string): string[] | null {
+  const key = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, "-");
+  if (!key) return null;
+  return FORMAT_LADDERS[key] ?? null;
 }
 
 // Flat unique set of all stages (for validation)
@@ -99,6 +100,7 @@ const ALL_STAGES = new Set<string>(Object.values(FORMAT_LADDERS).flat());
 
 function nextDoc(current: string, format: string): string | null {
   const ladder = getLadderForJob(format);
+  if (!ladder) return null;
   const idx = ladder.indexOf(current);
   return idx >= 0 && idx < ladder.length - 1 ? ladder[idx + 1] : null;
 }
@@ -617,6 +619,7 @@ async function nextUnsatisfiedStage(
   targetStage: string,
 ): Promise<string | null> {
   const ladder = getLadderForJob(format);
+  if (!ladder) return null;
   const currentIdx = ladder.indexOf(currentStage);
   const targetIdx = ladder.indexOf(targetStage);
   const safeTargetIdx = targetIdx >= 0 ? targetIdx : ladder.length - 1;
@@ -691,17 +694,22 @@ async function nextUnsatisfiedStage(
 }
 
 function isOnLadder(d: string, format?: string): boolean {
-  if (format) return getLadderForJob(format).includes(d);
+  if (format) {
+    const ladder = getLadderForJob(format);
+    return ladder ? ladder.includes(d) : false;
+  }
   return ALL_STAGES.has(d);
 }
 
 function ladderIndexOf(d: string, format: string): number {
-  return getLadderForJob(format).indexOf(d);
+  const ladder = getLadderForJob(format);
+  return ladder ? ladder.indexOf(d) : -1;
 }
 
 function resolveTargetForFormat(targetDoc: string, format: string): string {
   if (isOnLadder(targetDoc, format)) return targetDoc;
   const ladder = getLadderForJob(format);
+  if (!ladder || ladder.length === 0) return targetDoc; // caller must have validated format already
   return ladder[ladder.length - 1];
 }
 
@@ -1967,25 +1975,27 @@ Deno.serve(async (req) => {
     if (action === "start") {
       if (!projectId) return respond({ error: "projectId required" }, 400);
       const { data: proj } = await supabase.from("projects").select("format").eq("id", projectId).single();
-      const fmt = (proj?.format || "film").toLowerCase().replace(/_/g, "-");
+      const rawFmt = (proj?.format ?? '').trim().toLowerCase().replace(/_/g, "-");
+      if (!rawFmt) return respond({ error: "MISSING_FORMAT_FOR_LADDER", format: rawFmt, original_format: proj?.format }, 422);
+      const fmt = rawFmt;
+      const fmtLadder = getLadderForJob(fmt);
+      if (!fmtLadder) return respond({ error: "MISSING_FORMAT_FOR_LADDER", format: fmt, original_format: proj?.format }, 422);
       const startDoc = canonicalDocType(start_document || "idea");
       // Sanitize target_document — "draft" and "coverage" are legacy aliases, never real targets
-      const rawTarget = target_document || "production_draft";
+      const rawTarget = target_document || fmtLadder[fmtLadder.length - 1];
       const targetDoc = canonicalDocType(rawTarget);
       // Validate both are on the format's ladder (graceful fallback for start_document)
       let effectiveStartDoc = startDoc;
       let effectiveTargetDoc = targetDoc;
       if (!isOnLadder(startDoc, fmt)) {
-        const ladder = getLadderForJob(fmt);
         // Find nearest valid stage: walk all stages, pick the last one whose conceptual position <= startDoc
         // Fallback: use the first stage on the ladder
-        effectiveStartDoc = ladder[0];
+        effectiveStartDoc = fmtLadder[0];
         console.warn(`start_document "${startDoc}" not on ${fmt} ladder — using "${effectiveStartDoc}"`);
       }
       if (!isOnLadder(effectiveTargetDoc, fmt)) {
         // Graceful fallback: use last stage on the ladder
-        const ladder = getLadderForJob(fmt);
-        const fallbackTarget = ladder[ladder.length - 1];
+        const fallbackTarget = fmtLadder[fmtLadder.length - 1];
         console.warn(`target_document "${effectiveTargetDoc}" not on ${fmt} ladder — using "${fallbackTarget}"`);
         effectiveTargetDoc = fallbackTarget;
       }

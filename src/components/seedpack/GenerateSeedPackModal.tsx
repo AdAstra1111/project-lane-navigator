@@ -120,8 +120,12 @@ export function GenerateSeedPackModal({ open, onOpenChange, projectId, defaultLa
     }
 
     if (autoRunEnabled && onStartAutoRun) {
-      const format = projectFormat || lane || 'feature_film';
+      const format = projectFormat || lane || '';
       const ladder = getLadderForFormat(format);
+      if (!ladder || ladder.length === 0) {
+        toast({ title: 'Cannot start Auto-Run', description: `Unknown project format: "${format}"`, variant: 'destructive' });
+        return;
+      }
       const finalStage = ladder[ladder.length - 1];
       try {
         await onStartAutoRun('balanced', 'idea', finalStage);

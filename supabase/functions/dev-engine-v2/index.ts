@@ -995,8 +995,10 @@ const FORMAT_LADDERS: Record<string, string[]> = {
   "reality": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "beat_sheet", "episode_script"],
 };
 
-function getLadderForFormat(format: string): string[] {
-  return FORMAT_LADDERS[format] || FORMAT_LADDERS["film"];
+function getLadderForFormat(format: string): string[] | null {
+  const key = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, '-');
+  if (!key) return null;
+  return FORMAT_LADDERS[key] ?? null;
 }
 
 // Map notes referencing out-of-ladder doc types to closest valid type

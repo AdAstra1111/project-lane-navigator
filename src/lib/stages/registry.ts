@@ -43,10 +43,11 @@ export type DeliverableStage =
 export const FORMAT_SCRIPT_TYPES: Record<string, DeliverableStage> =
   LADDERS_JSON.FORMAT_SCRIPT_TYPES as Record<string, DeliverableStage>;
 
-/** Get the correct script doc_type for a project format */
-export function getScriptTypeForFormat(format: string): DeliverableStage {
+/** Get the correct script doc_type for a project format. Returns null if format unknown. */
+export function getScriptTypeForFormat(format: string): DeliverableStage | null {
   const key = normalizeFormatKey(format);
-  return FORMAT_SCRIPT_TYPES[key] ?? 'feature_script';
+  if (!key) return null;
+  return FORMAT_SCRIPT_TYPES[key] ?? null;
 }
 
 // ── Per-format ordered ladders (loaded from shared JSON) ─────────────────────
@@ -56,20 +57,40 @@ export const FORMAT_LADDERS: Record<string, DeliverableStage[]> =
 // Default fallback (scripted film)
 export const STAGE_ORDER_DEFAULT: DeliverableStage[] = FORMAT_LADDERS['film'];
 
-/** Normalize a format string to the registry key */
+/** Normalize a format string to the registry key. Returns '' if input is empty. */
 export function normalizeFormatKey(format: string): string {
-  return (format || 'film').toLowerCase().replace(/[_ ]+/g, '-');
+  const raw = (format ?? '').trim();
+  if (!raw) return '';
+  return raw.toLowerCase().replace(/[_ ]+/g, '-');
 }
 
-/** Get the ordered ladder for a given project format */
-export function getLadderForFormat(format: string): DeliverableStage[] {
+/**
+ * Get the ordered ladder for a given project format.
+ * Returns null if format is unknown — callers MUST handle the null case.
+ */
+export function getLadderForFormat(format: string): DeliverableStage[] | null {
   const key = normalizeFormatKey(format);
-  return FORMAT_LADDERS[key] ?? FORMAT_LADDERS['film'];
+  if (!key) return null;
+  return FORMAT_LADDERS[key] ?? null;
+}
+
+/**
+ * Get ladder or throw. Use in contexts where missing ladder is a hard error.
+ */
+export function getLadderForFormatStrict(format: string): DeliverableStage[] {
+  const ladder = getLadderForFormat(format);
+  if (!ladder) {
+    const key = normalizeFormatKey(format);
+    throw new Error(`MISSING_FORMAT_FOR_LADDER: no ladder for format="${key}" (raw="${format}")`);
+  }
+  return ladder;
 }
 
 /** Get the 0-based index of a stage in the ladder, or -1 if not present */
 export function getStageIndex(stage: string, format: string): number {
-  return getLadderForFormat(format).indexOf(stage as DeliverableStage);
+  const ladder = getLadderForFormat(format);
+  if (!ladder) return -1;
+  return ladder.indexOf(stage as DeliverableStage);
 }
 
 /** Is this stage on the ladder for this format? */
@@ -79,10 +100,11 @@ export function isStageApplicable(stage: string, format: string): boolean {
 
 /**
  * Get the next stage after currentStage for the given format.
- * Returns null if currentStage is last or not on the ladder.
+ * Returns null if currentStage is last, not on the ladder, or format unknown.
  */
 export function getNextStage(currentStage: string, format: string): DeliverableStage | null {
   const ladder = getLadderForFormat(format);
+  if (!ladder) return null;
   const idx = ladder.indexOf(currentStage as DeliverableStage);
   if (idx < 0 || idx >= ladder.length - 1) return null;
   return ladder[idx + 1];
@@ -93,6 +115,7 @@ export function getNextStage(currentStage: string, format: string): DeliverableS
  */
 export function getPrevStage(currentStage: string, format: string): DeliverableStage | null {
   const ladder = getLadderForFormat(format);
+  if (!ladder) return null;
   const idx = ladder.indexOf(currentStage as DeliverableStage);
   if (idx <= 0) return null;
   return ladder[idx - 1];
@@ -109,6 +132,7 @@ export function getNearestExistingStage(
   existingDocTypes: string[]
 ): DeliverableStage | null {
   const ladder = getLadderForFormat(format);
+  if (!ladder) return null;
   const idx = ladder.indexOf(currentStage as DeliverableStage);
   const start = idx >= 0 ? idx : ladder.length - 1;
   for (let i = start; i >= 0; i--) {

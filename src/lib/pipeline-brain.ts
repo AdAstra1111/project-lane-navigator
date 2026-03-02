@@ -119,6 +119,23 @@ export function computePipelineState(
 ): PipelineState {
   const formatKey = normalizeFormatKey(format);
   const pipeline = getLadderForFormat(format);
+  if (!pipeline) {
+    // Fail closed: return an empty/error pipeline state instead of guessing
+    console.error(`[PipelineBrain] MISSING_FORMAT_FOR_LADDER: format="${format}", key="${formatKey}"`);
+    return {
+      deliverableType: formatKey || 'unknown',
+      formatKey: formatKey || 'unknown',
+      pipeline: [],
+      currentStage: null,
+      currentStageIndex: -1,
+      completedStages: {},
+      nextSteps: [],
+      seriesWriterReadiness: null,
+      totalStages: 0,
+      completedCount: 0,
+      excludedStages: [],
+    };
+  }
   const excludedStages = ALL_KNOWN_STAGES.filter(s => !pipeline.includes(s));
 
   // Build completed map
@@ -336,6 +353,7 @@ function computeSeriesWriterGates(
  */
 export function isStageValidForFormat(stage: string, format: string): boolean {
   const pipeline = getLadderForFormat(format);
+  if (!pipeline) return false;
   return pipeline.includes(mapDocTypeToLadderStage(stage));
 }
 

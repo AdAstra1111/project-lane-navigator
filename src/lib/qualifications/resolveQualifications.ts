@@ -44,7 +44,7 @@ export const SERIES_FORMATS = new Set([
 // ─── Normalization ───
 
 export function normalizeFormat(format: string): string {
-  return (format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+  return (format || "").toLowerCase().replace(/[_ ]+/g, "-");
 }
 
 // ─── Types ───

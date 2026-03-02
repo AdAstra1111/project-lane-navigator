@@ -32,7 +32,7 @@ export function usePipelineState(projectId: string | undefined) {
   const pipelineState = useMemo<PipelineState | null>(() => {
     if (!project || !documents) return null;
 
-    const format = (project as any).deliverable_type || (project as any).format || 'film';
+    const format = (project as any).deliverable_type || (project as any).format || '';
 
     // Map documents to ExistingDoc shape for pipeline-brain
     const existingDocs = documents

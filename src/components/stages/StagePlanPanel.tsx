@@ -35,9 +35,9 @@ export function StagePlanPanel({ projectFormat, currentDocType, existingDocTypes
   const [isOpen, setIsOpen] = useState(false);
 
   const formatKey = normalizeFormatKey(projectFormat);
-  const ladder = getLadderForFormat(projectFormat);
+  const ladder = getLadderForFormat(projectFormat) ?? [];
   const currentIdx = currentDocType ? ladder.indexOf(currentDocType as any) : -1;
-  const nextStage = currentDocType ? getNextStage(currentDocType, projectFormat) : ladder[0];
+  const nextStage = currentDocType ? getNextStage(currentDocType, projectFormat) : (ladder[0] ?? null);
   const totalStages = ladder.length;
 
   const runTest = () => {

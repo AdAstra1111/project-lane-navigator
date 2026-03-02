@@ -76,7 +76,7 @@ export function AutoRunProgressPanel({
   job, steps, format, isRunning, onPause, onResume, onStop,
   onApproveAndContinue, onReject, className,
 }: Props) {
-  const pipeline = getLadderForFormat(format);
+  const pipeline = getLadderForFormat(format) ?? [];
   const stageHistory: AutoRunStageHistoryEntry[] = job.stage_history || [];
   
   // Derive current stage index from current_document position in ladder (more reliable than DB field)
