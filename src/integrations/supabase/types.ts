@@ -1297,6 +1297,7 @@ export type Database = {
           region: string
           sales_leverage: string
           saturation_risk: string
+          source_citations: Json | null
           status: string
           strength: number
           target_buyer: string
@@ -1322,6 +1323,7 @@ export type Database = {
           region?: string
           sales_leverage?: string
           saturation_risk?: string
+          source_citations?: Json | null
           status?: string
           strength?: number
           target_buyer?: string
@@ -1347,6 +1349,7 @@ export type Database = {
           region?: string
           sales_leverage?: string
           saturation_risk?: string
+          source_citations?: Json | null
           status?: string
           strength?: number
           target_buyer?: string
@@ -20557,6 +20560,7 @@ export type Database = {
           production_type: string
           region: string
           saturation_risk: string
+          source_citations: Json | null
           sources_count: number
           sources_used: Json
           status: string
@@ -20587,6 +20591,7 @@ export type Database = {
           production_type?: string
           region?: string
           saturation_risk?: string
+          source_citations?: Json | null
           sources_count?: number
           sources_used?: Json
           status?: string
@@ -20617,6 +20622,7 @@ export type Database = {
           production_type?: string
           region?: string
           saturation_risk?: string
+          source_citations?: Json | null
           sources_count?: number
           sources_used?: Json
           status?: string
