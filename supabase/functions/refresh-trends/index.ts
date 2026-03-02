@@ -6,7 +6,7 @@ import { normalizeProductionType, REQUIRED_TREND_TYPES } from "../_shared/trends
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type, x-iffy-cron-secret, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 function getFormatBucketFromProdType(pt: string): string {
@@ -45,21 +45,33 @@ serve(async (req) => {
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const cronSecret = req.headers.get("X-IFFY-CRON-SECRET");
+    const expectedCronSecret = Deno.env.get("IFFY_CRON_SECRET");
 
-    // Verify the user
-    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authError } = await anonClient.auth.getUser(
-      authHeader.replace("Bearer ", "")
-    );
-    if (authError || !user) {
+    let isCronAuth = false;
+
+    // Mode 1: Cron secret auth (scheduled calls, no user session)
+    if (cronSecret && expectedCronSecret && cronSecret === expectedCronSecret) {
+      isCronAuth = true;
+      console.log("[refresh-trends] Authenticated via cron secret");
+    }
+    // Mode 2: User JWT auth
+    else if (authHeader?.startsWith("Bearer ")) {
+      const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user }, error: authError } = await anonClient.auth.getUser(
+        authHeader.replace("Bearer ", "")
+      );
+      if (authError || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+    // Neither valid
+    else {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -87,10 +99,16 @@ serve(async (req) => {
       for (const reqType of REQUIRED_TREND_TYPES) {
         console.log(`[refresh-trends] scope=required_types, refreshing: ${reqType}`);
         const selfUrl = `${supabaseUrl}/functions/v1/refresh-trends`;
+        const subHeaders: Record<string, string> = { "Content-Type": "application/json" };
+        if (isCronAuth && expectedCronSecret) {
+          subHeaders["X-IFFY-CRON-SECRET"] = expectedCronSecret;
+        } else if (authHeader) {
+          subHeaders["Authorization"] = authHeader;
+        }
         try {
           const subRes = await fetch(selfUrl, {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: authHeader },
+            headers: subHeaders,
             body: JSON.stringify({ production_type: reqType, scope: "one", trigger }),
           });
           const subData = await subRes.json();

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, RefreshCw, Zap, Clock, Activity } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, RefreshCw, Zap, Clock, Activity, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
@@ -33,6 +33,7 @@ export default function TrendsCoverage() {
   const [refreshing, setRefreshing] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
   const [refreshingAll, setRefreshingAll] = useState(false);
+  const [refreshingType, setRefreshingType] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
   const [cooldownError, setCooldownError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -79,6 +80,7 @@ export default function TrendsCoverage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
+      const cooldowns: string[] = [];
       for (const type of data?.required_types || []) {
         const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/refresh-trends`, {
           method: 'POST',
@@ -87,9 +89,12 @@ export default function TrendsCoverage() {
         });
         if (res.status === 429) {
           const errData = await res.json();
-          setCooldownError(`${type}: cooldown active until ${new Date(errData.next_allowed_at).toLocaleString()}`);
+          cooldowns.push(`${type} (until ${new Date(errData.next_allowed_at).toLocaleString()})`);
           continue;
         }
+      }
+      if (cooldowns.length > 0) {
+        setCooldownError(`Cooldown active: ${cooldowns.join(', ')}`);
       }
       toast({ title: 'Refresh complete', description: 'All required types refreshed.' });
       await Promise.all([fetchCoverage(), fetchLastRun()]);
@@ -112,7 +117,6 @@ export default function TrendsCoverage() {
         body: JSON.stringify({ trigger: 'manual' }),
       });
       const result = await res.json();
-      // Check for cooldown errors in results
       const cooldowns = Object.entries(result.results || {})
         .filter(([, r]: [string, any]) => r.status === 429)
         .map(([type]: [string, any]) => type);
@@ -126,6 +130,34 @@ export default function TrendsCoverage() {
       toast({ title: 'Refresh failed', description: e.message, variant: 'destructive' });
     } finally {
       setRefreshingAll(false);
+    }
+  };
+
+  const handleRefreshType = async (type: string) => {
+    setRefreshingType(type);
+    setCooldownError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/refresh-trends`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ production_type: type, scope: 'one', trigger: 'manual' }),
+      });
+      if (res.status === 429) {
+        const errData = await res.json();
+        setCooldownError(`${type}: cooldown active until ${new Date(errData.next_allowed_at).toLocaleString()}`);
+      } else if (res.ok) {
+        toast({ title: `${type} refreshed`, description: 'Signals and cast updated.' });
+      } else {
+        const errData = await res.json();
+        toast({ title: `Refresh failed for ${type}`, description: errData.error || 'Unknown error', variant: 'destructive' });
+      }
+      await Promise.all([fetchCoverage(), fetchLastRun()]);
+    } catch (e: any) {
+      toast({ title: 'Refresh failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setRefreshingType(null);
     }
   };
 
@@ -193,9 +225,27 @@ export default function TrendsCoverage() {
         </div>
       )}
 
+      {/* Quick Actions: per-type refresh */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-muted-foreground">Quick refresh:</span>
+        {(data?.required_types || ['film', 'tv-series', 'vertical-drama', 'animation']).map(type => (
+          <Button
+            key={type}
+            variant="outline"
+            size="sm"
+            className="h-7 text-[11px] px-2.5"
+            disabled={refreshingType === type}
+            onClick={() => handleRefreshType(type)}
+          >
+            <Sparkles className={`h-3 w-3 mr-1 ${refreshingType === type ? 'animate-spin' : ''}`} />
+            {type}
+          </Button>
+        ))}
+      </div>
+
       {/* Cooldown warning */}
       {cooldownError && (
-        <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/5 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           <span className="font-medium">Cooldown:</span> {cooldownError}
         </div>
       )}
@@ -238,8 +288,22 @@ export default function TrendsCoverage() {
 
       {/* Coverage tables */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <CoverageTable title="trend_signals" loading={loading} rows={data?.trend_signals.by_type || []} total={data?.trend_signals.total || 0} />
-        <CoverageTable title="cast_trends" loading={loading} rows={data?.cast_trends.by_type || []} total={data?.cast_trends.total || 0} />
+        <CoverageTable
+          title="trend_signals"
+          loading={loading}
+          rows={data?.trend_signals.by_type || []}
+          total={data?.trend_signals.total || 0}
+          onRefreshType={handleRefreshType}
+          refreshingType={refreshingType}
+        />
+        <CoverageTable
+          title="cast_trends"
+          loading={loading}
+          rows={data?.cast_trends.by_type || []}
+          total={data?.cast_trends.total || 0}
+          onRefreshType={handleRefreshType}
+          refreshingType={refreshingType}
+        />
       </div>
 
       {data && (
@@ -251,8 +315,13 @@ export default function TrendsCoverage() {
   );
 }
 
-function CoverageTable({ title, loading, rows, total }: {
-  title: string; loading: boolean; rows: { production_type: string; count: number }[]; total: number;
+function CoverageTable({ title, loading, rows, total, onRefreshType, refreshingType }: {
+  title: string;
+  loading: boolean;
+  rows: { production_type: string; count: number }[];
+  total: number;
+  onRefreshType: (type: string) => void;
+  refreshingType: string | null;
 }) {
   return (
     <div className="rounded-xl border border-border/40 bg-card/50">
@@ -267,9 +336,21 @@ function CoverageTable({ title, loading, rows, total }: {
           <p className="text-xs text-muted-foreground py-3 text-center">No data.</p>
         ) : (
           rows.map(row => (
-            <div key={row.production_type} className="flex items-center justify-between py-1.5 border-b border-border/20 last:border-0">
+            <div key={row.production_type} className="flex items-center justify-between py-1.5 border-b border-border/20 last:border-0 group">
               <span className="text-sm text-foreground">{row.production_type}</span>
-              <Badge variant="outline" className="text-[10px] font-mono h-5">{row.count}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-[10px] font-mono h-5">{row.count}</Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => onRefreshType(row.production_type)}
+                  disabled={refreshingType === row.production_type}
+                  title={`Refresh ${row.production_type}`}
+                >
+                  <RefreshCw className={`h-3 w-3 ${refreshingType === row.production_type ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
             </div>
           ))
         )}

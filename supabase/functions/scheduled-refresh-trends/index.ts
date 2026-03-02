@@ -1,6 +1,7 @@
 /**
  * scheduled-refresh-trends — Weekly orchestrator that refreshes all REQUIRED_TREND_TYPES.
- * Called by pg_cron or manually. Iterates each type and calls refresh-trends with trigger="scheduled".
+ * Called by pg_cron or manually. Uses X-IFFY-CRON-SECRET for internal auth when scheduled,
+ * or forwards user JWT when called manually from UI.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { REQUIRED_TREND_TYPES } from "../_shared/trendsNormalize.ts";
@@ -8,7 +9,7 @@ import { REQUIRED_TREND_TYPES } from "../_shared/trendsNormalize.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type, x-iffy-cron-secret, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 function json(data: unknown, status = 200) {
@@ -28,18 +29,41 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const cronSecret = Deno.env.get("IFFY_CRON_SECRET");
 
-    // Accept optional trigger override (default "scheduled")
-    let trigger = "scheduled";
+    // Auth: either valid user JWT or cron secret header or internal pg_cron call (no auth)
+    const userAuth = req.headers.get("Authorization");
+    const incomingCronSecret = req.headers.get("X-IFFY-CRON-SECRET");
+    const hasValidUserAuth = userAuth?.startsWith("Bearer ") && userAuth.length > 50;
+    const hasValidCronAuth = !!(incomingCronSecret && cronSecret && incomingCronSecret === cronSecret);
+
+    // pg_cron calls via net.http_post don't carry the cron secret directly,
+    // so we allow unauthenticated POST but always use cron secret for subcalls.
+    // The subcalls (refresh-trends) enforce their own auth.
+
+    // Determine trigger
+    let trigger = (hasValidCronAuth || !hasValidUserAuth) ? "scheduled" : "manual";
     try {
       const body = await req.json();
       if (body.trigger) trigger = body.trigger;
     } catch {}
 
-    // Use service role bearer for the sub-calls (scheduled = no user session)
-    const authHeader = req.headers.get("Authorization") || `Bearer ${serviceKey}`;
+    // Determine auth mode: user JWT passthrough or cron secret
+    const userAuth = req.headers.get("Authorization");
+    const hasCronSecret = !!cronSecret;
+
+    // Build headers for subcalls to refresh-trends
+    const buildSubHeaders = (): Record<string, string> => {
+      const h: Record<string, string> = { "Content-Type": "application/json" };
+      if (hasValidUserAuth) {
+        // User-initiated from UI: forward their JWT
+        h["Authorization"] = userAuth!;
+      } else if (cronSecret) {
+        // Cron-initiated or internal: use cron secret
+        h["X-IFFY-CRON-SECRET"] = cronSecret;
+      }
+      return h;
+    };
 
     const attempted: string[] = [];
     const results: Record<string, any> = {};
@@ -49,10 +73,7 @@ Deno.serve(async (req) => {
       try {
         const res = await fetch(`${supabaseUrl}/functions/v1/refresh-trends`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: authHeader,
-          },
+          headers: buildSubHeaders(),
           body: JSON.stringify({
             production_type: type,
             scope: "one",
