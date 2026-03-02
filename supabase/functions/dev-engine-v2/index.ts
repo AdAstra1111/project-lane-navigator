@@ -15,6 +15,129 @@ import {
   type StyleTarget, type StyleEvalResult, type StyleFingerprint, type StyleDeviation,
 } from "../_shared/styleDeviation.ts";
 import { buildEffectiveProfileContextBlock } from "../_shared/effective-profile-context.ts";
+import { computeDefaultResolverHash } from "../_shared/doc-os.ts";
+
+// ── Constraint Pack: unified loader for all generation prompts ──
+const CONSTRAINT_PACK_BUDGET = 6000;
+
+async function loadConstraintPack(
+  supabaseClient: any,
+  projectId: string,
+): Promise<string> {
+  const sections: string[] = [];
+
+  try {
+    // 1. World Rules from canon
+    const { data: canon } = await supabaseClient
+      .from("project_canon")
+      .select("canon_json")
+      .eq("project_id", projectId)
+      .maybeSingle();
+    const cj = canon?.canon_json || {};
+
+    if (cj.world_rules) {
+      const wr = Array.isArray(cj.world_rules) ? cj.world_rules.join("\n- ") : String(cj.world_rules);
+      if (wr.trim()) sections.push(`## WORLD RULES (AUTHORITATIVE — DO NOT VIOLATE)\n- ${wr}`);
+    }
+
+    // 2. Comparables
+    let comps: any[] = [];
+    if (Array.isArray(cj.comparables) && cj.comparables.length > 0) {
+      comps = cj.comparables.slice(0, 8);
+    } else {
+      const { data: ccRows } = await supabaseClient
+        .from("comparable_candidates")
+        .select("title, format, rationale")
+        .eq("project_id", projectId)
+        .order("confidence", { ascending: false })
+        .limit(8);
+      if (ccRows && ccRows.length > 0) comps = ccRows;
+    }
+    if (comps.length > 0) {
+      const compLines = comps.map((c: any) => `- ${c.title || c.name || "Unknown"}${c.rationale ? ` (${c.rationale})` : ""}`).join("\n");
+      sections.push(`## COMPARABLE REFERENCES (tone/style/market positioning guides)\n${compLines}`);
+    }
+
+    // 3. Writing Voice
+    const { data: proj } = await supabaseClient
+      .from("projects")
+      .select("assigned_lane")
+      .eq("id", projectId)
+      .maybeSingle();
+    const lane = proj?.assigned_lane || "independent-film";
+
+    const { data: plp } = await supabaseClient
+      .from("project_lane_prefs")
+      .select("prefs")
+      .eq("project_id", projectId)
+      .eq("lane", lane)
+      .maybeSingle();
+    const wv = plp?.prefs?.writing_voice;
+    if (wv?.id) {
+      const voiceLines = [`Voice ID: ${wv.id}`];
+      if (wv.label) voiceLines.push(`Label: ${wv.label}`);
+      if (wv.tone) voiceLines.push(`Tone: ${wv.tone}`);
+      if (wv.pacing) voiceLines.push(`Pacing: ${wv.pacing}`);
+      if (wv.vocabulary_level) voiceLines.push(`Vocabulary: ${wv.vocabulary_level}`);
+      sections.push(`## WRITING VOICE TARGETS\n${voiceLines.join("\n")}`);
+    }
+  } catch (e) {
+    console.warn("[dev-engine-v2] loadConstraintPack error:", e);
+  }
+
+  if (sections.length === 0) return "";
+  let text = `\n═══ CONSTRAINT PACK (AUTHORITATIVE — inject into all generation) ═══\n${sections.join("\n\n")}`;
+  if (text.length > CONSTRAINT_PACK_BUDGET) text = text.slice(0, CONSTRAINT_PACK_BUDGET) + "\n[…truncated]";
+  return text;
+}
+
+// ── writeVersionSafe: wraps raw insert with provenance invariants + latest_version_id ──
+async function writeVersionSafe(
+  supabaseClient: any,
+  opts: {
+    documentId: string;
+    versionNumber: number;
+    label: string;
+    plaintext: string;
+    createdBy: string;
+    parentVersionId?: string;
+    changeSummary?: string;
+    dependsOn?: string[];
+    dependsOnResolverHash?: string | null;
+    generatorId?: string;
+    metaJson?: Record<string, any>;
+    deliverableType?: string;
+  },
+): Promise<{ data: any; error: any }> {
+  const generatorId = opts.generatorId || "dev-engine-v2";
+  const resolverHash = opts.dependsOnResolverHash || computeDefaultResolverHash(
+    opts.deliverableType || "unknown", generatorId, opts.label
+  );
+
+  const { data: nv, error: vErr } = await supabaseClient.from("project_document_versions").insert({
+    document_id: opts.documentId,
+    version_number: opts.versionNumber,
+    label: opts.label,
+    plaintext: opts.plaintext,
+    created_by: opts.createdBy,
+    parent_version_id: opts.parentVersionId,
+    change_summary: opts.changeSummary || "",
+    depends_on: opts.dependsOn,
+    depends_on_resolver_hash: resolverHash,
+    generator_id: generatorId,
+    deliverable_type: opts.deliverableType,
+    ...(opts.metaJson ? { meta_json: opts.metaJson } : {}),
+  }).select().single();
+
+  if (vErr) return { data: null, error: vErr };
+
+  // Always update latest_version_id
+  await supabaseClient.from("project_documents")
+    .update({ latest_version_id: nv.id })
+    .eq("id", opts.documentId);
+
+  return { data: nv, error: null };
+}
 
 // ── NEC (Narrative Energy Contract) Guardrail Loader ──
 const NEC_MAX_CHARS = 3000;
@@ -3207,18 +3330,19 @@ MATERIAL TO REWRITE:\n${fullText}`;
         } catch (_) { /* non-fatal */ }
 
         const rwMetaJson = rwTvCtx.metaStamp ? { ...rwTvCtx.metaStamp } : undefined;
-        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
-          document_id: documentId,
-          version_number: nextVersion,
+        const { data: nv, error: vErr } = await writeVersionSafe(supabase, {
+          documentId,
+          versionNumber: nextVersion,
           label: `Rewrite pass ${nextVersion}`,
           plaintext: rewrittenText,
-          created_by: user.id,
-          parent_version_id: versionId,
-          change_summary: parsed.changes_summary || "",
-          depends_on: depFields,
-          depends_on_resolver_hash: rewriteResolverHash,
-          ...(rwMetaJson ? { meta_json: rwMetaJson } : {}),
-        }).select().single();
+          createdBy: user.id,
+          parentVersionId: versionId,
+          changeSummary: parsed.changes_summary || "",
+          dependsOn: depFields,
+          dependsOnResolverHash: rewriteResolverHash,
+          generatorId: "dev-engine-v2-rewrite",
+          metaJson: rwMetaJson,
+        });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
         console.warn(`Version ${nextVersion} conflict, retrying...`);
@@ -3554,16 +3678,17 @@ MATERIAL TO REWRITE:\n${fullText}`;
           .limit(1)
           .single();
         const nextVersion = (maxRow?.version_number ?? 0) + 1;
-        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
-          document_id: documentId,
-          version_number: nextVersion,
+        const { data: nv, error: vErr } = await writeVersionSafe(supabase, {
+          documentId,
+          versionNumber: nextVersion,
           label: `Rewrite pass ${nextVersion}`,
           plaintext: assembledText,
-          created_by: user.id,
-          parent_version_id: versionId,
-          change_summary: `Chunked rewrite across ${nextVersion - 1} iterations.`,
-          ...(chunkMetaJson ? { meta_json: chunkMetaJson } : {}),
-        }).select().single();
+          createdBy: user.id,
+          parentVersionId: versionId,
+          changeSummary: `Chunked rewrite across ${nextVersion - 1} iterations.`,
+          generatorId: "dev-engine-v2-rewrite-chunked",
+          metaJson: chunkMetaJson,
+        });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
         console.warn(`Version ${nextVersion} conflict, retrying...`);
@@ -3654,13 +3779,14 @@ Format: ${rq.format}.`;
         console.warn("[dev-engine-v2] convert: resolve-qualifications failed:", e);
       }
 
-      // ── NEC Guardrail injection for convert ──
+      // ── NEC Guardrail + Constraint Pack injection for convert ──
       const cvNecBlock = await loadNECGuardrailBlock(supabase, projectId);
+      const cvConstraintPack = await loadConstraintPack(supabase, projectId);
 
       const userPrompt = `SOURCE FORMAT: ${srcDoc?.doc_type || "unknown"}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA):\n${JSON.stringify(protectItems || [])}
-${qualBindingBlock}${cvNecBlock}
+${qualBindingBlock}${cvNecBlock}${cvConstraintPack}
 MATERIAL:\n${version.plaintext}`;
 
       const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
@@ -13549,11 +13675,12 @@ CRITICAL:
 
           const targetOutput = stage.toUpperCase();
           const necBlock = await loadNECGuardrailBlock(supabase, projectId);
+          const constraintPack = await loadConstraintPack(supabase, projectId);
 
           const userPrompt = `SOURCE FORMAT: ${upstream.upstreamType}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA): []
-${necBlock}
+${necBlock}${constraintPack}
 
 CRITICAL: Produce a FULL, COMPLETE ${stage.replace(/_/g, " ")} document.
 Do NOT produce stubs, placeholders, or TODO markers.
@@ -14388,6 +14515,7 @@ ${upstreamText}`;
       }
 
       const necBlock = await loadNECGuardrailBlock(supabase, projectId);
+      const constraintPack = await loadConstraintPack(supabase, projectId);
       const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
@@ -14438,7 +14566,7 @@ Output ONLY the screenplay text. No JSON wrapping, no markdown fences, no commen
 GENRES: ${(proj?.genres || []).join(", ")}
 TONE: ${proj?.tone || "Unknown"}
 LANE: ${lane}
-${necBlock}
+${necBlock}${constraintPack}
 
 ${contextBlocks.join("\n\n")}
 
