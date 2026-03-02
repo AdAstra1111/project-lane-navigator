@@ -107,17 +107,30 @@ export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { mode: uiMode, setMode: setUIMode } = useUIMode();
-  // PATCH 3: When ?tab=autorun, default to simple view for this session without overwriting saved preference
+  // PATCH 3: When ?tab=autorun, default to simple view for this session without overwriting saved preference.
+  // userExplicitlyToggled prevents re-overriding if user navigates to autorun tab later after toggling.
+  const userExplicitlyToggledRef = useRef(false);
   const [autorunSessionOverride, setAutorunSessionOverride] = useState<boolean>(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     return t === 'autorun';
   });
+  // Re-set override when tab changes to autorun (SPA navigation) — unless user already toggled
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'autorun' && !userExplicitlyToggledRef.current) {
+      setAutorunSessionOverride(true);
+    } else if (tabParam !== 'autorun') {
+      setAutorunSessionOverride(false);
+    }
+  }, [searchParams]);
   const viewMode = autorunSessionOverride ? 'simple' : uiMode;
   const handleToggleMode = useCallback(() => {
-    // User explicitly toggled — clear session override and persist preference
+    // User explicitly toggled — clear session override and persist preference based on effective viewMode
+    userExplicitlyToggledRef.current = true;
     setAutorunSessionOverride(false);
-    setUIMode(uiMode === 'simple' ? 'advanced' : 'simple');
-  }, [uiMode, setUIMode]);
+    const nextMode = viewMode === 'simple' ? 'advanced' : 'simple';
+    setUIMode(nextMode);
+  }, [viewMode, setUIMode]);
   const qc = useQueryClient();
   const VALID_TABS = new Set(['notes', 'issues', 'convergence', 'qualifications', 'autorun', 'series-scripts', 'criteria', 'package', 'canon', 'provenance', 'scenes', 'quality', 'docsets', 'timeline']);
   const initialTab = (() => { const t = searchParams.get('tab'); return t && VALID_TABS.has(t) ? t : 'notes'; })();
