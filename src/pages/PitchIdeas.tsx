@@ -313,16 +313,20 @@ export default function PitchIdeas() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredIdeas.map((idea, i) => (
-              <SlateCard
-                key={idea.id}
-                idea={idea}
-                rank={i + 1}
-                onPromote={setPromoteIdea}
-                onShortlist={handleShortlist}
-                onDelete={remove}
-              />
-            ))}
+            {filteredIdeas.map((idea, i) => {
+              const linkedProject = idea.project_id ? projects.find(p => p.id === idea.project_id) : null;
+              return (
+                <SlateCard
+                  key={idea.id}
+                  idea={idea}
+                  rank={i + 1}
+                  onPromote={setPromoteIdea}
+                  onShortlist={handleShortlist}
+                  onDelete={remove}
+                  projectFeatures={linkedProject?.project_features as Record<string, any> | null | undefined}
+                />
+              );
+            })}
           </div>
         )}
 

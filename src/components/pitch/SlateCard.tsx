@@ -9,6 +9,10 @@ import { LANE_LABELS, type MonetisationLane } from '@/lib/types';
 import type { PitchIdea } from '@/hooks/usePitchIdeas';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { type AnimationMeta, getAnimationMeta } from '@/config/animationMeta';
+import { getProjectModality } from '@/config/productionModality';
+import { AnimationMetaChips } from './AnimationMetaChips';
+import { AnimationMetaEditor } from './AnimationMetaEditor';
 
 interface Props {
   idea: PitchIdea;
@@ -16,6 +20,8 @@ interface Props {
   onPromote: (idea: PitchIdea) => void;
   onShortlist: (id: string, shortlisted: boolean) => void;
   onDelete: (id: string) => void;
+  /** project_features from the linked project, if any */
+  projectFeatures?: Record<string, any> | null;
 }
 
 /** Extract episode count from format_summary like "38 x 2min vertical episodes" */
@@ -88,11 +94,14 @@ function EpisodeCountSetter({ idea }: { idea: PitchIdea }) {
   );
 }
 
-export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete }: Props) {
+export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete, projectFeatures }: Props) {
   const [expanded, setExpanded] = useState(false);
   const isShortlisted = idea.status === 'shortlisted';
   const laneLabel = LANE_LABELS[idea.recommended_lane as MonetisationLane] || idea.recommended_lane;
   const devseedCanon = idea.devseed_canon_json || {};
+  const modality = getProjectModality(projectFeatures);
+  const animMeta: AnimationMeta = getAnimationMeta(projectFeatures);
+  const isAnim = modality !== 'live_action' && !!projectFeatures;
 
   // Extract extended fields from raw_response
   const raw = idea.raw_response as any || {};
@@ -139,6 +148,7 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete }: Prop
           {idea.budget_band && <Badge variant="outline" className="text-xs">{idea.budget_band}</Badge>}
           <Badge variant={idea.risk_level === 'high' ? 'destructive' : 'secondary'} className="text-xs">{idea.risk_level}</Badge>
           {formatSummary && <Badge variant="outline" className="text-[10px]">{formatSummary}</Badge>}
+          {isAnim && <AnimationMetaChips meta={animMeta} />}
         </div>
 
         {/* Trend fit bullets */}
@@ -194,6 +204,11 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete }: Prop
 
             {/* DesSeed Canon — Episode Count Setter */}
             <EpisodeCountSetter idea={idea} />
+
+            {/* Animation Meta Editor — only for animation/hybrid projects */}
+            {isAnim && idea.project_id && (
+              <AnimationMetaEditor projectId={idea.project_id} meta={animMeta} />
+            )}
           </CollapsibleContent>
         </Collapsible>
 
