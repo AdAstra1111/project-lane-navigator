@@ -17,8 +17,9 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { AutopilotProgress, type AutopilotState } from '@/components/pitch/AutopilotProgress';
-import { Loader2, Play, Pause, Rocket, AlertTriangle, Mic, Search, ExternalLink, CheckCircle, Clock, ArrowRight, FileText } from 'lucide-react';
+import { Loader2, Play, Pause, Rocket, AlertTriangle, Mic, Search, ExternalLink, CheckCircle, Clock, ArrowRight, FileText, Zap } from 'lucide-react';
 import { getDefaultVoiceForLane } from '@/lib/writingVoices/select';
 import { loadProjectLaneRulesetPrefs, saveProjectLaneRulesetPrefs } from '@/lib/rulesets/uiState';
 
@@ -94,6 +95,10 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
   const statusCheckedRef = useRef(false);
   // handoffInFlight prevents concurrent handoff calls within a single mount cycle
   const handoffInFlightRef = useRef(false);
+
+  // Full Autopilot mode — auto-approve all gates + decisions
+  const [fullAutopilot, setFullAutopilot] = useState(false);
+  const autoApprovedGateRef = useRef<string | null>(null);
 
   // Next Actions state
   const [hasComparables, setHasComparables] = useState<boolean | null>(null);
@@ -369,6 +374,65 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
     }
   }, [autoRunJob?.id]);
 
+  // ═══ Full Autopilot: auto-approve all gates when enabled ═══
+  const handleToggleFullAutopilot = useCallback(async (enabled: boolean) => {
+    setFullAutopilot(enabled);
+    if (!autoRunJob?.id) return;
+    try {
+      await (supabase as any).from('auto_run_jobs').update({ allow_defaults: enabled }).eq('id', autoRunJob.id);
+      if (enabled) {
+        toast.success('Full Autopilot enabled — all decisions will be auto-approved');
+      } else {
+        toast('Full Autopilot disabled — decisions will require manual approval');
+      }
+    } catch { /* non-fatal */ }
+  }, [autoRunJob?.id]);
+
+  // Auto-approve gates when Full Autopilot is ON
+  useEffect(() => {
+    if (!fullAutopilot || !autoRunJob) { autoApprovedGateRef.current = null; return; }
+    if (!autoRunJob.awaiting_approval) { autoApprovedGateRef.current = null; return; }
+
+    const gateKey = [autoRunJob.id, autoRunJob.approval_type, autoRunJob.pending_version_id || autoRunJob.pending_doc_id || 'none', autoRunJob.updated_at].join(':');
+    if (autoApprovedGateRef.current === gateKey) return;
+    autoApprovedGateRef.current = gateKey;
+
+    (async () => {
+      try {
+        if (autoRunJob.approval_type === 'seed_core_officialize') {
+          await callAutoRun('approve-seed-core', { jobId: autoRunJob.id });
+        } else {
+          await callAutoRun('approve-next', { jobId: autoRunJob.id, decision: 'approve' });
+        }
+        const tickResult = await callAutoRun('run-next', { jobId: autoRunJob.id });
+        if (mountedRef.current && tickResult?.job) setAutoRunJob(tickResult.job);
+      } catch {
+        try {
+          const result = await callAutoRun('resume', { jobId: autoRunJob.id, followLatest: true });
+          if (mountedRef.current && result?.job) setAutoRunJob(result.job);
+        } catch { /* non-fatal */ }
+      }
+    })();
+  }, [fullAutopilot, autoRunJob?.id, autoRunJob?.awaiting_approval, autoRunJob?.approval_type, autoRunJob?.pending_version_id, autoRunJob?.updated_at]);
+
+  // Auto-resume from decision pauses when Full Autopilot is ON
+  useEffect(() => {
+    if (!fullAutopilot || !autoRunJob) return;
+    if (autoRunJob.status !== 'paused') return;
+    if (autoRunJob.awaiting_approval) return;
+    const hasPendingDecisions = Array.isArray(autoRunJob.pending_decisions) && autoRunJob.pending_decisions.length > 0;
+    if (!hasPendingDecisions) return;
+
+    (async () => {
+      try {
+        const result = await callAutoRun('resume', { jobId: autoRunJob.id, followLatest: true });
+        if (mountedRef.current && result?.job) setAutoRunJob(result.job);
+        const tickResult = await callAutoRun('run-next', { jobId: autoRunJob.id });
+        if (mountedRef.current && tickResult?.job) setAutoRunJob(tickResult.job);
+      } catch { /* non-fatal */ }
+    })();
+  }, [fullAutopilot, autoRunJob?.id, autoRunJob?.status, autoRunJob?.pending_decisions]);
+
   // ═══ Find Comparables CTA ═══
   const handleFindComparables = useCallback(async () => {
     if (!lane) return;
@@ -509,6 +573,21 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
       </CardHeader>
 
       <CardContent className="px-4 pb-3 pt-0 space-y-3">
+        {/* ═══ Full Autopilot Toggle ═══ */}
+        {autoRunJob && !autoRunComplete && (
+          <div className="flex items-center justify-between px-2 py-1.5 rounded border border-border/30 bg-muted/20">
+            <div className="flex items-center gap-2">
+              <Zap className={`h-3.5 w-3.5 ${fullAutopilot ? 'text-primary' : 'text-muted-foreground'}`} />
+              <span className="text-[10px] font-medium text-foreground">Full Autopilot</span>
+              <span className="text-[9px] text-muted-foreground">— auto-approve all decisions & gates</span>
+            </div>
+            <Switch
+              checked={fullAutopilot}
+              onCheckedChange={handleToggleFullAutopilot}
+              className="scale-75"
+            />
+          </div>
+        )}
         {/* ═══ PHASE 0: Voice ═══ */}
         <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-muted/30 border border-border/30">
           <PhaseIcon status={getPhase0Status()} />
