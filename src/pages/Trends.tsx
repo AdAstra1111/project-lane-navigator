@@ -183,16 +183,27 @@ export default function Trends() {
             </Link>
           </div>
 
-          {/* Governance Link */}
-          <Link to="/trends/governance">
-            <div className="glass-card rounded-xl p-4 hover:border-primary/40 transition-colors cursor-pointer flex items-center gap-3">
-              <Settings2 className="h-5 w-5 text-primary" />
-              <div className="flex-1">
-                <h3 className="font-display font-semibold text-foreground text-sm">Engine Governance</h3>
-                <p className="text-xs text-muted-foreground">Toggle engines, adjust weights, view model versions.</p>
+          {/* Explorer + Governance links */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Link to={`/trends/explorer`}>
+              <div className="glass-card rounded-xl p-4 hover:border-primary/40 transition-colors cursor-pointer flex items-center gap-3">
+                <Radio className="h-5 w-5 text-primary" />
+                <div className="flex-1">
+                  <h3 className="font-display font-semibold text-foreground text-sm">Trends Explorer</h3>
+                  <p className="text-xs text-muted-foreground">Live modality-aware trend data — same filters as Pitch Engine.</p>
+                </div>
               </div>
-            </div>
-          </Link>
+            </Link>
+            <Link to="/trends/governance">
+              <div className="glass-card rounded-xl p-4 hover:border-primary/40 transition-colors cursor-pointer flex items-center gap-3">
+                <Settings2 className="h-5 w-5 text-primary" />
+                <div className="flex-1">
+                  <h3 className="font-display font-semibold text-foreground text-sm">Engine Governance</h3>
+                  <p className="text-xs text-muted-foreground">Toggle engines, adjust weights, view model versions.</p>
+                </div>
+              </div>
+            </Link>
+          </div>
 
           {/* Methodology note */}
           <div className="text-xs text-muted-foreground border-t border-border/50 pt-6">
