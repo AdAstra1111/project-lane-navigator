@@ -69,30 +69,12 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   const pollInFlightRef = useRef(false);
   const doPollRef = useRef<() => Promise<void>>();
 
-  // ── Auto-activate: probe for an existing active job on mount ──
-  const { data: probeJob } = useQuery({
-    queryKey: ['auto-run-probe', projectId],
-    queryFn: async () => {
-      if (!projectId) return null;
-      return await callAutoRun('status', { projectId });
-    },
-    enabled: !!projectId && !activated,
-    refetchOnWindowFocus: false,
-    staleTime: 10_000,
-  });
-
+  // Auto-activate Mission Control on entry so controls/status are always available
   useEffect(() => {
-    if (!activated && probeJob?.job && ['running', 'paused', 'queued'].includes(probeJob.job.status)) {
-      setActivated(true);
-      setJob(probeJob.job);
-      setSteps(probeJob.latest_steps || []);
-      if (probeJob.job.status === 'running' && !probeJob.job.awaiting_approval) {
-        setIsRunning(true);
-      }
-    }
-  }, [probeJob, activated]);
+    if (projectId) setActivated(true);
+  }, [projectId]);
 
-  // ── Fetch existing job only when user has activated auto-run ──
+  // ── Fetch existing job when mission control is activated ──
   const { data: existingJob } = useQuery({
     queryKey: ['auto-run-mission-status', projectId],
     queryFn: async () => {

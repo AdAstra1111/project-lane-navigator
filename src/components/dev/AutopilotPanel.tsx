@@ -457,7 +457,7 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
   };
 
   // Build Mission Control URL
-  const missionControlUrl = `/projects/${projectId}/development?tab=autorun`;
+  const missionControlUrl = `/projects/${projectId}/development?tab=autorun#autorun-mission-control`;
 
   // Describe the blocking reason for the user
   const getBlockingDescription = () => {
@@ -653,10 +653,10 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
                     <ArrowRight className="h-3 w-3" />
                     Resume Auto-Run
                   </Button>
-                  <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1" onClick={() => navigate(missionControlUrl)}>
-                      <ExternalLink className="h-3 w-3" />
-                      Open Mission Control
-                    </Button>
+                  <Button type="button" size="sm" variant="outline" className="h-6 text-[10px] gap-1" onClick={() => navigate(missionControlUrl)}>
+                    <ExternalLink className="h-3 w-3" />
+                    Open Mission Control
+                  </Button>
                 </div>
               </div>
             );
@@ -686,6 +686,7 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
                 </div>
               )}
               <button
+                type="button"
                 onClick={() => navigate(missionControlUrl)}
                 className="flex items-center gap-1 text-primary hover:underline text-[11px] mt-1"
               >
