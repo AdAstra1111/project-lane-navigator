@@ -5359,18 +5359,51 @@ Deno.serve(async (req) => {
        } catch (e: any) {
         console.error("[auto-run] dev-engine analyze (bg) ERROR", e?.message || e);
         if (isUpstreamOutage(e)) {
-          // ── 502/503: deterministic pause, not fail ──
-          const errStep = await nextStepIndex(supabase, jobId);
-          const compactErr = `DEV_ENGINE_UNAVAILABLE (${e.status || '?'}): ${(e.message || '').slice(0, 300)}`;
-          await updateJob(supabase, jobId, {
-            status: "paused",
-            stop_reason: "DEV_ENGINE_UNAVAILABLE",
-            error: compactErr.slice(0, 500),
-            awaiting_approval: false,
-            approval_type: null,
-          });
-          await logStep(supabase, jobId, errStep, currentDoc, "dev_engine_unavailable",
-            compactErr.slice(0, 500));
+          // ── 502/503: retry up to 3 times with exponential backoff before pausing ──
+          const MAX_RETRIES = 3;
+          const RETRY_DELAYS = [5000, 15000, 30000];
+          let retried = false;
+          for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            console.log(`[auto-run] DEV_ENGINE_UNAVAILABLE retry ${attempt + 1}/${MAX_RETRIES} after ${RETRY_DELAYS[attempt]}ms`);
+            await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+            try {
+              // Re-check job status — user may have stopped it during retry wait
+              const { data: checkJob } = await supabase.from("auto_run_jobs").select("status").eq("id", jobId).maybeSingle();
+              if (!checkJob || checkJob.status !== "running") {
+                console.log("[auto-run] job no longer running during retry, aborting retry loop");
+                retried = true; // Don't fall through to pause
+                break;
+              }
+              // Attempt self-chain to retry the step
+              const selfUrl = `${supabaseUrl}/functions/v1/auto-run`;
+              const retryResp = await fetch(selfUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+                body: JSON.stringify({ action: "run-next", jobId }),
+              });
+              if (retryResp.ok) {
+                console.log(`[auto-run] DEV_ENGINE_UNAVAILABLE retry ${attempt + 1} succeeded`);
+                retried = true;
+                break;
+              }
+            } catch (retryErr: any) {
+              console.warn(`[auto-run] DEV_ENGINE_UNAVAILABLE retry ${attempt + 1} failed:`, retryErr?.message);
+            }
+          }
+          if (!retried) {
+            // All retries exhausted — pause with clear reason
+            const errStep = await nextStepIndex(supabase, jobId);
+            const compactErr = `DEV_ENGINE_UNAVAILABLE (${e.status || '?'}): ${(e.message || '').slice(0, 300)} [after ${MAX_RETRIES} retries]`;
+            await updateJob(supabase, jobId, {
+              status: "paused",
+              stop_reason: "DEV_ENGINE_UNAVAILABLE",
+              error: compactErr.slice(0, 500),
+              awaiting_approval: false,
+              approval_type: null,
+            });
+            await logStep(supabase, jobId, errStep, currentDoc, "dev_engine_unavailable",
+              compactErr.slice(0, 500));
+          }
         } else {
           const errIdx = await nextStepIndex(supabase, jobId);
           await updateJob(supabase, jobId, { status: "failed", error: `Step failed: ${(e.message || '').slice(0, 500)}` });
