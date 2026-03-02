@@ -49,20 +49,28 @@ serve(async (req) => {
     const limit = Math.min(body.limit || 10, 25);
     const onlyMissing = body.only_missing !== false; // default true
     const minStrength = body.min_strength || 1;
+    const testSignalId = body.test_signal_id || null; // single-signal smoke test
 
     const sb = createClient(supabaseUrl, serviceKey);
 
     // Fetch signals to process
     let query = sb
       .from("trend_signals")
-      .select("id, name, explanation, description, dimension, modality, category, cycle_phase, production_type, genre_tags, tone_tags, format_tags, style_tags, narrative_tags, signal_tags, tags, embedding_text_hash, embedding")
-      .eq("status", "active")
-      .gte("strength", minStrength)
-      .order("last_updated_at", { ascending: false })
-      .limit(limit);
+      .select("id, name, explanation, description, dimension, modality, category, cycle_phase, production_type, genre_tags, tone_tags, format_tags, style_tags, narrative_tags, signal_tags, tags, embedding_text_hash, embedding");
 
-    if (onlyMissing) {
-      query = query.is("embedding", null);
+    if (testSignalId) {
+      // Single-signal test mode — bypass status/strength filters
+      query = query.eq("id", testSignalId).limit(1);
+    } else {
+      query = query
+        .eq("status", "active")
+        .gte("strength", minStrength)
+        .order("last_updated_at", { ascending: false })
+        .limit(limit);
+
+      if (onlyMissing) {
+        query = query.is("embedding", null);
+      }
     }
 
     const { data: signals, error: fetchErr } = await query;
