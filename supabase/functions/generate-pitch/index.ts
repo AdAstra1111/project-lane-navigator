@@ -400,31 +400,40 @@ serve(async (req) => {
         });
       }
 
-      // ── Ownership enforcement: derive request user, reject if mismatch ──
+      // ── Ownership enforcement: derive user via Supabase Auth (canonical pattern) ──
       const authHeader = req.headers.get("Authorization") || "";
       let requestUserId: string | null = null;
       if (authHeader.startsWith("Bearer ")) {
-        const token = authHeader.replace("Bearer ", "").trim();
-        // Check if this is the service role key itself
-        if (token === supabaseKey) {
-          // Service-role call: trust body.userId if provided
-          requestUserId = body.userId || null;
-          console.log(`[generate-pitch] auth=service_role forwarded_user=${requestUserId || "none"}`);
-        } else {
-          try {
-            const payload = JSON.parse(atob(token.split(".")[1]));
-            requestUserId = payload.sub || null;
-          } catch { /* invalid token */ }
+        const { createClient: createAuthClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+        const sbUser = createAuthClient(supabaseUrl, anonKey, {
+          global: { headers: { Authorization: authHeader } },
+        });
+        const { data: userData, error: authErr } = await sbUser.auth.getUser();
+        if (!authErr && userData?.user) {
+          requestUserId = userData.user.id;
         }
       }
 
-      // Verify ownership or collaboration access
-      if (requestUserId) {
-        const { data: hasAccess } = await supa.rpc("has_project_access", {
-          _user_id: requestUserId,
-          _project_id: projectId,
+      if (!requestUserId) {
+        console.warn(`[generate-pitch] auth_failed: could not derive user from token`);
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
-        if (!hasAccess) {
+      }
+      console.log(`[generate-pitch] auth=user_scoped user_id=${requestUserId}`);
+
+      // Verify ownership or collaboration access via direct DB check
+      if (proj.user_id !== requestUserId) {
+        // Check collaborators table as fallback
+        const { data: collab } = await supa.from("project_collaborators")
+          .select("id")
+          .eq("project_id", projectId)
+          .eq("user_id", requestUserId)
+          .eq("status", "accepted")
+          .limit(1)
+          .maybeSingle();
+        if (!collab) {
           console.warn(`[generate-pitch] ownership_denied user=${requestUserId} project=${projectId} owner=${proj.user_id}`);
           return new Response(JSON.stringify({ error: "Forbidden: no project access" }), {
             status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
