@@ -4949,6 +4949,40 @@ Deno.serve(async (req) => {
               // Converged enough — proceed to promotion normally
               const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
               if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
+                if (job.allow_defaults) {
+                  // Full Autopilot: auto-approve and promote without pausing
+                  try {
+                    await supabase.from("project_document_versions").update({
+                      approval_status: "approved",
+                      approved_at: new Date().toISOString(),
+                      approved_by: job.user_id,
+                    }).eq("id", latestVersion.id);
+                  } catch (e: any) {
+                    console.warn("[auto-run] non-fatal auto-approve failed before promote:", e?.message || e);
+                  }
+                  await logStep(supabase, jobId, null, currentDoc, "auto_approved_promote",
+                    `Converged (CI=${ci}, GP=${gp}). Auto-promoting ${currentDoc} → ${next} (allow_defaults)`,
+                    {}, undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
+                  );
+                  await updateJob(supabase, jobId, {
+                    stage_loop_count: 0,
+                    current_document: next,
+                    stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
+                    status: "running",
+                    stop_reason: null,
+                    awaiting_approval: false,
+                    approval_type: null,
+                    pending_doc_id: null,
+                    pending_version_id: null,
+                    pending_doc_type: null,
+                    pending_next_doc_type: null,
+                    frontier_version_id: null,
+                    frontier_ci: null,
+                    frontier_gp: null,
+                    frontier_attempts: 0,
+                  });
+                  return respondWithJob(supabase, jobId, "run-next");
+                }
                 await logStep(supabase, jobId, null, currentDoc, "approval_required",
                   `Converged (CI=${ci}, GP=${gp}). Review ${currentDoc} before promoting to ${next}`,
                   {}, undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
@@ -5762,6 +5796,41 @@ Deno.serve(async (req) => {
 
           const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
           if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
+            if (job.allow_defaults) {
+              // Full Autopilot: auto-approve and promote without pausing
+              try {
+                await supabase.from("project_document_versions").update({
+                  approval_status: "approved",
+                  approved_at: new Date().toISOString(),
+                  approved_by: job.user_id,
+                }).eq("id", latestVersion.id);
+              } catch (e: any) {
+                console.warn("[auto-run] non-fatal auto-approve failed before promote:", e?.message || e);
+              }
+              await logStep(supabase, jobId, null, currentDoc, "auto_approved_promote",
+                `Promote recommended: ${currentDoc} → ${next}. Auto-promoting (allow_defaults).`,
+                { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence },
+                undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
+              );
+              await updateJob(supabase, jobId, {
+                current_document: next,
+                stage_loop_count: 0,
+                stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
+                status: "running",
+                stop_reason: null,
+                awaiting_approval: false,
+                approval_type: null,
+                pending_doc_id: null,
+                pending_version_id: null,
+                pending_doc_type: null,
+                pending_next_doc_type: null,
+                frontier_version_id: null,
+                frontier_ci: null,
+                frontier_gp: null,
+                frontier_attempts: 0,
+              });
+              return respondWithJob(supabase, jobId, "run-next");
+            }
             // ── APPROVAL GATE: pause before promoting to next stage ──
             await logStep(supabase, jobId, null, currentDoc, "approval_required",
               `Promote recommended: ${currentDoc} → ${next}. Review before advancing.`,
