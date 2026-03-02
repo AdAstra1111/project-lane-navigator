@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
 
   // Ping
   if (req.method === "GET") {
-    return json({ ok: true, build: "scheduled-refresh-trends-v2" });
+    return json({ ok: true, build: "scheduled-refresh-trends-v3" });
   }
 
   try {
@@ -56,13 +56,38 @@ Deno.serve(async (req) => {
       if (body.override_global_cooldown === true) overrideGlobalCooldown = true;
     } catch {}
 
-    // ── Global cooldown check (skip if override requested) ──
+    // ── Admin enforcement for override ──
     const cooldownHours = COOLDOWN_HOURS[trigger] || COOLDOWN_HOURS.manual;
     const cooldownCutoff = new Date(Date.now() - cooldownHours * 3600_000).toISOString();
     const db = createClient(supabaseUrl, serviceKey);
 
+    if (overrideGlobalCooldown) {
+      // Cron cannot use override
+      if (hasValidCronAuth && !hasValidUserAuth) {
+        return json({ error: "FORBIDDEN_OVERRIDE", detail: "Cron auth cannot use override_global_cooldown" }, 403);
+      }
+      // Must be authenticated user
+      if (!hasValidUserAuth || !userAuth) {
+        return json({ error: "FORBIDDEN_OVERRIDE", detail: "User auth required for override" }, 403);
+      }
+      // Verify admin role via canonical RPC
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: userAuth } },
+      });
+      const { data: userData, error: authErr } = await userClient.auth.getUser(userAuth.replace("Bearer ", ""));
+      if (authErr || !userData?.user) {
+        return json({ error: "FORBIDDEN_OVERRIDE", detail: "Invalid user token" }, 403);
+      }
+      const { data: isAdmin } = await db.rpc("has_role", { _user_id: userData.user.id, _role: "admin" });
+      if (!isAdmin) {
+        return json({ error: "FORBIDDEN_OVERRIDE", detail: "Admin role required for override_global_cooldown" }, 403);
+      }
+      console.log(`[scheduled-refresh-trends] override_global_cooldown=true by admin ${userData.user.id}`);
+    }
+
+    // ── Global cooldown check (skip if override) ──
     if (!overrideGlobalCooldown) {
-      // Global cooldown: only batch-complete runs (completed_types contains ALL required types)
       const requiredTypesArr = [...REQUIRED_TREND_TYPES];
       const { data: recentRuns } = await db
         .from("trend_refresh_runs")
@@ -85,8 +110,6 @@ Deno.serve(async (req) => {
           trigger,
         }, 429);
       }
-    } else {
-      console.log("[scheduled-refresh-trends] override_global_cooldown=true — skipping cooldown check");
     }
 
     // ── Batch refresh all required types ──
@@ -139,21 +162,38 @@ Deno.serve(async (req) => {
     const allOk = Object.values(results).every((r: any) => r.ok);
     const successCount = Object.values(results).filter((r: any) => r.ok).length;
 
-    // Fetch the actual batch-complete run we just created to anchor cooldown deterministically
+    // ── Insert batch-anchor row if all types succeeded ──
     let lastRunAt = firstSuccessAt || new Date().toISOString();
     let nextAllowedAt = new Date(new Date(lastRunAt).getTime() + cooldownHours * 3600_000).toISOString();
 
     if (allOk) {
-      const { data: latestRun } = await db
+      const totalSignals = Object.values(results).reduce((s: number, r: any) => s + (r.signals_updated || 0), 0);
+      const totalCast = Object.values(results).reduce((s: number, r: any) => s + (r.cast_updated || 0), 0);
+
+      const { data: anchorRow, error: anchorErr } = await db
         .from("trend_refresh_runs")
-        .select("created_at")
-        .eq("ok", true)
-        .contains("completed_types", [...REQUIRED_TREND_TYPES])
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (latestRun && latestRun.length > 0) {
-        lastRunAt = latestRun[0].created_at;
+        .insert({
+          trigger,
+          scope: "batch",
+          requested_types: [...REQUIRED_TREND_TYPES],
+          completed_types: [...REQUIRED_TREND_TYPES],
+          ok: true,
+          model_trends: "google/gemini-2.5-flash",
+          model_grounding: "perplexity/sonar",
+          recency_filter: "week",
+          signals_total: totalSignals,
+          cast_total: totalCast,
+          citations_total: 0,
+        })
+        .select("id, created_at")
+        .single();
+
+      if (anchorErr) {
+        console.error("[scheduled-refresh-trends] batch-anchor insert failed:", anchorErr);
+      } else if (anchorRow) {
+        lastRunAt = anchorRow.created_at;
         nextAllowedAt = new Date(new Date(lastRunAt).getTime() + cooldownHours * 3600_000).toISOString();
+        console.log(`[scheduled-refresh-trends] batch-anchor created: id=${anchorRow.id} created_at=${lastRunAt}`);
       }
     }
 
