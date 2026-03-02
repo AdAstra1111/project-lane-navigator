@@ -11,6 +11,7 @@
  * - allow_defaults=true passed explicitly at start
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -74,6 +75,7 @@ async function populateCanonBaseline(projectId: string): Promise<boolean> {
 }
 
 export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents, approvedVersionMap, onSelectDocument }: Props) {
+  const navigate = useNavigate();
   const [autopilot, setAutopilot] = useState<AutopilotState | null>(null);
   const [loading, setLoading] = useState(true);
   const [ticking, setTicking] = useState(false);
@@ -651,12 +653,10 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
                     <ArrowRight className="h-3 w-3" />
                     Resume Auto-Run
                   </Button>
-                  <a href={missionControlUrl}>
-                    <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1">
+                  <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1" onClick={() => navigate(missionControlUrl)}>
                       <ExternalLink className="h-3 w-3" />
                       Open Mission Control
                     </Button>
-                  </a>
                 </div>
               </div>
             );
@@ -685,13 +685,13 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
                   <span className="font-medium text-destructive">{autoRunJob.stop_reason}</span>
                 </div>
               )}
-              <a
-                href={missionControlUrl}
+              <button
+                onClick={() => navigate(missionControlUrl)}
                 className="flex items-center gap-1 text-primary hover:underline text-[11px] mt-1"
               >
                 <ExternalLink className="h-3 w-3" />
                 Open Mission Control
-              </a>
+              </button>
             </div>
           )}
 
