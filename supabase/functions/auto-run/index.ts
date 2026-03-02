@@ -2564,7 +2564,7 @@ Deno.serve(async (req) => {
       if (!jobId) return respond({ error: "jobId required" }, 400);
       const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
       if (jobErr || !job) return respond({ error: "Job not found" }, 404);
-      if (!job.awaiting_approval || !job.pending_doc_id) return respond({ error: "No pending document" }, 400);
+      if (!job.awaiting_approval || !job.pending_doc_id) return respond({ pending_doc: null, job }, 200);
 
       // Fetch version plaintext
       let docText = "";
