@@ -4228,19 +4228,39 @@ Deno.serve(async (req) => {
         // Before deriving a downstream doc, ensure seed core is approved
         const seedCheck = await isSeedCoreOfficial(supabase, job.project_id);
         if (!seedCheck.official) {
-          const gateStep = stepCount + 1;
-          await logStep(supabase, jobId, gateStep, currentDoc, "seed_core_block",
-            `Seed core not official — missing: [${seedCheck.missing.join(",")}], unapproved: [${seedCheck.unapproved.join(",")}]`
-          );
-          await updateJob(supabase, jobId, {
-            status: "paused",
-            stop_reason: "SEED_CORE_NOT_OFFICIAL",
-            awaiting_approval: true,
-            approval_type: "seed_core_officialize",
-            step_count: gateStep,
-            error: JSON.stringify({ missing_seed_docs: seedCheck.missing, unapproved_seed_docs: seedCheck.unapproved }),
-          });
-          return respondWithJob(supabase, jobId, "seed-core-not-official");
+          if (job.allow_defaults && seedCheck.missing.length === 0) {
+            // Auto-approve seed core in Full Autopilot mode (all docs exist, just unapproved)
+            const gateStep = stepCount + 1;
+            for (const dt of seedCheck.unapproved) {
+              const { data: sDocs } = await supabase.from("project_documents").select("id").eq("project_id", job.project_id).eq("doc_type", dt).limit(1);
+              const sDocId = sDocs?.[0]?.id;
+              if (sDocId) {
+                const { data: sVers } = await supabase.from("project_document_versions").select("id").eq("document_id", sDocId).eq("is_current", true).limit(1);
+                if (sVers?.[0]) {
+                  await supabase.from("project_document_versions").update({ approval_status: "approved", approved_at: new Date().toISOString(), approved_by: job.user_id }).eq("id", sVers[0].id);
+                }
+              }
+            }
+            await logStep(supabase, jobId, gateStep, currentDoc, "seed_core_auto_approved",
+              `Seed core auto-approved (allow_defaults) — ${seedCheck.unapproved.join(", ")}`
+            );
+            await updateJob(supabase, jobId, { step_count: gateStep });
+            // Fall through to continue generation
+          } else {
+            const gateStep = stepCount + 1;
+            await logStep(supabase, jobId, gateStep, currentDoc, "seed_core_block",
+              `Seed core not official — missing: [${seedCheck.missing.join(",")}], unapproved: [${seedCheck.unapproved.join(",")}]`
+            );
+            await updateJob(supabase, jobId, {
+              status: "paused",
+              stop_reason: "SEED_CORE_NOT_OFFICIAL",
+              awaiting_approval: true,
+              approval_type: "seed_core_officialize",
+              step_count: gateStep,
+              error: JSON.stringify({ missing_seed_docs: seedCheck.missing, unapproved_seed_docs: seedCheck.unapproved }),
+            });
+            return respondWithJob(supabase, jobId, "seed-core-not-official");
+          }
         }
 
         const runNextLadder = getLadderForJob(format);
@@ -4337,22 +4357,34 @@ Deno.serve(async (req) => {
           await logStep(supabase, jobId, newStep, currentDoc, "generate", `Generated ${currentDoc} from ${prevStage}${useChunkedGenerator ? ' (chunked pipeline)' : ''}`, {}, convertedDocId ? `Created doc ${convertedDocId}` : undefined, convertedDocId ? { docId: convertedDocId } : undefined);
           await updateJob(supabase, jobId, { step_count: newStep, stage_loop_count: 0, stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4 });
 
-          // ── APPROVAL GATE: after convert, pause for user to review ──
-          await logStep(supabase, jobId, null, currentDoc, "approval_required",
-            `Review generated ${currentDoc} before continuing`,
-            {}, undefined, { docId: convertedDocId, versionId: convertedVersionId, doc_type: currentDoc, from_stage: prevStage }
-          );
-          await updateJob(supabase, jobId, {
-            status: "paused",
-            stop_reason: `Approval required: review generated ${currentDoc}`,
-            awaiting_approval: true,
-            approval_type: "convert",
-            pending_doc_id: convertedDocId || prevDoc.id,
-            pending_version_id: convertedVersionId,
-            pending_doc_type: currentDoc,
-            pending_next_doc_type: currentDoc,
-          });
-          return respondWithJob(supabase, jobId, "awaiting-approval");
+          // ── APPROVAL GATE: after convert ──
+          if (job.allow_defaults) {
+            // Full Autopilot: auto-approve the generated doc and continue
+            if (convertedVersionId) {
+              await supabase.from("project_document_versions").update({ approval_status: "approved", approved_at: new Date().toISOString(), approved_by: job.user_id }).eq("id", convertedVersionId);
+            }
+            await logStep(supabase, jobId, null, currentDoc, "auto_approved_convert",
+              `Auto-approved generated ${currentDoc} (allow_defaults)`,
+              {}, undefined, { docId: convertedDocId, versionId: convertedVersionId, doc_type: currentDoc, from_stage: prevStage }
+            );
+            // Continue — don't pause
+          } else {
+            await logStep(supabase, jobId, null, currentDoc, "approval_required",
+              `Review generated ${currentDoc} before continuing`,
+              {}, undefined, { docId: convertedDocId, versionId: convertedVersionId, doc_type: currentDoc, from_stage: prevStage }
+            );
+            await updateJob(supabase, jobId, {
+              status: "paused",
+              stop_reason: `Approval required: review generated ${currentDoc}`,
+              awaiting_approval: true,
+              approval_type: "convert",
+              pending_doc_id: convertedDocId || prevDoc.id,
+              pending_version_id: convertedVersionId,
+              pending_doc_type: currentDoc,
+              pending_next_doc_type: currentDoc,
+            });
+            return respondWithJob(supabase, jobId, "awaiting-approval");
+          }
         } catch (e: any) {
           await updateJob(supabase, jobId, { status: "failed", error: `Generate failed: ${e.message}` });
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop", `Generate failed: ${e.message}`);
@@ -4376,12 +4408,26 @@ Deno.serve(async (req) => {
         // Re-run the generation logic inline (same as the !doc branch above)
         const seedCheck2 = await isSeedCoreOfficial(supabase, job.project_id);
         if (!seedCheck2.official) {
-          await updateJob(supabase, jobId, {
-            status: "paused", stop_reason: "SEED_CORE_NOT_OFFICIAL",
-            awaiting_approval: true, approval_type: "seed_core_officialize",
-            error: JSON.stringify({ missing_seed_docs: seedCheck2.missing, unapproved_seed_docs: seedCheck2.unapproved }),
-          });
-          return respondWithJob(supabase, jobId, "seed-core-not-official");
+          if (job.allow_defaults && seedCheck2.missing.length === 0) {
+            for (const dt of seedCheck2.unapproved) {
+              const { data: sDocs } = await supabase.from("project_documents").select("id").eq("project_id", job.project_id).eq("doc_type", dt).limit(1);
+              const sDocId = sDocs?.[0]?.id;
+              if (sDocId) {
+                const { data: sVers } = await supabase.from("project_document_versions").select("id").eq("document_id", sDocId).eq("is_current", true).limit(1);
+                if (sVers?.[0]) {
+                  await supabase.from("project_document_versions").update({ approval_status: "approved", approved_at: new Date().toISOString(), approved_by: job.user_id }).eq("id", sVers[0].id);
+                }
+              }
+            }
+            await logStep(supabase, jobId, stepCount, currentDoc, "seed_core_auto_approved", `Seed core auto-approved (allow_defaults, empty-slot) — ${seedCheck2.unapproved.join(", ")}`);
+          } else {
+            await updateJob(supabase, jobId, {
+              status: "paused", stop_reason: "SEED_CORE_NOT_OFFICIAL",
+              awaiting_approval: true, approval_type: "seed_core_officialize",
+              error: JSON.stringify({ missing_seed_docs: seedCheck2.missing, unapproved_seed_docs: seedCheck2.unapproved }),
+            });
+            return respondWithJob(supabase, jobId, "seed-core-not-official");
+          }
         }
         // Find previous stage to convert from
         const pipeline2 = getLadderForJob(format);
@@ -4406,9 +4452,17 @@ Deno.serve(async (req) => {
           const ns2 = stepCount + 1;
           await logStep(supabase, jobId, ns2, currentDoc, "generate", `Generated ${currentDoc} from ${prevStage2} (empty-slot recovery)`, {}, genDocId2 ? `Created doc ${genDocId2}` : undefined, genDocId2 ? { docId: genDocId2 } : undefined);
           await updateJob(supabase, jobId, { step_count: ns2, stage_loop_count: 0, stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4 });
-          await logStep(supabase, jobId, null, currentDoc, "approval_required", `Review generated ${currentDoc} before continuing`, {}, undefined, { docId: genDocId2, versionId: genVerId2, doc_type: currentDoc, from_stage: prevStage2 });
-          await updateJob(supabase, jobId, { status: "paused", stop_reason: `Approval required: review generated ${currentDoc}`, awaiting_approval: true, approval_type: "convert", pending_doc_id: genDocId2 || prevDoc2.id, pending_version_id: genVerId2, pending_doc_type: currentDoc, pending_next_doc_type: currentDoc });
-          return respondWithJob(supabase, jobId, "awaiting-approval");
+          if (job.allow_defaults) {
+            if (genVerId2) {
+              await supabase.from("project_document_versions").update({ approval_status: "approved", approved_at: new Date().toISOString(), approved_by: job.user_id }).eq("id", genVerId2);
+            }
+            await logStep(supabase, jobId, null, currentDoc, "auto_approved_convert", `Auto-approved generated ${currentDoc} (allow_defaults, empty-slot)`, {}, undefined, { docId: genDocId2, versionId: genVerId2, doc_type: currentDoc, from_stage: prevStage2 });
+            // Continue — don't pause
+          } else {
+            await logStep(supabase, jobId, null, currentDoc, "approval_required", `Review generated ${currentDoc} before continuing`, {}, undefined, { docId: genDocId2, versionId: genVerId2, doc_type: currentDoc, from_stage: prevStage2 });
+            await updateJob(supabase, jobId, { status: "paused", stop_reason: `Approval required: review generated ${currentDoc}`, awaiting_approval: true, approval_type: "convert", pending_doc_id: genDocId2 || prevDoc2.id, pending_version_id: genVerId2, pending_doc_type: currentDoc, pending_next_doc_type: currentDoc });
+            return respondWithJob(supabase, jobId, "awaiting-approval");
+          }
         } catch (e2: any) {
           await updateJob(supabase, jobId, { status: "failed", error: `Generate failed (empty-slot recovery): ${e2.message}` });
           return respondWithJob(supabase, jobId);
