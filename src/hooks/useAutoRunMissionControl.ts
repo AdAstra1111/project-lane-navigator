@@ -208,7 +208,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
 
   const activate = useCallback(() => setActivated(true), []);
 
-  const start = useCallback(async (mode: string, startDocument: string, targetDocument?: string) => {
+  const start = useCallback(async (mode: string, startDocument: string, targetDocument?: string, allowDefaults?: boolean) => {
     if (!projectId) {
       const msg = 'Cannot start Auto-Run: no project ID';
       setError(msg);
@@ -222,6 +222,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       const result = await callAutoRun('start', {
         projectId, mode: AUTO_RUN_EXECUTION_MODE === 'full' ? 'balanced' : 'staged', start_document: mappedStart, target_document: targetDocument || 'production_draft',
         max_total_steps: 100,
+        allow_defaults: allowDefaults ?? false,
       });
       setJob(result.job);
       setSteps(result.latest_steps || []);
@@ -530,7 +531,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   const toggleAllowDefaults = useCallback(async (val: boolean) => {
     if (!job) return;
     try {
-      await supabase.from('auto_run_jobs').update({ allow_defaults: val }).eq('id', job.id);
+      await supabase.from('auto_run_jobs').update({ allow_defaults: val } as any).eq('id', job.id);
       setJob(prev => prev ? { ...prev, allow_defaults: val } : prev);
     } catch (e: any) { setError(e.message); }
   }, [job]);
