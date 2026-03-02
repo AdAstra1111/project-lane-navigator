@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Filter, Sparkles, ChevronRight, X, Plus, Palette } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -21,11 +21,16 @@ import {
   ANIMATION_PRIMARY_LABELS,
   ANIMATION_STYLE_LIST,
   ANIMATION_STYLE_LABELS,
-  ANIMATION_TAG_LIST,
   ANIMATION_TAG_CATEGORIES,
   getAnimationMeta,
 } from '@/config/animationMeta';
-import { getProjectModality, isAnimationModality } from '@/config/productionModality';
+import {
+  type ProductionModality,
+  MODALITY_LABELS,
+  PRODUCTION_MODALITIES,
+  getProjectModality,
+  isAnimationModality,
+} from '@/config/productionModality';
 
 export interface HardCriteria {
   // Core
@@ -157,6 +162,9 @@ interface Props {
   /** Current animation meta selections for global mode (lifted state) */
   animationMeta?: AnimationMeta;
   onAnimationMetaChange?: (meta: AnimationMeta) => void;
+  /** Global-mode production modality (ignored when hasProject) */
+  globalModality?: ProductionModality;
+  onGlobalModalityChange?: (m: ProductionModality) => void;
 }
 
 /** Tiny Auto/Manual indicator with resolution status */
@@ -227,19 +235,20 @@ function AnimationSubgenreControls({
     <div className="col-span-full space-y-3 rounded-md p-3 border border-accent/30 bg-accent/5">
       <Label className="text-xs font-medium text-muted-foreground flex items-center gap-2">
         <Palette className="h-3.5 w-3.5" />
-        Animation Subgenre
+        Animation Details
         <Badge variant="outline" className="text-[10px]">
           {isProjectMode ? 'Project-tuned' : 'Global — this generation only'}
         </Badge>
       </Label>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {/* Primary */}
+        {/* Animation Subgenre (was "Primary Genre") */}
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Primary Genre</Label>
+          <Label className="text-xs text-muted-foreground">Animation Subgenre</Label>
           <Select
             value={animMeta.primary || '__none__'}
             onValueChange={v => onChange({ ...animMeta, primary: v === '__none__' ? null : v as AnimationPrimary })}
+            disabled={isProjectMode}
           >
             <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
             <SelectContent>
@@ -257,6 +266,7 @@ function AnimationSubgenreControls({
           <Select
             value={animMeta.style || '__none__'}
             onValueChange={v => onChange({ ...animMeta, style: v === '__none__' ? null : v as AnimationStyle })}
+            disabled={isProjectMode}
           >
             <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
             <SelectContent>
@@ -282,8 +292,9 @@ function AnimationSubgenreControls({
                   <Badge
                     key={tag}
                     variant={active ? 'default' : 'outline'}
-                    className="text-[10px] cursor-pointer"
+                    className={`text-[10px] cursor-pointer ${isProjectMode ? 'pointer-events-none opacity-70' : ''}`}
                     onClick={() => {
+                      if (isProjectMode) return;
                       const next = active
                         ? animMeta.tags.filter(t => t !== tag)
                         : [...animMeta.tags, tag];
@@ -301,14 +312,14 @@ function AnimationSubgenreControls({
 
       <p className="text-[10px] text-muted-foreground/50">
         {isProjectMode
-          ? 'Animation subgenre is driven by project animation metadata.'
+          ? 'Project-tuned: animation metadata is set via project settings.'
           : 'Global mode: selections apply to this generation only.'}
       </p>
     </div>
   );
 }
 
-export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, hasProject, editedFields, onEditedFieldsChange, resolutionMeta, projectFeatures, animationMeta, onAnimationMetaChange }: Props) {
+export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, hasProject, editedFields, onEditedFieldsChange, resolutionMeta, projectFeatures, animationMeta, onAnimationMetaChange, globalModality, onGlobalModalityChange }: Props) {
   /** Update value AND mark field as edited */
   const update = (patch: Partial<HardCriteria>) => {
     let newEdited = editedFields;
@@ -319,13 +330,14 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
     onChange({ ...criteria, ...patch });
   };
 
-  // Derive modality from project_features
-  const modality = getProjectModality(projectFeatures);
-  const isAnim = isAnimationModality(modality);
+  // Derive effective modality: project mode → from DB, global mode → from prop
+  const effectiveModality: ProductionModality = hasProject
+    ? getProjectModality(projectFeatures)
+    : (globalModality || 'live_action');
+  const isAnim = isAnimationModality(effectiveModality);
 
-  // Animation meta: in project mode, seed from project_features; in global mode, use lifted state
+  // Animation meta: in project mode, seed from project_features (read-only); global mode uses lifted state
   const projectAnimMeta = useMemo(() => getAnimationMeta(projectFeatures), [projectFeatures]);
-
   const effectiveAnimMeta: AnimationMeta = hasProject ? projectAnimMeta : (animationMeta || { primary: null, tags: [], style: null });
 
   const handleAnimMetaChange = useCallback((meta: AnimationMeta) => {
@@ -395,8 +407,32 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
                 </Select>
               </div>
 
-              {/* Subgenre: show animation controls when animation modality, otherwise regular text input */}
-              {isAnim ? null : (
+              {/* Production Modality — global mode only (project mode derives from DB) */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  Production Modality
+                  {hasProject && <span className="text-[9px] uppercase tracking-wider font-medium ml-1 text-muted-foreground/60">From project</span>}
+                </Label>
+                <Select
+                  value={effectiveModality}
+                  onValueChange={v => {
+                    if (!hasProject) onGlobalModalityChange?.(v as ProductionModality);
+                  }}
+                  disabled={hasProject}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {PRODUCTION_MODALITIES.map(m => (
+                      <SelectItem key={m} value={m}>{MODALITY_LABELS[m]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Subgenre: show animation controls when animation/hybrid, else regular text */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {!isAnim && (
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">Subgenre <AutoIndicator fieldKey="subgenre" editedFields={editedFields} resolutionMeta={resolutionMeta} /></Label>
                   <Input value={criteria.subgenre} onChange={e => update({ subgenre: e.target.value })} placeholder='e.g. "workplace romance"' className="h-9" />
@@ -601,7 +637,6 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
 
           {/* ─── ADVANCED TAB ─── */}
           <TabsContent value="advanced" className="space-y-4 mt-4">
-            {/* Differentiation */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Novelty Level</Label>
@@ -635,7 +670,6 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
               </div>
             </div>
 
-            {/* Feasibility */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Max Locations</Label>
@@ -658,7 +692,6 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
               </div>
             </div>
 
-            {/* Must-have / Avoid / Prohibited */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Must-Have Tropes / Themes</Label>
               <TagInput value={criteria.mustHaveTropes} onChange={v => update({ mustHaveTropes: v })} placeholder='e.g. "enemies to lovers"' />
@@ -672,7 +705,6 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
               <TagInput value={criteria.prohibitedComps} onChange={v => update({ prohibitedComps: v })} placeholder='e.g. "Twilight"' variant="destructive" />
             </div>
 
-            {/* Notes */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Additional Direction</Label>
               <Textarea value={criteria.notes} onChange={e => update({ notes: e.target.value })} placeholder="Any specific constraints, themes, or inspirations…" rows={2} />

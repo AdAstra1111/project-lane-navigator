@@ -19,7 +19,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import { type AnimationMeta, ANIMATION_PRIMARY_LIST, ANIMATION_STYLE_LIST, ANIMATION_TAG_LIST } from '@/config/animationMeta';
-import { getProjectModality, isAnimationModality } from '@/config/productionModality';
+import { type ProductionModality, isAnimationModality } from '@/config/productionModality';
 
 export default function PitchIdeas() {
   const { user } = useAuth();
@@ -34,8 +34,9 @@ export default function PitchIdeas() {
   const [resolutionMeta, setResolutionMeta] = useState<Record<string, { status: string; scope: string; note?: string }>>({});
   const [promoteIdea, setPromoteIdea] = useState<PitchIdea | null>(null);
   const [applyIdea, setApplyIdea] = useState<PitchIdea | null>(null);
-  // Global-mode animation meta (not persisted to DB; generation-only)
+  // Global-mode state (not persisted to DB; generation-only)
   const [globalAnimMeta, setGlobalAnimMeta] = useState<AnimationMeta>({ primary: null, tags: [], style: null });
+  const [globalModality, setGlobalModality] = useState<ProductionModality>('live_action');
 
   const isProjectMode = !!selectedProject && selectedProject !== '__none__';
   const linkedProject = isProjectMode ? projects.find(p => p.id === selectedProject) : null;
@@ -61,20 +62,27 @@ export default function PitchIdeas() {
     try {
       const normalized = normalizePitchCriteria(criteria as unknown as Record<string, unknown>, editedFields);
 
-      // Build animation meta for global mode only (project-tuned reads from DB)
+      // Build animation meta + modality for global mode only (project-tuned reads from DB)
       let globalAnimPayload: Record<string, any> | undefined;
+      let globalModalityPayload: string | undefined;
       if (!isProjectMode) {
-        // Validate against canonical lists before sending
-        const validPrimary = globalAnimMeta.primary && ANIMATION_PRIMARY_LIST.includes(globalAnimMeta.primary) ? globalAnimMeta.primary : null;
-        const validStyle = globalAnimMeta.style && ANIMATION_STYLE_LIST.includes(globalAnimMeta.style) ? globalAnimMeta.style : null;
-        const validTags = globalAnimMeta.tags.filter(t => ANIMATION_TAG_LIST.includes(t));
-        const hasAny = validPrimary || validStyle || validTags.length > 0;
-        if (hasAny) {
-          globalAnimPayload = {
-            animation_genre_primary: validPrimary,
-            animation_style: validStyle,
-            animation_genre_tags: validTags,
-          };
+        // Only send modality + anim meta when animation/hybrid
+        if (isAnimationModality(globalModality)) {
+          globalModalityPayload = globalModality;
+          const validPrimary = globalAnimMeta.primary && ANIMATION_PRIMARY_LIST.includes(globalAnimMeta.primary) ? globalAnimMeta.primary : null;
+          const validStyle = globalAnimMeta.style && ANIMATION_STYLE_LIST.includes(globalAnimMeta.style) ? globalAnimMeta.style : null;
+          const validTags = globalAnimMeta.tags.filter(t => ANIMATION_TAG_LIST.includes(t));
+          const hasAny = validPrimary || validStyle || validTags.length > 0;
+          if (hasAny) {
+            globalAnimPayload = {
+              animation_genre_primary: validPrimary,
+              animation_style: validStyle,
+              animation_genre_tags: validTags,
+            };
+          }
+        } else {
+          // live_action: still send modality for explicitness but no anim meta
+          globalModalityPayload = globalModality;
         }
       }
 
@@ -87,7 +95,8 @@ export default function PitchIdeas() {
           manual_criteria: normalized.manual_criteria,
           auto_fields: normalized.auto_fields,
           meta: normalized.meta,
-          // Global-mode animation meta (ignored by BE when projectId present)
+          // Global-mode overrides (ignored by BE when projectId present)
+          ...(globalModalityPayload ? { productionModality: globalModalityPayload } : {}),
           ...(globalAnimPayload ? { animationMeta: globalAnimPayload } : {}),
           // Legacy top-level fields for backward compat
           genre: normalized.manual_criteria.genre || '',
@@ -196,7 +205,7 @@ export default function PitchIdeas() {
     } finally {
       setGenerating(false);
     }
-  }, [criteria, selectedProject, isProjectMode, globalAnimMeta, save]);
+  }, [criteria, selectedProject, isProjectMode, globalAnimMeta, globalModality, save]);
 
   const handleShortlist = useCallback(async (id: string, shortlisted: boolean) => {
     await update({ id, status: shortlisted ? 'shortlisted' : 'draft' });
@@ -292,6 +301,8 @@ export default function PitchIdeas() {
           projectFeatures={projectFeatures}
           animationMeta={globalAnimMeta}
           onAnimationMetaChange={setGlobalAnimMeta}
+          globalModality={globalModality}
+          onGlobalModalityChange={setGlobalModality}
         />
 
         <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />
