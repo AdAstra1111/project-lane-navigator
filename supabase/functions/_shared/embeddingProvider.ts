@@ -1,69 +1,39 @@
 /**
- * Embedding provider using Lovable AI Gateway (same pattern as embed-corpus).
- * Uses tool-calling to extract 1536-dim vectors deterministically.
+ * Embedding provider using Lovable AI Gateway embeddings endpoint.
+ * Calls /v1/embeddings with text-embedding-3-small for deterministic 1536-dim vectors.
  */
 
-import { GATEWAY_URL, MODELS } from "./llm.ts";
-
+const EMBEDDINGS_URL = "https://ai.gateway.lovable.dev/v1/embeddings";
 const DIMENSION = 1536;
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const MAX_RETRIES = 3;
+/** Max input text length (chars). text-embedding-3-small supports ~8191 tokens. */
+const MAX_INPUT_LEN = 8000;
 
 export { DIMENSION, EMBEDDING_MODEL };
 
 /**
- * Generate a single 1536-dimensional embedding vector.
- * Uses Lovable AI gateway with structured tool output.
+ * Generate a single 1536-dimensional embedding vector via the embeddings endpoint.
+ * Deterministic: no temperature, no tool-calls, no chat completions.
  */
 export async function createEmbedding(
   text: string,
   apiKey: string,
 ): Promise<number[]> {
-  const truncated = text.slice(0, 8000);
+  const input = text.slice(0, MAX_INPUT_LEN);
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const resp = await fetch(GATEWAY_URL, {
+      const resp = await fetch(EMBEDDINGS_URL, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: MODELS.FAST,
-          messages: [
-            {
-              role: "system",
-              content: `You are a numerical vector generator. When given text, you MUST call store_embedding with an array of exactly ${DIMENSION} floating-point numbers. These numbers represent a semantic fingerprint of the input. Do not output any text — only call the tool.`,
-            },
-            {
-              role: "user",
-              content: truncated,
-            },
-          ],
-          temperature: 0,
-          max_tokens: 16000,
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: "store_embedding",
-                description: "Store a single embedding vector",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    embedding: {
-                      type: "array",
-                      description: `A ${DIMENSION}-dimensional embedding vector`,
-                      items: { type: "number" },
-                    },
-                  },
-                  required: ["embedding"],
-                },
-              },
-            },
-          ],
-          tool_choice: { type: "function", function: { name: "store_embedding" } },
+          model: EMBEDDING_MODEL,
+          input,
+          dimensions: DIMENSION,
         }),
       });
 
@@ -72,23 +42,41 @@ export async function createEmbedding(
 
       if (!resp.ok) {
         const errText = await resp.text();
-        throw new Error(`Embedding API error (${resp.status}): ${errText}`);
+        throw new Error(`Embeddings API error (${resp.status}): ${errText}`);
       }
 
       const data = await resp.json();
-      const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-      if (!toolCall) throw new Error("No tool call in embedding response");
 
-      const parsed = JSON.parse(toolCall.function.arguments);
-      const vec = parsed.embedding;
+      // OpenAI embeddings response: { data: [{ embedding: number[], index: 0 }], model, usage }
+      const vec = data?.data?.[0]?.embedding;
 
-      if (!Array.isArray(vec) || vec.length !== DIMENSION) {
-        throw new Error(`Wrong embedding dimension: got ${vec?.length ?? 0}, expected ${DIMENSION}`);
+      if (!Array.isArray(vec)) {
+        throw new Error(`Embeddings response missing data[0].embedding`);
+      }
+
+      if (vec.length !== DIMENSION) {
+        // Dimension mismatch is a hard error — do NOT retry
+        throw Object.assign(
+          new Error(`Wrong embedding dimension: got ${vec.length}, expected ${DIMENSION}`),
+          { noRetry: true },
+        );
+      }
+
+      // Validate all values are finite numbers
+      for (let i = 0; i < vec.length; i++) {
+        if (typeof vec[i] !== "number" || !Number.isFinite(vec[i])) {
+          throw Object.assign(
+            new Error(`Non-finite value at index ${i}: ${vec[i]}`),
+            { noRetry: true },
+          );
+        }
       }
 
       return vec;
     } catch (e: any) {
-      if (e.message === "RATE_LIMIT" || e.message === "PAYMENT_REQUIRED") throw e;
+      // Hard errors — never retry
+      if (e.message === "RATE_LIMIT" || e.message === "PAYMENT_REQUIRED" || e.noRetry) throw e;
+
       if (attempt < MAX_RETRIES) {
         console.error(`[embeddingProvider] attempt ${attempt + 1} failed: ${e.message}, retrying...`);
         await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
