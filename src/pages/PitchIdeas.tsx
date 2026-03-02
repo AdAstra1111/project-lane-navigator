@@ -33,7 +33,13 @@ export default function PitchIdeas() {
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState('');
   const [resolutionMeta, setResolutionMeta] = useState<Record<string, { status: string; scope: string; note?: string }>>({});
-  const [lastSignalsMetadata, setLastSignalsMetadata] = useState<any>(null);
+  const signalsStorageKey = `iffy:pitch:lastSignalsMetadata:${user?.id || 'anon'}`;
+  const [lastSignalsMetadata, setLastSignalsMetadata] = useState<any>(() => {
+    try {
+      const stored = localStorage.getItem(signalsStorageKey);
+      return stored ? JSON.parse(stored) : null;
+    } catch { return null; }
+  });
   const [promoteIdea, setPromoteIdea] = useState<PitchIdea | null>(null);
   const [applyIdea, setApplyIdea] = useState<PitchIdea | null>(null);
   // Global-mode state (not persisted to DB; generation-only)
@@ -160,6 +166,7 @@ export default function PitchIdeas() {
       }
       if (data?.signals_metadata) {
         setLastSignalsMetadata(data.signals_metadata);
+        try { localStorage.setItem(signalsStorageKey, JSON.stringify(data.signals_metadata)); } catch {}
       }
       console.log('[PitchIdeas] Ideas to save:', pitchIdeas?.length, 'first title:', pitchIdeas?.[0]?.title);
       if (!Array.isArray(pitchIdeas) || pitchIdeas.length === 0) {
@@ -327,12 +334,19 @@ export default function PitchIdeas() {
           onGlobalModalityChange={setGlobalModality}
         />
 
-        {/* Trends Snapshot — shows after generation completes */}
-        {lastSignalsMetadata && !generating && (
-          <TrendsSnapshot signalsMetadata={lastSignalsMetadata} />
-        )}
-
         <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />
+
+        {/* Trends Snapshot — persisted across refresh, visible when data exists */}
+        {lastSignalsMetadata && (
+          <TrendsSnapshot
+            signalsMetadata={lastSignalsMetadata}
+            updating={generating}
+            onClear={() => {
+              setLastSignalsMetadata(null);
+              try { localStorage.removeItem(signalsStorageKey); } catch {}
+            }}
+          />
+        )}
         {generateFailed && !generating && (
           <Card className="border-destructive/50 bg-destructive/5">
             <CardContent className="py-3 text-sm text-destructive text-center">
