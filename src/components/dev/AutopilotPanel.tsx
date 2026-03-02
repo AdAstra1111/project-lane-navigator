@@ -400,7 +400,7 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
     (async () => {
       try {
         if (autoRunJob.approval_type === 'seed_core_officialize') {
-          await callAutoRun('approve-seed-core', { jobId: autoRunJob.id });
+          await callAutoRun('approve-seed-core', { jobId: autoRunJob.id, projectId });
         } else {
           await callAutoRun('approve-next', { jobId: autoRunJob.id, decision: 'approve' });
         }
