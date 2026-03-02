@@ -283,7 +283,7 @@ serve(async (req) => {
           .eq("document_id", documentId)
           .eq("is_current", true);
 
-        const { error: vErr } = await adminClient
+        const { data: newVer, error: vErr } = await adminClient
           .from("project_document_versions")
           .insert({
             document_id: documentId,
@@ -297,11 +297,18 @@ serve(async (req) => {
             meta_json: provenance,
             depends_on_resolver_hash: project.resolved_qualifications_hash || null,
             generator_id: "seed-pack",
-          });
+          })
+          .select("id")
+          .single();
 
         if (vErr) {
           console.error("NEC commit version insert failed:", vErr);
           return jsonRes({ error: "Failed to commit NEC version" }, 500);
+        }
+        // PATCH A2: Set latest_version_id for NEC commitOnly (existing doc)
+        if (newVer?.id) {
+          await adminClient.from("project_documents").update({ latest_version_id: newVer.id }).eq("id", documentId);
+          console.log(`[generate-seed-pack] latest_version_id set for NEC doc ${documentId} → ${newVer.id}`);
         }
         versionNumber = nextVersion;
       } else {
@@ -327,7 +334,7 @@ serve(async (req) => {
         }
         documentId = newDoc.id;
 
-        const { error: vErr } = await adminClient
+        const { data: newVer2, error: vErr } = await adminClient
           .from("project_document_versions")
           .insert({
             document_id: documentId,
@@ -341,11 +348,18 @@ serve(async (req) => {
             meta_json: provenance,
             depends_on_resolver_hash: project.resolved_qualifications_hash || null,
             generator_id: "seed-pack",
-          });
+          })
+          .select("id")
+          .single();
 
         if (vErr) {
           console.error("NEC commit version insert failed:", vErr);
           return jsonRes({ error: "Failed to commit NEC version" }, 500);
+        }
+        // PATCH A2: Set latest_version_id for NEC commitOnly (new doc)
+        if (newVer2?.id) {
+          await adminClient.from("project_documents").update({ latest_version_id: newVer2.id }).eq("id", documentId);
+          console.log(`[generate-seed-pack] latest_version_id set for new NEC doc ${documentId} → ${newVer2.id}`);
         }
         versionNumber = 1;
       }

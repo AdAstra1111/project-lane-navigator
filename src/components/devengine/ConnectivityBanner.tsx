@@ -13,6 +13,8 @@ interface ConnectivityBannerProps {
   totalDocs: number;
   criteriaLinkedDocs: number;
   provenanceKnownDocs: number;
+  /** When true, soften non-stale warnings (autopilot is actively running) */
+  isAutopilotActive?: boolean;
 }
 
 export function ConnectivityBanner({
@@ -23,6 +25,7 @@ export function ConnectivityBanner({
   totalDocs,
   criteriaLinkedDocs,
   provenanceKnownDocs,
+  isAutopilotActive = false,
 }: ConnectivityBannerProps) {
   const qc = useQueryClient();
 
@@ -53,6 +56,18 @@ export function ConnectivityBanner({
         <CheckCircle className="h-3.5 w-3.5 text-primary shrink-0" />
         <span className="text-foreground">All documents criteria-linked</span>
         <Badge variant="outline" className="text-[9px] ml-auto">{currentResolverHash}</Badge>
+      </div>
+    );
+  }
+
+  // PATCH C3: During active autopilot, soften non-stale criteria warnings
+  if (staleDocCount === 0 && missingCriteriaLink > 0 && isAutopilotActive) {
+    return (
+      <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/30 border border-border/50 text-xs">
+        <Info className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+        <p className="text-muted-foreground text-[10px]">
+          Criteria links will be established after qualifications run completes.
+        </p>
       </div>
     );
   }

@@ -502,6 +502,30 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
     })();
   }, [fullAutopilot, autoRunJob?.id, autoRunJob?.status, autoRunJob?.pending_decisions]);
 
+  // PATCH B2: Auto-resume from DEV_ENGINE_UNAVAILABLE when Full Autopilot is ON
+  const devEngineRecoverRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!fullAutopilot || !autoRunJob) return;
+    if (autoRunJob.status !== 'paused') { devEngineRecoverRef.current = null; return; }
+    if (autoRunJob.stop_reason !== 'DEV_ENGINE_UNAVAILABLE') return;
+
+    const recoverKey = `${autoRunJob.id}:${autoRunJob.updated_at}`;
+    if (devEngineRecoverRef.current === recoverKey) return;
+    devEngineRecoverRef.current = recoverKey;
+
+    console.log('[AutopilotPanel] AUTO_RECOVER_DEV_ENGINE_UNAVAILABLE', { jobId: autoRunJob.id });
+    (async () => {
+      try {
+        const result = await callAutoRun('resume', { jobId: autoRunJob.id, followLatest: true });
+        if (mountedRef.current && result?.job) setAutoRunJob(result.job);
+        const tickResult = await callAutoRun('run-next', { jobId: autoRunJob.id });
+        if (mountedRef.current && tickResult?.job) setAutoRunJob(tickResult.job);
+      } catch (err: any) {
+        console.warn('[AutopilotPanel] AUTO_RECOVER_DEV_ENGINE_UNAVAILABLE failed:', err?.message);
+      }
+    })();
+  }, [fullAutopilot, autoRunJob?.id, autoRunJob?.status, autoRunJob?.stop_reason, autoRunJob?.updated_at]);
+
   // ═══ Find Comparables CTA ═══
   const handleFindComparables = useCallback(async () => {
     if (!lane) return;
@@ -793,15 +817,23 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
                       Open Required Doc
                     </Button>
                   )}
-                  <Button
-                    size="sm"
-                    variant="default"
-                    onClick={handleAutoRunResume}
-                    className="h-6 text-[10px] gap-1"
-                  >
-                    <ArrowRight className="h-3 w-3" />
-                    Resume Auto-Run
-                  </Button>
+                  {/* PATCH C2: Show "Recovering…" when Full Autopilot auto-recovering from transient error */}
+                  {fullAutopilot && autoRunStopReason === 'DEV_ENGINE_UNAVAILABLE' ? (
+                    <Badge variant="outline" className="text-[10px] h-6 gap-1 border-primary/40 text-primary">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Recovering…
+                    </Badge>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      onClick={handleAutoRunResume}
+                      className="h-6 text-[10px] gap-1"
+                    >
+                      <ArrowRight className="h-3 w-3" />
+                      Resume Auto-Run
+                    </Button>
+                  )}
                   <Button type="button" size="sm" variant="outline" className="h-6 text-[10px] gap-1" onClick={() => navigate(missionControlUrl)}>
                     <ExternalLink className="h-3 w-3" />
                     Open Mission Control
@@ -875,7 +907,7 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
               {hasComparables === true && (
                 <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
                   <CheckCircle className="h-3 w-3 text-emerald-500" />
-                  Comparables found — build engine profile from World Rules panel
+                  <span>Comparables found — build engine profile from World Rules panel below</span>
                 </div>
               )}
               {hasComparables === null && (
