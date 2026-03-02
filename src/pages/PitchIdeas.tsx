@@ -18,6 +18,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
+import { type AnimationMeta, ANIMATION_PRIMARY_LIST, ANIMATION_STYLE_LIST, ANIMATION_TAG_LIST } from '@/config/animationMeta';
+import { getProjectModality, isAnimationModality } from '@/config/productionModality';
 
 export default function PitchIdeas() {
   const { user } = useAuth();
@@ -32,6 +34,12 @@ export default function PitchIdeas() {
   const [resolutionMeta, setResolutionMeta] = useState<Record<string, { status: string; scope: string; note?: string }>>({});
   const [promoteIdea, setPromoteIdea] = useState<PitchIdea | null>(null);
   const [applyIdea, setApplyIdea] = useState<PitchIdea | null>(null);
+  // Global-mode animation meta (not persisted to DB; generation-only)
+  const [globalAnimMeta, setGlobalAnimMeta] = useState<AnimationMeta>({ primary: null, tags: [], style: null });
+
+  const isProjectMode = !!selectedProject && selectedProject !== '__none__';
+  const linkedProject = isProjectMode ? projects.find(p => p.id === selectedProject) : null;
+  const projectFeatures = (linkedProject as any)?.project_features as Record<string, any> | null | undefined;
 
   const filteredIdeas = useMemo(() => {
     return ideas
@@ -42,8 +50,6 @@ export default function PitchIdeas() {
       .sort((a, b) => (Number(b.score_total) || 0) - (Number(a.score_total) || 0));
   }, [ideas, statusFilter]);
 
-  
-
   const generate = useCallback(async () => {
     if (!criteria.productionType) {
       toast.error('Select a format/type first');
@@ -53,19 +59,37 @@ export default function PitchIdeas() {
     setGenerateFailed(false);
 
     try {
-      // Normalize: only user-edited fields go as manual_criteria; rest are auto_fields
       const normalized = normalizePitchCriteria(criteria as unknown as Record<string, unknown>, editedFields);
+
+      // Build animation meta for global mode only (project-tuned reads from DB)
+      let globalAnimPayload: Record<string, any> | undefined;
+      if (!isProjectMode) {
+        // Validate against canonical lists before sending
+        const validPrimary = globalAnimMeta.primary && ANIMATION_PRIMARY_LIST.includes(globalAnimMeta.primary) ? globalAnimMeta.primary : null;
+        const validStyle = globalAnimMeta.style && ANIMATION_STYLE_LIST.includes(globalAnimMeta.style) ? globalAnimMeta.style : null;
+        const validTags = globalAnimMeta.tags.filter(t => ANIMATION_TAG_LIST.includes(t));
+        const hasAny = validPrimary || validStyle || validTags.length > 0;
+        if (hasAny) {
+          globalAnimPayload = {
+            animation_genre_primary: validPrimary,
+            animation_style: validStyle,
+            animation_genre_tags: validTags,
+          };
+        }
+      }
 
       const { data, error } = await supabase.functions.invoke('generate-pitch', {
         body: {
           productionType: criteria.productionType,
           count: 10,
-          projectId: (!selectedProject || selectedProject === '__none__') ? undefined : selectedProject,
+          projectId: isProjectMode ? selectedProject : undefined,
           // New contract: manual_criteria + auto_fields
           manual_criteria: normalized.manual_criteria,
           auto_fields: normalized.auto_fields,
           meta: normalized.meta,
-          // Legacy top-level fields for backward compat with current backend
+          // Global-mode animation meta (ignored by BE when projectId present)
+          ...(globalAnimPayload ? { animationMeta: globalAnimPayload } : {}),
+          // Legacy top-level fields for backward compat
           genre: normalized.manual_criteria.genre || '',
           subgenre: normalized.manual_criteria.subgenre || '',
           budgetBand: normalized.manual_criteria.budgetBand || '',
@@ -80,12 +104,10 @@ export default function PitchIdeas() {
       console.log('[PitchIdeas] invoke result — error:', error, 'data keys:', data ? Object.keys(data) : 'null', 'ideas count:', data?.ideas?.length);
 
       if (error) {
-        // Extract actual error message from edge function response body
         let errMsg = 'Generation failed';
         try {
           console.error('[PitchIdeas] FunctionsError details:', JSON.stringify(error, null, 2));
           if (error.context) {
-            // Try to read the response body for the actual error message
             const response = error.context;
             if (response instanceof Response) {
               const body = await response.json().catch(() => null);
@@ -105,7 +127,6 @@ export default function PitchIdeas() {
       if (data?.error) throw new Error(data.error);
 
       const pitchIdeas = data?.ideas;
-      // Capture resolution meta for UI transparency
       if (data?.resolution_meta?.auto_field_status) {
         setResolutionMeta(data.resolution_meta.auto_field_status);
       }
@@ -138,7 +159,7 @@ export default function PitchIdeas() {
             region: criteria.region || '',
             platform_target: criteria.platformTarget || '',
             risk_level: idea.risk_level || criteria.riskLevel || 'medium',
-            project_id: (!selectedProject || selectedProject === '__none__') ? null : selectedProject,
+            project_id: isProjectMode ? selectedProject : null,
             raw_response: {
               ...idea,
               premise: idea.premise || '',
@@ -175,7 +196,7 @@ export default function PitchIdeas() {
     } finally {
       setGenerating(false);
     }
-  }, [criteria, selectedProject, save]);
+  }, [criteria, selectedProject, isProjectMode, globalAnimMeta, save]);
 
   const handleShortlist = useCallback(async (id: string, shortlisted: boolean) => {
     await update({ id, status: shortlisted ? 'shortlisted' : 'draft' });
@@ -251,7 +272,7 @@ export default function PitchIdeas() {
               ))}
             </SelectContent>
           </Select>
-          {!selectedProject || selectedProject === '__none__' ? (
+          {!isProjectMode ? (
             <Badge variant="outline" className="text-xs">Global Mode</Badge>
           ) : (
             <Badge variant="default" className="text-xs">Project-tuned</Badge>
@@ -264,10 +285,13 @@ export default function PitchIdeas() {
           onChange={setCriteria}
           onGenerate={generate}
           generating={generating}
-          hasProject={!!selectedProject && selectedProject !== '__none__'}
+          hasProject={isProjectMode}
           editedFields={editedFields}
           onEditedFieldsChange={setEditedFields}
           resolutionMeta={resolutionMeta}
+          projectFeatures={projectFeatures}
+          animationMeta={globalAnimMeta}
+          onAnimationMetaChange={setGlobalAnimMeta}
         />
 
         <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />
@@ -314,7 +338,7 @@ export default function PitchIdeas() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredIdeas.map((idea, i) => {
-              const linkedProject = idea.project_id ? projects.find(p => p.id === idea.project_id) : null;
+              const ideaProject = idea.project_id ? projects.find(p => p.id === idea.project_id) : null;
               return (
                 <SlateCard
                   key={idea.id}
@@ -323,7 +347,7 @@ export default function PitchIdeas() {
                   onPromote={setPromoteIdea}
                   onShortlist={handleShortlist}
                   onDelete={remove}
-                  projectFeatures={linkedProject?.project_features as Record<string, any> | null | undefined}
+                  projectFeatures={(ideaProject as any)?.project_features as Record<string, any> | null | undefined}
                 />
               );
             })}

@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Filter, Sparkles, ChevronRight, X, Plus } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { Filter, Sparkles, ChevronRight, X, Plus, Palette } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -13,6 +13,19 @@ import type { ProjectFormat } from '@/lib/types';
 import { PITCH_CRITERIA_SCHEMA, isFieldEmpty } from '@/lib/pitch/pitchCriteriaSchema';
 import type { EditedFieldsMap } from '@/lib/pitch/normalizePitchCriteria';
 import { markEdited } from '@/lib/pitch/normalizePitchCriteria';
+import {
+  type AnimationPrimary,
+  type AnimationStyle,
+  type AnimationMeta,
+  ANIMATION_PRIMARY_LIST,
+  ANIMATION_PRIMARY_LABELS,
+  ANIMATION_STYLE_LIST,
+  ANIMATION_STYLE_LABELS,
+  ANIMATION_TAG_LIST,
+  ANIMATION_TAG_CATEGORIES,
+  getAnimationMeta,
+} from '@/config/animationMeta';
+import { getProjectModality, isAnimationModality } from '@/config/productionModality';
 
 export interface HardCriteria {
   // Core
@@ -139,6 +152,11 @@ interface Props {
   editedFields: EditedFieldsMap;
   onEditedFieldsChange: (edited: EditedFieldsMap) => void;
   resolutionMeta?: ResolutionMeta;
+  /** project_features of the selected project (null/undefined when global mode) */
+  projectFeatures?: Record<string, any> | null;
+  /** Current animation meta selections for global mode (lifted state) */
+  animationMeta?: AnimationMeta;
+  onAnimationMetaChange?: (meta: AnimationMeta) => void;
 }
 
 /** Tiny Auto/Manual indicator with resolution status */
@@ -151,7 +169,6 @@ function AutoIndicator({ fieldKey, editedFields, resolutionMeta }: { fieldKey: s
     return <span className="text-[9px] uppercase tracking-wider font-medium ml-1 text-primary">Manual</span>;
   }
 
-  // Show resolution status if available
   const resolution = resolutionMeta?.[fieldKey];
   if (resolution) {
     const scopeLabels: Record<string, string> = {
@@ -196,7 +213,102 @@ function TagInput({ value, onChange, placeholder, variant = 'default' }: { value
   );
 }
 
-export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, hasProject, editedFields, onEditedFieldsChange, resolutionMeta }: Props) {
+/** Animation-specific subgenre controls — replaces text Subgenre input for animation modality */
+function AnimationSubgenreControls({
+  animMeta,
+  onChange,
+  isProjectMode,
+}: {
+  animMeta: AnimationMeta;
+  onChange: (meta: AnimationMeta) => void;
+  isProjectMode: boolean;
+}) {
+  return (
+    <div className="col-span-full space-y-3 rounded-md p-3 border border-accent/30 bg-accent/5">
+      <Label className="text-xs font-medium text-muted-foreground flex items-center gap-2">
+        <Palette className="h-3.5 w-3.5" />
+        Animation Subgenre
+        <Badge variant="outline" className="text-[10px]">
+          {isProjectMode ? 'Project-tuned' : 'Global — this generation only'}
+        </Badge>
+      </Label>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Primary */}
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Primary Genre</Label>
+          <Select
+            value={animMeta.primary || '__none__'}
+            onValueChange={v => onChange({ ...animMeta, primary: v === '__none__' ? null : v as AnimationPrimary })}
+          >
+            <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Any</SelectItem>
+              {ANIMATION_PRIMARY_LIST.map(p => (
+                <SelectItem key={p} value={p}>{ANIMATION_PRIMARY_LABELS[p]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Style */}
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Animation Style</Label>
+          <Select
+            value={animMeta.style || '__none__'}
+            onValueChange={v => onChange({ ...animMeta, style: v === '__none__' ? null : v as AnimationStyle })}
+          >
+            <SelectTrigger><SelectValue placeholder="Any" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Any</SelectItem>
+              {ANIMATION_STYLE_LIST.map(s => (
+                <SelectItem key={s} value={s}>{ANIMATION_STYLE_LABELS[s]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Tags grouped by category */}
+      <div className="space-y-2">
+        <Label className="text-xs text-muted-foreground">Tags</Label>
+        {Object.entries(ANIMATION_TAG_CATEGORIES).map(([category, tags]) => (
+          <div key={category} className="space-y-1">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">{category}</span>
+            <div className="flex flex-wrap gap-1">
+              {tags.map(tag => {
+                const active = animMeta.tags.includes(tag);
+                return (
+                  <Badge
+                    key={tag}
+                    variant={active ? 'default' : 'outline'}
+                    className="text-[10px] cursor-pointer"
+                    onClick={() => {
+                      const next = active
+                        ? animMeta.tags.filter(t => t !== tag)
+                        : [...animMeta.tags, tag];
+                      onChange({ ...animMeta, tags: next });
+                    }}
+                  >
+                    {tag.replace(/_/g, ' ')}
+                  </Badge>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[10px] text-muted-foreground/50">
+        {isProjectMode
+          ? 'Animation subgenre is driven by project animation metadata.'
+          : 'Global mode: selections apply to this generation only.'}
+      </p>
+    </div>
+  );
+}
+
+export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, hasProject, editedFields, onEditedFieldsChange, resolutionMeta, projectFeatures, animationMeta, onAnimationMetaChange }: Props) {
   /** Update value AND mark field as edited */
   const update = (patch: Partial<HardCriteria>) => {
     let newEdited = editedFields;
@@ -206,6 +318,19 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
     onEditedFieldsChange(newEdited);
     onChange({ ...criteria, ...patch });
   };
+
+  // Derive modality from project_features
+  const modality = getProjectModality(projectFeatures);
+  const isAnim = isAnimationModality(modality);
+
+  // Animation meta: in project mode, seed from project_features; in global mode, use lifted state
+  const projectAnimMeta = useMemo(() => getAnimationMeta(projectFeatures), [projectFeatures]);
+
+  const effectiveAnimMeta: AnimationMeta = hasProject ? projectAnimMeta : (animationMeta || { primary: null, tags: [], style: null });
+
+  const handleAnimMetaChange = useCallback((meta: AnimationMeta) => {
+    onAnimationMetaChange?.(meta);
+  }, [onAnimationMetaChange]);
 
   const genres = useMemo(() => {
     if (!criteria.productionType) return [];
@@ -269,11 +394,24 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Subgenre <AutoIndicator fieldKey="subgenre" editedFields={editedFields} resolutionMeta={resolutionMeta} /></Label>
-                <Input value={criteria.subgenre} onChange={e => update({ subgenre: e.target.value })} placeholder='e.g. "workplace romance"' className="h-9" />
-              </div>
+
+              {/* Subgenre: show animation controls when animation modality, otherwise regular text input */}
+              {isAnim ? null : (
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Subgenre <AutoIndicator fieldKey="subgenre" editedFields={editedFields} resolutionMeta={resolutionMeta} /></Label>
+                  <Input value={criteria.subgenre} onChange={e => update({ subgenre: e.target.value })} placeholder='e.g. "workplace romance"' className="h-9" />
+                </div>
+              )}
             </div>
+
+            {/* Animation subgenre controls — shown when animation/hybrid modality */}
+            {isAnim && (
+              <AnimationSubgenreControls
+                animMeta={effectiveAnimMeta}
+                onChange={handleAnimMetaChange}
+                isProjectMode={hasProject}
+              />
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
