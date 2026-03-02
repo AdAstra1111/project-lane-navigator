@@ -2038,6 +2038,7 @@ Deno.serve(async (req) => {
         max_stage_loops: effectiveMaxLoops,
         max_total_steps: effectiveMaxSteps,
         converge_target_json: body.converge_target_json || { ci: 100, gp: 100 },
+        allow_defaults: body.allow_defaults === true,
       }).select("*").single();
 
       if (error) throw new Error(`Failed to create job: ${error.message}`);

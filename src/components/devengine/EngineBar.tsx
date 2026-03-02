@@ -59,6 +59,8 @@ function formatDocType(dt: string) {
 // ── Derive execution mode from job flags ──
 export function deriveExecutionMode(job: AutoRunJob | null): ExecutionMode {
   if (!job) return 'manual';
+  // Check the mode field first for 'assisted', then fall back to allow_defaults
+  if ((job as any).execution_mode === 'assisted') return 'assisted';
   if (job.allow_defaults) return 'full_autopilot';
   return 'manual';
 }

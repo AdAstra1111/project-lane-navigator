@@ -131,6 +131,8 @@ export default function ProjectDevelopmentEngine() {
     const nextMode = viewMode === 'simple' ? 'advanced' : 'simple';
     setUIMode(nextMode);
   }, [viewMode, setUIMode]);
+  // Execution mode preference (persists to job when one exists, otherwise local)
+  const [localExecutionMode, setLocalExecutionMode] = useState<ExecutionMode>('manual');
   const qc = useQueryClient();
   const VALID_TABS = new Set(['notes', 'issues', 'convergence', 'qualifications', 'autorun', 'series-scripts', 'criteria', 'package', 'canon', 'provenance', 'scenes', 'quality', 'docsets', 'timeline']);
   const initialTab = (() => { const t = searchParams.get('tab'); return t && VALID_TABS.has(t) ? t : 'notes'; })();
@@ -277,6 +279,7 @@ export default function ProjectDevelopmentEngine() {
   const sceneRewrite = useSceneRewritePipeline(projectId);
   const autoRun = useAutoRunMissionControl(projectId);
   const seedStatus = useSeedPackStatus(projectId);
+  const effectiveExecutionMode = autoRun.job ? deriveExecutionMode(autoRun.job) : localExecutionMode;
   const { resolveOnEntry, currentResolverHash, resolvedQuals } = useStageResolve(projectId);
   const { propose } = useDecisionCommit(projectId);
   const { packageStatus: packageStatusData, currentResolverHash: pkgResolverHash } = useDocumentPackage(projectId);
@@ -1026,11 +1029,13 @@ export default function ProjectDevelopmentEngine() {
         isRunning={autoRun.isRunning}
         uiMode={viewMode}
         onToggleMode={handleToggleMode}
-        executionMode={deriveExecutionMode(autoRun.job)}
+        executionMode={effectiveExecutionMode}
         onSetExecutionMode={(mode: ExecutionMode) => {
-          if (!autoRun.job?.id) return;
-          const allowDefaults = mode === 'full_autopilot' || mode === 'assisted';
-          autoRun.toggleAllowDefaults?.(allowDefaults);
+          setLocalExecutionMode(mode);
+          if (autoRun.job?.id) {
+            const allowDefaults = mode === 'full_autopilot' || mode === 'assisted';
+            autoRun.toggleAllowDefaults?.(allowDefaults);
+          }
         }}
         onPause={autoRun.pause}
         onResume={() => autoRun.resume?.()}
