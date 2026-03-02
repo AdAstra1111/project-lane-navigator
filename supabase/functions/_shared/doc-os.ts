@@ -241,6 +241,7 @@ export interface UpsertDocOpts {
   changeSummary?: string;
   inheritedCore?: Record<string, any>;
   sourceDocumentIds?: string[];
+  dependsOnResolverHash?: string;
 }
 
 export async function upsertDoc(
@@ -263,6 +264,7 @@ export async function upsertDoc(
     changeSummary: opts.changeSummary,
     inheritedCore: opts.inheritedCore,
     sourceDocumentIds: opts.sourceDocumentIds,
+    dependsOnResolverHash: opts.dependsOnResolverHash,
   });
 
   return {
