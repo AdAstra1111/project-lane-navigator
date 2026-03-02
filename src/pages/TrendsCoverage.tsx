@@ -56,15 +56,18 @@ export default function TrendsCoverage() {
 
   const fetchLastRun = async () => {
     try {
+      // Only consider batch-complete runs (completed_types contains all required types)
+      const requiredTypes = ['film', 'tv-series', 'vertical-drama', 'animation'];
       const { data: runs } = await supabase
         .from('trend_refresh_runs' as any)
         .select('id, created_at, trigger, completed_types, citations_total, signals_total, cast_total')
         .eq('ok', true)
+        .contains('completed_types' as any, requiredTypes)
         .order('created_at', { ascending: false })
         .limit(1);
       if (runs && runs.length > 0) {
         setLastRun(runs[0] as any);
-        // Compute global cooldown from last successful run (6h window)
+        // Compute global cooldown from batch-complete run (6h window)
         const lastAt = new Date((runs[0] as any).created_at).getTime();
         const cooldownEnd = lastAt + 6 * 3600_000;
         if (Date.now() < cooldownEnd) {
@@ -106,8 +109,8 @@ export default function TrendsCoverage() {
         setCooldownUntil(result.next_allowed_at || null);
         toast({ title: 'Cooldown active', description: `All trends are on cooldown until ${new Date(result.next_allowed_at).toLocaleString()}.`, variant: 'destructive' });
       } else {
-        if (result.global_cooldown_until) {
-          setCooldownUntil(result.global_cooldown_until);
+        if (result.next_allowed_at) {
+          setCooldownUntil(result.next_allowed_at);
         }
         const successCount = result.refreshed_types_count || 0;
         const total = result.attempted?.length || 0;

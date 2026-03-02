@@ -59,11 +59,14 @@ Deno.serve(async (req) => {
     const cooldownCutoff = new Date(Date.now() - cooldownHours * 3600_000).toISOString();
     const db = createClient(supabaseUrl, serviceKey);
 
+    // Global cooldown: only batch-complete runs (completed_types contains ALL required types)
+    const requiredTypesArr = [...REQUIRED_TREND_TYPES];
     const { data: recentRuns } = await db
       .from("trend_refresh_runs")
-      .select("id, created_at")
+      .select("id, created_at, completed_types")
       .eq("ok", true)
       .gte("created_at", cooldownCutoff)
+      .contains("completed_types", requiredTypesArr)
       .order("created_at", { ascending: false })
       .limit(1);
 
@@ -129,7 +132,24 @@ Deno.serve(async (req) => {
 
     const allOk = Object.values(results).every((r: any) => r.ok);
     const successCount = Object.values(results).filter((r: any) => r.ok).length;
-    const globalCooldownUntil = new Date(Date.now() + cooldownHours * 3600_000).toISOString();
+
+    // Fetch the actual batch-complete run we just created to anchor cooldown deterministically
+    let lastRunAt = firstSuccessAt || new Date().toISOString();
+    let nextAllowedAt = new Date(new Date(lastRunAt).getTime() + cooldownHours * 3600_000).toISOString();
+
+    if (allOk) {
+      const { data: latestRun } = await db
+        .from("trend_refresh_runs")
+        .select("created_at")
+        .eq("ok", true)
+        .contains("completed_types", [...REQUIRED_TREND_TYPES])
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (latestRun && latestRun.length > 0) {
+        lastRunAt = latestRun[0].created_at;
+        nextAllowedAt = new Date(new Date(lastRunAt).getTime() + cooldownHours * 3600_000).toISOString();
+      }
+    }
 
     return json({
       ok: allOk,
@@ -138,8 +158,8 @@ Deno.serve(async (req) => {
       trigger,
       refreshed_types_count: successCount,
       failures_count: attempted.length - successCount,
-      global_cooldown_until: globalCooldownUntil,
-      last_refreshed_at: firstSuccessAt || new Date().toISOString(),
+      last_run_at: lastRunAt,
+      next_allowed_at: nextAllowedAt,
       ts: new Date().toISOString(),
     });
   } catch (e) {
