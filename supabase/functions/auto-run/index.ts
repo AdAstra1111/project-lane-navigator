@@ -1,4 +1,4 @@
-const BUILD = "AUTORUN_BUILD_MARKER_2026_03_01_A";
+const BUILD = "AUTORUN_BUILD_MARKER_2026_03_02_PREWRITE_V2";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
 import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy } from "../_shared/docPolicyRegistry.ts";
@@ -3769,6 +3769,8 @@ Deno.serve(async (req) => {
       // ═══════════════════════════════════════
       // PREWRITE_SETUP GATE — ensure canon OS, writing voice, and comparables
       // exist before ANY writing stage executes.
+      // Format-aware: VD never uses feature_script.
+      // Recovery: no in-request sleeps; persists attempt count and returns.
       // ═══════════════════════════════════════
       {
         const WRITING_STAGES = new Set([
@@ -3776,8 +3778,25 @@ Deno.serve(async (req) => {
           "season_master_script", "production_draft",
         ]);
 
+        // ── VD HARD GUARD: if format=vertical-drama and currentDoc=feature_script,
+        //    remap to season_script and update job.current_document ──
+        if (format === "vertical-drama" && currentDoc === "feature_script") {
+          console.warn("[auto-run] VD_GUARD: feature_script illegal for vertical-drama, remapping to season_script", { jobId, currentDoc, format });
+          await logStep(supabase, jobId, stepCount, currentDoc, "vd_feature_script_remap",
+            `VD guard: remapped feature_script → season_script (feature_script is illegal for vertical-drama)`);
+          await updateJob(supabase, jobId, { current_document: "season_script" });
+          // Update local variable for rest of this invocation
+          // (currentDoc is const, so we proceed with the remap acknowledged; next run-next will use season_script)
+          return respondWithJob(supabase, jobId, "run-next");
+        }
+
         if (WRITING_STAGES.has(currentDoc)) {
           console.log("[auto-run] PREWRITE_SETUP gate entered", { jobId, currentDoc, format });
+
+          // ── Recovery tracking: use stable key in job state to avoid in-request sleeps ──
+          const existingSetupAttempts = (job.stage_history as any)?._prewrite_setup_attempts ?? 0;
+          const MAX_PREWRITE_ATTEMPTS = 3;
+
           const setupMissing: string[] = [];
           const setupResolved: string[] = [];
 
@@ -3791,45 +3810,56 @@ Deno.serve(async (req) => {
           const hasCharacters = Array.isArray(cj.characters) && cj.characters.length > 0;
 
           if (!hasWorldRules || !hasLogline || !hasPremise || !hasCharacters) {
-            // Attempt auto-populate via canon_os_extract_from_seed_docs
-            console.log("[auto-run] PREWRITE_SETUP: canon OS incomplete, attempting extract", {
+            // Single attempt per invocation — no in-request retries
+            console.log("[auto-run] PREWRITE_SETUP: canon OS incomplete, attempting extract (attempt " + (existingSetupAttempts + 1) + "/" + MAX_PREWRITE_ATTEMPTS + ")", {
               hasWorldRules, hasLogline, hasPremise, hasCharacters,
             });
             let extractOk = false;
-            for (let attempt = 0; attempt < 3; attempt++) {
-              try {
-                const extractResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                  body: JSON.stringify({
-                    action: "canon_os_extract_from_seed_docs",
-                    projectId: job.project_id,
-                  }),
-                });
-                if (extractResp.ok) {
-                  const extractResult = await extractResp.json();
-                  console.log("[auto-run] PREWRITE_SETUP: canon extract result", extractResult);
-                  if (extractResult.updated || extractResult.reason === "already_populated") {
-                    extractOk = true;
-                    setupResolved.push("canon_os");
-                    break;
-                  }
+            try {
+              const extractResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  action: "canon_os_extract_from_seed_docs",
+                  projectId: job.project_id,
+                }),
+              });
+              if (extractResp.ok) {
+                const extractResult = await extractResp.json();
+                console.log("[auto-run] PREWRITE_SETUP: canon extract result", extractResult);
+                if (extractResult.updated || extractResult.reason === "already_populated") {
+                  extractOk = true;
+                  setupResolved.push("canon_os");
                 }
-                // Backoff on transient failure
-                if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 3000));
-              } catch (e: any) {
-                console.warn("[auto-run] PREWRITE_SETUP: canon extract attempt failed", { attempt, error: e.message });
-                if (attempt < 2) await new Promise(r => setTimeout(r, (attempt + 1) * 3000));
               }
+            } catch (e: any) {
+              console.warn("[auto-run] PREWRITE_SETUP: canon extract attempt failed", { attempt: existingSetupAttempts, error: e.message });
             }
+
             if (!extractOk) {
-              // Re-check after attempts — may have partially populated
+              // Re-check DB in case another process populated it
               const { data: recheck } = await supabase.from("project_canon")
                 .select("canon_json").eq("project_id", job.project_id).maybeSingle();
               const rcj = (recheck?.canon_json || {}) as any;
               const recheckOk = (Array.isArray(rcj.world_rules) && rcj.world_rules.length > 0)
                 && (typeof rcj.logline === "string" && rcj.logline.trim().length > 0);
-              if (!recheckOk) setupMissing.push("canon_os_world_rules");
+              if (recheckOk) {
+                setupResolved.push("canon_os_found_on_recheck");
+              } else if (existingSetupAttempts + 1 < MAX_PREWRITE_ATTEMPTS) {
+                // Schedule retry: persist attempt count, return immediately
+                const retryDelay = [5, 15, 30][existingSetupAttempts] || 30;
+                console.log("[auto-run] PREWRITE_SETUP: canon extract failed, scheduling retry", { attempt: existingSetupAttempts + 1, retryDelay });
+                await logStep(supabase, jobId, stepCount, currentDoc, "prewrite_setup_retry",
+                  `Canon OS extract failed (attempt ${existingSetupAttempts + 1}/${MAX_PREWRITE_ATTEMPTS}). Will retry.`,
+                  {}, undefined, { attempt: existingSetupAttempts + 1, retryDelaySeconds: retryDelay });
+                // Store attempt count in stage_history (no schema change needed)
+                const stageHist = job.stage_history || {};
+                stageHist._prewrite_setup_attempts = existingSetupAttempts + 1;
+                await updateJob(supabase, jobId, { stage_history: stageHist });
+                return respondWithJob(supabase, jobId, "run-next");
+              } else {
+                setupMissing.push("canon_os_world_rules");
+              }
             }
           }
 
@@ -3844,11 +3874,11 @@ Deno.serve(async (req) => {
             if (allowDefaults) {
               // Auto-select default voice based on lane group
               // Lane group mapping (mirrors src/lib/writingVoices/select.ts)
-              const ln = lane.toLowerCase().replace(/[-_\s]+/g, "");
+              const ln = (format || lane).toLowerCase().replace(/[-_\s]+/g, "");
               let laneGroup = "feature";
               if (ln.includes("verticaldrama") || ln.includes("fastturnaround") || ln === "vertical") laneGroup = "vertical";
               else if (ln.includes("documentary")) laneGroup = "documentary";
-              else if (ln.includes("series") || ln === "tvseries" || ln === "limitedseries" || ln === "digitalseries") laneGroup = "series";
+              else if (ln.includes("series") || ln === "tvseries" || ln === "limitedseries" || ln === "digitalseries" || ln === "animseries") laneGroup = "series";
 
               // Default voice IDs per lane group (first preset in each group)
               const DEFAULT_VOICE_IDS: Record<string, { id: string; label: string }> = {
@@ -3924,9 +3954,26 @@ Deno.serve(async (req) => {
             });
             return respondWithJob(supabase, jobId, "prewrite-setup-incomplete");
           }
-          // If critical canon is missing even with allowDefaults, warn but proceed
-          if (setupMissing.includes("canon_os_world_rules")) {
-            console.warn("[auto-run] PREWRITE_SETUP: proceeding without world rules (canon extract failed)", { jobId });
+
+          // If canon extract exhausted all retries but allowDefaults=true, pause with RECOVERY_FAILED
+          if (setupMissing.includes("canon_os_world_rules") && allowDefaults) {
+            await logStep(supabase, jobId, stepCount, currentDoc, "prewrite_setup_recovery_failed",
+              `RECOVERY_FAILED: canon extract exhausted ${MAX_PREWRITE_ATTEMPTS} attempts. Manual intervention required.`);
+            await updateJob(supabase, jobId, {
+              status: "paused",
+              stop_reason: "RECOVERY_FAILED_PREWRITE_SETUP",
+              awaiting_approval: true,
+              approval_type: "prewrite_setup",
+              last_ui_message: "World rules could not be auto-populated after multiple attempts. Please populate them manually and resume.",
+            });
+            return respondWithJob(supabase, jobId, "prewrite-setup-recovery-failed");
+          }
+
+          // Clear retry counter on success
+          if (existingSetupAttempts > 0) {
+            const stageHist = job.stage_history || {};
+            delete stageHist._prewrite_setup_attempts;
+            await updateJob(supabase, jobId, { stage_history: stageHist });
           }
         }
       }
