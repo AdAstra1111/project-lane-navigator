@@ -257,3 +257,9 @@ verify_jwt = false
 
 [functions.resolve-intel-policy]
 verify_jwt = false
+
+[functions.embed-project-vectors]
+verify_jwt = false
+
+[functions.embed-trend-signal-vectors]
+verify_jwt = false
