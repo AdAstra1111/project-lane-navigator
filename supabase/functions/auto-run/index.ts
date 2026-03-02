@@ -4367,6 +4367,19 @@ Deno.serve(async (req) => {
               `Auto-approved generated ${currentDoc} (allow_defaults)`,
               {}, undefined, { docId: convertedDocId, versionId: convertedVersionId, doc_type: currentDoc, from_stage: prevStage }
             );
+            // Re-fetch doc and latestVersion so downstream code has valid references
+            if (convertedDocId) {
+              const { data: freshDoc } = await supabase.from("project_documents")
+                .select("id, doc_type, plaintext, extracted_text")
+                .eq("id", convertedDocId).single();
+              if (freshDoc) doc = freshDoc;
+            }
+            if (convertedVersionId) {
+              const { data: freshVer } = await supabase.from("project_document_versions")
+                .select("id, plaintext, version_number")
+                .eq("id", convertedVersionId).single();
+              if (freshVer) latestVersion = freshVer;
+            }
             // Continue — don't pause
           } else {
             await logStep(supabase, jobId, null, currentDoc, "approval_required",
