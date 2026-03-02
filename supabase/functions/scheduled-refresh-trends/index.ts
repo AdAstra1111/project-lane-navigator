@@ -49,7 +49,6 @@ Deno.serve(async (req) => {
     } catch {}
 
     // Determine auth mode: user JWT passthrough or cron secret
-    const userAuth = req.headers.get("Authorization");
     const hasCronSecret = !!cronSecret;
 
     // Build headers for subcalls to refresh-trends
