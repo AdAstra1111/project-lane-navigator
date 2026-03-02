@@ -245,3 +245,6 @@ verify_jwt = false
 
 [functions.backfill-trends-types]
 verify_jwt = false
+
+[functions.scheduled-refresh-trends]
+verify_jwt = false
