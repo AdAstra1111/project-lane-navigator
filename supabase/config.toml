@@ -248,3 +248,9 @@ verify_jwt = false
 
 [functions.scheduled-refresh-trends]
 verify_jwt = false
+
+[functions.compute-project-intel-alignment]
+verify_jwt = false
+
+[functions.compute-convergence-alerts]
+verify_jwt = false

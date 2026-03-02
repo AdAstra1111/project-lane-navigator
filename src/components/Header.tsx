@@ -37,6 +37,7 @@ export function Header() {
     { label: 'Trends Explorer', icon: Radio, path: '/trends/explorer' },
     { label: 'Trend Governance', icon: Settings, path: '/trends/governance' },
     { label: 'Trends Coverage', icon: Radio, path: '/trends/coverage' },
+    { label: 'Strategic Intel', icon: Radio, path: '/intel' },
     { label: 'Incentives', icon: Landmark, path: '/incentives' },
     { label: 'Calendar', icon: LayoutGrid, path: '/calendar' },
     { label: 'Buyers', icon: Users, path: '/buyer-crm' },

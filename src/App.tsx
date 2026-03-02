@@ -86,6 +86,10 @@ const AIContentPage = lazy(() => import("./pages/AIContentPage"));
 const AICastLibrary = lazy(() => import("./pages/AICastLibrary"));
 const ProjectCasting = lazy(() => import("./pages/ProjectCasting"));
 const DemoDashboard = lazy(() => import("./pages/DemoDashboard"));
+const IntelDashboard = lazy(() => import("./pages/IntelDashboard"));
+const IntelPolicies = lazy(() => import("./pages/IntelPolicies"));
+const IntelEvents = lazy(() => import("./pages/IntelEvents"));
+const IntelAlignment = lazy(() => import("./pages/IntelAlignment"));
 
 
 // ProjectShell — new unified workspace frame (Week 1 refactor)
@@ -163,6 +167,10 @@ const AnimatedRoutes = () => {
           <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+          <Route path="/intel" element={<ProtectedRoute><IntelDashboard /></ProtectedRoute>} />
+          <Route path="/intel/policies" element={<ProtectedRoute><IntelPolicies /></ProtectedRoute>} />
+          <Route path="/intel/events" element={<ProtectedRoute><IntelEvents /></ProtectedRoute>} />
+          <Route path="/intel/alignment/:id" element={<ProtectedRoute><IntelAlignment /></ProtectedRoute>} />
           <Route path="/companies" element={<ProtectedRoute><Companies /></ProtectedRoute>} />
           <Route path="/companies/:id" element={<ProtectedRoute><CompanyDetail /></ProtectedRoute>} />
           <Route path="/companies/:id/projects" element={<ProtectedRoute><CompanyProjects /></ProtectedRoute>} />
