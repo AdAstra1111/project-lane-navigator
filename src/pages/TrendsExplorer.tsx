@@ -1,13 +1,12 @@
 import { useState, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { Radio, TrendingUp, Users, Filter, AlertTriangle } from 'lucide-react';
-import { Header } from '@/components/Header';
+import { TrendingUp, Users, Filter, AlertTriangle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useActiveSignals, useActiveCastTrends, useSignalCount, useCastTrendsCount, PRODUCTION_TYPE_TREND_CATEGORIES } from '@/hooks/useTrends';
 import { PRODUCTION_MODALITIES, MODALITY_LABELS, type ProductionModality } from '@/config/productionModality';
 import { Link } from 'react-router-dom';
+import { TrendsPageShell } from '@/components/trends/TrendsPageShell';
+import { TrendsFilterBar } from '@/components/trends/TrendsFilterBar';
 
 const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([value, config]) => ({
   value,
@@ -15,7 +14,7 @@ const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([
 }));
 
 const LANES = [
-  { value: '', label: 'Any Lane' },
+  { value: '__any__', label: 'Any Lane' },
   { value: 'studio-streamer', label: 'Studio / Streamer' },
   { value: 'independent-film', label: 'Independent Film' },
   { value: 'low-budget', label: 'Low Budget' },
@@ -25,7 +24,6 @@ const LANES = [
   { value: 'fast-turnaround', label: 'Fast Turnaround' },
 ];
 
-/** Mirror backend filter logic exactly */
 function modalityToFilter(modality: string, typeLabel: string): string {
   if (modality === 'animation') return 'animation';
   return typeLabel;
@@ -34,224 +32,182 @@ function modalityToFilter(modality: string, typeLabel: string): string {
 export default function TrendsExplorer() {
   const [selectedType, setSelectedType] = useState('film');
   const [modality, setModality] = useState<ProductionModality>('live_action');
-  const [lane, setLane] = useState('');
+  const [lane, setLane] = useState('__any__');
 
   const effectiveFilter = modalityToFilter(modality, selectedType);
+  const activeLane = lane !== '__any__' ? lane : '';
 
-  // Fetch signals with the same filter logic as backend
-  const { data: allSignals = [], isLoading: signalsLoading } = useActiveSignals({
-    productionType: effectiveFilter,
-  });
-
-  // Fetch cast trends
-  const { data: castTrends = [], isLoading: castLoading } = useActiveCastTrends({
-    productionType: effectiveFilter,
-  });
-
-  // Count hooks for diagnostic messages
+  const { data: allSignals = [], isLoading: signalsLoading } = useActiveSignals({ productionType: effectiveFilter });
+  const { data: castTrends = [], isLoading: castLoading } = useActiveCastTrends({ productionType: effectiveFilter });
   const { data: signalDbCount = 0 } = useSignalCount(effectiveFilter);
   const { data: castDbCount = 0 } = useCastTrendsCount(effectiveFilter);
 
-  // Client-side lane filter for "Lane Trends"
   const laneSignals = useMemo(() => {
-    if (!lane) return [];
-    return allSignals
-      .filter(s => s.lane_relevance?.includes(lane))
-      .sort((a, b) => b.strength - a.strength)
-      .slice(0, 10);
-  }, [allSignals, lane]);
+    if (!activeLane) return [];
+    return allSignals.filter(s => s.lane_relevance?.includes(activeLane)).sort((a, b) => b.strength - a.strength).slice(0, 10);
+  }, [allSignals, activeLane]);
 
-  // Global signals (all, no lane filter)
   const globalSignals = useMemo(() => {
-    return [...allSignals]
-      .sort((a, b) => b.strength - a.strength)
-      .slice(0, 10);
+    return [...allSignals].sort((a, b) => b.strength - a.strength).slice(0, 10);
   }, [allSignals]);
 
   const typeConfig = PRODUCTION_TYPE_TREND_CATEGORIES[selectedType];
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main className="container max-w-5xl py-10">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="space-y-6"
+    <TrendsPageShell
+      badge="Trends Explorer"
+      title="Live Trend Data"
+      subtitle="Modality-aware signals and cast trends — same filter logic as Pitch Engine."
+      controls={
+        <TrendsFilterBar
+          breadcrumb={
+            <>
+              <Filter className="h-3 w-3 shrink-0" />
+              <span>
+                production_type=<strong className="text-foreground">{effectiveFilter}</strong> · modality=<strong className="text-foreground">{modality}</strong>
+                {activeLane && <> · lane=<strong className="text-foreground">{activeLane}</strong></>}
+              </span>
+              <span className="ml-auto shrink-0">{allSignals.length} signals · {castTrends.length} cast</span>
+            </>
+          }
         >
-          {/* Header */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Radio className="h-4 w-4 text-primary" />
-              <span className="text-xs text-muted-foreground uppercase tracking-wider">Trends Explorer</span>
-            </div>
-            <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">Live Trend Data</h1>
-            <p className="text-muted-foreground mt-1">Modality-aware trend signals and cast trends — same filter logic as Pitch Engine.</p>
-          </div>
-
-          {/* Controls */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Production Type</label>
-              <Select value={selectedType} onValueChange={setSelectedType}>
-                <SelectTrigger className="bg-muted/50 border-border/50"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {PRODUCTION_TYPES.map(pt => (
-                    <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Modality</label>
-              <Select value={modality} onValueChange={v => setModality(v as ProductionModality)}>
-                <SelectTrigger className="bg-muted/50 border-border/50"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {PRODUCTION_MODALITIES.map(m => (
-                    <SelectItem key={m} value={m}>{MODALITY_LABELS[m]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Lane</label>
-              <Select value={lane} onValueChange={setLane}>
-                <SelectTrigger className="bg-muted/50 border-border/50"><SelectValue placeholder="Any Lane" /></SelectTrigger>
-                <SelectContent>
-                  {LANES.map(l => (
-                    <SelectItem key={l.value || '__any__'} value={l.value || '__any__'}>{l.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Filter breadcrumb */}
-          <div className="flex items-center gap-2 text-xs text-muted-foreground border border-border/30 rounded-md px-3 py-2 bg-muted/20">
-            <Filter className="h-3 w-3" />
-            <span>filter: production_type=<strong className="text-foreground">{effectiveFilter}</strong>, modality=<strong className="text-foreground">{modality}</strong>{lane && lane !== '__any__' ? <>, lane=<strong className="text-foreground">{lane}</strong></> : ''}</span>
-            <span className="ml-auto">{allSignals.length} signal{allSignals.length !== 1 ? 's' : ''} · {castTrends.length} cast trend{castTrends.length !== 1 ? 's' : ''}</span>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Lane Trends */}
-            {lane && lane !== '__any__' && (
-              <Card className="border-border/40">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-primary" />
-                    Lane Trends ({lane})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {laneSignals.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-4 text-center">No lane-scoped signals found.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {laneSignals.map((s, i) => (
-                        <SignalRow key={s.name + i} signal={s} rank={i + 1} />
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+          <FilterSelect label="Production Type" value={selectedType} onChange={setSelectedType} options={PRODUCTION_TYPES} />
+          <FilterSelect
+            label="Modality"
+            value={modality}
+            onChange={v => setModality(v as ProductionModality)}
+            options={PRODUCTION_MODALITIES.map(m => ({ value: m, label: MODALITY_LABELS[m] }))}
+          />
+          <FilterSelect label="Lane" value={lane} onChange={setLane} options={LANES} />
+        </TrendsFilterBar>
+      }
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Lane-scoped signals */}
+        {activeLane && (
+          <ResultCard
+            icon={<TrendingUp className="h-4 w-4 text-primary" />}
+            title={`Lane: ${activeLane}`}
+            count={laneSignals.length}
+          >
+            {laneSignals.length === 0 ? (
+              <EmptyState text="No lane-scoped signals found." />
+            ) : (
+              laneSignals.map((s, i) => <SignalRow key={s.name + i} signal={s} rank={i + 1} />)
             )}
+          </ResultCard>
+        )}
 
-            {/* Global Trends */}
-            <Card className="border-border/40">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-primary" />
-                  {typeConfig?.label || selectedType} Signals (Top 10)
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {signalsLoading ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center animate-pulse">Loading signals…</p>
-                ) : globalSignals.length === 0 ? (
-                  <div className="py-4 text-center space-y-2">
-                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                      <AlertTriangle className="h-4 w-4 text-amber-500" />
-                      DB has {signalDbCount} active trend_signals for production_type="{effectiveFilter}"
-                    </div>
-                    <Link to="/trends/coverage" className="text-xs text-primary hover:underline">
-                      Open Trends Coverage →
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {globalSignals.map((s, i) => (
-                      <SignalRow key={s.name + i} signal={s} rank={i + 1} />
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+        {/* Global signals */}
+        <ResultCard
+          icon={<TrendingUp className="h-4 w-4 text-primary" />}
+          title={`${typeConfig?.label || selectedType} Signals`}
+          count={globalSignals.length}
+        >
+          {signalsLoading ? (
+            <p className="text-sm text-muted-foreground py-3 text-center animate-pulse">Loading…</p>
+          ) : globalSignals.length === 0 ? (
+            <div className="py-3 text-center space-y-1">
+              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                {signalDbCount} active signals for "{effectiveFilter}"
+              </div>
+              <Link to="/trends/coverage" className="text-xs text-primary hover:underline">Open Coverage →</Link>
+            </div>
+          ) : (
+            globalSignals.map((s, i) => <SignalRow key={s.name + i} signal={s} rank={i + 1} />)
+          )}
+        </ResultCard>
 
-            {/* Cast Trends */}
-            <Card className="border-border/40">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Users className="h-4 w-4 text-primary" />
-                  {typeConfig?.castLabel || 'Cast Trends'} (Top 10)
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {castLoading ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center animate-pulse">Loading cast trends…</p>
-                ) : castTrends.length === 0 ? (
-                  <div className="py-4 text-center space-y-2">
-                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                      <AlertTriangle className="h-4 w-4 text-amber-500" />
-                      DB has {castDbCount} active cast_trends for production_type="{effectiveFilter}"
-                    </div>
-                    <Link to="/trends/coverage" className="text-xs text-primary hover:underline">
-                      Open Trends Coverage →
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {castTrends.slice(0, 10).map((ct, i) => (
-                      <div key={ct.actor_name + i} className="flex items-center gap-3 py-1.5 border-b border-border/20 last:border-0">
-                        <span className="text-xs text-muted-foreground w-5 text-right font-mono">{i + 1}</span>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm font-medium text-foreground">{ct.actor_name}</span>
-                          <span className="text-xs text-muted-foreground ml-2">{ct.trend_type}</span>
-                        </div>
-                        <Badge variant="outline" className="text-[10px]">{ct.strength}/10</Badge>
-                        <Badge variant={ct.velocity === 'Rising' ? 'default' : 'secondary'} className="text-[10px]">{ct.velocity}</Badge>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </motion.div>
-      </main>
+        {/* Cast trends */}
+        <ResultCard
+          icon={<Users className="h-4 w-4 text-primary" />}
+          title={typeConfig?.castLabel || 'Cast Trends'}
+          count={castTrends.slice(0, 10).length}
+        >
+          {castLoading ? (
+            <p className="text-sm text-muted-foreground py-3 text-center animate-pulse">Loading…</p>
+          ) : castTrends.length === 0 ? (
+            <div className="py-3 text-center space-y-1">
+              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                {castDbCount} active cast trends for "{effectiveFilter}"
+              </div>
+              <Link to="/trends/coverage" className="text-xs text-primary hover:underline">Open Coverage →</Link>
+            </div>
+          ) : (
+            castTrends.slice(0, 10).map((ct, i) => (
+              <div key={ct.actor_name + i} className="flex items-center gap-2 py-1.5 border-b border-border/20 last:border-0">
+                <span className="text-[10px] text-muted-foreground w-4 text-right font-mono">{i + 1}</span>
+                <span className="text-sm font-medium text-foreground flex-1 truncate">{ct.actor_name}</span>
+                <span className="text-[10px] text-muted-foreground">{ct.trend_type}</span>
+                <Badge variant="outline" className="text-[10px] h-5">{ct.strength}/10</Badge>
+                <Badge variant={ct.velocity === 'Rising' ? 'default' : 'secondary'} className="text-[10px] h-5">{ct.velocity}</Badge>
+              </div>
+            ))
+          )}
+        </ResultCard>
+      </div>
+    </TrendsPageShell>
+  );
+}
+
+/* ── Sub-components ── */
+
+function FilterSelect({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{label}</label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-8 bg-muted/50 border-border/50 text-sm"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {options.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
     </div>
   );
 }
 
+function ResultCard({ icon, title, count, children }: {
+  icon: React.ReactNode; title: string; count: number; children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-border/40 bg-card/50">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/20">
+        {icon}
+        <h3 className="text-sm font-semibold text-foreground flex-1">{title}</h3>
+        <span className="text-[10px] text-muted-foreground font-mono">{count}</span>
+      </div>
+      <div className="px-4 py-2">{children}</div>
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <p className="text-xs text-muted-foreground py-3 text-center">{text}</p>;
+}
+
 function SignalRow({ signal, rank }: { signal: any; rank: number }) {
   return (
-    <div className="flex items-start gap-3 py-2 border-b border-border/20 last:border-0">
-      <span className="text-xs text-muted-foreground w-5 text-right font-mono mt-0.5">{rank}</span>
-      <div className="flex-1 min-w-0 space-y-0.5">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium text-foreground">{signal.name}</span>
-          <Badge variant="outline" className="text-[10px]">{signal.category}</Badge>
+    <div className="flex items-center gap-2 py-1.5 border-b border-border/20 last:border-0">
+      <span className="text-[10px] text-muted-foreground w-4 text-right font-mono">{rank}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-medium text-foreground truncate">{signal.name}</span>
+          <Badge variant="outline" className="text-[10px] h-5 shrink-0">{signal.category}</Badge>
         </div>
         {signal.explanation && (
-          <p className="text-xs text-muted-foreground line-clamp-1">{signal.explanation}</p>
+          <p className="text-[11px] text-muted-foreground line-clamp-1">{signal.explanation}</p>
         )}
       </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        <Badge variant="outline" className="text-[10px] font-mono">{signal.strength}/10</Badge>
-        <Badge variant={signal.velocity === 'Rising' ? 'default' : 'secondary'} className="text-[10px]">{signal.velocity}</Badge>
+      <div className="flex items-center gap-1 shrink-0">
+        <Badge variant="outline" className="text-[10px] h-5 font-mono">{signal.strength}/10</Badge>
+        <Badge variant={signal.velocity === 'Rising' ? 'default' : 'secondary'} className="text-[10px] h-5">{signal.velocity}</Badge>
         {signal.saturation_risk && signal.saturation_risk !== 'Low' && (
-          <Badge variant="destructive" className="text-[10px]">Sat: {signal.saturation_risk}</Badge>
+          <Badge variant="destructive" className="text-[10px] h-5">Sat: {signal.saturation_risk}</Badge>
         )}
       </div>
     </div>

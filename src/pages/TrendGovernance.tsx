@@ -1,7 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Settings2, Save, RotateCcw, History, BarChart3, Loader2, Lock, Unlock, ShieldCheck, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { Header } from '@/components/Header';
+import { Save, RotateCcw, History, Loader2, Lock, Unlock, ShieldCheck, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
@@ -16,6 +14,8 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { SourceSandboxPanel } from '@/components/corpus/SourceSandboxPanel';
 import { ModelAccuracyDashboard } from '@/components/ModelAccuracyDashboard';
+import { TrendsPageShell } from '@/components/trends/TrendsPageShell';
+import { TrendsFilterBar } from '@/components/trends/TrendsFilterBar';
 
 const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([value, config]) => ({
   value,
@@ -65,63 +65,43 @@ export default function TrendGovernance() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  // Fetch all engines (including disabled)
   const { data: engines = [] } = useQuery({
     queryKey: ['all-engines'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('trend_engines')
-        .select('*')
-        .eq('status', 'active')
-        .order('intelligence_layer, engine_name');
+      const { data, error } = await supabase.from('trend_engines').select('*').eq('status', 'active').order('intelligence_layer, engine_name');
       if (error) throw error;
       return data as unknown as EngineRow[];
     },
   });
 
-  // Fetch weights for selected type
   const { data: weights = [] } = useQuery({
     queryKey: ['admin-weights', selectedType],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('production_engine_weights')
-        .select('*')
-        .eq('production_type', selectedType);
+      const { data, error } = await supabase.from('production_engine_weights').select('*').eq('production_type', selectedType);
       if (error) throw error;
       return data as unknown as WeightRow[];
     },
   });
 
-  // Fetch snapshots
   const { data: snapshots = [] } = useQuery({
     queryKey: ['weight-snapshots', selectedType],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('engine_weight_snapshots')
-        .select('*')
-        .eq('production_type', selectedType)
-        .order('created_at', { ascending: false })
-        .limit(10);
+      const { data, error } = await supabase.from('engine_weight_snapshots').select('*').eq('production_type', selectedType).order('created_at', { ascending: false }).limit(10);
       if (error) throw error;
       return data as unknown as Snapshot[];
     },
   });
 
-  // Local editable state
   const [localWeights, setLocalWeights] = useState<Record<string, number>>({});
   const [localEnabled, setLocalEnabled] = useState<Record<string, boolean>>({});
   const [hasChanges, setHasChanges] = useState(false);
   const [slidersLocked, setSlidersLocked] = useState(true);
 
-  // Initialize local state when data loads
   useEffect(() => {
     const wMap: Record<string, number> = {};
     for (const w of weights) wMap[w.engine_id] = w.weight_value;
-    for (const e of engines) {
-      if (!(e.id in wMap)) wMap[e.id] = e.base_weight_default;
-    }
+    for (const e of engines) { if (!(e.id in wMap)) wMap[e.id] = e.base_weight_default; }
     setLocalWeights(wMap);
-
     const eMap: Record<string, boolean> = {};
     for (const e of engines) eMap[e.id] = e.enabled;
     setLocalEnabled(eMap);
@@ -129,80 +109,36 @@ export default function TrendGovernance() {
   }, [engines, weights]);
 
   const totalWeight = useMemo(() => {
-    return Object.entries(localWeights)
-      .filter(([id]) => localEnabled[id] !== false)
-      .reduce((s, [, v]) => s + v, 0);
+    return Object.entries(localWeights).filter(([id]) => localEnabled[id] !== false).reduce((s, [, v]) => s + v, 0);
   }, [localWeights, localEnabled]);
 
-  // Group engines by layer
   const enginesByLayer = useMemo(() => {
     const grouped: Record<string, EngineRow[]> = {};
-    for (const e of engines) {
-      const layer = e.intelligence_layer || 'market';
-      if (!grouped[layer]) grouped[layer] = [];
-      grouped[layer].push(e);
-    }
+    for (const e of engines) { const l = e.intelligence_layer || 'market'; if (!grouped[l]) grouped[l] = []; grouped[l].push(e); }
     return grouped;
   }, [engines]);
 
-  const handleWeightChange = (engineId: string, value: number) => {
-    setLocalWeights(prev => ({ ...prev, [engineId]: value }));
-    setHasChanges(true);
-  };
+  const handleWeightChange = (engineId: string, value: number) => { setLocalWeights(prev => ({ ...prev, [engineId]: value })); setHasChanges(true); };
+  const handleToggle = (engineId: string, enabled: boolean) => { setLocalEnabled(prev => ({ ...prev, [engineId]: enabled })); setHasChanges(true); };
 
-  const handleToggle = (engineId: string, enabled: boolean) => {
-    setLocalEnabled(prev => ({ ...prev, [engineId]: enabled }));
-    setHasChanges(true);
-  };
-
-  // Save mutations
   const saveMutation = useMutation({
     mutationFn: async () => {
-      // Save enabled state
       for (const engine of engines) {
         if (engine.enabled !== localEnabled[engine.id]) {
-          await supabase
-            .from('trend_engines')
-            .update({ enabled: localEnabled[engine.id] })
-            .eq('id', engine.id);
+          await supabase.from('trend_engines').update({ enabled: localEnabled[engine.id] }).eq('id', engine.id);
         }
       }
-
-      // Upsert weights
       for (const engine of engines) {
         const weightValue = localWeights[engine.id] ?? engine.base_weight_default;
         const existing = weights.find(w => w.engine_id === engine.id);
         if (existing) {
-          await supabase
-            .from('production_engine_weights')
-            .update({ weight_value: weightValue })
-            .eq('id', existing.id);
+          await supabase.from('production_engine_weights').update({ weight_value: weightValue }).eq('id', existing.id);
         } else {
-          await supabase
-            .from('production_engine_weights')
-            .insert({
-              production_type: selectedType,
-              engine_id: engine.id,
-              weight_value: weightValue,
-            });
+          await supabase.from('production_engine_weights').insert({ production_type: selectedType, engine_id: engine.id, weight_value: weightValue });
         }
       }
-
-      // Create snapshot
-      const snapshotWeights = engines.map(e => ({
-        engine_id: e.id,
-        engine_name: e.engine_name,
-        weight: localWeights[e.id] ?? e.base_weight_default,
-        enabled: localEnabled[e.id] ?? e.enabled,
-      }));
-      await supabase
-        .from('engine_weight_snapshots')
-        .insert({
-          production_type: selectedType,
-          snapshot_label: `Manual save — ${format(new Date(), 'dd MMM yyyy HH:mm')}`,
-          weights: snapshotWeights,
-          trigger_type: 'manual',
-        });
+      const snapshotWeights = engines.map(e => ({ engine_id: e.id, engine_name: e.engine_name, weight: localWeights[e.id] ?? e.base_weight_default, enabled: localEnabled[e.id] ?? e.enabled }));
+      await supabase.from('engine_weight_snapshots').insert({ production_type: selectedType, snapshot_label: `Manual save — ${format(new Date(), 'dd MMM yyyy HH:mm')}`, weights: snapshotWeights, trigger_type: 'manual' });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['all-engines'] });
@@ -225,10 +161,7 @@ export default function TrendGovernance() {
       setAuditResults(response.data);
       queryClient.invalidateQueries({ queryKey: ['data-sources'] });
       queryClient.invalidateQueries({ queryKey: ['model-version-log'] });
-      toast({
-        title: 'Audit complete',
-        description: `${response.data.sources_audited} sources audited, ${response.data.flagged_count} flagged.`,
-      });
+      toast({ title: 'Audit complete', description: `${response.data.sources_audited} sources audited, ${response.data.flagged_count} flagged.` });
     } catch (err: any) {
       toast({ title: 'Audit failed', description: err.message, variant: 'destructive' });
     } finally {
@@ -237,242 +170,155 @@ export default function TrendGovernance() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main className="container max-w-3xl py-10">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
-
-          {/* Header */}
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Settings2 className="h-4 w-4 text-primary" />
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">Intelligence Governance</span>
-              </div>
-              <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">Engine Weights</h1>
-              <p className="text-muted-foreground mt-1">Toggle engines on/off and adjust weights per production type.</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant={slidersLocked ? 'outline' : 'secondary'}
-                onClick={() => setSlidersLocked(prev => !prev)}
-                className="text-xs"
-              >
-                {slidersLocked ? <Lock className="h-3.5 w-3.5 mr-1" /> : <Unlock className="h-3.5 w-3.5 mr-1" />}
-                {slidersLocked ? 'Locked' : 'Editing'}
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => saveMutation.mutate()}
-                disabled={!hasChanges || saveMutation.isPending}
-              >
-                {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
-                Save & Snapshot
-              </Button>
-            </div>
-          </div>
-
-          {/* Production Type Selector */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Production Type</label>
+    <TrendsPageShell
+      badge="Intelligence Governance"
+      title="Engine Weights"
+      subtitle="Toggle engines on/off and adjust weights per production type."
+      rightSlot={
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant={slidersLocked ? 'outline' : 'secondary'} onClick={() => setSlidersLocked(prev => !prev)} className="h-8 text-xs">
+            {slidersLocked ? <Lock className="h-3 w-3 mr-1" /> : <Unlock className="h-3 w-3 mr-1" />}
+            {slidersLocked ? 'Locked' : 'Editing'}
+          </Button>
+          <Button size="sm" onClick={() => saveMutation.mutate()} disabled={!hasChanges || saveMutation.isPending} className="h-8 text-xs">
+            {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+            Save & Snapshot
+          </Button>
+        </div>
+      }
+      controls={
+        <TrendsFilterBar>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Production Type</label>
             <Select value={selectedType} onValueChange={setSelectedType}>
-              <SelectTrigger className="w-full h-9 bg-muted/50 border-border/50 text-sm">
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger className="h-8 bg-muted/50 border-border/50 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {PRODUCTION_TYPES.map(pt => (
-                  <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>
-                ))}
+                {PRODUCTION_TYPES.map(pt => <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
-
-          {/* Weight total indicator */}
-          <div className="glass-card rounded-xl p-4 flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Total Weight (pre-normalisation)</span>
-            <span className={cn(
-              'font-mono text-sm font-bold',
-              Math.abs(totalWeight - 1) < 0.01 ? 'text-emerald-400' : 'text-amber-400'
-            )}>
-              {totalWeight.toFixed(3)}
-            </span>
-          </div>
-
-          {/* Engine Layers */}
-          <Accordion type="multiple" defaultValue={Object.keys(LAYER_CONFIG)} className="space-y-2">
-            {Object.entries(LAYER_CONFIG).map(([layer, config]) => {
-              const layerEngines = enginesByLayer[layer] || [];
-              if (layerEngines.length === 0) return null;
-
-              const layerWeight = layerEngines
-                .filter(e => localEnabled[e.id] !== false)
-                .reduce((s, e) => s + (localWeights[e.id] ?? e.base_weight_default), 0);
-
-              return (
-                <AccordionItem key={layer} value={layer} className="glass-card rounded-xl border-none">
-                  <AccordionTrigger className="px-5 py-3 hover:no-underline">
-                    <div className="flex items-center gap-3 flex-1">
-                      <Badge className={cn('text-xs border', config.color)}>{config.label}</Badge>
-                      <span className="text-xs text-muted-foreground ml-auto mr-3">
-                        {layerEngines.length} engines · wt: {(layerWeight * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="px-5 pb-4 space-y-3">
-                    {layerEngines.map(engine => {
-                      const weight = localWeights[engine.id] ?? engine.base_weight_default;
-                      const enabled = localEnabled[engine.id] ?? engine.enabled;
-                      return (
-                        <div key={engine.id} className={cn(
-                          'rounded-lg p-3 border transition-opacity',
-                          enabled ? 'bg-card/50 border-border/30' : 'bg-muted/20 border-border/10 opacity-50'
-                        )}>
-                          <div className="flex items-center gap-3 mb-2">
-                            <Switch
-                              checked={enabled}
-                              onCheckedChange={v => handleToggle(engine.id, v)}
-                              disabled={slidersLocked}
-                            />
-                            <span className="text-sm font-medium text-foreground flex-1">{engine.engine_name}</span>
-                            <span className="text-xs font-mono text-muted-foreground">
-                              {(weight * 100).toFixed(1)}%
-                            </span>
-                          </div>
-                          {enabled && (
-                            <Slider
-                              value={[weight]}
-                              onValueChange={v => handleWeightChange(engine.id, v[0])}
-                              min={0} max={0.5} step={0.005}
-                              className="w-full"
-                              disabled={slidersLocked}
-                            />
-                          )}
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] text-muted-foreground">
-                              Refresh: {engine.refresh_frequency}
-                            </span>
-                            {engine.last_refresh && (
-                              <span className="text-[10px] text-muted-foreground">
-                                · Last: {format(new Date(engine.last_refresh), 'dd MMM')}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </AccordionContent>
-                </AccordionItem>
-              );
-            })}
-          </Accordion>
-
-          {/* Quarterly Source Audit */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-primary" />
-                <h2 className="font-display font-semibold text-foreground">Quarterly Source Audit</h2>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={runAudit}
-                disabled={isAuditing}
-              >
-                {isAuditing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5 mr-1" />}
-                {isAuditing ? 'Auditing…' : 'Run Audit'}
-              </Button>
+          <div className="flex items-end">
+            <div className="rounded-lg border border-border/30 bg-muted/20 px-3 py-1.5 flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Total Weight</span>
+              <span className={cn('font-mono text-xs font-bold', Math.abs(totalWeight - 1) < 0.01 ? 'text-emerald-400' : 'text-amber-400')}>
+                {totalWeight.toFixed(3)}
+              </span>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Evaluates each data source's predictive accuracy against resolved outcomes, adjusts reliability scores, and flags low-correlation sources.
-            </p>
-
-            {auditResults && (
-              <div className="space-y-2">
-                <div className="glass-card rounded-xl p-4 grid grid-cols-4 gap-3 text-center">
-                  <div>
-                    <div className="text-lg font-bold text-foreground">{auditResults.sources_audited}</div>
-                    <div className="text-[10px] text-muted-foreground uppercase">Sources</div>
-                  </div>
-                  <div>
-                    <div className="text-lg font-bold text-foreground">{auditResults.sources_updated}</div>
-                    <div className="text-[10px] text-muted-foreground uppercase">Updated</div>
-                  </div>
-                  <div>
-                    <div className={cn('text-lg font-bold', auditResults.flagged_count > 0 ? 'text-destructive' : 'text-foreground')}>
-                      {auditResults.flagged_count}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground uppercase">Flagged</div>
-                  </div>
-                  <div>
-                    <div className={cn('text-lg font-bold', auditResults.stale_count > 0 ? 'text-amber-400' : 'text-foreground')}>
-                      {auditResults.stale_count}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground uppercase">Stale</div>
-                  </div>
-                </div>
-
-                {auditResults.results?.length > 0 && (
-                  <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                    {auditResults.results.map((r: any) => (
-                      <div key={r.source_id} className="glass-card rounded-lg px-4 py-2.5 flex items-center gap-3">
-                        {r.status_change ? (
-                          <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
-                        ) : (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                        )}
-                        <span className="text-sm text-foreground flex-1 truncate">{r.source_name}</span>
-                        <span className="text-xs font-mono text-muted-foreground">
-                          {r.prev_reliability.toFixed(2)} → {r.new_reliability.toFixed(2)}
-                        </span>
-                        {r.accuracy !== null && (
-                          <Badge variant="outline" className="text-[10px]">
-                            {r.accuracy}% acc
-                          </Badge>
-                        )}
-                        {r.staleness_flag && (
-                          <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-400">stale</Badge>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
+        </TrendsFilterBar>
+      }
+    >
+      {/* Engine Layers */}
+      <Accordion type="multiple" defaultValue={Object.keys(LAYER_CONFIG)} className="space-y-2">
+        {Object.entries(LAYER_CONFIG).map(([layer, config]) => {
+          const layerEngines = enginesByLayer[layer] || [];
+          if (layerEngines.length === 0) return null;
+          const layerWeight = layerEngines.filter(e => localEnabled[e.id] !== false).reduce((s, e) => s + (localWeights[e.id] ?? e.base_weight_default), 0);
 
-          {snapshots.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <History className="h-4 w-4 text-primary" />
-                <h2 className="font-display font-semibold text-foreground">Model Versions</h2>
-              </div>
-              <div className="space-y-1.5">
-                {snapshots.map(snap => (
-                  <div key={snap.id} className="glass-card rounded-lg px-4 py-2.5 flex items-center gap-3">
-                    <Badge variant="outline" className="text-[10px]">{snap.trigger_type}</Badge>
-                    <span className="text-sm text-foreground flex-1">{snap.snapshot_label || 'Snapshot'}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {format(new Date(snap.created_at), 'dd MMM yyyy HH:mm')}
-                    </span>
+          return (
+            <AccordionItem key={layer} value={layer} className="rounded-xl border border-border/40 bg-card/50">
+              <AccordionTrigger className="px-4 py-2.5 hover:no-underline">
+                <div className="flex items-center gap-3 flex-1">
+                  <Badge className={cn('text-[10px] border', config.color)}>{config.label}</Badge>
+                  <span className="text-[10px] text-muted-foreground ml-auto mr-3">{layerEngines.length} engines · {(layerWeight * 100).toFixed(0)}%</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-4 pb-3 space-y-2">
+                {layerEngines.map(engine => {
+                  const weight = localWeights[engine.id] ?? engine.base_weight_default;
+                  const enabled = localEnabled[engine.id] ?? engine.enabled;
+                  return (
+                    <div key={engine.id} className={cn('rounded-lg p-3 border transition-opacity', enabled ? 'bg-card/50 border-border/30' : 'bg-muted/20 border-border/10 opacity-50')}>
+                      <div className="flex items-center gap-3 mb-1.5">
+                        <Switch checked={enabled} onCheckedChange={v => handleToggle(engine.id, v)} disabled={slidersLocked} />
+                        <span className="text-sm font-medium text-foreground flex-1">{engine.engine_name}</span>
+                        <span className="text-xs font-mono text-muted-foreground">{(weight * 100).toFixed(1)}%</span>
+                      </div>
+                      {enabled && <Slider value={[weight]} onValueChange={v => handleWeightChange(engine.id, v[0])} min={0} max={0.5} step={0.005} className="w-full" disabled={slidersLocked} />}
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[10px] text-muted-foreground">Refresh: {engine.refresh_frequency}</span>
+                        {engine.last_refresh && <span className="text-[10px] text-muted-foreground">· Last: {format(new Date(engine.last_refresh), 'dd MMM')}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </AccordionContent>
+            </AccordionItem>
+          );
+        })}
+      </Accordion>
+
+      {/* Quarterly Source Audit */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-primary" />
+            <h2 className="font-display font-semibold text-foreground text-sm">Quarterly Source Audit</h2>
+          </div>
+          <Button size="sm" variant="outline" onClick={runAudit} disabled={isAuditing} className="h-8 text-xs">
+            {isAuditing ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ShieldCheck className="h-3 w-3 mr-1" />}
+            {isAuditing ? 'Auditing…' : 'Run Audit'}
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">Evaluates data source accuracy, adjusts reliability scores, flags low-correlation sources.</p>
+
+        {auditResults && (
+          <div className="space-y-2">
+            <div className="rounded-xl border border-border/40 bg-card/50 p-3 grid grid-cols-4 gap-2 text-center">
+              {[
+                { val: auditResults.sources_audited, label: 'Sources' },
+                { val: auditResults.sources_updated, label: 'Updated' },
+                { val: auditResults.flagged_count, label: 'Flagged', cls: auditResults.flagged_count > 0 ? 'text-destructive' : '' },
+                { val: auditResults.stale_count, label: 'Stale', cls: auditResults.stale_count > 0 ? 'text-amber-400' : '' },
+              ].map(item => (
+                <div key={item.label}>
+                  <div className={cn('text-base font-bold text-foreground', item.cls)}>{item.val}</div>
+                  <div className="text-[10px] text-muted-foreground uppercase">{item.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {auditResults.results?.length > 0 && (
+              <div className="space-y-1 max-h-48 overflow-y-auto">
+                {auditResults.results.map((r: any) => (
+                  <div key={r.source_id} className="rounded-lg border border-border/30 bg-card/50 px-3 py-2 flex items-center gap-2">
+                    {r.status_change ? <AlertTriangle className="h-3 w-3 text-destructive shrink-0" /> : <CheckCircle2 className="h-3 w-3 text-emerald-400 shrink-0" />}
+                    <span className="text-sm text-foreground flex-1 truncate">{r.source_name}</span>
+                    <span className="text-[10px] font-mono text-muted-foreground">{r.prev_reliability.toFixed(2)} → {r.new_reliability.toFixed(2)}</span>
+                    {r.accuracy !== null && <Badge variant="outline" className="text-[10px] h-5">{r.accuracy}% acc</Badge>}
+                    {r.staleness_flag && <Badge variant="outline" className="text-[10px] h-5 border-amber-500/30 text-amber-400">stale</Badge>}
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* Model Accuracy Tracker */}
-          <ModelAccuracyDashboard productionType={selectedType} />
-
-          {/* Source Sandbox */}
-          <SourceSandboxPanel />
-
-          <div className="text-xs text-muted-foreground border-t border-border/50 pt-6">
-            <p>Weights are normalised to 1.0 at scoring time. Each save creates a versioned snapshot for audit and rollback.</p>
+            )}
           </div>
-        </motion.div>
-      </main>
-    </div>
+        )}
+      </div>
+
+      {snapshots.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <History className="h-4 w-4 text-primary" />
+            <h2 className="font-display font-semibold text-foreground text-sm">Model Versions</h2>
+          </div>
+          <div className="space-y-1">
+            {snapshots.map(snap => (
+              <div key={snap.id} className="rounded-lg border border-border/30 bg-card/50 px-3 py-2 flex items-center gap-2">
+                <Badge variant="outline" className="text-[10px] h-5">{snap.trigger_type}</Badge>
+                <span className="text-sm text-foreground flex-1">{snap.snapshot_label || 'Snapshot'}</span>
+                <span className="text-[10px] text-muted-foreground">{format(new Date(snap.created_at), 'dd MMM yyyy HH:mm')}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <ModelAccuracyDashboard productionType={selectedType} />
+      <SourceSandboxPanel />
+
+      <div className="text-[11px] text-muted-foreground border-t border-border/30 pt-3">
+        Weights normalised to 1.0 at scoring time. Each save creates a versioned snapshot for audit and rollback.
+      </div>
+    </TrendsPageShell>
   );
 }
