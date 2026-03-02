@@ -34,6 +34,7 @@ export interface TrendSignal {
   forecast: string;
   budget_tier: string;
   target_buyer: string;
+  source_citations?: Array<{ title?: string; url: string; source?: string; snippet?: string }> | null;
 }
 
 export interface TrendWeeklyBrief {

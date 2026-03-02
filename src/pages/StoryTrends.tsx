@@ -17,11 +17,13 @@ import {
   PRODUCTION_TYPE_TREND_CATEGORIES,
   TARGET_BUYER_OPTIONS,
   BUDGET_TIER_OPTIONS,
+  type TrendSignal,
 } from '@/hooks/useTrends';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+import { TrendSignalModal } from '@/components/trends/TrendSignalModal';
 
 function EmptyState({ icon: Icon, title, description }: { icon: React.ElementType; title: string; description: string }) {
   return (
@@ -56,6 +58,7 @@ export default function StoryTrends() {
   const [searchParams] = useSearchParams();
   const initialType = searchParams.get('type') || 'film';
   const [selectedType, setSelectedType] = useState(initialType);
+  const [selectedSignal, setSelectedSignal] = useState<TrendSignal | null>(null);
   const typeConfig = PRODUCTION_TYPE_TREND_CATEGORIES[selectedType];
   const [isRefreshing, setIsRefreshing] = useState(false);
   const queryClient = useQueryClient();
@@ -293,7 +296,7 @@ export default function StoryTrends() {
 
             <TabsContent value="active" className="space-y-3">
               {loadingActive ? <SkeletonCards count={3} /> : activeSignals.length > 0 ? (
-                activeSignals.map((signal, i) => <SignalCard key={signal.id} signal={signal} index={i} />)
+                activeSignals.map((signal, i) => <SignalCard key={signal.id} signal={signal} index={i} onClick={() => setSelectedSignal(signal)} />)
               ) : (
                 <EmptyState
                   icon={Activity}
@@ -305,7 +308,7 @@ export default function StoryTrends() {
 
             <TabsContent value="archive" className="space-y-3">
               {loadingArchived ? <SkeletonCards count={2} /> : archivedSignals.length > 0 ? (
-                archivedSignals.map((signal, i) => <SignalCard key={signal.id} signal={signal} index={i} isArchived />)
+                archivedSignals.map((signal, i) => <SignalCard key={signal.id} signal={signal} index={i} isArchived onClick={() => setSelectedSignal(signal)} />)
               ) : (
                 <EmptyState
                   icon={Archive}
@@ -322,6 +325,7 @@ export default function StoryTrends() {
           </div>
         </motion.div>
       </main>
+      <TrendSignalModal open={!!selectedSignal} onOpenChange={open => !open && setSelectedSignal(null)} signal={selectedSignal} />
     </div>
   );
 }

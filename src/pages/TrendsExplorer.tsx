@@ -2,11 +2,12 @@ import { useState, useMemo } from 'react';
 import { TrendingUp, Users, Filter, AlertTriangle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { useActiveSignals, useActiveCastTrends, useSignalCount, useCastTrendsCount, PRODUCTION_TYPE_TREND_CATEGORIES } from '@/hooks/useTrends';
+import { useActiveSignals, useActiveCastTrends, useSignalCount, useCastTrendsCount, PRODUCTION_TYPE_TREND_CATEGORIES, type TrendSignal } from '@/hooks/useTrends';
 import { PRODUCTION_MODALITIES, MODALITY_LABELS, type ProductionModality } from '@/config/productionModality';
 import { Link } from 'react-router-dom';
 import { TrendsPageShell } from '@/components/trends/TrendsPageShell';
 import { TrendsFilterBar } from '@/components/trends/TrendsFilterBar';
+import { TrendSignalModal } from '@/components/trends/TrendSignalModal';
 
 const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([value, config]) => ({
   value,
@@ -33,6 +34,7 @@ export default function TrendsExplorer() {
   const [selectedType, setSelectedType] = useState('film');
   const [modality, setModality] = useState<ProductionModality>('live_action');
   const [lane, setLane] = useState('__any__');
+  const [selectedSignal, setSelectedSignal] = useState<TrendSignal | null>(null);
 
   const effectiveFilter = modalityToFilter(modality, selectedType);
   const activeLane = lane !== '__any__' ? lane : '';
@@ -93,7 +95,7 @@ export default function TrendsExplorer() {
             {laneSignals.length === 0 ? (
               <EmptyState text="No lane-scoped signals found." />
             ) : (
-              laneSignals.map((s, i) => <SignalRow key={s.name + i} signal={s} rank={i + 1} />)
+              laneSignals.map((s, i) => <SignalRow key={s.name + i} signal={s} rank={i + 1} onClick={() => setSelectedSignal(s)} />)
             )}
           </ResultCard>
         )}
@@ -115,7 +117,7 @@ export default function TrendsExplorer() {
               <Link to="/trends/coverage" className="text-xs text-primary hover:underline">Open Coverage →</Link>
             </div>
           ) : (
-            globalSignals.map((s, i) => <SignalRow key={s.name + i} signal={s} rank={i + 1} />)
+            globalSignals.map((s, i) => <SignalRow key={s.name + i} signal={s} rank={i + 1} onClick={() => setSelectedSignal(s)} />)
           )}
         </ResultCard>
 
@@ -148,6 +150,7 @@ export default function TrendsExplorer() {
           )}
         </ResultCard>
       </div>
+      <TrendSignalModal open={!!selectedSignal} onOpenChange={open => !open && setSelectedSignal(null)} signal={selectedSignal} />
     </TrendsPageShell>
   );
 }
@@ -190,9 +193,15 @@ function EmptyState({ text }: { text: string }) {
   return <p className="text-xs text-muted-foreground py-3 text-center">{text}</p>;
 }
 
-function SignalRow({ signal, rank }: { signal: any; rank: number }) {
+function SignalRow({ signal, rank, onClick }: { signal: any; rank: number; onClick?: () => void }) {
   return (
-    <div className="flex items-center gap-2 py-1.5 border-b border-border/20 last:border-0">
+    <div
+      className="flex items-center gap-2 py-1.5 border-b border-border/20 last:border-0 cursor-pointer hover:bg-muted/30 rounded-sm transition-colors -mx-1 px-1"
+      onClick={onClick}
+      onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && onClick?.()}
+      role="button"
+      tabIndex={0}
+    >
       <span className="text-[10px] text-muted-foreground w-4 text-right font-mono">{rank}</span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">

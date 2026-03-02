@@ -115,6 +115,7 @@ serve(async (req) => {
 
     // ── Perplexity grounded market intelligence ──
     let perplexityMarketData = "";
+    let perplexityCitations: Array<{ title?: string; url: string; source?: string; snippet?: string }> = [];
     if (PERPLEXITY_API_KEY) {
       try {
         const pType = productionType || "film";
@@ -137,6 +138,28 @@ serve(async (req) => {
           const pData = await pResponse.json();
           perplexityMarketData = pData.choices?.[0]?.message?.content || "";
           console.log("Perplexity market intelligence fetched successfully");
+
+          // Extract citations from Perplexity response
+          const rawCitations: string[] = pData.citations || [];
+          const seenUrls = new Set<string>();
+          for (const item of rawCitations) {
+            try {
+              const url = typeof item === "string" ? item : (item as any)?.url;
+              if (!url || typeof url !== "string" || !url.match(/^https?:\/\//)) continue;
+              if (seenUrls.has(url)) continue;
+              seenUrls.add(url);
+              let hostname = "";
+              try { hostname = new URL(url).hostname.replace(/^www\./, ""); } catch {}
+              perplexityCitations.push({
+                url,
+                title: (item as any)?.title || hostname || undefined,
+                source: hostname || undefined,
+              });
+            } catch {}
+          }
+          // Limit to 8
+          perplexityCitations = perplexityCitations.slice(0, 8);
+          console.log(`[refresh-trends] Extracted ${perplexityCitations.length} citations from Perplexity`);
         }
       } catch (e) {
         console.warn("Perplexity market research failed:", e);
@@ -380,6 +403,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       status: "active",
       first_detected_at: now,
       last_updated_at: now,
+      source_citations: perplexityCitations.length > 0 ? perplexityCitations : null,
     }));
 
     const castRows = newCast.map((c: any) => ({
@@ -403,6 +427,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       status: "active",
       first_detected_at: now,
       last_updated_at: now,
+      source_citations: perplexityCitations.length > 0 ? perplexityCitations : null,
     }));
 
     const { data: insertedSignals, error: signalInsertErr } = await supabase.from("trend_signals").insert(signalRows).select("id, name, genre_tags, tone_tags, format_tags, production_type, strength, velocity");

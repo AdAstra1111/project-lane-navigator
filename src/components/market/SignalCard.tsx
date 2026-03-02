@@ -30,15 +30,20 @@ interface SignalCardProps {
   signal: TrendSignal;
   index: number;
   isArchived?: boolean;
+  onClick?: () => void;
 }
 
-export function SignalCard({ signal, index, isArchived }: SignalCardProps) {
+export function SignalCard({ signal, index, isArchived, onClick }: SignalCardProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05, duration: 0.25 }}
-      className="glass-card rounded-lg p-5 space-y-3"
+      className="glass-card rounded-lg p-5 space-y-3 cursor-pointer hover:border-primary/40 transition-colors"
+      onClick={onClick}
+      onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && onClick?.()}
+      role="button"
+      tabIndex={0}
     >
       <div className="flex items-start justify-between gap-3">
         <h4 className="font-display font-semibold text-foreground">{signal.name}</h4>
