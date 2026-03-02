@@ -47,40 +47,46 @@ Deno.serve(async (req) => {
     const hasValidUserAuth = userAuth?.startsWith("Bearer ") && userAuth.length > 50;
     const hasValidCronAuth = !!(incomingCronSecret && cronSecret && incomingCronSecret === cronSecret);
 
-    // Determine trigger
+    // Determine trigger + override flag
     let trigger = (hasValidCronAuth || !hasValidUserAuth) ? "scheduled" : "manual";
+    let overrideGlobalCooldown = false;
     try {
       const body = await req.json();
       if (body.trigger) trigger = body.trigger;
+      if (body.override_global_cooldown === true) overrideGlobalCooldown = true;
     } catch {}
 
-    // ── Global cooldown check ──
+    // ── Global cooldown check (skip if override requested) ──
     const cooldownHours = COOLDOWN_HOURS[trigger] || COOLDOWN_HOURS.manual;
     const cooldownCutoff = new Date(Date.now() - cooldownHours * 3600_000).toISOString();
     const db = createClient(supabaseUrl, serviceKey);
 
-    // Global cooldown: only batch-complete runs (completed_types contains ALL required types)
-    const requiredTypesArr = [...REQUIRED_TREND_TYPES];
-    const { data: recentRuns } = await db
-      .from("trend_refresh_runs")
-      .select("id, created_at, completed_types")
-      .eq("ok", true)
-      .gte("created_at", cooldownCutoff)
-      .contains("completed_types", requiredTypesArr)
-      .order("created_at", { ascending: false })
-      .limit(1);
+    if (!overrideGlobalCooldown) {
+      // Global cooldown: only batch-complete runs (completed_types contains ALL required types)
+      const requiredTypesArr = [...REQUIRED_TREND_TYPES];
+      const { data: recentRuns } = await db
+        .from("trend_refresh_runs")
+        .select("id, created_at, completed_types")
+        .eq("ok", true)
+        .gte("created_at", cooldownCutoff)
+        .contains("completed_types", requiredTypesArr)
+        .order("created_at", { ascending: false })
+        .limit(1);
 
-    if (recentRuns && recentRuns.length > 0) {
-      const lastRunAt = recentRuns[0].created_at;
-      const nextAllowed = new Date(new Date(lastRunAt).getTime() + cooldownHours * 3600_000).toISOString();
-      return json({
-        error: "COOLDOWN_ACTIVE",
-        cooldown_scope: "global",
-        last_run_at: lastRunAt,
-        next_allowed_at: nextAllowed,
-        cooldown_hours: cooldownHours,
-        trigger,
-      }, 429);
+      if (recentRuns && recentRuns.length > 0) {
+        const lastRunAt = recentRuns[0].created_at;
+        const nextAllowed = new Date(new Date(lastRunAt).getTime() + cooldownHours * 3600_000).toISOString();
+        return json({
+          error: "COOLDOWN_ACTIVE",
+          cooldown_scope: "global",
+          last_run_at: lastRunAt,
+          next_allowed_at: nextAllowed,
+          cooldown_hours: cooldownHours,
+          trigger,
+        }, 429);
+      }
+    } else {
+      console.log("[scheduled-refresh-trends] override_global_cooldown=true — skipping cooldown check");
     }
 
     // ── Batch refresh all required types ──
@@ -156,6 +162,7 @@ Deno.serve(async (req) => {
       attempted,
       results,
       trigger,
+      override_global_cooldown: overrideGlobalCooldown,
       refreshed_types_count: successCount,
       failures_count: attempted.length - successCount,
       last_run_at: lastRunAt,

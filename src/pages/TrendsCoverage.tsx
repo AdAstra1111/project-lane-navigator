@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, RefreshCw, Zap, Clock, Activity } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, RefreshCw, Zap, Clock, Activity, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
@@ -32,6 +32,7 @@ export default function TrendsCoverage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
+  const [normalizing, setNormalizing] = useState(false);
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
   const [cooldownUntil, setCooldownUntil] = useState<string | null>(null);
   const { toast } = useToast();
@@ -145,7 +146,33 @@ export default function TrendsCoverage() {
     }
   };
 
+  const handleNormalizeCooldown = async () => {
+    setNormalizing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scheduled-refresh-trends`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ trigger: 'manual', override_global_cooldown: true }),
+      });
+      const result = await res.json();
+      if (res.ok) {
+        setCooldownUntil(result.next_allowed_at || null);
+        toast({ title: 'Cooldown normalized', description: `Next refresh allowed at ${new Date(result.next_allowed_at).toLocaleString()}.` });
+      } else {
+        toast({ title: 'Normalize failed', description: result.error || 'Unknown error', variant: 'destructive' });
+      }
+      await Promise.all([fetchCoverage(), fetchLastRun()]);
+    } catch (e: any) {
+      toast({ title: 'Normalize failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setNormalizing(false);
+    }
+  };
+
   const hasMissing = data && (data.missing_required.trend_signals.length > 0 || data.missing_required.cast_trends.length > 0);
+  const isAdmin = data?.is_admin === true;
 
   return (
     <TrendsPageShell
@@ -162,6 +189,12 @@ export default function TrendsCoverage() {
             <Button variant="outline" size="sm" onClick={handleBackfill} disabled={backfilling} className="h-8 text-xs">
               <Zap className={`h-3.5 w-3.5 mr-1 ${backfilling ? 'animate-pulse' : ''}`} />
               {backfilling ? 'Backfilling…' : 'Backfill Missing'}
+            </Button>
+          )}
+          {isAdmin && (
+            <Button variant="outline" size="sm" onClick={handleNormalizeCooldown} disabled={normalizing || refreshing} className="h-8 text-xs border-destructive/30 text-destructive hover:bg-destructive/10">
+              <ShieldAlert className={`h-3.5 w-3.5 mr-1 ${normalizing ? 'animate-pulse' : ''}`} />
+              {normalizing ? 'Normalizing…' : 'Normalize Cooldown'}
             </Button>
           )}
           <Button variant="ghost" size="sm" onClick={() => { fetchCoverage(); fetchLastRun(); }} disabled={loading} className="h-8 text-xs">Reload</Button>
