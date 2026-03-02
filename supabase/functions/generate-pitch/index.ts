@@ -142,24 +142,65 @@ serve(async (req) => {
     const HIGH_CONFIDENCE_FIELDS = new Set(["subgenre", "toneAnchor", "culturalTag", "locationVibe", "arenaProfession"]);
     const getMinStrength = (field: string) => HIGH_CONFIDENCE_FIELDS.has(field) ? 6 : 4;
 
-    // ── Early modality derivation (must happen before auto-fields uses dbModality) ──
+    // ── Auth + Access + Project fetch (MUST happen before auto-fields uses dbModality) ──
+    // Enforced order: auth.getUser() → has_project_access → project fetch → modality derivation
     let dbModality: string | null = null;
+    let projRow: any = null;
+    let projSupa: any = null; // service-role client reused in later projectId block
     if (projectId) {
-      try {
-        const { createClient: createEarlyClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-        const earlySupa = createEarlyClient(supabaseUrl, supabaseKey);
-        const { data: earlyProj } = await earlySupa.from("projects")
-          .select("project_features")
-          .eq("id", projectId)
-          .single();
-        if (earlyProj) {
-          const { getProjectModality: gpmEarly } = await import("../_shared/productionModality.ts");
-          dbModality = gpmEarly(earlyProj.project_features as Record<string, any> | null);
-          console.log(`[generate-pitch] early_modality=${dbModality}`);
+      const { createClient: createSvcClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+      projSupa = createSvcClient(supabaseUrl, supabaseKey);
+
+      // a) Derive requestUserId via auth.getUser() (user-scoped client)
+      const authHeader = req.headers.get("Authorization") || "";
+      let requestUserId: string | null = null;
+      if (authHeader.startsWith("Bearer ")) {
+        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+        const sbUser = createSvcClient(supabaseUrl, anonKey, {
+          global: { headers: { Authorization: authHeader } },
+        });
+        const { data: userData, error: authErr } = await sbUser.auth.getUser();
+        if (!authErr && userData?.user) {
+          requestUserId = userData.user.id;
         }
-      } catch (e) {
-        console.warn(`[generate-pitch] early modality fetch failed (non-fatal):`, e);
       }
+      if (!requestUserId) {
+        console.warn(`[generate-pitch] auth_failed: could not derive user from token`);
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      console.log(`[generate-pitch] auth=user_scoped user_id=${requestUserId}`);
+
+      // b) Verify access via has_project_access (admin client) — BEFORE any project reads
+      const { data: hasAccess, error: accessErr } = await projSupa.rpc("has_project_access", {
+        _user_id: requestUserId,
+        _project_id: projectId,
+      });
+      if (accessErr || !hasAccess) {
+        console.warn(`[generate-pitch] access_denied user=${requestUserId} project=${projectId} err=${accessErr?.message || "no access"}`);
+        return new Response(JSON.stringify({ error: "Forbidden: no project access" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // c) After access granted: fetch project row and derive modality
+      const { data: fetchedProj, error: projErr } = await projSupa.from("projects")
+        .select("assigned_lane, signals_influence, signals_apply, production_format, project_features, user_id")
+        .eq("id", projectId).single();
+
+      if (projErr || !fetchedProj) {
+        console.error(`[generate-pitch] project fetch failed: ${projErr?.message || "not found"}`);
+        return new Response(JSON.stringify({ error: "Project not found" }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      projRow = fetchedProj;
+
+      // d) Derive modality from DB (trust model: ignore body override)
+      const { getProjectModality: gpm } = await import("../_shared/productionModality.ts");
+      dbModality = gpm(projRow.project_features as Record<string, any> | null);
+      console.log(`[generate-pitch] modality_source=project_features modality=${dbModality}`);
     }
 
     // ── Auto-fields: resolve via fallback ladder (deterministic, no LLM) ──
@@ -427,57 +468,10 @@ serve(async (req) => {
     let driftBlock = "";
 
     if (projectId) {
-      const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-      const supa = createClient(supabaseUrl, supabaseKey);
-
-      // ── Auth: derive user via Supabase Auth (canonical pattern) ──
-      const authHeader = req.headers.get("Authorization") || "";
-      let requestUserId: string | null = null;
-      if (authHeader.startsWith("Bearer ")) {
-        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-        const sbUser = createClient(supabaseUrl, anonKey, {
-          global: { headers: { Authorization: authHeader } },
-        });
-        const { data: userData, error: authErr } = await sbUser.auth.getUser();
-        if (!authErr && userData?.user) {
-          requestUserId = userData.user.id;
-        }
-      }
-      if (!requestUserId) {
-        console.warn(`[generate-pitch] auth_failed: could not derive user from token`);
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      console.log(`[generate-pitch] auth=user_scoped user_id=${requestUserId}`);
-
-      // ── Authz: canonical has_project_access RPC (same as 30+ other edge functions) ──
-      const { data: hasAccess, error: accessErr } = await supa.rpc("has_project_access", {
-        _user_id: requestUserId,
-        _project_id: projectId,
-      });
-      if (accessErr || !hasAccess) {
-        console.warn(`[generate-pitch] access_denied user=${requestUserId} project=${projectId} err=${accessErr?.message || "no access"}`);
-        return new Response(JSON.stringify({ error: "Forbidden: no project access" }), {
-          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const { data: proj, error: projErr } = await supa.from("projects")
-        .select("assigned_lane, signals_influence, signals_apply, production_format, project_features, user_id")
-        .eq("id", projectId).single();
-
-      if (projErr || !proj) {
-        console.error(`[generate-pitch] project fetch failed: ${projErr?.message || "not found"}`);
-        return new Response(JSON.stringify({ error: "Project not found" }), {
-          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      // ── Trust model: read modality from DB, ignore body override ──
-      const { getProjectModality: gpm } = await import("../_shared/productionModality.ts");
-      dbModality = gpm(proj.project_features as Record<string, any> | null);
-      console.log(`[generate-pitch] modality_source=project_features modality=${dbModality}`);
+      // Auth + access + project fetch already done above (before auto-fields).
+      // Reuse projSupa (admin client) and projRow (project data).
+      const supa = projSupa;
+      const proj = projRow;
 
       const lane = proj?.assigned_lane || "independent-film";
 
