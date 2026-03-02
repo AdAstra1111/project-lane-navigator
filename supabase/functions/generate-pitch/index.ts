@@ -198,6 +198,20 @@ serve(async (req) => {
 
           if (typeLabel) castQuery = castQuery.eq("production_type", typeLabel);
 
+          // ── Modality-aware cast_trends filtering ──
+          // If dbModality is set and not live_action, use it to scope/weight cast trends
+          if (dbModality && dbModality !== "live_action") {
+            // Map modality → production_type filter for cast_trends
+            // animation → filter to animation; hybrid → include both (no extra filter, broader pool)
+            if (dbModality === "animation") {
+              castQuery = castQuery.eq("production_type", "animation");
+              console.log(`[generate-pitch] cast_trends: modality_filter=animation`);
+            } else {
+              // hybrid: no additional filter — broader pool captures both
+              console.log(`[generate-pitch] cast_trends: modality_filter=hybrid (no restriction)`);
+            }
+          }
+
           // Region scoping: prefer region from manual_criteria or hardCriteria
           const effectiveRegion = (manual_criteria as any)?.region || hardCriteria?.region || region || "";
           if (effectiveRegion && effectiveRegion.toLowerCase() !== "global") {
@@ -389,6 +403,39 @@ serve(async (req) => {
       const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
       const supa = createClient(supabaseUrl, supabaseKey);
 
+      // ── Auth: derive user via Supabase Auth (canonical pattern) ──
+      const authHeader = req.headers.get("Authorization") || "";
+      let requestUserId: string | null = null;
+      if (authHeader.startsWith("Bearer ")) {
+        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+        const sbUser = createClient(supabaseUrl, anonKey, {
+          global: { headers: { Authorization: authHeader } },
+        });
+        const { data: userData, error: authErr } = await sbUser.auth.getUser();
+        if (!authErr && userData?.user) {
+          requestUserId = userData.user.id;
+        }
+      }
+      if (!requestUserId) {
+        console.warn(`[generate-pitch] auth_failed: could not derive user from token`);
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      console.log(`[generate-pitch] auth=user_scoped user_id=${requestUserId}`);
+
+      // ── Authz: canonical has_project_access RPC (same as 30+ other edge functions) ──
+      const { data: hasAccess, error: accessErr } = await supa.rpc("has_project_access", {
+        _user_id: requestUserId,
+        _project_id: projectId,
+      });
+      if (accessErr || !hasAccess) {
+        console.warn(`[generate-pitch] access_denied user=${requestUserId} project=${projectId} err=${accessErr?.message || "no access"}`);
+        return new Response(JSON.stringify({ error: "Forbidden: no project access" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       const { data: proj, error: projErr } = await supa.from("projects")
         .select("assigned_lane, signals_influence, signals_apply, production_format, project_features, user_id")
         .eq("id", projectId).single();
@@ -398,47 +445,6 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "Project not found" }), {
           status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
-      }
-
-      // ── Ownership enforcement: derive user via Supabase Auth (canonical pattern) ──
-      const authHeader = req.headers.get("Authorization") || "";
-      let requestUserId: string | null = null;
-      if (authHeader.startsWith("Bearer ")) {
-        const { createClient: createAuthClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-        const sbUser = createAuthClient(supabaseUrl, anonKey, {
-          global: { headers: { Authorization: authHeader } },
-        });
-        const { data: userData, error: authErr } = await sbUser.auth.getUser();
-        if (!authErr && userData?.user) {
-          requestUserId = userData.user.id;
-        }
-      }
-
-      if (!requestUserId) {
-        console.warn(`[generate-pitch] auth_failed: could not derive user from token`);
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      console.log(`[generate-pitch] auth=user_scoped user_id=${requestUserId}`);
-
-      // Verify ownership or collaboration access via direct DB check
-      if (proj.user_id !== requestUserId) {
-        // Check collaborators table as fallback
-        const { data: collab } = await supa.from("project_collaborators")
-          .select("id")
-          .eq("project_id", projectId)
-          .eq("user_id", requestUserId)
-          .eq("status", "accepted")
-          .limit(1)
-          .maybeSingle();
-        if (!collab) {
-          console.warn(`[generate-pitch] ownership_denied user=${requestUserId} project=${projectId} owner=${proj.user_id}`);
-          return new Response(JSON.stringify({ error: "Forbidden: no project access" }), {
-            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
       }
 
       // ── Trust model: read modality from DB, ignore body override ──

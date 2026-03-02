@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Calculator, Edit2, Save, X } from 'lucide-react';
+import { Calculator, Edit2, Save, X, Layers } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useBudgetAssumptions } from '@/hooks/usePromotionModules';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
+import {
+  getProjectModality,
+  MODALITY_LABELS,
+  MODALITY_COST_FACTORS,
+  isAnimationModality,
+  type ProductionModality,
+} from '@/config/productionModality';
 
 interface Props { projectId: string; }
 
@@ -15,7 +24,25 @@ export function BudgetAssumptionsPanel({ projectId }: Props) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, any>>({});
 
+  // Fetch project modality for overlay
+  const { data: modality } = useQuery({
+    queryKey: ['project-modality', projectId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('projects')
+        .select('project_features')
+        .eq('id', projectId)
+        .single();
+      return getProjectModality(data?.project_features as Record<string, any> | null);
+    },
+    enabled: !!projectId,
+  });
+
   if (!assumptions) return null;
+
+  const effectiveModality: ProductionModality = modality || 'live_action';
+  const showOverlay = isAnimationModality(effectiveModality);
+  const factors = MODALITY_COST_FACTORS[effectiveModality];
 
   const startEdit = () => {
     setForm({
@@ -45,6 +72,14 @@ export function BudgetAssumptionsPanel({ projectId }: Props) {
     { key: 'vfx_level', label: 'VFX Level', type: 'select', options: ['none', 'light', 'moderate', 'heavy'] },
     { key: 'cast_level', label: 'Cast Level', type: 'text' },
   ];
+
+  // Compute modality-adjusted values (display only, not persisted)
+  const adjustedSchedule = assumptions.schedule_weeks
+    ? Math.round(assumptions.schedule_weeks * factors.schedule_multiplier * 10) / 10
+    : null;
+  const adjustedEstimate = assumptions.estimated_total
+    ? Math.round(assumptions.estimated_total * factors.crew_cost_multiplier * factors.post_multiplier)
+    : null;
 
   return (
     <Card className="border-border/30">
@@ -106,6 +141,33 @@ export function BudgetAssumptionsPanel({ projectId }: Props) {
         </div>
         {assumptions.notes && !editing && (
           <p className="text-xs text-muted-foreground mt-3 italic">{assumptions.notes}</p>
+        )}
+
+        {/* ── Modality Overlay (deterministic, display-only) ── */}
+        {showOverlay && (
+          <div className="mt-4 p-3 rounded-md border border-accent/30 bg-accent/5">
+            <div className="flex items-center gap-2 mb-2">
+              <Layers className="h-3.5 w-3.5 text-accent-foreground" />
+              <span className="text-xs font-semibold text-accent-foreground">
+                Modality Overlay: {MODALITY_LABELS[effectiveModality]}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+              <div>Schedule ×{factors.schedule_multiplier}{adjustedSchedule != null && ` → ${adjustedSchedule} wks`}</div>
+              <div>Crew Cost ×{factors.crew_cost_multiplier}</div>
+              <div>Location ×{factors.location_multiplier}</div>
+              <div>Post ×{factors.post_multiplier}</div>
+              <div>VFX ×{factors.vfx_multiplier}</div>
+              {adjustedEstimate != null && (
+                <div className="col-span-2 font-medium text-foreground">
+                  Adjusted Est: {assumptions.currency || '$'}{adjustedEstimate.toLocaleString()}
+                </div>
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1 italic">
+              Overlay only — base assumptions unchanged. Multipliers from MODALITY_COST_FACTORS.
+            </p>
+          </div>
         )}
       </CardContent>
     </Card>
