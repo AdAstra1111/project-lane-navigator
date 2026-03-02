@@ -1070,6 +1070,11 @@ export default function ProjectDevelopmentEngine() {
           seedLoading={seedStatus.isLoading}
         />
 
+        {/* World Rules — shown in Simple mode when comparables exist or rulesetUserId available */}
+        {rulesetUserId && projectId && (
+          <WorldRulesAccordion projectId={projectId} lane={rulesetLane} userId={rulesetUserId} />
+        )}
+
         {/* Decision surface — only shown when engine is BLOCKED in clean mode */}
         {autoRun.job?.awaiting_approval && (() => {
           const jobHasDecisions = Array.isArray(autoRun.job?.pending_decisions) && (autoRun.job!.pending_decisions as any[]).length > 0;
