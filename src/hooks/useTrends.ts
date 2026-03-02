@@ -118,6 +118,7 @@ export const PRODUCTION_TYPE_TREND_CATEGORIES: Record<string, { label: string; s
   'proof-of-concept': { label: 'Proof of Concept', storyCategories: ['Lab Cycles', 'Investor Appetite', 'IP Demonstration', 'Technology Trends', 'Development Deals'], castLabel: 'Emerging Talent' },
   hybrid: { label: 'Hybrid', storyCategories: ['Cross-Platform', 'Immersive Tech', 'Innovation Funds', 'Experiential Demand', 'Transmedia'], castLabel: 'Creative Leads' },
   'vertical-drama': { label: 'Vertical Drama', storyCategories: ['Platform Algorithm', 'Scroll Retention', 'Genre Momentum', 'Cast Social Value', 'Brand Integration', 'Global Expansion'], castLabel: 'Talent & Creator Trends' },
+  animation: { label: 'Animation', storyCategories: ['IP & Franchise', 'Visual Style', 'Platform Demand', 'Audience Demographics', 'Co-Production'], castLabel: 'Talent Trends' },
 };
 
 export const TARGET_BUYER_OPTIONS: Record<string, { value: string; label: string }[]> = {
