@@ -1923,7 +1923,7 @@ export default function ProjectDevelopmentEngine() {
               <CanonicalQualificationsPanel projectId={projectId!} />
             </TabsContent>
 
-            <TabsContent value="autorun" className="mt-3">
+            <TabsContent value="autorun" id="autorun-mission-control" className="mt-3">
               <AutoRunMissionControl
                 projectId={projectId!}
                 currentDeliverable={selectedDeliverableType}
