@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
+import { normalizeProductionType, REQUIRED_TREND_TYPES } from "../_shared/trendsNormalize.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,13 +52,39 @@ serve(async (req) => {
       });
     }
 
-    // Parse request body for optional production_type filter
+    // Parse request body for optional production_type filter + scope
     let productionType: string | null = null;
+    let scope: string = "all";
     try {
       const body = await req.json();
       productionType = body.production_type || null;
+      scope = body.scope || "all";
     } catch {
       // No body or invalid JSON — refresh all types
+    }
+
+    // scope='required_types' → loop all required types sequentially
+    if (scope === "required_types" && !productionType) {
+      const results: any[] = [];
+      for (const reqType of REQUIRED_TREND_TYPES) {
+        console.log(`[refresh-trends] scope=required_types, refreshing: ${reqType}`);
+        // Recursive call via fetch to self
+        const selfUrl = `${supabaseUrl}/functions/v1/refresh-trends`;
+        try {
+          const subRes = await fetch(selfUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: authHeader },
+            body: JSON.stringify({ production_type: reqType, scope: "one" }),
+          });
+          const subData = await subRes.json();
+          results.push({ production_type: reqType, ...subData });
+        } catch (e: any) {
+          results.push({ production_type: reqType, error: e.message });
+        }
+      }
+      return new Response(JSON.stringify({ ok: true, scope: "required_types", results }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const typeFilter = productionType ? ` for production_type="${productionType}"` : "";
@@ -343,7 +370,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       format_tags: s.format_tags || [],
       region: s.region || "International",
       lane_relevance: s.lane_relevance || [],
-      production_type: productionType || s.production_type || "film",
+      production_type: normalizeProductionType(s.production_type, productionType),
       strength: Math.min(10, Math.max(1, parseInt(s.strength) || 5)),
       velocity: ["Rising", "Stable", "Declining"].includes(s.velocity) ? s.velocity : "Stable",
       saturation_risk: ["Low", "Medium", "High"].includes(s.saturation_risk) ? s.saturation_risk : "Low",
@@ -366,7 +393,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       cycle_phase: c.cycle_phase || "Early",
       sales_leverage: c.sales_leverage || "",
       timing_window: c.timing_window || "",
-      production_type: productionType || c.production_type || "film",
+      production_type: normalizeProductionType(c.production_type, productionType),
       strength: Math.min(10, Math.max(1, parseInt(c.strength) || 5)),
       velocity: ["Rising", "Stable", "Declining"].includes(c.velocity) ? c.velocity : "Stable",
       saturation_risk: ["Low", "Medium", "High"].includes(c.saturation_risk) ? c.saturation_risk : "Low",

@@ -342,6 +342,22 @@ export function useActiveCastTrends(filters?: CastFilters) {
   });
 }
 
+export function useCastTrendsCount(productionType?: string) {
+  return useQuery({
+    queryKey: ['cast-trends', 'count', productionType],
+    queryFn: async () => {
+      let query = supabase
+        .from('cast_trends')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active');
+      if (productionType) query = query.eq('production_type', productionType);
+      const { count, error } = await query;
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+}
+
 export function useArchivedCastTrends(productionType?: string) {
   return useQuery({
     queryKey: ['cast-trends', 'archived', productionType],
