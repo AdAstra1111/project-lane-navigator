@@ -98,13 +98,16 @@ import { StyleSourcesPanel } from '@/components/devengine/StyleSourcesPanel';
 import { StyleScoreBadge, StyleEvalPanel } from '@/components/devengine/StyleEvalPanel';
 import { AutopilotPanel } from '@/components/dev/AutopilotPanel';
 import { DevEngineSimpleView } from '@/components/devengine/DevEngineSimpleView';
+import { EngineBar, deriveExecutionMode, type ExecutionMode } from '@/components/devengine/EngineBar';
+import { useUIMode } from '@/hooks/useUIMode';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const viewMode = searchParams.get('mode') === 'simple' ? 'simple' : 'advanced';
+  const { mode: uiMode, setMode: setUIMode } = useUIMode();
+  const viewMode = uiMode; // 'simple' = clean, 'advanced' = full telemetry
   const qc = useQueryClient();
   const VALID_TABS = new Set(['notes', 'issues', 'convergence', 'qualifications', 'autorun', 'series-scripts', 'criteria', 'package', 'canon', 'provenance', 'scenes', 'quality', 'docsets', 'timeline']);
   const initialTab = (() => { const t = searchParams.get('tab'); return t && VALID_TABS.has(t) ? t : 'notes'; })();
@@ -994,21 +997,25 @@ export default function ProjectDevelopmentEngine() {
     <>
     <div className="max-w-[1800px] mx-auto px-4 py-4 space-y-3">
 
-      {/* ═══ MODE TOGGLE + CONTEXT BADGES ═══ */}
+      {/* ═══ ENGINE BAR — canonical source of truth ═══ */}
+      <EngineBar
+        job={autoRun.job}
+        isRunning={autoRun.isRunning}
+        uiMode={viewMode}
+        onToggleMode={() => setUIMode(viewMode === 'simple' ? 'advanced' : 'simple')}
+        executionMode={deriveExecutionMode(autoRun.job)}
+        onSetExecutionMode={(mode: ExecutionMode) => {
+          if (!autoRun.job?.id) return;
+          const allowDefaults = mode === 'full_autopilot' || mode === 'assisted';
+          autoRun.toggleAllowDefaults?.(allowDefaults);
+        }}
+        onPause={autoRun.pause}
+        onResume={() => autoRun.resume?.()}
+        onStop={autoRun.stop}
+      />
+
+      {/* ═══ CONTEXT BADGES ═══ */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <Button
-          variant={viewMode === 'simple' ? 'default' : 'outline'}
-          size="sm"
-          className="h-6 text-[10px] px-2"
-          onClick={() => {
-            setSearchParams(prev => {
-              prev.set('mode', viewMode === 'simple' ? 'advanced' : 'simple');
-              return prev;
-            });
-          }}
-        >
-          {viewMode === 'simple' ? '◆ Simple' : '○ Simple'}
-        </Button>
         <Badge variant="outline" className={`text-[10px] ${BEHAVIOR_COLORS[projectBehavior]}`}>
           {BEHAVIOR_LABELS[projectBehavior]}
         </Badge>
@@ -1039,6 +1046,8 @@ export default function ProjectDevelopmentEngine() {
 
       {/* ═══ SIMPLE MODE / ADVANCED MODE ═══ */}
       {viewMode === 'simple' ? (
+        <>
+        {/* ═══ CLEAN MODE: Simplified workspace with EngineBar + document + decisions only when blocked ═══ */}
         <DevEngineSimpleView
           projectId={projectId!}
           projectTitle={(project as any)?.title || ''}
@@ -1060,6 +1069,45 @@ export default function ProjectDevelopmentEngine() {
           seedDocs={seedStatus.docs}
           seedLoading={seedStatus.isLoading}
         />
+
+        {/* Decision surface — only shown when engine is BLOCKED in clean mode */}
+        {autoRun.job?.awaiting_approval && (() => {
+          const jobHasDecisions = Array.isArray(autoRun.job?.pending_decisions) && (autoRun.job!.pending_decisions as any[]).length > 0;
+          if (!jobHasDecisions) return null;
+          const decisions = (autoRun.job!.pending_decisions as any[]).map((d: any) => ({
+            note_id: d.id,
+            severity: d.impact === 'blocking' ? 'blocker' as const : 'high' as const,
+            note: d.question,
+            options: d.options?.map((o: any) => ({
+              option_id: o.value,
+              title: o.value,
+              what_changes: [o.why],
+            })),
+            recommended_option_id: d.recommended,
+          }));
+          return (
+            <DecisionModePanel
+              projectId={projectId!}
+              documentId={selectedDocId}
+              versionId={selectedVersionId}
+              documentText={versionText}
+              docType={selectedDoc?.doc_type}
+              versionNumber={selectedVersion?.version_number}
+              updatedAt={selectedVersion?.created_at}
+              decisions={decisions}
+              globalDirections={[]}
+              jobId={autoRun.job?.id}
+              isAutoRunPaused={autoRun.job?.status === 'paused'}
+              onRewriteComplete={() => {
+                invalidateDevEngine(qc, { projectId, docId: selectedDocId, versionId: selectedVersionId, deep: true });
+              }}
+              onAutoRunContinue={(opts, gd) => autoRun.applyDecisionsAndContinue?.(opts, gd)}
+              availableVersions={versions?.map((v: any) => ({ id: v.id, version_number: v.version_number, label: v.label }))}
+              hideApplyButton={!autoRun.job?.id}
+            />
+          );
+        })()}
+        </>
       ) : (
       <div data-devengine-advanced-wrapper>
       {/* ═══ SEED APPLIED BANNER ═══ */}
