@@ -99,6 +99,8 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
   // Full Autopilot mode — auto-approve all gates + decisions
   const [fullAutopilot, setFullAutopilot] = useState(false);
   const autoApprovedGateRef = useRef<string | null>(null);
+  const runNextInFlightRef = useRef(false);
+  const lastRunNextKickRef = useRef(0);
 
   // Next Actions state
   const [hasComparables, setHasComparables] = useState<boolean | null>(null);
@@ -196,6 +198,56 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
     const interval = setInterval(fetchAutoRunStatus, 5000);
     return () => clearInterval(interval);
   }, [autoRunJob?.status, autoRunJob?.awaiting_approval, fetchAutoRunStatus]);
+
+  // Keep the ladder advancing from this panel (recover from stale processing locks)
+  useEffect(() => {
+    if (!autoRunJob?.id) return;
+    if (!['queued', 'running'].includes(autoRunJob.status)) return;
+    if (autoRunJob.awaiting_approval) return;
+
+    const toMs = (value?: string | null) => {
+      if (!value) return 0;
+      const ts = new Date(value).getTime();
+      return Number.isFinite(ts) ? ts : 0;
+    };
+
+    const lastSignalAt = Math.max(
+      toMs(autoRunJob.last_heartbeat_at),
+      toMs(autoRunJob.last_step_at),
+      toMs(autoRunJob.updated_at),
+    );
+
+    const staleMs = Date.now() - lastSignalAt;
+    const shouldKick = !autoRunJob.is_processing || staleMs > 30000;
+    if (!shouldKick) return;
+    if (runNextInFlightRef.current) return;
+    if (Date.now() - lastRunNextKickRef.current < 3500) return;
+
+    const timer = setTimeout(async () => {
+      if (runNextInFlightRef.current) return;
+      runNextInFlightRef.current = true;
+      lastRunNextKickRef.current = Date.now();
+      try {
+        const tickResult = await callAutoRun('run-next', { jobId: autoRunJob.id });
+        if (mountedRef.current && tickResult?.job) setAutoRunJob(tickResult.job);
+      } catch {
+        void fetchAutoRunStatus();
+      } finally {
+        runNextInFlightRef.current = false;
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [
+    autoRunJob?.id,
+    autoRunJob?.status,
+    autoRunJob?.awaiting_approval,
+    autoRunJob?.is_processing,
+    autoRunJob?.last_heartbeat_at,
+    autoRunJob?.last_step_at,
+    autoRunJob?.updated_at,
+    fetchAutoRunStatus,
+  ]);
 
   // ═══ Check comparables ═══
   useEffect(() => {
@@ -388,6 +440,14 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
     } catch { /* non-fatal */ }
   }, [autoRunJob?.id]);
 
+  // Keep local toggle synced with persisted job setting (refresh-safe)
+  useEffect(() => {
+    if (!autoRunJob) return;
+    if (typeof autoRunJob.allow_defaults === 'boolean') {
+      setFullAutopilot(autoRunJob.allow_defaults);
+    }
+  }, [autoRunJob?.id, autoRunJob?.allow_defaults]);
+
   // Auto-approve gates when Full Autopilot is ON
   useEffect(() => {
     if (!fullAutopilot || !autoRunJob) { autoApprovedGateRef.current = null; return; }
@@ -413,7 +473,16 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
         } catch { /* non-fatal */ }
       }
     })();
-  }, [fullAutopilot, autoRunJob?.id, autoRunJob?.awaiting_approval, autoRunJob?.approval_type, autoRunJob?.pending_version_id, autoRunJob?.updated_at]);
+  }, [
+    fullAutopilot,
+    autoRunJob?.id,
+    autoRunJob?.awaiting_approval,
+    autoRunJob?.approval_type,
+    autoRunJob?.pending_version_id,
+    autoRunJob?.pending_doc_id,
+    autoRunJob?.updated_at,
+    projectId,
+  ]);
 
   // Auto-resume from decision pauses when Full Autopilot is ON
   useEffect(() => {
