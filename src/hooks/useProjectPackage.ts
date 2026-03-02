@@ -91,10 +91,10 @@ export function useProjectPackage(projectId: string | undefined) {
 
       if (projErr) throw projErr;
 
-      const format: string = project?.format || 'film';
+      const format: string = project?.format || '';
       const pipelineStage: string = project?.pipeline_stage || 'development';
       const projectTitle: string = project?.title || 'Project';
-      const ladder = getLadderForFormat(format);
+      const ladder = getLadderForFormat(format) ?? [];
 
       // 2. Fetch all project_documents for this project
       const { data: docs } = await (supabase as any)

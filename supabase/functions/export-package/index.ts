@@ -34,8 +34,9 @@ const FORMAT_LADDERS: Record<string, string[]> = {
 };
 
 function getLadder(format: string): string[] {
-  const key = (format || "film").toLowerCase().replace(/[_ ]+/g, "-");
-  return FORMAT_LADDERS[key] ?? FORMAT_LADDERS["film"];
+  const key = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, "-");
+  if (!key) return [];
+  return FORMAT_LADDERS[key] ?? [];
 }
 
 function toLabel(docType: string, format?: string): string {

@@ -15,9 +15,12 @@ const DOC_TYPE_ALIASES: Record<string, string> = ladderData.DOC_TYPE_ALIASES as 
 
 /**
  * Get the pipeline stages for a given format.
+ * Normalizes format key. Returns empty array if format unknown (fail closed).
  */
 export function getPipelineForFormat(format: string): string[] {
-  return FORMAT_LADDERS[format] || FORMAT_LADDERS['feature'] || [];
+  const key = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, '-');
+  if (!key) return [];
+  return FORMAT_LADDERS[key] ?? [];
 }
 
 /**
