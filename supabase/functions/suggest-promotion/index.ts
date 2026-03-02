@@ -14,7 +14,7 @@ type DocStage = (typeof LADDER)[number];
 const FORMAT_SCRIPT_TYPE: Record<string, string> = {
   film: "feature_script", feature: "feature_script", short: "feature_script", animation: "feature_script",
   "tv-series": "episode_script", "limited-series": "episode_script", "digital-series": "episode_script",
-  "vertical-drama": "episode_script", "anim-series": "episode_script", reality: "episode_script",
+  "vertical-drama": "season_script", "anim-series": "episode_script", reality: "episode_script",
 };
 
 function getScriptTypeForFormat(format: string): string {

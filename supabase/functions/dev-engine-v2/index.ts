@@ -980,7 +980,7 @@ const FORMAT_EXPECTATIONS: Record<string, string> = {
 
 // ── Format-specific document ladders ──
 const FORMAT_LADDERS: Record<string, string[]> = {
-  "vertical-drama": ["idea", "topline_narrative", "concept_brief", "vertical_market_sheet", "format_rules", "character_bible", "season_arc", "episode_grid", "vertical_episode_beats", "episode_script"],
+  "vertical-drama": ["idea", "topline_narrative", "concept_brief", "vertical_market_sheet", "format_rules", "character_bible", "season_arc", "episode_grid", "vertical_episode_beats", "season_script", "season_master_script"],
   "tv-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "episode_script", "production_draft"],
   "limited-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "episode_script", "production_draft"],
   "digital-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "episode_script", "production_draft"],
@@ -1008,9 +1008,10 @@ const DOC_TYPE_REMAP: Record<string, Record<string, string>> = {
     architecture: "episode_grid",
     beat_sheet: "vertical_episode_beats",
     market_sheet: "vertical_market_sheet",
-    production_draft: "episode_script",
-    script: "episode_script",
-    feature_script: "episode_script",
+    production_draft: "season_script",
+    script: "season_script",
+    feature_script: "season_script",
+    episode_script: "season_script",
   },
   "documentary": {
     blueprint: "documentary_outline",
@@ -1489,7 +1490,7 @@ const docTypeMap: Record<string, string> = {
   "CHARACTER BIBLE": "character_bible",
   BEAT_SHEET: "beat_sheet",
   "BEAT SHEET": "beat_sheet",
-  SCRIPT: "feature_script",
+  SCRIPT: "feature_script", // NOTE: format-aware guard below remaps for VD
   PILOT_SCRIPT: "episode_script",
   "PILOT SCRIPT": "episode_script",
   PRODUCTION_DRAFT: "production_draft",
@@ -1506,7 +1507,7 @@ const docTypeMap: Record<string, string> = {
   "EPISODE OUTLINE": "treatment",
   "EPISODE_BEAT_SHEET": "vertical_episode_beats",
   "EPISODE BEAT SHEET": "vertical_episode_beats",
-  DRAFT_SCRIPT: "feature_script",
+  DRAFT_SCRIPT: "feature_script", // NOTE: format-aware guard below remaps for VD
   FORMAT_RULES: "format_rules",
   "FORMAT RULES": "format_rules",
   SEASON_ARC: "season_arc",
@@ -1539,7 +1540,7 @@ const VERTICAL_DRAMA_PIPELINE: Array<{ type: string; prerequisites: string[] }> 
   { type: "season_arc", prerequisites: ["concept_brief", "character_bible"] },
   { type: "episode_grid", prerequisites: ["season_arc"] },
   { type: "vertical_episode_beats", prerequisites: ["season_arc", "episode_grid"] },
-  { type: "script", prerequisites: ["vertical_episode_beats"] },
+  { type: "season_script", prerequisites: ["vertical_episode_beats"] },
 ];
 
 function resolveVerticalDramaNextStep(
@@ -3702,12 +3703,28 @@ MATERIAL:\n${version.plaintext}`;
       }
 
       // ── Resolve doc type early so large-risk check can use it ──
-      const VALID_DELIVERABLES_SET = new Set(["idea","topline_narrative","concept_brief","market_sheet","treatment","story_outline","character_bible","beat_sheet","feature_script","episode_script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats","season_master_script","vertical_market_sheet"]);
+      const VALID_DELIVERABLES_SET = new Set(["idea","topline_narrative","concept_brief","market_sheet","treatment","story_outline","character_bible","beat_sheet","feature_script","episode_script","season_script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats","season_master_script","vertical_market_sheet"]);
       let resolvedDocType = docTypeMap[targetOutput] || docTypeMap[normalizedTarget] || docTypeMap[(targetOutput || "").toUpperCase()] || "other";
       if (resolvedDocType === "other") {
         const aggressive = (targetOutput || "").toLowerCase().replace(/[\s\-()0-9]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
         const fuzzy = [...VALID_DELIVERABLES_SET].find(d => aggressive.includes(d) || d.includes(aggressive));
         resolvedDocType = fuzzy || "feature_script";
+      }
+
+      // ── FORMAT-AWARE GUARD: prevent feature_script for vertical-drama ──
+      {
+        const { data: guardProj } = await supabase.from("projects").select("format").eq("id", projectId).single();
+        const guardFmt = (guardProj?.format || "").toLowerCase().replace(/[_ ]+/g, "-");
+        if (guardFmt === "vertical-drama" && resolvedDocType === "feature_script") {
+          console.warn(`[dev-engine-v2] GUARD: Blocked feature_script for vertical-drama project ${projectId}, remapping to season_script`);
+          resolvedDocType = "season_script";
+        }
+        // Apply DOC_TYPE_REMAP for any format mismatch
+        const remap = DOC_TYPE_REMAP[guardFmt];
+        if (remap && remap[resolvedDocType]) {
+          console.log(`[dev-engine-v2] convert: Remapping ${resolvedDocType} → ${remap[resolvedDocType]} for format ${guardFmt}`);
+          resolvedDocType = remap[resolvedDocType];
+        }
       }
 
       // ── Non-episodic large-risk doc: redirect to generate-document for chunked pipeline ──
@@ -3775,7 +3792,7 @@ MATERIAL:\n${version.plaintext}`;
         .select("drift_snapshot").eq("id", versionId).single();
       const upstreamCore = (upstreamVersion?.drift_snapshot as any)?.extracted_core || {};
 
-      const resolvedDeliverable = resolvedDocType === "other" ? "feature_script" : resolvedDocType;
+      const resolvedDeliverable = resolvedDocType === "other" ? resolvedDocType : resolvedDocType; // guard already applied above
       // Dependency tracking for converted version
       const CONVERT_DEP_TYPES = new Set(["deck", "character_bible", "beat_sheet", "feature_script", "episode_script", "treatment", "story_outline"]);
       const convertDepFields = CONVERT_DEP_TYPES.has(resolvedDeliverable)

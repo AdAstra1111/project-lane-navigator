@@ -2789,6 +2789,7 @@ Deno.serve(async (req) => {
             const { data: proj } = await supabase.from("projects")
               .select("format").eq("id", job.project_id).single();
             const fmt = (proj?.format || "film").toLowerCase().replace(/_/g, "-");
+            const isVD = fmt === "vertical-drama";
             const isSeries = ["tv-series","limited-series","vertical-drama","digital-series","documentary-series","anim-series"].includes(fmt);
 
             const keys = [ver.deliverable_type, parentDoc?.doc_type].filter(Boolean);
@@ -2806,7 +2807,9 @@ Deno.serve(async (req) => {
               };
               if (KEY_MAP_LOCAL[norm]) {
                 docTypeKey = KEY_MAP_LOCAL[norm];
-                if (isSeries && docTypeKey === "feature_script") docTypeKey = "episode_script";
+                // Format-aware script type guard
+                if (isVD && docTypeKey === "feature_script") docTypeKey = "season_script";
+                else if (isSeries && !isVD && docTypeKey === "feature_script") docTypeKey = "episode_script";
                 break;
               }
             }
