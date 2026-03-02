@@ -1,25 +1,17 @@
 import type { WritingLaneGroup, WritingVoicePreset } from './types';
 import { WRITING_VOICE_PRESETS } from './presets';
+import {
+  getDefaultWritingVoiceForLane,
+  getWritingLaneGroup,
+  normalizeWritingLane,
+} from '../../../supabase/functions/_shared/writingVoiceResolver';
 
 export function normalizeLane(lane: string): string {
-  return (lane || '').toLowerCase().replace(/[-_\s]+/g, '');
+  return normalizeWritingLane(lane);
 }
 
 export function getLaneGroup(lane: string): WritingLaneGroup {
-  const n = normalizeLane(lane);
-  if (
-    n.includes('verticaldrama') ||
-    n.includes('fastturnaround') ||
-    n === 'vertical'
-  ) return 'vertical';
-  if (n.includes('documentary')) return 'documentary';
-  if (
-    n.includes('series') ||
-    n === 'tvseries' ||
-    n === 'limitedseries' ||
-    n === 'digitalseries'
-  ) return 'series';
-  return 'feature';
+  return getWritingLaneGroup(lane) as WritingLaneGroup;
 }
 
 export function getVoiceOptionsForLane(lane: string): WritingVoicePreset[] {
@@ -29,5 +21,6 @@ export function getVoiceOptionsForLane(lane: string): WritingVoicePreset[] {
 
 export function getDefaultVoiceForLane(lane: string): WritingVoicePreset {
   const options = getVoiceOptionsForLane(lane);
-  return options[0];
+  const canonical = getDefaultWritingVoiceForLane(lane);
+  return options.find(o => o.id === canonical.id) || options[0];
 }
