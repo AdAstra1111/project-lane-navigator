@@ -122,17 +122,20 @@ serve(async (req) => {
       });
     }
 
-    // ── Global cooldown check (one cooldown for ALL types) ──
+    // ── Per-type cooldown check ──
     const requestedTypes = productionType ? [productionType] : [...REQUIRED_TREND_TYPES];
     const cooldownHours = COOLDOWN_HOURS[trigger] || COOLDOWN_HOURS.manual;
 
     if (!force) {
       const cooldownCutoff = new Date(Date.now() - cooldownHours * 3600_000).toISOString();
+      // Check runs that completed THIS specific type (not global)
+      const typesToCheck = productionType ? [productionType] : [...REQUIRED_TREND_TYPES];
       const { data: recentRuns } = await supabase
         .from("trend_refresh_runs")
-        .select("id, created_at")
+        .select("id, created_at, completed_types")
         .eq("ok", true)
         .gte("created_at", cooldownCutoff)
+        .contains("completed_types", typesToCheck)
         .order("created_at", { ascending: false })
         .limit(1);
 
@@ -141,11 +144,11 @@ serve(async (req) => {
         const nextAllowed = new Date(new Date(lastRunAt).getTime() + cooldownHours * 3600_000).toISOString();
         return new Response(JSON.stringify({
           error: "COOLDOWN_ACTIVE",
-          production_type: productionType || "__global__",
+          production_type: productionType || "all",
           last_run_at: lastRunAt,
           next_allowed_at: nextAllowed,
           cooldown_hours: cooldownHours,
-          cooldown_scope: "global",
+          cooldown_scope: productionType ? "per-type" : "all",
           trigger,
         }), {
           status: 429,
