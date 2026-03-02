@@ -28,7 +28,7 @@ export function TrendsPageShell({ title, subtitle, badge, rightSlot, controls, c
               {badge && (
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">{badge}</span>
               )}
-              <h1 className="text-2xl sm:text-3xl font-display font-bold text-foreground tracking-tight leading-tight">{title}</h1>
+              <h1 className="text-xl sm:text-2xl font-display font-bold text-foreground tracking-tight leading-tight">{title}</h1>
               {subtitle && (
                 <p className="text-sm text-muted-foreground mt-0.5 leading-snug">{subtitle}</p>
               )}

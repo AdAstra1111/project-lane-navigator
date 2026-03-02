@@ -51,7 +51,7 @@ export default function TrendsExplorer() {
     return [...allSignals].sort((a, b) => b.strength - a.strength).slice(0, 10);
   }, [allSignals]);
 
-  const typeConfig = PRODUCTION_TYPE_TREND_CATEGORIES[selectedType];
+  const typeConfig = PRODUCTION_TYPE_TREND_CATEGORIES[effectiveFilter] || PRODUCTION_TYPE_TREND_CATEGORIES[selectedType];
 
   return (
     <TrendsPageShell
