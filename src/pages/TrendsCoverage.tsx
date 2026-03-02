@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, RefreshCw, Zap } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, RefreshCw, Zap, Clock, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
@@ -17,11 +17,24 @@ interface CoverageData {
   ts: string;
 }
 
+interface LastRun {
+  id: string;
+  created_at: string;
+  trigger: string;
+  completed_types: string[];
+  citations_total: number;
+  signals_total: number;
+  cast_total: number;
+}
+
 export default function TrendsCoverage() {
   const [data, setData] = useState<CoverageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
+  const [refreshingAll, setRefreshingAll] = useState(false);
+  const [lastRun, setLastRun] = useState<LastRun | null>(null);
+  const [cooldownError, setCooldownError] = useState<string | null>(null);
   const { toast } = useToast();
 
   const fetchCoverage = async () => {
@@ -42,26 +55,77 @@ export default function TrendsCoverage() {
     }
   };
 
-  useEffect(() => { fetchCoverage(); }, []);
+  const fetchLastRun = async () => {
+    try {
+      const { data: runs } = await supabase
+        .from('trend_refresh_runs' as any)
+        .select('id, created_at, trigger, completed_types, citations_total, signals_total, cast_total')
+        .eq('ok', true)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (runs && runs.length > 0) {
+        setLastRun(runs[0] as any);
+      }
+    } catch {
+      // Non-critical
+    }
+  };
+
+  useEffect(() => { fetchCoverage(); fetchLastRun(); }, []);
 
   const handleRefreshAll = async () => {
     setRefreshing(true);
+    setCooldownError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       for (const type of data?.required_types || []) {
-        await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/refresh-trends`, {
+        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/refresh-trends`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
           body: JSON.stringify({ production_type: type, scope: 'one' }),
         });
+        if (res.status === 429) {
+          const errData = await res.json();
+          setCooldownError(`${type}: cooldown active until ${new Date(errData.next_allowed_at).toLocaleString()}`);
+          continue;
+        }
       }
       toast({ title: 'Refresh complete', description: 'All required types refreshed.' });
-      await fetchCoverage();
+      await Promise.all([fetchCoverage(), fetchLastRun()]);
     } catch (e: any) {
       toast({ title: 'Refresh failed', description: e.message, variant: 'destructive' });
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleRefreshRequiredTypes = async () => {
+    setRefreshingAll(true);
+    setCooldownError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scheduled-refresh-trends`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ trigger: 'manual' }),
+      });
+      const result = await res.json();
+      // Check for cooldown errors in results
+      const cooldowns = Object.entries(result.results || {})
+        .filter(([, r]: [string, any]) => r.status === 429)
+        .map(([type]: [string, any]) => type);
+      if (cooldowns.length > 0) {
+        setCooldownError(`Cooldown active for: ${cooldowns.join(', ')}`);
+      }
+      const successCount = Object.values(result.results || {}).filter((r: any) => r.ok).length;
+      toast({ title: 'Refresh complete', description: `${successCount}/${Object.keys(result.results || {}).length} types refreshed.` });
+      await Promise.all([fetchCoverage(), fetchLastRun()]);
+    } catch (e: any) {
+      toast({ title: 'Refresh failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setRefreshingAll(false);
     }
   };
 
@@ -78,7 +142,7 @@ export default function TrendsCoverage() {
       if (!res.ok) throw new Error(await res.text());
       const result = await res.json();
       toast({ title: 'Backfill complete', description: `Attempted: ${result.attempted?.join(', ') || 'none'}` });
-      await fetchCoverage();
+      await Promise.all([fetchCoverage(), fetchLastRun()]);
     } catch (e: any) {
       toast({ title: 'Backfill failed', description: e.message, variant: 'destructive' });
     } finally {
@@ -95,20 +159,47 @@ export default function TrendsCoverage() {
       subtitle="Audit production_type coverage across trend_signals and cast_trends."
       rightSlot={
         <div className="flex items-center gap-2 flex-wrap">
+          <Button size="sm" onClick={handleRefreshRequiredTypes} disabled={refreshingAll} className="h-8 text-xs">
+            <Activity className={`h-3.5 w-3.5 mr-1 ${refreshingAll ? 'animate-pulse' : ''}`} />
+            {refreshingAll ? 'Refreshing…' : 'Refresh Required Types'}
+          </Button>
           <Button variant="outline" size="sm" onClick={handleRefreshAll} disabled={refreshing} className="h-8 text-xs">
             <RefreshCw className={`h-3.5 w-3.5 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
             {refreshing ? 'Refreshing…' : 'Refresh All'}
           </Button>
           {hasMissing && (
-            <Button size="sm" onClick={handleBackfill} disabled={backfilling} className="h-8 text-xs">
+            <Button variant="outline" size="sm" onClick={handleBackfill} disabled={backfilling} className="h-8 text-xs">
               <Zap className={`h-3.5 w-3.5 mr-1 ${backfilling ? 'animate-pulse' : ''}`} />
               {backfilling ? 'Backfilling…' : 'Backfill Missing'}
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={fetchCoverage} disabled={loading} className="h-8 text-xs">Reload</Button>
+          <Button variant="ghost" size="sm" onClick={() => { fetchCoverage(); fetchLastRun(); }} disabled={loading} className="h-8 text-xs">Reload</Button>
         </div>
       }
     >
+      {/* Last Refresh Run */}
+      {lastRun && (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground rounded-lg border border-border/30 px-3 py-2 bg-muted/20 flex-wrap">
+          <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
+          <span>Last refresh: <span className="font-medium text-foreground">{new Date(lastRun.created_at).toLocaleString()}</span></span>
+          <Badge variant="outline" className="text-[10px] h-5">{lastRun.trigger}</Badge>
+          <span>{lastRun.completed_types?.length || 0} types</span>
+          <span>·</span>
+          <span>{lastRun.signals_total} signals</span>
+          <span>·</span>
+          <span>{lastRun.cast_total} cast</span>
+          <span>·</span>
+          <span>{lastRun.citations_total} citations</span>
+        </div>
+      )}
+
+      {/* Cooldown warning */}
+      {cooldownError && (
+        <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/5 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400">
+          <span className="font-medium">Cooldown:</span> {cooldownError}
+        </div>
+      )}
+
       {/* Missing alert */}
       {hasMissing && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 space-y-2">

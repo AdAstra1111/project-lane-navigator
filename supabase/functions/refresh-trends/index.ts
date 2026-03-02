@@ -16,10 +16,32 @@ function getFormatBucketFromProdType(pt: string): string {
   return "film";
 }
 
+// Cooldown windows in hours per trigger type
+const COOLDOWN_HOURS: Record<string, number> = {
+  manual: 6,
+  backfill: 1,
+  scheduled: 144, // 6 days
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  // Ping
+  if (req.method === "GET") {
+    return new Response(JSON.stringify({ ok: true, build: "refresh-trends-v2" }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
+  const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  let runId: string | null = null;
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -29,14 +51,6 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
-
-    const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Verify the user
     const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
@@ -52,15 +66,19 @@ serve(async (req) => {
       });
     }
 
-    // Parse request body for optional production_type filter + scope
+    // Parse request body
     let productionType: string | null = null;
     let scope: string = "all";
+    let trigger: string = "manual";
+    let force = false;
     try {
       const body = await req.json();
       productionType = body.production_type || null;
       scope = body.scope || "all";
+      trigger = body.trigger || "manual";
+      force = !!body.force;
     } catch {
-      // No body or invalid JSON — refresh all types
+      // No body or invalid JSON
     }
 
     // scope='required_types' → loop all required types sequentially
@@ -68,16 +86,15 @@ serve(async (req) => {
       const results: any[] = [];
       for (const reqType of REQUIRED_TREND_TYPES) {
         console.log(`[refresh-trends] scope=required_types, refreshing: ${reqType}`);
-        // Recursive call via fetch to self
         const selfUrl = `${supabaseUrl}/functions/v1/refresh-trends`;
         try {
           const subRes = await fetch(selfUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: authHeader },
-            body: JSON.stringify({ production_type: reqType, scope: "one" }),
+            body: JSON.stringify({ production_type: reqType, scope: "one", trigger }),
           });
           const subData = await subRes.json();
-          results.push({ production_type: reqType, ...subData });
+          results.push({ production_type: reqType, status: subRes.status, ...subData });
         } catch (e: any) {
           results.push({ production_type: reqType, error: e.message });
         }
@@ -87,12 +104,66 @@ serve(async (req) => {
       });
     }
 
+    // ── Cooldown check ──
+    const requestedTypes = productionType ? [productionType] : [...REQUIRED_TREND_TYPES];
+    const cooldownHours = COOLDOWN_HOURS[trigger] || COOLDOWN_HOURS.manual;
+
+    if (!force && productionType) {
+      const cooldownCutoff = new Date(Date.now() - cooldownHours * 3600_000).toISOString();
+      const { data: recentRuns } = await supabase
+        .from("trend_refresh_runs")
+        .select("id, created_at")
+        .eq("ok", true)
+        .contains("completed_types", [productionType])
+        .gte("created_at", cooldownCutoff)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (recentRuns && recentRuns.length > 0) {
+        const lastRunAt = recentRuns[0].created_at;
+        const nextAllowed = new Date(new Date(lastRunAt).getTime() + cooldownHours * 3600_000).toISOString();
+        return new Response(JSON.stringify({
+          error: "COOLDOWN_ACTIVE",
+          production_type: productionType,
+          last_run_at: lastRunAt,
+          next_allowed_at: nextAllowed,
+          cooldown_hours: cooldownHours,
+          trigger,
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // ── Create run log entry ──
+    const { data: runRow, error: runInsertErr } = await supabase
+      .from("trend_refresh_runs")
+      .insert({
+        trigger,
+        scope: productionType ? "one" : scope,
+        requested_types: requestedTypes,
+        model_trends: "google/gemini-2.5-flash",
+        model_grounding: PERPLEXITY_API_KEY ? "perplexity/sonar" : null,
+        recency_filter: "week",
+        ok: false,
+      })
+      .select("id")
+      .single();
+
+    if (runInsertErr) {
+      console.error("[refresh-trends] Failed to create run log:", runInsertErr);
+    } else {
+      runId = runRow.id;
+    }
+    console.log(`[refresh-trends] run_id=${runId} trigger=${trigger} types=${requestedTypes.join(",")}`);
+
     const typeFilter = productionType ? ` for production_type="${productionType}"` : "";
     const typeInstruction = productionType
       ? `IMPORTANT: Generate signals ONLY for production_type = "${productionType}". Every signal must have production_type set to "${productionType}".`
       : `Distribute signals across production types: film, tv-series, documentary, commercial, branded-content, music-video, short-film, digital-series, vertical-drama.`;
 
-    // Fetch existing signals for context (filtered if production_type provided)
+    // Fetch existing signals for context
     let signalQuery = supabase
       .from("trend_signals")
       .select("name, category, cycle_phase, status")
@@ -139,7 +210,6 @@ serve(async (req) => {
           perplexityMarketData = pData.choices?.[0]?.message?.content || "";
           console.log("Perplexity market intelligence fetched successfully");
 
-          // Extract citations from Perplexity response
           const rawCitations: string[] = pData.citations || [];
           const seenUrls = new Set<string>();
           for (const item of rawCitations) {
@@ -157,7 +227,6 @@ serve(async (req) => {
               });
             } catch {}
           }
-          // Limit to 8
           perplexityCitations = perplexityCitations.slice(0, 8);
           console.log(`[refresh-trends] Extracted ${perplexityCitations.length} citations from Perplexity`);
         }
@@ -170,7 +239,6 @@ serve(async (req) => {
       ? `\n\n=== REAL-TIME MARKET INTELLIGENCE (from live web search) ===\n${perplexityMarketData}\n=== END MARKET INTELLIGENCE ===\n\nIMPORTANT: Use the above real-time data to ground your signals in current reality. Prioritize trends that are confirmed by this research.`
       : "";
 
-    // Build vertical-drama-specific prompt additions
     const isVerticalDrama = productionType === "vertical-drama";
     const verticalDramaContext = isVerticalDrama
       ? `\n\nThis is VERTICAL DRAMA — short-form, mobile-first narrative content for platforms like TikTok, ReelShort, DramaBox, ShortTV, GoodShort. Focus on:
@@ -306,12 +374,14 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
     if (!signalResponse.ok || !castResponse.ok) {
       const status = !signalResponse.ok ? signalResponse.status : castResponse.status;
       if (status === 429) {
+        if (runId) await supabase.from("trend_refresh_runs").update({ ok: false, error: "AI rate limit 429" }).eq("id", runId);
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       if (status === 402) {
+        if (runId) await supabase.from("trend_refresh_runs").update({ ok: false, error: "AI credits exhausted 402" }).eq("id", runId);
         return new Response(JSON.stringify({ error: "AI credits exhausted. Please top up your workspace." }), {
           status: 402,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -328,16 +398,13 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
 
     const parseJson = (raw: string) => {
       let cleaned = raw.trim();
-      // Strip any markdown code fences (```json ... ``` or ``` ... ```)
       cleaned = cleaned.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "");
-      // If still not starting with [ or {, try to find the first array/object
       if (!cleaned.startsWith("[") && !cleaned.startsWith("{")) {
         const arrStart = cleaned.indexOf("[");
         const objStart = cleaned.indexOf("{");
         const start = arrStart >= 0 && objStart >= 0 ? Math.min(arrStart, objStart) : Math.max(arrStart, objStart);
         if (start >= 0) cleaned = cleaned.slice(start);
       }
-      // Trim trailing content after last ] or }
       const lastBracket = Math.max(cleaned.lastIndexOf("]"), cleaned.lastIndexOf("}"));
       if (lastBracket >= 0) cleaned = cleaned.slice(0, lastBracket + 1);
       return JSON.parse(cleaned);
@@ -381,7 +448,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
     await archiveSignalQuery;
     await archiveCastQuery;
 
-    // Insert new signals
+    // Insert new signals with refresh_run_id
     const signalRows = newSignals.map((s: any) => ({
       name: s.name || "Unnamed Signal",
       category: s.category || "Narrative",
@@ -404,6 +471,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       first_detected_at: now,
       last_updated_at: now,
       source_citations: perplexityCitations.length > 0 ? perplexityCitations : null,
+      refresh_run_id: runId || undefined,
     }));
 
     const castRows = newCast.map((c: any) => ({
@@ -428,6 +496,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       first_detected_at: now,
       last_updated_at: now,
       source_citations: perplexityCitations.length > 0 ? perplexityCitations : null,
+      refresh_run_id: runId || undefined,
     }));
 
     const { data: insertedSignals, error: signalInsertErr } = await supabase.from("trend_signals").insert(signalRows).select("id, name, genre_tags, tone_tags, format_tags, production_type, strength, velocity");
@@ -440,6 +509,17 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
     if (castInsertErr) {
       console.error("Cast insert error:", castInsertErr);
       throw new Error("Failed to save cast trends");
+    }
+
+    // ── Update run log with success ──
+    if (runId) {
+      await supabase.from("trend_refresh_runs").update({
+        ok: true,
+        completed_types: requestedTypes,
+        citations_total: perplexityCitations.length,
+        signals_total: signalRows.length,
+        cast_total: castRows.length,
+      }).eq("id", runId);
     }
 
     // ── Write trend_observations from generated signals ──
@@ -546,13 +626,21 @@ Write in direct, professional prose. No bullet points, no headers. Just a tight 
         cast_updated: castRows.length,
         production_type: productionType || "all",
         refreshed_at: now,
+        run_id: runId,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
     console.error("refresh-trends error:", e);
+    // Update run log on failure
+    if (runId) {
+      await supabase.from("trend_refresh_runs").update({
+        ok: false,
+        error: e instanceof Error ? e.message : "Unknown error",
+      }).eq("id", runId).catch(() => {});
+    }
     return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
+      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error", run_id: runId }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

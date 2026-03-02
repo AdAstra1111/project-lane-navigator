@@ -1294,6 +1294,7 @@ export type Database = {
           last_updated_at: string
           market_alignment: string
           production_type: string
+          refresh_run_id: string | null
           region: string
           sales_leverage: string
           saturation_risk: string
@@ -1320,6 +1321,7 @@ export type Database = {
           last_updated_at?: string
           market_alignment?: string
           production_type?: string
+          refresh_run_id?: string | null
           region?: string
           sales_leverage?: string
           saturation_risk?: string
@@ -1346,6 +1348,7 @@ export type Database = {
           last_updated_at?: string
           market_alignment?: string
           production_type?: string
+          refresh_run_id?: string | null
           region?: string
           sales_leverage?: string
           saturation_risk?: string
@@ -1357,7 +1360,15 @@ export type Database = {
           trend_type?: string
           velocity?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "cast_trends_refresh_run_id_fkey"
+            columns: ["refresh_run_id"]
+            isOneToOne: false
+            referencedRelation: "trend_refresh_runs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       cinematic_quality_attempts: {
         Row: {
@@ -20537,6 +20548,60 @@ export type Database = {
         }
         Relationships: []
       }
+      trend_refresh_runs: {
+        Row: {
+          cast_total: number
+          citations_total: number
+          completed_types: string[]
+          created_at: string
+          error: string | null
+          id: string
+          meta: Json
+          model_grounding: string | null
+          model_trends: string | null
+          ok: boolean
+          recency_filter: string | null
+          requested_types: string[]
+          scope: string
+          signals_total: number
+          trigger: string
+        }
+        Insert: {
+          cast_total?: number
+          citations_total?: number
+          completed_types?: string[]
+          created_at?: string
+          error?: string | null
+          id?: string
+          meta?: Json
+          model_grounding?: string | null
+          model_trends?: string | null
+          ok?: boolean
+          recency_filter?: string | null
+          requested_types?: string[]
+          scope?: string
+          signals_total?: number
+          trigger?: string
+        }
+        Update: {
+          cast_total?: number
+          citations_total?: number
+          completed_types?: string[]
+          created_at?: string
+          error?: string | null
+          id?: string
+          meta?: Json
+          model_grounding?: string | null
+          model_trends?: string | null
+          ok?: boolean
+          recency_filter?: string | null
+          requested_types?: string[]
+          scope?: string
+          signals_total?: number
+          trigger?: string
+        }
+        Relationships: []
+      }
       trend_signals: {
         Row: {
           archived_at: string | null
@@ -20558,6 +20623,7 @@ export type Database = {
           last_updated_at: string
           name: string
           production_type: string
+          refresh_run_id: string | null
           region: string
           saturation_risk: string
           source_citations: Json | null
@@ -20589,6 +20655,7 @@ export type Database = {
           last_updated_at?: string
           name: string
           production_type?: string
+          refresh_run_id?: string | null
           region?: string
           saturation_risk?: string
           source_citations?: Json | null
@@ -20620,6 +20687,7 @@ export type Database = {
           last_updated_at?: string
           name?: string
           production_type?: string
+          refresh_run_id?: string | null
           region?: string
           saturation_risk?: string
           source_citations?: Json | null
@@ -20631,7 +20699,15 @@ export type Database = {
           tone_tags?: string[]
           velocity?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "trend_signals_refresh_run_id_fkey"
+            columns: ["refresh_run_id"]
+            isOneToOne: false
+            referencedRelation: "trend_refresh_runs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       trend_weekly_briefs: {
         Row: {
