@@ -48,7 +48,7 @@ export function AnimationMetaEditor({ projectId, meta }: Props) {
       const { data, error } = await supabase.functions.invoke('apply-project-change', {
         body: {
           projectId,
-          changes: {
+          patch: {
             project_features: {
               animation_genre_primary: primary,
               animation_style: style,
@@ -59,10 +59,17 @@ export function AnimationMetaEditor({ projectId, meta }: Props) {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
+
+      // Log server response for traceability
+      if (data?.patched_keys) console.log('[AnimationMetaEditor] patched_keys:', data.patched_keys);
+      if (data?.stale_doc_types?.length) console.log('[AnimationMetaEditor] stale_docs:', data.stale_doc_types);
+
       toast.success('Animation metadata updated');
       qc.invalidateQueries({ queryKey: ['projects'] });
+      qc.invalidateQueries({ queryKey: ['pitch-ideas'] });
     } catch (e: any) {
-      toast.error(e.message || 'Failed to save');
+      console.error('[AnimationMetaEditor] save failed:', e);
+      toast.error(e.message || 'Failed to save animation metadata');
     } finally {
       setSaving(false);
     }
