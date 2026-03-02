@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { initEditedFields, normalizePitchCriteria, type EditedFieldsMap } from '@/lib/pitch/normalizePitchCriteria';
 import { motion } from 'framer-motion';
 import { Lightbulb, Loader2, Download, RefreshCw, Globe } from 'lucide-react';
@@ -39,6 +39,23 @@ export default function PitchIdeas() {
   const [globalModality, setGlobalModality] = useState<ProductionModality>('live_action');
 
   const isProjectMode = !!selectedProject && selectedProject !== '__none__';
+
+  // Auto-set modality to animation when Genre = "Animation" in global mode
+  useEffect(() => {
+    if (isProjectMode) return;
+    const g = (criteria.genre || '').trim().toLowerCase();
+    if (g === 'animation' && globalModality === 'live_action') {
+      setGlobalModality('animation');
+    }
+  }, [isProjectMode, criteria.genre, globalModality]);
+
+  // Clear stale animation meta when modality returns to live_action in global mode
+  useEffect(() => {
+    if (isProjectMode) return;
+    if (globalModality === 'live_action') {
+      setGlobalAnimMeta({ primary: null, tags: [], style: null });
+    }
+  }, [isProjectMode, globalModality]);
   const linkedProject = isProjectMode ? projects.find(p => p.id === selectedProject) : null;
   const projectFeatures = (linkedProject as any)?.project_features as Record<string, any> | null | undefined;
 
