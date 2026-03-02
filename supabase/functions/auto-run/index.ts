@@ -2953,8 +2953,11 @@ Deno.serve(async (req) => {
       doc = docs?.[0];
       if (!doc) {
         // Fallback: find the closest previous stage document
-        const jobLadder = getLadderForJob(format);
-        const ladderIdx = jobLadder.indexOf(currentDoc);
+        // Fetch format early for ladder lookup (full const declared later at line ~2988)
+        const { data: projFmt } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
+        const earlyFormat = (projFmt?.format || "film").toLowerCase().replace(/_/g, "-");
+        const jobLadder = getLadderForJob(earlyFormat);
+        const ladderIdx = jobLadder ? jobLadder.indexOf(currentDoc) : -1;
         for (let i = ladderIdx - 1; i >= 0; i--) {
           const { data: fallbackDocs } = await supabase.from("project_documents")
             .select("id, doc_type, plaintext, extracted_text")
