@@ -151,14 +151,14 @@ serve(async (req) => {
       try {
         const embedding = await createEmbedding(embeddingText, lovableKey);
 
-        const { error: insertErr } = await sb.from("project_vectors").insert({
-          project_id: projectId,
-          vector_type: vectorType,
-          embedding: JSON.stringify(embedding),
-          embedding_model: EMBEDDING_MODEL,
-          source_hash: hash,
-          source_len: embeddingText.length,
-          source_meta: {
+        const { data: newId, error: insertErr } = await sb.rpc("insert_project_vector", {
+          _project_id: projectId,
+          _vector_type: vectorType,
+          _embedding: embedding,
+          _embedding_model: EMBEDDING_MODEL,
+          _source_hash: hash,
+          _source_len: embeddingText.length,
+          _source_meta: {
             source_preview: embeddingText.slice(0, 200),
             generated_at: new Date().toISOString(),
             provider: "lovable_ai_gateway",
@@ -168,6 +168,9 @@ serve(async (req) => {
 
         if (insertErr) {
           details.push({ vector_type: vectorType, status: "error", error: insertErr.message });
+        } else if (newId === null) {
+          details.push({ vector_type: vectorType, status: "skipped", reason: "same_hash_in_db" });
+          skippedCount++;
         } else {
           details.push({ vector_type: vectorType, status: "created", hash, len: embeddingText.length });
           createdCount++;

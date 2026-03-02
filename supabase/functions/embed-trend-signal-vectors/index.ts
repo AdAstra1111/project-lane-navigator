@@ -88,16 +88,13 @@ serve(async (req) => {
       try {
         const embedding = await createEmbedding(embeddingText, lovableKey);
 
-        const { error: updateErr } = await sb
-          .from("trend_signals")
-          .update({
-            embedding: JSON.stringify(embedding),
-            embedding_model: EMBEDDING_MODEL,
-            embedding_text_hash: hash,
-            embedding_text_len: embeddingText.length,
-            last_updated_at: new Date().toISOString(),
-          })
-          .eq("id", signal.id);
+        const { data: updated, error: updateErr } = await sb.rpc("upsert_trend_signal_embedding", {
+          _signal_id: signal.id,
+          _embedding: embedding,
+          _embedding_model: EMBEDDING_MODEL,
+          _embedding_text_hash: hash,
+          _embedding_text_len: embeddingText.length,
+        });
 
         if (updateErr) {
           details.push({ id: signal.id, name: signal.name, status: "error", error: updateErr.message });
