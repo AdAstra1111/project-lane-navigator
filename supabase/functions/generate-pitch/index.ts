@@ -206,6 +206,12 @@ serve(async (req) => {
       // e) Derive animation meta from DB project_features
       dbAnimMeta = getAnimationMeta(projRow.project_features as Record<string, any> | null);
       console.log(`[generate-pitch] anim_meta primary=${dbAnimMeta.primary || "none"} tags_count=${dbAnimMeta.tags.length} style=${dbAnimMeta.style || "none"}`);
+    } else {
+      // Global mode: consume body.animationMeta (validated against canonical lists)
+      if (body.animationMeta && typeof body.animationMeta === "object") {
+        dbAnimMeta = getAnimationMeta(body.animationMeta);
+        console.log(`[generate-pitch] anim_meta_source=request_body primary=${dbAnimMeta.primary || "none"} tags_count=${dbAnimMeta.tags.length} style=${dbAnimMeta.style || "none"}`);
+      }
     }
     // ── Auto-fields: resolve via fallback ladder (deterministic, no LLM) ──
     let autoFieldsBlock = "";
