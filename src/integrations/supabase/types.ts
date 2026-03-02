@@ -1101,6 +1101,33 @@ export type Database = {
           },
         ]
       }
+      buyer_profiles: {
+        Row: {
+          buyer_key: string
+          created_at: string
+          description: string
+          embedding: string | null
+          id: string
+          risk_profile: number | null
+        }
+        Insert: {
+          buyer_key: string
+          created_at?: string
+          description: string
+          embedding?: string | null
+          id?: string
+          risk_profile?: number | null
+        }
+        Update: {
+          buyer_key?: string
+          created_at?: string
+          description?: string
+          embedding?: string | null
+          id?: string
+          risk_profile?: number | null
+        }
+        Relationships: []
+      }
       canon_facts: {
         Row: {
           confidence: number
@@ -5812,6 +5839,30 @@ export type Database = {
         }
         Relationships: []
       }
+      format_archetypes: {
+        Row: {
+          created_at: string
+          description: string
+          embedding: string | null
+          format_key: string
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          embedding?: string | null
+          format_key: string
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          embedding?: string | null
+          format_key?: string
+          id?: string
+        }
+        Relationships: []
+      }
       format_profiles: {
         Row: {
           created_at: string
@@ -6448,6 +6499,149 @@ export type Database = {
         }
         Relationships: []
       }
+      intel_alerts: {
+        Row: {
+          delivered_at: string
+          event_id: string
+          id: string
+          status: string
+          surface: string
+        }
+        Insert: {
+          delivered_at?: string
+          event_id: string
+          id?: string
+          status?: string
+          surface: string
+        }
+        Update: {
+          delivered_at?: string
+          event_id?: string
+          id?: string
+          status?: string
+          surface?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intel_alerts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "intel_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      intel_events: {
+        Row: {
+          created_at: string
+          event_fingerprint: string
+          event_type: string
+          id: string
+          payload: Json
+          project_id: string | null
+          severity: string
+          status: string
+          surface: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_fingerprint: string
+          event_type: string
+          id?: string
+          payload: Json
+          project_id?: string | null
+          severity: string
+          status?: string
+          surface?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_fingerprint?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+          project_id?: string | null
+          severity?: string
+          status?: string
+          surface?: string | null
+        }
+        Relationships: []
+      }
+      intel_policies: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          policy: Json
+          priority: number
+          scope_key: string
+          scope_type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          policy: Json
+          priority?: number
+          scope_key: string
+          scope_type: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          policy?: Json
+          priority?: number
+          scope_key?: string
+          scope_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      intel_runs: {
+        Row: {
+          created_at: string
+          engine_name: string
+          error: string | null
+          id: string
+          model_grounding: string | null
+          model_synthesis: string | null
+          ok: boolean
+          requested_filters: Json | null
+          scope: string
+          stats: Json | null
+          trigger: string
+        }
+        Insert: {
+          created_at?: string
+          engine_name: string
+          error?: string | null
+          id?: string
+          model_grounding?: string | null
+          model_synthesis?: string | null
+          ok?: boolean
+          requested_filters?: Json | null
+          scope: string
+          stats?: Json | null
+          trigger: string
+        }
+        Update: {
+          created_at?: string
+          engine_name?: string
+          error?: string | null
+          id?: string
+          model_grounding?: string | null
+          model_synthesis?: string | null
+          ok?: boolean
+          requested_filters?: Json | null
+          scope?: string
+          stats?: Json | null
+          trigger?: string
+        }
+        Relationships: []
+      }
       interview_subjects: {
         Row: {
           access_status: string | null
@@ -6510,6 +6704,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      lane_profiles: {
+        Row: {
+          budget_max: number | null
+          budget_min: number | null
+          created_at: string
+          description: string
+          embedding: string | null
+          heat_preference: number | null
+          id: string
+          lane_key: string
+          risk_tolerance: number | null
+        }
+        Insert: {
+          budget_max?: number | null
+          budget_min?: number | null
+          created_at?: string
+          description: string
+          embedding?: string | null
+          heat_preference?: number | null
+          id?: string
+          lane_key: string
+          risk_tolerance?: number | null
+        }
+        Update: {
+          budget_max?: number | null
+          budget_min?: number | null
+          created_at?: string
+          description?: string
+          embedding?: string | null
+          heat_preference?: number | null
+          id?: string
+          lane_key?: string
+          risk_tolerance?: number | null
+        }
+        Relationships: []
       }
       legal_flags: {
         Row: {
@@ -10759,6 +10989,65 @@ export type Database = {
           },
         ]
       }
+      project_intel_alignment: {
+        Row: {
+          alignment_score: number | null
+          breakdown: Json | null
+          buyer_fit_scores: Json | null
+          contrarian_score: number | null
+          convergence_matches: Json | null
+          created_at: string
+          format_fit_scores: Json | null
+          id: string
+          lane_fit_scores: Json | null
+          opportunity_score: number | null
+          project_id: string
+          risk_score: number | null
+          run_id: string | null
+          top_signal_ids: string[] | null
+        }
+        Insert: {
+          alignment_score?: number | null
+          breakdown?: Json | null
+          buyer_fit_scores?: Json | null
+          contrarian_score?: number | null
+          convergence_matches?: Json | null
+          created_at?: string
+          format_fit_scores?: Json | null
+          id?: string
+          lane_fit_scores?: Json | null
+          opportunity_score?: number | null
+          project_id: string
+          risk_score?: number | null
+          run_id?: string | null
+          top_signal_ids?: string[] | null
+        }
+        Update: {
+          alignment_score?: number | null
+          breakdown?: Json | null
+          buyer_fit_scores?: Json | null
+          contrarian_score?: number | null
+          convergence_matches?: Json | null
+          created_at?: string
+          format_fit_scores?: Json | null
+          id?: string
+          lane_fit_scores?: Json | null
+          opportunity_score?: number | null
+          project_id?: string
+          risk_score?: number | null
+          run_id?: string | null
+          top_signal_ids?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_intel_alignment_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "intel_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_invite_links: {
         Row: {
           created_at: string
@@ -12421,6 +12710,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      project_vectors: {
+        Row: {
+          created_at: string
+          embedding: string | null
+          embedding_model: string | null
+          id: string
+          project_id: string
+          vector_type: string
+        }
+        Insert: {
+          created_at?: string
+          embedding?: string | null
+          embedding_model?: string | null
+          id?: string
+          project_id: string
+          vector_type: string
+        }
+        Update: {
+          created_at?: string
+          embedding?: string | null
+          embedding_model?: string | null
+          id?: string
+          project_id?: string
+          vector_type?: string
+        }
+        Relationships: []
       }
       project_waterfall_rules: {
         Row: {
@@ -20611,6 +20927,8 @@ export type Database = {
           created_at: string
           cycle_phase: string
           description: string
+          embedding: string | null
+          embedding_model: string | null
           example_titles: Json
           explanation: string
           first_detected_at: string
@@ -20619,6 +20937,7 @@ export type Database = {
           format_tags: string[]
           genre_tags: string[]
           id: string
+          intel_run_id: string | null
           lane_relevance: string[]
           last_updated_at: string
           name: string
@@ -20631,6 +20950,7 @@ export type Database = {
           sources_used: Json
           status: string
           strength: number
+          tags: string[] | null
           target_buyer: string
           tone_tags: string[]
           velocity: string
@@ -20643,6 +20963,8 @@ export type Database = {
           created_at?: string
           cycle_phase: string
           description?: string
+          embedding?: string | null
+          embedding_model?: string | null
           example_titles?: Json
           explanation: string
           first_detected_at?: string
@@ -20651,6 +20973,7 @@ export type Database = {
           format_tags?: string[]
           genre_tags?: string[]
           id?: string
+          intel_run_id?: string | null
           lane_relevance?: string[]
           last_updated_at?: string
           name: string
@@ -20663,6 +20986,7 @@ export type Database = {
           sources_used?: Json
           status?: string
           strength?: number
+          tags?: string[] | null
           target_buyer?: string
           tone_tags?: string[]
           velocity?: string
@@ -20675,6 +20999,8 @@ export type Database = {
           created_at?: string
           cycle_phase?: string
           description?: string
+          embedding?: string | null
+          embedding_model?: string | null
           example_titles?: Json
           explanation?: string
           first_detected_at?: string
@@ -20683,6 +21009,7 @@ export type Database = {
           format_tags?: string[]
           genre_tags?: string[]
           id?: string
+          intel_run_id?: string | null
           lane_relevance?: string[]
           last_updated_at?: string
           name?: string
@@ -20695,11 +21022,19 @@ export type Database = {
           sources_used?: Json
           status?: string
           strength?: number
+          tags?: string[] | null
           target_buyer?: string
           tone_tags?: string[]
           velocity?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "trend_signals_intel_run_id_fkey"
+            columns: ["intel_run_id"]
+            isOneToOne: false
+            referencedRelation: "intel_runs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "trend_signals_refresh_run_id_fkey"
             columns: ["refresh_run_id"]
