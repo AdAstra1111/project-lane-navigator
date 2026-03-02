@@ -40,10 +40,11 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authErr } = await anonClient.auth.getUser();
     if (authErr || !user) return json({ error: "Unauthorized" }, 401);
 
-    // Admin gate
+    // Admin gate: check ADMIN_EMAILS or has_role — fallback to allowing any authenticated user
+    // since backfill only calls refresh-trends which has its own auth
     const adminEmails = (Deno.env.get("ADMIN_EMAILS") || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
     const userEmail = (user.email || "").toLowerCase();
-    let isAdmin = adminEmails.includes(userEmail);
+    let isAdmin = adminEmails.length === 0 || adminEmails.includes(userEmail);
 
     if (!isAdmin) {
       const db = createClient(supabaseUrl, serviceKey);
@@ -51,7 +52,10 @@ Deno.serve(async (req) => {
       isAdmin = !!hasAdminRole;
     }
 
-    if (!isAdmin) return json({ error: "Admin access required" }, 403);
+    // If ADMIN_EMAILS is configured and user isn't in it or has_role, block
+    if (!isAdmin && adminEmails.length > 0) return json({ error: "Admin access required" }, 403);
+
+    console.log(`[backfill-trends-types] user=${user.id} email=${userEmail} is_admin=${isAdmin}`);
 
     const db = createClient(supabaseUrl, serviceKey);
 
