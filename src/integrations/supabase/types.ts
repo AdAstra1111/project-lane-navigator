@@ -6531,6 +6531,97 @@ export type Database = {
           },
         ]
       }
+      intel_convergence_state: {
+        Row: {
+          contributing_citations: Json | null
+          contributing_signal_ids: string[]
+          contributing_signal_names: string[]
+          created_at: string
+          id: string
+          key: string
+          last_seen_at: string
+          observations: number
+          score: number
+          updated_at: string
+          week_bucket: string
+        }
+        Insert: {
+          contributing_citations?: Json | null
+          contributing_signal_ids?: string[]
+          contributing_signal_names?: string[]
+          created_at?: string
+          id?: string
+          key: string
+          last_seen_at?: string
+          observations?: number
+          score?: number
+          updated_at?: string
+          week_bucket: string
+        }
+        Update: {
+          contributing_citations?: Json | null
+          contributing_signal_ids?: string[]
+          contributing_signal_names?: string[]
+          created_at?: string
+          id?: string
+          key?: string
+          last_seen_at?: string
+          observations?: number
+          score?: number
+          updated_at?: string
+          week_bucket?: string
+        }
+        Relationships: []
+      }
+      intel_event_links: {
+        Row: {
+          cast_id: string | null
+          created_at: string
+          event_id: string
+          id: string
+          meta: Json | null
+          signal_id: string | null
+        }
+        Insert: {
+          cast_id?: string | null
+          created_at?: string
+          event_id: string
+          id?: string
+          meta?: Json | null
+          signal_id?: string | null
+        }
+        Update: {
+          cast_id?: string | null
+          created_at?: string
+          event_id?: string
+          id?: string
+          meta?: Json | null
+          signal_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intel_event_links_cast_id_fkey"
+            columns: ["cast_id"]
+            isOneToOne: false
+            referencedRelation: "cast_trends"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intel_event_links_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "intel_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intel_event_links_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "trend_signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       intel_events: {
         Row: {
           created_at: string
@@ -20927,6 +21018,7 @@ export type Database = {
           created_at: string
           cycle_phase: string
           description: string
+          dimension: string | null
           embedding: string | null
           embedding_model: string | null
           example_titles: Json
@@ -20940,19 +21032,24 @@ export type Database = {
           intel_run_id: string | null
           lane_relevance: string[]
           last_updated_at: string
+          modality: string | null
           name: string
+          narrative_tags: string[]
           production_type: string
           refresh_run_id: string | null
           region: string
           saturation_risk: string
+          signal_tags: string[]
           source_citations: Json | null
           sources_count: number
           sources_used: Json
           status: string
           strength: number
+          style_tags: string[]
           tags: string[] | null
           target_buyer: string
           tone_tags: string[]
+          updated_bucket: string | null
           velocity: string
         }
         Insert: {
@@ -20963,6 +21060,7 @@ export type Database = {
           created_at?: string
           cycle_phase: string
           description?: string
+          dimension?: string | null
           embedding?: string | null
           embedding_model?: string | null
           example_titles?: Json
@@ -20976,19 +21074,24 @@ export type Database = {
           intel_run_id?: string | null
           lane_relevance?: string[]
           last_updated_at?: string
+          modality?: string | null
           name: string
+          narrative_tags?: string[]
           production_type?: string
           refresh_run_id?: string | null
           region?: string
           saturation_risk?: string
+          signal_tags?: string[]
           source_citations?: Json | null
           sources_count?: number
           sources_used?: Json
           status?: string
           strength?: number
+          style_tags?: string[]
           tags?: string[] | null
           target_buyer?: string
           tone_tags?: string[]
+          updated_bucket?: string | null
           velocity?: string
         }
         Update: {
@@ -20999,6 +21102,7 @@ export type Database = {
           created_at?: string
           cycle_phase?: string
           description?: string
+          dimension?: string | null
           embedding?: string | null
           embedding_model?: string | null
           example_titles?: Json
@@ -21012,19 +21116,24 @@ export type Database = {
           intel_run_id?: string | null
           lane_relevance?: string[]
           last_updated_at?: string
+          modality?: string | null
           name?: string
+          narrative_tags?: string[]
           production_type?: string
           refresh_run_id?: string | null
           region?: string
           saturation_risk?: string
+          signal_tags?: string[]
           source_citations?: Json | null
           sources_count?: number
           sources_used?: Json
           status?: string
           strength?: number
+          style_tags?: string[]
           tags?: string[] | null
           target_buyer?: string
           tone_tags?: string[]
+          updated_bucket?: string | null
           velocity?: string
         }
         Relationships: [

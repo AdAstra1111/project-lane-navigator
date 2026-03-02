@@ -302,6 +302,7 @@ Regions: US, UK, Europe, Asia, LatAm, International, MENA, Africa, China
 Velocity: Rising, Stable, Declining
 Saturation Risk: Low, Medium, High
 Budget Tiers: Micro, Low, Mid, Upper-Mid, High, Studio-Scale
+Dimensions: visual_style, narrative, platform, monetization, talent, format, market_behavior, buyer_appetite
 
 For each signal provide:
 - name: concise signal name
@@ -321,6 +322,10 @@ For each signal provide:
 - forecast: one sentence 12-month outlook
 - budget_tier: one of Micro, Low, Mid, Upper-Mid, High, Studio-Scale
 - target_buyer: the primary buyer type relevant to this signal's production type
+- dimension: one of visual_style, narrative, platform, monetization, talent, format, market_behavior, buyer_appetite (REQUIRED)
+- modality: one of animation, live_action, hybrid, or null if not applicable
+- style_tags: array of visual style tags (e.g. ["anime", "painterly2d", "toon_shading"]) — empty if not visual
+- narrative_tags: array of narrative tags (e.g. ["ceo_romance", "revenge_arc", "timeloop"]) — empty if not narrative
 
 Return ONLY a JSON array of signal objects. No markdown, no explanation outside the JSON.`;
 
@@ -467,30 +472,65 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
     await archiveCastQuery;
 
     // Insert new signals with refresh_run_id
-    const signalRows = newSignals.map((s: any) => ({
-      name: s.name || "Unnamed Signal",
-      category: s.category || "Narrative",
-      cycle_phase: s.cycle_phase || "Early",
-      explanation: s.explanation || "",
-      sources_count: s.sources_count || 3,
-      genre_tags: s.genre_tags || [],
-      tone_tags: s.tone_tags || [],
-      format_tags: s.format_tags || [],
-      region: s.region || "International",
-      lane_relevance: s.lane_relevance || [],
-      production_type: normalizeProductionType(s.production_type, productionType),
-      strength: Math.min(10, Math.max(1, parseInt(s.strength) || 5)),
-      velocity: ["Rising", "Stable", "Declining"].includes(s.velocity) ? s.velocity : "Stable",
-      saturation_risk: ["Low", "Medium", "High"].includes(s.saturation_risk) ? s.saturation_risk : "Low",
-      forecast: s.forecast || "",
-      budget_tier: s.budget_tier || "",
-      target_buyer: s.target_buyer || "",
-      status: "active",
-      first_detected_at: now,
-      last_updated_at: now,
-      source_citations: perplexityCitations.length > 0 ? perplexityCitations : null,
-      refresh_run_id: runId || undefined,
-    }));
+    const VALID_DIMENSIONS = ["visual_style", "narrative", "platform", "monetization", "talent", "format", "market_behavior", "buyer_appetite"];
+    const normalizeDimension = (d: string | null): string => {
+      if (!d) return "market_behavior";
+      const n = d.toLowerCase().replace(/[\s-]+/g, "_");
+      return VALID_DIMENSIONS.includes(n) ? n : "market_behavior";
+    };
+    const normalizeModality = (m: string | null): string | null => {
+      if (!m) return null;
+      const n = m.toLowerCase().replace(/[\s-]+/g, "_");
+      if (["animation", "live_action", "hybrid"].includes(n)) return n;
+      return null;
+    };
+    const normTags = (arr: any): string[] => {
+      if (!Array.isArray(arr)) return [];
+      return arr.map((t: any) => String(t).toLowerCase().replace(/[\s-]+/g, "_")).filter(Boolean);
+    };
+
+    const signalRows = newSignals.map((s: any) => {
+      const genreTags = s.genre_tags || [];
+      const toneTags = s.tone_tags || [];
+      const formatTags = s.format_tags || [];
+      const styleTags = normTags(s.style_tags);
+      const narrativeTags = normTags(s.narrative_tags);
+      // signal_tags = union of all tag categories, normalized
+      const signalTags = [...new Set([
+        ...normTags(genreTags), ...normTags(toneTags), ...normTags(formatTags),
+        ...styleTags, ...narrativeTags,
+      ])];
+
+      return {
+        name: s.name || "Unnamed Signal",
+        category: s.category || "Narrative",
+        cycle_phase: s.cycle_phase || "Early",
+        explanation: s.explanation || "",
+        sources_count: s.sources_count || 3,
+        genre_tags: genreTags,
+        tone_tags: toneTags,
+        format_tags: formatTags,
+        region: s.region || "International",
+        lane_relevance: s.lane_relevance || [],
+        production_type: normalizeProductionType(s.production_type, productionType),
+        strength: Math.min(10, Math.max(1, parseInt(s.strength) || 5)),
+        velocity: ["Rising", "Stable", "Declining"].includes(s.velocity) ? s.velocity : "Stable",
+        saturation_risk: ["Low", "Medium", "High"].includes(s.saturation_risk) ? s.saturation_risk : "Low",
+        forecast: s.forecast || "",
+        budget_tier: s.budget_tier || "",
+        target_buyer: s.target_buyer || "",
+        status: "active",
+        first_detected_at: now,
+        last_updated_at: now,
+        source_citations: perplexityCitations.length > 0 ? perplexityCitations : null,
+        refresh_run_id: runId || undefined,
+        dimension: normalizeDimension(s.dimension),
+        modality: normalizeModality(s.modality),
+        style_tags: styleTags,
+        narrative_tags: narrativeTags,
+        signal_tags: signalTags,
+      };
+    });
 
     const castRows = newCast.map((c: any) => ({
       actor_name: c.actor_name || "Unknown",
@@ -517,7 +557,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       refresh_run_id: runId || undefined,
     }));
 
-    const { data: insertedSignals, error: signalInsertErr } = await supabase.from("trend_signals").insert(signalRows).select("id, name, genre_tags, tone_tags, format_tags, production_type, strength, velocity");
+    const { data: insertedSignals, error: signalInsertErr } = await supabase.from("trend_signals").insert(signalRows).select("id, name, genre_tags, tone_tags, format_tags, production_type, strength, velocity, dimension, modality, style_tags, narrative_tags, signal_tags");
     if (signalInsertErr) {
       console.error("Signal insert error:", signalInsertErr);
       throw new Error("Failed to save trend signals");
