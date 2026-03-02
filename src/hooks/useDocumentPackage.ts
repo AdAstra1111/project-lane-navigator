@@ -4,6 +4,8 @@ import { toast } from 'sonner';
 import { getDocPackage, getRequiredDocsForStage, getDocOrderPrefix } from '@/lib/document-packages';
 import { approveAndActivateMany } from '@/lib/active-folder/approveAndActivate';
 
+export type ConnectedReason = 'resolver_hash' | 'generator_known' | 'none';
+
 export interface PackageDocStatus {
   docType: string;
   order: number;
@@ -11,7 +13,8 @@ export interface PackageDocStatus {
   latestVersionId: string | null;
   status: 'missing' | 'draft' | 'final' | 'superseded' | 'stale';
   resolverHash: string | null;
-  hasProvenance: boolean;
+  connected: boolean;
+  connectedReason: ConnectedReason;
   exportPath: string | null;
   updatedAt: string | null;
   required: boolean;
@@ -65,7 +68,7 @@ export function useDocumentPackage(projectId: string | undefined) {
       if (docIds.length > 0) {
         const { data: versions } = await (supabase as any)
           .from('project_document_versions')
-          .select('id, status, depends_on_resolver_hash, is_stale, stale_reason, inputs_used, depends_on, generator_id, meta_json')
+          .select('id, status, depends_on_resolver_hash, is_stale, stale_reason, inputs_used, depends_on, generator_id')
           .in('id', docIds);
         versionMap = new Map((versions || []).map((v: any) => [v.id, v]));
       }
@@ -89,12 +92,17 @@ export function useDocumentPackage(projectId: string | undefined) {
           status = 'draft';
         }
 
-        // A doc has provenance if it has a resolver hash, a generator_id, or seed provenance in meta_json
-        const hasProvenance = !!(
-          version?.depends_on_resolver_hash ||
-          version?.generator_id ||
-          (version?.meta_json && typeof version.meta_json === 'object' && version.meta_json.seed_snapshot_id)
-        );
+        // Canonical connected computation — single source of truth
+        // A version is "connected" if it has a resolver hash (primary) or a known generator (persisted provenance)
+        let connected = false;
+        let connectedReason: ConnectedReason = 'none';
+        if (version?.depends_on_resolver_hash) {
+          connected = true;
+          connectedReason = 'resolver_hash';
+        } else if (version?.generator_id) {
+          connected = true;
+          connectedReason = 'generator_known';
+        }
 
         return {
           docType,
@@ -103,7 +111,8 @@ export function useDocumentPackage(projectId: string | undefined) {
           latestVersionId: doc?.latest_version_id || null,
           status,
           resolverHash: version?.depends_on_resolver_hash || null,
-          hasProvenance,
+          connected,
+          connectedReason,
           exportPath: doc?.latest_export_path || null,
           updatedAt: doc?.updated_at || null,
           required: requiredDocs.includes(docType),

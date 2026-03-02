@@ -167,6 +167,7 @@ export interface CreateVersionOpts {
   deliverableType?: string;
   dependsOn?: string[];
   dependsOnResolverHash?: string;
+  generatorId?: string;
 }
 
 /**
@@ -215,6 +216,7 @@ export async function createVersion(
   if (opts.sourceDocumentIds) insertPayload.source_document_ids = opts.sourceDocumentIds;
   if (opts.dependsOn) insertPayload.depends_on = opts.dependsOn;
   if (opts.dependsOnResolverHash) insertPayload.depends_on_resolver_hash = opts.dependsOnResolverHash;
+  if (opts.generatorId) insertPayload.generator_id = opts.generatorId;
 
   const { data: newVersion, error } = await supabase
     .from("project_document_versions")
@@ -242,6 +244,7 @@ export interface UpsertDocOpts {
   inheritedCore?: Record<string, any>;
   sourceDocumentIds?: string[];
   dependsOnResolverHash?: string;
+  generatorId?: string;
 }
 
 export async function upsertDoc(
@@ -265,6 +268,7 @@ export async function upsertDoc(
     inheritedCore: opts.inheritedCore,
     sourceDocumentIds: opts.sourceDocumentIds,
     dependsOnResolverHash: opts.dependsOnResolverHash,
+    generatorId: opts.generatorId,
   });
 
   return {

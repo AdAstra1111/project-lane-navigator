@@ -296,6 +296,7 @@ serve(async (req) => {
             approval_status: "draft",
             meta_json: provenance,
             depends_on_resolver_hash: project.resolved_qualifications_hash || null,
+            generator_id: "seed-pack",
           });
 
         if (vErr) {
@@ -339,6 +340,7 @@ serve(async (req) => {
             approval_status: "draft",
             meta_json: provenance,
             depends_on_resolver_hash: project.resolved_qualifications_hash || null,
+            generator_id: "seed-pack",
           });
 
         if (vErr) {
@@ -489,6 +491,7 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
           source: "seed",
           title: cfg.title,
           dependsOnResolverHash: project.resolved_qualifications_hash || undefined,
+          generatorId: "seed-pack",
         });
 
         if (result.isNewDoc) {
