@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Radio, AlertTriangle, CheckCircle2, RefreshCw, Zap } from 'lucide-react';
 import { Header } from '@/components/Header';
@@ -139,7 +140,7 @@ export default function TrendsCoverage() {
                   Missing Required Coverage
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-3">
                 {data!.missing_required.trend_signals.length > 0 && (
                   <div className="text-sm">
                     <span className="text-muted-foreground">trend_signals missing: </span>
@@ -156,6 +157,9 @@ export default function TrendsCoverage() {
                     ))}
                   </div>
                 )}
+                <p className="text-xs text-muted-foreground border-t border-destructive/20 pt-2">
+                  Missing types will not appear in <Link to="/trends/explorer" className="text-primary hover:underline">Trends Explorer</Link> until backfilled. Click "Backfill Missing Types" above to generate data via the AI refresh pipeline.
+                </p>
               </CardContent>
             </Card>
           )}
