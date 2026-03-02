@@ -46,6 +46,7 @@ const CompanyDetail = lazy(() => import("./pages/CompanyDetail"));
 const CompanyProjects = lazy(() => import("./pages/CompanyProjects"));
 const PresentationMode = lazy(() => import("./pages/PresentationMode"));
 const TrendGovernance = lazy(() => import("./pages/TrendGovernance"));
+const TrendsExplorer = lazy(() => import("./pages/TrendsExplorer"));
 const CinematicDemo = lazy(() => import("./pages/CinematicDemo"));
 const GuidedDemo = lazy(() => import("./demo/GuidedDemo"));
 const InteractiveDemo = lazy(() => import("./pages/InteractiveDemo"));
@@ -147,6 +148,7 @@ const AnimatedRoutes = () => {
           <Route path="/trends/story" element={<ProtectedRoute><StoryTrends /></ProtectedRoute>} />
           <Route path="/trends/cast" element={<ProtectedRoute><CastTrends /></ProtectedRoute>} />
           <Route path="/trends/governance" element={<ProtectedRoute><TrendGovernance /></ProtectedRoute>} />
+          <Route path="/trends/explorer" element={<ProtectedRoute><TrendsExplorer /></ProtectedRoute>} />
           <Route path="/incentives" element={<ProtectedRoute><IncentiveFinder /></ProtectedRoute>} />
           <Route path="/incentives/copro" element={<ProtectedRoute><CoproPlanner /></ProtectedRoute>} />
           <Route path="/incentives/stack" element={<ProtectedRoute><StackCashflow /></ProtectedRoute>} />

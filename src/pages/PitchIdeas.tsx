@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import { type AnimationMeta, ANIMATION_PRIMARY_LIST, ANIMATION_STYLE_LIST, ANIMATION_TAG_LIST } from '@/config/animationMeta';
 import { type ProductionModality, isAnimationModality } from '@/config/productionModality';
+import { TrendsSnapshot } from '@/components/pitch/TrendsSnapshot';
 
 export default function PitchIdeas() {
   const { user } = useAuth();
@@ -32,6 +33,7 @@ export default function PitchIdeas() {
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState('');
   const [resolutionMeta, setResolutionMeta] = useState<Record<string, { status: string; scope: string; note?: string }>>({});
+  const [lastSignalsMetadata, setLastSignalsMetadata] = useState<any>(null);
   const [promoteIdea, setPromoteIdea] = useState<PitchIdea | null>(null);
   const [applyIdea, setApplyIdea] = useState<PitchIdea | null>(null);
   // Global-mode state (not persisted to DB; generation-only)
@@ -155,6 +157,9 @@ export default function PitchIdeas() {
       const pitchIdeas = data?.ideas;
       if (data?.resolution_meta?.auto_field_status) {
         setResolutionMeta(data.resolution_meta.auto_field_status);
+      }
+      if (data?.signals_metadata) {
+        setLastSignalsMetadata(data.signals_metadata);
       }
       console.log('[PitchIdeas] Ideas to save:', pitchIdeas?.length, 'first title:', pitchIdeas?.[0]?.title);
       if (!Array.isArray(pitchIdeas) || pitchIdeas.length === 0) {
@@ -321,6 +326,11 @@ export default function PitchIdeas() {
           globalModality={globalModality}
           onGlobalModalityChange={setGlobalModality}
         />
+
+        {/* Trends Snapshot — shows after generation completes */}
+        {lastSignalsMetadata && !generating && (
+          <TrendsSnapshot signalsMetadata={lastSignalsMetadata} />
+        )}
 
         <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />
         {generateFailed && !generating && (

@@ -4,23 +4,14 @@ import { buildConvergenceProfile, buildConvergenceBlock } from "../_shared/conve
 import type { EdgeTrendSignal, EdgeCastTrend } from "../_shared/convergence-profile.ts";
 import { buildModalityPromptBlock } from "../_shared/productionModality.ts";
 import { getAnimationMeta, buildAnimationMetaPromptBlock } from "../_shared/animationMeta.ts";
+import { fetchTrendSignalsLadder, fetchCastTrends, modalityToTrendsProductionTypeFilter } from "../_shared/trendsContext.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-/**
- * Map production modality → cast_trends production_type filter.
- * - animation → "animation" (strict filter)
- * - hybrid → null (no restriction — broader pool; prompt reflects hybrid modality)
- * - live_action / null → null (no change to existing behavior)
- */
-function modalityToTrendsFilter(modality: string | null): string | null {
-  if (modality === "animation") return "animation";
-  // hybrid: no production_type restriction (broader pool), prompt will reflect hybrid modality
-  return null;
-}
+// modalityToTrendsFilter moved to _shared/trendsContext.ts as modalityToTrendsProductionTypeFilter
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -227,40 +218,15 @@ serve(async (req) => {
         // Determine lane from manual_criteria or hardCriteria
         const effectiveLane = (manual_criteria as any)?.lane || hardCriteria?.lane || "";
 
-        const SIGNAL_SELECT = "name, category, strength, velocity, explanation, production_type, genre_tags, tone_tags, format_tags, lane_relevance, budget_tier, target_buyer, region";
-
-        // Step 1: Fetch lane+production_type scoped signals (structured lane_relevance filter)
-        let laneSignals: any[] = [];
-        if (effectiveLane) {
-          const { data } = await autoSupa
-            .from("trend_signals")
-            .select(SIGNAL_SELECT)
-            .eq("production_type", typeLabel)
-            .eq("status", "active")
-            .contains("lane_relevance", [effectiveLane])
-            .order("strength", { ascending: false })
-            .limit(30);
-          laneSignals = data || [];
-        }
-
-        // Step 2: Fetch production_type scoped signals (broader)
-        const { data: prodSignals } = await autoSupa
-          .from("trend_signals")
-          .select(SIGNAL_SELECT)
-          .eq("production_type", typeLabel)
-          .eq("status", "active")
-          .order("strength", { ascending: false })
-          .limit(30);
-        const productionSignals = prodSignals || [];
-
-        // Step 3: Fetch global signals (any production type)
-        const { data: globalData } = await autoSupa
-          .from("trend_signals")
-          .select(SIGNAL_SELECT)
-          .eq("status", "active")
-          .order("strength", { ascending: false })
-          .limit(30);
-        const globalSignals = globalData || [];
+        // ── Fetch trend signals via shared helper (modality-aware) ──
+        const { laneSignals, productionSignals, globalSignals, appliedProductionTypeFilter: trendFilter } =
+          await fetchTrendSignalsLadder({
+            supabase: autoSupa,
+            typeLabel,
+            lane: effectiveLane,
+            modality: dbModality,
+          });
+        console.log(`[generate-pitch] trends_filter=${trendFilter} modality=${dbModality} typeLabel=${typeLabel} lane=${effectiveLane} lane_signals=${laneSignals.length} prod_signals=${productionSignals.length} global_signals=${globalSignals.length}`);
 
         // ── Convergence Context: fetch cast_trends + build profile ──
         convergenceBlock = "";
@@ -271,35 +237,16 @@ serve(async (req) => {
             productionSignals.length > 0 ? productionSignals :
             globalSignals;
 
-          // Fetch active cast trends with similar scope
-          let castQuery = autoSupa
-            .from("cast_trends")
-            .select("actor_name, trend_type, market_alignment, strength, velocity, genre_relevance, budget_tier, status, production_type, region")
-            .eq("status", "active")
-            .order("strength", { ascending: false })
-            .limit(15);
-
-          if (typeLabel) castQuery = castQuery.eq("production_type", typeLabel);
-
-          // ── Modality-aware cast_trends filtering (deterministic) ──
-          // dbModality is derived early (before auto-fields) when projectId exists.
-          // animation → filter to animation production_type only
-          // hybrid → no production_type restriction (broader pool); prompt reflects hybrid modality
-          // live_action or null → no change to existing behavior
-          const trendsModalityFilter = modalityToTrendsFilter(dbModality);
-          if (trendsModalityFilter) {
-            castQuery = castQuery.eq("production_type", trendsModalityFilter);
-          }
-          console.log(`[generate-pitch] trends_filter production_type=${trendsModalityFilter || "none"}`);
-
-          // Region scoping: prefer region from manual_criteria or hardCriteria
+          // ── Fetch cast trends via shared helper (modality-aware) ──
           const effectiveRegion = (manual_criteria as any)?.region || hardCriteria?.region || region || "";
-          if (effectiveRegion && effectiveRegion.toLowerCase() !== "global") {
-            castQuery = castQuery.eq("region", effectiveRegion);
-          }
-
-          const { data: castData } = await castQuery;
-          const castTrends: EdgeCastTrend[] = (castData || []) as EdgeCastTrend[];
+          const { castTrends: fetchedCast, appliedProductionTypeFilter: castFilter } = await fetchCastTrends({
+            supabase: autoSupa,
+            typeLabel,
+            modality: dbModality,
+            region: effectiveRegion,
+          });
+          const castTrends: EdgeCastTrend[] = fetchedCast as EdgeCastTrend[];
+          console.log(`[generate-pitch] cast_trends_filter=${castFilter} cast_count=${castTrends.length}`);
 
           if (convergenceSignals.length > 0) {
             const profile = buildConvergenceProfile(convergenceSignals, castTrends);
@@ -880,6 +827,18 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
       rationale: signalsRationale,
       convergence_applied: convergenceBlock.length > 0,
       convergence_summary: convergenceSummary,
+      // ── Modality + animation meta traceability (additive) ──
+      modality: dbModality || pitchModality || null,
+      trends_production_type_filter: modalityToTrendsProductionTypeFilter(dbModality || pitchModality, typeLabel),
+      animation_meta: dbAnimMeta.primary || dbAnimMeta.style || dbAnimMeta.tags.length > 0
+        ? {
+            primary: dbAnimMeta.primary,
+            style: dbAnimMeta.style,
+            tags_count: dbAnimMeta.tags.length,
+            tags_sample: dbAnimMeta.tags.slice(0, 5),
+          }
+        : undefined,
+      context_version: "v1",
     };
 
     // Attach resolution meta for auto-fields transparency
