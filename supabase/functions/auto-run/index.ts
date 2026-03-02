@@ -3957,39 +3957,47 @@ Deno.serve(async (req) => {
               setupResolved.push(`comparables_from_pack=${packComps.length}`);
               console.log(`[auto-run] ${gateLabel}: init comparables from seed_intel_pack`, { count: packComps.length });
             } else if (allowDefaults) {
-              // Auto-derive comparables from canon fields (genre/tone/logline/format)
+              // Auto-generate comparables via LLM (dev-engine-v2 action)
               try {
-                const derivedComps: any[] = [];
-                const genre = (cj.genre || cj.genres || project?.genres || []);
-                const genreStr = Array.isArray(genre) ? genre.join(", ") : String(genre || "");
-                const tone = cj.tone_style || project?.tone || "";
-                const logline = cj.logline || cj.premise || "";
-                if (genreStr || tone || logline) {
-                  // Build deterministic comparable entries from canon metadata
-                  const seeds = [
-                    genreStr ? `${genreStr} reference` : null,
-                    tone ? `${tone} tone benchmark` : null,
-                    format ? `${format} format comparable` : null,
-                  ].filter(Boolean);
-                  for (const seed of seeds) {
-                    derivedComps.push({ title: seed, source: "auto-derived", locked: false, confidence: 0.4, reason: "derived from canon fields" });
+                const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+                const compResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+                  body: JSON.stringify({
+                    action: "auto_generate_comparables",
+                    projectId: job.project_id,
+                    userId: job.user_id,
+                  }),
+                });
+                if (compResp.ok) {
+                  const compResult = await compResp.json();
+                  if (compResult.generated) {
+                    setupResolved.push(`comparables_auto_generated=${compResult.count}`);
+                    console.log(`[auto-run] ${gateLabel}: auto-generated comparables via LLM`, { count: compResult.count });
+                  } else if (compResult.reason === "already_exists" || compResult.reason === "table_has_candidates") {
+                    setupResolved.push("comparables_already_exist");
+                  } else if (compResult.reason === "no_logline_or_premise") {
+                    // Need canon extract first — trigger it and retry
+                    console.warn(`[auto-run] ${gateLabel}: comparables need logline/premise first, scheduling retry`);
+                    if (existingSetupAttempts + 1 < MAX_SETUP_ATTEMPTS) {
+                      const retryDelay = BACKOFF_DELAYS[existingSetupAttempts] || 30;
+                      const nextRetry = new Date(Date.now() + retryDelay * 1000).toISOString();
+                      stageHist[`${setupKey}_setup_attempts`] = existingSetupAttempts + 1;
+                      stageHist[`${setupKey}_setup_next_retry_at`] = nextRetry;
+                      await updateJob(supabase, jobId, { stage_history: stageHist });
+                      return respondWithJob(supabase, jobId, "run-next");
+                    }
+                    setupMissing.push("comparables");
+                  } else {
+                    console.warn(`[auto-run] ${gateLabel}: comparables generation returned`, compResult);
+                    setupMissing.push("comparables");
                   }
-                }
-                if (derivedComps.length > 0) {
-                  const { data: currentCanon } = await supabase.from("project_canon")
-                    .select("canon_json").eq("project_id", job.project_id).maybeSingle();
-                  const updatedCanon = { ...(currentCanon?.canon_json || {}), comparables: derivedComps };
-                  await supabase.from("project_canon")
-                    .update({ canon_json: updatedCanon, updated_by: job.user_id })
-                    .eq("project_id", job.project_id);
-                  setupResolved.push(`comparables_auto_derived=${derivedComps.length}`);
-                  console.log(`[auto-run] ${gateLabel}: auto-derived comparables from canon fields`, { count: derivedComps.length });
                 } else {
-                  console.warn(`[auto-run] ${gateLabel}: no canon fields to derive comparables from, blocking`);
+                  console.warn(`[auto-run] ${gateLabel}: comparables generation HTTP error`, { status: compResp.status });
                   setupMissing.push("comparables");
                 }
               } catch (compErr: any) {
-                console.warn(`[auto-run] ${gateLabel}: comparables auto-derive failed`, { error: compErr.message });
+                console.warn(`[auto-run] ${gateLabel}: comparables auto-generate failed`, { error: compErr.message });
                 setupMissing.push("comparables");
               }
             } else {

@@ -76,14 +76,28 @@ async function loadConstraintPack(
     if (wv?.id) {
       const voiceLines = [`Voice ID: ${wv.id}`];
       if (wv.label) voiceLines.push(`Label: ${wv.label}`);
+      if (wv.summary) voiceLines.push(`Summary: ${wv.summary}`);
       if (wv.tone) voiceLines.push(`Tone: ${wv.tone}`);
       if (wv.pacing) voiceLines.push(`Pacing: ${wv.pacing}`);
       if (wv.vocabulary_level) voiceLines.push(`Vocabulary: ${wv.vocabulary_level}`);
+      if (Array.isArray(wv.do) && wv.do.length > 0) voiceLines.push(`DO:\n- ${wv.do.join("\n- ")}`);
+      if (Array.isArray(wv.dont) && wv.dont.length > 0) voiceLines.push(`DON'T:\n- ${wv.dont.join("\n- ")}`);
+      if (wv.knobs) {
+        const knobEntries = Object.entries(wv.knobs).map(([k, v]) => `${k}: ${v}`).join(", ");
+        if (knobEntries) voiceLines.push(`Knobs: ${knobEntries}`);
+      }
       sections.push(`## WRITING VOICE TARGETS\n${voiceLines.join("\n")}`);
     }
   } catch (e) {
     console.warn("[dev-engine-v2] loadConstraintPack error:", e);
   }
+
+  const debugFlags = {
+    hasWorldRules: sections.some(s => s.includes("WORLD RULES")),
+    hasComparables: sections.some(s => s.includes("COMPARABLE REFERENCES")),
+    hasVoice: sections.some(s => s.includes("WRITING VOICE TARGETS")),
+  };
+  console.log("[dev-engine-v2] loadConstraintPack debug", { projectId, ...debugFlags, sectionCount: sections.length });
 
   if (sections.length === 0) return "";
   let text = `\n═══ CONSTRAINT PACK (AUTHORITATIVE — inject into all generation) ═══\n${sections.join("\n\n")}`;
@@ -3782,6 +3796,7 @@ Format: ${rq.format}.`;
       // ── NEC Guardrail + Constraint Pack injection for convert ──
       const cvNecBlock = await loadNECGuardrailBlock(supabase, projectId);
       const cvConstraintPack = await loadConstraintPack(supabase, projectId);
+      console.log("[dev-engine-v2] convert: constraint injection", { path: "convert", hasNEC: !!cvNecBlock, hasConstraintPack: !!cvConstraintPack });
 
       const userPrompt = `SOURCE FORMAT: ${srcDoc?.doc_type || "unknown"}
 TARGET FORMAT: ${targetOutput}
@@ -12120,6 +12135,140 @@ Only output the missing fields. Do not include fields that are not in the MISSIN
       });
     }
 
+    // ── AUTO GENERATE COMPARABLES — LLM-backed comparable title generation ──
+    if (action === "auto_generate_comparables") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // Check if comparables already exist
+      const { data: existingCanon } = await supabase.from("project_canon")
+        .select("canon_json").eq("project_id", projectId).maybeSingle();
+      const ecj = (existingCanon?.canon_json || {}) as any;
+      if (Array.isArray(ecj.comparables) && ecj.comparables.length > 0) {
+        return new Response(JSON.stringify({ generated: false, reason: "already_exists", count: ecj.comparables.length }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { count: tableCount } = await supabase.from("comparable_candidates")
+        .select("id", { count: "exact", head: true }).eq("project_id", projectId);
+      if ((tableCount || 0) > 0) {
+        return new Response(JSON.stringify({ generated: false, reason: "table_has_candidates", count: tableCount }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Gather inputs
+      const logline = ecj.logline || ecj.premise || "";
+      const premise = ecj.premise || "";
+      const toneStyle = ecj.tone_style || "";
+      const genre = ecj.genre || (Array.isArray(ecj.genres) ? ecj.genres.join(", ") : "");
+      const { data: projRow } = await supabase.from("projects").select("format, assigned_lane, title, genres, tone").eq("id", projectId).maybeSingle();
+      const format = projRow?.format || ecj.format || "";
+      const projectTitle = projRow?.title || "";
+      const projGenre = Array.isArray(projRow?.genres) ? projRow.genres.join(", ") : (genre || "");
+
+      if (!logline && !premise) {
+        return new Response(JSON.stringify({ generated: false, reason: "no_logline_or_premise" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const compSystem = `You are a film/TV market analyst. Given a project's logline, premise, genre, tone, and format, suggest 6-8 comparable titles (real films, TV series, or streaming shows) that share thematic, tonal, or market positioning similarities.
+
+Return ONLY valid JSON: an array of objects, each with:
+- title: string (real film/TV title)
+- format: string (film|tv-series|limited-series|vertical-drama|documentary)
+- rationale: string (1 sentence explaining the comparison)
+- confidence: number (0.0-1.0)
+
+Focus on:
+- Tone and style matches
+- Market positioning (similar audience/budget tier)
+- Thematic overlap
+- Recent titles preferred (last 10 years) but classics acceptable
+Do NOT include the project itself.`;
+
+      const compUser = `PROJECT: ${projectTitle}
+FORMAT: ${format}
+GENRE: ${projGenre}
+TONE/STYLE: ${toneStyle}
+LOGLINE: ${logline}
+PREMISE: ${premise.slice(0, 500)}`;
+
+      const compRaw = await callAI(LOVABLE_API_KEY, FAST_MODEL, compSystem, compUser, 0.3, 2000);
+      let compParsed: any;
+      try {
+        // extractJSON favors {} — for arrays, do a direct parse first
+        const cleaned = compRaw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+        compParsed = JSON.parse(cleaned);
+      } catch {
+        try {
+          compParsed = JSON.parse(extractJSON(compRaw));
+        } catch {
+          try {
+            const repair = await callAI(LOVABLE_API_KEY, FAST_MODEL, "Fix this malformed JSON. Return a valid JSON array of objects with title, format, rationale, confidence fields. Return JSON ONLY.", compRaw.slice(0, 3000), 0, 1500);
+            const repairCleaned = repair.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+            compParsed = JSON.parse(repairCleaned);
+          } catch {
+            return new Response(JSON.stringify({ generated: false, reason: "parse_failed" }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
+      }
+
+      // Normalize: ensure array
+      const compArr = Array.isArray(compParsed) ? compParsed : (compParsed?.comparables || compParsed?.titles || []);
+      if (!Array.isArray(compArr) || compArr.length === 0) {
+        return new Response(JSON.stringify({ generated: false, reason: "empty_result" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Sanitize and cap
+      const sanitized = compArr.slice(0, 10).map((c: any) => ({
+        title: String(c.title || "").slice(0, 120),
+        format: String(c.format || format || "unknown").slice(0, 30),
+        rationale: String(c.rationale || "").slice(0, 200),
+        confidence: typeof c.confidence === "number" ? Math.min(1, Math.max(0, c.confidence)) : 0.5,
+        source: "auto-generated",
+        locked: false,
+      }));
+
+      // Persist to canon_json.comparables
+      const { data: freshCanon } = await supabase.from("project_canon")
+        .select("canon_json").eq("project_id", projectId).maybeSingle();
+      const updatedCanon = { ...(freshCanon?.canon_json || {}), comparables: sanitized };
+      await supabase.from("project_canon")
+        .update({ canon_json: updatedCanon, updated_by: user.id })
+        .eq("project_id", projectId);
+
+      // Also persist to comparable_candidates table
+      for (const comp of sanitized) {
+        await supabase.from("comparable_candidates").insert({
+          project_id: projectId,
+          created_by: user.id,
+          title: comp.title,
+          format: comp.format,
+          rationale: comp.rationale,
+          confidence: comp.confidence,
+          lane: projRow?.assigned_lane || "independent-film",
+        } as any).then(() => {});
+      }
+
+      // Update canon version pointer
+      const { data: latestVer } = await supabase.from("project_canon_versions")
+        .select("id").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (latestVer) {
+        await supabase.from("projects").update({ canon_version_id: latestVer.id }).eq("id", projectId);
+      }
+
+      console.log("[dev-engine-v2] auto_generate_comparables: generated", { projectId, count: sanitized.length });
+      return new Response(JSON.stringify({ generated: true, count: sanitized.length, comparables: sanitized }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     if (action === "canon_os_approve") {
       const { projectId, canonId } = body;
       if (!projectId || !canonId) throw new Error("projectId and canonId required");
@@ -13676,6 +13825,7 @@ CRITICAL:
           const targetOutput = stage.toUpperCase();
           const necBlock = await loadNECGuardrailBlock(supabase, projectId);
           const constraintPack = await loadConstraintPack(supabase, projectId);
+          console.log("[dev-engine-v2] regen-insufficient: constraint injection", { path: "regen-insufficient", hasNEC: !!necBlock, hasConstraintPack: !!constraintPack });
 
           const userPrompt = `SOURCE FORMAT: ${upstream.upstreamType}
 TARGET FORMAT: ${targetOutput}
@@ -14516,6 +14666,7 @@ ${upstreamText}`;
 
       const necBlock = await loadNECGuardrailBlock(supabase, projectId);
       const constraintPack = await loadConstraintPack(supabase, projectId);
+      console.log("[dev-engine-v2] series-scripts-tick: constraint injection", { path: "series-scripts-tick", hasNEC: !!necBlock, hasConstraintPack: !!constraintPack });
       const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
