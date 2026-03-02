@@ -257,6 +257,18 @@ const registry: Record<DeliverableType, ReviewSchema> = {
     convergenceRules: { minCI: 70, minGP: 70 },
     forbiddenCritique: ['feature-film pacing', 'literary quality', 'canon changes'],
   },
+  season_script: {
+    rubricSections: [
+      { dimension: 'Narrative Flow', weight: 30, description: 'Does the season script flow naturally across episodes with proper pacing?' },
+      { dimension: 'Character Consistency', weight: 25, description: 'Are character voices and arcs maintained throughout the continuous script?' },
+      { dimension: 'Hook Density', weight: 25, description: 'Does each episode section open with a hook and close with a turning point?' },
+      { dimension: 'Format Compliance', weight: 20, description: 'Does the script respect vertical drama episode length and structural constraints?' },
+    ],
+    analysisPromptModifier: 'This is a SEASON SCRIPT — a continuous season-level script for vertical drama. Evaluate narrative flow, character consistency, hook density, and format compliance.',
+    rewritePromptModifier: 'Improve episode-to-episode flow and hook density. Maintain character consistency. Do NOT restructure into separate episode documents.',
+    convergenceRules: { minCI: 70, minGP: 65 },
+    forbiddenCritique: ['feature-film pacing', 'literary quality'],
+  },
   season_master_script: {
     rubricSections: [
       { dimension: 'Season Arc Coherence', weight: 30, description: 'Does the full season maintain a consistent arc with proper escalation and payoff?' },

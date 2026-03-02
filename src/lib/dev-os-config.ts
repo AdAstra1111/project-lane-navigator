@@ -17,6 +17,7 @@ export type DeliverableType =
   | 'beat_sheet'
   | 'feature_script'
   | 'episode_script'
+  | 'season_script'
   | 'season_master_script'
   | 'production_draft'
   | 'deck'
@@ -39,6 +40,7 @@ export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   beat_sheet: 'Episode Beat Sheet',
   feature_script: 'Feature Script',
   episode_script: 'Episode Script',
+  season_script: 'Season Script',
   season_master_script: 'Master Season Script',
   production_draft: 'Production Draft',
   deck: 'Deck',
