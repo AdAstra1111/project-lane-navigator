@@ -138,7 +138,7 @@ export function computePipelineState(
   }
   const excludedStages = ALL_KNOWN_STAGES.filter(s => !pipeline.includes(s));
 
-  // Build completed map
+  // Build completed map — with runtime guard for off-ladder doc_types
   const completedStages: Record<string, StageStatus> = {};
   for (const stage of pipeline) {
     const match = existingDocs.find(d => mapDocTypeToLadderStage(d.docType) === stage);
@@ -147,6 +147,16 @@ export function computePipelineState(
       hasApproved: match?.hasApproved ?? false,
       activeVersionId: match?.activeVersionId ?? null,
     };
+  }
+
+  // Runtime guard: log any existing docs whose doc_type is NOT on the ladder for this format
+  for (const doc of existingDocs) {
+    const mapped = mapDocTypeToLadderStage(doc.docType);
+    if (!pipeline.includes(mapped) && !excludedStages.includes(mapped)) {
+      console.warn(
+        `[PipelineBrain] OFF-LADDER doc_type detected: docType="${doc.docType}" (mapped="${mapped}") not on ladder for format="${format}". This doc will be ignored in pipeline state.`
+      );
+    }
   }
 
   const completedCount = Object.values(completedStages).filter(s => s.exists).length;

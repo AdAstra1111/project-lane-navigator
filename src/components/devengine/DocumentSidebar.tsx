@@ -1,7 +1,7 @@
 /**
  * DocumentSidebar — Document list, version selector, and paste dialog.
  */
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,10 +10,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck, GripVertical, Package, ChevronRight } from 'lucide-react';
+import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck, GripVertical, Package, ChevronRight, AlertTriangle } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { getDocFlowConfig } from '@/lib/docFlowMap';
+import { formatToLane } from '@/config/documentLadders';
+import { getLadderForFormat } from '@/lib/stages/registry';
 
 import { getDocTypeLabel, getDocDisplayName } from '@/lib/can-promote-to-script';
 
@@ -207,8 +210,29 @@ export function DocumentSidebar({
           <div className="max-h-[calc(100vh-420px)] overflow-y-auto space-y-1">
             {/* System Docs group */}
             {(() => {
+              // Compute lane-aware filtering
+              const lane = format ? formatToLane(format) : null;
+              const flowConfig = lane ? getDocFlowConfig(lane) : null;
+              const hiddenSet = new Set(flowConfig?.hiddenDocTypes || []);
+              // Also check ladder: if format is known, only show docs on the ladder + system docs
+              const ladder = format ? getLadderForFormat(format) : null;
+              const ladderSet = ladder ? new Set(ladder as string[]) : null;
+
+              const isDocAllowed = (docType: string) => {
+                if (SYSTEM_DOC_TYPES.has(docType)) return true;
+                if (hiddenSet.has(docType)) return false;
+                // If we have a ladder, doc must be on it (or be a known non-ladder type like series_writer)
+                if (ladderSet && !ladderSet.has(docType) && docType !== 'series_writer' && docType !== 'topline_narrative') {
+                  console.warn(`[DocumentSidebar] doc_type "${docType}" not on ladder for format="${format}" — hiding`);
+                  return false;
+                }
+                return true;
+              };
+
               const systemDocs = documents.filter(d => SYSTEM_DOC_TYPES.has(d.doc_type));
-              const regularDocs = documents.filter(d => !SYSTEM_DOC_TYPES.has(d.doc_type));
+              const allowedDocs = documents.filter(d => !SYSTEM_DOC_TYPES.has(d.doc_type) && isDocAllowed(d.doc_type));
+              const hiddenDocs = documents.filter(d => !SYSTEM_DOC_TYPES.has(d.doc_type) && !isDocAllowed(d.doc_type));
+
               return (
                 <>
                   {systemDocs.length > 0 && (
@@ -222,7 +246,18 @@ export function DocumentSidebar({
                       </CollapsibleContent>
                     </Collapsible>
                   )}
-                  {regularDocs.map(doc => renderDocItem(doc))}
+                  {allowedDocs.map(doc => renderDocItem(doc))}
+                  {hiddenDocs.length > 0 && (
+                    <Collapsible defaultOpen={false}>
+                      <CollapsibleTrigger className="w-full flex items-center gap-1 px-2 py-1 text-[9px] font-semibold text-muted-foreground/60 uppercase tracking-wider hover:text-muted-foreground transition-colors">
+                        <AlertTriangle className="h-3 w-3 text-muted-foreground/40" />
+                        Off-ladder ({hiddenDocs.length})
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-0.5 pl-1 border-l border-destructive/20 ml-2 mb-2">
+                        {hiddenDocs.map(doc => renderDocItem(doc))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
                 </>
               );
             })()}

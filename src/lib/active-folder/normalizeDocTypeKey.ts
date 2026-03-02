@@ -97,6 +97,9 @@ const KEY_MAP: Record<string, DocTypeKey> = {
   documentary_outline: 'documentary_outline',
   doc_outline: 'documentary_outline',
   format_rules: 'format_rules',
+  // NOTE: 'script' is ambiguous — callers should use normalizeDocTypeKeyForFormat
+  // for format-aware resolution. Default kept as feature_script for backward compat
+  // but overridden by isSeries param (line 143) and by normalizeDocTypeKeyForFormat.
   script: 'feature_script',
   script_pdf: 'feature_script',
   feature_script: 'feature_script',
@@ -125,6 +128,7 @@ const TITLE_HINTS: [RegExp, DocTypeKey][] = [
   [/documentary\s*outline/i, 'documentary_outline'],
   [/format\s*rules/i, 'format_rules'],
   [/pilot|episode\s*1\b/i, 'episode_script'],
+  [/season\s*script/i, 'season_script'],
   [/\bscript\b/i, 'feature_script'],
 ];
 
@@ -161,4 +165,25 @@ export function normalizeDocTypeKey(doc: DocInput, isSeries = false): DocTypeKey
   }
 
   return 'other';
+}
+
+/**
+ * Format-aware normalization of doc_type_key.
+ * Uses project format to resolve ambiguous types like 'script' correctly.
+ * vertical-drama → season_script, series → episode_script, film → feature_script
+ */
+export function normalizeDocTypeKeyForFormat(
+  doc: DocInput,
+  format: string | null | undefined,
+): DocTypeKey {
+  const fmt = (format || '').toLowerCase().replace(/[_ ]+/g, '-');
+  const isVD = fmt === 'vertical-drama';
+  const isSeries = ['tv-series', 'limited-series', 'digital-series', 'anim-series', 'reality'].includes(fmt);
+
+  const key = normalizeDocTypeKey(doc, isSeries);
+
+  // For vertical-drama: feature_script should resolve to season_script
+  if (isVD && key === 'feature_script') return 'season_script';
+
+  return key;
 }
