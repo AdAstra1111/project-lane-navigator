@@ -134,9 +134,11 @@ export function DevEngineSimpleView({
   const isViewingCurrentDoc = currentDoc && selectedDocId === currentDoc.id;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr_1fr] gap-3">
+    <div className="space-y-3">
+      {/* ═══ TOP ROW: Seed Snapshot + Autopilot Now ═══ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
 
-      {/* ═══ LEFT: Seed Snapshot ═══ */}
+      {/* ═══ Seed Snapshot ═══ */}
       <Card className="h-fit">
         <CardHeader className="py-2 px-3">
           <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
@@ -172,7 +174,7 @@ export function DevEngineSimpleView({
         </CardContent>
       </Card>
 
-      {/* ═══ CENTER: Autopilot Now ═══ */}
+      {/* ═══ Autopilot Now ═══ */}
       <Card className="h-fit">
         <CardHeader className="py-2 px-3">
           <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
@@ -268,8 +270,10 @@ export function DevEngineSimpleView({
         </CardContent>
       </Card>
 
-      {/* ═══ RIGHT: Documents ═══ */}
-      <Card className="h-fit">
+      </div>
+
+      {/* ═══ FULL WIDTH: Documents ═══ */}
+      <Card>
         <CardHeader className="py-2 px-3">
           <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
             <Eye className="h-3.5 w-3.5 text-primary" />
@@ -278,9 +282,9 @@ export function DevEngineSimpleView({
         </CardHeader>
         <CardContent className="px-3 pb-3">
           <Tabs value={docTab} onValueChange={(v) => setDocTab(v as 'current' | 'approved')}>
-            <TabsList className="w-full h-7 bg-muted/30">
-              <TabsTrigger value="current" className="text-[10px] flex-1">Current Doc</TabsTrigger>
-              <TabsTrigger value="approved" className="text-[10px] flex-1">
+            <TabsList className="w-auto h-7 bg-muted/30">
+              <TabsTrigger value="current" className="text-[10px]">Current Doc</TabsTrigger>
+              <TabsTrigger value="approved" className="text-[10px]">
                 Approved ({approvedDocs.length})
               </TabsTrigger>
             </TabsList>
@@ -322,8 +326,8 @@ export function DevEngineSimpleView({
 
                   {/* Document content */}
                   {isViewingCurrentDoc && versionText ? (
-                    <ScrollArea className="h-[300px] rounded border border-border/50 bg-muted/20">
-                      <pre className="p-3 text-[11px] leading-relaxed whitespace-pre-wrap font-body text-foreground">
+                    <ScrollArea className="max-h-[60vh] rounded border border-border/50 bg-muted/20">
+                      <pre className="p-4 text-[11px] leading-relaxed whitespace-pre-wrap font-body text-foreground">
                         {versionText}
                       </pre>
                     </ScrollArea>
@@ -369,8 +373,8 @@ export function DevEngineSimpleView({
 
               {/* Show selected approved doc content */}
               {selectedDocId && approvedVersionMap[selectedDocId] === selectedVersionId && versionText && (
-                <ScrollArea className="h-[250px] rounded border border-border/50 bg-muted/20 mt-2">
-                  <pre className="p-3 text-[11px] leading-relaxed whitespace-pre-wrap font-body text-foreground">
+                <ScrollArea className="max-h-[60vh] rounded border border-border/50 bg-muted/20 mt-2">
+                  <pre className="p-4 text-[11px] leading-relaxed whitespace-pre-wrap font-body text-foreground">
                     {versionText}
                   </pre>
                 </ScrollArea>
