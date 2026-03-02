@@ -215,7 +215,7 @@ serve(async (req) => {
     // Access check via db (RLS-scoped for users, admin for service_role)
     const { data: project, error: projErr } = await db
       .from("projects")
-      .select("id, title, format, genres, assigned_lane, budget_range, tone, target_audience")
+      .select("id, title, format, genres, assigned_lane, budget_range, tone, target_audience, resolved_qualifications_hash")
       .eq("id", projectId)
       .single();
 
@@ -295,6 +295,7 @@ serve(async (req) => {
             created_by: actorUserId,
             approval_status: "draft",
             meta_json: provenance,
+            depends_on_resolver_hash: project.resolved_qualifications_hash || null,
           });
 
         if (vErr) {
@@ -337,6 +338,7 @@ serve(async (req) => {
             created_by: actorUserId,
             approval_status: "draft",
             meta_json: provenance,
+            depends_on_resolver_hash: project.resolved_qualifications_hash || null,
           });
 
         if (vErr) {
@@ -486,6 +488,7 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
           metaJson: parsed.provenance,
           source: "seed",
           title: cfg.title,
+          dependsOnResolverHash: project.resolved_qualifications_hash || undefined,
         });
 
         if (result.isNewDoc) {

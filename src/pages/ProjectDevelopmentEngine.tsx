@@ -1154,7 +1154,7 @@ export default function ProjectDevelopmentEngine() {
             if (!pkgData) return null;
             const staleTypes = pkgData.filter((d: any) => d.status === 'stale').map((d: any) => d.docType);
             const versionedDocs = pkgData.filter((d: any) => d.latestVersionId);
-            const connectedCount = versionedDocs.filter((d: any) => d.resolverHash).length;
+            const connectedCount = versionedDocs.filter((d: any) => d.hasProvenance).length;
             const totalVersioned = versionedDocs.length;
             return (
               <ConnectivityBanner

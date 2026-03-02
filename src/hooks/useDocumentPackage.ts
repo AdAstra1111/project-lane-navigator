@@ -11,6 +11,7 @@ export interface PackageDocStatus {
   latestVersionId: string | null;
   status: 'missing' | 'draft' | 'final' | 'superseded' | 'stale';
   resolverHash: string | null;
+  hasProvenance: boolean;
   exportPath: string | null;
   updatedAt: string | null;
   required: boolean;
@@ -64,7 +65,7 @@ export function useDocumentPackage(projectId: string | undefined) {
       if (docIds.length > 0) {
         const { data: versions } = await (supabase as any)
           .from('project_document_versions')
-          .select('id, status, depends_on_resolver_hash, is_stale, stale_reason, inputs_used, depends_on, generator_id')
+          .select('id, status, depends_on_resolver_hash, is_stale, stale_reason, inputs_used, depends_on, generator_id, meta_json')
           .in('id', docIds);
         versionMap = new Map((versions || []).map((v: any) => [v.id, v]));
       }
@@ -88,6 +89,13 @@ export function useDocumentPackage(projectId: string | undefined) {
           status = 'draft';
         }
 
+        // A doc has provenance if it has a resolver hash, a generator_id, or seed provenance in meta_json
+        const hasProvenance = !!(
+          version?.depends_on_resolver_hash ||
+          version?.generator_id ||
+          (version?.meta_json && typeof version.meta_json === 'object' && version.meta_json.seed_snapshot_id)
+        );
+
         return {
           docType,
           order: pkg.doc_order[docType] || 99,
@@ -95,6 +103,7 @@ export function useDocumentPackage(projectId: string | undefined) {
           latestVersionId: doc?.latest_version_id || null,
           status,
           resolverHash: version?.depends_on_resolver_hash || null,
+          hasProvenance,
           exportPath: doc?.latest_export_path || null,
           updatedAt: doc?.updated_at || null,
           required: requiredDocs.includes(docType),
