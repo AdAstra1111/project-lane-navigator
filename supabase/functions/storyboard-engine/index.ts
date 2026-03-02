@@ -43,18 +43,12 @@ function adminClient() {
   return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 }
 
-/** Verify project access using a direct query (service role bypasses RLS, so we check ownership/collaboration). */
+/** Verify project access via canonical has_project_access RPC. */
 async function verifyAccess(db: any, userId: string, projectId: string): Promise<boolean> {
-  // Use the existing has_project_access SQL function via a raw select
   const { data, error } = await db.rpc("has_project_access", { _user_id: userId, _project_id: projectId });
   if (error) {
-    // Fallback: check project ownership directly
-    console.warn("rpc has_project_access failed, falling back to direct check:", error.message);
-    const { data: proj } = await db.from("projects").select("id").eq("id", projectId).eq("user_id", userId).limit(1).maybeSingle();
-    if (proj) return true;
-    // Check collaborator
-    const { data: collab } = await db.from("project_collaborators").select("id").eq("project_id", projectId).eq("user_id", userId).eq("status", "accepted").limit(1).maybeSingle();
-    return !!collab;
+    console.error(`[storyboard-engine] has_project_access RPC failed: ${error.message}`);
+    return false;
   }
   return !!data;
 }
