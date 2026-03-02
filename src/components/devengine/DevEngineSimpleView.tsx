@@ -326,11 +326,11 @@ export function DevEngineSimpleView({
 
                   {/* Document content */}
                   {isViewingCurrentDoc && versionText ? (
-                    <ScrollArea className="max-h-[60vh] rounded border border-border/50 bg-muted/20">
+                    <div className="rounded border border-border/50 bg-muted/20 overflow-y-auto" style={{ maxHeight: '60vh' }}>
                       <pre className="p-4 text-[11px] leading-relaxed whitespace-pre-wrap font-body text-foreground">
                         {versionText}
                       </pre>
-                    </ScrollArea>
+                    </div>
                   ) : isViewingCurrentDoc ? (
                     <p className="text-[9px] text-muted-foreground text-center py-4">No content yet.</p>
                   ) : (
@@ -373,11 +373,11 @@ export function DevEngineSimpleView({
 
               {/* Show selected approved doc content */}
               {selectedDocId && approvedVersionMap[selectedDocId] === selectedVersionId && versionText && (
-                <ScrollArea className="max-h-[60vh] rounded border border-border/50 bg-muted/20 mt-2">
+                <div className="rounded border border-border/50 bg-muted/20 mt-2 overflow-y-auto" style={{ maxHeight: '60vh' }}>
                   <pre className="p-4 text-[11px] leading-relaxed whitespace-pre-wrap font-body text-foreground">
                     {versionText}
                   </pre>
-                </ScrollArea>
+                </div>
               )}
             </TabsContent>
           </Tabs>
