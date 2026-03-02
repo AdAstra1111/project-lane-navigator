@@ -175,7 +175,10 @@ export default function IntelEvents() {
                   {selected.payload?.explanation && (
                     <p className="text-xs text-foreground mb-2">{selected.payload.explanation}</p>
                   )}
-                  {selected.payload?.convergence_key && (
+                  {selected.payload?.convergence_key_scoped && (
+                    <p className="text-[10px] text-muted-foreground font-mono">{selected.payload.convergence_key_scoped}</p>
+                  )}
+                  {!selected.payload?.convergence_key_scoped && selected.payload?.convergence_key && (
                     <p className="text-[10px] text-muted-foreground font-mono">{selected.payload.convergence_key}</p>
                   )}
                   {selected.payload?.score != null && (
@@ -186,6 +189,12 @@ export default function IntelEvents() {
                     {selected.payload?.modality && <Badge variant="outline" className="text-[9px]">{selected.payload.modality}</Badge>}
                     {selected.payload?.style_tag && <Badge variant="outline" className="text-[9px]">{selected.payload.style_tag}</Badge>}
                     {selected.payload?.narrative_tag && <Badge variant="outline" className="text-[9px]">{selected.payload.narrative_tag}</Badge>}
+                    {selected.payload?.scope_production_type && selected.payload.scope_production_type !== '*' && (
+                      <Badge variant="outline" className="text-[9px] border-primary/30">scope:{selected.payload.scope_production_type}</Badge>
+                    )}
+                    {selected.payload?.scope_modality && selected.payload.scope_modality !== '*' && (
+                      <Badge variant="outline" className="text-[9px] border-primary/30">scope:{selected.payload.scope_modality}</Badge>
+                    )}
                   </div>
                 </div>
 

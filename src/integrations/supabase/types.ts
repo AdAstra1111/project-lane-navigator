@@ -6539,8 +6539,13 @@ export type Database = {
           created_at: string
           id: string
           key: string
+          key_base: string
+          key_scoped: string
           last_seen_at: string
           observations: number
+          scope_modality: string | null
+          scope_production_type: string | null
+          scope_project_id: string | null
           score: number
           updated_at: string
           week_bucket: string
@@ -6552,8 +6557,13 @@ export type Database = {
           created_at?: string
           id?: string
           key: string
+          key_base?: string
+          key_scoped?: string
           last_seen_at?: string
           observations?: number
+          scope_modality?: string | null
+          scope_production_type?: string | null
+          scope_project_id?: string | null
           score?: number
           updated_at?: string
           week_bucket: string
@@ -6565,8 +6575,13 @@ export type Database = {
           created_at?: string
           id?: string
           key?: string
+          key_base?: string
+          key_scoped?: string
           last_seen_at?: string
           observations?: number
+          scope_modality?: string | null
+          scope_production_type?: string | null
+          scope_project_id?: string | null
           score?: number
           updated_at?: string
           week_bucket?: string
@@ -6661,6 +6676,7 @@ export type Database = {
       intel_policies: {
         Row: {
           created_at: string
+          created_by: string | null
           enabled: boolean
           id: string
           policy: Json
@@ -6668,9 +6684,11 @@ export type Database = {
           scope_key: string
           scope_type: string
           updated_at: string
+          updated_by: string | null
         }
         Insert: {
           created_at?: string
+          created_by?: string | null
           enabled?: boolean
           id?: string
           policy: Json
@@ -6678,9 +6696,11 @@ export type Database = {
           scope_key: string
           scope_type: string
           updated_at?: string
+          updated_by?: string | null
         }
         Update: {
           created_at?: string
+          created_by?: string | null
           enabled?: boolean
           id?: string
           policy?: Json
@@ -6688,6 +6708,7 @@ export type Database = {
           scope_key?: string
           scope_type?: string
           updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
@@ -22437,6 +22458,25 @@ export type Database = {
       insert_cinematic_quality_run_with_attempts: {
         Args: { p_attempt0: Json; p_attempt1?: Json; p_run: Json }
         Returns: string
+      }
+      match_trend_signals: {
+        Args: {
+          _limit?: number
+          _min_strength?: number
+          _project_embedding: string
+        }
+        Returns: {
+          cycle_phase: string
+          dimension: string
+          distance: number
+          modality: string
+          name: string
+          saturation_risk: string
+          signal_id: string
+          similarity: number
+          strength: number
+          velocity: string
+        }[]
       }
       next_scene_version: {
         Args: {
