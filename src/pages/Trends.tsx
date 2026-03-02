@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Radio, BookOpen, Users, RefreshCw, Settings2, BarChart3 } from 'lucide-react';
-import { Header } from '@/components/Header';
+import { BookOpen, Users, Radio, RefreshCw, Settings2, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useSignalCount, useTrendCountsByType, PRODUCTION_TYPE_TREND_CATEGORIES } from '@/hooks/useTrends';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
+import { TrendsPageShell } from '@/components/trends/TrendsPageShell';
+import { TrendsFilterBar } from '@/components/trends/TrendsFilterBar';
 
 const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([value, config]) => ({
   value,
@@ -32,84 +32,50 @@ export default function Trends() {
         toast({ title: 'Not authenticated', description: 'Please sign in first.', variant: 'destructive' });
         return;
       }
-
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/refresh-trends`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
           body: JSON.stringify({ production_type: selectedType }),
         }
       );
-
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.error || 'Refresh failed');
       }
-
       const result = await response.json();
-
       queryClient.invalidateQueries({ queryKey: ['trend-signals'] });
       queryClient.invalidateQueries({ queryKey: ['cast-trends'] });
-
       toast({
         title: 'Trends refreshed',
         description: `${result.signals_updated} signals and ${result.cast_updated} ${typeConfig?.castLabel?.toLowerCase() || 'cast trends'} updated for ${typeConfig?.label || selectedType}.`,
       });
     } catch (e: any) {
       console.error('Refresh failed:', e);
-      toast({
-        title: 'Refresh failed',
-        description: e.message || 'Something went wrong. Try again.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Refresh failed', description: e.message || 'Something went wrong.', variant: 'destructive' });
     } finally {
       setIsRefreshing(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main className="container max-w-3xl py-10">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="space-y-8"
-        >
-          {/* Page Header */}
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Radio className="h-4 w-4 text-primary" />
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">Intelligence Layer</span>
-              </div>
-              <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">Trends</h1>
-              <p className="text-muted-foreground mt-1 leading-relaxed">
-                Production-type segmented intelligence. No cross-type contamination.
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="shrink-0 mt-1 border-border/50 hover:border-primary/50 hover:bg-primary/5"
-            >
-              <RefreshCw className={`h-4 w-4 mr-1.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? 'Refreshing…' : 'Refresh'}
-            </Button>
-          </div>
-
-          {/* Production Type Selector */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Production Type</label>
+    <TrendsPageShell
+      badge="Intelligence Layer"
+      title="Trends"
+      subtitle="Production-type segmented intelligence. No cross-type contamination."
+      rightSlot={
+        <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing} className="border-border/50 hover:border-primary/50 hover:bg-primary/5">
+          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+          {isRefreshing ? 'Refreshing…' : 'Refresh'}
+        </Button>
+      }
+      controls={
+        <TrendsFilterBar>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Production Type</label>
             <Select value={selectedType} onValueChange={setSelectedType}>
-              <SelectTrigger className="w-full h-10 bg-muted/50 border-border/50">
+              <SelectTrigger className="h-9 bg-muted/50 border-border/50 text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -118,12 +84,10 @@ export default function Trends() {
                   const total = c ? c.signals + c.cast : 0;
                   return (
                     <SelectItem key={pt.value} value={pt.value}>
-                      <span className="flex items-center justify-between w-full gap-2">
+                      <span className="flex items-center gap-2">
                         {pt.label}
                         {total > 0 && (
-                          <span className="text-[10px] bg-primary/15 text-primary rounded-full px-1.5 py-0.5 font-mono ml-2">
-                            {total}
-                          </span>
+                          <span className="text-[10px] bg-primary/15 text-primary rounded-full px-1.5 py-0.5 font-mono">{total}</span>
                         )}
                       </span>
                     </SelectItem>
@@ -132,94 +96,65 @@ export default function Trends() {
               </SelectContent>
             </Select>
           </div>
+        </TrendsFilterBar>
+      }
+    >
+      {/* Navigation cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Link to={`/trends/story?type=${selectedType}`}>
+          <NavCard
+            icon={<BookOpen className="h-4 w-4 text-primary" />}
+            title={`${typeConfig?.label || 'Story'} Signals`}
+            desc={`${typeConfig?.storyCategories.slice(0, 3).join(', ')} and more`}
+            meta={signalCount > 0 ? `${signalCount} active` : undefined}
+          />
+        </Link>
+        <Link to={`/trends/cast?type=${selectedType}`}>
+          <NavCard
+            icon={<Users className="h-4 w-4 text-primary" />}
+            title={typeConfig?.castLabel || 'Cast Trends'}
+            desc={`Talent momentum for ${typeConfig?.label || selectedType} projects`}
+          />
+        </Link>
+        <Link to="/trends/explorer">
+          <NavCard
+            icon={<Radio className="h-4 w-4 text-primary" />}
+            title="Trends Explorer"
+            desc="Live modality-aware trend data"
+          />
+        </Link>
+        <Link to="/trends/governance">
+          <NavCard
+            icon={<Settings2 className="h-4 w-4 text-primary" />}
+            title="Engine Governance"
+            desc="Toggle engines, adjust weights"
+          />
+        </Link>
+        <Link to="/trends/coverage">
+          <NavCard
+            icon={<BarChart3 className="h-4 w-4 text-primary" />}
+            title="Trends Coverage"
+            desc="Audit DB coverage, backfill missing types"
+          />
+        </Link>
+      </div>
 
-          {/* Navigation Cards */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Link to={`/trends/story?type=${selectedType}`}>
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1, duration: 0.25 }}
-                className="glass-card rounded-xl p-6 hover:border-primary/40 transition-colors cursor-pointer group"
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <BookOpen className="h-5 w-5 text-primary" />
-                  </div>
-                  <h2 className="font-display font-semibold text-foreground text-lg group-hover:text-primary transition-colors">
-                    {typeConfig?.label || 'Story'} Signals
-                  </h2>
-                </div>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  {typeConfig?.storyCategories.slice(0, 3).join(', ')} and more — segmented for {typeConfig?.label || selectedType}.
-                </p>
-                {signalCount > 0 && (
-                  <p className="text-xs text-primary mt-3 font-medium">
-                    {signalCount} active signal{signalCount !== 1 ? 's' : ''}
-                  </p>
-                )}
-              </motion.div>
-            </Link>
+      <div className="text-[11px] text-muted-foreground border-t border-border/30 pt-4">
+        Signals scored on Strength (1–10), Velocity, and Saturation Risk. Each includes a 12-month forecast.
+      </div>
+    </TrendsPageShell>
+  );
+}
 
-            <Link to={`/trends/cast?type=${selectedType}`}>
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.15, duration: 0.25 }}
-                className="glass-card rounded-xl p-6 hover:border-primary/40 transition-colors cursor-pointer group"
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <Users className="h-5 w-5 text-primary" />
-                  </div>
-                  <h2 className="font-display font-semibold text-foreground text-lg group-hover:text-primary transition-colors">
-                    {typeConfig?.castLabel || 'Cast Trends'}
-                  </h2>
-                </div>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Talent and key personnel momentum for {typeConfig?.label || selectedType} projects.
-                </p>
-              </motion.div>
-            </Link>
-          </div>
-
-          {/* Explorer + Governance links */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Link to={`/trends/explorer`}>
-              <div className="glass-card rounded-xl p-4 hover:border-primary/40 transition-colors cursor-pointer flex items-center gap-3">
-                <Radio className="h-5 w-5 text-primary" />
-                <div className="flex-1">
-                  <h3 className="font-display font-semibold text-foreground text-sm">Trends Explorer</h3>
-                  <p className="text-xs text-muted-foreground">Live modality-aware trend data — same filters as Pitch Engine.</p>
-                </div>
-              </div>
-            </Link>
-            <Link to="/trends/governance">
-              <div className="glass-card rounded-xl p-4 hover:border-primary/40 transition-colors cursor-pointer flex items-center gap-3">
-                <Settings2 className="h-5 w-5 text-primary" />
-                <div className="flex-1">
-                  <h3 className="font-display font-semibold text-foreground text-sm">Engine Governance</h3>
-                  <p className="text-xs text-muted-foreground">Toggle engines, adjust weights, view model versions.</p>
-                </div>
-              </div>
-            </Link>
-            <Link to="/trends/coverage">
-              <div className="glass-card rounded-xl p-4 hover:border-primary/40 transition-colors cursor-pointer flex items-center gap-3">
-                <BarChart3 className="h-5 w-5 text-primary" />
-                <div className="flex-1">
-                  <h3 className="font-display font-semibold text-foreground text-sm">Trends Coverage</h3>
-                  <p className="text-xs text-muted-foreground">Audit DB coverage by production_type. Backfill missing types.</p>
-                </div>
-              </div>
-            </Link>
-          </div>
-
-          {/* Methodology note */}
-          <div className="text-xs text-muted-foreground border-t border-border/50 pt-6">
-            <p>Signals are segmented by production type and scored on Strength (1–10), Velocity, and Saturation Risk. Each trend includes a 12-month forecast.</p>
-          </div>
-        </motion.div>
-      </main>
+function NavCard({ icon, title, desc, meta }: { icon: React.ReactNode; title: string; desc: string; meta?: string }) {
+  return (
+    <div className="rounded-xl border border-border/40 bg-card/50 p-4 hover:border-primary/40 transition-colors cursor-pointer group flex items-start gap-3">
+      <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">{icon}</div>
+      <div className="min-w-0">
+        <h3 className="font-display font-semibold text-foreground text-sm group-hover:text-primary transition-colors">{title}</h3>
+        <p className="text-xs text-muted-foreground leading-snug mt-0.5">{desc}</p>
+        {meta && <p className="text-[11px] text-primary mt-1 font-medium">{meta}</p>}
+      </div>
     </div>
   );
 }
