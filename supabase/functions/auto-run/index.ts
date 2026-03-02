@@ -3827,7 +3827,8 @@ Deno.serve(async (req) => {
               const waitSec = Math.ceil((retryTime - now) / 1000);
               console.log(`[auto-run] ${gateLabel}: waiting for backoff (${waitSec}s remaining)`, { jobId, nextRetryAt });
               await updateJob(supabase, jobId, {
-                last_ui_message: `${gateLabel}: waiting ${waitSec}s before retry (attempt ${existingSetupAttempts}/${MAX_SETUP_ATTEMPTS})`,
+                status: "recovering",
+                last_ui_message: `Recovering: ${gateLabel} retrying in ${waitSec}s (attempt ${existingSetupAttempts}/${MAX_SETUP_ATTEMPTS})`,
               });
               return respondWithJob(supabase, jobId, `${gateLabel.toLowerCase()}-backoff-wait`);
             }
@@ -3853,9 +3854,10 @@ Deno.serve(async (req) => {
             });
             let extractOk = false;
             try {
+              const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
               const extractResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
                 body: JSON.stringify({
                   action: "canon_os_extract_from_seed_docs",
                   projectId: job.project_id,
@@ -3955,12 +3957,9 @@ Deno.serve(async (req) => {
               setupResolved.push(`comparables_from_pack=${packComps.length}`);
               console.log(`[auto-run] ${gateLabel}: init comparables from seed_intel_pack`, { count: packComps.length });
             } else if (allowDefaults) {
-              // Comparables recommended but not strictly blocking for PREP_SETUP
-              // For PREWRITE_SETUP (scripts), still proceed but log warning
-              if (isWritingStage) {
-                console.warn(`[auto-run] ${gateLabel}: no comparables available, proceeding without (allow_defaults=true)`);
-                setupResolved.push("comparables_skipped_no_source");
-              }
+              // Comparables are NOT optional — block and require manual or retry
+              console.warn(`[auto-run] ${gateLabel}: no comparables available from any source, blocking (allow_defaults=true)`);
+              setupMissing.push("comparables");
             } else {
               setupMissing.push("comparables");
             }
@@ -4068,16 +4067,17 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId, "prewrite-setup-incomplete");
           }
 
-          // If canon extract exhausted all retries but allowDefaults=true, pause with RECOVERY_FAILED
-          if (setupMissing.includes("canon_os_world_rules") && allowDefaults) {
+          // If any setup is missing with allowDefaults=true, pause with RECOVERY_FAILED
+          if (setupMissing.length > 0 && allowDefaults) {
+            const failedItems = setupMissing.join(", ");
             await logStep(supabase, jobId, stepCount, currentDoc, `${gateLabel.toLowerCase()}_recovery_failed`,
-              `RECOVERY_FAILED: canon extract exhausted ${MAX_SETUP_ATTEMPTS} attempts. Manual intervention required.`);
+              `RECOVERY_FAILED: setup incomplete for [${failedItems}] after auto-resolution attempt. Manual intervention required.`);
             await updateJob(supabase, jobId, {
               status: "paused",
-              stop_reason: "RECOVERY_FAILED_PREWRITE_SETUP",
+              stop_reason: `RECOVERY_FAILED_SETUP: ${failedItems}`,
               awaiting_approval: true,
               approval_type: "prewrite_setup",
-              last_ui_message: "World rules could not be auto-populated after multiple attempts. Please populate them manually and resume.",
+              last_ui_message: `Setup could not be auto-populated: ${failedItems}. Please configure them manually and resume.`,
             });
             return respondWithJob(supabase, jobId, "prewrite-setup-recovery-failed");
           }

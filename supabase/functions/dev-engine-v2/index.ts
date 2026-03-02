@@ -4779,6 +4779,8 @@ Return ONLY valid JSON:
             approvalStatus: "draft",
             changeSummary: convParsed.change_summary || "Rebased conversion",
             sourceDocumentIds: [currentDocId],
+            generatorId: "dev-engine-v2-rebase",
+            dependsOnResolverHash: resolverResult?.resolver_hash || null,
             metaJson: {
               generator: "rebase-upstream",
               rebased_from_version_id: currentVersionId,
@@ -13596,6 +13598,7 @@ No stubs, no placeholders, no TODO markers.`;
             approvalStatus: "draft",
             changeSummary: `Regenerated insufficient doc (${reason}) from ${upstream.upstreamType}${retryUsed ? " with retry" : ""}`,
             sourceDocumentIds: [upstream.upstreamDocId],
+            generatorId: "dev-engine-v2-regen-insufficient",
             metaJson: {
               generator: "regenerate-insufficient",
               reason,
@@ -14085,6 +14088,7 @@ ${upstreamText}`;
             approvalStatus: "draft",
             changeSummary: `Regenerated insufficient doc (${item.reason}) from ${upstream.upstreamType}${retryUsed ? " with retry" : ""}`,
             sourceDocumentIds: [upstream.upstreamDocId],
+            generatorId: "dev-engine-v2-regen-tick",
             metaJson: { generator: "regenerate-insufficient", reason: item.reason, upstream_type: upstream.upstreamType, retry_used: retryUsed },
           });
 
@@ -14546,6 +14550,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             createdBy: userId,
             approvalStatus,
             changeSummary: `Generated episode ${epIdx} script${retryUsed ? " with retry" : ""}${autoApprove ? " [auto-approved]" : ""}`,
+            generatorId: "dev-engine-v2-series-scripts",
             metaJson: {
               generator: "series-scripts",
               episode_index: epIdx,
@@ -14647,6 +14652,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
               createdBy: userId,
               approvalStatus: "approved",
               changeSummary: `Auto-built master season script from ${expectedCount} episodes`,
+              generatorId: "dev-engine-v2-series-autorun",
               metaJson: { generator: "series-autorun", episode_count: expectedCount, auto_approved: true },
             });
             masterBuilt = true;
@@ -14809,13 +14815,14 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         createdBy: userId,
         approvalStatus: "draft",
         changeSummary: `Compiled from ${sortedIndices.length} episode scripts (episodes ${sortedIndices[0]}–${sortedIndices[sortedIndices.length - 1]})`,
+        generatorId: "dev-engine-v2-build-master",
+        sourceDocumentIds: epDocIds,
         metaJson: {
           generator: "build-season-master-script",
           episode_count: sortedIndices.length,
           episode_indices: sortedIndices,
           compiled_at: new Date().toISOString(),
         },
-        sourceDocumentIds: epDocIds,
       });
 
       return new Response(JSON.stringify({
