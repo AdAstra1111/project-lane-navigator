@@ -19,7 +19,7 @@ const FORMAT_SCRIPT_TYPE: Record<string, string> = {
 
 function getScriptTypeForFormat(format: string): string {
   const key = (format || "film").toLowerCase().replace(/[_ ]+/g, "-");
-  return FORMAT_SCRIPT_TYPE[key] || "feature_script";
+  return FORMAT_SCRIPT_TYPE[key] || (key === "vertical-drama" ? "season_script" : "feature_script");
 }
 
 function nextDoc(current: DocStage): DocStage | null {
