@@ -4,6 +4,21 @@
  * ALL edge functions MUST use these helpers for project_documents + project_document_versions writes.
  */
 
+// ── Deterministic resolver hash (no crypto dependency) ──
+function simpleHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + ch;
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+export function computeDefaultResolverHash(docType: string, generatorId: string, label: string): string {
+  return `auto_${simpleHash(`${docType}:${generatorId}:${label}`)}`;
+}
+
 // ── Canonical Doc Type Registry ──
 
 export interface DocTypeConfig {
@@ -197,6 +212,10 @@ export async function createVersion(
     .eq("document_id", opts.documentId)
     .eq("is_current", true);
 
+  // ── Deterministic resolver hash default ──
+  // If no explicit dependsOnResolverHash, compute a stable default from doc_type + generator + label
+  const resolvedHash = opts.dependsOnResolverHash || computeDefaultResolverHash(key, opts.generatorId || "system", opts.label);
+
   // Insert new version
   const insertPayload: Record<string, any> = {
     document_id: opts.documentId,
@@ -211,13 +230,14 @@ export async function createVersion(
     meta_json: opts.metaJson || {},
     // Provenance invariant: generator_id must never be null for system writes
     generator_id: opts.generatorId || "system",
+    // Provenance invariant: depends_on_resolver_hash must never be null
+    depends_on_resolver_hash: resolvedHash,
   };
 
   if (opts.changeSummary) insertPayload.change_summary = opts.changeSummary;
   if (opts.inheritedCore) insertPayload.inherited_core = opts.inheritedCore;
   if (opts.sourceDocumentIds) insertPayload.source_document_ids = opts.sourceDocumentIds;
   if (opts.dependsOn) insertPayload.depends_on = opts.dependsOn;
-  if (opts.dependsOnResolverHash) insertPayload.depends_on_resolver_hash = opts.dependsOnResolverHash;
   if (opts.generatorId) insertPayload.generator_id = opts.generatorId;
 
   const { data: newVersion, error } = await supabase
