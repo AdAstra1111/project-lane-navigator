@@ -22474,6 +22474,18 @@ export type Database = {
         Args: { p_attempt0: Json; p_attempt1?: Json; p_run: Json }
         Returns: string
       }
+      insert_project_vector: {
+        Args: {
+          _embedding: number[]
+          _embedding_model: string
+          _project_id: string
+          _source_hash: string
+          _source_len: number
+          _source_meta?: Json
+          _vector_type: string
+        }
+        Returns: string
+      }
       match_trend_signals: {
         Args: {
           _limit?: number
@@ -22554,6 +22566,16 @@ export type Database = {
       set_current_version: {
         Args: { p_document_id: string; p_new_version_id: string }
         Returns: Json
+      }
+      upsert_trend_signal_embedding: {
+        Args: {
+          _embedding: number[]
+          _embedding_model: string
+          _embedding_text_hash: string
+          _embedding_text_len: number
+          _signal_id: string
+        }
+        Returns: boolean
       }
     }
     Enums: {
