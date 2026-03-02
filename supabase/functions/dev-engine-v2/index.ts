@@ -1051,6 +1051,18 @@ const DOC_TYPE_REMAP: Record<string, Record<string, string>> = {
     feature_script: "episode_script",
     script: "episode_script",
   },
+  "digital-series": {
+    feature_script: "episode_script",
+    script: "episode_script",
+  },
+  "anim-series": {
+    feature_script: "episode_script",
+    script: "episode_script",
+  },
+  "reality": {
+    feature_script: "episode_script",
+    script: "episode_script",
+  },
 };
 
 function remapDocType(docType: string, format: string): string | null {
@@ -1559,7 +1571,7 @@ function resolveVerticalDramaNextStep(
     }
     return { nextStep: step.type, missingPrerequisites: [], reason: `Next in vertical drama pipeline` };
   }
-  return { nextStep: "script", missingPrerequisites: [], reason: "All vertical drama docs created" };
+  return { nextStep: "season_script", missingPrerequisites: [], reason: "All vertical drama docs created" };
 }
 
 // ═══════════════════════════════════════════════════════════════
