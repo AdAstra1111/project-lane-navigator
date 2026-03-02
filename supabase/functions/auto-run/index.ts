@@ -1,6 +1,8 @@
-const BUILD = "AUTORUN_BUILD_MARKER_2026_03_02_PREWRITE_V2";
+const BUILD = "AUTORUN_BUILD_MARKER_2026_03_02_PREWRITE_V3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
+import { getWritingLaneGroup, getDefaultWritingVoiceForLane } from "../_shared/writingVoiceResolver.ts";
+import { ensureDocSlot, createVersion } from "../_shared/doc-os.ts";
 import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy } from "../_shared/docPolicyRegistry.ts";
 import {
   DEFAULT_MAX_TOTAL_STEPS,
@@ -79,11 +81,17 @@ const DOC_TYPE_ALIASES: Record<string, string> = STAGE_LADDERS.DOC_TYPE_ALIASES;
 
 /**
  * Sanitize a doc_type before persisting — maps legacy aliases to canonical stages.
- * "draft" → "script", "coverage" → "production_draft", etc.
+ * Format-aware: VD projects remap feature_script → season_script.
  */
-function canonicalDocType(raw: string): string {
+function canonicalDocType(raw: string, format?: string): string {
   const key = (raw || "").toLowerCase().replace(/[-\s]+/g, "_");
-  return DOC_TYPE_ALIASES[key] || key;
+  let resolved = DOC_TYPE_ALIASES[key] || key;
+  // VD hard guard: feature_script is never valid for vertical-drama
+  const fmt = (format || "").toLowerCase().replace(/[_ ]+/g, "-");
+  if (fmt === "vertical-drama" && resolved === "feature_script") {
+    resolved = "season_script";
+  }
+  return resolved;
 }
 
 
@@ -3767,16 +3775,28 @@ Deno.serve(async (req) => {
       const seasonEpisodeCount = resolvedQuals.season_episode_count;
 
       // ═══════════════════════════════════════
-      // PREWRITE_SETUP GATE — ensure canon OS, writing voice, and comparables
-      // exist before ANY writing stage executes.
+      // SETUP GATE — ensure canon OS, writing voice, comparables, and NEC
+      // exist before ANY engine-profile-dependent or writing stage.
+      // Two tiers: PREP_SETUP (market sheets, format rules, etc.) and PREWRITE_SETUP (scripts).
       // Format-aware: VD never uses feature_script.
-      // Recovery: no in-request sleeps; persists attempt count and returns.
+      // Recovery: no in-request sleeps; persists next_retry_at + attempt count.
       // ═══════════════════════════════════════
       {
         const WRITING_STAGES = new Set([
           "feature_script", "season_script", "episode_script",
           "season_master_script", "production_draft",
         ]);
+        const PREP_STAGES = new Set([
+          "market_sheet", "vertical_market_sheet", "format_rules",
+          "treatment", "story_outline", "character_bible", "beat_sheet",
+          "season_arc", "episode_grid", "vertical_episode_beats",
+          "documentary_outline", "deck",
+        ]);
+
+        const isWritingStage = WRITING_STAGES.has(currentDoc);
+        const isPrepStage = PREP_STAGES.has(currentDoc);
+        const needsSetup = isWritingStage || isPrepStage;
+        const gateLabel = isWritingStage ? "PREWRITE_SETUP" : "PREP_SETUP";
 
         // ── VD HARD GUARD: if format=vertical-drama and currentDoc=feature_script,
         //    remap to season_script and update job.current_document ──
@@ -3785,17 +3805,35 @@ Deno.serve(async (req) => {
           await logStep(supabase, jobId, stepCount, currentDoc, "vd_feature_script_remap",
             `VD guard: remapped feature_script → season_script (feature_script is illegal for vertical-drama)`);
           await updateJob(supabase, jobId, { current_document: "season_script" });
-          // Update local variable for rest of this invocation
-          // (currentDoc is const, so we proceed with the remap acknowledged; next run-next will use season_script)
           return respondWithJob(supabase, jobId, "run-next");
         }
 
-        if (WRITING_STAGES.has(currentDoc)) {
-          console.log("[auto-run] PREWRITE_SETUP gate entered", { jobId, currentDoc, format });
+        if (needsSetup) {
+          console.log(`[auto-run] ${gateLabel} gate entered`, { jobId, currentDoc, format, isWritingStage, isPrepStage });
 
-          // ── Recovery tracking: use stable key in job state to avoid in-request sleeps ──
-          const existingSetupAttempts = (job.stage_history as any)?._prewrite_setup_attempts ?? 0;
-          const MAX_PREWRITE_ATTEMPTS = 3;
+          // ── Recovery tracking with real backoff ──
+          const stageHist = (job.stage_history || {}) as any;
+          const setupKey = isWritingStage ? "_prewrite" : "_prep";
+          const existingSetupAttempts = stageHist[`${setupKey}_setup_attempts`] ?? 0;
+          const nextRetryAt = stageHist[`${setupKey}_setup_next_retry_at`] ?? null;
+          const MAX_SETUP_ATTEMPTS = 3;
+          const BACKOFF_DELAYS = [5, 15, 30];
+
+          // ── Real backoff: if next_retry_at is in the future, return immediately ──
+          if (nextRetryAt) {
+            const retryTime = new Date(nextRetryAt).getTime();
+            const now = Date.now();
+            if (now < retryTime) {
+              const waitSec = Math.ceil((retryTime - now) / 1000);
+              console.log(`[auto-run] ${gateLabel}: waiting for backoff (${waitSec}s remaining)`, { jobId, nextRetryAt });
+              await updateJob(supabase, jobId, {
+                last_ui_message: `${gateLabel}: waiting ${waitSec}s before retry (attempt ${existingSetupAttempts}/${MAX_SETUP_ATTEMPTS})`,
+              });
+              return respondWithJob(supabase, jobId, `${gateLabel.toLowerCase()}-backoff-wait`);
+            }
+            // Backoff expired — clear next_retry_at, proceed with attempt
+            stageHist[`${setupKey}_setup_next_retry_at`] = null;
+          }
 
           const setupMissing: string[] = [];
           const setupResolved: string[] = [];
@@ -3810,8 +3848,7 @@ Deno.serve(async (req) => {
           const hasCharacters = Array.isArray(cj.characters) && cj.characters.length > 0;
 
           if (!hasWorldRules || !hasLogline || !hasPremise || !hasCharacters) {
-            // Single attempt per invocation — no in-request retries
-            console.log("[auto-run] PREWRITE_SETUP: canon OS incomplete, attempting extract (attempt " + (existingSetupAttempts + 1) + "/" + MAX_PREWRITE_ATTEMPTS + ")", {
+            console.log(`[auto-run] ${gateLabel}: canon OS incomplete, attempting extract (attempt ${existingSetupAttempts + 1}/${MAX_SETUP_ATTEMPTS})`, {
               hasWorldRules, hasLogline, hasPremise, hasCharacters,
             });
             let extractOk = false;
@@ -3822,18 +3859,19 @@ Deno.serve(async (req) => {
                 body: JSON.stringify({
                   action: "canon_os_extract_from_seed_docs",
                   projectId: job.project_id,
+                  userId: job.user_id,
                 }),
               });
               if (extractResp.ok) {
                 const extractResult = await extractResp.json();
-                console.log("[auto-run] PREWRITE_SETUP: canon extract result", extractResult);
+                console.log(`[auto-run] ${gateLabel}: canon extract result`, extractResult);
                 if (extractResult.updated || extractResult.reason === "already_populated") {
                   extractOk = true;
                   setupResolved.push("canon_os");
                 }
               }
             } catch (e: any) {
-              console.warn("[auto-run] PREWRITE_SETUP: canon extract attempt failed", { attempt: existingSetupAttempts, error: e.message });
+              console.warn(`[auto-run] ${gateLabel}: canon extract attempt failed`, { attempt: existingSetupAttempts, error: e.message });
             }
 
             if (!extractOk) {
@@ -3845,17 +3883,20 @@ Deno.serve(async (req) => {
                 && (typeof rcj.logline === "string" && rcj.logline.trim().length > 0);
               if (recheckOk) {
                 setupResolved.push("canon_os_found_on_recheck");
-              } else if (existingSetupAttempts + 1 < MAX_PREWRITE_ATTEMPTS) {
-                // Schedule retry: persist attempt count, return immediately
-                const retryDelay = [5, 15, 30][existingSetupAttempts] || 30;
-                console.log("[auto-run] PREWRITE_SETUP: canon extract failed, scheduling retry", { attempt: existingSetupAttempts + 1, retryDelay });
-                await logStep(supabase, jobId, stepCount, currentDoc, "prewrite_setup_retry",
-                  `Canon OS extract failed (attempt ${existingSetupAttempts + 1}/${MAX_PREWRITE_ATTEMPTS}). Will retry.`,
-                  {}, undefined, { attempt: existingSetupAttempts + 1, retryDelaySeconds: retryDelay });
-                // Store attempt count in stage_history (no schema change needed)
-                const stageHist = job.stage_history || {};
-                stageHist._prewrite_setup_attempts = existingSetupAttempts + 1;
-                await updateJob(supabase, jobId, { stage_history: stageHist });
+              } else if (existingSetupAttempts + 1 < MAX_SETUP_ATTEMPTS) {
+                // Schedule retry with REAL backoff delay
+                const retryDelay = BACKOFF_DELAYS[existingSetupAttempts] || 30;
+                const nextRetry = new Date(Date.now() + retryDelay * 1000).toISOString();
+                console.log(`[auto-run] ${gateLabel}: canon extract failed, scheduling retry`, { attempt: existingSetupAttempts + 1, retryDelay, nextRetry });
+                await logStep(supabase, jobId, stepCount, currentDoc, `${gateLabel.toLowerCase()}_retry`,
+                  `Canon OS extract failed (attempt ${existingSetupAttempts + 1}/${MAX_SETUP_ATTEMPTS}). Next retry at ${nextRetry}.`,
+                  {}, undefined, { attempt: existingSetupAttempts + 1, retryDelaySeconds: retryDelay, nextRetryAt: nextRetry });
+                stageHist[`${setupKey}_setup_attempts`] = existingSetupAttempts + 1;
+                stageHist[`${setupKey}_setup_next_retry_at`] = nextRetry;
+                await updateJob(supabase, jobId, {
+                  stage_history: stageHist,
+                  last_ui_message: `${gateLabel}: Canon extract failed, retrying in ${retryDelay}s (attempt ${existingSetupAttempts + 1}/${MAX_SETUP_ATTEMPTS})`,
+                });
                 return respondWithJob(supabase, jobId, "run-next");
               } else {
                 setupMissing.push("canon_os_world_rules");
@@ -3863,7 +3904,7 @@ Deno.serve(async (req) => {
             }
           }
 
-          // 2) Writing Voice — check project_lane_prefs
+          // 2) Writing Voice — check project_lane_prefs (use canonical shared resolver)
           const lane = project?.assigned_lane || "independent-film";
           const { data: prefsRow } = await supabase.from("project_lane_prefs")
             .select("prefs").eq("project_id", job.project_id).eq("lane", lane).maybeSingle();
@@ -3872,25 +3913,11 @@ Deno.serve(async (req) => {
 
           if (!hasVoice) {
             if (allowDefaults) {
-              // Auto-select default voice based on lane group
-              // Lane group mapping (mirrors src/lib/writingVoices/select.ts)
-              const ln = (format || lane).toLowerCase().replace(/[-_\s]+/g, "");
-              let laneGroup = "feature";
-              if (ln.includes("verticaldrama") || ln.includes("fastturnaround") || ln === "vertical") laneGroup = "vertical";
-              else if (ln.includes("documentary")) laneGroup = "documentary";
-              else if (ln.includes("series") || ln === "tvseries" || ln === "limitedseries" || ln === "digitalseries" || ln === "animseries") laneGroup = "series";
-
-              // Default voice IDs per lane group (first preset in each group)
-              const DEFAULT_VOICE_IDS: Record<string, { id: string; label: string }> = {
-                vertical: { id: "high_heat_addictive_vertical", label: "High-Heat Addictive" },
-                series: { id: "prestige_intimate_series", label: "Prestige Intimate" },
-                feature: { id: "cinematic_clean_feature", label: "Cinematic Clean" },
-                documentary: { id: "investigative_doc", label: "Investigative" },
-              };
-              const defaultVoice = DEFAULT_VOICE_IDS[laneGroup] || DEFAULT_VOICE_IDS.feature;
+              // Use canonical shared resolver (no hardcoded IDs)
+              const defaultVoice = getDefaultWritingVoiceForLane(format || lane);
 
               // Persist the voice in project_lane_prefs
-              const mergedPrefs = { ...lanePrefs, writing_voice: defaultVoice };
+              const mergedPrefs = { ...lanePrefs, writing_voice: { id: defaultVoice.id, label: defaultVoice.label } };
               await supabase.from("project_lane_prefs").upsert({
                 project_id: job.project_id,
                 lane,
@@ -3898,7 +3925,7 @@ Deno.serve(async (req) => {
               }, { onConflict: "project_id,lane" });
 
               setupResolved.push(`writing_voice=${defaultVoice.id}`);
-              console.log("[auto-run] PREWRITE_SETUP: auto-set writing voice", defaultVoice);
+              console.log(`[auto-run] ${gateLabel}: auto-set writing voice via canonical resolver`, defaultVoice);
             } else {
               setupMissing.push("writing_voice");
             }
@@ -3926,28 +3953,114 @@ Deno.serve(async (req) => {
                 .update({ canon_json: updatedCanon, updated_by: job.user_id })
                 .eq("project_id", job.project_id);
               setupResolved.push(`comparables_from_pack=${packComps.length}`);
-              console.log("[auto-run] PREWRITE_SETUP: init comparables from seed_intel_pack", { count: packComps.length });
-            } else if (!allowDefaults) {
+              console.log(`[auto-run] ${gateLabel}: init comparables from seed_intel_pack`, { count: packComps.length });
+            } else if (allowDefaults) {
+              // Comparables recommended but not strictly blocking for PREP_SETUP
+              // For PREWRITE_SETUP (scripts), still proceed but log warning
+              if (isWritingStage) {
+                console.warn(`[auto-run] ${gateLabel}: no comparables available, proceeding without (allow_defaults=true)`);
+                setupResolved.push("comparables_skipped_no_source");
+              }
+            } else {
               setupMissing.push("comparables");
             }
-            // If allowDefaults=true and no pack comps, proceed without — comparables are recommended but not blocking
+          }
+
+          // 4) NEC — Narrative Energy Contract must exist (especially before writing)
+          if (isWritingStage) {
+            const { data: necDoc } = await supabase.from("project_documents")
+              .select("id, latest_version_id")
+              .eq("project_id", job.project_id)
+              .eq("doc_type", "nec")
+              .limit(1)
+              .maybeSingle();
+
+            const hasNEC = !!(necDoc?.id && necDoc?.latest_version_id);
+
+            if (!hasNEC) {
+              if (allowDefaults) {
+                // Auto-generate minimal NEC from canon fields + format
+                try {
+                  const necSlot = await ensureDocSlot(supabase, job.project_id, job.user_id, "nec", {
+                    source: "generated",
+                    docRole: "creative_primary",
+                  });
+                  // Build minimal NEC plaintext from available canon
+                  const { data: freshCanon } = await supabase.from("project_canon")
+                    .select("canon_json").eq("project_id", job.project_id).maybeSingle();
+                  const fc = (freshCanon?.canon_json || {}) as any;
+                  const necJson = {
+                    nec_version: "1.0",
+                    format_profile: { format: format || "unknown" },
+                    energy_contract: {
+                      heat_level_0_10: format === "vertical-drama" ? 7 : 5,
+                      escalation_velocity: format === "vertical-drama" ? "fast" : "medium",
+                      reversal_frequency: format === "vertical-drama" ? "high" : "medium",
+                      cliffhanger_density: format === "vertical-drama" ? "high" : "medium",
+                      conflict_fuel: [],
+                      taboos: [],
+                    },
+                    arc_envelope: {
+                      max_character_shift_0_10: 6,
+                      emotional_amplitude_cap: "high-but-controlled",
+                      tone_oscillation_range: format === "vertical-drama" ? "tight" : "moderate",
+                      allowed_regression: "limited",
+                      relationship_volatility_cap: format === "vertical-drama" ? "medium" : "low",
+                      promise_guardrails: [],
+                    },
+                    continuity_locks: {
+                      immutable_facts: [],
+                      character_voice_locks: [],
+                      theme_locks: [],
+                    },
+                    acceptance_tests: { must_have: [], must_not_have: [] },
+                  };
+                  const necPlaintext = `# Narrative Energy Contract\n\n\`\`\`json\n${JSON.stringify(necJson, null, 2)}\n\`\`\`\n\n## Energy Contract\n- Heat Level: ${necJson.energy_contract.heat_level_0_10}/10\n- Escalation: ${necJson.energy_contract.escalation_velocity}\n- Reversals: ${necJson.energy_contract.reversal_frequency}\n- Cliffhangers: ${necJson.energy_contract.cliffhanger_density}\n\n## Arc Envelope\n- Max Character Shift: ${necJson.arc_envelope.max_character_shift_0_10}/10\n- Emotional Cap: ${necJson.arc_envelope.emotional_amplitude_cap}\n- Tone Range: ${necJson.arc_envelope.tone_oscillation_range}\n- Allowed Regression: ${necJson.arc_envelope.allowed_regression}\n`;
+
+                  await createVersion(supabase, {
+                    documentId: necSlot.documentId,
+                    docType: "nec",
+                    plaintext: necPlaintext,
+                    label: "auto_generated_nec",
+                    createdBy: job.user_id,
+                    approvalStatus: "draft",
+                    generatorId: "auto-run-setup",
+                    metaJson: { nec_json: necJson, generated_by: "auto-run-prewrite-setup" },
+                  });
+                  setupResolved.push("nec_auto_generated");
+                  console.log(`[auto-run] ${gateLabel}: auto-generated NEC document`, { necJson });
+                } catch (necErr: any) {
+                  console.warn(`[auto-run] ${gateLabel}: NEC generation failed`, { error: necErr.message });
+                  setupMissing.push("nec");
+                }
+              } else {
+                setupMissing.push("nec");
+              }
+            }
           }
 
           // Log the setup gate result
           if (setupResolved.length > 0 || setupMissing.length > 0) {
-            await logStep(supabase, jobId, stepCount, currentDoc, "prewrite_setup",
+            await logStep(supabase, jobId, stepCount, currentDoc, gateLabel.toLowerCase(),
               setupMissing.length > 0
-                ? `PREWRITE_SETUP incomplete: missing=[${setupMissing.join(",")}] resolved=[${setupResolved.join(",")}]`
-                : `PREWRITE_SETUP complete: resolved=[${setupResolved.join(",")}]`,
+                ? `${gateLabel} incomplete: missing=[${setupMissing.join(",")}] resolved=[${setupResolved.join(",")}]`
+                : `${gateLabel} complete: resolved=[${setupResolved.join(",")}]`,
               {}, undefined, { setupMissing, setupResolved },
             );
           }
 
           // If critical setup is missing and !allowDefaults, pause
           if (setupMissing.length > 0 && !allowDefaults) {
+            const stopReasonMap: Record<string, string> = {
+              canon_os_world_rules: "NEEDS_WORLD_RULES",
+              writing_voice: "NEEDS_WRITING_VOICE",
+              comparables: "NEEDS_COMPARABLES",
+              nec: "NEEDS_NEC",
+            };
+            const primaryStop = stopReasonMap[setupMissing[0]] || `PREWRITE_SETUP_INCOMPLETE`;
             await updateJob(supabase, jobId, {
               status: "paused",
-              stop_reason: `PREWRITE_SETUP_INCOMPLETE: ${setupMissing.join(", ")}`,
+              stop_reason: `${primaryStop}: ${setupMissing.join(", ")}`,
               awaiting_approval: true,
               approval_type: "prewrite_setup",
               last_ui_message: `Writing cannot begin: ${setupMissing.join(", ")} must be configured. Set them in the project settings and resume.`,
@@ -3957,8 +4070,8 @@ Deno.serve(async (req) => {
 
           // If canon extract exhausted all retries but allowDefaults=true, pause with RECOVERY_FAILED
           if (setupMissing.includes("canon_os_world_rules") && allowDefaults) {
-            await logStep(supabase, jobId, stepCount, currentDoc, "prewrite_setup_recovery_failed",
-              `RECOVERY_FAILED: canon extract exhausted ${MAX_PREWRITE_ATTEMPTS} attempts. Manual intervention required.`);
+            await logStep(supabase, jobId, stepCount, currentDoc, `${gateLabel.toLowerCase()}_recovery_failed`,
+              `RECOVERY_FAILED: canon extract exhausted ${MAX_SETUP_ATTEMPTS} attempts. Manual intervention required.`);
             await updateJob(supabase, jobId, {
               status: "paused",
               stop_reason: "RECOVERY_FAILED_PREWRITE_SETUP",
@@ -3969,10 +4082,10 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId, "prewrite-setup-recovery-failed");
           }
 
-          // Clear retry counter on success
+          // Clear retry counters on success
           if (existingSetupAttempts > 0) {
-            const stageHist = job.stage_history || {};
-            delete stageHist._prewrite_setup_attempts;
+            stageHist[`${setupKey}_setup_attempts`] = 0;
+            stageHist[`${setupKey}_setup_next_retry_at`] = null;
             await updateJob(supabase, jobId, { stage_history: stageHist });
           }
         }
