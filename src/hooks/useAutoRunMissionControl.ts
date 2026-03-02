@@ -74,6 +74,22 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     if (projectId) setActivated(true);
   }, [projectId]);
 
+  // Reset local mission state when project changes (prevents cross-project bleed)
+  useEffect(() => {
+    abortRef.current = false;
+    if (pollRef.current) {
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
+    consecutiveFailuresRef.current = 0;
+    lastSuccessRef.current = Date.now();
+    setJob(null);
+    setSteps([]);
+    setIsRunning(false);
+    setError(null);
+    setConnectionState('online');
+  }, [projectId]);
+
   // ── Fetch existing job when mission control is activated ──
   const { data: existingJob } = useQuery({
     queryKey: ['auto-run-mission-status', projectId],
@@ -96,6 +112,31 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       }
     }
   }, [existingJob]);
+
+  // Discover jobs started from other panels (keeps Clean/Advanced in sync)
+  useEffect(() => {
+    if (!projectId || !activated || job?.id) return;
+
+    let cancelled = false;
+    const discover = async () => {
+      try {
+        const result = await callAutoRun('status', { projectId });
+        if (cancelled || !result?.job) return;
+        setJob(result.job);
+        setSteps(result.latest_steps || []);
+        setIsRunning(result.job.status === 'running' && !result.job.awaiting_approval);
+      } catch {
+        // no active job yet
+      }
+    };
+
+    discover();
+    const interval = setInterval(discover, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [projectId, activated, job?.id]);
 
   // ── Resilient Polling with backoff ──
   const hasPendingDecisions = Array.isArray(job?.pending_decisions) && (job?.pending_decisions as any[]).length > 0;
