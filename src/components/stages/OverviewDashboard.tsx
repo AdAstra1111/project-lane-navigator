@@ -291,11 +291,15 @@ export function OverviewDashboard({
           <UsersRound className="h-4 w-4 text-primary" />
           <h3 className="font-display font-semibold text-foreground text-sm">Team & Activity</h3>
         </div>
-        <ProjectCollaboratorsPanel projectId={projectId} isOwner={project.user_id === currentUserId} />
-        <ProjectCommentsThread projectId={projectId} currentUserId={currentUserId} />
-        <ProjectActivityFeed projectId={projectId} />
-        <ProjectTimeline projectId={projectId} />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <ProjectCollaboratorsPanel projectId={projectId} isOwner={project.user_id === currentUserId} />
+          <ProjectActivityFeed projectId={projectId} />
+          <ProjectTimeline projectId={projectId} />
+        </div>
       </div>
+
+      {/* Discussion — full width */}
+      <ProjectCommentsThread projectId={projectId} currentUserId={currentUserId} />
     </div>
   );
 }
