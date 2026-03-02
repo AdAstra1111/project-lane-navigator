@@ -25,7 +25,7 @@ export function BudgetAssumptionsPanel({ projectId }: Props) {
   const [form, setForm] = useState<Record<string, any>>({});
 
   // Fetch project modality for overlay
-  const { data: modality } = useQuery({
+  const { data: modality, isLoading: modalityLoading } = useQuery({
     queryKey: ['project-modality', projectId],
     queryFn: async () => {
       const { data } = await supabase
@@ -36,12 +36,14 @@ export function BudgetAssumptionsPanel({ projectId }: Props) {
       return getProjectModality(data?.project_features as Record<string, any> | null);
     },
     enabled: !!projectId,
+    staleTime: 5 * 60 * 1000, // 5 min — modality rarely changes
   });
 
   if (!assumptions) return null;
 
   const effectiveModality: ProductionModality = modality || 'live_action';
-  const showOverlay = isAnimationModality(effectiveModality);
+  // Only show overlay once modality is resolved (prevents flash of incorrect state)
+  const showOverlay = !modalityLoading && isAnimationModality(effectiveModality);
   const factors = MODALITY_COST_FACTORS[effectiveModality];
 
   const startEdit = () => {
