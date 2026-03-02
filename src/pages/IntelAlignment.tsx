@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { BarChart3, Zap, RefreshCw } from "lucide-react";
+import { BarChart3, Zap, RefreshCw, Database } from "lucide-react";
 import { ExplorerLayout } from "@/components/explorer/ExplorerLayout";
 import { toast } from "sonner";
 
@@ -39,6 +39,27 @@ export default function IntelAlignment() {
       .limit(1)
       .maybeSingle();
     setAlignment(data as any);
+  }
+
+  const [embedLoading, setEmbedLoading] = useState(false);
+
+  async function generateProjectVectors() {
+    if (!projectId) return;
+    setEmbedLoading(true);
+    toast.info("Generating project embeddings…");
+    try {
+      const { data, error } = await supabase.functions.invoke("embed-project-vectors", {
+        body: { project_id: projectId, trigger: "manual" },
+      });
+      if (error) throw error;
+      toast.success(`Vectors created: ${data?.created_count || 0}, skipped: ${data?.skipped_count || 0}`);
+      // Auto-compute alignment after generating vectors
+      await compute();
+    } catch (e: any) {
+      toast.error(e.message || "Failed");
+    } finally {
+      setEmbedLoading(false);
+    }
   }
 
   async function compute() {
@@ -77,18 +98,32 @@ export default function IntelAlignment() {
           <h1 className="text-2xl font-display font-bold text-foreground flex items-center gap-2">
             <Zap className="h-6 w-6 text-primary" /> Project Intel Alignment
           </h1>
-          <Button size="sm" onClick={compute} disabled={loading}>
-            <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? "animate-spin" : ""}`} />
-            {loading ? "Computing…" : "Compute Alignment"}
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={generateProjectVectors} disabled={embedLoading}>
+              <Database className={`h-3.5 w-3.5 mr-1 ${embedLoading ? "animate-spin" : ""}`} />
+              {embedLoading ? "Embedding…" : "Generate Vectors"}
+            </Button>
+            <Button size="sm" onClick={compute} disabled={loading}>
+              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? "animate-spin" : ""}`} />
+              {loading ? "Computing…" : "Compute Alignment"}
+            </Button>
+          </div>
         </div>
 
         {!alignment ? (
           <Card>
-            <CardContent className="py-8 text-center">
+            <CardContent className="py-8 text-center space-y-3">
               <p className="text-sm text-muted-foreground">
-                No alignment data yet. Click "Compute Alignment" to analyze this project against active trend signals.
+                No alignment data yet. Generate project vectors first, then compute alignment.
               </p>
+              <div className="flex gap-2 justify-center">
+                <Button size="sm" variant="outline" onClick={generateProjectVectors} disabled={embedLoading}>
+                  <Database className="h-3.5 w-3.5 mr-1" /> Generate Project Vectors
+                </Button>
+                <Button size="sm" onClick={compute} disabled={loading}>
+                  <RefreshCw className="h-3.5 w-3.5 mr-1" /> Compute Alignment
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ) : (

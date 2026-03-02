@@ -4,9 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, Shield, BarChart3, AlertTriangle, ChevronRight, Zap } from "lucide-react";
+import { Activity, Shield, BarChart3, AlertTriangle, ChevronRight, Zap, Database } from "lucide-react";
 import { ExplorerLayout } from "@/components/explorer/ExplorerLayout";
 import { toast } from "sonner";
+import { useState as useStateHook } from "react";
 
 interface IntelRun {
   id: string;
@@ -47,6 +48,8 @@ export default function IntelDashboard() {
     setLoading(false);
   }
 
+  const [backfillLoading, setBackfillLoading] = useStateHook(false);
+
   async function triggerConvergence() {
     toast.info("Computing convergence alerts…");
     try {
@@ -58,6 +61,22 @@ export default function IntelDashboard() {
       loadData();
     } catch (e: any) {
       toast.error(e.message || "Failed");
+    }
+  }
+
+  async function backfillSignalEmbeddings() {
+    setBackfillLoading(true);
+    toast.info("Backfilling signal embeddings…");
+    try {
+      const { data, error } = await supabase.functions.invoke("embed-trend-signal-vectors", {
+        body: { only_missing: true, limit: 50, trigger: "manual_backfill" },
+      });
+      if (error) throw error;
+      toast.success(`Signals embedded: ${data?.processed || 0}, skipped: ${data?.skipped || 0}`);
+    } catch (e: any) {
+      toast.error(e.message || "Failed");
+    } finally {
+      setBackfillLoading(false);
     }
   }
 
@@ -84,6 +103,9 @@ export default function IntelDashboard() {
             </Button>
             <Button variant="outline" size="sm" onClick={() => navigate("/intel/events")}>
               <AlertTriangle className="h-3.5 w-3.5 mr-1" /> Events
+            </Button>
+            <Button variant="outline" size="sm" onClick={backfillSignalEmbeddings} disabled={backfillLoading}>
+              <Database className="h-3.5 w-3.5 mr-1" /> {backfillLoading ? "Embedding…" : "Backfill Signal Vectors"}
             </Button>
             <Button size="sm" onClick={triggerConvergence}>
               <Activity className="h-3.5 w-3.5 mr-1" /> Run Convergence

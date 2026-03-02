@@ -12830,6 +12830,9 @@ export type Database = {
           embedding_model: string | null
           id: string
           project_id: string
+          source_hash: string | null
+          source_len: number | null
+          source_meta: Json | null
           vector_type: string
         }
         Insert: {
@@ -12838,6 +12841,9 @@ export type Database = {
           embedding_model?: string | null
           id?: string
           project_id: string
+          source_hash?: string | null
+          source_len?: number | null
+          source_meta?: Json | null
           vector_type: string
         }
         Update: {
@@ -12846,6 +12852,9 @@ export type Database = {
           embedding_model?: string | null
           id?: string
           project_id?: string
+          source_hash?: string | null
+          source_len?: number | null
+          source_meta?: Json | null
           vector_type?: string
         }
         Relationships: []
@@ -21042,6 +21051,8 @@ export type Database = {
           dimension: string | null
           embedding: string | null
           embedding_model: string | null
+          embedding_text_hash: string | null
+          embedding_text_len: number | null
           example_titles: Json
           explanation: string
           first_detected_at: string
@@ -21084,6 +21095,8 @@ export type Database = {
           dimension?: string | null
           embedding?: string | null
           embedding_model?: string | null
+          embedding_text_hash?: string | null
+          embedding_text_len?: number | null
           example_titles?: Json
           explanation: string
           first_detected_at?: string
@@ -21126,6 +21139,8 @@ export type Database = {
           dimension?: string | null
           embedding?: string | null
           embedding_model?: string | null
+          embedding_text_hash?: string | null
+          embedding_text_len?: number | null
           example_titles?: Json
           explanation?: string
           first_detected_at?: string
