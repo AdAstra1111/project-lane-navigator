@@ -1,68 +1,44 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { PromotionRecommendation } from '@/components/devengine/PromotionIntelligenceCard';
-import { isScriptDocType, normalizeDocTypeKey } from '@/lib/can-promote-to-script';
-import { isSeriesFormat, isVerticalDrama } from '@/lib/format-helpers';
 import type { NextAction } from '@/lib/next-action';
 import { buildSeriesWriterAction, buildPromoteAction, buildNoAction } from '@/lib/next-action';
-import { getVerticalDramaNextStep, DELIVERABLE_LABELS } from '@/lib/dev-os-config';
 import {
   computePipelineState,
   isStageValidForFormat,
   type ExistingDoc,
 } from '@/lib/pipeline-brain';
 import { getLadderForFormat, mapDocTypeToLadderStage, getNextStage } from '@/lib/stages/registry';
+import { BASE_DOC_TYPES } from '@/config/documentLadders';
 
-// ── Local computation (same algorithm as edge function) for when no sessionId exists ──
+// ── Canonical stage weights for readiness score computation ──────────────────
+// Keys MUST be canonical doc_type values from BASE_DOC_TYPES / FORMAT_LADDERS.
+// NO legacy keys (blueprint, architecture, draft, coverage) allowed.
 
-const LADDER = ['idea', 'concept_brief', 'blueprint', 'architecture', 'draft', 'coverage'] as const;
-type DocStage = (typeof LADDER)[number];
-
-/**
- * Map any doc_type to its position in the promotion ladder.
- * Script doc_types map to 'draft' (not 'concept_brief') to prevent backward suggestions.
- */
-function resolveDocStage(rawDocType: string): DocStage {
-  const normalized = normalizeDocTypeKey(rawDocType);
-  // Direct ladder match
-  if ((LADDER as readonly string[]).includes(normalized)) return normalized as DocStage;
-  // Script types → draft (terminal creative stage)
-  if (isScriptDocType(normalized)) return 'draft';
-  // Common mappings
-  const map: Record<string, DocStage> = {
-    treatment: 'blueprint',
-    season_arc: 'blueprint',
-    episode_grid: 'architecture',
-    character_bible: 'architecture',
-    beat_sheet: 'architecture',
-    vertical_episode_beats: 'architecture',
-    format_rules: 'architecture',
-    concept_brief: 'concept_brief',
-    market_sheet: 'concept_brief',
-    vertical_market_sheet: 'concept_brief',
-    logline: 'idea',
-    one_pager: 'concept_brief',
-    writers_room: 'draft',
-    notes: 'concept_brief',
-    production_draft: 'coverage',
-    series_writer: 'coverage',
-  };
-  return map[normalized] || 'concept_brief';
-}
-
-function nextDoc(current: DocStage): string | null {
-  const idx = LADDER.indexOf(current);
-  return idx >= 0 && idx < LADDER.length - 1 ? LADDER[idx + 1] : null;
-}
-
-const WEIGHTS: Record<string, { ci: number; gp: number; gap: number; traj: number; hi: number; pen: number }> = {
-  idea:          { ci: 0.20, gp: 0.30, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
-  concept_brief: { ci: 0.25, gp: 0.25, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
-  blueprint:     { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
-  architecture:  { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
-  draft:         { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
-  coverage:      { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+const STAGE_WEIGHTS: Record<string, { ci: number; gp: number; gap: number; traj: number; hi: number; pen: number }> = {
+  idea:                   { ci: 0.20, gp: 0.30, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
+  concept_brief:          { ci: 0.25, gp: 0.25, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
+  market_sheet:           { ci: 0.25, gp: 0.25, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
+  vertical_market_sheet:  { ci: 0.25, gp: 0.25, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
+  treatment:              { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  story_outline:          { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  character_bible:        { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  beat_sheet:             { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  episode_beats:          { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  format_rules:           { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  season_arc:             { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  episode_grid:           { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  vertical_episode_beats: { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  documentary_outline:    { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  feature_script:         { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+  episode_script:         { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+  season_script:          { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+  season_master_script:   { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+  production_draft:       { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+  deck:                   { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
 };
+// Default for any canonical stage not explicitly listed
+const DEFAULT_STAGE_WEIGHTS = { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 };
 
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
@@ -185,7 +161,7 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     approvedDocTypes = [],
   } = input;
 
-  const doc = resolveDocStage(currentDocument);
+  const doc = mapDocTypeToLadderStage(currentDocument);
   const reasons: string[] = [];
   const mustFixNext: string[] = [];
   const riskFlags: string[] = [];
@@ -199,7 +175,7 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
   }
 
   // ── Compute weighted score FIRST (always) ──
-  const w = WEIGHTS[doc] || WEIGHTS.concept_brief;
+  const w = STAGE_WEIGHTS[doc] || DEFAULT_STAGE_WEIGHTS;
   const gapScore = 100 - clamp(gap * 2, 0, 100);
   const trajScore = trajectoryScore(trajectory);
   const hiScore = 100 - clamp(highImpactCount * 10, 0, 60);
@@ -243,8 +219,7 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
   }
 
   // ── Determine next document (format-aware via Pipeline Brain) ──
-  const isVD = isVerticalDrama(projectFormat || '');
-  const isSeries = isSeriesFormat(projectFormat || '');
+    // NOTE: isVD/isSeries no longer needed — Pipeline Brain handles all lane routing
 
   let rawNext: string | null;
   let isSeriesWriterTarget = false;
@@ -287,12 +262,29 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
       }
     }
   } else {
-    // Fallback: generic ladder for projects without format
-    rawNext = nextDoc(doc);
-    isSeriesWriterTarget = isSeries && doc === 'draft';
+    // Fail closed: cannot compute next step without format + existing docs
+    rawNext = null;
+    reasons.push('Cannot determine next step: project format or existing documents missing');
+    riskFlags.push('reason_code:MISSING_FORMAT_FOR_LADDER');
   }
 
   const next = isSeriesWriterTarget ? 'series_writer' : rawNext;
+
+  // ── Runtime guard: next must be a canonical doc_type or series_writer ──
+  if (next && next !== 'series_writer' && !BASE_DOC_TYPES[next]) {
+    console.error(`[PromotionIntel] FATAL: computed next_document "${next}" is not in BASE_DOC_TYPES — failing closed`);
+    riskFlags.push('hard_gate:non_canonical_next_doc');
+    return {
+      recommendation: 'stabilise',
+      next_document: null,
+      readiness_score: readinessScore,
+      confidence,
+      reasons: [...reasons, `Internal error: "${next}" is not a canonical doc_type`],
+      must_fix_next: ['Report this issue — non-canonical doc type detected'],
+      risk_flags: riskFlags,
+      next_action: buildNoAction(),
+    };
+  }
 
   // ── Build NextAction ──
   let nextAction: NextAction;
