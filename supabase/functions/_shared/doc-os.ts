@@ -225,6 +225,18 @@ export async function createVersion(
     .single();
 
   if (error) throw new Error(`createVersion(${key} v${nextVersion}): ${error.message}`);
+
+  // ── PATCH A1: Always set latest_version_id on the parent document ──
+  const { error: lvErr } = await supabase
+    .from("project_documents")
+    .update({ latest_version_id: newVersion.id })
+    .eq("id", opts.documentId);
+  if (lvErr) {
+    console.warn(`[doc-os] failed to set latest_version_id for doc ${opts.documentId}: ${lvErr.message}`);
+  } else {
+    console.log(`[doc-os] latest_version_id set for doc ${opts.documentId} → version ${newVersion.id}`);
+  }
+
   return newVersion;
 }
 

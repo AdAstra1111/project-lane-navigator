@@ -1171,6 +1171,7 @@ export default function ProjectDevelopmentEngine() {
                 totalDocs={totalVersioned}
                 criteriaLinkedDocs={criteriaLinkedCount}
                 provenanceKnownDocs={provenanceKnownCount}
+                isAutopilotActive={autoRun.isRunning || (autoRun.job?.status === 'running')}
               />
             );
           })()}
