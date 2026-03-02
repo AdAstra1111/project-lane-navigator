@@ -5,8 +5,8 @@
 
 import { GATEWAY_URL, MODELS } from "./llm.ts";
 
-const DIMENSION = 1536;
-const EMBEDDING_MODEL = "text-embedding-3-small"; // logical name for provenance
+const DIMENSION = 64;
+const EMBEDDING_MODEL = "llm-tool-call-64d"; // logical name for provenance
 const MAX_RETRIES = 2;
 
 export { DIMENSION, EMBEDDING_MODEL };
@@ -34,11 +34,11 @@ export async function createEmbedding(
           messages: [
             {
               role: "system",
-              content: `You are an embedding generator. Produce a ${DIMENSION}-dimensional numerical embedding vector that captures the semantic meaning of the input text for similarity search. Return the embedding via the tool call. Every number must be between -1 and 1.`,
+              content: `You are a semantic fingerprint generator. Produce exactly ${DIMENSION} floating-point numbers between -1 and 1 that capture the semantic meaning of the input text. Each number represents a different semantic axis. Return via the tool call. Output ONLY numbers, no text.`,
             },
             {
               role: "user",
-              content: `Generate a single ${DIMENSION}-dimensional embedding vector for the following text:\n\n${truncated}`,
+              content: `Generate exactly ${DIMENSION} numbers for this text:\n\n${truncated}`,
             },
           ],
           temperature: 0,

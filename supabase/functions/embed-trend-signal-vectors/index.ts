@@ -46,7 +46,7 @@ serve(async (req) => {
     if (authErr || !user) throw new Error("Unauthorized");
 
     const body = await req.json();
-    const limit = Math.min(body.limit || 50, 100);
+    const limit = Math.min(body.limit || 10, 25);
     const onlyMissing = body.only_missing !== false; // default true
     const minStrength = body.min_strength || 1;
 
