@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { Json } from '@/integrations/supabase/types';
 import { Project, ProjectInput, ProjectDocument } from '@/lib/types';
 import { setProjectModality, type ProductionModality } from '@/config/productionModality';
+import { setAnimationMeta, type AnimationMeta } from '@/config/animationMeta';
 import { classifyProject } from '@/lib/lane-classifier';
 import { toast } from 'sonner';
 
@@ -58,7 +59,7 @@ export function useProjects() {
   });
 
   const createProject = useMutation({
-    mutationFn: async ({ input, files, companyId, productionModality }: { input: ProjectInput; files: File[]; companyId?: string; productionModality?: ProductionModality }) => {
+    mutationFn: async ({ input, files, companyId, productionModality, animationMeta }: { input: ProjectInput; files: File[]; companyId?: string; productionModality?: ProductionModality; animationMeta?: Partial<AnimationMeta> }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
@@ -80,7 +81,11 @@ export function useProjects() {
       }
 
       // Build project_features with modality (merge-safe)
-      const projectFeatures = setProjectModality({}, effectiveModality);
+      let projectFeatures = setProjectModality({}, effectiveModality);
+      // Merge animation meta if provided and modality is animation/hybrid
+      if (animationMeta && effectiveModality !== 'live_action') {
+        projectFeatures = setAnimationMeta(projectFeatures, animationMeta);
+      }
 
       // 4. Insert project
       const { data: project, error: insertError } = await supabase

@@ -17,7 +17,16 @@ import { FORMAT_META } from '@/lib/mode-engine';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { type ProductionModality, MODALITY_LABELS, MODALITY_DESCRIPTIONS } from '@/config/productionModality';
+import { type ProductionModality, MODALITY_LABELS, MODALITY_DESCRIPTIONS, isAnimationModality } from '@/config/productionModality';
+import {
+  type AnimationPrimary,
+  type AnimationStyle,
+  ANIMATION_PRIMARY_LIST,
+  ANIMATION_PRIMARY_LABELS,
+  ANIMATION_STYLE_LIST,
+  ANIMATION_STYLE_LABELS,
+  ANIMATION_TAG_CATEGORIES,
+} from '@/config/animationMeta';
 
 const ANALYSE_STAGES: ProcessStage[] = [
   { label: 'Uploading documents…', durationSec: 10 },
@@ -46,6 +55,9 @@ export default function NewProject() {
   const [ideaText, setIdeaText] = useState('');
   const [ideaLoading, setIdeaLoading] = useState(false);
   const [selectedModality, setSelectedModality] = useState<ProductionModality>('live_action');
+  const [selectedAnimPrimary, setSelectedAnimPrimary] = useState<AnimationPrimary | null>(null);
+  const [selectedAnimStyle, setSelectedAnimStyle] = useState<AnimationStyle | null>(null);
+  const [selectedAnimTags, setSelectedAnimTags] = useState<string[]>([]);
   const [form, setForm] = useState<ProjectInput>({
     title: '',
     format: 'film',
@@ -65,6 +77,12 @@ export default function NewProject() {
     }));
   };
 
+  const toggleAnimTag = (tag: string) => {
+    setSelectedAnimTags(prev =>
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+    );
+  };
+
   const canProceed = () => {
     switch (step) {
       case 0: return form.title.trim().length > 0 && form.format;
@@ -77,7 +95,16 @@ export default function NewProject() {
 
   const handleSubmit = async () => {
     try {
-      const result = await createProject.mutateAsync({ input: form, files, companyId: selectedCompanyId || undefined, productionModality: selectedModality });
+      const animMeta = isAnimationModality(selectedModality)
+        ? { primary: selectedAnimPrimary, tags: selectedAnimTags, style: selectedAnimStyle }
+        : undefined;
+      const result = await createProject.mutateAsync({
+        input: form,
+        files,
+        companyId: selectedCompanyId || undefined,
+        productionModality: selectedModality,
+        animationMeta: animMeta,
+      });
       navigate(`/projects/${result.id}`);
     } catch (err: any) {
       const message = err?.message || 'Failed to create project';
@@ -283,6 +310,87 @@ export default function NewProject() {
                     })}
                   </div>
                 </div>
+
+                {/* Animation Genre/Style selectors — only when modality != live_action */}
+                {isAnimationModality(selectedModality) && (
+                  <div className="space-y-4 p-4 rounded-lg border border-accent/30 bg-accent/5">
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <Palette className="h-4 w-4 text-accent-foreground" />
+                      Animation Details <span className="text-[10px] text-muted-foreground font-normal">(optional)</span>
+                    </h3>
+
+                    {/* Animation Primary Genre */}
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground uppercase tracking-wider">Primary Genre</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {ANIMATION_PRIMARY_LIST.map(p => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setSelectedAnimPrimary(prev => prev === p ? null : p)}
+                            className={cn(
+                              'px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-200',
+                              selectedAnimPrimary === p
+                                ? 'bg-primary/15 text-primary border-primary/40'
+                                : 'bg-muted/50 text-muted-foreground border-border/50 hover:text-foreground hover:border-border'
+                            )}
+                          >
+                            {ANIMATION_PRIMARY_LABELS[p]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Animation Style */}
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground uppercase tracking-wider">Animation Style</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {ANIMATION_STYLE_LIST.map(s => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => setSelectedAnimStyle(prev => prev === s ? null : s)}
+                            className={cn(
+                              'px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-200',
+                              selectedAnimStyle === s
+                                ? 'bg-primary/15 text-primary border-primary/40'
+                                : 'bg-muted/50 text-muted-foreground border-border/50 hover:text-foreground hover:border-border'
+                            )}
+                          >
+                            {ANIMATION_STYLE_LABELS[s]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Animation Tags (grouped) */}
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground uppercase tracking-wider">Tags</Label>
+                      {Object.entries(ANIMATION_TAG_CATEGORIES).map(([category, tags]) => (
+                        <div key={category} className="space-y-1">
+                          <span className="text-[10px] text-muted-foreground font-medium">{category}</span>
+                          <div className="flex flex-wrap gap-1">
+                            {tags.map(tag => (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={() => toggleAnimTag(tag)}
+                                className={cn(
+                                  'px-2 py-0.5 rounded-full text-[10px] font-medium border transition-all duration-200',
+                                  selectedAnimTags.includes(tag)
+                                    ? 'bg-accent/20 text-accent-foreground border-accent/40'
+                                    : 'bg-muted/30 text-muted-foreground border-border/30 hover:text-foreground hover:border-border'
+                                )}
+                              >
+                                {tag.replace(/_/g, ' ')}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {companies.length > 0 && (
                   <div className="space-y-3">
                     <Label className="text-foreground">Production Company <span className="text-muted-foreground font-normal">(optional)</span></Label>

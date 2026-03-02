@@ -3,6 +3,7 @@ import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 import { buildConvergenceProfile, buildConvergenceBlock } from "../_shared/convergence-profile.ts";
 import type { EdgeTrendSignal, EdgeCastTrend } from "../_shared/convergence-profile.ts";
 import { buildModalityPromptBlock } from "../_shared/productionModality.ts";
+import { getAnimationMeta, buildAnimationMetaPromptBlock } from "../_shared/animationMeta.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -145,6 +146,7 @@ serve(async (req) => {
     // ── Auth + Access + Project fetch (MUST happen before auto-fields uses dbModality) ──
     // Enforced order: auth.getUser() → has_project_access → project fetch → modality derivation
     let dbModality: string | null = null;
+    let dbAnimMeta: { primary: string | null; tags: string[]; style: string | null } = { primary: null, tags: [], style: null };
     let projRow: any = null;
     let projSupa: any = null; // service-role client reused in later projectId block
     if (projectId) {
@@ -201,8 +203,10 @@ serve(async (req) => {
       const { getProjectModality: gpm } = await import("../_shared/productionModality.ts");
       dbModality = gpm(projRow.project_features as Record<string, any> | null);
       console.log(`[generate-pitch] modality_source=project_features modality=${dbModality}`);
+      // e) Derive animation meta from DB project_features
+      dbAnimMeta = getAnimationMeta(projRow.project_features as Record<string, any> | null);
+      console.log(`[generate-pitch] anim_meta primary=${dbAnimMeta.primary || "none"} tags_count=${dbAnimMeta.tags.length} style=${dbAnimMeta.style || "none"}`);
     }
-
     // ── Auto-fields: resolve via fallback ladder (deterministic, no LLM) ──
     let autoFieldsBlock = "";
     let convergenceBlock = "";
@@ -643,13 +647,14 @@ serve(async (req) => {
       console.log(`[generate-pitch] modality_source=request_preview_default modality=${pitchModality}`);
     }
     const modalityBlock = buildModalityPromptBlock(pitchModality);
+    const animMetaBlock = buildAnimationMetaPromptBlock(pitchModality, dbAnimMeta);
 
     const systemPrompt = `You are IFFY's Development Pitch Engine — an expert development executive who generates production-ready concept pitches for the entertainment industry.
 
 ${guardrails.textBlock}
 
 PRODUCTION TYPE: ${typeLabel}
-ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}${convergenceBlock}${modalityBlock}
+ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}${convergenceBlock}${modalityBlock}${animMetaBlock}
 
 Generate exactly ${batchSize} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
 

@@ -16,6 +16,7 @@ import {
   isAnimationModality,
   type ProductionModality,
 } from '@/config/productionModality';
+import { getAnimationMeta, ANIMATION_STYLE_LABELS } from '@/config/animationMeta';
 
 interface Props { projectId: string; }
 
@@ -25,7 +26,7 @@ export function BudgetAssumptionsPanel({ projectId }: Props) {
   const [form, setForm] = useState<Record<string, any>>({});
 
   // Fetch project modality for overlay
-  const { data: modality, isLoading: modalityLoading } = useQuery({
+  const { data: projectFeaturesData, isLoading: modalityLoading } = useQuery({
     queryKey: ['project-modality', projectId],
     queryFn: async () => {
       const { data } = await supabase
@@ -33,11 +34,14 @@ export function BudgetAssumptionsPanel({ projectId }: Props) {
         .select('project_features')
         .eq('id', projectId)
         .single();
-      return getProjectModality(data?.project_features as Record<string, any> | null);
+      const pf = data?.project_features as Record<string, any> | null;
+      return { modality: getProjectModality(pf), animMeta: getAnimationMeta(pf) };
     },
     enabled: !!projectId,
-    staleTime: 5 * 60 * 1000, // 5 min — modality rarely changes
+    staleTime: 5 * 60 * 1000,
   });
+  const modality = projectFeaturesData?.modality;
+  const animMeta = projectFeaturesData?.animMeta;
 
   if (!assumptions) return null;
 
@@ -169,6 +173,15 @@ export function BudgetAssumptionsPanel({ projectId }: Props) {
             <p className="text-[10px] text-muted-foreground mt-1 italic">
               Overlay only — base assumptions unchanged. Multipliers from MODALITY_COST_FACTORS.
             </p>
+            {animMeta?.style && (
+              <div className="mt-2 text-[11px] text-muted-foreground border-t border-accent/20 pt-2">
+                <span className="font-medium text-foreground">Style: {ANIMATION_STYLE_LABELS[animMeta.style] || animMeta.style}</span>
+                {animMeta.style === 'stop_motion' && <span> — Higher per-frame cost, longer post schedule</span>}
+                {animMeta.style === '3d' && <span> — Render farm costs, extended post pipeline</span>}
+                {animMeta.style === '2d' && <span> — Lower render overhead, moderate post</span>}
+                {animMeta.style === 'mixed' && <span> — Dual pipeline overhead (compositing)</span>}
+              </div>
+            )}
           </div>
         )}
       </CardContent>

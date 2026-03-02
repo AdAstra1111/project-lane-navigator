@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { PRODUCTION_MODALITIES } from "../_shared/productionModality.ts";
+import { ANIMATION_PRIMARY_LIST, ANIMATION_STYLE_LIST, ANIMATION_TAG_LIST } from "../_shared/animationMeta.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -200,7 +201,10 @@ Deno.serve(async (req) => {
     }
 
     // ── Safe merge for project_features (never clobber existing keys) ──
-    const ALLOWED_PROJECT_FEATURE_KEYS = new Set(["production_modality", "signal_tags"]);
+    const ALLOWED_PROJECT_FEATURE_KEYS = new Set([
+      "production_modality", "signal_tags",
+      "animation_genre_primary", "animation_genre_tags", "animation_style",
+    ]);
 
     if ("project_features" in safePatch) {
       const incomingFeatures = safePatch.project_features;
@@ -241,6 +245,41 @@ Deno.serve(async (req) => {
             logs.push(`project_features: invalid production_modality rejected, kept=${filteredIncoming.production_modality}`);
           }
         }
+
+        // Validate animation_genre_primary if present
+        if ("animation_genre_primary" in filteredIncoming) {
+          const val = filteredIncoming.animation_genre_primary;
+          if (val !== null && !ANIMATION_PRIMARY_LIST.includes(val as string)) {
+            delete filteredIncoming.animation_genre_primary;
+            logs.push(`[apply-project-change] animation_genre_primary rejected: invalid value "${val}"`);
+          }
+        }
+
+        // Validate animation_style if present
+        if ("animation_style" in filteredIncoming) {
+          const val = filteredIncoming.animation_style;
+          if (val !== null && !ANIMATION_STYLE_LIST.includes(val as string)) {
+            delete filteredIncoming.animation_style;
+            logs.push(`[apply-project-change] animation_style rejected: invalid value "${val}"`);
+          }
+        }
+
+        // Validate animation_genre_tags if present — drop invalid entries
+        if ("animation_genre_tags" in filteredIncoming) {
+          const val = filteredIncoming.animation_genre_tags;
+          if (Array.isArray(val)) {
+            const valid = (val as string[]).filter(t => ANIMATION_TAG_LIST.includes(t));
+            const dropped = (val as string[]).filter(t => !ANIMATION_TAG_LIST.includes(t));
+            filteredIncoming.animation_genre_tags = valid;
+            if (dropped.length > 0) {
+              logs.push(`[apply-project-change] animation_genre_tags dropped=[${dropped.join(",")}]`);
+            }
+          } else if (val !== null) {
+            delete filteredIncoming.animation_genre_tags;
+            logs.push(`[apply-project-change] animation_genre_tags rejected: not an array`);
+          }
+        }
+
 
         const merged = { ...existing, ...filteredIncoming };
         // Ensure production_modality is never removed

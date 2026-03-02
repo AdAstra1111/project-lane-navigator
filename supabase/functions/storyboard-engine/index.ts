@@ -9,6 +9,7 @@ import { adaptStoryboardPanelsWithMode } from "../_shared/cinematic-adapters.ts"
 import { selectCikModel } from "../_shared/cik/modelRouter.ts";
 import { buildStoryboardRepairInstruction } from "../_shared/cinematic-repair.ts";
 import { getProjectModality, buildModalityPromptBlock } from "../_shared/productionModality.ts";
+import { getAnimationMeta, buildAnimationMetaPromptBlock } from "../_shared/animationMeta.ts";
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const IMAGE_MODEL = "google/gemini-2.5-flash-image";
@@ -309,9 +310,11 @@ Return ONLY valid JSON`;
 
     // Inject modality block additively (empty string for live_action → no change)
     const modalityBlock = buildModalityPromptBlock(projectModality as any);
-    console.log(`[storyboard-engine] production_modality=${projectModality}`);
+    const sbAnimMeta = getAnimationMeta(projRow?.project_features as Record<string, any> | null);
+    const animMetaBlock = buildAnimationMetaPromptBlock(projectModality, sbAnimMeta);
+    console.log(`[storyboard-engine] production_modality=${projectModality} anim_primary=${sbAnimMeta.primary || "none"}`);
 
-    const fullPanelSystemPrompt = panelSystemPrompt + castContextBlock + modalityBlock;
+    const fullPanelSystemPrompt = panelSystemPrompt + castContextBlock + modalityBlock + animMetaBlock;
 
     let panelsByUnit: any[];
 
