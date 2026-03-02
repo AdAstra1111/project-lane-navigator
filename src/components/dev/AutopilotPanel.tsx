@@ -503,14 +503,17 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
   }, [fullAutopilot, autoRunJob?.id, autoRunJob?.status, autoRunJob?.pending_decisions]);
 
   // PATCH B2: Bounded auto-recovery from DEV_ENGINE_UNAVAILABLE (max 3, backoff 5/15/30s)
-  const devEngineRecoverRef = useRef<{ jobId: string; pauseEpoch: string; attempt: number; exhausted: boolean } | null>(null);
+  // Episode key is stable: only reset when jobId, status, or stop_reason changes — NOT on updated_at.
+  const devEngineRecoverRef = useRef<{ jobId: string; stopReason: string; episodeTs: number; attempt: number; exhausted: boolean } | null>(null);
   const devEngineRecoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [devEngineRecoverExhausted, setDevEngineRecoverExhausted] = useState(false);
 
   useEffect(() => {
     if (!fullAutopilot || !autoRunJob) return;
-    // Reset if job is no longer paused or stop_reason changed
-    if (autoRunJob.status !== 'paused' || autoRunJob.stop_reason !== 'DEV_ENGINE_UNAVAILABLE') {
+    const isPausedDEU = autoRunJob.status === 'paused' && autoRunJob.stop_reason === 'DEV_ENGINE_UNAVAILABLE';
+
+    // Reset if job is no longer in the paused+DEU state
+    if (!isPausedDEU) {
       if (devEngineRecoverRef.current) {
         devEngineRecoverRef.current = null;
         setDevEngineRecoverExhausted(false);
@@ -519,26 +522,31 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
       return;
     }
 
-    const BACKOFF_SCHEDULE = [5000, 15000, 30000];
-    const MAX_ATTEMPTS = BACKOFF_SCHEDULE.length;
-    const pauseEpoch = autoRunJob.updated_at || autoRunJob.id;
-
-    // Initialize or check existing recovery state
+    // Reset if jobId changed (new job)
     const prev = devEngineRecoverRef.current;
-    if (prev && prev.jobId === autoRunJob.id && prev.pauseEpoch === pauseEpoch) {
-      // Already tracking this pause episode — do nothing (timer is running or exhausted)
+    if (prev && prev.jobId !== autoRunJob.id) {
+      devEngineRecoverRef.current = null;
+      setDevEngineRecoverExhausted(false);
+      if (devEngineRecoverTimerRef.current) { clearTimeout(devEngineRecoverTimerRef.current); devEngineRecoverTimerRef.current = null; }
+    }
+
+    // If already tracking this episode (same jobId + same stop_reason), do nothing — timer is running or exhausted
+    if (devEngineRecoverRef.current && devEngineRecoverRef.current.jobId === autoRunJob.id) {
       return;
     }
 
-    // New pause episode — start bounded recovery
-    const state = { jobId: autoRunJob.id, pauseEpoch, attempt: 0, exhausted: false };
+    const BACKOFF_SCHEDULE = [5000, 15000, 30000];
+    const MAX_ATTEMPTS = BACKOFF_SCHEDULE.length;
+
+    // New episode — start bounded recovery
+    const state = { jobId: autoRunJob.id, stopReason: 'DEV_ENGINE_UNAVAILABLE', episodeTs: Date.now(), attempt: 0, exhausted: false };
     devEngineRecoverRef.current = state;
     setDevEngineRecoverExhausted(false);
 
     const attemptRecover = async (attemptIndex: number) => {
       if (!mountedRef.current) return;
       const cur = devEngineRecoverRef.current;
-      if (!cur || cur.jobId !== state.jobId || cur.pauseEpoch !== state.pauseEpoch) return;
+      if (!cur || cur.jobId !== state.jobId || cur.episodeTs !== state.episodeTs) return;
       if (cur.exhausted) return;
 
       console.log(`[AutopilotPanel] AUTO_RECOVER_DEV_ENGINE_UNAVAILABLE attempt=${attemptIndex + 1}/${MAX_ATTEMPTS}`, { jobId: state.jobId });
@@ -548,14 +556,12 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
         const tickResult = await callAutoRun('run-next', { jobId: state.jobId });
         if (mountedRef.current && tickResult?.job) {
           setAutoRunJob(tickResult.job);
-          // If job is no longer paused with same stop_reason, recovery succeeded — ref will reset on next effect
-          return;
+          return; // success — ref resets on next effect when status changes
         }
       } catch (err: any) {
         console.warn(`[AutopilotPanel] AUTO_RECOVER_DEV_ENGINE_UNAVAILABLE attempt=${attemptIndex + 1} failed:`, err?.message);
       }
 
-      // Schedule next attempt or exhaust
       const nextAttempt = attemptIndex + 1;
       if (nextAttempt >= MAX_ATTEMPTS) {
         if (devEngineRecoverRef.current) devEngineRecoverRef.current.exhausted = true;
@@ -567,11 +573,12 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
       devEngineRecoverTimerRef.current = setTimeout(() => attemptRecover(nextAttempt), BACKOFF_SCHEDULE[nextAttempt]);
     };
 
-    // First attempt after initial delay
     devEngineRecoverTimerRef.current = setTimeout(() => attemptRecover(0), BACKOFF_SCHEDULE[0]);
 
     return () => { if (devEngineRecoverTimerRef.current) { clearTimeout(devEngineRecoverTimerRef.current); devEngineRecoverTimerRef.current = null; } };
-  }, [fullAutopilot, autoRunJob?.id, autoRunJob?.status, autoRunJob?.stop_reason, autoRunJob?.updated_at]);
+  // Intentionally exclude updated_at — episode stability requires only jobId + status + stop_reason
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullAutopilot, autoRunJob?.id, autoRunJob?.status, autoRunJob?.stop_reason]);
 
   // ═══ Find Comparables CTA ═══
   const handleFindComparables = useCallback(async () => {
