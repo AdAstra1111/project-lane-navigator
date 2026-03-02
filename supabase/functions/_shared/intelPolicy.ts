@@ -1,10 +1,12 @@
 /**
- * Intel Policy Resolution Engine
+ * Intel Policy Resolution Engine V2
  *
- * Resolves the effective intel policy by merging policies in priority order:
- * global → surface → project → lane → production_type → modality.
+ * Resolves the effective intel policy by merging policies in DETERMINISTIC precedence:
+ * global → surface → project → lane → production_type → modality
  *
- * If any higher-scope policy has enabled=false, the resolved policy is disabled.
+ * Within each scope_type, pick the single row with highest priority (then latest updated_at).
+ * Across scope_types, merge in strict precedence order (later overrides earlier).
+ * If any matched scope has enabled=false, the resolved policy is disabled.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -15,12 +17,15 @@ export interface IntelPolicy {
     trend_signals: boolean;
     cast_trends: boolean;
     convergence: boolean;
-    embeddings: boolean;
+    alignment: boolean;
+    alerts: boolean;
+    embeddings?: boolean;
   };
   thresholds: {
     min_signal_strength: number;
     min_convergence_score: number;
-    min_persistence_runs: number;
+    min_convergence_persistence_weeks: number;
+    min_persistence_runs?: number;
   };
   warnings: {
     enabled: boolean;
@@ -28,22 +33,32 @@ export interface IntelPolicy {
     suppress_days: number;
   };
   cadence: {
-    recency_filter: string;
+    convergence_run: string;
+    alignment_run: string;
+    recency_filter?: string;
   };
+}
+
+export interface PolicySource {
+  scope_type: string;
+  scope_key: string;
+  row_id: string;
+  priority: number;
 }
 
 export interface ResolvedIntelPolicy {
   enabled: boolean;
   policy: IntelPolicy;
-  sources: string[]; // scope_type:scope_key that contributed
+  sources: string[];
+  source_details: PolicySource[];
 }
 
 const DEFAULT_POLICY: IntelPolicy = {
   advisory_only: true,
-  modules: { trend_signals: true, cast_trends: true, convergence: true, embeddings: true },
-  thresholds: { min_signal_strength: 7, min_convergence_score: 0.78, min_persistence_runs: 2 },
-  warnings: { enabled: true, severity_min: "medium", suppress_days: 14 },
-  cadence: { recency_filter: "week" },
+  modules: { trend_signals: true, cast_trends: true, convergence: true, alignment: true, alerts: true },
+  thresholds: { min_signal_strength: 7, min_convergence_score: 0.72, min_convergence_persistence_weeks: 2 },
+  warnings: { enabled: true, severity_min: "medium", suppress_days: 7 },
+  cadence: { convergence_run: "weekly", alignment_run: "manual" },
 };
 
 export interface PolicyContext {
@@ -54,9 +69,19 @@ export interface PolicyContext {
   modality?: string;
 }
 
+// Strict precedence order — index = merge rank (later overrides earlier)
+const SCOPE_PRECEDENCE: string[] = [
+  "global",
+  "surface",
+  "project",
+  "lane",
+  "production_type",
+  "modality",
+];
+
 /**
  * Resolve the effective intel policy for a given context.
- * Loads policies ordered by priority, merges them, respects enabled flags.
+ * Deterministic: strict scope_type precedence, single winner per scope_type.
  */
 export async function resolveIntelPolicy(
   supabaseUrl: string,
@@ -65,46 +90,68 @@ export async function resolveIntelPolicy(
 ): Promise<ResolvedIntelPolicy> {
   const sb = createClient(supabaseUrl, serviceRoleKey);
 
-  // Build scope filters — ordered by precedence
-  const scopeFilters: Array<{ scope_type: string; scope_key: string }> = [
-    { scope_type: "global", scope_key: "default" },
-  ];
-  if (context.surface) scopeFilters.push({ scope_type: "surface", scope_key: context.surface });
-  if (context.project_id) scopeFilters.push({ scope_type: "project", scope_key: context.project_id });
-  if (context.lane) scopeFilters.push({ scope_type: "lane", scope_key: context.lane });
-  if (context.production_type) scopeFilters.push({ scope_type: "production_type", scope_key: context.production_type });
-  if (context.modality) scopeFilters.push({ scope_type: "modality", scope_key: context.modality });
+  // Map scope_type -> expected scope_key from context
+  const scopeKeyMap: Record<string, string | undefined> = {
+    global: "default",
+    surface: context.surface,
+    project: context.project_id,
+    lane: context.lane,
+    production_type: context.production_type,
+    modality: context.modality,
+  };
 
-  // Load all matching policies ordered by priority ASC (lower = applied first)
+  // Load all policies
   const { data: rows, error } = await sb
     .from("intel_policies")
-    .select("scope_type, scope_key, enabled, policy, priority")
-    .order("priority", { ascending: true });
+    .select("id, scope_type, scope_key, enabled, policy, priority, updated_at")
+    .order("priority", { ascending: false });
 
   if (error || !rows) {
     console.error("Failed to load intel policies:", error);
-    return { enabled: true, policy: { ...DEFAULT_POLICY }, sources: ["fallback"] };
+    return { enabled: true, policy: { ...DEFAULT_POLICY }, sources: ["fallback"], source_details: [] };
   }
 
-  // Filter to relevant scopes
-  const scopeSet = new Set(scopeFilters.map(s => `${s.scope_type}:${s.scope_key}`));
-  const relevant = rows.filter(r => scopeSet.has(`${r.scope_type}:${r.scope_key}`));
-
-  if (relevant.length === 0) {
-    return { enabled: true, policy: { ...DEFAULT_POLICY }, sources: ["default_fallback"] };
-  }
-
-  // Merge policies (later in priority list overrides earlier)
+  // For each scope_type in precedence order, find the best matching row
   let merged: any = {};
   let enabled = true;
   const sources: string[] = [];
+  const sourceDetails: PolicySource[] = [];
 
-  for (const row of relevant) {
-    sources.push(`${row.scope_type}:${row.scope_key}`);
-    if (!row.enabled) {
-      enabled = false; // any disabled scope kills the chain
+  for (const scopeType of SCOPE_PRECEDENCE) {
+    const expectedKey = scopeKeyMap[scopeType];
+    if (!expectedKey) continue;
+
+    // Find matching rows for this scope_type + scope_key
+    const candidates = rows.filter(
+      r => r.scope_type === scopeType && r.scope_key === expectedKey
+    );
+
+    if (candidates.length === 0) continue;
+
+    // Pick winner: highest priority, then latest updated_at
+    candidates.sort((a, b) => {
+      if (b.priority !== a.priority) return b.priority - a.priority;
+      return (b.updated_at || "").localeCompare(a.updated_at || "");
+    });
+
+    const winner = candidates[0];
+    sources.push(`${winner.scope_type}:${winner.scope_key}`);
+    sourceDetails.push({
+      scope_type: winner.scope_type,
+      scope_key: winner.scope_key,
+      row_id: winner.id,
+      priority: winner.priority,
+    });
+
+    if (!winner.enabled) {
+      enabled = false; // Kill switch — still record source for explainability
     }
-    merged = deepMerge(merged, row.policy as any);
+
+    merged = deepMerge(merged, winner.policy as any);
+  }
+
+  if (sources.length === 0) {
+    return { enabled: true, policy: { ...DEFAULT_POLICY }, sources: ["default_fallback"], source_details: [] };
   }
 
   // Ensure all required fields exist
@@ -116,7 +163,18 @@ export async function resolveIntelPolicy(
     cadence: { ...DEFAULT_POLICY.cadence, ...(merged.cadence || {}) },
   };
 
-  return { enabled, policy: finalPolicy, sources };
+  return { enabled, policy: finalPolicy, sources, source_details: sourceDetails };
+}
+
+/**
+ * Explain which policy rows contributed and their precedence.
+ */
+export async function explainResolvedPolicy(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  context: PolicyContext,
+): Promise<ResolvedIntelPolicy> {
+  return resolveIntelPolicy(supabaseUrl, serviceRoleKey, context);
 }
 
 function deepMerge(target: any, source: any): any {
