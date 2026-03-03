@@ -45,6 +45,7 @@ export const DOC_TYPE_REGISTRY: Record<string, DocTypeConfig> = {
   story_outline:         { title: "Story Outline",          file_name: "story_outline.md",         is_seed_core: false, is_ladder: true },
   character_bible:       { title: "Character Bible",        file_name: "character_bible.md",       is_seed_core: false, is_ladder: true },
   beat_sheet:            { title: "Beat Sheet",             file_name: "beat_sheet.md",            is_seed_core: false, is_ladder: true },
+  episode_beats:         { title: "Episode Beats",          file_name: "episode_beats.md",         is_seed_core: false, is_ladder: true },
   feature_script:        { title: "Feature Script",         file_name: "feature_script.md",        is_seed_core: false, is_ladder: true },
   episode_script:        { title: "Episode Script",         file_name: "episode_script.md",        is_seed_core: false, is_ladder: true },
   season_script:         { title: "Season Script",          file_name: "season_script.md",         is_seed_core: false, is_ladder: true },
