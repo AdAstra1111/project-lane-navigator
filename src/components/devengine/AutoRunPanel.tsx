@@ -204,9 +204,9 @@ export function AutoRunPanel({
         <div className="flex items-center gap-2">
           <span className="text-[9px] text-muted-foreground">Stage:</span>
           <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
-            {LADDER_LABELS[job.current_document] || job.current_document}
+            {docLabel(job.current_document)}
           </Badge>
-          <span className="text-[8px] text-muted-foreground">→ {LADDER_LABELS[job.target_document] || job.target_document}</span>
+          <span className="text-[8px] text-muted-foreground">→ {docLabel(job.target_document)}</span>
         </div>
 
         {/* Scores */}
@@ -241,10 +241,10 @@ export function AutoRunPanel({
                 <p className="text-[10px] font-semibold text-foreground">Approval Required</p>
                 <p className="text-[9px] text-muted-foreground">
                   {job.approval_type === 'convert'
-                    ? `Review the newly generated ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before continuing.`
+                    ? `Review the newly generated ${docLabel(job.pending_doc_type)} before continuing.`
                     : job.pending_next_doc_type === 'series_writer'
-                      ? `Review the current ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before entering Series Writer.`
-                      : `Review the current ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before promoting to ${LADDER_LABELS[job.pending_next_doc_type || ''] || job.pending_next_doc_type || 'Next Step'}.`
+                      ? `Review the current ${docLabel(job.pending_doc_type)} before entering Series Writer.`
+                      : `Review the current ${docLabel(job.pending_doc_type)} before promoting to ${docLabel(job.pending_next_doc_type)}.`
                   }
                 </p>
               </div>
@@ -335,7 +335,7 @@ export function AutoRunPanel({
                   {steps.map((step) => (
                     <div key={step.id} className="text-[8px] p-1 rounded bg-muted/20 flex gap-1.5">
                       <Badge variant="outline" className="text-[7px] px-1 py-0 shrink-0">{step.action}</Badge>
-                      <span className="text-muted-foreground truncate">{step.summary || step.document}</span>
+                      <span className="text-muted-foreground truncate">{step.summary || docLabel(step.document)}</span>
                     </div>
                   ))}
                 </div>

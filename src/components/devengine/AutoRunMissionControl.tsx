@@ -1857,20 +1857,20 @@ export function AutoRunMissionControl({
                   <Select value={jumpStage} onValueChange={setJumpStage}>
                     <SelectTrigger className="h-7 text-xs mt-0.5"><SelectValue placeholder="Select stage…" /></SelectTrigger>
                     <SelectContent>
-                      {LADDER_OPTIONS.map(s => <SelectItem key={s} value={s}>{LADDER_LABELS[s]}</SelectItem>)}
+                      {LADDER_OPTIONS.map(s => <SelectItem key={s} value={s}>{docLabel(s)}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="flex gap-1.5 flex-wrap">
                   <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" disabled={!jumpStage}
-                    onClick={() => { onSetStage(jumpStage); toast({ title: `Stage set to ${LADDER_LABELS[jumpStage]}` }); }}>
+                    onClick={() => { onSetStage(jumpStage); toast({ title: `Stage set to ${docLabel(jumpStage)}` }); }}>
                     Set Stage
                   </Button>
                   <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" onClick={onForcePromote}>
                     <ArrowUpRight className="h-3 w-3" /> Force Promote
                   </Button>
                   <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" disabled={!jumpStage}
-                    onClick={() => { onRestartFromStage(jumpStage); toast({ title: `Restarted from ${LADDER_LABELS[jumpStage]}` }); }}>
+                    onClick={() => { onRestartFromStage(jumpStage); toast({ title: `Restarted from ${docLabel(jumpStage)}` }); }}>
                     <RotateCcw className="h-3 w-3" /> Restart From Stage
                   </Button>
                 </div>
