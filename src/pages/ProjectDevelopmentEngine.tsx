@@ -1168,6 +1168,7 @@ export default function ProjectDevelopmentEngine() {
           documents={documents?.map((d: any) => ({ id: d.id, doc_type: d.doc_type })) || []}
           approvedVersionMap={approvedVersionMap as Record<string, any>}
           onSelectDocument={selectDocument}
+          externalAutoRunJob={autoRun.job}
         />
       )}
 

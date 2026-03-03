@@ -75,32 +75,22 @@ const corsHeaders = new Proxy({}, { get(_t, prop) { return getCorsHeaders()[prop
 // SINGLE SOURCE OF TRUTH: supabase/functions/_shared/stage-ladders.ts
 // Static import — no top-level await, no fetch, no file I/O.
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
+import { DOC_TYPE_REGISTRY } from "../_shared/doc-os.ts";
 
 const FORMAT_LADDERS: Record<string, string[]> = STAGE_LADDERS.FORMAT_LADDERS;
 const DOC_TYPE_ALIASES: Record<string, string> = STAGE_LADDERS.DOC_TYPE_ALIASES;
 
-/**
- * Sanitize a doc_type before persisting — maps legacy aliases to canonical stages.
- * Format-aware: VD projects remap feature_script → season_script.
- */
-function canonicalDocType(raw: string, format?: string): string {
-  const key = (raw || "").toLowerCase().replace(/[-\s]+/g, "_");
-  let resolved = DOC_TYPE_ALIASES[key] || key;
-  // VD hard guard: feature_script is never valid for vertical-drama
-  const fmt = (format || "").toLowerCase().replace(/[_ ]+/g, "-");
-  if (fmt === "vertical-drama" && resolved === "feature_script") {
-    resolved = "season_script";
+// ── DRIFT GUARD: Fail fast if any ladder stage is not in DOC_TYPE_REGISTRY ──
+// This runs once at module load time — prevents silent runtime crashes.
+{
+  const registryKeys = new Set(Object.keys(DOC_TYPE_REGISTRY));
+  const allLadderTypes = new Set<string>(Object.values(FORMAT_LADDERS).flat());
+  const missing = [...allLadderTypes].filter(dt => !registryKeys.has(dt));
+  if (missing.length > 0) {
+    const msg = `[DRIFT GUARD FATAL] Ladder references ${missing.length} doc type(s) missing from DOC_TYPE_REGISTRY: ${missing.join(", ")}. Fix doc-os.ts before deploying.`;
+    console.error(msg);
+    throw new Error(msg);
   }
-  return resolved;
-}
-
-
-type DocStage = string;
-
-function getLadderForJob(format: string): string[] | null {
-  const key = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, "-");
-  if (!key) return null;
-  return FORMAT_LADDERS[key] ?? null;
 }
 
 // Flat unique set of all stages (for validation)
@@ -4361,7 +4351,13 @@ Deno.serve(async (req) => {
           if (job.allow_defaults) {
             // Full Autopilot: auto-approve the generated doc and continue
             if (convertedVersionId) {
-              await supabase.from("project_document_versions").update({ approval_status: "approved", approved_at: new Date().toISOString(), approved_by: job.user_id }).eq("id", convertedVersionId);
+              await supabase.from("project_document_versions").update({
+                approval_status: "approved",
+                approved_at: new Date().toISOString(),
+                approved_by: job.user_id,
+                // Provenance invariant: ensure generator_id is never null for auto-run converts
+                generator_id: "auto-run-convert",
+              }).eq("id", convertedVersionId);
             }
             await logStep(supabase, jobId, null, currentDoc, "auto_approved_convert",
               `Auto-approved generated ${currentDoc} (allow_defaults)`,

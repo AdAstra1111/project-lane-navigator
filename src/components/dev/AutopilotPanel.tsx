@@ -31,6 +31,8 @@ interface Props {
   documents?: Array<{ id: string; doc_type: string }>;
   approvedVersionMap?: Record<string, any>;
   onSelectDocument?: (docId: string) => void;
+  /** External auto-run job from shared hook — keeps Clean/Advanced views in sync */
+  externalAutoRunJob?: any;
 }
 
 // ─── Auto-Run caller (mirrors canonical pattern from useAutoRun.ts) ───
@@ -75,7 +77,7 @@ async function populateCanonBaseline(projectId: string): Promise<boolean> {
   }
 }
 
-export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents, approvedVersionMap, onSelectDocument }: Props) {
+export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents, approvedVersionMap, onSelectDocument, externalAutoRunJob }: Props) {
   const navigate = useNavigate();
   const [autopilot, setAutopilot] = useState<AutopilotState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,8 +90,10 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
   const [voiceStatus, setVoiceStatus] = useState<'checking' | 'set' | 'auto-selected' | 'none'>('checking');
   const [voiceLabel, setVoiceLabel] = useState<string | null>(null);
 
-  // Phase 2: Auto-Run state
-  const [autoRunJob, setAutoRunJob] = useState<any>(null);
+  // Phase 2: Auto-Run state — prefer external job from shared hook for consistency
+  const [localAutoRunJob, setLocalAutoRunJob] = useState<any>(null);
+  const autoRunJob = externalAutoRunJob ?? localAutoRunJob;
+  const setAutoRunJob = setLocalAutoRunJob;
   const [autoRunLoading, setAutoRunLoading] = useState(false);
   // statusCheckedRef: true once the initial auto-run status fetch completes (prevents handoff race)
   const statusCheckedRef = useRef(false);
