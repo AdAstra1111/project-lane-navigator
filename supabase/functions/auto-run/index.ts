@@ -1,6 +1,7 @@
 const BUILD = "AUTORUN_BUILD_MARKER_2026_03_02_PREWRITE_V3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
+import { isDurationEligibleDocType } from "../_shared/eligibilityRegistry.ts";
 import { getWritingLaneGroup, getDefaultWritingVoiceForLane } from "../_shared/writingVoiceResolver.ts";
 import { ensureDocSlot, createVersion } from "../_shared/doc-os.ts";
 import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy, validateLadderIntegrity, runCanonAlignmentGate } from "../_shared/docPolicyRegistry.ts";
@@ -1236,26 +1237,8 @@ function computeCriteriaHashEdge(criteria: Record<string, any>): string {
 
 type CriteriaClassification = 'OK' | 'CRITERIA_STALE_PROVENANCE' | 'CRITERIA_FAIL_DURATION';
 
-/**
- * Runtime-bearing doc types where viewer-facing duration is a meaningful metric.
- * ONLY these may trigger CRITERIA_FAIL_DURATION or duration_repair.
- * Planning docs (idea, concept_brief, market sheets, beat grids, etc.) are EXCLUDED.
- */
-const DURATION_ELIGIBLE_DOC_TYPES = new Set([
-  'feature_script',
-  'episode_script',
-  'season_script',
-  'complete_season_script',
-  'season_master_script',
-  'pilot_script',
-  'script',
-]);
-
-/** Canonical check: is this doc type eligible for duration enforcement? */
-function isDurationEligibleDocType(docType: string | null | undefined): boolean {
-  if (!docType) return false;
-  return DURATION_ELIGIBLE_DOC_TYPES.has(docType);
-}
+// Duration eligibility is imported from _shared/eligibilityRegistry.ts
+// isDurationEligibleDocType(docType, format) is the canonical check.
 
 function classifyCriteriaEdge(opts: {
   versionCriteriaHash: string | null;
@@ -1265,6 +1248,7 @@ function classifyCriteriaEdge(opts: {
   targetMax: number | null;
   targetScalar: number | null;
   docType?: string | null;
+  format?: string | null;
 }): { classification: CriteriaClassification; detail: string } {
   // 1. True provenance mismatch
   if (opts.versionCriteriaHash && opts.currentCriteriaHash
@@ -1272,8 +1256,8 @@ function classifyCriteriaEdge(opts: {
     return { classification: 'CRITERIA_STALE_PROVENANCE', detail: `Criteria hash mismatch: ${opts.versionCriteriaHash} vs ${opts.currentCriteriaHash}` };
   }
   // 2. Duration check — ONLY for runtime-bearing doc types (fail-closed: missing docType = skip)
-  if (!isDurationEligibleDocType(opts.docType)) {
-    return { classification: 'OK', detail: `Duration check skipped: docType '${opts.docType ?? 'null'}' is not runtime-bearing` };
+  if (!isDurationEligibleDocType(opts.docType, opts.format)) {
+    return { classification: 'OK', detail: `Duration check skipped: docType '${opts.docType ?? 'null'}' is not runtime-bearing (format=${opts.format ?? 'null'})` };
   }
   const min = opts.targetMin ?? opts.targetScalar ?? 0;
   const max = opts.targetMax ?? opts.targetScalar ?? Infinity;
@@ -5006,6 +4990,7 @@ Deno.serve(async (req) => {
         targetMax: latestCriteriaSnapshot.episode_target_duration_max_seconds ?? null,
         targetScalar: latestCriteriaSnapshot.episode_target_duration_seconds ?? null,
         docType: currentDoc,
+        format,
       });
 
       if (criteriaResult.classification === 'CRITERIA_STALE_PROVENANCE') {
@@ -5027,10 +5012,10 @@ Deno.serve(async (req) => {
       
       if (criteriaResult.classification === 'CRITERIA_FAIL_DURATION') {
         // ── Safety brake: never run duration repair on non-runtime doc types ──
-        if (!isDurationEligibleDocType(currentDoc)) {
+        if (!isDurationEligibleDocType(currentDoc, format)) {
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "duration_scope_skipped",
-            `Skipped duration criteria/repair for non-runtime doc type: ${currentDoc}`,
-            { output_ref: { currentDoc, measuredDurationSeconds: measuredDuration, targetMin: latestCriteriaSnapshot.episode_target_duration_min_seconds, targetMax: latestCriteriaSnapshot.episode_target_duration_max_seconds, reason: "NON_DURATION_DOC_TYPE" } },
+            `Skipped duration criteria/repair for non-runtime doc type: ${currentDoc} (format=${format})`,
+            { output_ref: { currentDoc, format, measuredDurationSeconds: measuredDuration, targetMin: latestCriteriaSnapshot.episode_target_duration_min_seconds, targetMax: latestCriteriaSnapshot.episode_target_duration_max_seconds, reason: "NON_DURATION_DOC_TYPE" } },
           );
           await updateJob(supabase, jobId, { step_count: stepCount + 1 });
           // Continue to normal analysis flow — no duration repair
