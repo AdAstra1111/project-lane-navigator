@@ -2336,6 +2336,37 @@ Deno.serve(async (req) => {
         );
       }
 
+      // ── LADDER DOC-SLOT PREFLIGHT: ensure first N ladder stages have doc slots ──
+      {
+        const ladder = getLadderForJob(format);
+        if (ladder && ladder.length > 0) {
+          const preflightSlots = ladder.slice(0, Math.min(5, ladder.length));
+          const created: string[] = [];
+          const existed: string[] = [];
+          for (const docType of preflightSlots) {
+            try {
+              const slotResult = await ensureDocSlot(supabase, projectId, jobUserId, docType, {
+                source: "generated", docRole: "creative_primary",
+              });
+              if (slotResult.isNew) {
+                created.push(docType);
+              } else {
+                existed.push(docType);
+              }
+            } catch (slotErr: any) {
+              console.warn(`[auto-run] ensureDocSlot(${docType}) failed: ${slotErr.message}`);
+            }
+          }
+          if (created.length > 0) {
+            console.log(`[auto-run] ladder_doc_slots_ensured created=${created.join(",")} existed=${existed.join(",")}`);
+            await logStep(supabase, job.id, 0, effectiveStartDoc, "doc_slots_ensured",
+              `Created ${created.length} ladder doc slots: ${created.join(", ")}. Already existed: ${existed.length}.`,
+              {}, undefined,
+              { created, existed, ladder_length: ladder.length, format });
+          }
+        }
+      }
+
       if (preflight.changed) {
         await logStep(supabase, job.id, 0, effectiveStartDoc, "preflight_resolve",
           `Resolved qualifications: ${Object.keys(preflight.resolved).join(", ")} → ${JSON.stringify(preflight.resolved)}`,
@@ -3835,6 +3866,31 @@ Deno.serve(async (req) => {
           seed_warnings: seedResult.warnings || [],
           error: compactError,
         });
+      }
+
+      // ── LADDER DOC-SLOT PREFLIGHT on resume ──
+      {
+        const resumeLadder = getLadderForJob(format);
+        if (resumeLadder && resumeLadder.length > 0) {
+          const preflightSlots = resumeLadder.slice(0, Math.min(5, resumeLadder.length));
+          const created: string[] = [];
+          for (const docType of preflightSlots) {
+            try {
+              const slotResult = await ensureDocSlot(supabase, job.project_id, job.user_id, docType, {
+                source: "generated", docRole: "creative_primary",
+              });
+              if (slotResult.isNew) created.push(docType);
+            } catch (slotErr: any) {
+              console.warn(`[auto-run] ensureDocSlot(${docType}) on resume failed: ${slotErr.message}`);
+            }
+          }
+          if (created.length > 0) {
+            console.log(`[auto-run] ladder_doc_slots_ensured (resume) created=${created.join(",")}`);
+            await logStep(supabase, jobId, null, currentDoc, "doc_slots_ensured",
+              `Resume preflight: created ${created.length} ladder doc slots: ${created.join(", ")}`,
+              {}, undefined, { created, format });
+          }
+        }
       }
 
       // Attach seed warnings to subsequent responses (non-blocking)
@@ -5609,7 +5665,17 @@ Deno.serve(async (req) => {
 
           // ── Helper: score a candidate version (returns CI/GP + blocker count) ──
           async function scoreCandidate(candVersionId: string, label: string): Promise<{ ci: number; gp: number; blockerCount: number } | null> {
-            try {
+            const scorePayloadMeta = {
+              action: "analyze",
+              projectId: job.project_id,
+              documentId: doc.id,
+              versionId: candVersionId,
+              deliverableType: currentDoc,
+              format,
+              label,
+            };
+
+            const doScoreCall = async (): Promise<{ ci: number; gp: number; blockerCount: number } | null> => {
               const postScoreResult = await callEdgeFunctionWithRetry(
                 supabase, supabaseUrl, "dev-engine-v2", {
                   action: "analyze",
@@ -5622,15 +5688,47 @@ Deno.serve(async (req) => {
                 }, token, job.project_id, format, currentDoc, jobId, newStep + 3
               );
               const scores = extractCiGp(postScoreResult);
-              if (scores.ci === null || scores.gp === null) return null;
-              // Extract blocker count from analyze result
+              if (scores.ci === null || scores.gp === null) {
+                console.error(`[auto-run] scoreCandidate(${label}) returned null scores from response:`, JSON.stringify(postScoreResult).slice(0, 500));
+                return null;
+              }
               const inner = postScoreResult?.result !== undefined ? postScoreResult.result : postScoreResult;
               const analysisObj = inner?.analysis || inner || {};
               const candBlockers = pickArray(analysisObj, ["blocking_issues", "blockers", "scores.blocking_issues"]);
               return { ci: scores.ci, gp: scores.gp, blockerCount: candBlockers.length };
-              
+            };
+
+            try {
+              return await doScoreCall();
             } catch (e: any) {
-              console.error(`[auto-run] scoreCandidate(${label}) failed:`, e.message);
+              const errStatus = (e as any).status ?? 0;
+              const errBody = ((e as any).body ?? e.message ?? "").slice(0, 300);
+              const is5xx = errStatus >= 500 || errStatus === 0;
+
+              // Single retry ONLY for 5xx / network errors
+              if (is5xx) {
+                console.warn(`[auto-run] scoreCandidate(${label}) 5xx/network error (status=${errStatus}), retrying once after 3s...`);
+                await new Promise(r => setTimeout(r, 3000));
+                try {
+                  return await doScoreCall();
+                } catch (retryErr: any) {
+                  const retryStatus = (retryErr as any).status ?? 0;
+                  const retryBody = ((retryErr as any).body ?? retryErr.message ?? "").slice(0, 300);
+                  console.error(`[auto-run] scoreCandidate(${label}) retry also failed: status=${retryStatus} body=${retryBody}`);
+                  await logStep(supabase, jobId, null, currentDoc, "post_score_failed_detail",
+                    `Scoring failed after retry: status=${retryStatus}, deliverableType=${currentDoc}, versionId=${candVersionId}`,
+                    { ci: baselineCI, gp: baselineGP }, undefined,
+                    { ...scorePayloadMeta, error_status: retryStatus, response_excerpt: retryBody, retried: true });
+                  return null;
+                }
+              }
+
+              // 4xx — do NOT retry, log diagnostic detail
+              console.error(`[auto-run] scoreCandidate(${label}) failed: status=${errStatus} body=${errBody}`);
+              await logStep(supabase, jobId, null, currentDoc, "post_score_failed_detail",
+                `Scoring failed (${errStatus}): deliverableType=${currentDoc}, versionId=${candVersionId}. ${errBody.slice(0, 120)}`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                { ...scorePayloadMeta, error_status: errStatus, response_excerpt: errBody, retried: false });
               return null;
             }
           }
