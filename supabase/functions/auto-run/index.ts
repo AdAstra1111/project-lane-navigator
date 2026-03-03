@@ -1856,7 +1856,9 @@ function tryAutoAcceptDecisions(decisions: NormalizedDecision[], allowDefaults: 
       // Auto-decide: pick first option when no recommendation exists
       selections[d.id] = d.options[0].value;
     } else {
-      return null; // No options at all — must pause for user
+      // Full Autopilot: never block — synthesize a "force_promote" fallback
+      console.warn(`[auto-run] tryAutoAcceptDecisions: decision ${d.id} has no options, auto-selecting force_promote`);
+      selections[d.id] = "force_promote";
     }
   }
   return selections;
@@ -4261,7 +4263,7 @@ Deno.serve(async (req) => {
                 setupMissing.push("nec");
               }
             } else if (allowDefaults && resolverHash) {
-              // NEC exists — check if stale (resolver hash mismatch)
+              // NEC exists — check if stale (resolver hash mismatch OR missing hash)
               const { data: necVer } = await supabase.from("project_document_versions")
                 .select("id, depends_on_resolver_hash")
                 .eq("document_id", necDoc.id)
@@ -4269,11 +4271,13 @@ Deno.serve(async (req) => {
                 .limit(1)
                 .maybeSingle();
               const necHash = necVer?.depends_on_resolver_hash || null;
-              if (necHash && necHash !== resolverHash) {
-                console.log(`[auto-run] ${gateLabel}: NEC stale — auto-regenerating (hash ${necHash} → ${resolverHash})`);
+              // Regenerate if: hash is null (seed NEC never tracked) OR hash differs from current
+              const necIsStale = !necHash || necHash !== resolverHash;
+              if (necIsStale) {
+                console.log(`[auto-run] ${gateLabel}: NEC stale — auto-regenerating (hash ${necHash || "null"} → ${resolverHash})`);
                 try {
                   await autoGenerateNEC(supabase, job, jobId, format, gateLabel, resolverHash);
-                  setupResolved.push("nec_auto_regenerated_stale");
+                  setupResolved.push(necHash ? "nec_auto_regenerated_stale" : "nec_auto_regenerated_missing_hash");
                 } catch (necErr: any) {
                   console.warn(`[auto-run] ${gateLabel}: NEC stale regen failed (non-fatal)`, { error: necErr.message });
                   // Non-fatal: existing NEC still usable, just stale
