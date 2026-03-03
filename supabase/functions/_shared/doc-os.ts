@@ -4,6 +4,8 @@
  * ALL edge functions MUST use these helpers for project_documents + project_document_versions writes.
  */
 
+import { buildCanonEntitiesFromDB, validateCanonAlignment } from "./docPolicyRegistry.ts";
+
 // ── Deterministic resolver hash (no crypto dependency) ──
 function simpleHash(str: string): string {
   let hash = 0;
@@ -195,9 +197,18 @@ const SYSTEM_GENERATOR_IDS = new Set([
   "dev-engine-v2-convert", "dev-engine-v2-regen-insufficient", "dev-engine-v2-series-scripts",
   "dev-engine-v2-series-autorun", "dev-engine-v2-build-master", "dev-engine-v2-rebase",
   "dev-engine-v2-regen-tick",
+  "dev-engine-v2-rewrite", "dev-engine-v2-rewrite-chunked",
+  "seed-pack",
   "generate-document", "system",
 ]);
 // seed-trigger is NOT in the set — it's DB-trigger generated and exempt from provenance
+// seed-pack IS in the set — seed-pack outputs should have provenance for auditability
+
+// ── Doc types exempt from canon alignment (they ARE canon sources, or structural) ──
+const CANON_ALIGNMENT_EXEMPT = new Set([
+  "canon", "nec", "format_rules", "project_overview", "creative_brief", "market_positioning",
+  "episode_grid", "season_master_script",
+]);
 
 /**
  * Create a new version for a document, handling is_current swap atomically.
@@ -215,13 +226,44 @@ export async function createVersion(
 
   // ── PATCH 3: Provenance enforcement hard gate ──
   const effectiveGeneratorId = opts.generatorId || "system";
-  const isSystemGenerated = SYSTEM_GENERATOR_IDS.has(effectiveGeneratorId) && effectiveGeneratorId !== "seed-trigger";
+  // Any non-empty generatorId is treated as system-generated (prevents future holes)
+  const isSystemGenerated = (SYSTEM_GENERATOR_IDS.has(effectiveGeneratorId) || (opts.generatorId && opts.generatorId.length > 0))
+    && effectiveGeneratorId !== "seed-trigger";
   const hasProvenance = opts.inputsUsed && Object.keys(opts.inputsUsed).length > 0;
 
   if (isSystemGenerated && !hasProvenance) {
     const msg = `PROVENANCE_MISSING: System generator "${effectiveGeneratorId}" must provide non-empty inputsUsed for doc_type="${key}"`;
     console.error(`[doc-os] ${msg}`);
     throw new Error(msg);
+  }
+
+  // ── PATCH 6: Canon alignment gate — runs for all system-generated non-exempt docs ──
+  if (isSystemGenerated && !CANON_ALIGNMENT_EXEMPT.has(key) && opts.plaintext) {
+    try {
+      // Retrieve project_id from the document
+      const { data: docRow } = await supabase
+        .from("project_documents")
+        .select("project_id")
+        .eq("id", opts.documentId)
+        .maybeSingle();
+
+      if (docRow?.project_id) {
+        const canon = await buildCanonEntitiesFromDB(supabase, docRow.project_id);
+        if (canon && canon.entities.length > 0) {
+          const alignResult = validateCanonAlignment(opts.plaintext, canon.entities);
+          if (!alignResult.pass) {
+            const msg = `CANON_MISMATCH: doc_type="${key}" generator="${effectiveGeneratorId}" coverage=${alignResult.entityCoverage} missing=[${alignResult.missingEntities.slice(0, 5).join(",")}] foreign=[${alignResult.foreignEntities.slice(0, 5).join(",")}]`;
+            console.error(`[doc-os] ${msg}`);
+            throw new Error(msg);
+          }
+          console.log(`[doc-os] canon_alignment_pass doc_type=${key} coverage=${alignResult.entityCoverage}`);
+        }
+      }
+    } catch (err: any) {
+      // Re-throw CANON_MISMATCH errors; swallow DB fetch errors to avoid blocking on transient issues
+      if (err?.message?.startsWith("CANON_MISMATCH:")) throw err;
+      console.warn(`[doc-os] canon alignment check skipped (non-fatal): ${err?.message}`);
+    }
   }
 
   // Get next version number
@@ -309,6 +351,7 @@ export interface UpsertDocOpts {
   sourceDocumentIds?: string[];
   dependsOnResolverHash?: string;
   generatorId?: string;
+  inputsUsed?: Record<string, any>;
 }
 
 export async function upsertDoc(
@@ -333,6 +376,7 @@ export async function upsertDoc(
     sourceDocumentIds: opts.sourceDocumentIds,
     dependsOnResolverHash: opts.dependsOnResolverHash,
     generatorId: opts.generatorId,
+    inputsUsed: opts.inputsUsed,
   });
 
   return {

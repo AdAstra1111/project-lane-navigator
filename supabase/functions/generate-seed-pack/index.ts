@@ -297,6 +297,7 @@ serve(async (req) => {
             meta_json: provenance,
             depends_on_resolver_hash: project.resolved_qualifications_hash || null,
             generator_id: "seed-pack",
+            inputs_used: { seed_source: "generate-seed-pack", nec_override: true, project_id: projectId },
           })
           .select("id")
           .single();
@@ -348,6 +349,7 @@ serve(async (req) => {
             meta_json: provenance,
             depends_on_resolver_hash: project.resolved_qualifications_hash || null,
             generator_id: "seed-pack",
+            inputs_used: { seed_source: "generate-seed-pack", nec_override: true, project_id: projectId },
           })
           .select("id")
           .single();
@@ -506,6 +508,7 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
           title: cfg.title,
           dependsOnResolverHash: project.resolved_qualifications_hash || undefined,
           generatorId: "seed-pack",
+          inputsUsed: { seed_source: "generate-seed-pack", project_id: projectId, doc_type: cfg.doc_type, ...(parsed.provenance || {}) },
         });
 
         if (result.isNewDoc) {
