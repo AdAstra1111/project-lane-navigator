@@ -3676,6 +3676,29 @@ Deno.serve(async (req) => {
           versionId = latestVer?.id || null;
         }
       }
+
+      // Fallback: if current stage has no versions (empty slot after promotion),
+      // try the previous stage's latest doc/version (decisions were made on that stage)
+      if (!docId || !versionId) {
+        const ladder = getLadderForJob(format);
+        if (ladder) {
+          const curIdx = ladder.indexOf(currentDoc);
+          if (curIdx > 0) {
+            const prevStage = ladder[curIdx - 1];
+            console.log(`[auto-run] apply-decisions: no version for ${currentDoc}, falling back to previous stage ${prevStage}`);
+            const { data: prevDoc } = await supabase.from("project_documents")
+              .select("id").eq("project_id", job.project_id).eq("doc_type", prevStage)
+              .order("created_at", { ascending: false }).limit(1).single();
+            if (prevDoc) {
+              docId = prevDoc.id;
+              const { data: prevVer } = await supabase.from("project_document_versions")
+                .select("id").eq("document_id", prevDoc.id)
+                .order("version_number", { ascending: false }).limit(1).single();
+              versionId = prevVer?.id || null;
+            }
+          }
+        }
+      }
       if (!docId || !versionId) return respond({ error: "No document/version found for current stage" }, 400);
 
       // Fetch latest notes for protect items
@@ -3870,7 +3893,7 @@ Deno.serve(async (req) => {
 
       // ── LADDER DOC-SLOT PREFLIGHT on resume ──
       {
-        const resumeLadder = getLadderForJob(format);
+        const resumeLadder = getLadderForJob(runFmt);
         if (resumeLadder && resumeLadder.length > 0) {
           const preflightSlots = resumeLadder.slice(0, Math.min(5, resumeLadder.length));
           const created: string[] = [];
@@ -3888,7 +3911,7 @@ Deno.serve(async (req) => {
             console.log(`[auto-run] ladder_doc_slots_ensured (resume) created=${created.join(",")}`);
             await logStep(supabase, jobId, null, currentDoc, "doc_slots_ensured",
               `Resume preflight: created ${created.length} ladder doc slots: ${created.join(", ")}`,
-              {}, undefined, { created, format });
+              {}, undefined, { created, format: runFmt });
           }
         }
       }
