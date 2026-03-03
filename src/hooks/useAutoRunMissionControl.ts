@@ -264,6 +264,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
         projectId, mode: AUTO_RUN_EXECUTION_MODE === 'full' ? 'balanced' : 'staged', start_document: mappedStart, target_document: targetDocument || 'production_draft',
         max_total_steps: 100,
         allow_defaults: allowDefaults ?? false,
+        max_versions_per_doc_per_job: 60,
       });
       setJob(result.job);
       setSteps(result.latest_steps || []);
@@ -577,6 +578,15 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     } catch (e: any) { setError(e.message); }
   }, [job]);
 
+  const updateVersionCap = useCallback(async (newCap: number) => {
+    if (!job) return;
+    setError(null);
+    try {
+      const result = await callAutoRun('update-version-cap', { jobId: job.id, max_versions_per_doc_per_job: newCap });
+      if (result.job) setJob(result.job);
+    } catch (e: any) { setError(e.message); }
+  }, [job]);
+
   const resumeFromStepLimit = useCallback(async () => {
     if (!job) return;
     const RESUME_BUMP = 10;
@@ -631,6 +641,8 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     fetchDocumentText,
     // Step budget
     updateStepLimit, resumeFromStepLimit,
+    // Version cap
+    updateVersionCap,
     // Auto-decide
     toggleAllowDefaults,
     // Target

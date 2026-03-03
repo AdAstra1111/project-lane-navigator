@@ -66,6 +66,7 @@ export interface AutoRunJob {
   stage_exhaustion_default: number;
   allow_defaults: boolean;
   is_processing: boolean;
+  max_versions_per_doc_per_job: number | null;
   processing_started_at: string | null;
   // Frontier exploration fields
   frontier_version_id: string | null;

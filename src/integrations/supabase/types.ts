@@ -611,6 +611,7 @@ export type Database = {
           lock_expires_at: string | null
           max_stage_loops: number
           max_total_steps: number
+          max_versions_per_doc_per_job: number | null
           mode: string
           pause_reason: string | null
           pending_decisions: Json | null
@@ -677,6 +678,7 @@ export type Database = {
           lock_expires_at?: string | null
           max_stage_loops?: number
           max_total_steps?: number
+          max_versions_per_doc_per_job?: number | null
           mode?: string
           pause_reason?: string | null
           pending_decisions?: Json | null
@@ -743,6 +745,7 @@ export type Database = {
           lock_expires_at?: string | null
           max_stage_loops?: number
           max_total_steps?: number
+          max_versions_per_doc_per_job?: number | null
           mode?: string
           pause_reason?: string | null
           pending_decisions?: Json | null
