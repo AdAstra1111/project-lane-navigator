@@ -189,15 +189,40 @@ export interface CreateVersionOpts {
   inputsUsed?: Record<string, any>;
 }
 
+// ── Known system generator IDs — versions from these MUST have non-empty inputs_used ──
+const SYSTEM_GENERATOR_IDS = new Set([
+  "auto-run-convert", "auto-run-setup", "auto-run-seed",
+  "dev-engine-v2-convert", "dev-engine-v2-regen-insufficient", "dev-engine-v2-series-scripts",
+  "dev-engine-v2-series-autorun", "dev-engine-v2-build-master", "dev-engine-v2-rebase",
+  "dev-engine-v2-regen-tick",
+  "generate-document", "system",
+]);
+// seed-trigger is NOT in the set — it's DB-trigger generated and exempt from provenance
+
 /**
  * Create a new version for a document, handling is_current swap atomically.
  * Returns the new version row.
+ * 
+ * PROVENANCE INVARIANT: System-generated versions (generatorId in SYSTEM_GENERATOR_IDS)
+ * MUST provide non-empty inputsUsed or the call will throw PROVENANCE_MISSING.
+ * Seed-trigger versions are exempt (they are DB-trigger generated).
  */
 export async function createVersion(
   supabase: any,
   opts: CreateVersionOpts
 ): Promise<any> {
   const { key } = resolveDocType(opts.docType);
+
+  // ── PATCH 3: Provenance enforcement hard gate ──
+  const effectiveGeneratorId = opts.generatorId || "system";
+  const isSystemGenerated = SYSTEM_GENERATOR_IDS.has(effectiveGeneratorId) && effectiveGeneratorId !== "seed-trigger";
+  const hasProvenance = opts.inputsUsed && Object.keys(opts.inputsUsed).length > 0;
+
+  if (isSystemGenerated && !hasProvenance) {
+    const msg = `PROVENANCE_MISSING: System generator "${effectiveGeneratorId}" must provide non-empty inputsUsed for doc_type="${key}"`;
+    console.error(`[doc-os] ${msg}`);
+    throw new Error(msg);
+  }
 
   // Get next version number
   const { data: maxRow } = await supabase
@@ -217,8 +242,7 @@ export async function createVersion(
     .eq("is_current", true);
 
   // ── Deterministic resolver hash default ──
-  // If no explicit dependsOnResolverHash, compute a stable default from doc_type + generator + label
-  const resolvedHash = opts.dependsOnResolverHash || computeDefaultResolverHash(key, opts.generatorId || "system", opts.label);
+  const resolvedHash = opts.dependsOnResolverHash || computeDefaultResolverHash(key, effectiveGeneratorId, opts.label);
 
   // Insert new version
   const insertPayload: Record<string, any> = {
@@ -232,9 +256,7 @@ export async function createVersion(
     approval_status: opts.approvalStatus || "draft",
     deliverable_type: opts.deliverableType || key,
     meta_json: opts.metaJson || {},
-    // Provenance invariant: generator_id must never be null for system writes
-    generator_id: opts.generatorId || "system",
-    // Provenance invariant: depends_on_resolver_hash must never be null
+    generator_id: effectiveGeneratorId,
     depends_on_resolver_hash: resolvedHash,
   };
 
@@ -243,8 +265,8 @@ export async function createVersion(
   if (opts.sourceDocumentIds) insertPayload.source_document_ids = opts.sourceDocumentIds;
   if (opts.dependsOn) insertPayload.depends_on = opts.dependsOn;
   if (opts.generatorId) insertPayload.generator_id = opts.generatorId;
-  // PATCH 3: Persist inputs_used for provenance
-  if (opts.inputsUsed && Object.keys(opts.inputsUsed).length > 0) {
+  // Persist inputs_used for provenance
+  if (hasProvenance) {
     insertPayload.inputs_used = opts.inputsUsed;
   }
 

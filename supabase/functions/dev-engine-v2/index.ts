@@ -3968,6 +3968,17 @@ MATERIAL:\n${version.plaintext}`;
         dependsOn: convertDepFields,
         dependsOnResolverHash: convertResolverHash,
         generatorId: body?.generatorId || "dev-engine-v2-convert",
+        inputsUsed: {
+          project_id: projectId,
+          doc_type: resolvedDocType,
+          generator_id: body?.generatorId || "dev-engine-v2-convert",
+          derived_from_doc_id: documentId,
+          derived_from_version_id: versionId,
+          source_document_ids: [documentId],
+          selected_template_key: `convert_${srcDoc?.doc_type}_to_${resolvedDocType}`,
+          depends_on_resolver_hash: convertResolverHash,
+          resolved_prefs_snapshot: { lane: body?.lane, format: body?.format },
+        },
       });
       if (!newVersion) throw new Error("Failed to create version for converted document");
 
@@ -4925,6 +4936,17 @@ Return ONLY valid JSON:
             metaJson: {
               generator: "rebase-upstream",
               rebased_from_version_id: currentVersionId,
+            },
+            inputsUsed: {
+              project_id: projectId,
+              doc_type: resolvedDocType,
+              generator_id: "dev-engine-v2-rebase",
+              derived_from_doc_id: currentDocId,
+              derived_from_version_id: currentVersionId,
+              source_document_ids: [currentDocId],
+              selected_template_key: `rebase_${srcDoc?.doc_type}_to_${resolvedDocType}`,
+              depends_on_resolver_hash: resolverResult?.resolver_hash || null,
+              resolved_prefs_snapshot: { lane: body?.lane, format: body?.format },
             },
           });
 
@@ -13882,6 +13904,15 @@ No stubs, no placeholders, no TODO markers.`;
               upstream_type: upstream.upstreamType,
               retry_used: retryUsed,
             },
+            inputsUsed: {
+              project_id: projectId,
+              doc_type: stage,
+              generator_id: "dev-engine-v2-regen-insufficient",
+              derived_from_doc_id: upstream.upstreamDocId,
+              source_document_ids: [upstream.upstreamDocId],
+              selected_template_key: `regen_insufficient_${stage}`,
+              resolved_prefs_snapshot: { lane: body?.lane },
+            },
           });
 
           const successResult: RegenDocResult = {
@@ -14367,6 +14398,15 @@ ${upstreamText}`;
             sourceDocumentIds: [upstream.upstreamDocId],
             generatorId: "dev-engine-v2-regen-tick",
             metaJson: { generator: "regenerate-insufficient", reason: item.reason, upstream_type: upstream.upstreamType, retry_used: retryUsed },
+            inputsUsed: {
+              project_id: projectId,
+              doc_type: stage,
+              generator_id: "dev-engine-v2-regen-tick",
+              derived_from_doc_id: upstream.upstreamDocId,
+              source_document_ids: [upstream.upstreamDocId],
+              selected_template_key: `regen_tick_${stage}`,
+              resolved_prefs_snapshot: { lane: body?.lane },
+            },
           });
 
           await supabase.from("regen_job_items").update({
@@ -14839,6 +14879,14 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
               lane,
               auto_approved: autoApprove,
             },
+            inputsUsed: {
+              project_id: projectId,
+              doc_type: "episode_script",
+              generator_id: "dev-engine-v2-series-scripts",
+              job_id: job.id,
+              selected_template_key: `series_scripts_episode_${epIdx}`,
+              resolved_prefs_snapshot: { lane, format: job.format || "vertical-drama" },
+            },
           });
 
           // If auto-approve, also update the version's approval_status in DB
@@ -14933,6 +14981,14 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
               changeSummary: `Auto-built master season script from ${expectedCount} episodes`,
               generatorId: "dev-engine-v2-series-autorun",
               metaJson: { generator: "series-autorun", episode_count: expectedCount, auto_approved: true },
+              inputsUsed: {
+                project_id: projectId,
+                doc_type: "season_master_script",
+                generator_id: "dev-engine-v2-series-autorun",
+                job_id: job.id,
+                selected_template_key: "series_autorun_master_build",
+                resolved_prefs_snapshot: { lane, format: job.format || "vertical-drama" },
+              },
             });
             masterBuilt = true;
             console.log(`[series-scripts-tick] Master season script built: ${masterText.length} chars`);
@@ -15101,6 +15157,14 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           episode_count: sortedIndices.length,
           episode_indices: sortedIndices,
           compiled_at: new Date().toISOString(),
+        },
+        inputsUsed: {
+          project_id: pid,
+          doc_type: "season_master_script",
+          generator_id: "dev-engine-v2-build-master",
+          source_document_ids: epDocIds,
+          selected_template_key: "build_season_master_script",
+          resolved_prefs_snapshot: { lane: body?.lane, format: body?.format },
         },
       });
 
