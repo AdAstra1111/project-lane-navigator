@@ -67,4 +67,20 @@ describe('Stage ladders canonical key guard', () => {
       expect(new Set(ladder).size).toBe(ladder.length);
     }
   });
+
+  // ── IEL regression tripwire: complete_season_script must never be a ladder stage ──
+  it('No FORMAT_LADDERS entry contains complete_season_script', () => {
+    for (const [fmt, ladder] of Object.entries(FORMAT_LADDERS)) {
+      expect(ladder).not.toContain('complete_season_script');
+    }
+  });
+
+  it('complete_season_script is aliased to season_script', () => {
+    expect(DOC_TYPE_ALIASES['complete_season_script']).toBe('season_script');
+  });
+
+  it('Vertical-drama terminal stage is season_script', () => {
+    const vdLadder = FORMAT_LADDERS['vertical-drama'];
+    expect(vdLadder[vdLadder.length - 1]).toBe('season_script');
+  });
 });

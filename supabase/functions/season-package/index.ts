@@ -284,7 +284,7 @@ Deno.serve(async (req) => {
     }
 
     // ── 9. Persist as season_script (terminal VD deliverable) ──
-    const docTitle = `${projectTitle} — Complete Season 1 Script`;
+    const docTitle = `${projectTitle} — Season 1 Script`;
 
     // Back-compat: check for legacy complete_season_script docs first, then season_script
     let existingDoc: any = null;

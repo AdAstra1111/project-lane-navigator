@@ -62,3 +62,30 @@ export function isDurationEligibleDocType(
   const eligible = (format && DURATION_ELIGIBLE_BY_FORMAT[format]) || DURATION_ELIGIBLE_FALLBACK;
   return eligible.has(docType);
 }
+
+// ── Deprecated target guard ────────────────────────────────────────────────
+/**
+ * Doc types that MUST NOT be used as pipeline targets (generation, promotion,
+ * packaging). They exist only as legacy aliases for back-compat label
+ * resolution. Any pipeline action attempting to target one of these MUST
+ * resolve via alias first; if it still resolves to a deprecated key, the
+ * action must be rejected.
+ */
+const DEPRECATED_TARGET_DOC_TYPES = new Set([
+  'complete_season_script',
+]);
+
+/**
+ * Returns true if the given docType is a deprecated target that pipelines
+ * must NOT generate, promote to, or package as.
+ *
+ * Use this guard in auto-run, dev-engine, season-package, and any promotion
+ * flow BEFORE accepting a target doc type. If this returns true, the caller
+ * must either resolve via alias or reject the action.
+ */
+export function isDeprecatedTargetDocType(
+  docType: string | null | undefined,
+): boolean {
+  if (!docType) return false;
+  return DEPRECATED_TARGET_DOC_TYPES.has(docType);
+}
