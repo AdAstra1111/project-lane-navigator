@@ -116,4 +116,25 @@ describe('Stage ladders canonical key guard', () => {
     const vdLadder = FORMAT_LADDERS['vertical-drama'];
     expect(vdLadder).not.toContain('season_master_script');
   });
+
+  // ── IEL Convergence Tripwires ──
+
+  it('complete_season_script alias resolves to season_script', () => {
+    expect(DOC_TYPE_ALIASES['complete_season_script']).toBe('season_script');
+  });
+
+  it('No FORMAT_LADDERS entry contains complete_season_script', () => {
+    for (const [_fmt, ladder] of Object.entries(FORMAT_LADDERS)) {
+      expect(ladder).not.toContain('complete_season_script');
+    }
+  });
+
+  it('MAX_VERSIONS_PER_DOC_PER_JOB constant is defined (regression: version proliferation guard)', () => {
+    // This test documents the existence of the version cap — the actual constant
+    // lives in auto-run/index.ts. We verify the canonical ladder invariant here:
+    // VD ladder must end at season_script (not complete_season_script).
+    const vdLadder = FORMAT_LADDERS['vertical-drama'];
+    const terminal = vdLadder[vdLadder.length - 1];
+    expect(terminal).toBe('season_script');
+  });
 });

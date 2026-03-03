@@ -105,7 +105,22 @@ async function loadConstraintPack(
   return text;
 }
 
+// ── Content hash helper for dedupe ──
+async function computeContentHash(text: string): Promise<string> {
+  try {
+    const buf = new TextEncoder().encode(text);
+    const hashBuf = await crypto.subtle.digest("SHA-256", buf);
+    return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    // Fallback djb2
+    let h = 5381;
+    for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) >>> 0;
+    return h.toString(16).padStart(64, "0");
+  }
+}
+
 // ── writeVersionSafe: routes through doc-os.createVersion() for provenance + canon alignment ──
+// Includes content_hash dedupe guard — skips version creation if identical content already exists.
 async function writeVersionSafe(
   supabaseClient: any,
   opts: {
@@ -123,8 +138,30 @@ async function writeVersionSafe(
     deliverableType?: string;
     inputsUsed?: Record<string, any>;
   },
-): Promise<{ data: any; error: any }> {
+): Promise<{ data: any; error: any; deduplicated?: boolean }> {
   const generatorId = opts.generatorId || "dev-engine-v2";
+
+  // ── DEDUPE GUARD: compute content hash and check for identical existing version ──
+  const contentHash = await computeContentHash(opts.plaintext || "");
+  try {
+    const { data: existingDupe } = await supabaseClient
+      .from("project_document_versions")
+      .select("id, version_number")
+      .eq("document_id", opts.documentId)
+      .eq("content_hash", contentHash)
+      .order("version_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingDupe) {
+      console.log(`[DEDUP] Skipped identical version for doc ${opts.documentId} — matches version ${existingDupe.version_number} (hash=${contentHash.slice(0, 16)})`);
+      return { data: existingDupe, error: null, deduplicated: true };
+    }
+  } catch (dedupeErr: any) {
+    // Non-fatal: proceed with creation if dedupe check fails
+    console.warn("[DEDUP] Dedupe check failed (non-fatal):", dedupeErr?.message);
+  }
+
   try {
     const nv = await createVersion(supabaseClient, {
       documentId: opts.documentId,
@@ -137,13 +174,23 @@ async function writeVersionSafe(
       dependsOnResolverHash: opts.dependsOnResolverHash || undefined,
       generatorId,
       deliverableType: opts.deliverableType,
-      metaJson: opts.metaJson,
+      metaJson: { ...(opts.metaJson || {}), content_hash: contentHash },
       inputsUsed: opts.inputsUsed || {
         generator_id: generatorId,
         document_id: opts.documentId,
         parent_version_id: opts.parentVersionId || null,
       },
     });
+
+    // Stamp content_hash on the new version row (non-fatal)
+    if (nv?.id) {
+      supabaseClient.from("project_document_versions")
+        .update({ content_hash: contentHash })
+        .eq("id", nv.id)
+        .then(() => {})
+        .catch((e: any) => console.warn("[DEDUP] content_hash stamp failed:", e?.message));
+    }
+
     return { data: nv, error: null };
   } catch (err: any) {
     return { data: null, error: { message: err.message, code: err.code } };

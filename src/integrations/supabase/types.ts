@@ -10478,6 +10478,7 @@ export type Database = {
           assembled_from_chunks: boolean | null
           branch_id: string | null
           change_summary: string | null
+          content_hash: string | null
           created_at: string
           created_by: string
           criteria_hash: string | null
@@ -10521,6 +10522,7 @@ export type Database = {
           assembled_from_chunks?: boolean | null
           branch_id?: string | null
           change_summary?: string | null
+          content_hash?: string | null
           created_at?: string
           created_by: string
           criteria_hash?: string | null
@@ -10564,6 +10566,7 @@ export type Database = {
           assembled_from_chunks?: boolean | null
           branch_id?: string | null
           change_summary?: string | null
+          content_hash?: string | null
           created_at?: string
           created_by?: string
           criteria_hash?: string | null
