@@ -200,6 +200,7 @@ const SYSTEM_GENERATOR_IDS = new Set([
   "dev-engine-v2-rewrite", "dev-engine-v2-rewrite-chunked",
   "seed-pack",
   "generate-document", "system",
+  "notes-engine", "idea-to-project", "season-package",
 ]);
 // seed-trigger is NOT in the set — it's DB-trigger generated and exempt from provenance
 // seed-pack IS in the set — seed-pack outputs should have provenance for auditability

@@ -1,3 +1,5 @@
+import { createVersion } from "../_shared/doc-os.ts";
+
 /**
  * notes-engine — Unified notes lifecycle edge function.
  *
@@ -439,25 +441,37 @@ Generate a concrete change plan with exact text snippets from the document.`;
         }
       }
 
-      // Create new version
-      const { data: maxVerRow } = await db.from("project_document_versions")
-        .select("version_number").eq("document_id", baseVer.document_id)
-        .order("version_number", { ascending: false }).limit(1).maybeSingle();
+      // Resolve doc_type for the document (fail closed)
+      const { data: parentDoc, error: parentDocErr } = await db.from("project_documents")
+        .select("doc_type, project_id").eq("id", baseVer.document_id).single();
+      if (parentDocErr || !parentDoc) return json({ error: "PROVENANCE_MISSING: Cannot resolve parent document for version write", detail: parentDocErr?.message }, 500);
 
-      const nextVersion = ((maxVerRow as any)?.version_number || 1) + 1;
-
-      const { data: newVersion, error: createError } = await db.from("project_document_versions").insert({
-        document_id: baseVer.document_id,
-        version_number: nextVersion,
-        plaintext: text,
-        label: `v${nextVersion} (note fix: ${(note?.title || "").slice(0, 50)})`,
-        created_by: userId,
-        parent_version_id: baseVer.id,
-        change_summary: `Applied change plan: ${(event.diff_summary || "").slice(0, 120)}`,
-        approval_status: "draft",
-      }).select("id, version_number").single();
-
-      if (createError || !newVersion) return json({ error: "Failed to create version", detail: createError?.message }, 500);
+      // Create new version via canonical doc-os path
+      let newVersion: any;
+      try {
+        newVersion = await createVersion(db, {
+          documentId: baseVer.document_id,
+          docType: parentDoc.doc_type,
+          plaintext: text,
+          label: `note fix: ${(note?.title || "").slice(0, 50)}`,
+          createdBy: userId,
+          changeSummary: `Applied change plan: ${(event.diff_summary || "").slice(0, 120)}`,
+          approvalStatus: "draft",
+          generatorId: "notes-engine",
+          inputsUsed: {
+            project_id: parentDoc.project_id,
+            document_id: baseVer.document_id,
+            doc_type: parentDoc.doc_type,
+            generator_id: "notes-engine",
+            parent_version_id: baseVer.id,
+            change_event_id: changeEventId,
+            note_id: event.note_id,
+            change_summary: (event.diff_summary || "").slice(0, 200),
+          },
+        });
+      } catch (err: any) {
+        return json({ error: "Failed to create version", detail: err?.message }, 500);
+      }
 
       await db.from("note_change_events").update({
         status: "applied", result_version_id: (newVersion as any).id,
