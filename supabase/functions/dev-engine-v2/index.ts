@@ -3353,6 +3353,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           dependsOnResolverHash: rewriteResolverHash,
           generatorId: "dev-engine-v2-rewrite",
           metaJson: rwMetaJson,
+          deliverableType: effectiveDeliverable,
         });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
@@ -3699,6 +3700,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           changeSummary: `Chunked rewrite across ${nextVersion - 1} iterations.`,
           generatorId: "dev-engine-v2-rewrite-chunked",
           metaJson: chunkMetaJson,
+          deliverableType: effectiveDeliverable,
         });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
