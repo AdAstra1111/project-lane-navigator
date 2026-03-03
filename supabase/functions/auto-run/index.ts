@@ -5359,20 +5359,20 @@ Deno.serve(async (req) => {
                 .maybeSingle();
               const nextVersion = (maxRow?.version_number || 0) + 1;
 
-              const { data: seededVersion, error: seedErr } = await supabase.from("project_document_versions").insert({
-                document_id: doc.id,
-                version_number: nextVersion,
+              const seededVersion = await createVersion(supabase, {
+                documentId: doc.id,
+                docType: currentDoc,
                 plaintext: seedText,
-                is_current: true,
-                status: "draft",
                 label: "baseline_seed",
-                created_by: job.user_id,
-                approval_status: "draft",
-                deliverable_type: currentDoc,
-                meta_json: { seed_source: "auto_run_baseline_seed", seeded_at: new Date().toISOString() },
-              }).select("id").single();
+                createdBy: job.user_id,
+                approvalStatus: "draft",
+                deliverableType: currentDoc,
+                metaJson: { seed_source: "auto_run_baseline_seed", seeded_at: new Date().toISOString() },
+                generatorId: "auto-run-seed",
+                inputsUsed: { generator_id: "auto-run-seed", document_id: doc.id, doc_type: currentDoc, project_id: job.project_id, job_id: jobId },
+              });
 
-              if (!seedErr && seededVersion?.id) {
+              if (seededVersion?.id) {
                 await supabase.from("project_documents").update({ latest_version_id: seededVersion.id }).eq("id", doc.id);
                 await logStep(supabase, jobId, null, currentDoc, "baseline_seeded",
                   `Seeded baseline from document plaintext and set version ${seededVersion.id} as current.`,

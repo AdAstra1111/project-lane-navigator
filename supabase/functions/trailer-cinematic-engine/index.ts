@@ -12,6 +12,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, composeSystem, callLLMWithJsonRetry, parseAiJson, callLLMChunked } from "../_shared/llm.ts";
+import { createVersion } from "../_shared/doc-os.ts";
 import { compileTrailerContext } from "../_shared/trailerContext.ts";
 import { enforceCinematicQuality } from "../_shared/cinematic-kernel.ts";
 import { adaptTrailerOutput, adaptTrailerOutputWithMode } from "../_shared/cinematic-adapters.ts";
@@ -2862,31 +2863,17 @@ async function handleExportTrailerScriptDocument(db: any, body: any, userId: str
     .limit(1);
   const nextVersion = (maxVer?.[0]?.version_number || 0) + 1;
 
-  // Insert version
-  const { data: newVersion, error: verErr } = await db.from("project_document_versions").insert({
-    document_id: documentId,
-    version_number: nextVersion,
+  // Insert version via doc-os
+  const { data: trailerDocRow } = await db.from("project_documents").select("doc_type, project_id").eq("id", documentId).single();
+  const newVersion = await createVersion(db, {
+    documentId,
+    docType: trailerDocRow?.doc_type || "trailer_script",
     plaintext,
-    content: contentJson,
-    status: "draft",
-    generator_id: "trailer_cinematic_engine_export_v1",
-    depends_on: { script_run_id: scriptRunId },
-    created_by: userId,
-  }).select("id").single();
-
-  if (verErr) return json({ error: `Create version failed: ${verErr.message}` }, 500);
-
-  // Set as current version
-  try {
-    await db.rpc("set_current_version", {
-      p_document_id: documentId,
-      p_new_version_id: newVersion.id,
-    });
-  } catch (e: any) {
-    console.warn("set_current_version failed, falling back:", e.message);
-    await db.from("project_document_versions")
-      .update({ is_current: true }).eq("id", newVersion.id);
-  }
+    label: docTitle,
+    createdBy: userId,
+    generatorId: "trailer_cinematic_engine_export_v1",
+    inputsUsed: { generator_id: "trailer_cinematic_engine_export_v1", document_id: documentId, script_run_id: scriptRunId, project_id: trailerDocRow?.project_id || "" },
+  });
 
   // Update document latest pointers
   await db.from("project_documents").update({
