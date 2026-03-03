@@ -263,3 +263,6 @@ verify_jwt = false
 
 [functions.embed-trend-signal-vectors]
 verify_jwt = false
+
+[functions.debug-provenance]
+verify_jwt = false
