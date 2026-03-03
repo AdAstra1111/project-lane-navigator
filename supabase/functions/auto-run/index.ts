@@ -649,6 +649,7 @@ const MIN_CHARS_BY_DOC_TYPE: Record<string, number> = {
   season_script: 2000,
   feature_script: 2000,
   season_master_script: 2000,
+  complete_season_script: 2000,
   production_draft: 2000,
   documentary_outline: 800,
   deck: 600,
@@ -3845,7 +3846,7 @@ Deno.serve(async (req) => {
 
       // ── EPISODE COUNT GATE: block episode_script / master steps if count unset ──
       {
-        const EPISODE_GATED_STAGES = ["episode_script", "season_master_script"];
+        const EPISODE_GATED_STAGES = ["episode_script", "season_master_script", "complete_season_script"];
         if (EPISODE_GATED_STAGES.includes(currentDoc)) {
           const { data: epProj } = await supabase.from("projects")
             .select("season_episode_count, season_episode_count_locked")
@@ -4016,7 +4017,7 @@ Deno.serve(async (req) => {
       {
         const WRITING_STAGES = new Set([
           "feature_script", "season_script", "episode_script",
-          "season_master_script", "production_draft",
+          "season_master_script", "complete_season_script", "production_draft",
         ]);
         const PREP_STAGES = new Set([
           "market_sheet", "vertical_market_sheet", "format_rules",

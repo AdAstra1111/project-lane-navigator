@@ -51,8 +51,9 @@ export const DOC_TYPE_REGISTRY: Record<string, DocTypeConfig> = {
   feature_script:        { title: "Feature Script",         file_name: "feature_script.md",        is_seed_core: false, is_ladder: true },
   episode_script:        { title: "Episode Script",         file_name: "episode_script.md",        is_seed_core: false, is_ladder: true },
   season_script:         { title: "Season Script",          file_name: "season_script.md",         is_seed_core: false, is_ladder: true },
-  season_master_script:  { title: "Master Season Script",   file_name: "season_master_script.md",  is_seed_core: false, is_ladder: true },
-  production_draft:      { title: "Production Draft",       file_name: "production_draft.md",      is_seed_core: false, is_ladder: true },
+  season_master_script:       { title: "Master Season Script",        file_name: "season_master_script.md",       is_seed_core: false, is_ladder: true },
+  complete_season_script:     { title: "Complete Season Script",      file_name: "complete_season_script.md",     is_seed_core: false, is_ladder: true },
+  production_draft:           { title: "Production Draft",            file_name: "production_draft.md",           is_seed_core: false, is_ladder: true },
   deck:                  { title: "Deck",                   file_name: "deck.md",                  is_seed_core: false, is_ladder: true },
   documentary_outline:   { title: "Documentary Outline",    file_name: "documentary_outline.md",   is_seed_core: false, is_ladder: true },
   format_rules:          { title: "Format Rules",           file_name: "format_rules.md",          is_seed_core: false, is_ladder: true },
@@ -208,7 +209,7 @@ const SYSTEM_GENERATOR_IDS = new Set([
 // ── Doc types exempt from canon alignment (they ARE canon sources, or structural) ──
 const CANON_ALIGNMENT_EXEMPT = new Set([
   "canon", "nec", "format_rules", "project_overview", "creative_brief", "market_positioning",
-  "episode_grid", "season_master_script",
+  "episode_grid", "season_master_script", "complete_season_script",
 ]);
 
 /**
