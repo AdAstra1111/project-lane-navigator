@@ -114,6 +114,28 @@ else
   echo "PASS"
 fi
 
+echo ""
+echo "=== Regression Tripwire: No hardcoded FORMAT_LADDERS outside _shared ==="
+HITS13=$(grep -rn "const FORMAT_LADDERS" supabase/functions/ --include="*.ts" | grep -v "_shared/" | grep -v "STAGE_LADDERS.FORMAT_LADDERS" | grep -v "node_modules" || true)
+if [ -n "$HITS13" ]; then
+  echo "FAIL: Hardcoded FORMAT_LADDERS found outside _shared/ (must import from _shared/stage-ladders.ts):"
+  echo "$HITS13"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: No banned legacy keys in canonical ladder source ==="
+HITS14=$(grep -En "topline_narrative|\"blueprint\"|\"architecture\"" supabase/functions/_shared/stage-ladders.ts || true)
+if [ -n "$HITS14" ]; then
+  echo "FAIL: Banned legacy keys found in canonical stage-ladders.ts:"
+  echo "$HITS14"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."
