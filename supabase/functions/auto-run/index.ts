@@ -65,29 +65,28 @@ async function completionGate(
     }
   }
 
-  // Gate 2: Canon alignment for season_master_script target
-  if (targetDocument === "season_master_script") {
-    // Fetch the current season_master_script content
-    const { data: masterDoc } = await supabase
+  // Gate 2: Canon alignment for target document (universal — not just season_master_script)
+  {
+    const { data: targetDoc } = await supabase
       .from("project_documents")
       .select("id")
       .eq("project_id", projectId)
-      .eq("doc_type", "season_master_script")
+      .eq("doc_type", targetDocument)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (masterDoc) {
-      const currentVer = await getCurrentVersionForDoc(supabase, masterDoc.id);
+    if (targetDoc) {
+      const currentVer = await getCurrentVersionForDoc(supabase, targetDoc.id);
       if (currentVer?.plaintext) {
         const alignment = await runCanonAlignmentGate(supabase, projectId, currentVer.plaintext);
         if (alignment && !alignment.pass) {
           return {
             stop_reason: "CANON_MISMATCH",
-            details: `Canon alignment failed: coverage=${alignment.result.entityCoverage}, missing=${alignment.result.missingEntities.slice(0, 5).join(",")}, foreign=${alignment.result.foreignEntities.slice(0, 5).join(",")}. Sources: ${alignment.sources.join(",")}`,
+            details: `Canon alignment failed for ${targetDocument}: coverage=${alignment.result.entityCoverage}, missing=${alignment.result.missingEntities.slice(0, 5).join(",")}, foreign=${alignment.result.foreignEntities.slice(0, 5).join(",")}. Sources: ${alignment.sources.join(",")}`,
           };
         }
-        // alignment === null means no canon sources — allow completion (no entities to validate against)
+        // alignment === null means no canon sources — allow completion
       }
     }
   }
