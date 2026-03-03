@@ -5,6 +5,8 @@
  */
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { useUIMode } from '@/hooks/useUIMode';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -91,6 +93,20 @@ export function DevEngineSimpleView({
   const { setMode } = useUIMode();
   const [docTab, setDocTab] = useState<'current' | 'approved'>('current');
 
+  // Lightweight comparables count query
+  const { data: compsCount = 0 } = useQuery({
+    queryKey: ['simple-view-comps-count', projectId],
+    queryFn: async () => {
+      const { count } = await (supabase as any)
+        .from('comparable_candidates')
+        .select('id', { count: 'exact', head: true })
+        .eq('project_id', projectId);
+      return count ?? 0;
+    },
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
   // ── Derive current/last/next step deterministically ──
   const { currentStep, lastCompletedStep, nextStep, stepProgress } = useMemo(() => {
     if (!autoRunSteps.length) return { currentStep: null, lastCompletedStep: null, nextStep: null, stepProgress: '0 / 0' };
@@ -168,8 +184,13 @@ export function DevEngineSimpleView({
               </div>
             ))
           )}
-          <div className="pt-1">
+          <div className="pt-1 flex items-center gap-2">
             <Badge variant="outline" className="text-[8px]">{format}</Badge>
+            {compsCount > 0 && (
+              <Badge variant="secondary" className="text-[8px]">
+                {compsCount} comparable{compsCount !== 1 ? 's' : ''}
+              </Badge>
+            )}
           </div>
         </CardContent>
       </Card>
