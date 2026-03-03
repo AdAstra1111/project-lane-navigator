@@ -130,6 +130,22 @@ export function AutoRunProgressPanel({
             </span>
           </div>
         </div>
+        {/* Job ID row */}
+        <div className="flex items-center gap-1 mt-1">
+          <span className="text-[8px] text-muted-foreground font-mono truncate select-all">
+            {job.id}
+          </span>
+          <button
+            type="button"
+            className="text-[8px] text-muted-foreground hover:text-foreground transition-colors px-1"
+            onClick={() => {
+              navigator.clipboard.writeText(job.id);
+            }}
+            title="Copy Job ID"
+          >
+            📋
+          </button>
+        </div>
       </CardHeader>
 
       <CardContent className="px-3 pb-3 space-y-2.5">
