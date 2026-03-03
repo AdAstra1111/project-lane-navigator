@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
 import { getWritingLaneGroup, getDefaultWritingVoiceForLane } from "../_shared/writingVoiceResolver.ts";
 import { ensureDocSlot, createVersion } from "../_shared/doc-os.ts";
-import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy, validateLadderIntegrity } from "../_shared/docPolicyRegistry.ts";
+import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy, validateLadderIntegrity, runCanonAlignmentGate } from "../_shared/docPolicyRegistry.ts";
 import {
   DEFAULT_MAX_TOTAL_STEPS,
   DEFAULT_MAX_STAGE_LOOPS,
@@ -42,6 +42,57 @@ async function getCurrentVersionForDoc(supabase: any, documentId: string): Promi
     .limit(1)
     .maybeSingle();
   return data || null;
+}
+
+// ── PATCH 5: Completion gate — runs before any status="completed" ──
+// Returns null if gates pass, or { stop_reason, details } if they fail.
+async function completionGate(
+  supabase: any,
+  projectId: string,
+  targetDocument: string,
+  format: string,
+): Promise<{ stop_reason: string; details: string } | null> {
+  // Gate 1: Ladder integrity
+  // getLadderForJob is defined in this same file
+  const ladder = getLadderForJob(format);
+  if (ladder) {
+    const ladderCheck = validateLadderIntegrity(ladder);
+    if (!ladderCheck.valid) {
+      return {
+        stop_reason: "LADDER_REGISTRY_MISMATCH",
+        details: `Ladder contains unregistered doc_types: ${ladderCheck.missing.join(", ")}`,
+      };
+    }
+  }
+
+  // Gate 2: Canon alignment for season_master_script target
+  if (targetDocument === "season_master_script") {
+    // Fetch the current season_master_script content
+    const { data: masterDoc } = await supabase
+      .from("project_documents")
+      .select("id")
+      .eq("project_id", projectId)
+      .eq("doc_type", "season_master_script")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (masterDoc) {
+      const currentVer = await getCurrentVersionForDoc(supabase, masterDoc.id);
+      if (currentVer?.plaintext) {
+        const alignment = await runCanonAlignmentGate(supabase, projectId, currentVer.plaintext);
+        if (alignment && !alignment.pass) {
+          return {
+            stop_reason: "CANON_MISMATCH",
+            details: `Canon alignment failed: coverage=${alignment.result.entityCoverage}, missing=${alignment.result.missingEntities.slice(0, 5).join(",")}, foreign=${alignment.result.foreignEntities.slice(0, 5).join(",")}. Sources: ${alignment.sources.join(",")}`,
+          };
+        }
+        // alignment === null means no canon sources — allow completion (no entities to validate against)
+      }
+    }
+  }
+
+  return null; // All gates pass
 }
 
 function waitUntilSafe(p: Promise<any>): boolean {
@@ -1490,8 +1541,33 @@ async function logStep(
   return idx;
 }
 
-// ── Helper: update job ──
+// ── Helper: update job (with PATCH 5 completion gate) ──
 async function updateJob(supabase: any, jobId: string, fields: Record<string, any>) {
+  // PATCH 5: Intercept completion — run gates before allowing status="completed"
+  if (fields.status === "completed") {
+    try {
+      // Fetch job to get project_id, target_document, format
+      const { data: job } = await supabase.from("auto_run_jobs").select("project_id, target_document").eq("id", jobId).single();
+      if (job) {
+        // Get format
+        const { data: proj } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
+        const fmt = (proj?.format || "film").toLowerCase().replace(/_/g, "-");
+
+        const gateResult = await completionGate(supabase, job.project_id, job.target_document, fmt);
+        if (gateResult) {
+          // Gate failed — override to paused
+          console.warn(`[auto-run] Completion gate BLOCKED: ${gateResult.stop_reason} — ${gateResult.details}`);
+          fields.status = "paused";
+          fields.stop_reason = gateResult.stop_reason;
+          fields.pause_reason = gateResult.stop_reason;
+          fields.error = gateResult.details;
+        }
+      }
+    } catch (gateErr: any) {
+      console.error(`[auto-run] Completion gate error (allowing completion): ${gateErr.message}`);
+      // On gate error, allow completion to avoid blocking — log the error
+    }
+  }
   await supabase.from("auto_run_jobs").update(fields).eq("id", jobId);
 }
 
@@ -3522,6 +3598,24 @@ Deno.serve(async (req) => {
       const stepCount = job.step_count;
       const stageLoopCount = job.stage_loop_count;
 
+      // PATCH 5: Ladder integrity check in run-next (not just start)
+      {
+        const { data: projFmt } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
+        const runFmt = (projFmt?.format || "film").toLowerCase().replace(/_/g, "-");
+        const runLadder = getLadderForJob(runFmt);
+        if (runLadder) {
+          const lc = validateLadderIntegrity(runLadder);
+          if (!lc.valid) {
+            await updateJob(supabase, jobId, {
+              status: "paused", stop_reason: "LADDER_REGISTRY_MISMATCH",
+              pause_reason: "LADDER_REGISTRY_MISMATCH",
+              error: `Ladder contains unregistered doc_types: ${lc.missing.join(", ")}`,
+            });
+            return respondWithJob(supabase, jobId);
+          }
+        }
+      }
+
 
       // bgTask owns the lock once spawned — its own finally releases it.
       // We track whether bgTask was spawned to avoid double-release.
@@ -4085,6 +4179,14 @@ Deno.serve(async (req) => {
                     approvalStatus: "draft",
                     generatorId: "auto-run-setup",
                     metaJson: { nec_json: necJson, generated_by: "auto-run-prewrite-setup" },
+                    inputsUsed: {
+                      project_id: job.project_id,
+                      doc_type: "nec",
+                      generator_id: "auto-run-setup",
+                      job_id: jobId,
+                      selected_template_key: "prewrite_setup_nec",
+                      resolved_prefs_snapshot: { lane: format, format },
+                    },
                   });
                   setupResolved.push("nec_auto_generated");
                   console.log(`[auto-run] ${gateLabel}: auto-generated NEC document`, { necJson });

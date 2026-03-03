@@ -197,3 +197,91 @@ export function validateCanonAlignment(
       : undefined,
   };
 }
+
+// ── PATCH 4: Canon alignment gate for auto-run completion ──
+
+/**
+ * Extract canon entity names from document plaintext using deterministic heuristics.
+ * Looks for: **Name**, # Name, UPPERCASE NAME, Name: patterns.
+ */
+function extractEntitiesFromText(text: string): string[] {
+  if (!text) return [];
+  const entities = new Set<string>();
+
+  // **Name** patterns
+  for (const m of text.matchAll(/\*\*([A-Z][A-Za-z\s'-]{1,30}?)\*\*/g)) {
+    entities.add(m[1].trim());
+  }
+  // # Name or ## Name headers
+  for (const m of text.matchAll(/^#+\s*([A-Z][A-Za-z\s'-]{1,30})/gm)) {
+    entities.add(m[1].trim());
+  }
+  // UPPERCASE NAME (2-25 chars) at start of line followed by : or (
+  for (const m of text.matchAll(/^([A-Z][A-Z\s'-]{1,24})\s*[(:]/gm)) {
+    const name = m[1].trim();
+    if (name.length >= 2 && !name.includes("SCENE") && !name.includes("FADE") && !name.includes("CUT")) {
+      entities.add(name);
+    }
+  }
+  return [...entities];
+}
+
+/**
+ * Build canon entity list from DB current versions of key doc types.
+ * Sources (in order): canon, character_bible, vertical_episode_beats, season_arc.
+ * Returns null if no source docs found (caller should use INPUT_INCOMPLETE stop).
+ */
+export async function buildCanonEntitiesFromDB(
+  supabase: any,
+  projectId: string,
+): Promise<{ entities: string[]; sources: string[] } | null> {
+  const CANON_SOURCE_TYPES = ["canon", "character_bible", "vertical_episode_beats", "season_arc"];
+  const entities: string[] = [];
+  const sources: string[] = [];
+
+  for (const docType of CANON_SOURCE_TYPES) {
+    const { data: doc } = await supabase
+      .from("project_documents")
+      .select("id")
+      .eq("project_id", projectId)
+      .eq("doc_type", docType)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!doc) continue;
+
+    const { data: ver } = await supabase
+      .from("project_document_versions")
+      .select("plaintext")
+      .eq("document_id", doc.id)
+      .eq("is_current", true)
+      .maybeSingle();
+
+    if (ver?.plaintext) {
+      const docEntities = extractEntitiesFromText(ver.plaintext);
+      entities.push(...docEntities);
+      sources.push(docType);
+    }
+  }
+
+  if (entities.length === 0 && sources.length === 0) return null;
+  // Deduplicate
+  return { entities: [...new Set(entities)], sources };
+}
+
+/**
+ * Run canon alignment validation for a given document against project canon.
+ * Returns alignment result or null if no canon sources exist.
+ */
+export async function runCanonAlignmentGate(
+  supabase: any,
+  projectId: string,
+  generatedText: string,
+): Promise<{ pass: boolean; result: ReturnType<typeof validateCanonAlignment>; sources: string[] } | null> {
+  const canon = await buildCanonEntitiesFromDB(supabase, projectId);
+  if (!canon) return null; // No canon sources — caller decides policy
+
+  const result = validateCanonAlignment(generatedText, canon.entities);
+  return { pass: result.pass, result, sources: canon.sources };
+}
