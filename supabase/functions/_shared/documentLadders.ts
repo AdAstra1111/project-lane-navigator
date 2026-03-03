@@ -70,7 +70,7 @@ export const LANE_DOC_LADDERS: Record<LaneKey, string[]> = {
   vertical_drama: [
     'idea', 'concept_brief', 'vertical_market_sheet', 'format_rules',
     'character_bible', 'season_arc', 'episode_grid', 'vertical_episode_beats',
-    'season_script', 'complete_season_script',
+    'season_script',
   ],
   documentary: [
     'idea', 'concept_brief', 'market_sheet', 'documentary_outline', 'deck',
@@ -111,7 +111,7 @@ export const DOC_LABEL_ALIASES: Record<string, string> = {
   lookbook:                'deck',
   coverage:                'production_draft',
   episode_beat_sheet:      'beat_sheet',
-  // complete_season_script is now first-class — no alias needed
+  complete_season_script:  'season_script',
   doc_outline:             'documentary_outline',
   writers_room:            'episode_script',
   synopsis:                'topline_narrative',

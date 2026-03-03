@@ -191,7 +191,7 @@ export const DOC_TYPE_TO_LADDER_STAGE: Record<string, DeliverableStage> = {
   script_pdf:              'feature_script',
   draft:                   'feature_script',
   coverage:                'production_draft',
-  // complete_season_script is now first-class — no alias needed
+  complete_season_script:       'season_script',
 };
 
 export function mapDocTypeToLadderStage(docType: string): DeliverableStage {

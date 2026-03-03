@@ -540,7 +540,7 @@ export function defaultDeliverableForDocType(docType: string): DeliverableType {
     vertical_episode_beats: 'vertical_episode_beats',
     series_writer: 'series_writer',
     season_master_script: 'season_master_script',
-    complete_season_script: 'season_master_script',
+    complete_season_script: 'season_script',
   };
   return map[normalized] || 'concept_brief';
 }

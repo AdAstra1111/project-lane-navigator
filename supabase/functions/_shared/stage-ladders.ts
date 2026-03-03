@@ -7,7 +7,7 @@ export const STAGE_LADDERS = {
     "tv-series":          ["idea","concept_brief","market_sheet","treatment","story_outline","character_bible","beat_sheet","episode_beats","episode_script","season_master_script","production_draft"],
     "limited-series":     ["idea","concept_brief","market_sheet","treatment","story_outline","character_bible","beat_sheet","episode_beats","episode_script","season_master_script","production_draft"],
     "digital-series":     ["idea","concept_brief","market_sheet","treatment","story_outline","character_bible","beat_sheet","episode_beats","episode_script","season_master_script","production_draft"],
-    "vertical-drama":     ["idea","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","season_script","complete_season_script"],
+    "vertical-drama":     ["idea","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","season_script"],
     "documentary":        ["idea","concept_brief","market_sheet","documentary_outline","deck"],
     "documentary-series": ["idea","concept_brief","market_sheet","documentary_outline","deck"],
     "hybrid-documentary": ["idea","concept_brief","market_sheet","documentary_outline","treatment","deck"],
@@ -37,7 +37,7 @@ export const STAGE_LADDERS = {
     "notes":                 "concept_brief",
     "draft":                 "feature_script",
     "coverage":              "production_draft",
-    // complete_season_script is now first-class — no alias needed
+    "complete_season_script": "season_script",
   } as Record<string, string>,
   FORMAT_SCRIPT_TYPES: {
     "film":               "feature_script",

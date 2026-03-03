@@ -23,7 +23,7 @@ const FORMAT_LADDERS: Record<string, string[]> = {
   "tv-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","episode_script","season_master_script","production_draft"],
   "limited-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","episode_script","season_master_script","production_draft"],
   "digital-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","episode_script","season_master_script","production_draft"],
-  "vertical-drama": ["idea","topline_narrative","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","season_script","complete_season_script","season_master_script"],
+  "vertical-drama": ["idea","topline_narrative","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","season_script"],
   documentary: ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
   "documentary-series": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
   "hybrid-documentary": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","blueprint","deck"],
