@@ -10,7 +10,37 @@ export function normalizeWritingLane(lane: string): string {
   return (lane || '').toLowerCase().replace(/[-_\s]+/g, '');
 }
 
-export function getWritingLaneGroup(lane: string): WritingLaneGroup {
+/**
+ * FORMAT_TO_LANE_GROUP — deterministic override map.
+ * When a project has a known format, this takes precedence over lane-based heuristics.
+ * Prevents platform-deal / genre-based lanes from overriding format-specific voice.
+ */
+const FORMAT_TO_LANE_GROUP: Record<string, WritingLaneGroup> = {
+  'vertical-drama': 'vertical',
+  'tv-series': 'series',
+  'limited-series': 'series',
+  'digital-series': 'series',
+  'anim-series': 'series',
+  'reality': 'series',
+  'documentary': 'documentary',
+  'documentary-series': 'documentary',
+  'hybrid-documentary': 'documentary',
+  'film': 'feature',
+  'feature': 'feature',
+  'short': 'feature',
+  'animation': 'feature',
+};
+
+/**
+ * Resolve lane group with format-first precedence.
+ * If format is provided and recognized, it overrides lane-based heuristics.
+ */
+export function getWritingLaneGroup(lane: string, format?: string): WritingLaneGroup {
+  // PATCH 2: Format-first resolution — format must constrain lane_group
+  if (format) {
+    const formatGroup = FORMAT_TO_LANE_GROUP[format.toLowerCase()];
+    if (formatGroup) return formatGroup;
+  }
   const n = normalizeWritingLane(lane);
   if (n.includes('verticaldrama') || n.includes('fastturnaround') || n === 'vertical') return 'vertical';
   if (n.includes('documentary')) return 'documentary';
@@ -25,6 +55,6 @@ export const DEFAULT_WRITING_VOICE_BY_GROUP: Record<WritingLaneGroup, WritingVoi
   documentary: { id: 'investigative_doc', label: 'Investigative', lane_group: 'documentary' },
 };
 
-export function getDefaultWritingVoiceForLane(lane: string): WritingVoiceDefaultPreset {
-  return DEFAULT_WRITING_VOICE_BY_GROUP[getWritingLaneGroup(lane)] || DEFAULT_WRITING_VOICE_BY_GROUP.feature;
+export function getDefaultWritingVoiceForLane(lane: string, format?: string): WritingVoiceDefaultPreset {
+  return DEFAULT_WRITING_VOICE_BY_GROUP[getWritingLaneGroup(lane, format)] || DEFAULT_WRITING_VOICE_BY_GROUP.feature;
 }

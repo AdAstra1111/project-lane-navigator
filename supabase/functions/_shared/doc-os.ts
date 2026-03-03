@@ -185,6 +185,8 @@ export interface CreateVersionOpts {
   dependsOn?: string[];
   dependsOnResolverHash?: string;
   generatorId?: string;
+  /** PATCH 3: Provenance — inputs_used must be populated for system-generated versions */
+  inputsUsed?: Record<string, any>;
 }
 
 /**
@@ -241,6 +243,10 @@ export async function createVersion(
   if (opts.sourceDocumentIds) insertPayload.source_document_ids = opts.sourceDocumentIds;
   if (opts.dependsOn) insertPayload.depends_on = opts.dependsOn;
   if (opts.generatorId) insertPayload.generator_id = opts.generatorId;
+  // PATCH 3: Persist inputs_used for provenance
+  if (opts.inputsUsed && Object.keys(opts.inputsUsed).length > 0) {
+    insertPayload.inputs_used = opts.inputsUsed;
+  }
 
   const { data: newVersion, error } = await supabase
     .from("project_document_versions")

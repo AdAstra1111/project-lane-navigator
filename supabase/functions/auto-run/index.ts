@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
 import { getWritingLaneGroup, getDefaultWritingVoiceForLane } from "../_shared/writingVoiceResolver.ts";
 import { ensureDocSlot, createVersion } from "../_shared/doc-os.ts";
-import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy } from "../_shared/docPolicyRegistry.ts";
+import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy, validateLadderIntegrity } from "../_shared/docPolicyRegistry.ts";
 import {
   DEFAULT_MAX_TOTAL_STEPS,
   DEFAULT_MAX_STAGE_LOOPS,
@@ -1995,6 +1995,18 @@ Deno.serve(async (req) => {
       const fmt = rawFmt;
       const fmtLadder = getLadderForJob(fmt);
       if (!fmtLadder) return respond({ error: "MISSING_FORMAT_FOR_LADDER", format: fmt, original_format: proj?.format }, 422);
+
+      // PATCH 1b: Validate ladder integrity — all doc_types must be in policy registry
+      const ladderCheck = validateLadderIntegrity(fmtLadder);
+      if (!ladderCheck.valid) {
+        return respond({
+          error: "LADDER_REGISTRY_MISMATCH",
+          message: `Format "${fmt}" ladder contains unregistered doc_types: ${ladderCheck.missing.join(", ")}`,
+          missing: ladderCheck.missing,
+          format: fmt,
+        }, 422);
+      }
+
       const startDoc = canonicalDocType(start_document || "idea");
       // Sanitize target_document — "draft" and "coverage" are legacy aliases, never real targets
       const rawTarget = target_document || fmtLadder[fmtLadder.length - 1];
@@ -3924,7 +3936,7 @@ Deno.serve(async (req) => {
           if (!hasVoice) {
             if (allowDefaults) {
               // Use canonical shared resolver (no hardcoded IDs)
-              const defaultVoice = getDefaultWritingVoiceForLane(format || lane);
+              const defaultVoice = getDefaultWritingVoiceForLane(lane, format);
 
               // Persist the voice in project_lane_prefs
               const mergedPrefs = { ...lanePrefs, writing_voice: { id: defaultVoice.id, label: defaultVoice.label } };
