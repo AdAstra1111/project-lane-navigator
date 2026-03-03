@@ -1,14 +1,17 @@
 /**
  * VersionsPanel — document version list inside ProjectShell drawer.
  * Select a document, see versions, switch current.
+ * Shows "★ BEST" badge when a version matches the auto-run job's best_version_id.
  */
 import { useState, useMemo } from 'react';
 import { useProjectDocuments } from '@/hooks/useProjects';
 import { useDocumentVersions, useSetCurrentVersion } from '@/hooks/useDocumentVersions';
 import { cn } from '@/lib/utils';
-import { Check, Loader2, FileText } from 'lucide-react';
+import { Check, Loader2, FileText, Star } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
 
 interface VersionsPanelProps {
   projectId: string;
@@ -17,6 +20,23 @@ interface VersionsPanelProps {
 export function VersionsPanel({ projectId }: VersionsPanelProps) {
   const { documents, isLoading: docsLoading } = useProjectDocuments(projectId);
   const [selectedDocId, setSelectedDocId] = useState<string | undefined>();
+
+  // Fetch best_version_id from the latest auto-run job
+  const { data: bestVersionId } = useQuery({
+    queryKey: ['auto-run-best-version', projectId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('auto_run_jobs')
+        .select('best_version_id')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data?.best_version_id || null;
+    },
+    enabled: !!projectId,
+    staleTime: 15_000,
+  });
 
   // Filter to dev-engine docs (those without file_path = pipeline docs)
   const devDocs = useMemo(() =>
@@ -77,48 +97,65 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
           <p className="text-xs text-muted-foreground/50 text-center p-4">No versions</p>
         ) : (
           <div className="divide-y divide-border/10">
-            {versions.map(v => (
-              <button
-                key={v.id}
-                onClick={() => {
-                  if (!v.is_current && effectiveDocId) {
-                    setCurrentVersion.mutate({ documentId: effectiveDocId, versionId: v.id });
-                  }
-                }}
-                disabled={v.is_current || setCurrentVersion.isPending}
-                className={cn(
-                  'w-full text-left px-3 py-2.5 text-xs transition-colors hover:bg-muted/30',
-                  v.is_current && 'bg-primary/5',
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">
-                    v{v.version_number}
-                    {v.is_current && (
-                      <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-primary">
-                        <Check className="h-3 w-3" /> current
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-muted-foreground/60">
-                    {format(new Date(v.created_at), 'MMM d, HH:mm')}
-                  </span>
-                </div>
-                {v.change_summary && (
-                  <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{v.change_summary}</p>
-                )}
-                {v.approval_status && v.approval_status !== 'none' && (
-                  <span className={cn(
-                    'inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full',
-                    v.approval_status === 'approved'
-                      ? 'bg-emerald-500/15 text-emerald-400'
-                      : 'bg-amber-500/15 text-amber-400',
-                  )}>
-                    {v.approval_status}
-                  </span>
-                )}
-              </button>
-            ))}
+            {versions.map(v => {
+              const isBest = bestVersionId === v.id;
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => {
+                    if (!v.is_current && effectiveDocId) {
+                      setCurrentVersion.mutate({ documentId: effectiveDocId, versionId: v.id });
+                    }
+                  }}
+                  disabled={v.is_current || setCurrentVersion.isPending}
+                  className={cn(
+                    'w-full text-left px-3 py-2.5 text-xs transition-colors hover:bg-muted/30',
+                    v.is_current && 'bg-primary/5',
+                    isBest && !v.is_current && 'bg-amber-500/5',
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">
+                      v{v.version_number}
+                      {v.is_current && (
+                        <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-primary">
+                          <Check className="h-3 w-3" /> current
+                        </span>
+                      )}
+                      {isBest && (
+                        <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-amber-400 font-semibold">
+                          <Star className="h-3 w-3 fill-amber-400" /> BEST
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-muted-foreground/60">
+                      {format(new Date(v.created_at), 'MMM d, HH:mm')}
+                    </span>
+                  </div>
+                  {(v as any).label && (
+                    <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{(v as any).label}</p>
+                  )}
+                  {v.change_summary && (
+                    <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{v.change_summary}</p>
+                  )}
+                  {v.approval_status && v.approval_status !== 'none' && (
+                    <span className={cn(
+                      'inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full',
+                      v.approval_status === 'approved'
+                        ? 'bg-emerald-500/15 text-emerald-400'
+                        : 'bg-amber-500/15 text-amber-400',
+                    )}>
+                      {v.approval_status}
+                    </span>
+                  )}
+                  {isBest && !v.is_current && (
+                    <span className="block mt-1 text-[10px] text-amber-400/80">
+                      Click to promote as current
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
