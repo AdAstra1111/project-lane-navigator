@@ -197,6 +197,23 @@ else
   echo "PASS"
 fi
 
+echo ""
+echo "=== Regression Tripwire: canonicalDocType must output underscored doc_type keys ==="
+HITS_CDT=$(grep -n 'function canonicalDocType' supabase/functions/auto-run/index.ts | head -1 || true)
+if [ -z "$HITS_CDT" ]; then
+  echo "FAIL: canonicalDocType function not found in auto-run/index.ts"
+  FAIL=1
+else
+  # Ensure the function converts hyphens to underscores in output
+  HITS_UNDERSCORE=$(grep -A5 'function canonicalDocType' supabase/functions/auto-run/index.ts | grep 'replace(/-/g, "_")' || true)
+  if [ -z "$HITS_UNDERSCORE" ]; then
+    echo "FAIL: canonicalDocType does not convert hyphens to underscores in output"
+    FAIL=1
+  else
+    echo "PASS"
+  fi
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."
