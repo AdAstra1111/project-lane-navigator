@@ -60,12 +60,23 @@ else
 fi
 
 echo ""
-echo "=== Regression Tripwire: Duration repair without DURATION_ELIGIBLE_DOC_TYPES guard ==="
-HITS6=$(grep -n "CRITERIA_FAIL_DURATION" supabase/functions/auto-run/index.ts | grep -v "DURATION_ELIGIBLE_DOC_TYPES" | grep -v "duration_scope_skipped" | grep -v "type CriteriaClassification" || true)
-if [ -n "$HITS6" ]; then
-  echo "WARN: CRITERIA_FAIL_DURATION handled without DURATION_ELIGIBLE_DOC_TYPES guard:"
-  echo "$HITS6"
-  # Not failing build — just warning
+echo "=== Regression Tripwire: isDurationEligibleDocType must be imported from _shared ==="
+HITS6=$(grep -rn "isDurationEligibleDocType" supabase/functions/auto-run/index.ts | grep -v "import" | grep -v "from.*eligibilityRegistry" || true)
+HITS7=$(grep -rn "DURATION_ELIGIBLE_DOC_TYPES" supabase/functions/auto-run/index.ts || true)
+if [ -n "$HITS7" ]; then
+  echo "FAIL: Local DURATION_ELIGIBLE_DOC_TYPES found in auto-run (must use _shared/eligibilityRegistry):"
+  echo "$HITS7"
+  FAIL=1
+else
+  echo "PASS (no local duration set)"
+fi
+
+echo ""
+echo "=== Regression Tripwire: eligibilityRegistry is canonical source ==="
+HITS8=$(grep -rn "isDurationEligibleDocType" supabase/functions/ --include="*.ts" | grep -v "_shared/eligibilityRegistry" | grep -v "import.*eligibilityRegistry" | grep -v "node_modules" || true)
+if [ -n "$HITS8" ]; then
+  echo "WARN: isDurationEligibleDocType used outside import from eligibilityRegistry:"
+  echo "$HITS8"
 else
   echo "PASS"
 fi
