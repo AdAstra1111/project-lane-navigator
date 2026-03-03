@@ -15,7 +15,7 @@ import {
   type StyleTarget, type StyleEvalResult, type StyleFingerprint, type StyleDeviation,
 } from "../_shared/styleDeviation.ts";
 import { buildEffectiveProfileContextBlock } from "../_shared/effective-profile-context.ts";
-import { computeDefaultResolverHash } from "../_shared/doc-os.ts";
+import { computeDefaultResolverHash, createVersion } from "../_shared/doc-os.ts";
 
 // ── Constraint Pack: unified loader for all generation prompts ──
 const CONSTRAINT_PACK_BUDGET = 6000;
@@ -105,7 +105,7 @@ async function loadConstraintPack(
   return text;
 }
 
-// ── writeVersionSafe: wraps raw insert with provenance invariants + latest_version_id ──
+// ── writeVersionSafe: routes through doc-os.createVersion() for provenance + canon alignment ──
 async function writeVersionSafe(
   supabaseClient: any,
   opts: {
@@ -121,36 +121,33 @@ async function writeVersionSafe(
     generatorId?: string;
     metaJson?: Record<string, any>;
     deliverableType?: string;
+    inputsUsed?: Record<string, any>;
   },
 ): Promise<{ data: any; error: any }> {
   const generatorId = opts.generatorId || "dev-engine-v2";
-  const resolverHash = opts.dependsOnResolverHash || computeDefaultResolverHash(
-    opts.deliverableType || "unknown", generatorId, opts.label
-  );
-
-  const { data: nv, error: vErr } = await supabaseClient.from("project_document_versions").insert({
-    document_id: opts.documentId,
-    version_number: opts.versionNumber,
-    label: opts.label,
-    plaintext: opts.plaintext,
-    created_by: opts.createdBy,
-    parent_version_id: opts.parentVersionId,
-    change_summary: opts.changeSummary || "",
-    depends_on: opts.dependsOn,
-    depends_on_resolver_hash: resolverHash,
-    generator_id: generatorId,
-    deliverable_type: opts.deliverableType,
-    ...(opts.metaJson ? { meta_json: opts.metaJson } : {}),
-  }).select().single();
-
-  if (vErr) return { data: null, error: vErr };
-
-  // Always update latest_version_id
-  await supabaseClient.from("project_documents")
-    .update({ latest_version_id: nv.id })
-    .eq("id", opts.documentId);
-
-  return { data: nv, error: null };
+  try {
+    const nv = await createVersion(supabaseClient, {
+      documentId: opts.documentId,
+      docType: opts.deliverableType || "other",
+      plaintext: opts.plaintext,
+      label: opts.label,
+      createdBy: opts.createdBy,
+      changeSummary: opts.changeSummary || "",
+      dependsOn: opts.dependsOn,
+      dependsOnResolverHash: opts.dependsOnResolverHash || undefined,
+      generatorId,
+      deliverableType: opts.deliverableType,
+      metaJson: opts.metaJson,
+      inputsUsed: opts.inputsUsed || {
+        generator_id: generatorId,
+        document_id: opts.documentId,
+        parent_version_id: opts.parentVersionId || null,
+      },
+    });
+    return { data: nv, error: null };
+  } catch (err: any) {
+    return { data: null, error: { message: err.message, code: err.code } };
+  }
 }
 
 // ── NEC (Narrative Energy Contract) Guardrail Loader ──
@@ -4016,15 +4013,15 @@ MATERIAL:\n${version.plaintext}`;
       }).select().single();
       if (dErr) throw dErr;
 
-      const { data: ver, error: verErr } = await supabase.from("project_document_versions").insert({
-        document_id: doc.id,
-        version_number: 1,
-        label: "Original",
+      const ver = await createVersion(supabase, {
+        documentId: doc.id,
+        docType: docType || "other",
         plaintext: text,
-        created_by: user.id,
-      }).select().single();
-      if (verErr) throw verErr;
-      if (!ver) throw new Error("Failed to create document version");
+        label: "Original",
+        createdBy: user.id,
+        generatorId: "dev-engine-v2-paste",
+        inputsUsed: { generator_id: "dev-engine-v2-paste", document_id: doc.id, source: "paste", project_id: projectId },
+      });
 
       return new Response(JSON.stringify({ document: doc, version: ver }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -4080,16 +4077,17 @@ ${version.plaintext}`;
       }).select().single();
       if (sdErr) throw sdErr;
 
-      const { data: scriptVersion, error: svErr } = await supabase.from("project_document_versions").insert({
-        document_id: scriptDoc.id,
-        version_number: 1,
-        label: "Feature screenplay (generating…)",
+      const scriptVersion = await createVersion(supabase, {
+        documentId: scriptDoc.id,
+        docType: "feature_script",
         plaintext: "",
-        created_by: user.id,
-        change_summary: "Pipeline generation in progress",
-        deliverable_type: "feature_script",
-      }).select().single();
-      if (svErr || !scriptVersion) throw svErr || new Error("Failed to create script version");
+        label: "Feature screenplay (generating…)",
+        createdBy: user.id,
+        changeSummary: "Pipeline generation in progress",
+        deliverableType: "feature_script",
+        generatorId: "dev-engine-v2-script-plan",
+        inputsUsed: { generator_id: "dev-engine-v2-script-plan", document_id: scriptDoc.id, source_document_id: documentId, source_version_id: versionId, project_id: projectId },
+      });
 
       const allScenes: any[] = [];
       for (const act of (parsed.acts || [])) {
@@ -4267,28 +4265,27 @@ Output ONLY the expanded screenplay text. No JSON, no commentary, no markdown.`;
       // Load team voice for meta_json stamping on expand
       const expandLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const expandTvCtx = await loadTeamVoiceContext(supabase, projectId, expandLane);
-      const expandMetaJson = expandTvCtx.metaStamp ? { ...expandTvCtx.metaStamp } : undefined;
+      // Resolve doc_type for createVersion
+      const { data: expandDocRow } = await supabase.from("project_documents").select("doc_type").eq("id", documentId).single();
+      const expandDocType = expandDocRow?.doc_type || "other";
       let newVersion: any = null;
-      for (let _retry = 0; _retry < 3; _retry++) {
-        const { data: maxRow } = await supabase.from("project_document_versions")
-          .select("version_number").eq("document_id", documentId)
-          .order("version_number", { ascending: false }).limit(1).single();
-        const nextVer = (maxRow?.version_number ?? 0) + 1;
-        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
-          document_id: documentId,
-          version_number: nextVer,
-          label: `Expanded to ~${Math.round(expandedMins)} mins`,
+      try {
+        newVersion = await createVersion(supabase, {
+          documentId,
+          docType: expandDocType,
           plaintext: cleanExpanded,
-          created_by: user.id,
-          parent_version_id: versionId,
-          change_summary: `Auto-expanded from ~${Math.round(currentMins)} to ~${Math.round(expandedMins)} mins.`,
-          ...(expandMetaJson ? { meta_json: expandMetaJson } : {}),
-        }).select().single();
-        if (!vErr) { newVersion = nv; break; }
-        if (vErr.code !== "23505") throw vErr;
-        console.warn(`Version ${nextVer} conflict, retrying...`);
+          label: `Expanded to ~${Math.round(expandedMins)} mins`,
+          createdBy: user.id,
+          changeSummary: `Auto-expanded from ~${Math.round(currentMins)} to ~${Math.round(expandedMins)} mins.`,
+          metaJson: expandMetaJson,
+          generatorId: "dev-engine-v2-expand",
+          inputsUsed: { generator_id: "dev-engine-v2-expand", document_id: documentId, parent_version_id: versionId, project_id: projectId },
+        });
+      } catch (err: any) {
+        if (err.message?.startsWith("CANON_MISMATCH:") || err.message?.startsWith("PROVENANCE_MISSING:")) throw err;
+        throw err;
       }
-      if (!newVersion) throw new Error("Failed to create version after retries");
+      if (!newVersion) throw new Error("Failed to create version");
 
       // ── Style eval on expand output ──
       const expandStyleTarget = (await loadVoiceTargets(supabase, projectId, expandLane)).target;
@@ -4603,14 +4600,25 @@ Return ONLY valid JSON:
           const { data: mainlineVersions } = await supabase.from("project_document_versions")
             .select("*").eq("branch_id", mainline.id).order("version_number", { ascending: false });
           if (mainlineVersions && mainlineVersions.length > 0) {
-            const copies = mainlineVersions.map((v: any) => ({
-              document_id: v.document_id, version_number: v.version_number,
-              label: `[Sandbox] ${v.label || ''}`, plaintext: v.plaintext,
-              created_by: user.id, parent_version_id: v.id,
-              change_summary: `Branched from mainline`, branch_id: branch.id,
-              inherited_core: v.inherited_core, source_document_ids: v.source_document_ids,
-            }));
-            await supabase.from("project_document_versions").insert(copies);
+            // Branch copies are structural clones — use createVersion for each to enforce gates
+            for (const v of mainlineVersions) {
+              try {
+                const { data: branchDoc } = await supabase.from("project_documents").select("doc_type").eq("id", v.document_id).single();
+                await createVersion(supabase, {
+                  documentId: v.document_id,
+                  docType: branchDoc?.doc_type || "other",
+                  plaintext: v.plaintext || "",
+                  label: `[Sandbox] ${v.label || ''}`,
+                  createdBy: user.id,
+                  changeSummary: "Branched from mainline",
+                  generatorId: "dev-engine-v2-branch",
+                  inputsUsed: { generator_id: "dev-engine-v2-branch", source_version_id: v.id, branch_id: branch.id, document_id: v.document_id },
+                  sourceDocumentIds: v.source_document_ids,
+                });
+              } catch (branchErr: any) {
+                console.warn(`[dev-engine-v2] branch copy skipped for ${v.document_id}: ${branchErr.message}`);
+              }
+            }
           }
         }
       }
@@ -4864,17 +4872,17 @@ Rules:
           const stageVer = stageVers?.[0];
           if (!stageVer) { results.push({ stage, skipped: true, reason: "no version" }); continue; }
 
-          // Create a new version with provenance metadata
-          const newVerNum = (stageVer.version_number || 0) + 1;
-          const { data: newVer } = await supabase.from("project_document_versions").insert({
-            document_id: stageDoc.id,
-            version_number: newVerNum,
-            label: `Rebased v${newVerNum}`,
+          // Create a new version with provenance metadata via doc-os
+          const newVer = await createVersion(supabase, {
+            documentId: stageDoc.id,
+            docType: stage,
             plaintext: stageVer.plaintext,
-            created_by: user.id,
-            parent_version_id: stageVer.id,
-            change_summary: `Rebased to match updated criteria`,
-          }).select("id").single();
+            label: `Rebased v${(stageVer.version_number || 0) + 1}`,
+            createdBy: user.id,
+            changeSummary: "Rebased to match updated criteria",
+            generatorId: "dev-engine-v2-rebase",
+            inputsUsed: { generator_id: "dev-engine-v2-rebase", document_id: stageDoc.id, parent_version_id: stageVer.id, project_id: projectId },
+          });
 
           results.push({
             stage,
@@ -5707,17 +5715,18 @@ Previous attempt problems: ${validation.reasons.join("; ")}`;
       }).select().single();
       if (dErr) throw dErr;
 
-      const { data: newVersion, error: nvErr } = await supabase.from("project_document_versions").insert({
-        document_id: newDoc.id,
-        version_number: 1,
-        label: `Episode ${epNum} screenplay`,
+      const newVersion = await createVersion(supabase, {
+        documentId: newDoc.id,
+        docType: "episode_script",
         plaintext: scriptText,
-        created_by: user.id,
-        change_summary: `Generated from beat sheet (scope: ${scopeResult.scope}, slice: ${sliceMethod})`,
-        source_document_ids: [documentId],
-        deliverable_type: "episode_script",
-      }).select().single();
-      if (nvErr || !newVersion) throw nvErr || new Error("Failed to create episode script version");
+        label: `Episode ${epNum} screenplay`,
+        createdBy: user.id,
+        changeSummary: `Generated from beat sheet (scope: ${scopeResult.scope}, slice: ${sliceMethod})`,
+        sourceDocumentIds: [documentId],
+        deliverableType: "episode_script",
+        generatorId: "dev-engine-v2-episode-script",
+        inputsUsed: { generator_id: "dev-engine-v2-episode-script", document_id: newDoc.id, source_document_id: documentId, source_version_id: versionId, project_id: projectId, episode_number: epNum },
+      });
 
       // Store run
       await supabase.from("development_runs").insert({
@@ -6328,30 +6337,22 @@ Return ONLY valid JSON:
       const decisionParsed = await parseAIJson(LOVABLE_API_KEY, decisionRaw);
       const rewrittenText = decisionParsed.rewritten_text || baseVersion.plaintext;
 
-      // Create new version (with team voice meta_json stamping)
+      // Create new version via doc-os
       const decLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const decTvCtx = await loadTeamVoiceContext(supabase, projectId, decLane);
       const decMetaJson = decTvCtx.metaStamp ? { ...decTvCtx.metaStamp } : undefined;
-      let newVersion: any = null;
-      for (let _retry = 0; _retry < 3; _retry++) {
-        const { data: maxRow } = await supabase.from("project_document_versions")
-          .select("version_number").eq("document_id", documentId)
-          .order("version_number", { ascending: false }).limit(1).single();
-        const nextVersion = (maxRow?.version_number ?? 0) + 1;
-        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
-          document_id: documentId,
-          version_number: nextVersion,
-          label: `Decision fix — option ${option_id}`,
-          plaintext: rewrittenText,
-          created_by: user.id,
-          parent_version_id: base_version_id,
-          change_summary: decisionParsed.changes_summary || `Applied decision option ${option_id}`,
-          ...(decMetaJson ? { meta_json: decMetaJson } : {}),
-        }).select().single();
-        if (!vErr) { newVersion = nv; break; }
-        if (vErr.code !== "23505") throw vErr;
-      }
-      if (!newVersion) throw new Error("Failed to create version after retries");
+      const { data: decDocRow } = await supabase.from("project_documents").select("doc_type").eq("id", documentId).single();
+      const newVersion = await createVersion(supabase, {
+        documentId,
+        docType: decDocRow?.doc_type || doc_type || "other",
+        plaintext: rewrittenText,
+        label: `Decision fix — option ${option_id}`,
+        createdBy: user.id,
+        changeSummary: decisionParsed.changes_summary || `Applied decision option ${option_id}`,
+        metaJson: decMetaJson,
+        generatorId: "dev-engine-v2-decision",
+        inputsUsed: { generator_id: "dev-engine-v2-decision", document_id: documentId, parent_version_id: base_version_id, decision_id, option_id, project_id: projectId },
+      });
 
       // ── Style eval on apply_decision output ──
       const adStyleTarget = (await loadVoiceTargets(supabase, projectId, decLane)).target;
@@ -6502,30 +6503,22 @@ Return ONLY valid JSON:
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       const rewrittenText = parsed.rewritten_text || version.plaintext;
 
-      // Create new version (with team voice meta_json stamping)
+      // Create new version via doc-os
       const bundleLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const bundleTvCtx = await loadTeamVoiceContext(supabase, projectId, bundleLane);
       const bundleMetaJson = bundleTvCtx.metaStamp ? { ...bundleTvCtx.metaStamp } : undefined;
-      let newVersion: any = null;
-      for (let _retry = 0; _retry < 3; _retry++) {
-        const { data: maxRow } = await supabase.from("project_document_versions")
-          .select("version_number").eq("document_id", documentId)
-          .order("version_number", { ascending: false }).limit(1).single();
-        const nextVersion = (maxRow?.version_number ?? 0) + 1;
-        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
-          document_id: documentId,
-          version_number: nextVersion,
-          label: `Bundle fix — ${bundle_id || "bundle"}`,
-          plaintext: rewrittenText,
-          created_by: user.id,
-          parent_version_id: versionId,
-          change_summary: parsed.changes_summary || "Bundle fix applied",
-          ...(bundleMetaJson ? { meta_json: bundleMetaJson } : {}),
-        }).select().single();
-        if (!vErr) { newVersion = nv; break; }
-        if (vErr.code !== "23505") throw vErr;
-      }
-      if (!newVersion) throw new Error("Failed to create version after retries");
+      const { data: bundleDocRow } = await supabase.from("project_documents").select("doc_type").eq("id", documentId).single();
+      const newVersion = await createVersion(supabase, {
+        documentId,
+        docType: bundleDocRow?.doc_type || "other",
+        plaintext: rewrittenText,
+        label: `Bundle fix — ${bundle_id || "bundle"}`,
+        createdBy: user.id,
+        changeSummary: parsed.changes_summary || "Bundle fix applied",
+        metaJson: bundleMetaJson,
+        generatorId: "dev-engine-v2-bundle",
+        inputsUsed: { generator_id: "dev-engine-v2-bundle", document_id: documentId, parent_version_id: versionId, bundle_id, project_id: projectId },
+      });
 
       // ── Style eval on bundle_fix output ──
       const bfStyleTarget = (await loadVoiceTargets(supabase, projectId, bundleLane)).target;
@@ -13348,36 +13341,24 @@ CRITICAL:
         rewriteScopePlan.target_scene_numbers.length > 0 &&
         rewriteScopePlan.target_scene_numbers.length < totalScenesInAssembly;
 
-      // Create new version with retry for version_number collision (with team voice meta_json)
+      // Create new version via doc-os
       const sceneRwLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const sceneRwTvCtx = await loadTeamVoiceContext(supabase, projectId, sceneRwLane);
       const sceneRwMetaJson = sceneRwTvCtx.metaStamp ? { ...sceneRwTvCtx.metaStamp } : undefined;
-      let newVersion: any = null;
-      for (let _retry = 0; _retry < 3; _retry++) {
-        const { data: maxRow } = await supabase.from("project_document_versions")
-          .select("version_number")
-          .eq("document_id", sourceDocId)
-          .order("version_number", { ascending: false })
-          .limit(1)
-          .single();
-        const nextVersion = (maxRow?.version_number ?? 0) + 1;
-        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
-          document_id: sourceDocId,
-          version_number: nextVersion,
-          label: trulySelective ? `Selective scene rewrite v${nextVersion} (${outputs.length}/${totalScenesInAssembly} scenes)` : `Scene rewrite v${nextVersion}`,
-          plaintext: assembledText,
-          created_by: user.id,
-          parent_version_id: sourceVersionId,
-          is_current: false,
-          change_summary: trulySelective
-            ? `Selective scene-level rewrite: ${outputs.length} of ${totalScenesInAssembly} scenes rewritten.`
-            : `Scene-level rewrite across ${outputs.length} scenes.`,
-          ...(sceneRwMetaJson ? { meta_json: sceneRwMetaJson } : {}),
-        }).select().single();
-        if (!vErr) { newVersion = nv; break; }
-        if (vErr.code !== "23505") throw vErr;
-      }
-      if (!newVersion) throw new Error("Failed to create version after retries");
+      const { data: sceneRwDocRow } = await supabase.from("project_documents").select("doc_type").eq("id", sourceDocId).single();
+      const newVersion = await createVersion(supabase, {
+        documentId: sourceDocId,
+        docType: sceneRwDocRow?.doc_type || "other",
+        plaintext: assembledText,
+        label: trulySelective ? `Selective scene rewrite (${outputs.length}/${totalScenesInAssembly} scenes)` : `Scene rewrite`,
+        createdBy: user.id,
+        changeSummary: trulySelective
+          ? `Selective scene-level rewrite: ${outputs.length} of ${totalScenesInAssembly} scenes rewritten.`
+          : `Scene-level rewrite across ${outputs.length} scenes.`,
+        metaJson: sceneRwMetaJson,
+        generatorId: "dev-engine-v2-scene-rewrite",
+        inputsUsed: { generator_id: "dev-engine-v2-scene-rewrite", document_id: sourceDocId, parent_version_id: sourceVersionId, run_id: runId, project_id: projectId },
+      });
 
       // ── Style eval on scene-rewrite output ──
       const srStyleTarget = (await loadVoiceTargets(supabase, projectId, sceneRwLane)).target;
@@ -15361,7 +15342,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           .insert({ project_id: pid, user_id: userId, doc_type: "episode_grid", title: `${proj.title} — Episode Grid`, file_name: `${slug}.md`, file_path: `${userId}/${pid}/${slug}.md`, extraction_status: "complete", plaintext: stubContent, extracted_text: stubContent } as any)
           .select("id").single();
         if (newDoc) {
-          await supabase.from("project_document_versions").insert({ document_id: newDoc.id, version_number: 1, plaintext: stubContent, status: "draft", is_current: true, created_by: userId } as any);
+          await createVersion(supabase, { documentId: newDoc.id, docType: "episode_grid", plaintext: stubContent, label: "Episode grid stub", createdBy: userId, generatorId: "dev-engine-v2-grid-stub", inputsUsed: { generator_id: "dev-engine-v2-grid-stub", document_id: newDoc.id, project_id: pid, episode_count: N } });
         }
         return new Response(JSON.stringify({ success: true, action: "created_stub", episode_count: N }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },

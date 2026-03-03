@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { callLLM, extractJSON, MODELS } from "../_shared/llm.ts";
+import { createVersion } from "../_shared/doc-os.ts";
 
 const WRITERS_ROOM_BUILD_ID = "2026-02-25_scoped_shrink_v2";
 
@@ -1144,20 +1145,19 @@ Direction: ${changePlan.direction_summary || ''}`;
           .single();
         const nextVersion = (maxVer?.version_number || 0) + 1;
 
-        const { data: newVer, error: newVerErr } = await admin.from("project_document_versions").insert({
-          document_id: sourceVer.document_id,
-          version_number: nextVersion,
+        const { data: srcDocRow } = await admin.from("project_documents").select("doc_type").eq("id", sourceVer.document_id).single();
+        const newVer = await createVersion(admin, {
+          documentId: sourceVer.document_id,
+          docType: srcDocRow?.doc_type || "other",
           plaintext: rewrittenText,
           label: `Writers' Room episode rewrite v${nextVersion}`,
-          created_by: user.id,
-          parent_version_id: plan.version_id,
-          applied_change_plan_id: planId,
-          applied_change_plan: changePlan,
-          verification_json: { ok: true, checks: [], warnings: [], episode_validation: validation },
-          change_summary: changePlan.direction_summary || 'Applied episode-scoped change plan',
-        }).select("id").single();
+          createdBy: user.id,
+          changeSummary: changePlan.direction_summary || 'Applied episode-scoped change plan',
+          generatorId: "writers-room-episode-rewrite",
+          inputsUsed: { generator_id: "writers-room-episode-rewrite", document_id: sourceVer.document_id, parent_version_id: plan.version_id, plan_id: planId, project_id: plan.project_id },
+        });
 
-        if (newVerErr) throw new Error(newVerErr.message);
+        // newVer created via doc-os, no separate error check needed
 
         try {
           await admin.rpc("set_current_version", {
@@ -1318,20 +1318,17 @@ Do NOT summarize or compress any part of the script. Maintain the original lengt
         .single();
       const nextVersion = (maxVer?.version_number || 0) + 1;
 
-      const { data: newVer, error: newVerErr } = await admin.from("project_document_versions").insert({
-        document_id: sourceVer.document_id,
-        version_number: nextVersion,
+      const { data: srcDocRow2 } = await admin.from("project_documents").select("doc_type").eq("id", sourceVer.document_id).single();
+      const newVer = await createVersion(admin, {
+        documentId: sourceVer.document_id,
+        docType: srcDocRow2?.doc_type || "other",
         plaintext: rewrittenText,
         label: `Writers' Room rewrite v${nextVersion}`,
-        created_by: user.id,
-        parent_version_id: plan.version_id,
-        applied_change_plan_id: planId,
-        applied_change_plan: changePlan,
-        verification_json: verification,
-        change_summary: changePlan.direction_summary || 'Applied Writers\' Room change plan',
-      }).select("id").single();
-
-      if (newVerErr) throw new Error(newVerErr.message);
+        createdBy: user.id,
+        changeSummary: changePlan.direction_summary || 'Applied Writers\' Room change plan',
+        generatorId: "writers-room-rewrite",
+        inputsUsed: { generator_id: "writers-room-rewrite", document_id: sourceVer.document_id, parent_version_id: plan.version_id, plan_id: planId, project_id: plan.project_id },
+      });
 
       try {
         await admin.rpc("set_current_version", {

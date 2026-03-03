@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { MODELS, GATEWAY_URL } from "../_shared/llm.ts";
+import { createVersion } from "../_shared/doc-os.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -234,16 +235,22 @@ Maintain the document's existing style and format.`;
 
       let draftVersionId: string | null = null;
       if (versions) {
-        const { data: newVer, error: vErr } = await sb.from("project_document_versions").insert({
-          document_id: versions.document_id,
-          version_number: (versions.version_number || 0) + 100, // high number for draft
-          label: `Draft: ${proposalText.slice(0, 40)}...`,
-          plaintext: draft,
-          created_by: user.id,
-          change_summary: `Proposal: ${proposalText}`,
-          status: "draft",
-        }).select("id").single();
-        if (!vErr && newVer) draftVersionId = newVer.id;
+        const { data: docRow } = await sb.from("project_documents").select("doc_type").eq("id", versions.document_id).single();
+        try {
+          const newVer = await createVersion(sb, {
+            documentId: versions.document_id,
+            docType: docRow?.doc_type || "other",
+            plaintext: draft,
+            label: `Draft: ${proposalText.slice(0, 40)}...`,
+            createdBy: user.id,
+            changeSummary: `Proposal: ${proposalText}`,
+            generatorId: "doc-assistant-proposal",
+            inputsUsed: { generator_id: "doc-assistant-proposal", document_id: versions.document_id, parent_version_id: targetVersionId, project_id: projectId },
+          });
+          draftVersionId = newVer.id;
+        } catch (e: any) {
+          console.warn("[doc-assistant] createVersion failed:", e.message);
+        }
       }
 
       // Save proposal
