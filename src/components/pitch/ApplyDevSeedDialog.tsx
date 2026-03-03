@@ -777,8 +777,8 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
 
           // Start Auto-Run job for ongoing development + fire first tick
           try {
-            await supabase.functions.invoke('auto-run', {
-              body: { action: 'start', projectId: project.id },
+           await supabase.functions.invoke('auto-run', {
+              body: { action: 'start', projectId: project.id, allow_defaults: true },
             });
             parts.push('auto-run started');
           } catch (arErr: any) {

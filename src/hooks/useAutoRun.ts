@@ -156,6 +156,7 @@ export function useAutoRun(projectId: string | undefined) {
         mode: 'balanced',
         start_document: mappedStart,
         target_document: 'production_draft',
+        allow_defaults: true,
       });
       setJob(result.job);
       setSteps(result.latest_steps || []);

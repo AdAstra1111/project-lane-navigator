@@ -132,7 +132,7 @@ export default function ProjectDevelopmentEngine() {
     setUIMode(nextMode);
   }, [viewMode, setUIMode]);
   // Execution mode preference (persists to job when one exists, otherwise local)
-  const [localExecutionMode, setLocalExecutionMode] = useState<ExecutionMode>('manual');
+  const [localExecutionMode, setLocalExecutionMode] = useState<ExecutionMode>('full_autopilot');
   const qc = useQueryClient();
   const VALID_TABS = new Set(['notes', 'issues', 'convergence', 'qualifications', 'autorun', 'series-scripts', 'criteria', 'package', 'canon', 'provenance', 'scenes', 'quality', 'docsets', 'timeline']);
   const initialTab = (() => { const t = searchParams.get('tab'); return t && VALID_TABS.has(t) ? t : 'notes'; })();
