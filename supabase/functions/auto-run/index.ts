@@ -1564,8 +1564,11 @@ async function updateJob(supabase: any, jobId: string, fields: Record<string, an
         }
       }
     } catch (gateErr: any) {
-      console.error(`[auto-run] Completion gate error (allowing completion): ${gateErr.message}`);
-      // On gate error, allow completion to avoid blocking — log the error
+      console.error(`[auto-run] Completion gate error (FAIL-CLOSED): ${gateErr.message}`);
+      fields.status = "paused";
+      fields.stop_reason = "CANON_MISMATCH";
+      fields.pause_reason = "CANON_MISMATCH";
+      fields.error = `CANON_MISMATCH: completion gate error: ${gateErr.message}`;
     }
   }
   await supabase.from("auto_run_jobs").update(fields).eq("id", jobId);
