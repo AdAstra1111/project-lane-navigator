@@ -179,7 +179,12 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
 
   // ═══ PHASE 2: Auto-Run status polling ═══
+  // When externalAutoRunJob is provided (from shared hook), skip independent fetching
+  // to prevent Clean/Advanced state desync.
+  const hasExternalJob = externalAutoRunJob !== undefined;
+
   const fetchAutoRunStatus = useCallback(async () => {
+    if (hasExternalJob) { statusCheckedRef.current = true; return; }
     try {
       const result = await callAutoRun('status', { projectId });
       if (mountedRef.current && result?.job) {
@@ -190,21 +195,24 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
     } finally {
       statusCheckedRef.current = true;
     }
-  }, [projectId]);
+  }, [projectId, hasExternalJob]);
 
   useEffect(() => { fetchAutoRunStatus(); }, [fetchAutoRunStatus]);
 
-  // Poll auto-run status while running or awaiting approval
+  // Poll auto-run status while running or awaiting approval (only when no external source)
   useEffect(() => {
+    if (hasExternalJob) return;
     if (!autoRunJob) return;
     const shouldPoll = ['queued', 'running'].includes(autoRunJob.status) || autoRunJob.awaiting_approval;
     if (!shouldPoll) return;
     const interval = setInterval(fetchAutoRunStatus, 5000);
     return () => clearInterval(interval);
-  }, [autoRunJob?.status, autoRunJob?.awaiting_approval, fetchAutoRunStatus]);
+  }, [hasExternalJob, autoRunJob?.status, autoRunJob?.awaiting_approval, fetchAutoRunStatus]);
 
   // Keep the ladder advancing from this panel (recover from stale processing locks)
+  // Only kick when we own the job source (no external provider)
   useEffect(() => {
+    if (hasExternalJob) return;
     if (!autoRunJob?.id) return;
     if (!['queued', 'running'].includes(autoRunJob.status)) return;
     if (autoRunJob.awaiting_approval) return;
