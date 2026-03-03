@@ -2540,7 +2540,7 @@ Deno.serve(async (req) => {
             await logStep(supabase, job.id, 0, effectiveStartDoc, "doc_slots_ensured",
               `Created ${created.length} ladder doc slots: ${created.join(", ")}. Already existed: ${existed.length}.`,
               {}, undefined,
-              { created, existed, ladder_length: ladder.length, format });
+              { created, existed, ladder_length: ladder.length, format: fmt });
           }
         }
       }
