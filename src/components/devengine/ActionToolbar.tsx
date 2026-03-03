@@ -140,22 +140,18 @@ export function ActionToolbar({
         {isConverged && (
           <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
             onClick={() => {
-              // Series Writer entry: always navigate, never promote/convert
-              if (nextAction?.kind === 'enter_mode' && nextAction.route) {
+              // Series Writer entry: only for non-VD formats with enter_mode action
+              if (nextAction?.kind === 'enter_mode' && nextAction.route && !isVerticalDrama) {
                 navigate(nextAction.route);
-              } else if (isVerticalDrama && (nextBestDocument === 'episode_script' || nextBestDocument === 'script') && projectId) {
-                navigate(`/projects/${projectId}/series-writer`);
               } else {
                 onPromote?.();
               }
             }}
             disabled={anyPending || (!nextBestDocument && nextAction?.kind !== 'enter_mode')}>
             {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-            {nextAction && nextAction.kind !== 'none'
+            {nextAction && nextAction.kind !== 'none' && !isVerticalDrama
               ? renderActionPillText(nextAction)
-              : isVerticalDrama && (nextBestDocument === 'episode_script' || nextBestDocument === 'script')
-                ? 'Enter Series Writer'
-                : nextBestDocument ? `Promote: ${getDeliverableLabel(nextBestDocument, format)}` : 'Promote'}
+              : nextBestDocument ? `Promote: ${getDeliverableLabel(nextBestDocument, format)}` : 'Promote'}
             {hasUnresolvedDrift && <AlertTriangle className="h-3 w-3 text-amber-400" />}
           </Button>
         )}
