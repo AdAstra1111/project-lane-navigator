@@ -59,6 +59,17 @@ else
   echo "PASS"
 fi
 
+echo ""
+echo "=== Regression Tripwire: Duration repair without DURATION_ELIGIBLE_DOC_TYPES guard ==="
+HITS6=$(grep -n "CRITERIA_FAIL_DURATION" supabase/functions/auto-run/index.ts | grep -v "DURATION_ELIGIBLE_DOC_TYPES" | grep -v "duration_scope_skipped" | grep -v "type CriteriaClassification" || true)
+if [ -n "$HITS6" ]; then
+  echo "WARN: CRITERIA_FAIL_DURATION handled without DURATION_ELIGIBLE_DOC_TYPES guard:"
+  echo "$HITS6"
+  # Not failing build — just warning
+else
+  echo "PASS"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."

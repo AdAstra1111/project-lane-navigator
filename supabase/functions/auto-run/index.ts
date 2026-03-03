@@ -1236,6 +1236,19 @@ function computeCriteriaHashEdge(criteria: Record<string, any>): string {
 
 type CriteriaClassification = 'OK' | 'CRITERIA_STALE_PROVENANCE' | 'CRITERIA_FAIL_DURATION';
 
+/** Doc types where duration seconds is a meaningful deliverable metric. */
+const DURATION_ELIGIBLE_DOC_TYPES = new Set([
+  'feature_script',
+  'episode_script',
+  'season_script',
+  'complete_season_script',
+  'season_master_script',
+  'pilot_script',
+  'script',
+  'vertical_episode_beats',
+  'episode_beats',
+]);
+
 function classifyCriteriaEdge(opts: {
   versionCriteriaHash: string | null;
   currentCriteriaHash: string | null;
@@ -1243,13 +1256,17 @@ function classifyCriteriaEdge(opts: {
   targetMin: number | null;
   targetMax: number | null;
   targetScalar: number | null;
+  docType?: string | null;
 }): { classification: CriteriaClassification; detail: string } {
   // 1. True provenance mismatch
   if (opts.versionCriteriaHash && opts.currentCriteriaHash
       && opts.versionCriteriaHash !== opts.currentCriteriaHash) {
     return { classification: 'CRITERIA_STALE_PROVENANCE', detail: `Criteria hash mismatch: ${opts.versionCriteriaHash} vs ${opts.currentCriteriaHash}` };
   }
-  // 2. Duration check (with 10% tolerance)
+  // 2. Duration check — ONLY for runtime-bearing doc types
+  if (opts.docType && !DURATION_ELIGIBLE_DOC_TYPES.has(opts.docType)) {
+    return { classification: 'OK', detail: `Duration check skipped for non-runtime doc type: ${opts.docType}` };
+  }
   const min = opts.targetMin ?? opts.targetScalar ?? 0;
   const max = opts.targetMax ?? opts.targetScalar ?? Infinity;
   if (min > 0 || (max > 0 && max < Infinity)) {
@@ -4980,6 +4997,7 @@ Deno.serve(async (req) => {
         targetMin: latestCriteriaSnapshot.episode_target_duration_min_seconds ?? null,
         targetMax: latestCriteriaSnapshot.episode_target_duration_max_seconds ?? null,
         targetScalar: latestCriteriaSnapshot.episode_target_duration_seconds ?? null,
+        docType: currentDoc,
       });
 
       if (criteriaResult.classification === 'CRITERIA_STALE_PROVENANCE') {
@@ -5000,6 +5018,15 @@ Deno.serve(async (req) => {
       }
       
       if (criteriaResult.classification === 'CRITERIA_FAIL_DURATION') {
+        // ── Safety brake: never run duration repair on non-runtime doc types ──
+        if (!DURATION_ELIGIBLE_DOC_TYPES.has(currentDoc)) {
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "duration_scope_skipped",
+            `Skipped duration criteria/repair for non-duration doc type: ${currentDoc}`,
+            { output_ref: { currentDoc, measuredDurationSeconds: measuredDuration, targetMin: latestCriteriaSnapshot.episode_target_duration_min_seconds, targetMax: latestCriteriaSnapshot.episode_target_duration_max_seconds, reason: "NON_DURATION_DOC_TYPE" } },
+          );
+          await updateJob(supabase, jobId, { step_count: stepCount + 1 });
+          // Continue to normal analysis flow — no duration repair
+        } else {
         // Duration doesn't meet target — attempt bounded repair (max 2)
         const durationRepairAttempts = (job as any).duration_repair_attempts || 0;
         
@@ -5029,7 +5056,6 @@ Deno.serve(async (req) => {
         // Determine source label for logging
         const durSourceLabel = (() => {
           try {
-            // Check if canon defined & locked
             const snap = latestCriteriaSnapshot as any;
             return snap._duration_source ? `source=${snap._duration_source}${snap._duration_locked ? ', locked' : ''}` : '';
           } catch { return ''; }
@@ -5040,7 +5066,6 @@ Deno.serve(async (req) => {
         );
         
         // Update repair count — continue to rewrite with duration guidance
-        // The rewrite will happen in the normal flow below with duration context injected
         await updateJob(supabase, jobId, {
           step_count: stepCount + 1,
           last_ui_message: `Duration repair #${durationRepairAttempts + 1}: ${measuredDuration}s → target ${targetMin}-${targetMax}s`,
@@ -5050,6 +5075,7 @@ Deno.serve(async (req) => {
           approval_payload: { ...(job.approval_payload || {}), duration_repair_attempts: durationRepairAttempts + 1, duration_target: { min: targetMin, max: targetMax, measured: measuredDuration } },
         }).eq("id", jobId);
         // Fall through to normal analysis+rewrite flow — the rewrite will include duration guidance
+        }
       }
 
       // Store measured metrics on the version for future reference (always, even if duration=0)
