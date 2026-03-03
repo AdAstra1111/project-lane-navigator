@@ -2014,6 +2014,90 @@ async function buildAcceptedDecisionsBundle(
   };
 }
 
+// ── CANON-LOCK: Entity normalization + prioritization helpers ──
+
+const MAX_CANON_ENTITIES_STORED = 300;
+// Structural/meta labels that should never be injected as canon entities
+const CANON_NOISE_BLOCKLIST = new Set([
+  "topline", "logline", "story_pillars", "story pillars", "premise",
+  "synopsis", "treatment", "outline", "act one", "act two", "act three",
+  "the hook", "the stakes", "the conflict", "the resolution",
+  "episode", "scene", "fade in", "fade out", "cut to",
+  "int", "ext", "continuous", "later", "meanwhile",
+  "format", "genre", "tone", "style", "theme", "world rules",
+  "characters", "locations", "timeline", "ongoing threads",
+]);
+
+/**
+ * Normalize + de-noise canon entity list (deterministic).
+ * Trims, deduplicates, removes noise tokens.
+ */
+function normalizeCanonEntities(raw: string[]): string[] {
+  const rawCount = raw.length;
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const entity of raw) {
+    // Trim + collapse whitespace
+    const trimmed = entity.trim().replace(/\s+/g, " ");
+    if (!trimmed) continue;
+
+    // Drop short entities (< 3 chars)
+    if (trimmed.length < 3) continue;
+
+    // Drop purely numeric
+    if (/^\d+$/.test(trimmed)) continue;
+
+    // Drop blocklisted structural terms (case-insensitive)
+    if (CANON_NOISE_BLOCKLIST.has(trimmed.toLowerCase())) continue;
+
+    // Deduplicate (case-insensitive)
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    result.push(trimmed);
+  }
+
+  // Cap to prevent prompt bloat
+  const normalized = result.slice(0, MAX_CANON_ENTITIES_STORED);
+  const droppedCount = rawCount - normalized.length;
+  if (droppedCount > 0) {
+    console.log(`[auto-run] normalizeCanonEntities: raw=${rawCount}, normalized=${normalized.length}, dropped=${droppedCount}`);
+  }
+  return normalized;
+}
+
+/**
+ * Prioritize entities into core (immutable anchors) vs secondary.
+ * Core: Title Case multi-word names (likely characters/places).
+ * Secondary: everything else.
+ */
+function prioritizeCanonEntities(entities: string[]): { core: string[]; secondary: string[] } {
+  const core: string[] = [];
+  const secondary: string[] = [];
+
+  for (const entity of entities) {
+    // Core heuristic: multi-word Title Case (capitalized first letter of each word)
+    // e.g., "Sarah Chen", "Old Town District", "Detective Rodriguez"
+    const words = entity.split(/\s+/);
+    const isTitleCase = words.length >= 2 && words.every(w => /^[A-Z]/.test(w));
+    // Also core: single uppercase word >= 4 chars that isn't all-caps noise
+    const isSingleProper = words.length === 1 && /^[A-Z][a-z]{3,}/.test(entity);
+
+    if (isTitleCase || isSingleProper) {
+      core.push(entity);
+    } else {
+      secondary.push(entity);
+    }
+  }
+
+  // Cap core to 30, secondary to 80
+  return {
+    core: core.slice(0, 30),
+    secondary: secondary.slice(0, 80),
+  };
+}
 
 // ── Chunked rewrite pipeline helper ──
 // Falls back to rewrite-plan/rewrite-chunk/rewrite-assemble when a document is too long for single-pass rewrite.
@@ -5073,19 +5157,27 @@ Deno.serve(async (req) => {
             const retryCount = (canonRetries[currentDoc] || 0) + 1;
 
             if (retryCount <= MAX_CANON_LOCK_RETRIES) {
-              // ── CANON-LOCK: fetch canonical entities for injection ──
+              // ── CANON-LOCK: fetch + normalize + prioritize canonical entities ──
               let canonEntityPack: string[] = [];
+              let coreEntities: string[] = [];
+              let secondaryEntities: string[] = [];
               try {
                 const canonData = await buildCanonEntitiesFromDB(supabase, job.project_id);
-                canonEntityPack = canonData?.entities || [];
+                const rawEntities = canonData?.entities || [];
+                canonEntityPack = normalizeCanonEntities(rawEntities);
+                const prioritized = prioritizeCanonEntities(canonEntityPack);
+                coreEntities = prioritized.core;
+                secondaryEntities = prioritized.secondary;
+                console.log(`[auto-run] Canon entity normalization (empty-slot): raw=${rawEntities.length} -> normalized=${canonEntityPack.length}, core=${coreEntities.length}, secondary=${secondaryEntities.length}`);
               } catch (ce: any) {
                 console.warn(`[auto-run] canon entity fetch failed for retry (empty-slot): ${ce.message}`);
               }
 
+              const attemptId = (metaJson.canon_lock_attempt_id || 0) + 1;
               await logStep(supabase, jobId, stepCount + 1, currentDoc, "canon_lock_retry",
-                `CANON_MISMATCH retry ${retryCount}/${MAX_CANON_LOCK_RETRIES} (empty-slot recovery, entity_count=${canonEntityPack.length}): ${e2.message.slice(0, 200)}`,
+                `CANON_MISMATCH retry ${retryCount}/${MAX_CANON_LOCK_RETRIES} (empty-slot recovery, core=${coreEntities.length}, secondary=${secondaryEntities.length}, attempt_id=${attemptId}): ${e2.message.slice(0, 200)}`,
                 {}, undefined,
-                { retry_count: retryCount, max_retries: MAX_CANON_LOCK_RETRIES, entity_count: canonEntityPack.length, error_excerpt: e2.message.slice(0, 300), doc_type: currentDoc, path: "empty_slot_recovery" });
+                { retry_count: retryCount, max_retries: MAX_CANON_LOCK_RETRIES, entity_count: canonEntityPack.length, core_count: coreEntities.length, secondary_count: secondaryEntities.length, attempt_id: attemptId, error_excerpt: e2.message.slice(0, 300), doc_type: currentDoc, path: "empty_slot_recovery" });
 
               const updatedRetries = { ...canonRetries, [currentDoc]: retryCount };
               await updateJob(supabase, jobId, {
@@ -5093,8 +5185,11 @@ Deno.serve(async (req) => {
                 meta_json: {
                   ...metaJson,
                   canon_mismatch_retries: updatedRetries,
+                  canon_lock_core_entities: coreEntities,
+                  canon_lock_secondary_entities: secondaryEntities,
                   canon_lock_entities: canonEntityPack,
                   canon_lock_mode: true,
+                  canon_lock_attempt_id: attemptId,
                 },
               });
               return respondWithJob(supabase, jobId, "run-next");
@@ -6251,16 +6346,43 @@ Deno.serve(async (req) => {
 
           // ── CANON-LOCK INJECTION: if retrying after CANON_MISMATCH, inject entity constraints ──
           const jobMeta = (job as any).meta_json || {};
-          if (jobMeta.canon_lock_mode && Array.isArray(jobMeta.canon_lock_entities) && jobMeta.canon_lock_entities.length > 0) {
-            const entityList = jobMeta.canon_lock_entities.slice(0, 80).join(", ");
-            mergedDirections.push(
-              `CANON-LOCK MODE: You MUST preserve and reference these canonical entities exactly as named: ${entityList}`,
-              `Do NOT rename, omit, or mutate any canonical entity. Increase entity coverage. Every named character, location, and concept from the canon must appear in the output.`,
-            );
-            console.log(`[auto-run] Canon-lock mode active: injecting ${jobMeta.canon_lock_entities.length} entities into rewrite directions`);
-            // Clear canon_lock_mode after injection so it doesn't persist forever
-            const clearedMeta = { ...jobMeta, canon_lock_mode: false };
-            await updateJob(supabase, jobId, { meta_json: clearedMeta });
+          let canonLockWasApplied = false;
+          let canonLockAttemptId: number | null = null;
+          if (jobMeta.canon_lock_mode && (Array.isArray(jobMeta.canon_lock_core_entities) || Array.isArray(jobMeta.canon_lock_entities))) {
+            const coreEntities: string[] = jobMeta.canon_lock_core_entities || [];
+            const secondaryEntities: string[] = jobMeta.canon_lock_secondary_entities || [];
+            // Back-compat: if split lists empty, fall back to legacy flat list
+            const hasStructured = coreEntities.length > 0 || secondaryEntities.length > 0;
+            canonLockAttemptId = (jobMeta.canon_lock_attempt_id || 0);
+
+            if (hasStructured) {
+              const coreList = coreEntities.slice(0, 30).join(", ");
+              const secondaryList = secondaryEntities.slice(0, 50).join(", ");
+              if (coreList) {
+                mergedDirections.push(
+                  `CANON-LOCK: You MUST preserve all CORE canonical entities exactly as named and not contradict them: ${coreList}`,
+                  `Do NOT rename, omit, or mutate any CORE entity.`,
+                );
+              }
+              if (secondaryList) {
+                mergedDirections.push(
+                  `Increase canon coverage by weaving in these SECONDARY entities naturally where appropriate (do not force): ${secondaryList}`,
+                );
+              }
+              mergedDirections.push(
+                `You may introduce minor new entities only if narratively required — do not invent major new named characters, locations, or concepts not in the canon.`,
+              );
+            } else {
+              // Legacy flat list fallback
+              const entityList = (jobMeta.canon_lock_entities || []).slice(0, 80).join(", ");
+              mergedDirections.push(
+                `CANON-LOCK: Preserve these canonical entities and increase coverage naturally: ${entityList}`,
+                `Do NOT rename or omit canonical entities. Do not invent major new named entities.`,
+              );
+            }
+            canonLockWasApplied = true;
+            console.log(`[auto-run] Canon-lock mode active (attempt_id=${canonLockAttemptId}): core=${coreEntities.length}, secondary=${secondaryEntities.length}`);
+            // NOTE: canon_lock_mode is cleared AFTER successful rewrite, not here
           }
 
           try {
@@ -6425,6 +6547,13 @@ Deno.serve(async (req) => {
               }, jobId, newStep + 2, format, currentDoc
             );
 
+            // ── Clear canon_lock_mode AFTER successful rewrite ──
+            if (canonLockWasApplied) {
+              const postRewriteMeta = { ...(job as any).meta_json || {}, canon_lock_mode: false, canon_lock_applied_at_step: newStep + 2 };
+              await updateJob(supabase, jobId, { meta_json: postRewriteMeta });
+              console.log(`[auto-run] Canon-lock cleared after successful rewrite (attempt_id=${canonLockAttemptId}, applied_at_step=${newStep + 2})`);
+            }
+
             if (!candidateVersionId || candidateVersionId === baselineVersionId) {
               // ── FAIL CLOSED: no candidate produced ──
               await logStep(supabase, jobId, null, currentDoc, "rewrite_no_candidate",
@@ -6580,30 +6709,41 @@ Deno.serve(async (req) => {
               const retryCount = (canonRetries[currentDoc] || 0) + 1;
 
               if (retryCount <= MAX_CANON_LOCK_RETRIES) {
-                // ── CANON-LOCK: fetch canonical entities and inject into retry ──
+                // ── CANON-LOCK: fetch + normalize + prioritize canonical entities ──
                 let canonEntityPack: string[] = [];
+                let coreEntities: string[] = [];
+                let secondaryEntities: string[] = [];
                 try {
                   const canonData = await buildCanonEntitiesFromDB(supabase, job.project_id);
-                  canonEntityPack = canonData?.entities || [];
+                  const rawEntities = canonData?.entities || [];
+                  canonEntityPack = normalizeCanonEntities(rawEntities);
+                  const prioritized = prioritizeCanonEntities(canonEntityPack);
+                  coreEntities = prioritized.core;
+                  secondaryEntities = prioritized.secondary;
+                  console.log(`[auto-run] Canon entity normalization: raw=${rawEntities.length} -> normalized=${canonEntityPack.length}, core=${coreEntities.length}, secondary=${secondaryEntities.length}`);
                 } catch (ce: any) {
                   console.warn(`[auto-run] canon entity fetch failed for retry: ${ce.message}`);
                 }
 
-                // Log the retry with entity count
+                const attemptId = (metaJson.canon_lock_attempt_id || 0) + 1;
+                // Log the retry with entity counts + attempt_id
                 await logStep(supabase, jobId, null, currentDoc, "canon_lock_retry",
-                  `CANON_MISMATCH retry ${retryCount}/${MAX_CANON_LOCK_RETRIES} (entity_count=${canonEntityPack.length}): ${e.message.slice(0, 200)}`,
+                  `CANON_MISMATCH retry ${retryCount}/${MAX_CANON_LOCK_RETRIES} (core=${coreEntities.length}, secondary=${secondaryEntities.length}, attempt_id=${attemptId}): ${e.message.slice(0, 200)}`,
                   { ci: baselineCI, gp: baselineGP }, undefined,
-                  { retry_count: retryCount, max_retries: MAX_CANON_LOCK_RETRIES, entity_count: canonEntityPack.length, error_excerpt: e.message.slice(0, 300), doc_type: currentDoc });
+                  { retry_count: retryCount, max_retries: MAX_CANON_LOCK_RETRIES, entity_count: canonEntityPack.length, core_count: coreEntities.length, secondary_count: secondaryEntities.length, attempt_id: attemptId, error_excerpt: e.message.slice(0, 300), doc_type: currentDoc });
 
-                // Persist retry counter + canon entity pack for injection
+                // Persist retry counter + normalized entity pack for injection
                 const updatedRetries = { ...canonRetries, [currentDoc]: retryCount };
                 await updateJob(supabase, jobId, {
                   stage_loop_count: newLoopCount,
                   meta_json: {
                     ...metaJson,
                     canon_mismatch_retries: updatedRetries,
+                    canon_lock_core_entities: coreEntities,
+                    canon_lock_secondary_entities: secondaryEntities,
                     canon_lock_entities: canonEntityPack,
                     canon_lock_mode: true,
+                    canon_lock_attempt_id: attemptId,
                   },
                 });
 
