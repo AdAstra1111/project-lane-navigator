@@ -147,6 +147,26 @@ else
   echo "PASS"
 fi
 
+echo ""
+echo "=== Regression Tripwire: nextUnsatisfiedStage must not have per-stage auto_run_steps queries ==="
+HITS16=$(grep -A2 'for.*let i.*currentIdx' supabase/functions/auto-run/index.ts | grep -c 'auto_run_steps' || echo "0")
+if [ "$HITS16" != "0" ]; then
+  echo "FAIL: nextUnsatisfiedStage contains per-stage auto_run_steps queries (must batch-fetch before loop):"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: versionByDocId must include label column ==="
+HITS17=$(grep -A3 'versionByDocId' supabase/functions/auto-run/index.ts | grep -c 'label' || echo "0")
+if [ "$HITS17" = "0" ]; then
+  echo "FAIL: versionByDocId construction does not include label column"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."

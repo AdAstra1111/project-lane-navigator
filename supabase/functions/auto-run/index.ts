@@ -4,7 +4,7 @@ import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
 import { isDurationEligibleDocType, isDeprecatedTargetDocType } from "../_shared/eligibilityRegistry.ts";
 import { getWritingLaneGroup, getDefaultWritingVoiceForLane } from "../_shared/writingVoiceResolver.ts";
 import { ensureDocSlot, createVersion } from "../_shared/doc-os.ts";
-import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy, validateLadderIntegrity, runCanonAlignmentGate } from "../_shared/docPolicyRegistry.ts";
+import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy, validateLadderIntegrity, runCanonAlignmentGate, buildCanonEntitiesFromDB } from "../_shared/docPolicyRegistry.ts";
 import {
   DEFAULT_MAX_TOTAL_STEPS,
   DEFAULT_MAX_STAGE_LOOPS,
@@ -808,20 +808,33 @@ async function nextUnsatisfiedStage(
   // Collect all doc IDs for batch version fetch
   const allDocIds = (allDocs || []).map((d: any) => d.id);
 
-  // Batch-fetch current versions with plaintext + approval_status
+  // Batch-fetch current versions with plaintext + approval_status + label
   let currentVersions: any[] = [];
   if (allDocIds.length > 0) {
     const { data: vers } = await supabase
       .from("project_document_versions")
-      .select("document_id, plaintext, approval_status")
+      .select("document_id, plaintext, approval_status, label")
       .in("document_id", allDocIds)
       .eq("is_current", true);
     currentVersions = vers || [];
   }
 
-  const versionByDocId = new Map<string, { plaintext: string | null; approval_status: string }>();
+  const versionByDocId = new Map<string, { plaintext: string | null; approval_status: string; label: string | null }>();
   for (const v of currentVersions) {
-    versionByDocId.set(v.document_id, { plaintext: v.plaintext, approval_status: v.approval_status });
+    versionByDocId.set(v.document_id, { plaintext: v.plaintext, approval_status: v.approval_status, label: v.label || null });
+  }
+
+  // ── REVIEWED-IN-JOB GATE: batch-fetch all reviewed stages for this job in one query ──
+  let reviewedSet = new Set<string>();
+  if (jobId) {
+    const { data: reviewedRows } = await supabase
+      .from("auto_run_steps")
+      .select("document")
+      .eq("job_id", jobId)
+      .eq("action", "review");
+    if (reviewedRows) {
+      reviewedSet = new Set(reviewedRows.map((r: any) => r.document));
+    }
   }
 
   const APPROVAL_REQUIRED_STAGES = new Set([
@@ -837,6 +850,17 @@ async function nextUnsatisfiedStage(
     const docIds = docsByType.get(stage);
     if (!docIds || docIds.length === 0) return stage; // no doc at all
 
+    // ── EXPLICIT initial_baseline_seed HANDLING ──
+    // If current version is a seed and not reviewed in this job, treat as unsatisfied
+    const isSeed = docIds.some(id => {
+      const ver = versionByDocId.get(id);
+      return ver?.label === "initial_baseline_seed";
+    });
+    if (isSeed && !reviewedSet.has(stage)) {
+      console.log(`[auto-run] stage ${stage} has initial_baseline_seed label and NOT reviewed in job (${jobId}). Routing for evaluation.`);
+      return stage;
+    }
+
     // Check sufficiency: at least one doc must have a sufficient current version
     const hasSufficient = docIds.some(id => {
       const ver = versionByDocId.get(id);
@@ -849,20 +873,10 @@ async function nextUnsatisfiedStage(
       return stage;
     }
 
-    // ── REVIEWED-IN-JOB GATE: sufficient content still needs evaluation in THIS job ──
-    // If jobId provided, require that this stage was reviewed (action="review") in the current job
-    if (jobId) {
-      const { data: reviewSteps } = await supabase
-        .from("auto_run_steps")
-        .select("id")
-        .eq("job_id", jobId)
-        .eq("document", stage)
-        .eq("action", "review")
-        .limit(1);
-      if (!reviewSteps || reviewSteps.length === 0) {
-        console.log(`[auto-run] stage ${stage} sufficient but NOT reviewed in this job (${jobId}). Routing for review.`);
-        return stage;
-      }
+    // ── REVIEWED-IN-JOB GATE (uses batch-fetched reviewedSet) ──
+    if (jobId && !reviewedSet.has(stage)) {
+      console.log(`[auto-run] stage ${stage} sufficient but NOT reviewed in this job (${jobId}). Routing for review.`);
+      return stage;
     }
 
     if (APPROVAL_REQUIRED_STAGES.has(stage)) {
@@ -5059,15 +5073,29 @@ Deno.serve(async (req) => {
             const retryCount = (canonRetries[currentDoc] || 0) + 1;
 
             if (retryCount <= MAX_CANON_LOCK_RETRIES) {
+              // ── CANON-LOCK: fetch canonical entities for injection ──
+              let canonEntityPack: string[] = [];
+              try {
+                const canonData = await buildCanonEntitiesFromDB(supabase, job.project_id);
+                canonEntityPack = canonData?.entities || [];
+              } catch (ce: any) {
+                console.warn(`[auto-run] canon entity fetch failed for retry (empty-slot): ${ce.message}`);
+              }
+
               await logStep(supabase, jobId, stepCount + 1, currentDoc, "canon_lock_retry",
-                `CANON_MISMATCH retry ${retryCount}/${MAX_CANON_LOCK_RETRIES} (empty-slot recovery): ${e2.message.slice(0, 200)}`,
+                `CANON_MISMATCH retry ${retryCount}/${MAX_CANON_LOCK_RETRIES} (empty-slot recovery, entity_count=${canonEntityPack.length}): ${e2.message.slice(0, 200)}`,
                 {}, undefined,
-                { retry_count: retryCount, max_retries: MAX_CANON_LOCK_RETRIES, error_excerpt: e2.message.slice(0, 300), doc_type: currentDoc, path: "empty_slot_recovery" });
+                { retry_count: retryCount, max_retries: MAX_CANON_LOCK_RETRIES, entity_count: canonEntityPack.length, error_excerpt: e2.message.slice(0, 300), doc_type: currentDoc, path: "empty_slot_recovery" });
 
               const updatedRetries = { ...canonRetries, [currentDoc]: retryCount };
               await updateJob(supabase, jobId, {
                 step_count: stepCount + 1,
-                meta_json: { ...metaJson, canon_mismatch_retries: updatedRetries },
+                meta_json: {
+                  ...metaJson,
+                  canon_mismatch_retries: updatedRetries,
+                  canon_lock_entities: canonEntityPack,
+                  canon_lock_mode: true,
+                },
               });
               return respondWithJob(supabase, jobId, "run-next");
             }
@@ -6221,6 +6249,20 @@ Deno.serve(async (req) => {
           // Merge decision directions with strategy directions
           const mergedDirections = [...decisionDirections, ...strategyDirections];
 
+          // ── CANON-LOCK INJECTION: if retrying after CANON_MISMATCH, inject entity constraints ──
+          const jobMeta = (job as any).meta_json || {};
+          if (jobMeta.canon_lock_mode && Array.isArray(jobMeta.canon_lock_entities) && jobMeta.canon_lock_entities.length > 0) {
+            const entityList = jobMeta.canon_lock_entities.slice(0, 80).join(", ");
+            mergedDirections.push(
+              `CANON-LOCK MODE: You MUST preserve and reference these canonical entities exactly as named: ${entityList}`,
+              `Do NOT rename, omit, or mutate any canonical entity. Increase entity coverage. Every named character, location, and concept from the canon must appear in the output.`,
+            );
+            console.log(`[auto-run] Canon-lock mode active: injecting ${jobMeta.canon_lock_entities.length} entities into rewrite directions`);
+            // Clear canon_lock_mode after injection so it doesn't persist forever
+            const clearedMeta = { ...jobMeta, canon_lock_mode: false };
+            await updateJob(supabase, jobId, { meta_json: clearedMeta });
+          }
+
           try {
             // ── FORK PATH: FORK_CONSERVATIVE_AGGRESSIVE ──
             if (strategy === "FORK_CONSERVATIVE_AGGRESSIVE") {
@@ -6538,20 +6580,34 @@ Deno.serve(async (req) => {
               const retryCount = (canonRetries[currentDoc] || 0) + 1;
 
               if (retryCount <= MAX_CANON_LOCK_RETRIES) {
-                // Log the retry
-                await logStep(supabase, jobId, null, currentDoc, "canon_lock_retry",
-                  `CANON_MISMATCH retry ${retryCount}/${MAX_CANON_LOCK_RETRIES}: ${e.message.slice(0, 200)}`,
-                  { ci: baselineCI, gp: baselineGP }, undefined,
-                  { retry_count: retryCount, max_retries: MAX_CANON_LOCK_RETRIES, error_excerpt: e.message.slice(0, 300), doc_type: currentDoc });
+                // ── CANON-LOCK: fetch canonical entities and inject into retry ──
+                let canonEntityPack: string[] = [];
+                try {
+                  const canonData = await buildCanonEntitiesFromDB(supabase, job.project_id);
+                  canonEntityPack = canonData?.entities || [];
+                } catch (ce: any) {
+                  console.warn(`[auto-run] canon entity fetch failed for retry: ${ce.message}`);
+                }
 
-                // Persist retry counter
+                // Log the retry with entity count
+                await logStep(supabase, jobId, null, currentDoc, "canon_lock_retry",
+                  `CANON_MISMATCH retry ${retryCount}/${MAX_CANON_LOCK_RETRIES} (entity_count=${canonEntityPack.length}): ${e.message.slice(0, 200)}`,
+                  { ci: baselineCI, gp: baselineGP }, undefined,
+                  { retry_count: retryCount, max_retries: MAX_CANON_LOCK_RETRIES, entity_count: canonEntityPack.length, error_excerpt: e.message.slice(0, 300), doc_type: currentDoc });
+
+                // Persist retry counter + canon entity pack for injection
                 const updatedRetries = { ...canonRetries, [currentDoc]: retryCount };
                 await updateJob(supabase, jobId, {
                   stage_loop_count: newLoopCount,
-                  meta_json: { ...metaJson, canon_mismatch_retries: updatedRetries },
+                  meta_json: {
+                    ...metaJson,
+                    canon_mismatch_retries: updatedRetries,
+                    canon_lock_entities: canonEntityPack,
+                    canon_lock_mode: true,
+                  },
                 });
 
-                // Continue — next iteration will re-attempt rewrite with existing canon context
+                // Continue — next iteration picks up canon_lock_mode from meta_json
                 return respondWithJob(supabase, jobId, "run-next");
               }
 
