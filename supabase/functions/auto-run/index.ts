@@ -1,7 +1,7 @@
-const BUILD = "AUTORUN_BUILD_MARKER_2026_03_02_PREWRITE_V3";
+const BUILD = "AUTORUN_BUILD_MARKER_2026_03_03_IEL_V1";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
-import { isDurationEligibleDocType } from "../_shared/eligibilityRegistry.ts";
+import { isDurationEligibleDocType, isDeprecatedTargetDocType } from "../_shared/eligibilityRegistry.ts";
 import { getWritingLaneGroup, getDefaultWritingVoiceForLane } from "../_shared/writingVoiceResolver.ts";
 import { ensureDocSlot, createVersion } from "../_shared/doc-os.ts";
 import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy, validateLadderIntegrity, runCanonAlignmentGate } from "../_shared/docPolicyRegistry.ts";
@@ -146,6 +146,35 @@ const DOC_TYPE_ALIASES: Record<string, string> = STAGE_LADDERS.DOC_TYPE_ALIASES;
 
 // Flat unique set of all stages (for validation)
 const ALL_STAGES = new Set<string>(Object.values(FORMAT_LADDERS).flat());
+
+// ── IEL: Version cap per doc_type per job (prevents runaway same-stage loops) ──
+const MAX_VERSIONS_PER_DOC_PER_JOB = 8;
+
+// ── IEL: Validate and correct target_document against ladder + deprecated guard ──
+function ielValidateTarget(rawTarget: string, format: string): { target: string; corrected: boolean; log: string | null } {
+  let target = canonicalDocType(rawTarget);
+  let corrected = false;
+  let log: string | null = null;
+
+  // Guard 1: deprecated target resolution
+  if (isDeprecatedTargetDocType(target)) {
+    const resolved = canonicalDocType(target);
+    log = `[IEL] Corrected deprecated target_document "${target}" → "${resolved}"`;
+    target = resolved;
+    corrected = true;
+  }
+
+  // Guard 2: ladder membership
+  if (!isOnLadder(target, format)) {
+    const ladder = getLadderForJob(format);
+    const fallback = ladder ? ladder[ladder.length - 1] : target;
+    log = (log ? log + " | " : "") + `[IEL] target "${target}" not on ${format} ladder → "${fallback}"`;
+    target = fallback;
+    corrected = true;
+  }
+
+  return { target, corrected, log };
+}
 
 // ── Resolve format string to its ladder (with alias / fallback) ──
 function getLadderForJob(format: string): string[] | null {
@@ -2286,20 +2315,15 @@ Deno.serve(async (req) => {
       // Sanitize target_document — "draft" and "coverage" are legacy aliases, never real targets
       const rawTarget = target_document || fmtLadder[fmtLadder.length - 1];
       const targetDoc = canonicalDocType(rawTarget);
+      // IEL: validate + correct target via unified guard
+      const ielResult = ielValidateTarget(targetDoc, fmt);
+      if (ielResult.log) console.warn(ielResult.log);
       // Validate both are on the format's ladder (graceful fallback for start_document)
       let effectiveStartDoc = startDoc;
-      let effectiveTargetDoc = targetDoc;
+      let effectiveTargetDoc = ielResult.target;
       if (!isOnLadder(startDoc, fmt)) {
-        // Find nearest valid stage: walk all stages, pick the last one whose conceptual position <= startDoc
-        // Fallback: use the first stage on the ladder
         effectiveStartDoc = fmtLadder[0];
         console.warn(`start_document "${startDoc}" not on ${fmt} ladder — using "${effectiveStartDoc}"`);
-      }
-      if (!isOnLadder(effectiveTargetDoc, fmt)) {
-        // Graceful fallback: use last stage on the ladder
-        const fallbackTarget = fmtLadder[fmtLadder.length - 1];
-        console.warn(`target_document "${effectiveTargetDoc}" not on ${fmt} ladder — using "${fallbackTarget}"`);
-        effectiveTargetDoc = fallbackTarget;
       }
 
       const modeConf = MODE_CONFIG[mode || "balanced"] || MODE_CONFIG.balanced;
@@ -3869,6 +3893,44 @@ Deno.serve(async (req) => {
               pause_reason: "LADDER_REGISTRY_MISMATCH",
               error: `Ladder contains unregistered doc_types: ${lc.missing.join(", ")}`,
             });
+            return respondWithJob(supabase, jobId);
+          }
+        }
+      }
+
+      // ── IEL: re-validate target_document on every run-next ──
+      {
+        const ielCheck = ielValidateTarget(job.target_document, format);
+        if (ielCheck.corrected) {
+          console.warn(ielCheck.log);
+          await supabase.from("auto_run_jobs").update({ target_document: ielCheck.target }).eq("id", jobId);
+          job.target_document = ielCheck.target;
+          await logStep(supabase, jobId, null, currentDoc, "iel_target_corrected",
+            ielCheck.log || `Target corrected to ${ielCheck.target}`);
+        }
+      }
+
+      // ── IEL: Version cap guard — prevent runaway same-stage rewrites ──
+      {
+        const { data: docForCap } = await supabase.from("project_documents")
+          .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (docForCap) {
+          const { count: versionCount } = await supabase.from("project_document_versions")
+            .select("id", { count: "exact", head: true })
+            .eq("document_id", docForCap.id);
+          if (typeof versionCount === "number" && versionCount >= MAX_VERSIONS_PER_DOC_PER_JOB) {
+            console.warn(`[IEL] Version cap reached for ${currentDoc}: ${versionCount} >= ${MAX_VERSIONS_PER_DOC_PER_JOB}`);
+            await finalizeBest(supabase, jobId, job, docForCap.id);
+            await updateJob(supabase, jobId, {
+              status: "paused",
+              stop_reason: "rewrite_cap_reached",
+              pause_reason: "rewrite_cap_reached",
+              error: `Version cap (${MAX_VERSIONS_PER_DOC_PER_JOB}) reached for ${currentDoc} — ${versionCount} versions exist. Promote best and advance manually.`,
+            });
+            await logStep(supabase, jobId, stepCount + 1, currentDoc, "rewrite_cap_reached",
+              `Paused: ${versionCount} versions for ${currentDoc} exceed cap of ${MAX_VERSIONS_PER_DOC_PER_JOB}`);
+            await releaseProcessingLock(supabase, jobId);
             return respondWithJob(supabase, jobId);
           }
         }
