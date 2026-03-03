@@ -67,6 +67,7 @@ export const BASE_DOC_TYPES: Record<string, DocTypeMeta> = {
   market_positioning:      { label: 'Market Positioning',      description: 'Market positioning and sales strategy' },
   canon:                   { label: 'Canon Snapshot',          description: 'Canonical world/character state snapshot' },
   nec:                     { label: 'NEC',                     description: 'Narrative Evaluation Card — quality assessment' },
+  complete_season_script:  { label: 'Complete Season Script',  description: 'Full compiled season script for vertical drama' },
   // Derived (non-ladder) doc types
   scene_graph:             { label: 'Scene Index',             description: 'Deterministic scene segmentation index' },
   change_report:           { label: 'Change Report',           description: 'Deterministic diff and impact analysis' },
@@ -91,7 +92,7 @@ export const LANE_DOC_LADDERS: Record<LaneKey, string[]> = {
   vertical_drama: [
     'idea', 'concept_brief', 'vertical_market_sheet', 'format_rules',
     'character_bible', 'season_arc', 'episode_grid', 'vertical_episode_beats',
-    'season_script', 'season_master_script',
+    'season_script', 'complete_season_script',
   ],
   documentary: [
     'idea', 'concept_brief', 'market_sheet', 'documentary_outline', 'deck',
@@ -148,7 +149,7 @@ export const DOC_LABEL_ALIASES: Record<string, string> = {
   lookbook:                'deck',
   coverage:                'production_draft',
   episode_beat_sheet:      'beat_sheet',
-  complete_season_script:  'season_master_script',
+  // complete_season_script is now first-class — no alias needed
   doc_outline:             'documentary_outline',
   writers_room:            'episode_script',
 
