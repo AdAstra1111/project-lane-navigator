@@ -136,6 +136,17 @@ else
   echo "PASS"
 fi
 
+echo ""
+echo "=== Regression Tripwire: CANON_MISMATCH must not set status=failed ==="
+HITS15=$(grep -rn 'CANON_MISMATCH' supabase/functions/auto-run/index.ts | grep 'status.*failed\|failed.*CANON' | grep -v "canon_mismatch_stuck" || true)
+if [ -n "$HITS15" ]; then
+  echo "FAIL: CANON_MISMATCH sets status=failed (must use retryable canon_lock_retry or canon_mismatch_stuck pause):"
+  echo "$HITS15"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."

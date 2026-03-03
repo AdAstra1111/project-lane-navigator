@@ -784,6 +784,7 @@ async function nextUnsatisfiedStage(
   targetStage: string,
   allowDefaults = false,
   userId?: string,
+  jobId?: string,
 ): Promise<string | null> {
   const ladder = getLadderForJob(format);
   if (!ladder) return null;
@@ -846,6 +847,22 @@ async function nextUnsatisfiedStage(
     if (!hasSufficient) {
       console.log(`[auto-run] stage ${stage} unsatisfied: doc exists but content insufficient (stub or too short)`);
       return stage;
+    }
+
+    // ── REVIEWED-IN-JOB GATE: sufficient content still needs evaluation in THIS job ──
+    // If jobId provided, require that this stage was reviewed (action="review") in the current job
+    if (jobId) {
+      const { data: reviewSteps } = await supabase
+        .from("auto_run_steps")
+        .select("id")
+        .eq("job_id", jobId)
+        .eq("document", stage)
+        .eq("action", "review")
+        .limit(1);
+      if (!reviewSteps || reviewSteps.length === 0) {
+        console.log(`[auto-run] stage ${stage} sufficient but NOT reviewed in this job (${jobId}). Routing for review.`);
+        return stage;
+      }
     }
 
     if (APPROVAL_REQUIRED_STAGES.has(stage)) {
@@ -2858,7 +2875,7 @@ Deno.serve(async (req) => {
       if (baseChoiceId === "force_promote" && choiceValue === "yes") {
         const { data: fpProj } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
         const fpFmt = (fpProj?.format || "film").toLowerCase().replace(/_/g, "-");
-        const next = await nextUnsatisfiedStage(supabase, job.project_id, fpFmt, currentDoc, job.target_document, job.allow_defaults, job.user_id);
+        const next = await nextUnsatisfiedStage(supabase, job.project_id, fpFmt, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
         if (next) {
           await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
             `Force-promoted: ${currentDoc} → ${next}`,
@@ -3279,7 +3296,7 @@ Deno.serve(async (req) => {
       const { data: jobProj } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
       const jobFmt = (jobProj?.format || "film").toLowerCase().replace(/_/g, "-");
       const currentDoc = job.current_document as DocStage;
-      const next = await nextUnsatisfiedStage(supabase, job.project_id, jobFmt, currentDoc, job.target_document, job.allow_defaults, job.user_id);
+      const next = await nextUnsatisfiedStage(supabase, job.project_id, jobFmt, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
       if (!next) {
         const stepCount = job.step_count + 1;
         await logStep(supabase, jobId, stepCount, currentDoc, "force_promote", "All stages satisfied up to target");
@@ -3397,7 +3414,7 @@ Deno.serve(async (req) => {
         if (applyPolicy.docClass === "AGGREGATE") {
           await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_skip_advance",
             `AGGREGATE doc "${currentDoc}" is compile-only. Skipping rewrite, advancing to next stage.`);
-          const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
+           const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
           if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
             await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0,
               // Clear frontier on stage change — frontier is scoped per document stage
@@ -3678,7 +3695,7 @@ Deno.serve(async (req) => {
         let nextDoc: DocStage = currentDoc;
 
         if (forcePromoteChoice === "yes" || forcePromoteChoice === "force_promote") {
-          const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
+          const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
           if (next) {
             nextDoc = next;
           } else {
@@ -3794,7 +3811,7 @@ Deno.serve(async (req) => {
         if (decPolicy.docClass === "AGGREGATE") {
           await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_skip_advance",
             `AGGREGATE doc "${currentDoc}" is compile-only. Skipping rewrite, advancing to next stage.`);
-          const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
+          const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
           if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
             await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0,
               // Clear frontier on stage change — frontier is scoped per document stage
@@ -5034,6 +5051,41 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId, "awaiting-approval");
           }
         } catch (e2: any) {
+          // ── CANON_MISMATCH RETRY in empty-slot recovery ──
+          if (e2.message?.includes("CANON_MISMATCH")) {
+            const MAX_CANON_LOCK_RETRIES = 4;
+            const metaJson = (job as any).meta_json || {};
+            const canonRetries = metaJson.canon_mismatch_retries || {};
+            const retryCount = (canonRetries[currentDoc] || 0) + 1;
+
+            if (retryCount <= MAX_CANON_LOCK_RETRIES) {
+              await logStep(supabase, jobId, stepCount + 1, currentDoc, "canon_lock_retry",
+                `CANON_MISMATCH retry ${retryCount}/${MAX_CANON_LOCK_RETRIES} (empty-slot recovery): ${e2.message.slice(0, 200)}`,
+                {}, undefined,
+                { retry_count: retryCount, max_retries: MAX_CANON_LOCK_RETRIES, error_excerpt: e2.message.slice(0, 300), doc_type: currentDoc, path: "empty_slot_recovery" });
+
+              const updatedRetries = { ...canonRetries, [currentDoc]: retryCount };
+              await updateJob(supabase, jobId, {
+                step_count: stepCount + 1,
+                meta_json: { ...metaJson, canon_mismatch_retries: updatedRetries },
+              });
+              return respondWithJob(supabase, jobId, "run-next");
+            }
+
+            // Exhausted retries — pause with specific reason (NOT EMPTY_SLOT_RECOVERY_FAILED)
+            await logStep(supabase, jobId, stepCount + 1, currentDoc, "canon_mismatch_stuck",
+              `CANON_MISMATCH stuck after ${retryCount - 1} retries (empty-slot recovery): ${e2.message.slice(0, 200)}`,
+              {}, undefined,
+              { retry_count: retryCount - 1, max_retries: MAX_CANON_LOCK_RETRIES, error_excerpt: e2.message.slice(0, 300) });
+            await updateJob(supabase, jobId, {
+              status: "paused",
+              pause_reason: "canon_mismatch_stuck",
+              stop_reason: `Canon alignment failed after ${MAX_CANON_LOCK_RETRIES} retries for ${currentDoc}. ${e2.message.slice(0, 200)}`,
+              error: e2.message.slice(0, 500),
+            });
+            return respondWithJob(supabase, jobId);
+          }
+
           const reason = `Generate failed (empty-slot recovery): ${e2.message}`;
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "empty_slot_recovery_failed", reason,
             {}, undefined, {
@@ -5543,7 +5595,7 @@ Deno.serve(async (req) => {
               // If step budget exhausted, the step-limit guard at the top of run-next will catch it
             } else {
               // Converged enough — proceed to promotion normally
-              const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
+              const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
               if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
                 if (job.allow_defaults) {
                   // Full Autopilot: auto-approve and promote without pausing
@@ -5645,7 +5697,7 @@ Deno.serve(async (req) => {
                 { ci, gp, gap });
             }
 
-            const nextAfterAggregate = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
+            const nextAfterAggregate = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
             if (nextAfterAggregate && isStageAtOrBeforeTarget(nextAfterAggregate, job.target_document, format)) {
               await updateJob(supabase, jobId, {
                 current_document: nextAfterAggregate,
@@ -6477,6 +6529,47 @@ Deno.serve(async (req) => {
             });
             return respondWithJob(supabase, jobId, shouldHalt ? undefined : "run-next");
           } catch (e: any) {
+            // ── CANON_MISMATCH RETRY GATE ──
+            // If CANON_MISMATCH, retry with canon entity injection instead of failing
+            if (e.message?.includes("CANON_MISMATCH")) {
+              const MAX_CANON_LOCK_RETRIES = 4;
+              const metaJson = (job as any).meta_json || {};
+              const canonRetries = metaJson.canon_mismatch_retries || {};
+              const retryCount = (canonRetries[currentDoc] || 0) + 1;
+
+              if (retryCount <= MAX_CANON_LOCK_RETRIES) {
+                // Log the retry
+                await logStep(supabase, jobId, null, currentDoc, "canon_lock_retry",
+                  `CANON_MISMATCH retry ${retryCount}/${MAX_CANON_LOCK_RETRIES}: ${e.message.slice(0, 200)}`,
+                  { ci: baselineCI, gp: baselineGP }, undefined,
+                  { retry_count: retryCount, max_retries: MAX_CANON_LOCK_RETRIES, error_excerpt: e.message.slice(0, 300), doc_type: currentDoc });
+
+                // Persist retry counter
+                const updatedRetries = { ...canonRetries, [currentDoc]: retryCount };
+                await updateJob(supabase, jobId, {
+                  stage_loop_count: newLoopCount,
+                  meta_json: { ...metaJson, canon_mismatch_retries: updatedRetries },
+                });
+
+                // Continue — next iteration will re-attempt rewrite with existing canon context
+                return respondWithJob(supabase, jobId, "run-next");
+              }
+
+              // Exhausted retries — pause with specific reason
+              await logStep(supabase, jobId, null, currentDoc, "canon_mismatch_stuck",
+                `CANON_MISMATCH stuck after ${retryCount - 1} retries: ${e.message.slice(0, 200)}`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                { retry_count: retryCount - 1, max_retries: MAX_CANON_LOCK_RETRIES, error_excerpt: e.message.slice(0, 300) });
+              await updateJob(supabase, jobId, {
+                status: "paused",
+                pause_reason: "canon_mismatch_stuck",
+                stop_reason: `Canon alignment failed after ${MAX_CANON_LOCK_RETRIES} retries for ${currentDoc}. ${e.message.slice(0, 200)}`,
+                error: e.message.slice(0, 500),
+                stage_loop_count: newLoopCount,
+              });
+              return respondWithJob(supabase, jobId);
+            }
+
             await updateJob(supabase, jobId, { status: "failed", error: `Rewrite failed: ${e.message}` });
             return respondWithJob(supabase, jobId);
           }
@@ -6491,7 +6584,7 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId, "run-next");
           }
 
-          const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
+          const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
           if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
             if (job.allow_defaults) {
               // Full Autopilot: auto-approve and promote without pausing
