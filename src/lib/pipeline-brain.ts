@@ -94,9 +94,9 @@ const ALL_KNOWN_STAGES: DeliverableStage[] = [
 
 // ── Series Writer entry stage mapping ──────────────────────────────────────
 
-/** For formats that eventually hand off to Series Writer, which stage triggers it */
+/** For formats that eventually hand off to Series Writer, which stage triggers it.
+ *  NOTE: vertical-drama does NOT use Series Writer — season_script is terminal. */
 const SERIES_WRITER_HANDOFF_AFTER: Record<string, DeliverableStage> = {
-  'vertical-drama': 'season_master_script',
   'tv-series': 'season_master_script',
   'limited-series': 'season_master_script',
   'digital-series': 'season_master_script',

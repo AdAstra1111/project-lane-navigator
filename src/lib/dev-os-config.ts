@@ -101,9 +101,7 @@ export const VERTICAL_DRAMA_PIPELINE_ORDER: DeliverableType[] = [
   'season_arc',
   'episode_grid',
   'vertical_episode_beats',
-  'episode_script',
-  'season_master_script',
-  'series_writer',
+  'season_script',
 ];
 
 /**
@@ -119,7 +117,7 @@ export const VERTICAL_DRAMA_DOC_ORDER: Array<{ type: DeliverableType; label: str
   { type: 'season_arc', label: 'Season Arc', prerequisites: ['concept_brief', 'character_bible'] },
   { type: 'episode_grid', label: 'Episode Grid', prerequisites: ['season_arc'] },
   { type: 'vertical_episode_beats', label: 'Episode Beats (Ep 1–3)', prerequisites: ['season_arc', 'episode_grid'] },
-  { type: 'episode_script', label: 'Scripts (Ep 1–3)', prerequisites: ['vertical_episode_beats'] },
+  { type: 'season_script', label: 'Season Script', prerequisites: ['vertical_episode_beats'] },
 ];
 
 /**

@@ -8,6 +8,8 @@
 import { describe, it, expect } from 'vitest';
 import LADDERS_JSON from '../../supabase/_shared/stage-ladders.json';
 import { BASE_DOC_TYPES, normalizeDocType, formatToLane } from '@/config/documentLadders';
+import { VERTICAL_DRAMA_PIPELINE_ORDER, DELIVERABLE_PIPELINE_ORDER } from '@/lib/dev-os-config';
+import { getDocFlowConfig } from '@/lib/docFlowMap';
 
 const FORMAT_LADDERS: Record<string, string[]> = LADDERS_JSON.FORMAT_LADDERS as Record<string, string[]>;
 const DOC_TYPE_ALIASES: Record<string, string> = LADDERS_JSON.DOC_TYPE_ALIASES as Record<string, string>;
@@ -25,8 +27,6 @@ describe('Stage ladders canonical key guard', () => {
 
   it('Every FORMAT_LADDERS entry normalizes to a known BASE_DOC_TYPES key', () => {
     const knownKeys = new Set(Object.keys(BASE_DOC_TYPES));
-    // Some pipeline stages are valid but not in BASE_DOC_TYPES (e.g. idea is in BASE_DOC_TYPES)
-    // We allow pass-through if the key exists as-is in BASE_DOC_TYPES
     const failures: string[] = [];
 
     for (const [fmt, ladder] of Object.entries(FORMAT_LADDERS)) {
@@ -82,5 +82,38 @@ describe('Stage ladders canonical key guard', () => {
   it('Vertical-drama terminal stage is season_script', () => {
     const vdLadder = FORMAT_LADDERS['vertical-drama'];
     expect(vdLadder[vdLadder.length - 1]).toBe('season_script');
+  });
+
+  // ── IEL: VD UI pipeline MUST NOT contain series_writer or season_master_script ──
+  it('VERTICAL_DRAMA_PIPELINE_ORDER does not contain season_master_script', () => {
+    expect(VERTICAL_DRAMA_PIPELINE_ORDER).not.toContain('season_master_script');
+  });
+
+  it('VERTICAL_DRAMA_PIPELINE_ORDER does not contain series_writer', () => {
+    expect(VERTICAL_DRAMA_PIPELINE_ORDER).not.toContain('series_writer');
+  });
+
+  it('VERTICAL_DRAMA_PIPELINE_ORDER does not contain episode_script', () => {
+    expect(VERTICAL_DRAMA_PIPELINE_ORDER).not.toContain('episode_script');
+  });
+
+  it('VERTICAL_DRAMA_PIPELINE_ORDER ends with season_script', () => {
+    expect(VERTICAL_DRAMA_PIPELINE_ORDER[VERTICAL_DRAMA_PIPELINE_ORDER.length - 1]).toBe('season_script');
+  });
+
+  it('VD docFlowMap topTabs do not include series_writer key', () => {
+    const config = getDocFlowConfig('vertical_drama');
+    const tabKeys = config.topTabs.map(t => t.key);
+    expect(tabKeys).not.toContain('series_writer');
+  });
+
+  it('VD docFlowMap hiddenDocTypes includes season_master_script', () => {
+    const config = getDocFlowConfig('vertical_drama');
+    expect(config.hiddenDocTypes).toContain('season_master_script');
+  });
+
+  it('VD FORMAT_LADDERS does not contain season_master_script', () => {
+    const vdLadder = FORMAT_LADDERS['vertical-drama'];
+    expect(vdLadder).not.toContain('season_master_script');
   });
 });
