@@ -199,9 +199,14 @@ function getLadderForJob(format: string): string[] | null {
 }
 
 // ── Resolve doc-type aliases to canonical names ──
+// Canonical doc_type keys use underscores (season_script, feature_script).
+// Alias lookup keys use hyphens (matching DOC_TYPE_ALIASES keys from stage-ladders).
+// We normalize input to hyphens for lookup, but always return underscore-canonical output.
 function canonicalDocType(raw: string): string {
-  const key = (raw || "").toLowerCase().replace(/_/g, "-");
-  return DOC_TYPE_ALIASES[key] || key;
+  const hyphenKey = (raw || "").toLowerCase().replace(/[_ ]+/g, "-");
+  const resolved = DOC_TYPE_ALIASES[hyphenKey] || hyphenKey;
+  // Ensure output uses canonical underscores (ladder values are underscored)
+  return resolved.replace(/-/g, "_");
 }
 
 function nextDoc(current: string, format: string): string | null {
