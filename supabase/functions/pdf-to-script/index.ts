@@ -156,7 +156,7 @@ Deno.serve(async (req) => {
     if (!project) return json({ error: "Project not found" }, 404);
 
     // 2) Find newest script document — try script_pdf first, then fallback doc types
-    const scriptDocTypes = ["script_pdf", "complete_season_script", "season_master_script", "production_draft", "screenplay_draft", "feature_script", "script"];
+    const scriptDocTypes = ["script_pdf", "season_script", "season_master_script", "production_draft", "screenplay_draft", "feature_script", "script"];
     let pdfDoc: any = null;
     for (const docType of scriptDocTypes) {
       const { data } = await admin

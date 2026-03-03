@@ -283,15 +283,30 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── 9. Persist as complete_season_script ──
+    // ── 9. Persist as season_script (terminal VD deliverable) ──
     const docTitle = `${projectTitle} — Complete Season 1 Script`;
 
-    const { data: existingDoc } = await sb
+    // Back-compat: check for legacy complete_season_script docs first, then season_script
+    let existingDoc: any = null;
+    const { data: legacyDoc } = await sb
       .from("project_documents")
       .select("id, latest_version_id")
       .eq("project_id", project_id)
       .eq("doc_type", "complete_season_script")
       .maybeSingle();
+    if (legacyDoc) {
+      existingDoc = legacyDoc;
+      // Migrate legacy doc_type to season_script
+      await sb.from("project_documents").update({ doc_type: "season_script" }).eq("id", legacyDoc.id);
+    } else {
+      const { data: ssDoc } = await sb
+        .from("project_documents")
+        .select("id, latest_version_id")
+        .eq("project_id", project_id)
+        .eq("doc_type", "season_script")
+        .maybeSingle();
+      existingDoc = ssDoc;
+    }
 
     let docId: string;
     let changeLog: Array<{ episode: string; change: string }> = [];
@@ -342,7 +357,7 @@ Deno.serve(async (req) => {
 
       const { data: newDoc, error: docErr } = await sb
         .from("project_documents")
-        .insert({ project_id, user_id: userId, doc_type: "complete_season_script", title: docTitle, file_path: filePath, file_name: filePath.split("/").pop()! } as any)
+        .insert({ project_id, user_id: userId, doc_type: "season_script", title: docTitle, file_path: filePath, file_name: filePath.split("/").pop()! } as any)
         .select("id")
         .single();
       if (docErr) throw new Error(`Failed to create doc: ${docErr.message}`);
@@ -352,7 +367,7 @@ Deno.serve(async (req) => {
     // Create version via canonical doc-os path
     const newVersion = await createVersion(sb, {
       documentId: docId,
-      docType: "complete_season_script",
+      docType: "season_script",
       plaintext: masterText,
       label: `season-package-${pathUsed}`,
       createdBy: userId,
@@ -361,7 +376,7 @@ Deno.serve(async (req) => {
       inputsUsed: {
         project_id: project_id,
         document_id: docId,
-        doc_type: "complete_season_script",
+        doc_type: "season_script",
         generator_id: "season-package",
         compiled_at: compiledAt,
         path_used: pathUsed,

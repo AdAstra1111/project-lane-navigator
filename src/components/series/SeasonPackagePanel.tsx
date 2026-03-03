@@ -6,7 +6,7 @@
  *  - Compiles existing episode scripts (Path A: scripts exist)
  *  - Generates episode scripts from beats/grid/arc via LLM (Path B: no scripts)
  *
- * Records provenance, change log, and stores the result as `complete_season_script`.
+ * Records provenance, change log, and stores the result as `season_script` (terminal VD deliverable).
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -90,15 +90,15 @@ export function SeasonPackagePanel({ projectId, episodeCount, completedEpisodeCo
   const [masterText, setMasterText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // ── Fetch existing complete_season_script doc (if any) ──────────────────
+  // ── Fetch existing season_script doc (terminal VD deliverable) ──────────
   const { data: existingDoc, refetch: refetchExisting } = useQuery({
-    queryKey: ['complete-season-script', projectId],
+    queryKey: ['season-script-package', projectId],
     queryFn: async () => {
       const { data: doc } = await supabase
         .from('project_documents')
         .select('id, title, latest_version_id, updated_at')
         .eq('project_id', projectId)
-        .eq('doc_type', 'complete_season_script')
+        .eq('doc_type', 'season_script')
         .maybeSingle();
       if (!doc?.latest_version_id) return null;
 

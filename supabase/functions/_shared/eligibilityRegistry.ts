@@ -15,7 +15,6 @@ const DURATION_ELIGIBLE_BY_FORMAT: Record<string, Set<string>> = {
   'vertical-drama': new Set([
     'episode_script',
     'season_script',
-    'complete_season_script',
   ]),
   'tv-series': new Set([
     'episode_script',
@@ -40,7 +39,6 @@ const DURATION_ELIGIBLE_FALLBACK = new Set([
   'feature_script',
   'episode_script',
   'season_script',
-  'complete_season_script',
   'season_master_script',
   'pilot_script',
   'script',
