@@ -671,7 +671,65 @@ function isDownstreamDocSufficient(docType: string, plaintext: string | null | u
 }
 
 /**
- * Find the next unsatisfied stage on the ladder between startIdx and targetIdx.
+ * Auto-generate a minimal NEC (Narrative Energy Contract) document.
+ * Extracted to avoid duplication between initial generation and stale regen.
+ */
+async function autoGenerateNEC(
+  supabase: any, job: any, jobId: string, format: string, gateLabel: string, resolverHash?: string | null,
+) {
+  const necSlot = await ensureDocSlot(supabase, job.project_id, job.user_id, "nec", {
+    source: "generated", docRole: "creative_primary",
+  });
+  const { data: freshCanon } = await supabase.from("project_canon")
+    .select("canon_json").eq("project_id", job.project_id).maybeSingle();
+  const fc = (freshCanon?.canon_json || {}) as any;
+  const necJson = {
+    nec_version: "1.0",
+    format_profile: { format: format || "unknown" },
+    energy_contract: {
+      heat_level_0_10: format === "vertical-drama" ? 7 : 5,
+      escalation_velocity: format === "vertical-drama" ? "fast" : "medium",
+      reversal_frequency: format === "vertical-drama" ? "high" : "medium",
+      cliffhanger_density: format === "vertical-drama" ? "high" : "medium",
+      conflict_fuel: [], taboos: [],
+    },
+    arc_envelope: {
+      max_character_shift_0_10: 6,
+      emotional_amplitude_cap: "high-but-controlled",
+      tone_oscillation_range: format === "vertical-drama" ? "tight" : "moderate",
+      allowed_regression: "limited",
+      relationship_volatility_cap: format === "vertical-drama" ? "medium" : "low",
+      promise_guardrails: [],
+    },
+    continuity_locks: { immutable_facts: [], character_voice_locks: [], theme_locks: [] },
+    acceptance_tests: { must_have: [], must_not_have: [] },
+  };
+  const necPlaintext = `# Narrative Energy Contract\n\n\`\`\`json\n${JSON.stringify(necJson, null, 2)}\n\`\`\`\n\n## Energy Contract\n- Heat Level: ${necJson.energy_contract.heat_level_0_10}/10\n- Escalation: ${necJson.energy_contract.escalation_velocity}\n- Reversals: ${necJson.energy_contract.reversal_frequency}\n- Cliffhangers: ${necJson.energy_contract.cliffhanger_density}\n\n## Arc Envelope\n- Max Character Shift: ${necJson.arc_envelope.max_character_shift_0_10}/10\n- Emotional Cap: ${necJson.arc_envelope.emotional_amplitude_cap}\n- Tone Range: ${necJson.arc_envelope.tone_oscillation_range}\n- Allowed Regression: ${necJson.arc_envelope.allowed_regression}\n`;
+
+  await createVersion(supabase, {
+    documentId: necSlot.documentId,
+    docType: "nec",
+    plaintext: necPlaintext,
+    label: resolverHash ? "auto_regenerated_nec_stale" : "auto_generated_nec",
+    createdBy: job.user_id,
+    approvalStatus: "draft",
+    generatorId: "auto-run-setup",
+    dependsOnResolverHash: resolverHash || undefined,
+    metaJson: { nec_json: necJson, generated_by: "auto-run-prewrite-setup", stale_regen: !!resolverHash },
+    inputsUsed: {
+      project_id: job.project_id,
+      doc_type: "nec",
+      generator_id: "auto-run-setup",
+      job_id: jobId,
+      selected_template_key: resolverHash ? "prewrite_setup_nec_stale_regen" : "prewrite_setup_nec",
+      resolved_prefs_snapshot: { lane: format, format },
+      resolver_hash: resolverHash || null,
+    },
+  });
+  console.log(`[auto-run] ${gateLabel}: ${resolverHash ? 'auto-regenerated stale' : 'auto-generated'} NEC document`);
+}
+
+/**
  * A stage is "satisfied" if:
  *   - a doc of that type exists with a current version
  *   - the current version passes sufficiency checks (no stubs, min chars)
@@ -683,6 +741,8 @@ async function nextUnsatisfiedStage(
   format: string,
   currentStage: string,
   targetStage: string,
+  allowDefaults = false,
+  userId?: string,
 ): Promise<string | null> {
   const ladder = getLadderForJob(format);
   if (!ladder) return null;
@@ -752,7 +812,26 @@ async function nextUnsatisfiedStage(
         const ver = versionByDocId.get(id);
         return ver?.approval_status === "approved";
       });
-      if (!hasApproved) return stage;
+      if (!hasApproved) {
+        if (allowDefaults && userId) {
+          // Full Autopilot: auto-approve the current version so we can proceed
+          for (const docId of docIds) {
+            const { data: curVer } = await supabase.from("project_document_versions")
+              .select("id").eq("document_id", docId).eq("is_current", true).limit(1);
+            if (curVer?.[0]) {
+              await supabase.from("project_document_versions").update({
+                approval_status: "approved",
+                approved_at: new Date().toISOString(),
+                approved_by: userId,
+              }).eq("id", curVer[0].id);
+              console.log(`[auto-run] nextUnsatisfiedStage: auto-approved ${stage} (allow_defaults)`);
+            }
+          }
+          // Stage is now satisfied, continue
+        } else {
+          return stage;
+        }
+      }
     }
   }
 
@@ -2612,7 +2691,7 @@ Deno.serve(async (req) => {
       if (baseChoiceId === "force_promote" && choiceValue === "yes") {
         const { data: fpProj } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
         const fpFmt = (fpProj?.format || "film").toLowerCase().replace(/_/g, "-");
-        const next = await nextUnsatisfiedStage(supabase, job.project_id, fpFmt, currentDoc, job.target_document);
+        const next = await nextUnsatisfiedStage(supabase, job.project_id, fpFmt, currentDoc, job.target_document, job.allow_defaults, job.user_id);
         if (next) {
           await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
             `Force-promoted: ${currentDoc} → ${next}`,
@@ -3033,7 +3112,7 @@ Deno.serve(async (req) => {
       const { data: jobProj } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
       const jobFmt = (jobProj?.format || "film").toLowerCase().replace(/_/g, "-");
       const currentDoc = job.current_document as DocStage;
-      const next = await nextUnsatisfiedStage(supabase, job.project_id, jobFmt, currentDoc, job.target_document);
+      const next = await nextUnsatisfiedStage(supabase, job.project_id, jobFmt, currentDoc, job.target_document, job.allow_defaults, job.user_id);
       if (!next) {
         const stepCount = job.step_count + 1;
         await logStep(supabase, jobId, stepCount, currentDoc, "force_promote", "All stages satisfied up to target");
@@ -3151,7 +3230,7 @@ Deno.serve(async (req) => {
         if (applyPolicy.docClass === "AGGREGATE") {
           await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_skip_advance",
             `AGGREGATE doc "${currentDoc}" is compile-only. Skipping rewrite, advancing to next stage.`);
-          const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+          const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
           if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
             await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0,
               // Clear frontier on stage change — frontier is scoped per document stage
@@ -3432,7 +3511,7 @@ Deno.serve(async (req) => {
         let nextDoc: DocStage = currentDoc;
 
         if (forcePromoteChoice === "yes" || forcePromoteChoice === "force_promote") {
-          const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+          const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
           if (next) {
             nextDoc = next;
           } else {
@@ -3525,7 +3604,7 @@ Deno.serve(async (req) => {
         if (decPolicy.docClass === "AGGREGATE") {
           await logStep(supabase, jobId, stepCount, currentDoc, "aggregate_skip_advance",
             `AGGREGATE doc "${currentDoc}" is compile-only. Skipping rewrite, advancing to next stage.`);
-          const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+          const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
           if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
             await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0,
               // Clear frontier on stage change — frontier is scoped per document stage
@@ -4172,68 +4251,33 @@ Deno.serve(async (req) => {
               if (allowDefaults) {
                 // Auto-generate minimal NEC from canon fields + format
                 try {
-                  const necSlot = await ensureDocSlot(supabase, job.project_id, job.user_id, "nec", {
-                    source: "generated",
-                    docRole: "creative_primary",
-                  });
-                  // Build minimal NEC plaintext from available canon
-                  const { data: freshCanon } = await supabase.from("project_canon")
-                    .select("canon_json").eq("project_id", job.project_id).maybeSingle();
-                  const fc = (freshCanon?.canon_json || {}) as any;
-                  const necJson = {
-                    nec_version: "1.0",
-                    format_profile: { format: format || "unknown" },
-                    energy_contract: {
-                      heat_level_0_10: format === "vertical-drama" ? 7 : 5,
-                      escalation_velocity: format === "vertical-drama" ? "fast" : "medium",
-                      reversal_frequency: format === "vertical-drama" ? "high" : "medium",
-                      cliffhanger_density: format === "vertical-drama" ? "high" : "medium",
-                      conflict_fuel: [],
-                      taboos: [],
-                    },
-                    arc_envelope: {
-                      max_character_shift_0_10: 6,
-                      emotional_amplitude_cap: "high-but-controlled",
-                      tone_oscillation_range: format === "vertical-drama" ? "tight" : "moderate",
-                      allowed_regression: "limited",
-                      relationship_volatility_cap: format === "vertical-drama" ? "medium" : "low",
-                      promise_guardrails: [],
-                    },
-                    continuity_locks: {
-                      immutable_facts: [],
-                      character_voice_locks: [],
-                      theme_locks: [],
-                    },
-                    acceptance_tests: { must_have: [], must_not_have: [] },
-                  };
-                  const necPlaintext = `# Narrative Energy Contract\n\n\`\`\`json\n${JSON.stringify(necJson, null, 2)}\n\`\`\`\n\n## Energy Contract\n- Heat Level: ${necJson.energy_contract.heat_level_0_10}/10\n- Escalation: ${necJson.energy_contract.escalation_velocity}\n- Reversals: ${necJson.energy_contract.reversal_frequency}\n- Cliffhangers: ${necJson.energy_contract.cliffhanger_density}\n\n## Arc Envelope\n- Max Character Shift: ${necJson.arc_envelope.max_character_shift_0_10}/10\n- Emotional Cap: ${necJson.arc_envelope.emotional_amplitude_cap}\n- Tone Range: ${necJson.arc_envelope.tone_oscillation_range}\n- Allowed Regression: ${necJson.arc_envelope.allowed_regression}\n`;
-
-                  await createVersion(supabase, {
-                    documentId: necSlot.documentId,
-                    docType: "nec",
-                    plaintext: necPlaintext,
-                    label: "auto_generated_nec",
-                    createdBy: job.user_id,
-                    approvalStatus: "draft",
-                    generatorId: "auto-run-setup",
-                    metaJson: { nec_json: necJson, generated_by: "auto-run-prewrite-setup" },
-                    inputsUsed: {
-                      project_id: job.project_id,
-                      doc_type: "nec",
-                      generator_id: "auto-run-setup",
-                      job_id: jobId,
-                      selected_template_key: "prewrite_setup_nec",
-                      resolved_prefs_snapshot: { lane: format, format },
-                    },
-                  });
+                  await autoGenerateNEC(supabase, job, jobId, format, gateLabel);
                   setupResolved.push("nec_auto_generated");
-                  console.log(`[auto-run] ${gateLabel}: auto-generated NEC document`, { necJson });
                 } catch (necErr: any) {
                   console.warn(`[auto-run] ${gateLabel}: NEC generation failed`, { error: necErr.message });
                   setupMissing.push("nec");
                 }
               } else {
                 setupMissing.push("nec");
+              }
+            } else if (allowDefaults && resolverHash) {
+              // NEC exists — check if stale (resolver hash mismatch)
+              const { data: necVer } = await supabase.from("project_document_versions")
+                .select("id, depends_on_resolver_hash")
+                .eq("document_id", necDoc.id)
+                .eq("is_current", true)
+                .limit(1)
+                .maybeSingle();
+              const necHash = necVer?.depends_on_resolver_hash || null;
+              if (necHash && necHash !== resolverHash) {
+                console.log(`[auto-run] ${gateLabel}: NEC stale — auto-regenerating (hash ${necHash} → ${resolverHash})`);
+                try {
+                  await autoGenerateNEC(supabase, job, jobId, format, gateLabel, resolverHash);
+                  setupResolved.push("nec_auto_regenerated_stale");
+                } catch (necErr: any) {
+                  console.warn(`[auto-run] ${gateLabel}: NEC stale regen failed (non-fatal)`, { error: necErr.message });
+                  // Non-fatal: existing NEC still usable, just stale
+                }
               }
             }
           }
@@ -5125,7 +5169,7 @@ Deno.serve(async (req) => {
               // If step budget exhausted, the step-limit guard at the top of run-next will catch it
             } else {
               // Converged enough — proceed to promotion normally
-              const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+              const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
               if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
                 if (job.allow_defaults) {
                   // Full Autopilot: auto-approve and promote without pausing
@@ -5227,7 +5271,7 @@ Deno.serve(async (req) => {
                 { ci, gp, gap });
             }
 
-            const nextAfterAggregate = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+            const nextAfterAggregate = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
             if (nextAfterAggregate && isStageAtOrBeforeTarget(nextAfterAggregate, job.target_document, format)) {
               await updateJob(supabase, jobId, {
                 current_document: nextAfterAggregate,
@@ -5972,7 +6016,7 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId, "run-next");
           }
 
-          const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document);
+          const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id);
           if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
             if (job.allow_defaults) {
               // Full Autopilot: auto-approve and promote without pausing

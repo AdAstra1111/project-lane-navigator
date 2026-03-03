@@ -355,7 +355,7 @@ export function AutoRunMissionControl({
 }: AutoRunMissionControlProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [safeMode, setSafeMode] = useState(true);
+  const [safeMode, setSafeMode] = useState(false);
   const [startDocument, setStartDocument] = useState(currentDeliverable as string);
 
   // Document viewer state
