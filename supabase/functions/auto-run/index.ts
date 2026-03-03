@@ -1236,7 +1236,11 @@ function computeCriteriaHashEdge(criteria: Record<string, any>): string {
 
 type CriteriaClassification = 'OK' | 'CRITERIA_STALE_PROVENANCE' | 'CRITERIA_FAIL_DURATION';
 
-/** Doc types where duration seconds is a meaningful deliverable metric. */
+/**
+ * Runtime-bearing doc types where viewer-facing duration is a meaningful metric.
+ * ONLY these may trigger CRITERIA_FAIL_DURATION or duration_repair.
+ * Planning docs (idea, concept_brief, market sheets, beat grids, etc.) are EXCLUDED.
+ */
 const DURATION_ELIGIBLE_DOC_TYPES = new Set([
   'feature_script',
   'episode_script',
@@ -1245,9 +1249,13 @@ const DURATION_ELIGIBLE_DOC_TYPES = new Set([
   'season_master_script',
   'pilot_script',
   'script',
-  'vertical_episode_beats',
-  'episode_beats',
 ]);
+
+/** Canonical check: is this doc type eligible for duration enforcement? */
+function isDurationEligibleDocType(docType: string | null | undefined): boolean {
+  if (!docType) return false;
+  return DURATION_ELIGIBLE_DOC_TYPES.has(docType);
+}
 
 function classifyCriteriaEdge(opts: {
   versionCriteriaHash: string | null;
@@ -1263,9 +1271,9 @@ function classifyCriteriaEdge(opts: {
       && opts.versionCriteriaHash !== opts.currentCriteriaHash) {
     return { classification: 'CRITERIA_STALE_PROVENANCE', detail: `Criteria hash mismatch: ${opts.versionCriteriaHash} vs ${opts.currentCriteriaHash}` };
   }
-  // 2. Duration check — ONLY for runtime-bearing doc types
-  if (opts.docType && !DURATION_ELIGIBLE_DOC_TYPES.has(opts.docType)) {
-    return { classification: 'OK', detail: `Duration check skipped for non-runtime doc type: ${opts.docType}` };
+  // 2. Duration check — ONLY for runtime-bearing doc types (fail-closed: missing docType = skip)
+  if (!isDurationEligibleDocType(opts.docType)) {
+    return { classification: 'OK', detail: `Duration check skipped: docType '${opts.docType ?? 'null'}' is not runtime-bearing` };
   }
   const min = opts.targetMin ?? opts.targetScalar ?? 0;
   const max = opts.targetMax ?? opts.targetScalar ?? Infinity;
@@ -5019,9 +5027,9 @@ Deno.serve(async (req) => {
       
       if (criteriaResult.classification === 'CRITERIA_FAIL_DURATION') {
         // ── Safety brake: never run duration repair on non-runtime doc types ──
-        if (!DURATION_ELIGIBLE_DOC_TYPES.has(currentDoc)) {
+        if (!isDurationEligibleDocType(currentDoc)) {
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "duration_scope_skipped",
-            `Skipped duration criteria/repair for non-duration doc type: ${currentDoc}`,
+            `Skipped duration criteria/repair for non-runtime doc type: ${currentDoc}`,
             { output_ref: { currentDoc, measuredDurationSeconds: measuredDuration, targetMin: latestCriteriaSnapshot.episode_target_duration_min_seconds, targetMax: latestCriteriaSnapshot.episode_target_duration_max_seconds, reason: "NON_DURATION_DOC_TYPE" } },
           );
           await updateJob(supabase, jobId, { step_count: stepCount + 1 });
