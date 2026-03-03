@@ -4823,10 +4823,97 @@ Deno.serve(async (req) => {
           await updateJob(supabase, jobId, { status: "failed", error: `Cannot generate ${currentDoc}: predecessor ${prevStage2} missing` });
           return respondWithJob(supabase, jobId);
         }
+        const { data: prevVersions2 } = await supabase.from("project_document_versions")
+          .select("id")
+          .eq("document_id", prevDoc2.id)
+          .order("version_number", { ascending: false }).limit(1);
+        const prevVersion2 = prevVersions2?.[0];
+        if (!prevVersion2) {
+          const reason = `Cannot generate ${currentDoc}: predecessor ${prevStage2} has no version`;
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "empty_slot_recovery_failed", reason,
+            {}, undefined, {
+              currentDoc,
+              targetDoc: currentDoc,
+              reason,
+              required_inputs_missing: ["predecessor_version"],
+              job_id: jobId,
+              document_id: prevDoc2.id,
+            });
+          await updateJob(supabase, jobId, {
+            status: "paused",
+            pause_reason: "EMPTY_SLOT_RECOVERY_FAILED",
+            stop_reason: reason,
+            error: reason,
+            last_ui_message: reason,
+          });
+          return respondWithJob(supabase, jobId);
+        }
         try {
           const EPISODE_DOC_TYPES_SET2 = new Set(["episode_grid", "vertical_episode_beats", "episode_beats"]);
           const useChunked2 = EPISODE_DOC_TYPES_SET2.has(currentDoc) || isLargeRiskDocType(currentDoc);
-          const { docId: genDocId2, versionId: genVerId2 } = await convertDocument(supabase, { projectId: job.project_id, userId: job.user_id, sourceDocId: prevDoc2.id, targetDocType: currentDoc, mode: job.mode || "balanced", useChunkedGenerator: useChunked2, format, lane, behavior });
+
+          let genDocId2: string | null = null;
+          let genVerId2: string | null = null;
+
+          if (useChunked2) {
+            const genResult2 = await callEdgeFunction(supabaseUrl, "generate-document", {
+              projectId: job.project_id,
+              docType: currentDoc,
+              userId: job.user_id,
+            }, token);
+
+            genDocId2 = genResult2?.documentId || genResult2?.document_id || null;
+            genVerId2 = genResult2?.versionId || genResult2?.version_id || null;
+          } else {
+            const { result: convertResult2 } = await callEdgeFunctionWithRetry(
+              supabase, supabaseUrl, "dev-engine-v2", {
+                action: "convert",
+                projectId: job.project_id,
+                documentId: prevDoc2.id,
+                versionId: prevVersion2.id,
+                targetOutput: currentDoc.toUpperCase(),
+              }, token, job.project_id, format, currentDoc, jobId, stepCount + 1
+            );
+            genDocId2 = convertResult2?.newDoc?.id || convertResult2?.documentId || null;
+          }
+
+          if (!genDocId2) {
+            const { data: newDocs2 } = await supabase.from("project_documents")
+              .select("id")
+              .eq("project_id", job.project_id)
+              .eq("doc_type", currentDoc)
+              .order("created_at", { ascending: false }).limit(1);
+            genDocId2 = newDocs2?.[0]?.id || null;
+          }
+          if (genDocId2 && !genVerId2) {
+            const { data: newVers2 } = await supabase.from("project_document_versions")
+              .select("id")
+              .eq("document_id", genDocId2)
+              .order("version_number", { ascending: false }).limit(1);
+            genVerId2 = newVers2?.[0]?.id || null;
+          }
+
+          if (!genDocId2 || !genVerId2) {
+            const reason = `Empty-slot recovery generated no document/version for ${currentDoc}`;
+            await logStep(supabase, jobId, stepCount + 1, currentDoc, "empty_slot_recovery_failed", reason,
+              {}, undefined, {
+                currentDoc,
+                targetDoc: currentDoc,
+                reason,
+                required_inputs_missing: [!genDocId2 ? "generated_document" : null, !genVerId2 ? "generated_version" : null].filter(Boolean),
+                job_id: jobId,
+                document_id: genDocId2 || prevDoc2.id,
+              });
+            await updateJob(supabase, jobId, {
+              status: "paused",
+              pause_reason: "EMPTY_SLOT_RECOVERY_FAILED",
+              stop_reason: reason,
+              error: reason,
+              last_ui_message: reason,
+            });
+            return respondWithJob(supabase, jobId);
+          }
+
           const ns2 = stepCount + 1;
           await logStep(supabase, jobId, ns2, currentDoc, "generate", `Generated ${currentDoc} from ${prevStage2} (empty-slot recovery)`, {}, genDocId2 ? `Created doc ${genDocId2}` : undefined, genDocId2 ? { docId: genDocId2 } : undefined);
           await updateJob(supabase, jobId, { step_count: ns2, stage_loop_count: 0, stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4 });
@@ -4842,7 +4929,23 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId, "awaiting-approval");
           }
         } catch (e2: any) {
-          await updateJob(supabase, jobId, { status: "failed", error: `Generate failed (empty-slot recovery): ${e2.message}` });
+          const reason = `Generate failed (empty-slot recovery): ${e2.message}`;
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "empty_slot_recovery_failed", reason,
+            {}, undefined, {
+              currentDoc,
+              targetDoc: currentDoc,
+              reason,
+              required_inputs_missing: ["generation_call_failed"],
+              job_id: jobId,
+              document_id: prevDoc2.id,
+            });
+          await updateJob(supabase, jobId, {
+            status: "paused",
+            pause_reason: "EMPTY_SLOT_RECOVERY_FAILED",
+            stop_reason: reason,
+            error: reason,
+            last_ui_message: reason,
+          });
           return respondWithJob(supabase, jobId);
         }
       }

@@ -38,6 +38,17 @@ else
 fi
 
 echo ""
+echo "=== Regression Tripwire: Stale convertDocument reference in auto-run ==="
+HITS5=$(grep -RIn --include='*.ts' -E '\bconvertDocument\b' supabase/functions/auto-run/ | grep -v "node_modules" || true)
+if [ -n "$HITS5" ]; then
+  echo "FAIL: convertDocument referenced in auto-run (must use explicit convert/generate path):"
+  echo "$HITS5"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
 echo "=== Regression Tripwire: Edge functions importing from src/ ==="
 HITS4=$(grep -RIn --include='*.ts' -E "from ['\"].*src/" supabase/functions/ | grep -v "node_modules" || true)
 if [ -n "$HITS4" ]; then
