@@ -2338,7 +2338,7 @@ Deno.serve(async (req) => {
 
       // ── LADDER DOC-SLOT PREFLIGHT: ensure first N ladder stages have doc slots ──
       {
-        const ladder = getLadderForJob(format);
+        const ladder = getLadderForJob(fmt);
         if (ladder && ladder.length > 0) {
           const preflightSlots = ladder.slice(0, Math.min(5, ladder.length));
           const created: string[] = [];
