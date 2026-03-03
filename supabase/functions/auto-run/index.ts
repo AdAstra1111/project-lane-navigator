@@ -1864,6 +1864,77 @@ function tryAutoAcceptDecisions(decisions: NormalizedDecision[], allowDefaults: 
   return selections;
 }
 
+// ── Helper: build accepted decisions bundle from most recent auto_decided step ──
+// Reads decision_objects + selections from the auto_decided step's output_ref.
+// Returns null if no recent auto_decided step exists for this job+document.
+interface AcceptedDecisionBundle {
+  accepted_decisions: { key: string; chosen_id: string; question: string; chosen_text: string }[];
+  accepted_decisions_compact_text: string;
+  accepted_decisions_hash: string;
+  accepted_decisions_keys: string[];
+}
+
+async function buildAcceptedDecisionsBundle(
+  supabase: any, jobId: string, currentDoc: string
+): Promise<AcceptedDecisionBundle | null> {
+  // Find most recent auto_decided step for this job + document
+  const { data: decidedStep } = await supabase
+    .from("auto_run_steps")
+    .select("output_ref")
+    .eq("job_id", jobId)
+    .eq("document", currentDoc)
+    .eq("action", "auto_decided")
+    .order("step_index", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!decidedStep?.output_ref) return null;
+
+  const selections: Record<string, string> = decidedStep.output_ref.selections || {};
+  const decisionObjects: NormalizedDecision[] = decidedStep.output_ref.decision_objects || [];
+
+  if (Object.keys(selections).length === 0) return null;
+
+  // Build the bundle by matching selections to decision objects
+  const accepted: AcceptedDecisionBundle["accepted_decisions"] = [];
+  const sortedKeys = Object.keys(selections).sort();
+
+  for (const key of sortedKeys) {
+    const chosenId = selections[key];
+    const decObj = decisionObjects.find((d: NormalizedDecision) => d.id === key);
+    const chosenOpt = decObj?.options?.find((o: { value: string; why: string }) => o.value === chosenId);
+    accepted.push({
+      key,
+      chosen_id: chosenId,
+      question: decObj?.question || key,
+      chosen_text: chosenOpt?.why || chosenId,
+    });
+  }
+
+  const compactLines = accepted.map((a, i) =>
+    `${i + 1}) [${a.chosen_id}] ${a.question} → FIX: ${a.chosen_text}`
+  );
+
+  // Stable hash: sorted key+chosen_id pairs
+  const hashInput = sortedKeys.map(k => `${k}=${selections[k]}`).join("|");
+  // Simple string hash
+  let hash = 0;
+  for (let i = 0; i < hashInput.length; i++) {
+    const chr = hashInput.charCodeAt(i);
+    hash = ((hash << 5) - hash) + chr;
+    hash |= 0;
+  }
+  const hashStr = Math.abs(hash).toString(36);
+
+  return {
+    accepted_decisions: accepted,
+    accepted_decisions_compact_text: compactLines.join("\n"),
+    accepted_decisions_hash: hashStr,
+    accepted_decisions_keys: sortedKeys.slice(0, 20),
+  };
+}
+
+
 // ── Chunked rewrite pipeline helper ──
 // Falls back to rewrite-plan/rewrite-chunk/rewrite-assemble when a document is too long for single-pass rewrite.
 // Returns { candidateVersionId } from the assemble step's newVersion.
@@ -5117,7 +5188,7 @@ Deno.serve(async (req) => {
               await logStep(supabase, jobId, null, currentDoc, "options_generated",
                 `Generated ${stabiliseDecisions.length} decision sets for ${blockersCount} blockers + ${highImpactCount} high-impact notes`,
                 { ci, gp, gap, readiness: promo.readiness_score },
-                undefined, { optionsRunId, decisions: stabiliseDecisions.length, global_directions: optionsData.global_directions?.length || 0 }
+                undefined, { optionsRunId, decisions: stabiliseDecisions.length, global_directions: optionsData.global_directions?.length || 0, decision_objects: stabiliseDecisions }
               );
 
               const finalDecisions = stabiliseDecisions.length > 0 ? stabiliseDecisions : createFallbackDecisions(currentDoc, ci, gp, "Blockers/high-impact issues");
@@ -5125,7 +5196,7 @@ Deno.serve(async (req) => {
               if (autoSelections) {
                 await logStep(supabase, jobId, null, currentDoc, "auto_decided",
                   `Auto-accepted ${Object.keys(autoSelections).length} stabilise decisions`,
-                  { ci, gp, gap }, undefined, { selections: autoSelections }
+                  { ci, gp, gap }, undefined, { selections: autoSelections, decision_objects: finalDecisions }
                 );
                 // Don't pause — fall through to rewrite
               } else {
@@ -5699,6 +5770,65 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId);
           }
 
+          // ── PATCH 4: STUCK_BLOCKER_LOOP detector for early-stage docs ──
+          const EARLY_STAGE_DOCS = new Set(["idea", "concept_brief"]);
+          if (EARLY_STAGE_DOCS.has(currentDoc) && hasBlockers && newLoopCount >= 3) {
+            // Check if the last 3 auto_decided steps have the same decision hash
+            const { data: recentDecidedSteps } = await supabase
+              .from("auto_run_steps")
+              .select("output_ref")
+              .eq("job_id", jobId)
+              .eq("document", currentDoc)
+              .eq("action", "auto_decided")
+              .order("step_index", { ascending: false })
+              .limit(3);
+            
+            if (recentDecidedSteps && recentDecidedSteps.length >= 3) {
+              const hashes = recentDecidedSteps.map((s: any) => {
+                const sel = s.output_ref?.selections || {};
+                const keys = Object.keys(sel).sort();
+                return keys.map(k => `${k}=${sel[k]}`).join("|");
+              });
+              const allSame = hashes.every((h: string) => h === hashes[0]) && hashes[0].length > 0;
+              if (allSame) {
+                const blockerKeys = Object.keys(recentDecidedSteps[0]?.output_ref?.selections || {}).slice(0, 10);
+                await logStep(supabase, jobId, null, currentDoc, "stuck_blocker_loop",
+                  `STUCK_BLOCKER_LOOP: Same decisions repeated 3+ times for ${currentDoc}. Blocker keys: ${blockerKeys.join(", ")}`,
+                  { ci: baselineCI, gp: baselineGP }, undefined,
+                  { blockersCount, repeating_keys: blockerKeys, loop_count: newLoopCount });
+                await updateJob(supabase, jobId, {
+                  stage_loop_count: newLoopCount,
+                  status: "paused",
+                  pause_reason: `STUCK_BLOCKER_LOOP: repeating blocker keys: ${blockerKeys.join(", ")}`,
+                  stop_reason: `Same blockers repeated 3+ rewrite cycles for ${currentDoc}. Manual intervention required. Blocker keys: ${blockerKeys.join(", ")}`,
+                });
+                return respondWithJob(supabase, jobId);
+              }
+            }
+          }
+
+          // ── PATCH 2: Build accepted decisions bundle and inject into rewrite ──
+          const decisionBundle = await buildAcceptedDecisionsBundle(supabase, jobId, currentDoc);
+          let decisionDirections: string[] = [];
+          if (decisionBundle && decisionBundle.accepted_decisions.length > 0) {
+            decisionDirections = [
+              "CRITICAL — MUST FIX (accepted stabilise decisions):",
+              decisionBundle.accepted_decisions_compact_text,
+              "You MUST apply ALL of the above fixes in this rewrite. Do not ignore them.",
+            ];
+            console.log(`[auto-run] injected_accepted_decisions count=${decisionBundle.accepted_decisions.length} hash=${decisionBundle.accepted_decisions_hash} doc=${currentDoc} job=${jobId}`);
+            await logStep(supabase, jobId, null, currentDoc, "decisions_injected",
+              `Injected ${decisionBundle.accepted_decisions.length} accepted decisions into rewrite (hash=${decisionBundle.accepted_decisions_hash})`,
+              { ci: baselineCI, gp: baselineGP }, undefined, {
+                accepted_decisions_hash: decisionBundle.accepted_decisions_hash,
+                accepted_decisions_count: decisionBundle.accepted_decisions.length,
+                accepted_decisions_keys: decisionBundle.accepted_decisions_keys,
+              }
+            );
+          }
+          // Merge decision directions with strategy directions
+          const mergedDirections = [...decisionDirections, ...strategyDirections];
+
           try {
             // ── FORK PATH: FORK_CONSERVATIVE_AGGRESSIVE ──
             if (strategy === "FORK_CONSERVATIVE_AGGRESSIVE") {
@@ -5721,10 +5851,10 @@ Deno.serve(async (req) => {
               // Generate two candidates in parallel
               const [conservativeResult, aggressiveResult] = await Promise.allSettled([
                 rewriteWithFallback(supabase, supabaseUrl, token,
-                  { ...rewriteBase, globalDirections: forkDirs.conservative },
+                  { ...rewriteBase, globalDirections: [...decisionDirections, ...forkDirs.conservative] },
                   jobId, newStep + 2, format, currentDoc),
                 rewriteWithFallback(supabase, supabaseUrl, token,
-                  { ...rewriteBase, globalDirections: forkDirs.aggressive },
+                  { ...rewriteBase, globalDirections: [...decisionDirections, ...forkDirs.aggressive] },
                   jobId, newStep + 3, format, currentDoc),
               ]);
 
@@ -5857,7 +5987,7 @@ Deno.serve(async (req) => {
                 format,
                 episode_target_duration_seconds: episodeDuration,
                 season_episode_count: seasonEpisodeCount,
-                globalDirections: strategyDirections.length > 0 ? strategyDirections : undefined,
+                globalDirections: mergedDirections.length > 0 ? mergedDirections : undefined,
               }, jobId, newStep + 2, format, currentDoc
             );
 
