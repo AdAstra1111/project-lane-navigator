@@ -1995,6 +1995,41 @@ Deno.serve(async (req) => {
     console.log("[auto-run] auth", { fn: "auto-run", isServiceRole: actor === "service_role", hasActorUserId: !!userId, hasForwardedUserId: !!(body?.userId || body?.user_id), action });
 
     // ═══════════════════════════════════════
+    // ACTION: debug-completion-gate (ADMIN-ONLY, READ-ONLY)
+    // ═══════════════════════════════════════
+    if (action === "debug-completion-gate") {
+      // Gate: service_role or authenticated user with project access
+      if (actor !== "service_role" && !userId) {
+        return respond({ error: "Unauthorized: auth required" }, 401);
+      }
+      const debugProjectId = body.project_id || projectId;
+      const debugTarget = body.target_document || "season_master_script";
+      if (!debugProjectId) return respond({ error: "project_id required" }, 400);
+
+      const { data: proj } = await supabase.from("projects").select("format").eq("id", debugProjectId).single();
+      const fmt = (proj?.format || "film").toLowerCase().replace(/_/g, "-");
+
+      try {
+        const gateResult = await completionGate(supabase, debugProjectId, debugTarget, fmt);
+        return respond({
+          ok: true,
+          project_id: debugProjectId,
+          target_document: debugTarget,
+          format: fmt,
+          gateResult: gateResult || null,
+        });
+      } catch (err: any) {
+        return respond({
+          ok: false,
+          project_id: debugProjectId,
+          target_document: debugTarget,
+          format: fmt,
+          error: err.message,
+        }, 500);
+      }
+    }
+
+    // ═══════════════════════════════════════
     // ACTION: update-step-limit
     // ═══════════════════════════════════════
     if (action === "update-step-limit") {
