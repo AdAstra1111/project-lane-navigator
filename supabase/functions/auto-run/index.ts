@@ -3842,11 +3842,16 @@ Deno.serve(async (req) => {
       const stepCount = job.step_count;
       const stageLoopCount = job.stage_loop_count;
 
+      // Resolve project metadata once per run-next cycle
+      const { data: project } = await supabase.from("projects")
+        .select("title, format, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config, assigned_lane, budget_range, genres")
+        .eq("id", job.project_id).single();
+      const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
+      const behavior = project?.development_behavior || "market";
+
       // PATCH 5: Ladder integrity check in run-next (not just start)
-      const { data: projFmt } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
-      const runFmt = (projFmt?.format || "film").toLowerCase().replace(/_/g, "-");
       {
-        const runLadder = getLadderForJob(runFmt);
+        const runLadder = getLadderForJob(format);
         if (runLadder) {
           const lc = validateLadderIntegrity(runLadder);
           if (!lc.valid) {
@@ -3893,7 +3898,7 @@ Deno.serve(async (req) => {
 
       // ── LADDER DOC-SLOT PREFLIGHT on resume ──
       {
-        const resumeLadder = getLadderForJob(runFmt);
+        const resumeLadder = getLadderForJob(format);
         if (resumeLadder && resumeLadder.length > 0) {
           const preflightSlots = resumeLadder.slice(0, Math.min(5, resumeLadder.length));
           const created: string[] = [];
@@ -3911,7 +3916,7 @@ Deno.serve(async (req) => {
             console.log(`[auto-run] ladder_doc_slots_ensured (resume) created=${created.join(",")}`);
             await logStep(supabase, jobId, null, currentDoc, "doc_slots_ensured",
               `Resume preflight: created ${created.length} ladder doc slots: ${created.join(", ")}`,
-              {}, undefined, { created, format: runFmt });
+              {}, undefined, { created, format });
           }
         }
       }
@@ -4078,11 +4083,7 @@ Deno.serve(async (req) => {
       }
 
       // ── Preflight qualification resolver before every cycle ──
-      const { data: project } = await supabase.from("projects")
-        .select("title, format, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config, assigned_lane, budget_range, genres")
-        .eq("id", job.project_id).single();
-      const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
-      const behavior = project?.development_behavior || "market";
+      // project / format / behavior were resolved earlier in this run-next invocation.
 
       const allowDefaults = job.allow_defaults !== false; // default true for backward compat
       const preflight = await runPreflight(supabase, job.project_id, format, currentDoc, allowDefaults);
