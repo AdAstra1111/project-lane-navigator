@@ -70,6 +70,7 @@ const REGISTRY: Record<string, DocPolicy> = {
   // AGGREGATE docs (compile-only — no LLM rewrites)
   episode_grid:           { docClass: "AGGREGATE", acceptanceProfile: "AGG_PROFILE_DEFAULT" },
   season_master_script:   { docClass: "AGGREGATE", acceptanceProfile: "AGG_PROFILE_DEFAULT" },
+  complete_season_script: { docClass: "AGGREGATE", acceptanceProfile: "AGG_PROFILE_DEFAULT" },
 };
 
 /**
