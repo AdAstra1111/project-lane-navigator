@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { createVersion } from "../_shared/doc-os.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -177,14 +178,25 @@ Deno.serve(async (req) => {
       .single();
 
     if (!docErr && doc) {
-      await supabase.from("project_document_versions").insert({
-        document_id: doc.id,
-        version_number: 1,
-        label: "Initial Idea",
-        plaintext: ideaDocContent,
-        created_by: user.id,
-        change_summary: "Created from idea text entry.",
-      });
+      try {
+        await createVersion(supabase, {
+          documentId: doc.id,
+          docType: "idea",
+          plaintext: ideaDocContent,
+          label: "Initial Idea",
+          createdBy: user.id,
+          changeSummary: "Created from idea text entry.",
+          generatorId: "idea-to-project",
+          inputsUsed: {
+            project_id: projectId,
+            document_id: doc.id,
+            doc_type: "idea",
+            generator_id: "idea-to-project",
+          },
+        });
+      } catch (err: any) {
+        console.error("[idea-to-project] version creation failed:", err?.message);
+      }
     }
 
     return new Response(

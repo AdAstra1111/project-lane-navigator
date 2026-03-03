@@ -8,6 +8,7 @@
  * Returns { doc_id, version_id, path_used, episode_count, sources, skipped, change_log, approved_pack_doc_types }
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { createVersion } from "../_shared/doc-os.ts";
 import { callLLM, MODELS, GATEWAY_URL } from "../_shared/llm.ts";
 
 const corsHeaders = {
@@ -348,56 +349,40 @@ Deno.serve(async (req) => {
       docId = newDoc.id;
     }
 
-    // Next version number
-    const { data: existingVersions } = await sb
-      .from("project_document_versions")
-      .select("version_number")
-      .eq("document_id", docId)
-      .order("version_number", { ascending: false })
-      .limit(1);
-
-    const nextVersion = ((existingVersions?.[0]?.version_number as number) || 0) + 1;
-
-    const { data: newVersion, error: verErr } = await sb
-      .from("project_document_versions")
-      .insert({
+    // Create version via canonical doc-os path
+    const newVersion = await createVersion(sb, {
+      documentId: docId,
+      docType: "complete_season_script",
+      plaintext: masterText,
+      label: `season-package-${pathUsed}`,
+      createdBy: userId,
+      changeSummary: `Complete season script compiled — ${episodes.length} episodes (${pathUsed})`,
+      generatorId: "season-package",
+      inputsUsed: {
+        project_id: project_id,
         document_id: docId,
-        created_by: userId,
-        version_number: nextVersion,
-        plaintext: masterText,
-        status: "draft",
-        change_summary: `Complete season script compiled — ${episodes.length} episodes (${pathUsed})`,
-        inputs_used: {
-          doc_type: "complete_season_script",
-          compiled_at: compiledAt,
-          path_used: pathUsed,
-          use_approved,
-          episode_count: episodes.length,
-          sources_used: sources,
-          skipped,
-          change_log: changeLog,
-          approved_pack_versions: Object.fromEntries(
-            Object.entries(approvedPack).map(([k, v]) => [k, { version_id: v.version_id, approved_at: v.approved_at }])
-          ),
-          format_key_used: format,
-          episode_length_targets_used: { min: durationMin, max: durationMax },
-        },
-      } as any)
-      .select("id")
-      .single();
-    if (verErr) throw new Error(`Failed to save version: ${verErr.message}`);
-
-    // Update doc's latest_version_id
-    await sb
-      .from("project_documents")
-      .update({ latest_version_id: newVersion.id } as any)
-      .eq("id", docId);
+        doc_type: "complete_season_script",
+        generator_id: "season-package",
+        compiled_at: compiledAt,
+        path_used: pathUsed,
+        use_approved,
+        episode_count: episodes.length,
+        sources_used: sources,
+        skipped,
+        change_log: changeLog,
+        approved_pack_versions: Object.fromEntries(
+          Object.entries(approvedPack).map(([k, v]) => [k, { version_id: v.version_id, approved_at: v.approved_at }])
+        ),
+        format_key_used: format,
+        episode_length_targets_used: { min: durationMin, max: durationMax },
+      },
+    });
 
     return new Response(
       JSON.stringify({
         doc_id: docId,
         version_id: newVersion.id,
-        version_number: nextVersion,
+        version_number: newVersion.version_number,
         path_used: pathUsed,
         episode_count: episodes.length,
         sources,
