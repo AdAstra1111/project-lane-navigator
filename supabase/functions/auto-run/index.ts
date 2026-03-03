@@ -96,6 +96,23 @@ const DOC_TYPE_ALIASES: Record<string, string> = STAGE_LADDERS.DOC_TYPE_ALIASES;
 // Flat unique set of all stages (for validation)
 const ALL_STAGES = new Set<string>(Object.values(FORMAT_LADDERS).flat());
 
+// ── Resolve format string to its ladder (with alias / fallback) ──
+function getLadderForJob(format: string): string[] | null {
+  const key = (format || "").toLowerCase().replace(/_/g, "-");
+  if (FORMAT_LADDERS[key]) return FORMAT_LADDERS[key];
+  // Check aliases
+  const aliased = DOC_TYPE_ALIASES[key];
+  if (aliased && FORMAT_LADDERS[aliased]) return FORMAT_LADDERS[aliased];
+  // Fallback: try "film"
+  return FORMAT_LADDERS["film"] ?? null;
+}
+
+// ── Resolve doc-type aliases to canonical names ──
+function canonicalDocType(raw: string): string {
+  const key = (raw || "").toLowerCase().replace(/_/g, "-");
+  return DOC_TYPE_ALIASES[key] || key;
+}
+
 function nextDoc(current: string, format: string): string | null {
   const ladder = getLadderForJob(format);
   if (!ladder) return null;
