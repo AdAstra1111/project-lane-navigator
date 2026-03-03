@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ChunkProgressPanel } from '@/components/documents/ChunkProgressPanel';
 import { StepBudgetControl } from './StepBudgetControl';
+import { VersionCapControl } from './VersionCapControl';
 import { AutoRunProgressInfo } from './AutoRunProgressInfo';
 import { useRegenerateInsufficient, type RegenSummary } from '@/hooks/useRegenerateInsufficient';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
@@ -148,6 +149,8 @@ interface AutoRunMissionControlProps {
   /** Step budget control */
   onUpdateStepLimit: (newLimit: number) => Promise<void>;
   onResumeFromStepLimit: () => Promise<void>;
+  /** Version cap control */
+  onUpdateVersionCap?: (newCap: number) => Promise<void>;
   /** Auto-decide toggle */
   onToggleAllowDefaults?: (val: boolean) => Promise<void>;
   /** Update convergence target */
@@ -347,6 +350,7 @@ export function AutoRunMissionControl({
   onSaveStorySetup, onSaveQualifications, onSaveLaneBudget, onSaveGuardrails,
   fetchDocumentText,
   onUpdateStepLimit, onResumeFromStepLimit,
+  onUpdateVersionCap,
   onToggleAllowDefaults,
   onUpdateTarget,
   onRepairBaseline,
@@ -1236,6 +1240,14 @@ export function AutoRunMissionControl({
                 onContinue={onResumeFromStepLimit}
                 isRunning={isRunning}
               />
+
+              {/* Version Cap Control */}
+              {onUpdateVersionCap && (
+                <VersionCapControl
+                  job={job}
+                  onUpdateCap={onUpdateVersionCap}
+                />
+              )}
 
               {/* Progress Info: elapsed, rate, ETA */}
               <AutoRunProgressInfo

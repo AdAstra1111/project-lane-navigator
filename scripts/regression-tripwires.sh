@@ -81,6 +81,39 @@ else
   echo "PASS"
 fi
 
+echo ""
+echo "=== Regression Tripwire: Hardcoded MAX_VERSIONS_PER_DOC_PER_JOB = 8 ==="
+HITS9=$(grep -rn "MAX_VERSIONS_PER_DOC_PER_JOB\s*=\s*8" supabase/functions/ --include="*.ts" | grep -v "node_modules" || true)
+if [ -n "$HITS9" ]; then
+  echo "FAIL: Hardcoded cap of 8 found (must use per-job configurable cap with default 60):"
+  echo "$HITS9"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: Version cap must be job-scoped (gte created_at) ==="
+HITS10=$(grep -rn "rewrite_cap_reached" supabase/functions/auto-run/index.ts | grep -v "gte.*created_at" | grep -v "job-scoped" | head -1 || true)
+# Just verify the .gte filter exists near version cap logic
+HITS11=$(grep -c "\.gte.*created_at.*job\.created_at" supabase/functions/auto-run/index.ts || echo "0")
+if [ "$HITS11" = "0" ]; then
+  echo "FAIL: Version cap counting must be job-scoped (.gte created_at) but no gte filter found"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: UI start payload must include max_versions_per_doc_per_job ==="
+HITS12=$(grep -c "max_versions_per_doc_per_job" src/hooks/useAutoRunMissionControl.ts || echo "0")
+if [ "$HITS12" = "0" ]; then
+  echo "FAIL: useAutoRunMissionControl must pass max_versions_per_doc_per_job in start payload"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."

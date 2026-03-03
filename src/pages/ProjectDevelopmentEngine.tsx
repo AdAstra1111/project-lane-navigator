@@ -2042,6 +2042,7 @@ export default function ProjectDevelopmentEngine() {
                 onUpdateStepLimit={autoRun.updateStepLimit}
                 onResumeFromStepLimit={autoRun.resumeFromStepLimit}
                 onToggleAllowDefaults={autoRun.toggleAllowDefaults}
+                onUpdateVersionCap={autoRun.updateVersionCap}
                 onUpdateTarget={autoRun.updateTarget}
                 onRepairBaseline={autoRun.repairBaseline}
                 latestAnalysis={latestAnalysis}

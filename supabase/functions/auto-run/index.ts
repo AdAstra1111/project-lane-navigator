@@ -148,7 +148,18 @@ const DOC_TYPE_ALIASES: Record<string, string> = STAGE_LADDERS.DOC_TYPE_ALIASES;
 const ALL_STAGES = new Set<string>(Object.values(FORMAT_LADDERS).flat());
 
 // ── IEL: Version cap per doc_type per job (prevents runaway same-stage loops) ──
-const MAX_VERSIONS_PER_DOC_PER_JOB = 8;
+// Fallback only — per-job value from auto_run_jobs.max_versions_per_doc_per_job takes precedence
+const DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB = 60;
+const MIN_VERSION_CAP = 10;
+const MAX_VERSION_CAP = 300;
+
+function getEffectiveVersionCap(job: any): number {
+  const raw = job?.max_versions_per_doc_per_job;
+  if (typeof raw === "number" && raw > 0) {
+    return Math.max(MIN_VERSION_CAP, Math.min(MAX_VERSION_CAP, raw));
+  }
+  return DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB;
+}
 
 // ── IEL: Validate and correct target_document against ladder + deprecated guard ──
 function ielValidateTarget(rawTarget: string, format: string): { target: string; corrected: boolean; log: string | null } {
@@ -2234,6 +2245,22 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════
+    // ACTION: update-version-cap
+    // ═══════════════════════════════════════
+    if (action === "update-version-cap") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const rawCap = Number(body.max_versions_per_doc_per_job);
+      if (!rawCap || isNaN(rawCap)) return respond({ error: "max_versions_per_doc_per_job must be a number" }, 400);
+      const clamped = Math.max(MIN_VERSION_CAP, Math.min(MAX_VERSION_CAP, rawCap));
+      const { error: updErr } = await supabase.from("auto_run_jobs")
+        .update({ max_versions_per_doc_per_job: clamped } as any)
+        .eq("id", jobId).eq("user_id", userId);
+      if (updErr) return respond({ error: updErr.message }, 500);
+      console.log(`[IEL] Version cap updated for job ${jobId}: ${clamped} (requested: ${rawCap})`);
+      return respondWithJob(supabase, jobId, "none");
+    }
+
+    // ═══════════════════════════════════════
     if (action === "status") {
       const query = jobId
         ? supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).maybeSingle()
@@ -2357,6 +2384,9 @@ Deno.serve(async (req) => {
         max_total_steps: effectiveMaxSteps,
         converge_target_json: body.converge_target_json || { ci: 100, gp: 100 },
         allow_defaults: body.allow_defaults === true,
+        max_versions_per_doc_per_job: typeof body.max_versions_per_doc_per_job === "number"
+          ? Math.max(MIN_VERSION_CAP, Math.min(MAX_VERSION_CAP, body.max_versions_per_doc_per_job))
+          : DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB,
       }).select("*").single();
 
       if (error) throw new Error(`Failed to create job: ${error.message}`);
@@ -3910,26 +3940,30 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ── IEL: Version cap guard — prevent runaway same-stage rewrites ──
+      // ── IEL: Version cap guard — prevent runaway same-stage rewrites (job-scoped) ──
       {
+        const effectiveCap = getEffectiveVersionCap(job);
         const { data: docForCap } = await supabase.from("project_documents")
           .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
           .order("created_at", { ascending: false }).limit(1).maybeSingle();
         if (docForCap) {
+          // Job-scoped counting: only versions created since this job started
           const { count: versionCount } = await supabase.from("project_document_versions")
             .select("id", { count: "exact", head: true })
-            .eq("document_id", docForCap.id);
-          if (typeof versionCount === "number" && versionCount >= MAX_VERSIONS_PER_DOC_PER_JOB) {
-            console.warn(`[IEL] Version cap reached for ${currentDoc}: ${versionCount} >= ${MAX_VERSIONS_PER_DOC_PER_JOB}`);
+            .eq("document_id", docForCap.id)
+            .gte("created_at", job.created_at);
+          console.log(`[IEL] Version cap check for ${currentDoc}: ${versionCount} job-scoped versions, cap=${effectiveCap} (job.created_at=${job.created_at})`);
+          if (typeof versionCount === "number" && versionCount >= effectiveCap) {
+            console.warn(`[IEL] Version cap reached for ${currentDoc}: ${versionCount} >= ${effectiveCap} (job-scoped since ${job.created_at})`);
             await finalizeBest(supabase, jobId, job, docForCap.id);
             await updateJob(supabase, jobId, {
               status: "paused",
               stop_reason: "rewrite_cap_reached",
               pause_reason: "rewrite_cap_reached",
-              error: `Version cap (${MAX_VERSIONS_PER_DOC_PER_JOB}) reached for ${currentDoc} — ${versionCount} versions exist. Promote best and advance manually.`,
+              error: `Paused: ${versionCount} versions for ${currentDoc} created since job start (${job.created_at}) exceed cap of ${effectiveCap} (configured via Mission Control).`,
             });
             await logStep(supabase, jobId, stepCount + 1, currentDoc, "rewrite_cap_reached",
-              `Paused: ${versionCount} versions for ${currentDoc} exceed cap of ${MAX_VERSIONS_PER_DOC_PER_JOB}`);
+              `Paused: ${versionCount} job-scoped versions for ${currentDoc} exceed cap of ${effectiveCap}`);
             await releaseProcessingLock(supabase, jobId);
             return respondWithJob(supabase, jobId);
           }
