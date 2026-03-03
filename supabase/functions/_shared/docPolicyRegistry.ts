@@ -57,6 +57,9 @@ const REGISTRY: Record<string, DocPolicy> = {
   documentary_outline: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   vertical_episode_beats: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   vertical_market_sheet: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  // PATCH 1: season_script + episode_beats — previously missing, caused DOC_TYPE_UNREGISTERED halts
+  season_script:    { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  episode_beats:    { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   // Seed / support doc types that auto-run may encounter
   project_overview: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   creative_brief:   { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
@@ -113,4 +116,84 @@ export function getMaxFrontierAttempts(docType: string): number {
   const policy = requireDocPolicy(docType);
   const profile = ACCEPTANCE_PROFILES[policy.acceptanceProfile];
   return profile?.maxFrontierAttempts ?? 3;
+}
+
+/**
+ * PATCH 1b: Ladder integrity validator.
+ * Validates all doc_types in a format ladder are registered in the policy registry.
+ * Returns { valid: true } or { valid: false, missing: string[] }.
+ */
+export function validateLadderIntegrity(ladder: string[]): { valid: boolean; missing: string[] } {
+  const missing: string[] = [];
+  for (const docType of ladder) {
+    if (!REGISTRY[docType]) {
+      missing.push(docType);
+    }
+  }
+  return { valid: missing.length === 0, missing };
+}
+
+/**
+ * PATCH 4: Deterministic canon alignment validator.
+ * Validates generated content contains expected entities from canon sources.
+ * Returns { pass: boolean, entityCoverage: number, foreignEntities: string[] }.
+ */
+export function validateCanonAlignment(
+  generatedText: string,
+  canonEntities: string[],
+  opts: { minCoverage?: number; maxForeignRatio?: number } = {}
+): { pass: boolean; entityCoverage: number; matchedEntities: string[]; missingEntities: string[]; foreignEntities: string[]; reason?: string } {
+  const minCoverage = opts.minCoverage ?? 0.6;
+  const maxForeignRatio = opts.maxForeignRatio ?? 0.5;
+
+  if (!canonEntities.length) {
+    return { pass: true, entityCoverage: 1, matchedEntities: [], missingEntities: [], foreignEntities: [], reason: "no_canon_entities" };
+  }
+
+  const textLower = generatedText.toLowerCase();
+  const matched: string[] = [];
+  const missing: string[] = [];
+
+  for (const entity of canonEntities) {
+    if (!entity || entity.length < 2) continue;
+    if (textLower.includes(entity.toLowerCase())) {
+      matched.push(entity);
+    } else {
+      missing.push(entity);
+    }
+  }
+
+  const coverage = matched.length / canonEntities.length;
+
+  // Extract capitalized multi-word names from generated text (simple heuristic)
+  const namePattern = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/g;
+  const foundNames = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = namePattern.exec(generatedText)) !== null) {
+    foundNames.add(match[0]);
+  }
+
+  // Filter out canon entities to find foreign ones
+  const canonLower = new Set(canonEntities.map(e => e.toLowerCase()));
+  const foreign: string[] = [];
+  for (const name of foundNames) {
+    if (!canonLower.has(name.toLowerCase())) {
+      foreign.push(name);
+    }
+  }
+
+  const foreignRatio = foundNames.size > 0 ? foreign.length / foundNames.size : 0;
+
+  const pass = coverage >= minCoverage && foreignRatio <= maxForeignRatio;
+
+  return {
+    pass,
+    entityCoverage: Math.round(coverage * 100) / 100,
+    matchedEntities: matched,
+    missingEntities: missing,
+    foreignEntities: foreign,
+    reason: !pass
+      ? (coverage < minCoverage ? `entity_coverage_${Math.round(coverage * 100)}%_below_${Math.round(minCoverage * 100)}%` : `foreign_entity_ratio_${Math.round(foreignRatio * 100)}%_above_${Math.round(maxForeignRatio * 100)}%`)
+      : undefined,
+  };
 }
