@@ -229,6 +229,7 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
     baseline_missing_no_text: 'bg-destructive/15 text-destructive border-destructive/30',
     baseline_repaired: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
     baseline_seeded: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    baseline_reanchored_to_best: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
     aggregate_compile_skipped: 'bg-muted text-muted-foreground',
     aggregate_skip_advance: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
     gate_decision: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
@@ -236,9 +237,11 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
     rewrite_accepted: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
     rewrite_rejected_regression: 'bg-destructive/15 text-destructive border-destructive/30',
     frontier_set: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    stale_document_detected: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
     criteria_stale_provenance: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
     criteria_fail_duration_exhausted: 'bg-destructive/15 text-destructive border-destructive/30',
     duration_repair_attempt: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    duration_scope_skipped: 'bg-muted text-muted-foreground',
   };
 
   return (
@@ -275,7 +278,7 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
                    step.action === 'duration_repair_attempt' ? '⏱ duration repair' :
                    step.action
                 }</Badge>
-                <Badge variant="outline" className="text-[8px] px-1 py-0">{LADDER_LABELS[step.document] || step.document}</Badge>
+                <Badge variant="outline" className="text-[8px] px-1 py-0">{docLabel(step.document)}</Badge>
                 {/* Blocker count badge from output_ref */}
                 {(() => {
                   const ref = step.output_ref as any;
@@ -1013,7 +1016,7 @@ export function AutoRunMissionControl({
                     ? 'bg-emerald-500/15 text-emerald-400'
                     : 'bg-muted/40 text-muted-foreground'
                 }`}>
-                  {LADDER_LABELS[stage] || stage}
+                  {docLabel(stage)}
                 </span>
               ))}
             </div>
@@ -1043,7 +1046,7 @@ export function AutoRunMissionControl({
               <div className="space-y-1">
                 {regenDryRunItems.map(r => (
                   <div key={r.doc_type} className="flex items-center justify-between text-[10px]">
-                    <span className="font-medium">{LADDER_LABELS[r.doc_type] || r.doc_type.replace(/_/g, ' ')}</span>
+                    <span className="font-medium">{docLabel(r.doc_type)}</span>
                     <Badge variant="outline" className="text-[8px] px-1 py-0 bg-destructive/10 text-destructive border-destructive/30">
                       {r.reason.replace(/_/g, ' ')}
                     </Badge>
@@ -1070,7 +1073,7 @@ export function AutoRunMissionControl({
               </div>
               {regenAppliedItems.map(r => (
                 <div key={r.doc_type} className="flex items-center justify-between text-[10px]">
-                  <span>{LADDER_LABELS[r.doc_type] || r.doc_type.replace(/_/g, ' ')}</span>
+                  <span>{docLabel(r.doc_type)}</span>
                   <span className="text-muted-foreground">{r.char_after.toLocaleString()} chars</span>
                 </div>
               ))}
@@ -1089,7 +1092,7 @@ export function AutoRunMissionControl({
             <Rocket className="h-3.5 w-3.5 text-primary" />
             Run to Perfect Package
             <Badge variant="outline" className="text-[8px] px-1 py-0 ml-auto bg-primary/10 text-primary border-primary/30">
-              → {LADDER_LABELS[finalStage] || finalStage}
+              → {docLabel(finalStage)}
             </Badge>
           </Button>
 
@@ -1156,8 +1159,8 @@ export function AutoRunMissionControl({
                     <SelectItem key={doc.id} value={doc.doc_type}>
                       <span className="flex items-center gap-1.5">
                         <FileText className="h-3 w-3 shrink-0" />
-                        {doc.title || LADDER_LABELS[doc.doc_type] || doc.doc_type}
-                        <Badge variant="outline" className="text-[8px] px-1 py-0 ml-1">{LADDER_LABELS[doc.doc_type] || doc.doc_type}</Badge>
+                        {doc.title || docLabel(doc.doc_type)}
+                        <Badge variant="outline" className="text-[8px] px-1 py-0 ml-1">{docLabel(doc.doc_type)}</Badge>
                       </span>
                     </SelectItem>
                   ))}
@@ -1283,10 +1286,10 @@ export function AutoRunMissionControl({
               {/* Stage info + pipeline progress */}
               <div className="flex items-center gap-2 flex-wrap">
                 <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/30">
-                  {LADDER_LABELS[job.current_document] || job.current_document}
+                  {docLabel(job.current_document)}
                 </Badge>
                 <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[9px] text-muted-foreground">{LADDER_LABELS[job.target_document] || job.target_document}</span>
+                <span className="text-[9px] text-muted-foreground">{docLabel(job.target_document)}</span>
                 <span className="text-[9px] ml-auto font-medium">{pipelineProgress.satisfied}/{pipelineProgress.total} stages</span>
               </div>
 
@@ -1647,10 +1650,10 @@ export function AutoRunMissionControl({
                     <h3 className="text-sm font-semibold">Approval Required</h3>
                     <p className="text-[11px] text-muted-foreground">
                       {job.approval_type === 'convert'
-                        ? `Review the newly generated ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before continuing.`
+                        ? `Review the newly generated ${docLabel(job.pending_doc_type)} before continuing.`
                         : job.pending_next_doc_type === 'series_writer'
-                          ? `Review ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before entering Series Writer.`
-                          : `Review ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before promoting to ${LADDER_LABELS[job.pending_next_doc_type || ''] || job.pending_next_doc_type || 'Next Step'}.`
+                          ? `Review ${docLabel(job.pending_doc_type)} before entering Series Writer.`
+                          : `Review ${docLabel(job.pending_doc_type)} before promoting to ${docLabel(job.pending_next_doc_type)}.`
                       }
                     </p>
                   </div>
