@@ -7,6 +7,13 @@ import {
   ArrowRight, Loader2, ListOrdered, AlertTriangle, RefreshCcw,
 } from 'lucide-react';
 import type { AutoRunJob, AutoRunStep } from '@/hooks/useAutoRun';
+import { ALL_DOC_TYPE_LABELS } from '@/lib/can-promote-to-script';
+
+/** Deterministic label: canonical registry → snake_case Title Case fallback. Never returns undefined. */
+function docLabel(key: string | null | undefined): string {
+  if (!key) return 'Document';
+  return ALL_DOC_TYPE_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
 
 const STATUS_STYLES: Record<string, string> = {
   running: 'bg-primary/15 text-primary border-primary/30',
@@ -14,11 +21,6 @@ const STATUS_STYLES: Record<string, string> = {
   stopped: 'bg-muted text-muted-foreground border-border',
   failed: 'bg-destructive/15 text-destructive border-destructive/30',
   completed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-};
-
-const DOC_LABELS: Record<string, string> = {
-  idea: 'Idea', concept_brief: 'Concept Brief', blueprint: 'Blueprint',
-  architecture: 'Architecture', draft: 'Draft', coverage: 'Coverage',
 };
 
 interface Props {
@@ -120,9 +122,9 @@ export function AutoRunBanner({
       {/* Row 2: Context */}
       <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-muted-foreground">
         <span>
-          Stage: <span className="text-foreground font-medium">{DOC_LABELS[job.current_document] || job.current_document}</span>
+          Stage: <span className="text-foreground font-medium">{docLabel(job.current_document)}</span>
           {' → '}
-          <span className="text-foreground font-medium">{DOC_LABELS[job.target_document] || job.target_document}</span>
+          <span className="text-foreground font-medium">{docLabel(job.target_document)}</span>
         </span>
         {reason !== '—' && (
           <span className="text-amber-400">
@@ -134,7 +136,7 @@ export function AutoRunBanner({
       {/* Row 3: Review context (trace) */}
       {traceDocId && (
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
-          <span>Reviewing: <span className="text-foreground font-medium">{DOC_LABELS[job.current_document] || job.current_document}</span></span>
+          <span>Reviewing: <span className="text-foreground font-medium">{docLabel(job.current_document)}</span></span>
           <span className="font-mono text-[9px]">{traceDocId?.slice(0, 8)}…</span>
           {traceVersionId && <span className="font-mono text-[9px]">v:{traceVersionId.slice(0, 8)}…</span>}
           {traceTextLen != null && <span>{traceTextLen.toLocaleString()} chars</span>}
@@ -264,7 +266,7 @@ export function AutoRunBanner({
               {last10.map((s) => (
                 <div key={s.id} className="flex items-center gap-2 text-[9px] text-muted-foreground py-0.5 px-1 rounded bg-muted/30">
                   <span className="font-mono text-[8px] text-muted-foreground/60">#{s.step_index}</span>
-                  <Badge variant="outline" className="text-[7px] px-1 py-0">{s.document}</Badge>
+                  <Badge variant="outline" className="text-[7px] px-1 py-0">{docLabel(s.document)}</Badge>
                   <span className="truncate flex-1">{s.action}{s.summary ? ` — ${s.summary}` : ''}</span>
                   {s.ci != null && <span className="shrink-0">CI:{s.ci}</span>}
                 </div>

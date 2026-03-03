@@ -10,17 +10,14 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import type { AutoRunJob, AutoRunStep, PendingDecision } from '@/hooks/useAutoRun';
 import type { DeliverableType } from '@/lib/dev-os-config';
 import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
+import { ALL_DOC_TYPE_LABELS } from '@/lib/can-promote-to-script';
 
-const LADDER_LABELS: Record<string, string> = {
-  idea: 'Idea',
-  concept_brief: 'Concept Brief',
-  blueprint: 'Blueprint',
-  architecture: 'Architecture',
-  draft: 'Draft',
-  coverage: 'Coverage',
-  series_writer: 'Series Writer',
-  writers_room: "Writer's Room",
-};
+/** Deterministic label: canonical registry → snake_case Title Case fallback. Never returns undefined. */
+function docLabel(key: string | null | undefined): string {
+  if (!key) return 'Document';
+  return ALL_DOC_TYPE_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+const LADDER_LABELS = ALL_DOC_TYPE_LABELS;
 
 const STATUS_STYLES: Record<string, { color: string; icon: typeof Play }> = {
   running: { color: 'bg-primary/10 text-primary border-primary/30', icon: Loader2 },
