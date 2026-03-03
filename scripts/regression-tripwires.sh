@@ -166,6 +166,36 @@ if [ "$HITS17" = "0" ]; then
 else
   echo "PASS"
 fi
+echo ""
+echo "=== Regression Tripwire: Canon-lock must not force exhaustive entity inclusion ==="
+HITS18=$(grep -n "Every named character.*must appear" supabase/functions/auto-run/index.ts || true)
+if [ -n "$HITS18" ]; then
+  echo "FAIL: Canon-lock directive forces exhaustive inclusion (must use core/secondary language):"
+  echo "$HITS18"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: normalizeCanonEntities helper must exist ==="
+HITS19=$(grep -c "function normalizeCanonEntities" supabase/functions/auto-run/index.ts || echo "0")
+if [ "$HITS19" = "0" ]; then
+  echo "FAIL: normalizeCanonEntities helper missing from auto-run/index.ts"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: canon_lock_attempt_id must be logged ==="
+HITS20=$(grep -c "canon_lock_attempt_id" supabase/functions/auto-run/index.ts || echo "0")
+if [ "$HITS20" = "0" ]; then
+  echo "FAIL: canon_lock_attempt_id not present in auto-run (must track retry attempts)"
+  FAIL=1
+else
+  echo "PASS"
+fi
 
 if [ "$FAIL" -ne 0 ]; then
   echo ""
