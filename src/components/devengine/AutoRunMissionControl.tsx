@@ -34,17 +34,14 @@ import type { DeliverableType } from '@/lib/dev-os-config';
 import { AUTO_RUN_EXECUTION_MODE, EXECUTION_MODE_LABEL } from '@/lib/autoRunConfig';
 
 // ── Constants ──
-const LADDER_LABELS: Record<string, string> = {
-  idea: 'Idea', topline_narrative: 'Topline', concept_brief: 'Concept Brief',
-  market_sheet: 'Market Sheet', vertical_market_sheet: 'Market Sheet (Vertical)',
-  blueprint: 'Blueprint', architecture: 'Architecture',
-  character_bible: 'Character Bible', beat_sheet: 'Beat Sheet',
-  script: 'Script', production_draft: 'Production Draft', deck: 'Deck',
-  format_rules: 'Format Rules', season_arc: 'Season Arc',
-  episode_grid: 'Episode Grid', vertical_episode_beats: 'Episode Beats',
-  documentary_outline: 'Doc Outline',
-  series_writer: 'Series Writer', writers_room: "Writer's Room",
-};
+import { ALL_DOC_TYPE_LABELS } from '@/lib/can-promote-to-script';
+
+/** Deterministic label: canonical registry → snake_case Title Case fallback. Never returns undefined. */
+function docLabel(key: string | null | undefined): string {
+  if (!key) return 'Document';
+  return ALL_DOC_TYPE_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+const LADDER_LABELS = ALL_DOC_TYPE_LABELS;
 const LADDER_OPTIONS = [
   'idea','topline_narrative','concept_brief','market_sheet','blueprint',
   'architecture','character_bible','beat_sheet','script','production_draft',
