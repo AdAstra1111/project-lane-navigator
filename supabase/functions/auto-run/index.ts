@@ -3843,9 +3843,9 @@ Deno.serve(async (req) => {
       const stageLoopCount = job.stage_loop_count;
 
       // PATCH 5: Ladder integrity check in run-next (not just start)
+      const { data: projFmt } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
+      const runFmt = (projFmt?.format || "film").toLowerCase().replace(/_/g, "-");
       {
-        const { data: projFmt } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
-        const runFmt = (projFmt?.format || "film").toLowerCase().replace(/_/g, "-");
         const runLadder = getLadderForJob(runFmt);
         if (runLadder) {
           const lc = validateLadderIntegrity(runLadder);
