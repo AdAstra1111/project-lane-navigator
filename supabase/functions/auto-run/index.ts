@@ -4673,7 +4673,8 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
         try {
-          const useChunked2 = CHUNKED_DOC_TYPES.includes(currentDoc);
+          const EPISODE_DOC_TYPES_SET2 = new Set(["episode_grid", "vertical_episode_beats", "episode_beats"]);
+          const useChunked2 = EPISODE_DOC_TYPES_SET2.has(currentDoc) || isLargeRiskDocType(currentDoc);
           const { docId: genDocId2, versionId: genVerId2 } = await convertDocument(supabase, { projectId: job.project_id, userId: job.user_id, sourceDocId: prevDoc2.id, targetDocType: currentDoc, mode: job.mode || "balanced", useChunkedGenerator: useChunked2, format, lane, behavior });
           const ns2 = stepCount + 1;
           await logStep(supabase, jobId, ns2, currentDoc, "generate", `Generated ${currentDoc} from ${prevStage2} (empty-slot recovery)`, {}, genDocId2 ? `Created doc ${genDocId2}` : undefined, genDocId2 ? { docId: genDocId2 } : undefined);

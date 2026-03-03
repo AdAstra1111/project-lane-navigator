@@ -26,6 +26,28 @@ else
   echo "PASS"
 fi
 
+echo ""
+echo "=== Regression Tripwire: Stale CHUNKED_DOC_TYPES in edge functions ==="
+HITS3=$(grep -RIn --include='*.ts' -E '\bCHUNKED_DOC_TYPES\b' supabase/functions/ | grep -v "node_modules" || true)
+if [ -n "$HITS3" ]; then
+  echo "FAIL: CHUNKED_DOC_TYPES referenced in edge (must use isLargeRiskDocType):"
+  echo "$HITS3"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: Edge functions importing from src/ ==="
+HITS4=$(grep -RIn --include='*.ts' -E "from ['\"].*src/" supabase/functions/ | grep -v "node_modules" || true)
+if [ -n "$HITS4" ]; then
+  echo "FAIL: Edge function imports from src/ (cross-boundary import):"
+  echo "$HITS4"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."
