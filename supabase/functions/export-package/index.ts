@@ -7,6 +7,7 @@
  * scope: "approved_preferred" | "approved_only" | "latest_only"
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
 // @deno-types="npm:@types/jszip"
 import JSZip from "npm:jszip@3";
 
@@ -16,22 +17,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Canonical ladder per format — mirrors stage-ladders.json
-const FORMAT_LADDERS: Record<string, string[]> = {
-  film: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","feature_script","production_draft","deck"],
-  feature: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","feature_script","production_draft","deck"],
-  "tv-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","episode_script","season_master_script","production_draft"],
-  "limited-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","episode_script","season_master_script","production_draft"],
-  "digital-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","episode_script","season_master_script","production_draft"],
-  "vertical-drama": ["idea","topline_narrative","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","season_script"],
-  documentary: ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
-  "documentary-series": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
-  "hybrid-documentary": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","blueprint","deck"],
-  short: ["idea","topline_narrative","concept_brief","feature_script"],
-  animation: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","character_bible","beat_sheet","feature_script"],
-  "anim-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","episode_script","season_master_script","production_draft"],
-  reality: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","beat_sheet","episode_script"],
-};
+// Canonical ladder per format — imported from single source of truth
+const FORMAT_LADDERS: Record<string, string[]> = STAGE_LADDERS.FORMAT_LADDERS;
 
 function getLadder(format: string): string[] {
   const key = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, "-");

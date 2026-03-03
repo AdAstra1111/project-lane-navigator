@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
 import { composeSystem } from "../_shared/llm.ts";
@@ -1159,22 +1160,8 @@ const FORMAT_EXPECTATIONS: Record<string, string> = {
 // STANDARDIZED OUTPUT SCHEMA (v3)
 // ═══════════════════════════════════════════════════════════════
 
-// ── Format-specific document ladders ──
-const FORMAT_LADDERS: Record<string, string[]> = {
-  "vertical-drama": ["idea", "topline_narrative", "concept_brief", "vertical_market_sheet", "format_rules", "character_bible", "season_arc", "episode_grid", "vertical_episode_beats", "season_script", "season_master_script"],
-  "tv-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "episode_script", "production_draft"],
-  "limited-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "episode_script", "production_draft"],
-  "digital-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "episode_script", "production_draft"],
-  "film": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "feature_script", "production_draft", "deck"],
-  "feature": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "feature_script", "production_draft", "deck"],
-  "documentary": ["idea", "topline_narrative", "concept_brief", "market_sheet", "documentary_outline", "deck"],
-  "documentary-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "documentary_outline", "deck"],
-  "hybrid-documentary": ["idea", "topline_narrative", "concept_brief", "market_sheet", "documentary_outline", "blueprint", "deck"],
-  "short": ["idea", "topline_narrative", "concept_brief", "feature_script"],
-  "animation": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "character_bible", "beat_sheet", "feature_script"],
-  "anim-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "episode_script", "season_master_script", "production_draft"],
-  "reality": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "beat_sheet", "episode_script"],
-};
+// ── Format-specific document ladders (CANONICAL — imported from _shared/stage-ladders.ts) ──
+const FORMAT_LADDERS: Record<string, string[]> = STAGE_LADDERS.FORMAT_LADDERS;
 
 function getLadderForFormat(format: string): string[] | null {
   const key = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, '-');
