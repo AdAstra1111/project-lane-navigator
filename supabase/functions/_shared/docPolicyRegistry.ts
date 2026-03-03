@@ -174,13 +174,33 @@ export function validateCanonAlignment(
     foundNames.add(match[0]);
   }
 
-  // Filter out canon entities to find foreign ones
+  // Common structural/generic phrases that are NOT character names
+  const GENERIC_PHRASES = new Set([
+    "the hook", "the conflict", "the stakes", "the resolution", "the climax",
+    "the premise", "the concept", "the logline", "the theme", "the tone",
+    "the world", "the setting", "the format", "the audience", "the market",
+    "the vertical experience", "the memory fold", "the inciting incident",
+    "the midpoint", "the turning point", "the denouement", "the epilogue",
+    "act one", "act two", "act three", "cold open", "the reveal",
+    "as akari", "but kaito", "crimson crane", // contextual phrase fragments
+  ]);
+
+  // Filter out canon entities and generic phrases to find truly foreign ones
   const canonLower = new Set(canonEntities.map(e => e.toLowerCase()));
   const foreign: string[] = [];
   for (const name of foundNames) {
-    if (!canonLower.has(name.toLowerCase())) {
-      foreign.push(name);
+    const lower = name.toLowerCase();
+    if (canonLower.has(lower)) continue;
+    if (GENERIC_PHRASES.has(lower)) continue;
+    // Skip phrases starting with common articles/prepositions that indicate structural text
+    if (/^(The|A|An|In|On|At|By|For|With|From|But|And|Or|As|To)\s/i.test(name) && name.split(/\s+/).length <= 3) continue;
+    // Skip if any canon entity is a substring match
+    let partialMatch = false;
+    for (const ce of canonLower) {
+      if (lower.includes(ce) || ce.includes(lower)) { partialMatch = true; break; }
     }
+    if (partialMatch) continue;
+    foreign.push(name);
   }
 
   const foreignRatio = foundNames.size > 0 ? foreign.length / foundNames.size : 0;

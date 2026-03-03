@@ -210,6 +210,8 @@ const SYSTEM_GENERATOR_IDS = new Set([
 const CANON_ALIGNMENT_EXEMPT = new Set([
   "canon", "nec", "format_rules", "project_overview", "creative_brief", "market_positioning",
   "episode_grid", "season_master_script", "complete_season_script",
+  // Early-ladder & foundational docs (canon is still forming at these stages)
+  "idea", "concept_brief", "vertical_market_sheet", "market_sheet",
 ]);
 
 /**
