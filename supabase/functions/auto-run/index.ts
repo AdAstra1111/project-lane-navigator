@@ -4016,6 +4016,18 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId, "wait");
       }
 
+      // ── IEL: clear stale pause_reason/stop_reason on running jobs ──
+      // If a prior CAS-failed pause left residual fields, clear them now that we hold the lock.
+      if (job.status === "running" && (job.pause_reason || job.stop_reason)) {
+        console.warn(`[IEL] Clearing stale pause state on running job ${jobId}: pause_reason=${job.pause_reason}, stop_reason=${job.stop_reason}`);
+        await supabase.from("auto_run_jobs").update({
+          pause_reason: null,
+          stop_reason: null,
+        }).eq("id", jobId).eq("status", "running");
+        job.pause_reason = null;
+        job.stop_reason = null;
+      }
+
       // Ensure downstream calls carry the real user_id from the job
       if (!_requestScopedUserId && job.user_id) {
         _requestScopedUserId = job.user_id;
@@ -6565,17 +6577,28 @@ Deno.serve(async (req) => {
                 `Rewrite did not produce a new version id (attempt ${attemptNumber}, ${strategy}). Baseline preserved. Halting.`,
                 { ci: baselineCI, gp: baselineGP }, undefined,
                 { baselineVersionId, singleInputVersionId, reason: "CANDIDATE_ID_MISSING", loopCount: newLoopCount, attemptNumber, strategy });
-              await updateJob(supabase, jobId, {
-                stage_loop_count: newLoopCount,
-                follow_latest: false,
-                resume_document_id: doc.id,
-                resume_version_id: baselineVersionId,
-                last_ci: baselineCI,
-                last_gp: baselineGP,
-                status: "paused",
-                pause_reason: "CANDIDATE_ID_MISSING",
-                stop_reason: "Rewrite produced no candidate version id; refusing to promote or continue.",
-              });
+              // CAS-protected pause: only apply if step_count hasn't advanced (prevents stale pause on concurrent progress)
+              const casStepCount = job.step_count;
+              const { data: casRow } = await supabase.from("auto_run_jobs")
+                .update({
+                  stage_loop_count: newLoopCount,
+                  follow_latest: false,
+                  resume_document_id: doc.id,
+                  resume_version_id: baselineVersionId,
+                  last_ci: baselineCI,
+                  last_gp: baselineGP,
+                  status: "paused",
+                  pause_reason: "CANDIDATE_ID_MISSING",
+                  stop_reason: "Rewrite produced no candidate version id; refusing to promote or continue.",
+                })
+                .eq("id", jobId)
+                .eq("status", "running")
+                .eq("step_count", casStepCount)
+                .select("id")
+                .maybeSingle();
+              if (!casRow) {
+                console.warn(`[IEL] CANDIDATE_ID_MISSING pause CAS failed (job progressed past step_count=${casStepCount}). Skipping stale pause.`);
+              }
               return respondWithJob(supabase, jobId);
             }
 

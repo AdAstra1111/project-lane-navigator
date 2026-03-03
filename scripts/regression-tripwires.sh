@@ -214,6 +214,28 @@ else
   fi
 fi
 
+echo ""
+echo "=== Regression Tripwire: Pause writes must use CAS protection ==="
+HITS_CAS=$(grep -n 'pause_reason: "CANDIDATE_ID_MISSING"' supabase/functions/auto-run/index.ts | grep -v "eq.*step_count" | grep -v "CAS" | head -5 || true)
+# We expect the pause_reason line to be near a CAS .eq("step_count",...) guard
+HITS_CAS_GUARD=$(grep -c 'eq("step_count", casStepCount)' supabase/functions/auto-run/index.ts || echo "0")
+if [ "$HITS_CAS_GUARD" = "0" ]; then
+  echo "FAIL: CANDIDATE_ID_MISSING pause must use CAS (.eq step_count) to prevent stale writes"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: Running jobs must clear stale pause_reason ==="
+HITS_STALE_CLEAR=$(grep -c 'Clearing stale pause state on running job' supabase/functions/auto-run/index.ts || echo "0")
+if [ "$HITS_STALE_CLEAR" = "0" ]; then
+  echo "FAIL: run-next must defensively clear stale pause_reason on running jobs"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."
