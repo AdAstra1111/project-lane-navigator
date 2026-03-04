@@ -240,8 +240,8 @@ async function getStageBestFromSteps(supabase: any, jobId: string, docType: stri
 // Stages that require upstream quality thresholds before they can begin.
 // Key: the BLOCKED stage. Value: { prerequisite: the stage that must meet the threshold, thresholds }.
 const PREREQUISITE_GATES: Record<string, { prerequisite: string; ci: number; gp: number; composite: number }> = {
-  vertical_episode_beats: { prerequisite: "episode_grid", ci: 75, gp: 75, composite: 160 },
-  season_script:          { prerequisite: "vertical_episode_beats", ci: 80, gp: 80, composite: 170 },
+  vertical_episode_beats: { prerequisite: "episode_grid", ci: 80, gp: 80, composite: 170 },
+  season_script:          { prerequisite: "vertical_episode_beats", ci: 85, gp: 85, composite: 178 },
 };
 
 type PrereqGateResult = {
