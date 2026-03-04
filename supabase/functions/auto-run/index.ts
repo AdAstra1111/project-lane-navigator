@@ -401,6 +401,39 @@ async function checkMonotonicCIImprovement(
   };
 }
 
+// ── IEL: Fresh Review Before Plateau Gate ──
+// Determines if the latest version for the current doc has NOT been reviewed in this job.
+// Returns needed=true when the CI gate should be deferred until a fresh review is generated.
+async function needsFreshReview(
+  supabase: any, jobId: string, job: any, currentDoc: string,
+): Promise<{ needed: boolean; latestVersionId: string | null; lastReviewedVersionId: string | null; reason: string }> {
+  const { data: docRow } = await supabase.from("project_documents")
+    .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (!docRow) return { needed: false, latestVersionId: null, lastReviewedVersionId: null, reason: "no_document" };
+
+  const { data: latestVer } = await supabase.from("project_document_versions")
+    .select("id").eq("document_id", docRow.id)
+    .order("version_number", { ascending: false }).limit(1).maybeSingle();
+  if (!latestVer) return { needed: false, latestVersionId: null, lastReviewedVersionId: null, reason: "no_versions" };
+
+  const latestVersionId = latestVer.id;
+
+  const { data: lastReview } = await supabase.from("auto_run_steps")
+    .select("output_ref").eq("job_id", jobId).eq("document", currentDoc).eq("action", "review")
+    .not("ci", "is", null)
+    .order("step_index", { ascending: false }).limit(1).maybeSingle();
+  const lastReviewedVersionId = lastReview?.output_ref?.input_version_id || null;
+
+  if (latestVersionId !== lastReviewedVersionId) {
+    return { needed: true, latestVersionId, lastReviewedVersionId, reason: "version_mismatch" };
+  }
+  if (latestVersionId !== job.last_analyzed_version_id) {
+    return { needed: true, latestVersionId, lastReviewedVersionId, reason: "last_analyzed_mismatch" };
+  }
+  return { needed: false, latestVersionId, lastReviewedVersionId, reason: "up_to_date" };
+}
+
 // ── IEL: Version cap per doc_type per job (SAFETY NET ONLY — monotonic CI loop is primary limiter) ──
 // Fallback only — per-job value from auto_run_jobs.max_versions_per_doc_per_job takes precedence
 const DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB = 60;
@@ -3103,12 +3136,15 @@ Deno.serve(async (req) => {
         awaiting_approval: false, approval_type: null, approval_payload: null,
         pending_doc_id: null, pending_version_id: null,
         pending_doc_type: null, pending_next_doc_type: null,
+        // IEL: Force fresh review on next tick by clearing last_analyzed_version_id
+        last_analyzed_version_id: null,
       };
       if (body.followLatest === true) {
         resumeUpdates.follow_latest = true;
         resumeUpdates.resume_document_id = null;
         resumeUpdates.resume_version_id = null;
       }
+      console.log(`[auto-run][IEL] resume_forces_fresh_review { job_id: "${jobId}", doc_type: "${(await supabase.from("auto_run_jobs").select("current_document").eq("id", jobId).maybeSingle()).data?.current_document || "unknown"}" }`);
       await updateJob(supabase, jobId, resumeUpdates);
       const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
       return respond({ job, latest_steps: [], next_action_hint: "run-next" });
@@ -4500,6 +4536,17 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ── IEL: FRESH REVIEW GUARD — must review latest version before plateau evaluation ──
+      {
+        const freshCheck = await needsFreshReview(supabase, jobId, job, currentDoc);
+        if (freshCheck.needed) {
+          console.log(`[auto-run][IEL] fresh_review_required { job_id: "${jobId}", doc_type: "${currentDoc}", latest_version_id: "${freshCheck.latestVersionId}", last_reviewed_version_id: "${freshCheck.lastReviewedVersionId}", last_analyzed_version_id: "${job.last_analyzed_version_id}", reason: "${freshCheck.reason}" }`);
+          await logStep(supabase, jobId, stepCount, currentDoc, "fresh_review_required",
+            `Skipping CI gate — latest version ${freshCheck.latestVersionId} not yet reviewed (last reviewed: ${freshCheck.lastReviewedVersionId}). Will review first.`,
+            {}, undefined,
+            { latest_version_id: freshCheck.latestVersionId, last_reviewed_version_id: freshCheck.lastReviewedVersionId, last_analyzed_version_id: job.last_analyzed_version_id, reason: freshCheck.reason });
+          // Skip CI gate entirely — fall through to analysis block which will review the latest version
+        } else {
       // ── IEL: MONOTONIC CI IMPROVEMENT GATE (PRIMARY LIMITER) ──
       // Replaces version cap as the primary stop condition.
       // Allows unlimited stabilise attempts while CI is improving.
@@ -4537,7 +4584,9 @@ Deno.serve(async (req) => {
           // Not yet plateaued but not improving — log tick
           console.log(`[auto-run][IEL] ci_plateau_tick { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, plateau_count: ${ciProgress.plateauCount} }`);
         }
-      }
+      } // end CI gate inner block
+      } // end CI gate else branch
+      } // end fresh review guard
 
       // ── IEL: Version cap guard — SAFETY NET ONLY (monotonic CI loop is primary limiter) ──
       {
