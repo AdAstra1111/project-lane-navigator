@@ -12,12 +12,40 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { AutoRunJob, AutoRunStep } from '@/hooks/useAutoRun';
 
+// ── Canonical best_score = CI + GP (matches backend blocker-aware tracking) ──
+function canonicalBestScore(ci: number | null, gp: number | null): number {
+  return (ci ?? 0) + (gp ?? 0);
+}
+
+// ── Deterministic version-id resolver (strict precedence, fail-closed) ──
+type VersionIdSource = 'output_ref.output_version_id' | 'output_ref.version_id' | 'output_ref.input_version_id' | null;
+
+function resolveScoredVersionId(step: AutoRunStep): { versionId: string | null; source: VersionIdSource } {
+  const ref = step.output_ref;
+  if (!ref) {
+    console.warn('[mission-control][IEL] provenance_fail_closed', {
+      reason: 'output_ref_missing', step_index: step.step_index, action: step.action,
+    });
+    return { versionId: null, source: null };
+  }
+  // Precedence: output_version_id > version_id > input_version_id
+  if (ref.output_version_id) return { versionId: ref.output_version_id, source: 'output_ref.output_version_id' };
+  if (ref.version_id) return { versionId: ref.version_id, source: 'output_ref.version_id' };
+  if (ref.input_version_id) return { versionId: ref.input_version_id, source: 'output_ref.input_version_id' };
+  console.warn('[mission-control][IEL] provenance_fail_closed', {
+    reason: 'no_version_id_in_output_ref', step_index: step.step_index, ref_keys: Object.keys(ref),
+  });
+  return { versionId: null, source: null };
+}
+
 export interface StageScopedProvenance {
   doc_type: string;
   scope: 'job+doc_type' | 'doc_type';
   baseline_version_id: string | null;
+  baseline_source: 'first_review_step' | 'job.resume_version_id' | 'none';
   best: {
     version_id: string | null;
+    version_id_source: VersionIdSource;
     ci: number | null;
     gp: number | null;
     gap: number | null;
@@ -26,6 +54,7 @@ export interface StageScopedProvenance {
   };
   frontier: {
     version_id: string | null;
+    version_id_source: VersionIdSource;
     ci: number | null;
     gp: number | null;
     gap: number | null;
@@ -53,6 +82,7 @@ export interface RunSnapshot {
 
 /**
  * Derive stage-scoped provenance from auto_run_steps for the current doc_type.
+ * Steps arrive sorted ASCENDING by step_index (backend sends desc, client reverses).
  */
 function computeStageScopedProvenance(
   job: AutoRunJob,
@@ -60,57 +90,77 @@ function computeStageScopedProvenance(
 ): StageScopedProvenance {
   const docType = job.current_document;
 
-  // Filter to review steps for this doc_type (these have scores)
+  // Filter to review steps for this doc_type with scores
   const docReviews = steps.filter(
     s => s.document === docType && s.action === 'review' && s.ci != null
   );
 
-  // Find best by CI+GP sum (same logic as backend best_score)
+  // ── BEST: highest canonical score across ALL reviews for this doc_type ──
   let best: StageScopedProvenance['best'] = {
-    version_id: null, ci: null, gp: null, gap: null, step_index: null, scored_at: null,
+    version_id: null, version_id_source: null,
+    ci: null, gp: null, gap: null, step_index: null, scored_at: null,
   };
   let bestScore = -Infinity;
 
   for (const s of docReviews) {
-    const score = (s.ci ?? 0) + (s.gp ?? 0);
+    const score = canonicalBestScore(s.ci, s.gp);
     if (score > bestScore) {
       bestScore = score;
+      const resolved = resolveScoredVersionId(s);
       best = {
-        version_id: (s as any).output_ref?.input_version_id ?? null,
+        version_id: resolved.versionId,
+        version_id_source: resolved.source,
         ci: s.ci ?? null,
         gp: s.gp ?? null,
         gap: s.gap ?? null,
         step_index: s.step_index,
-        scored_at: (s as any).created_at ?? null,
+        scored_at: s.created_at ?? null,
       };
     }
   }
 
-  // Frontier = latest review step for this doc_type
-  const latestReview = docReviews[0]; // steps should be sorted desc
-  const frontier: StageScopedProvenance['frontier'] = latestReview
-    ? {
-        version_id: (latestReview as any).output_ref?.input_version_id ?? null,
-        ci: latestReview.ci ?? null,
-        gp: latestReview.gp ?? null,
-        gap: latestReview.gap ?? null,
-        step_index: latestReview.step_index,
-      }
-    : { version_id: null, ci: null, gp: null, gap: null, step_index: null };
+  // ── FRONTIER: latest review step (steps are ascending, so last element) ──
+  const latestReview = docReviews.length > 0 ? docReviews[docReviews.length - 1] : null;
+  let frontier: StageScopedProvenance['frontier'];
+  if (latestReview) {
+    const resolved = resolveScoredVersionId(latestReview);
+    frontier = {
+      version_id: resolved.versionId,
+      version_id_source: resolved.source,
+      ci: latestReview.ci ?? null,
+      gp: latestReview.gp ?? null,
+      gap: latestReview.gap ?? null,
+      step_index: latestReview.step_index,
+    };
+  } else {
+    frontier = { version_id: null, version_id_source: null, ci: null, gp: null, gap: null, step_index: null };
+  }
 
-  // Baseline = resume_version_id (set by backend when entering a stage)
-  const baseline_version_id = (job as any).resume_version_id ?? null;
+  // ── BASELINE: earliest review step's version for this doc_type (deterministic) ──
+  let baseline_version_id: string | null = null;
+  let baseline_source: StageScopedProvenance['baseline_source'] = 'none';
+
+  if (docReviews.length > 0) {
+    const earliest = docReviews[0]; // ascending order → first = earliest
+    const resolved = resolveScoredVersionId(earliest);
+    baseline_version_id = resolved.versionId;
+    baseline_source = 'first_review_step';
+  } else if ((job as any).resume_version_id) {
+    baseline_version_id = (job as any).resume_version_id;
+    baseline_source = 'job.resume_version_id';
+  }
 
   // IEL log
   console.log('[mission-control][IEL] provenance_selected', {
-    project_id: job.project_id,
     job_id: job.id,
     doc_type: docType,
     scope: 'job+doc_type',
     best_version_id: best.version_id,
+    version_id_source: best.version_id_source,
     best_ci: best.ci,
     best_gp: best.gp,
-    best_gap: best.gap,
+    baseline_version_id,
+    baseline_source,
     candidates_seen: docReviews.length,
   });
 
@@ -118,6 +168,7 @@ function computeStageScopedProvenance(
     doc_type: docType,
     scope: 'job+doc_type',
     baseline_version_id,
+    baseline_source,
     best,
     frontier,
     candidates_seen_count: docReviews.length,
@@ -168,7 +219,6 @@ export function useRunSnapshot(
     };
 
     console.log('[mission-control][IEL] run_snapshot_loaded', {
-      project_id: job.project_id,
       job_id: job.id,
       status: job.status,
       current_document: job.current_document,
@@ -176,8 +226,20 @@ export function useRunSnapshot(
       provenance_scope: provenance.scope,
       best_ci: provenance.best.ci,
       best_gp: provenance.best.gp,
-      global_best_doc_type: snapshot.global_best.document_id ? 'cross-doc' : 'none',
+      best_version_id_source: provenance.best.version_id_source,
+      baseline_source: provenance.baseline_source,
+      global_best_version_id: snapshot.global_best.version_id,
     });
+
+    // IEL: global best doc_type resolution
+    if (snapshot.global_best.version_id && snapshot.global_best.document_id) {
+      console.log('[mission-control][IEL] global_best_resolved', {
+        job_id: job.id,
+        best_version_id: snapshot.global_best.version_id,
+        global_best_document_id: snapshot.global_best.document_id,
+        matches_current_stage: snapshot.global_best.version_id === provenance.best.version_id,
+      });
+    }
 
     return snapshot;
   }, [job, steps]);
@@ -187,6 +249,9 @@ export function useRunSnapshot(
  * useDocTypeScopedBest — for VersionsPanel.
  * Fetches the best-scored version for a specific document (by document_id),
  * from the latest auto_run_steps rather than the global job.best_version_id.
+ *
+ * Orders by created_at DESC (not CI) and computes best by canonical CI+GP.
+ * Uses a larger limit (200) to avoid missing the true best.
  */
 export function useDocTypeScopedBest(projectId: string | undefined, documentId: string | undefined) {
   return useQuery({
@@ -212,38 +277,49 @@ export function useDocTypeScopedBest(projectId: string | undefined, documentId: 
         .maybeSingle();
       if (!jobRow) return null;
 
-      // Get best review step for this doc_type in this job
+      // Get review steps for this doc_type — ordered by created_at DESC, larger cap
       const { data: steps } = await (supabase as any)
         .from('auto_run_steps')
-        .select('ci, gp, output_ref, created_at')
+        .select('ci, gp, gap, output_ref, created_at, step_index')
         .eq('job_id', jobRow.id)
         .eq('document', doc.doc_type)
         .eq('action', 'review')
         .not('ci', 'is', null)
-        .order('ci', { ascending: false })
-        .limit(20);
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (!steps || steps.length === 0) return null;
 
-      // Find best by CI+GP
+      // Find best by canonical CI+GP
       let best: any = null;
       let bestScore = -Infinity;
+      let bestSource: VersionIdSource = null;
       for (const s of steps) {
-        const score = (s.ci ?? 0) + (s.gp ?? 0);
+        const score = canonicalBestScore(s.ci, s.gp);
         if (score > bestScore) {
           bestScore = score;
           best = s;
+          const ref = s.output_ref;
+          bestSource = ref?.output_version_id ? 'output_ref.output_version_id'
+            : ref?.version_id ? 'output_ref.version_id'
+            : ref?.input_version_id ? 'output_ref.input_version_id'
+            : null;
         }
       }
 
-      if (!best?.output_ref?.input_version_id) return null;
+      const versionId = best?.output_ref?.output_version_id
+        || best?.output_ref?.version_id
+        || best?.output_ref?.input_version_id;
+      if (!versionId) return null;
 
       return {
-        versionId: best.output_ref.input_version_id as string,
+        versionId: versionId as string,
         score: bestScore,
-        ci: best.ci,
-        gp: best.gp,
-        docType: doc.doc_type,
+        ci: best.ci as number,
+        gp: best.gp as number,
+        gap: best.gap as number | null,
+        docType: doc.doc_type as string,
+        versionIdSource: bestSource,
       };
     },
     enabled: !!projectId && !!documentId,
