@@ -189,7 +189,7 @@ function DecisionCard({ decision, selectedValue, onSelect }: {
         </div>
       </div>
       <div className="space-y-1.5">
-        {decision.options.map((opt) => (
+        {(decision.options || []).map((opt) => (
           <button key={opt.value} onClick={() => onSelect(decision.id, opt.value)}
             className={`w-full text-left text-[11px] p-2 rounded border transition-colors hover:bg-primary/10 hover:border-primary/40 ${
               selectedValue === opt.value ? 'border-primary bg-primary/10 ring-1 ring-primary/30' :
