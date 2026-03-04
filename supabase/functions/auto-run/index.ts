@@ -4,6 +4,7 @@ import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
 import { isDurationEligibleDocType, isDeprecatedTargetDocType } from "../_shared/eligibilityRegistry.ts";
 import { getWritingLaneGroup, getDefaultWritingVoiceForLane } from "../_shared/writingVoiceResolver.ts";
 import { ensureDocSlot, createVersion } from "../_shared/doc-os.ts";
+import { runPendingDecisionGate, checkQualityPlateau } from "../_shared/pendingDecisionGate.ts";
 import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy, validateLadderIntegrity, runCanonAlignmentGate, buildCanonEntitiesFromDB } from "../_shared/docPolicyRegistry.ts";
 import {
   DEFAULT_MAX_TOTAL_STEPS,
@@ -2504,6 +2505,7 @@ Deno.serve(async (req) => {
         max_total_steps: effectiveMaxSteps,
         converge_target_json: body.converge_target_json || { ci: 100, gp: 100 },
         allow_defaults: body.allow_defaults === true,
+        pipeline_key: fmt,
         max_versions_per_doc_per_job: typeof body.max_versions_per_doc_per_job === "number"
           ? Math.max(MIN_VERSION_CAP, Math.min(MAX_VERSION_CAP, body.max_versions_per_doc_per_job))
           : DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB,
@@ -4102,6 +4104,28 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ── PRE-STAGE DECISION GATE (Layer 2: project_pending_decisions) ──
+      {
+        const runLadder = getLadderForJob(format) || [];
+        const gateResult = await runPendingDecisionGate(
+          supabase, job.project_id, jobId, format, currentDoc, runLadder, job.allow_defaults !== false,
+        );
+        if (gateResult.shouldPause) {
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "pending_decisions",
+            gateResult.logSummary, {}, undefined, { blockingIds: gateResult.blockingIds, deferrableIds: gateResult.deferrableIds });
+          await updateJob(supabase, jobId, {
+            status: "paused",
+            pause_reason: "pending_decisions",
+            stop_reason: gateResult.pauseReason,
+            pending_decisions: gateResult.blockingIds.map((id: string) => ({ id, impact: "blocking", source: "decision_policy_registry" })),
+          });
+          await releaseProcessingLock(supabase, jobId);
+          return respondWithJob(supabase, jobId, "approve-decision");
+        }
+        if (gateResult.deferrableIds.length > 0) {
+          console.log(`[auto-run] ${gateResult.deferrableIds.length} deferrable decisions for ${currentDoc} — continuing`);
+        }
+      }
 
       // bgTask owns the lock once spawned — its own finally releases it.
       // We track whether bgTask was spawned to avoid double-release.

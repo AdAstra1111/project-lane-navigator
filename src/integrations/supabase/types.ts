@@ -11814,6 +11814,72 @@ export type Database = {
           },
         ]
       }
+      project_pending_decisions: {
+        Row: {
+          classification: string
+          created_at: string
+          decision_key: string
+          id: string
+          options: Json | null
+          project_id: string
+          question: string
+          recommendation: Json | null
+          required_evidence: Json | null
+          revisit_stage: string | null
+          scope_json: Json | null
+          source: Json | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          classification?: string
+          created_at?: string
+          decision_key: string
+          id?: string
+          options?: Json | null
+          project_id: string
+          question: string
+          recommendation?: Json | null
+          required_evidence?: Json | null
+          revisit_stage?: string | null
+          scope_json?: Json | null
+          source?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          classification?: string
+          created_at?: string
+          decision_key?: string
+          id?: string
+          options?: Json | null
+          project_id?: string
+          question?: string
+          recommendation?: Json | null
+          required_evidence?: Json | null
+          revisit_stage?: string | null
+          scope_json?: Json | null
+          source?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_pending_decisions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_pending_decisions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_preferences: {
         Row: {
           id: string
