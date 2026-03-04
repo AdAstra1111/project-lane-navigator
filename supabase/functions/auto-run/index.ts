@@ -3716,9 +3716,18 @@ Deno.serve(async (req) => {
       if (selectedOptions.length === 0) {
         const { data: preJob } = await supabase.from("auto_run_jobs").select("allow_defaults, pending_decisions").eq("id", jobId).eq("user_id", userId).maybeSingle();
         if (preJob?.allow_defaults && Array.isArray(preJob.pending_decisions) && preJob.pending_decisions.length > 0) {
+          // First try recommended options, then fall back to first option or 'accept' for all pending decisions
           selectedOptions = preJob.pending_decisions
             .filter((d: any) => d.recommended)
             .map((d: any) => ({ note_id: d.id, option_id: d.recommended }));
+          // Fallback: if no decisions had a 'recommended' field, auto-accept all with first available option
+          if (selectedOptions.length === 0) {
+            selectedOptions = preJob.pending_decisions.map((d: any) => ({
+              note_id: d.id || d.decision_key || d.note_id,
+              option_id: d.options?.[0]?.value || d.default_value || 'accept',
+            }));
+            console.log(`[auto-run] apply-decisions: auto-accepted ${selectedOptions.length} pending decisions (no recommended field)`);
+          }
         }
         if (selectedOptions.length === 0) {
           return respond({ error: "selectedOptions array required" }, 400);
