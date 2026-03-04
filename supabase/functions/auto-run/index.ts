@@ -2150,6 +2150,7 @@ async function chunkedRewrite(
       action: "rewrite-assemble",
       projectId, documentId, versionId,
       planRunId, assembledText,
+      deliverableType,
     }, token, projectId, format, deliverableType, jobId, stepCount
   );
 
