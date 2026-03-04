@@ -4104,7 +4104,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ── PRE-STAGE DECISION GATE (Layer 2: project_pending_decisions) ──
+      // ── PRE-STAGE DECISION GATE (workflow_pending in decision_ledger) ──
       {
         const runLadder = getLadderForJob(format) || [];
         const gateResult = await runPendingDecisionGate(
