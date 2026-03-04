@@ -4497,6 +4497,28 @@ Deno.serve(async (req) => {
           {}, undefined, { docId, newVersionId, selectedOptions: rewriteSelectedOptions.length }
         );
 
+        // ── CRITICAL: Resolve decision_ledger rows from workflow_pending → active ──
+        // Without this, the decision gate re-finds the same blocking decisions on next tick.
+        const ledgerIdsToResolve = rewriteSelectedOptions
+          .map((s: any) => s?.note_id)
+          .filter((id: string) => !!id);
+        if (ledgerIdsToResolve.length > 0) {
+          const { error: ledgerErr } = await supabase
+            .from("decision_ledger")
+            .update({ status: "active" })
+            .in("id", ledgerIdsToResolve)
+            .eq("status", "workflow_pending");
+          if (ledgerErr) {
+            console.warn(`[auto-run][IEL] decision_ledger_resolve_failed`, JSON.stringify({
+              job_id: jobId, ids: ledgerIdsToResolve, error: ledgerErr.message,
+            }));
+          } else {
+            console.log(`[auto-run][IEL] decision_ledger_resolved`, JSON.stringify({
+              job_id: jobId, resolved_count: ledgerIdsToResolve.length, ids: ledgerIdsToResolve,
+            }));
+          }
+        }
+
         await updateJob(supabase, jobId, {
           step_count: stepCount + 1,
           status: "running",
