@@ -7777,7 +7777,8 @@ async function respondWithJob(supabase: any, jobId: string, hint?: string): Prom
                 scope_json: dv.scope_json || null,
               };
             });
-            // Persist enrichment idempotently
+            // NOTE: Legacy enrichment write kept for backward compat with pre-enrichment jobs.
+            // TODO: Move to a dedicated action handler to make respondWithJob fully read-only.
             await supabase.from("auto_run_jobs").update({ pending_decisions: enriched }).eq("id", jobId);
             job.pending_decisions = enriched;
             console.log(`[auto-run][IEL] pending_decisions_enriched`, JSON.stringify({
@@ -7793,75 +7794,16 @@ async function respondWithJob(supabase: any, jobId: string, hint?: string): Prom
     }
   }
 
-  // ── Retro-patch EPISODE_COUNT decisions with canonical episode count ──
-  if (job && job.status === "paused" && Array.isArray(job.pending_decisions) && job.pending_decisions.length > 0) {
-    const episodeDecisions = job.pending_decisions.filter((d: any) =>
-      d.decision_key && String(d.decision_key).includes("EPISODE_COUNT") && Array.isArray(d.options)
-    );
-    if (episodeDecisions.length > 0) {
-      try {
-        const { data: proj } = await supabase.from("projects")
-          .select("season_episode_count").eq("id", job.project_id).maybeSingle();
-        const canonCount = proj?.season_episode_count;
-        if (typeof canonCount === "number" && canonCount > 0) {
-          let patched = false;
-          const updatedPD = job.pending_decisions.map((d: any) => {
-            if (!d.decision_key || !String(d.decision_key).includes("EPISODE_COUNT") || !Array.isArray(d.options)) return d;
-            const canonStr = String(canonCount);
-            const hasCanon = d.options.some((o: any) => String(o.value) === canonStr && String(o.label || "").includes("Canon"));
-            const hasRecommendation = d.recommended?.value === canonStr || d.recommendation?.value === canonStr;
-            if (hasCanon && hasRecommendation) return d;
-            patched = true;
-            const originalValues = d.options.map((o: any) => o.value);
-            const existsInList = d.options.some((o: any) => String(o.value) === canonStr);
-            let newOptions;
-            if (!existsInList) {
-              newOptions = [{ value: canonStr, label: `${canonCount} episodes (Current Canon)` }, ...d.options];
-            } else {
-              newOptions = d.options.map((o: any) =>
-                String(o.value) === canonStr ? { ...o, label: `${canonCount} episodes (Current Canon)` } : o
-              );
-            }
-            console.log(`[canon][IEL] episode_count_retropatch_applied`, JSON.stringify({
-              job_id: jobId, decision_key: d.decision_key, canonical_episode_count: canonCount,
-              original_values: originalValues, final_values: newOptions.map((o: any) => o.value),
-            }));
-            return { ...d, options: newOptions, recommended: { value: canonStr, reason: "Matches canonical episode count" } };
-          });
-          if (patched) {
-            await supabase.from("auto_run_jobs").update({ pending_decisions: updatedPD }).eq("id", jobId);
-            job.pending_decisions = updatedPD;
-            // Also retro-patch the decision_ledger rows
-            for (const d of updatedPD) {
-              if (d.id && d.decision_key && String(d.decision_key).includes("EPISODE_COUNT")) {
-                const { data: ledgerRow } = await supabase.from("decision_ledger")
-                  .select("id, decision_value").eq("id", d.id).maybeSingle();
-                if (ledgerRow) {
-                  const dv = ledgerRow.decision_value || {};
-                  const canonStr = String(canonCount);
-                  const alreadyPatched = Array.isArray(dv.options) && dv.options.some((o: any) =>
-                    String(o.value) === canonStr && String(o.label || "").includes("Canon"));
-                  if (!alreadyPatched) {
-                    const existsInLedger = Array.isArray(dv.options) && dv.options.some((o: any) => String(o.value) === canonStr);
-                    const patchedOptions = existsInLedger
-                      ? (dv.options || []).map((o: any) => String(o.value) === canonStr ? { ...o, label: `${canonCount} episodes (Current Canon)` } : o)
-                      : [{ value: canonStr, label: `${canonCount} episodes (Current Canon)` }, ...(dv.options || [])];
-                    await supabase.from("decision_ledger").update({
-                      decision_value: { ...dv, options: patchedOptions, recommendation: { value: canonStr, reason: "Matches canonical episode count" } }
-                    }).eq("id", d.id);
-                    console.log(`[canon][IEL] episode_count_workflow_pending_retropatch_applied`, JSON.stringify({
-                      decision_id: d.id, canonical_episode_count: canonCount,
-                    }));
-                  }
-                }
-              }
-            }
-          }
-        }
-      } catch (e: any) {
-        console.warn(`[canon][IEL] episode_count_retropatch_failed`, JSON.stringify({ job_id: jobId, error: e?.message }));
+  // ── Normalize recommended field shape (object→string) — READ-ONLY, in-memory only ──
+  // Canon-injection happens at creation time in pendingDecisionGate.ts.
+  // This normalization ensures frontend always receives recommended as a string.
+  if (job && Array.isArray(job.pending_decisions)) {
+    job.pending_decisions = job.pending_decisions.map((d: any) => {
+      if (d.recommended && typeof d.recommended === "object" && d.recommended.value) {
+        return { ...d, recommended: String(d.recommended.value) };
       }
-    }
+      return d;
+    });
   }
 
   return respond({
