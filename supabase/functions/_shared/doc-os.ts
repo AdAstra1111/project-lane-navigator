@@ -70,10 +70,34 @@ export const SEED_CORE_TYPES = Object.entries(DOC_TYPE_REGISTRY)
   .filter(([_, c]) => c.is_seed_core)
   .map(([k]) => k);
 
-/** Resolve a doc_type to its canonical config. Throws for unknown types to prevent stray slots. */
+/** Legacy alias map — mirrors DOC_TYPE_ALIASES from stage-ladders.json */
+const DOC_TYPE_ALIASES: Record<string, string> = {
+  script: "feature_script",
+  draft: "feature_script",
+  blueprint: "treatment",
+  architecture: "story_outline",
+  plot_architecture: "story_outline",
+  outline: "treatment",
+  series_bible: "treatment",
+  season_outline: "treatment",
+  logline: "idea",
+  one_pager: "concept_brief",
+  notes: "concept_brief",
+  pilot_script: "episode_script",
+  episode_beat_sheet: "beat_sheet",
+  coverage: "production_draft",
+  episode_1_script: "episode_script",
+  writers_room: "other",
+};
+
+/** Resolve a doc_type to its canonical config. Applies legacy aliases first. Throws for unknown types. */
 export function resolveDocType(docType: string): { key: string; config: DocTypeConfig } {
-  if (DOC_TYPE_REGISTRY[docType]) {
-    return { key: docType, config: DOC_TYPE_REGISTRY[docType] };
+  const canonical = DOC_TYPE_ALIASES[docType] ?? docType;
+  if (canonical !== docType) {
+    console.log(`[doc-os][IEL] alias_resolved { from: "${docType}", to: "${canonical}" }`);
+  }
+  if (DOC_TYPE_REGISTRY[canonical]) {
+    return { key: canonical, config: DOC_TYPE_REGISTRY[canonical] };
   }
   throw new Error(`resolveDocType: unknown doc_type "${docType}". Must be one of: ${Object.keys(DOC_TYPE_REGISTRY).join(", ")}`);
 }
