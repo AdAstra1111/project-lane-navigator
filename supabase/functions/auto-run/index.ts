@@ -401,23 +401,76 @@ async function checkMonotonicCIImprovement(
   };
 }
 
+// ── IEL: ABVR — Active Best Version Resolution ──
+// Deterministic resolver: picks the version Auto-Run must treat as current baseline.
+// Resolution rules (strict order):
+//   A) If resume_version_id present AND follow_latest is false → use it (pinned)
+//   B) Else → resolve "best approved version" for the document if any exist
+//   C) Fallback → is_current version, then latest by version_number
+async function resolveActiveVersionForDoc(
+  supabase: any, job: any, documentId: string,
+): Promise<{ versionId: string; source: "pinned" | "best_approved" | "is_current" | "latest_version_number" } | null> {
+  // A) Pinned
+  if (!job.follow_latest && job.resume_version_id && job.resume_document_id === documentId) {
+    return { versionId: job.resume_version_id, source: "pinned" };
+  }
+
+  // B) Best approved version — prefer highest version_number among approved
+  const { data: bestApproved } = await supabase.from("project_document_versions")
+    .select("id, version_number")
+    .eq("document_id", documentId)
+    .eq("approval_status", "approved")
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (bestApproved) {
+    return { versionId: bestApproved.id, source: "best_approved" };
+  }
+
+  // C) is_current
+  const { data: currentVer } = await supabase.from("project_document_versions")
+    .select("id")
+    .eq("document_id", documentId)
+    .eq("is_current", true)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (currentVer) {
+    return { versionId: currentVer.id, source: "is_current" };
+  }
+
+  // D) Latest by version_number (final fallback)
+  const { data: latestVer } = await supabase.from("project_document_versions")
+    .select("id")
+    .eq("document_id", documentId)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latestVer) {
+    return { versionId: latestVer.id, source: "latest_version_number" };
+  }
+
+  return null;
+}
+
 // ── IEL: Fresh Review Before Plateau Gate ──
-// Determines if the latest version for the current doc has NOT been reviewed in this job.
-// Returns needed=true when the CI gate should be deferred until a fresh review is generated.
+// Uses ABVR to determine which version should be reviewed, then checks if that version
+// has already been reviewed in this job. Returns needed=true when CI gate must be deferred.
 async function needsFreshReview(
   supabase: any, jobId: string, job: any, currentDoc: string,
-): Promise<{ needed: boolean; latestVersionId: string | null; lastReviewedVersionId: string | null; reason: string }> {
+): Promise<{ needed: boolean; activeVersionId: string | null; activeSource: string | null; lastReviewedVersionId: string | null; reason: string }> {
   const { data: docRow } = await supabase.from("project_documents")
     .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
-  if (!docRow) return { needed: false, latestVersionId: null, lastReviewedVersionId: null, reason: "no_document" };
+  if (!docRow) return { needed: false, activeVersionId: null, activeSource: null, lastReviewedVersionId: null, reason: "no_document" };
 
-  const { data: latestVer } = await supabase.from("project_document_versions")
-    .select("id").eq("document_id", docRow.id)
-    .order("version_number", { ascending: false }).limit(1).maybeSingle();
-  if (!latestVer) return { needed: false, latestVersionId: null, lastReviewedVersionId: null, reason: "no_versions" };
+  const resolved = await resolveActiveVersionForDoc(supabase, job, docRow.id);
+  if (!resolved) return { needed: false, activeVersionId: null, activeSource: null, lastReviewedVersionId: null, reason: "no_versions" };
 
-  const latestVersionId = latestVer.id;
+  const activeVersionId = resolved.versionId;
+  const activeSource = resolved.source;
+
+  console.log(`[auto-run][IEL] abvr_active_version_selected { job_id: "${jobId}", doc_type: "${currentDoc}", active_version_id: "${activeVersionId}", source: "${activeSource}", doc_id: "${docRow.id}" }`);
 
   const { data: lastReview } = await supabase.from("auto_run_steps")
     .select("output_ref").eq("job_id", jobId).eq("document", currentDoc).eq("action", "review")
@@ -425,13 +478,13 @@ async function needsFreshReview(
     .order("step_index", { ascending: false }).limit(1).maybeSingle();
   const lastReviewedVersionId = lastReview?.output_ref?.input_version_id || null;
 
-  if (latestVersionId !== lastReviewedVersionId) {
-    return { needed: true, latestVersionId, lastReviewedVersionId, reason: "version_mismatch" };
+  if (activeVersionId !== lastReviewedVersionId) {
+    return { needed: true, activeVersionId, activeSource, lastReviewedVersionId, reason: "version_mismatch" };
   }
-  if (latestVersionId !== job.last_analyzed_version_id) {
-    return { needed: true, latestVersionId, lastReviewedVersionId, reason: "last_analyzed_mismatch" };
+  if (activeVersionId !== job.last_analyzed_version_id) {
+    return { needed: true, activeVersionId, activeSource, lastReviewedVersionId, reason: "last_analyzed_mismatch" };
   }
-  return { needed: false, latestVersionId, lastReviewedVersionId, reason: "up_to_date" };
+  return { needed: false, activeVersionId, activeSource, lastReviewedVersionId, reason: "up_to_date" };
 }
 
 // ── IEL: Version cap per doc_type per job (SAFETY NET ONLY — monotonic CI loop is primary limiter) ──
@@ -3130,6 +3183,10 @@ Deno.serve(async (req) => {
     // ═══════════════════════════════════════
     if (action === "resume") {
       if (!jobId) return respond({ error: "jobId required" }, 400);
+      // Fetch current job state to check follow_latest
+      const { data: preResumeJob } = await supabase.from("auto_run_jobs")
+        .select("current_document, follow_latest, resume_version_id")
+        .eq("id", jobId).maybeSingle();
       const resumeUpdates: Record<string, any> = {
         status: "running", stop_reason: null, error: null,
         pause_reason: null, pending_decisions: null,
@@ -3144,7 +3201,14 @@ Deno.serve(async (req) => {
         resumeUpdates.resume_document_id = null;
         resumeUpdates.resume_version_id = null;
       }
-      console.log(`[auto-run][IEL] resume_forces_fresh_review { job_id: "${jobId}", doc_type: "${(await supabase.from("auto_run_jobs").select("current_document").eq("id", jobId).maybeSingle()).data?.current_document || "unknown"}" }`);
+      // IEL: If follow_latest is already true but resume_version_id is stale, clear pinning
+      // This prevents the job from staying pinned to an old fork winner after manual improvements
+      if (preResumeJob?.follow_latest === true && preResumeJob?.resume_version_id) {
+        resumeUpdates.resume_document_id = null;
+        resumeUpdates.resume_version_id = null;
+        console.log(`[auto-run][IEL] resume_cleared_stale_pinning { job_id: "${jobId}", stale_resume_version_id: "${preResumeJob.resume_version_id}" }`);
+      }
+      console.log(`[auto-run][IEL] resume_forces_fresh_review { job_id: "${jobId}", doc_type: "${preResumeJob?.current_document || "unknown"}" }`);
       await updateJob(supabase, jobId, resumeUpdates);
       const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
       return respond({ job, latest_steps: [], next_action_hint: "run-next" });
@@ -4540,12 +4604,12 @@ Deno.serve(async (req) => {
       {
         const freshCheck = await needsFreshReview(supabase, jobId, job, currentDoc);
         if (freshCheck.needed) {
-          console.log(`[auto-run][IEL] fresh_review_required { job_id: "${jobId}", doc_type: "${currentDoc}", latest_version_id: "${freshCheck.latestVersionId}", last_reviewed_version_id: "${freshCheck.lastReviewedVersionId}", last_analyzed_version_id: "${job.last_analyzed_version_id}", reason: "${freshCheck.reason}" }`);
+          console.log(`[auto-run][IEL] fresh_review_required { job_id: "${jobId}", doc_type: "${currentDoc}", active_version_id: "${freshCheck.activeVersionId}", active_source: "${freshCheck.activeSource}", last_reviewed_version_id: "${freshCheck.lastReviewedVersionId}", last_analyzed_version_id: "${job.last_analyzed_version_id}", reason: "${freshCheck.reason}" }`);
           await logStep(supabase, jobId, stepCount, currentDoc, "fresh_review_required",
-            `Skipping CI gate — latest version ${freshCheck.latestVersionId} not yet reviewed (last reviewed: ${freshCheck.lastReviewedVersionId}). Will review first.`,
+            `Skipping CI gate — active version ${freshCheck.activeVersionId} (${freshCheck.activeSource}) not yet reviewed (last reviewed: ${freshCheck.lastReviewedVersionId}). Will review first.`,
             {}, undefined,
-            { latest_version_id: freshCheck.latestVersionId, last_reviewed_version_id: freshCheck.lastReviewedVersionId, last_analyzed_version_id: job.last_analyzed_version_id, reason: freshCheck.reason });
-          // Skip CI gate entirely — fall through to analysis block which will review the latest version
+            { active_version_id: freshCheck.activeVersionId, active_source: freshCheck.activeSource, last_reviewed_version_id: freshCheck.lastReviewedVersionId, last_analyzed_version_id: job.last_analyzed_version_id, reason: freshCheck.reason });
+          // Skip CI gate entirely — fall through to analysis block which will review the active version
         } else {
       // ── IEL: MONOTONIC CI IMPROVEMENT GATE (PRIMARY LIMITER) ──
       // Replaces version cap as the primary stop condition.
@@ -5568,13 +5632,26 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ── Document exists — resolve version ──
+      // ── Document exists — resolve version via ABVR ──
       if (!latestVersion) {
-        const { data: versions } = await supabase.from("project_document_versions")
-          .select("id, plaintext, version_number")
-          .eq("document_id", doc.id)
-          .order("version_number", { ascending: false }).limit(1);
-        latestVersion = versions?.[0];
+        const abvr = await resolveActiveVersionForDoc(supabase, job, doc.id);
+        if (abvr) {
+          const { data: resolvedVer } = await supabase.from("project_document_versions")
+            .select("id, plaintext, version_number")
+            .eq("id", abvr.versionId).single();
+          if (resolvedVer) {
+            latestVersion = resolvedVer;
+            console.log(`[auto-run][IEL] abvr_version_resolved { job_id: "${jobId}", doc_type: "${currentDoc}", version_id: "${abvr.versionId}", source: "${abvr.source}", version_number: ${resolvedVer.version_number} }`);
+          }
+        }
+        // Fallback: if ABVR returned nothing, try latest by version_number (defensive)
+        if (!latestVersion) {
+          const { data: versions } = await supabase.from("project_document_versions")
+            .select("id, plaintext, version_number")
+            .eq("document_id", doc.id)
+            .order("version_number", { ascending: false }).limit(1);
+          latestVersion = versions?.[0];
+        }
       }
       if (!latestVersion) {
         // Doc slot exists but has zero versions — treat as missing and re-enter
@@ -5619,38 +5696,18 @@ Deno.serve(async (req) => {
           .order("created_at", { ascending: false }).limit(1);
         const prevDoc2 = prevDocs2?.[0];
         if (!prevDoc2) {
-          await updateJob(supabase, jobId, { status: "failed", error: `Cannot generate ${currentDoc}: predecessor ${prevStage2} missing` });
+          await updateJob(supabase, jobId, { status: "failed", error: `No ${prevStage2} document for empty-slot recovery` });
           return respondWithJob(supabase, jobId);
         }
         const { data: prevVersions2 } = await supabase.from("project_document_versions")
-          .select("id")
-          .eq("document_id", prevDoc2.id)
-          .order("version_number", { ascending: false }).limit(1);
+          .select("id").eq("document_id", prevDoc2.id).order("version_number", { ascending: false }).limit(1);
         const prevVersion2 = prevVersions2?.[0];
         if (!prevVersion2) {
-          const reason = `Cannot generate ${currentDoc}: predecessor ${prevStage2} has no version`;
-          await logStep(supabase, jobId, stepCount + 1, currentDoc, "empty_slot_recovery_failed", reason,
-            {}, undefined, {
-              currentDoc,
-              targetDoc: currentDoc,
-              reason,
-              required_inputs_missing: ["predecessor_version"],
-              job_id: jobId,
-              document_id: prevDoc2.id,
-            });
-          await updateJob(supabase, jobId, {
-            status: "paused",
-            pause_reason: "EMPTY_SLOT_RECOVERY_FAILED",
-            stop_reason: reason,
-            error: reason,
-            last_ui_message: reason,
-          });
+          await updateJob(supabase, jobId, { status: "failed", error: `No version for ${prevStage2} in empty-slot recovery` });
           return respondWithJob(supabase, jobId);
         }
+        const useChunked2 = new Set(["episode_grid", "vertical_episode_beats", "episode_beats"]).has(currentDoc) || isLargeRiskDocType(currentDoc);
         try {
-          const EPISODE_DOC_TYPES_SET2 = new Set(["episode_grid", "vertical_episode_beats", "episode_beats"]);
-          const useChunked2 = EPISODE_DOC_TYPES_SET2.has(currentDoc) || isLargeRiskDocType(currentDoc);
-
           let genDocId2: string | null = null;
           let genVerId2: string | null = null;
 
