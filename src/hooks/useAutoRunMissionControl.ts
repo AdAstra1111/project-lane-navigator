@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { AutoRunJob, AutoRunStep } from '@/hooks/useAutoRun';
 import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 import { AUTO_RUN_EXECUTION_MODE } from '@/lib/autoRunConfig';
+import { parseEdgeResponse } from '@/lib/edgeResponseGuard';
 
 // ── API helper ──
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
@@ -22,7 +23,8 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
   } catch (fetchErr: any) {
     throw new Error(`Failed to reach auto-run service (action=${action}, url=${url}): ${fetchErr.message}`);
   }
-  const result = await resp.json();
+  // ── IEL: Hardened JSON boundary — never pass HTML/non-JSON to .json() ──
+  const result = await parseEdgeResponse(resp, 'auto-run', action);
   // Handle 409 STALE_DECISION gracefully (must parse body only once)
   if (resp.status === 409 && result?.code === 'STALE_DECISION') {
     return { ...result, _stale: true };
@@ -43,7 +45,7 @@ async function callDocumentText(documentId?: string, versionId?: string) {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
     body: JSON.stringify({ documentId, versionId }),
   });
-  const result = await resp.json();
+  const result = await parseEdgeResponse(resp, 'document-text');
   if (!resp.ok) throw new Error(result.error || 'Document text error');
   return result;
 }
