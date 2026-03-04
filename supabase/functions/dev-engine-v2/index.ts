@@ -1165,6 +1165,13 @@ const FORMAT_EXPECTATIONS: Record<string, string> = {
 
 // ── Format-specific document ladders (CANONICAL — imported from _shared/stage-ladders.ts) ──
 const FORMAT_LADDERS: Record<string, string[]> = STAGE_LADDERS.FORMAT_LADDERS;
+const FORMAT_SCRIPT_TYPES: Record<string, string> = STAGE_LADDERS.FORMAT_SCRIPT_TYPES;
+
+/** Resolve the canonical script doc_type for a given project format. Falls back to feature_script. */
+function resolveScriptTypeForFormat(format: string | null | undefined): string {
+  const key = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, '-');
+  return (key && FORMAT_SCRIPT_TYPES[key]) || 'feature_script';
+}
 
 function getLadderForFormat(format: string): string[] | null {
   const key = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, '-');
@@ -3457,7 +3464,10 @@ MATERIAL TO REWRITE:\n${fullText}`;
         .select("doc_type")
         .eq("id", documentId)
         .maybeSingle();
-      const sourceDocType = sourceDoc?.doc_type || "script";
+      // Resolve format-aware script type if doc_type is missing or legacy "script"
+      const { data: planProject } = await supabase.from("projects").select("format").eq("id", projectId).single();
+      const rawSourceDocType = sourceDoc?.doc_type || "script";
+      const sourceDocType = (rawSourceDocType === "script") ? resolveScriptTypeForFormat(planProject?.format) : rawSourceDocType;
 
       const buildLegacySluglineChunks = (text: string): string[] => {
         const CHUNK_TARGET = 12000;
@@ -3738,7 +3748,10 @@ MATERIAL TO REWRITE:\n${fullText}`;
       if (!projectId || !documentId || !versionId || !assembledText) throw new Error("projectId, documentId, versionId, assembledText required");
 
       // Resolve effectiveDeliverable within this action scope (not inherited from rewrite block)
-      const effectiveDeliverable = assembleDeliverableType || "script";
+      // Resolve format-aware script type for deliverable
+      const { data: assembleProject } = await supabase.from("projects").select("format").eq("id", projectId).single();
+      const effectiveDeliverable = assembleDeliverableType
+        || (assembleProject?.format ? resolveScriptTypeForFormat(assembleProject.format) : "feature_script");
 
       function estimateRuntimeMinutes(text: string, mode: string) {
         const words = (text || "").trim().split(/\s+/).filter(Boolean).length;
