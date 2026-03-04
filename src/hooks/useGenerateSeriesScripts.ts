@@ -52,7 +52,19 @@ async function callDevEngine(action: string, body: Record<string, any>): Promise
     },
     body: JSON.stringify({ action, ...body }),
   });
-  const result = await resp.json();
+  const raw = await resp.text();
+  // ── IEL: Hardened JSON boundary ──
+  const isHtml = raw.trimStart().startsWith('<!') || raw.includes('<html');
+  if (isHtml) {
+    console.error(`[series-scripts][IEL] non_json_response_detected { status: ${resp.status} }`);
+    throw new Error(resp.status === 502 || resp.status === 504
+      ? 'The backend service timed out. Please try again.'
+      : `Unexpected response from engine (${resp.status}).`);
+  }
+  let result: any;
+  try { result = JSON.parse(raw); } catch {
+    throw new Error('Engine returned malformed data. Please retry.');
+  }
   if (!resp.ok) throw new Error(result.error || 'Request failed');
   return result;
 }

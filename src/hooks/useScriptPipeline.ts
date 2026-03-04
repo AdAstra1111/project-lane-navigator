@@ -39,6 +39,18 @@ async function callEngine(action: string, extra: Record<string, any> = {}) {
   if (!text || text.trim().length === 0) {
     throw new Error('Empty response from engine — the request may have timed out. Try again.');
   }
+
+  // ── IEL: Hardened JSON boundary ──
+  const ct = resp.headers.get('content-type') || '';
+  const isHtml = text.trimStart().startsWith('<!') || text.includes('<html');
+  if (isHtml || (!ct.includes('application/json') && !text.trimStart().startsWith('{'))) {
+    console.error(`[script-pipeline][IEL] non_json_response_detected { status: ${resp.status}, content_type: "${ct}" }`);
+    if (resp.status === 502 || resp.status === 504) {
+      throw new Error('The backend service timed out. Please try again in a moment.');
+    }
+    throw new Error(`Unexpected response from engine (${resp.status}). Please retry.`);
+  }
+
   let result: any;
   try {
     result = JSON.parse(text);
