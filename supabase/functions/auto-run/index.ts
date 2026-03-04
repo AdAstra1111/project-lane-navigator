@@ -1,5 +1,6 @@
-const BUILD = "AUTORUN_BUILD_MARKER_2026_03_03_IEL_V1";
+const BUILD = "AUTORUN_BUILD_MARKER_2026_03_04_CPM_V1";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { CHARACTER_PRESSURE_MATRIX_V1, buildCPRepairDirections, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
 import { isDurationEligibleDocType, isDeprecatedTargetDocType } from "../_shared/eligibilityRegistry.ts";
 import { getWritingLaneGroup, getDefaultWritingVoiceForLane } from "../_shared/writingVoiceResolver.ts";
@@ -6909,6 +6910,25 @@ Deno.serve(async (req) => {
           }
           // Merge decision directions with strategy directions
           const mergedDirections = [...decisionDirections, ...strategyDirections];
+
+          // ── CPM_V1: inject Character Pressure Matrix repair targeting for episode_grid ──
+          if (CHARACTER_PRESSURE_MATRIX_V1 && currentDoc === "episode_grid") {
+            const cpRepair = buildCPRepairDirections(
+              allNotesForStrategy.blocking_issues || [],
+              allNotesForStrategy.high_impact_notes || [],
+            );
+            if (cpRepair.failClosed) {
+              logCPM("cpm_v1_repair_blocked_missing_blockers", { job_id: jobId, doc_type: currentDoc });
+              await logStep(supabase, jobId, null, currentDoc, "cpm_repair_blocked",
+                `CPM repair blocked: ${cpRepair.reason}. No freeform rewrite for CP fields.`,
+                { ci: baselineCI, gp: baselineGP }, undefined, { reason: cpRepair.reason });
+            } else {
+              mergedDirections.push(...cpRepair.directions);
+              logCPM("cpm_v1_applied", { job_id: jobId, doc_type: "episode_grid", repair_directions: cpRepair.directions.length });
+            }
+            // Also inject the generation prompt block so rewrites maintain CP structure
+            mergedDirections.push(CPM_GENERATION_PROMPT_BLOCK);
+          }
 
           // ── CANON-LOCK INJECTION: if retrying after CANON_MISMATCH, inject entity constraints ──
           const jobMeta = (job as any).meta_json || {};
