@@ -3712,21 +3712,72 @@ Deno.serve(async (req) => {
         selectedOptions = [];
       }
 
-      // If no user selections but allow_defaults is on, auto-accept from pending_decisions
+      // If no user selections but allow_defaults is on, auto-accept decisions deterministically
       if (selectedOptions.length === 0) {
-        const { data: preJob } = await supabase.from("auto_run_jobs").select("allow_defaults, pending_decisions").eq("id", jobId).eq("user_id", userId).maybeSingle();
-        if (preJob?.allow_defaults && Array.isArray(preJob.pending_decisions) && preJob.pending_decisions.length > 0) {
-          // First try recommended options, then fall back to first option or 'accept' for all pending decisions
-          selectedOptions = preJob.pending_decisions
-            .filter((d: any) => d.recommended)
-            .map((d: any) => ({ note_id: d.id, option_id: d.recommended }));
-          // Fallback: if no decisions had a 'recommended' field, auto-accept all with first available option
-          if (selectedOptions.length === 0) {
-            selectedOptions = preJob.pending_decisions.map((d: any) => ({
-              note_id: d.id || d.decision_key || d.note_id,
-              option_id: d.options?.[0]?.value || d.default_value || 'accept',
-            }));
-            console.log(`[auto-run] apply-decisions: auto-accepted ${selectedOptions.length} pending decisions (no recommended field)`);
+        const { data: preJob } = await supabase.from("auto_run_jobs").select("allow_defaults, pending_decisions, project_id").eq("id", jobId).eq("user_id", userId).maybeSingle();
+        if (preJob?.allow_defaults) {
+          // Normalize a decision item to { decision_id, options[], recommended }
+          const normalizeDecisionItem = (d: any) => ({
+            decision_id: d.id || d.decision_key || d.note_id || null,
+            options: Array.isArray(d.options) ? d.options
+              : Array.isArray(d.decision_value?.options) ? d.decision_value.options
+              : [],
+            recommended: d.recommended || d.recommendation?.value || d.decision_value?.recommendation?.value || null,
+          });
+
+          let decisionItems: any[] = [];
+          let source = "none";
+
+          // Source 1: job.pending_decisions (legacy flow)
+          if (Array.isArray(preJob.pending_decisions) && preJob.pending_decisions.length > 0) {
+            decisionItems = preJob.pending_decisions.map(normalizeDecisionItem);
+            source = "job_pending_decisions";
+          }
+
+          // Source 2: decision_ledger workflow_pending rows (decision gate flow)
+          if (decisionItems.length === 0 && preJob.project_id) {
+            const { data: ledgerRows } = await supabase
+              .from("decision_ledger")
+              .select("id, decision_key, decision_value")
+              .eq("project_id", preJob.project_id)
+              .eq("status", "workflow_pending" as any)
+              .order("created_at", { ascending: true })
+              .limit(50);
+            if (ledgerRows && ledgerRows.length > 0) {
+              decisionItems = ledgerRows.map((r: any) => normalizeDecisionItem({
+                id: r.id,
+                decision_key: r.decision_key,
+                decision_value: r.decision_value,
+                options: r.decision_value?.options,
+                recommended: r.decision_value?.recommendation?.value,
+              }));
+              source = "decision_ledger_workflow_pending";
+            }
+          }
+
+          if (decisionItems.length > 0) {
+            let recommendedCount = 0;
+            let fallbackFirstCount = 0;
+            let fallbackAcceptCount = 0;
+
+            selectedOptions = decisionItems
+              .filter((d: any) => d.decision_id) // skip items with no id
+              .map((d: any) => {
+                let optionId: string;
+                if (d.recommended) {
+                  optionId = d.recommended;
+                  recommendedCount++;
+                } else if (d.options.length > 0 && d.options[0]?.value) {
+                  optionId = d.options[0].value;
+                  fallbackFirstCount++;
+                } else {
+                  optionId = "accept";
+                  fallbackAcceptCount++;
+                }
+                return { note_id: d.decision_id, option_id: optionId };
+              });
+
+            console.log(`[auto-run][IEL] apply-decisions auto-default: source=${source} total=${decisionItems.length} recommended=${recommendedCount} fallback_first_option=${fallbackFirstCount} fallback_accept=${fallbackAcceptCount} selected=${selectedOptions.length}`);
           }
         }
         if (selectedOptions.length === 0) {

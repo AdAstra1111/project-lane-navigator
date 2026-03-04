@@ -395,6 +395,26 @@ else
   echo "PASS"
 fi
 
+echo ""
+echo "=== Regression Tripwire: apply-decisions auto-default must check decision_ledger ==="
+HITS_LEDGER_FALLBACK=$(grep -c "decision_ledger_workflow_pending" supabase/functions/auto-run/index.ts || echo "0")
+if [ "$HITS_LEDGER_FALLBACK" = "0" ]; then
+  echo "FAIL: apply-decisions-and-continue does not fall back to decision_ledger workflow_pending rows"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: apply-decisions auto-default logs IEL provenance ==="
+HITS_IEL_LOG=$(grep -c "\[auto-run\]\[IEL\] apply-decisions auto-default" supabase/functions/auto-run/index.ts || echo "0")
+if [ "$HITS_IEL_LOG" = "0" ]; then
+  echo "FAIL: apply-decisions auto-default path missing IEL structured log"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."
