@@ -27,6 +27,10 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
   if (resp.status === 409 && result?.code === 'STALE_DECISION') {
     return { ...result, _stale: true };
   }
+  // Handle 409 RESUMABLE_JOB_EXISTS — return structured result instead of throwing
+  if (resp.status === 409 && (result?.error === 'RESUMABLE_JOB_EXISTS' || result?.existing_job_id)) {
+    return { ...result, _resumable: true };
+  }
   if (!resp.ok) throw new Error(result.error || `Auto-run error (${resp.status})`);
   return result;
 }
@@ -267,31 +271,31 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
         allow_defaults: allowDefaults ?? false,
         max_versions_per_doc_per_job: 60,
       });
-      setJob(result.job);
-      setSteps(result.latest_steps || []);
-      setIsRunning(true);
-      console.log(`[mission-control][IEL] start_new_job { job_id: "${result.job?.id}", current_document: "${result.job?.current_document}" }`);
-    } catch (e: any) {
+
       // Handle RESUMABLE_JOB_EXISTS: auto-resume existing job instead of failing
-      if (e.message?.includes('RESUMABLE_JOB_EXISTS') || e.message?.includes('resumable job exists')) {
-        console.log(`[mission-control][IEL] start_vs_resume_decision { action: "auto_resume", reason: "resumable_job_exists" }`);
+      if (result._resumable && result.existing_job_id) {
+        console.log(`[mission-control][IEL] start_vs_resume_decision { action: "auto_resume", reason: "resumable_job_exists", existing_job_id: "${result.existing_job_id}", current_document: "${result.current_document}", step_count: ${result.step_count} }`);
         try {
-          // Fetch the existing job first
           const statusResult = await callAutoRun('status', { projectId });
           if (statusResult?.job) {
             setJob(statusResult.job);
             setSteps(statusResult.latest_steps || []);
-            // Resume the existing job
             await callAutoRun('resume', { jobId: statusResult.job.id, followLatest: true });
             setIsRunning(true);
             refreshStatus();
-            return; // Success — resumed existing job
+            return;
           }
         } catch (resumeErr: any) {
           setError(`Failed to resume existing job: ${resumeErr.message}`);
           throw resumeErr;
         }
       }
+
+      setJob(result.job);
+      setSteps(result.latest_steps || []);
+      setIsRunning(true);
+      console.log(`[mission-control][IEL] start_new_job { job_id: "${result.job?.id}", current_document: "${result.job?.current_document}" }`);
+    } catch (e: any) {
       setError(e.message);
       throw e;
     }
