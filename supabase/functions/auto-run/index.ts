@@ -4029,9 +4029,10 @@ Deno.serve(async (req) => {
           status: "running",
           stop_reason: null,
           follow_latest: true,
-          resume_document_id: doc.id,
-          resume_version_id: newVersionId !== "unknown" ? newVersionId : null,
+          resume_document_id: null,
+          resume_version_id: null,
         });
+        console.log(`[auto-run][IEL] follow_latest_pins_cleared { job_id: "${jobId}", source: "manual_rewrite", doc_id: "${doc.id}" }`);
         return respondWithJob(supabase, jobId, "run-next");
       } catch (e: any) {
         await logStep(supabase, jobId, stepCount, currentDoc, "manual_rewrite_failed", `Rewrite failed: ${e.message}`);
@@ -4501,8 +4502,8 @@ Deno.serve(async (req) => {
           status: "running",
           stop_reason: null,
           follow_latest: true,
-          resume_document_id: docId,
-          resume_version_id: newVersionId !== "unknown" ? newVersionId : null,
+          resume_document_id: null,
+          resume_version_id: null,
           pending_doc_id: null,
           pending_version_id: null,
           pending_decisions: null,
@@ -4511,6 +4512,7 @@ Deno.serve(async (req) => {
           approval_payload: null,
           error: null,
         });
+        console.log(`[auto-run][IEL] follow_latest_pins_cleared { job_id: "${jobId}", source: "decisions_applied_rewrite", doc_id: "${docId}" }`);
         return respondWithJob(supabase, jobId, "run-next");
       } catch (e: any) {
         await logStep(supabase, jobId, stepCount, currentDoc, "decisions_rewrite_failed", `Rewrite with decisions failed: ${e.message}`);
@@ -4552,6 +4554,18 @@ Deno.serve(async (req) => {
         }).eq("id", jobId).eq("status", "running");
         job.pause_reason = null;
         job.stop_reason = null;
+      }
+
+      // ── IEL: Defensive cleanup — clear stale resume pins when follow_latest=true ──
+      // Prevents dirty state from manual_rewrite/decisions_applied paths that set both
+      if (job.follow_latest && (job.resume_version_id || job.resume_document_id)) {
+        console.log(`[auto-run][IEL] run_next_cleared_stale_pins { job_id: "${jobId}", stale_resume_version_id: "${job.resume_version_id}", stale_resume_document_id: "${job.resume_document_id}" }`);
+        await supabase.from("auto_run_jobs").update({
+          resume_document_id: null,
+          resume_version_id: null,
+        }).eq("id", jobId);
+        job.resume_document_id = null;
+        job.resume_version_id = null;
       }
 
       // Ensure downstream calls carry the real user_id from the job
