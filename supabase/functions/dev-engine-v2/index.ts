@@ -3725,8 +3725,11 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
     // ── REWRITE-ASSEMBLE (chunked rewrite step 3) ──
     if (action === "rewrite-assemble") {
-      const { projectId, documentId, versionId, planRunId, assembledText, rewriteModeSelected, rewriteModeEffective, rewriteModeReason, rewriteModeDebug, rewriteProbe } = body;
+      const { projectId, documentId, versionId, planRunId, assembledText, rewriteModeSelected, rewriteModeEffective, rewriteModeReason, rewriteModeDebug, rewriteProbe, deliverableType: assembleDeliverableType } = body;
       if (!projectId || !documentId || !versionId || !assembledText) throw new Error("projectId, documentId, versionId, assembledText required");
+
+      // Resolve effectiveDeliverable within this action scope (not inherited from rewrite block)
+      const effectiveDeliverable = assembleDeliverableType || "script";
 
       function estimateRuntimeMinutes(text: string, mode: string) {
         const words = (text || "").trim().split(/\s+/).filter(Boolean).length;
