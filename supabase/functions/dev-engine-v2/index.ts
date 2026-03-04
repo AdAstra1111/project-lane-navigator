@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
 import { isCPMEnabled, CPM_EVAL_PROMPT_EXTENSION, logCPM } from "../_shared/characterPressureMatrix.ts";
+import { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_EVAL_BLOCK } from "../_shared/ciBlockerGate.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
@@ -1389,7 +1390,9 @@ RULES FOR NOTE GENERATION:
 - Once blockers reach zero, do NOT invent new blockers unless drift or regression is detected.
 - Do NOT introduce new blocking issues unless they are fundamentally distinct from previous ones or true regression occurred.
 - If high_impact_notes <= 3 AND polish_notes <= 5 AND blockers == 0, set convergence.status to "converged".
-- CONVERGENCE RULE: convergence.status = "converged" if and only if blocking_issues with apply_timing="now" is empty.`;
+- CONVERGENCE RULE: convergence.status = "converged" if and only if blocking_issues with apply_timing="now" is empty.
+
+${(isCharBibleDepthEnabled() && deliverable === "character_bible") ? CHARACTER_BIBLE_DEPTH_EVAL_BLOCK : ""}`;
 }
 
 function buildRewriteSystem(deliverable: string, format: string, behavior: string): string {
