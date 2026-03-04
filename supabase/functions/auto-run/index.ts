@@ -164,6 +164,19 @@ const DOC_TYPE_ALIASES: Record<string, string> = STAGE_LADDERS.DOC_TYPE_ALIASES;
 // Flat unique set of all stages (for validation)
 const ALL_STAGES = new Set<string>(Object.values(FORMAT_LADDERS).flat());
 
+// ── STAGE-SCOPED BEST RESET: fields to clear when current_document changes ──
+// best_* is stage-scoped: each stage tracks its own best independently.
+// Global best across stages is informational only and MUST NOT feed baseline/promotion.
+const STAGE_BEST_RESET_FIELDS = {
+  best_version_id: null,
+  best_ci: null,
+  best_gp: null,
+  best_score: null,
+  best_document_id: null,
+  best_blocker_count: null,
+  best_blocker_score: null,
+};
+
 // ── IEL: Version cap per doc_type per job (prevents runaway same-stage loops) ──
 // Fallback only — per-job value from auto_run_jobs.max_versions_per_doc_per_job takes precedence
 const DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB = 60;
@@ -3066,9 +3079,11 @@ Deno.serve(async (req) => {
             status: "running",
             stop_reason: null,
             pending_decisions: null,
-            // Clear frontier on stage change — frontier is scoped per document stage
-            frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
-          });
+                // Clear frontier + best on stage change — both are scoped per document stage
+                frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+                ...STAGE_BEST_RESET_FIELDS,
+              });
+              console.log(`[auto-run][IEL] stage_best_reset { job_id: "${jobId}", from: "${currentDoc}", to: "${next}", trigger: "force_promote_decision" }`);
           return respondWithJob(supabase, jobId, "run-next");
         } else {
           await updateJob(supabase, jobId, {
@@ -3427,9 +3442,11 @@ Deno.serve(async (req) => {
           status: "running", stop_reason: null, error: null,
           awaiting_approval: false, approval_type: null, approval_payload: null,
           pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
-          // Clear frontier on stage change — frontier is scoped per document stage
-          frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
-        });
+            // Clear frontier + best on stage change — both are scoped per document stage
+            frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+            ...STAGE_BEST_RESET_FIELDS,
+          });
+          console.log(`[auto-run][IEL] stage_best_reset { job_id: "${jobId}", from: "${currentDoc}", to: "${nextStage}", trigger: "approve" }`);
       } else {
         // Target reached
         await updateJob(supabase, jobId, {
@@ -3455,9 +3472,11 @@ Deno.serve(async (req) => {
       await updateJob(supabase, jobId, {
         current_document: stage, stage_loop_count: 0, step_count: stepCount,
         stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
-        // Clear frontier on stage change — frontier is scoped per document stage
+        // Clear frontier + best on stage change — both are scoped per document stage
         frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+        ...STAGE_BEST_RESET_FIELDS,
       });
+      console.log(`[auto-run][IEL] stage_best_reset { job_id: "${jobId}", from: "${job.current_document}", to: "${stage}", trigger: "set_stage" }`);
       return respondWithJob(supabase, jobId);
     }
 
@@ -3487,9 +3506,11 @@ Deno.serve(async (req) => {
         status: "running", stop_reason: null,
         awaiting_approval: false, approval_type: null, pending_doc_id: null, pending_version_id: null,
         pending_doc_type: null, pending_next_doc_type: null, pending_decisions: null,
-        // Clear frontier on stage change — frontier is scoped per document stage
+        // Clear frontier + best on stage change — both are scoped per document stage
         frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+        ...STAGE_BEST_RESET_FIELDS,
       });
+      console.log(`[auto-run][IEL] stage_best_reset { job_id: "${jobId}", from: "${currentDoc}", to: "${next}", trigger: "force_promote" }`);
       return respondWithJob(supabase, jobId, "run-next");
     }
 
@@ -3511,9 +3532,11 @@ Deno.serve(async (req) => {
         awaiting_approval: false, approval_type: null, approval_payload: null,
         pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
         pending_decisions: null,
-        // Clear frontier on stage change — frontier is scoped per document stage
+        // Clear frontier + best on stage change — both are scoped per document stage
         frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+        ...STAGE_BEST_RESET_FIELDS,
       });
+      console.log(`[auto-run][IEL] stage_best_reset { job_id: "${jobId}", from: "${job.current_document}", to: "${stage}", trigger: "restart_from_stage" }`);
       return respondWithJob(supabase, jobId, "run-next");
     }
 
@@ -3593,9 +3616,11 @@ Deno.serve(async (req) => {
            const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
           if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
             await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0,
-              // Clear frontier on stage change — frontier is scoped per document stage
+              // Clear frontier + best on stage change — both are scoped per document stage
               frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+              ...STAGE_BEST_RESET_FIELDS,
             });
+            console.log(`[auto-run][IEL] stage_best_reset { job_id: "${jobId}", from: "${currentDoc}", to: "${nextAfterAgg}", trigger: "aggregate_skip" }`);
             return respondWithJob(supabase, jobId, "run-next");
           } else {
             await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied (aggregate skip)" });
@@ -3968,8 +3993,8 @@ Deno.serve(async (req) => {
           pending_doc_type: null,
           pending_next_doc_type: null,
           error: null,
-          // Clear frontier on stage change — frontier is scoped per document stage
-          ...(nextDoc !== currentDoc ? { frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0 } : {}),
+          // Clear frontier + best on stage change — both are scoped per document stage
+          ...(nextDoc !== currentDoc ? { frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0, ...STAGE_BEST_RESET_FIELDS } : {}),
         });
 
         return respondWithJob(supabase, jobId, status === "running" ? "run-next" : "none");
@@ -4050,9 +4075,11 @@ Deno.serve(async (req) => {
           const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
           if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
             await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0,
-              // Clear frontier on stage change — frontier is scoped per document stage
+              // Clear frontier + best on stage change — both are scoped per document stage
               frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+              ...STAGE_BEST_RESET_FIELDS,
             });
+            console.log(`[auto-run][IEL] stage_best_reset { job_id: "${jobId}", from: "${currentDoc}", to: "${nextAfterAgg}", trigger: "aggregate_skip_decision" }`);
             return respondWithJob(supabase, jobId, "run-next");
           } else {
             await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied (aggregate skip)" });
@@ -5930,7 +5957,9 @@ Deno.serve(async (req) => {
                     frontier_ci: null,
                     frontier_gp: null,
                     frontier_attempts: 0,
+                    ...STAGE_BEST_RESET_FIELDS,
                   });
+                  console.log(`[auto-run][IEL] stage_best_reset { job_id: "${jobId}", from: "${currentDoc}", to: "${next}", trigger: "auto_approved_promote_prep" }`);
                   return respondWithJob(supabase, jobId, "run-next");
                 }
                 await logStep(supabase, jobId, null, currentDoc, "approval_required",
@@ -6004,9 +6033,11 @@ Deno.serve(async (req) => {
               await updateJob(supabase, jobId, {
                 current_document: nextAfterAggregate,
                 stage_loop_count: 0,
-                // Clear frontier on stage change — frontier is scoped per document stage
+                // Clear frontier + best on stage change — both are scoped per document stage
                 frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+                ...STAGE_BEST_RESET_FIELDS,
               });
+              console.log(`[auto-run][IEL] stage_best_reset { job_id: "${jobId}", from: "${currentDoc}", to: "${nextAfterAggregate}", trigger: "aggregate_skip_writing" }`);
               return respondWithJob(supabase, jobId, "run-next");
             } else {
               await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied up to target (aggregate skip)" });
@@ -6141,39 +6172,37 @@ Deno.serve(async (req) => {
           }
           let baselineVersionId = currentAccepted.id;
 
-          // ── BASELINE REANCHOR TO BEST (READ-ONLY — never mutates is_current) ──
+          // ── BASELINE REANCHOR TO BEST (STAGE-SCOPED — never mutates is_current) ──
           // If job.best_version_id exists for this document and the baseline has collapsed,
           // re-anchor baselineVersionId in-memory only to prevent regression loops.
+          // INVARIANT: best_* MUST belong to current doc_type. If it doesn't, fail closed.
           {
             const bestVersionId = (job as any).best_version_id;
             const bestDocId = (job as any).best_document_id;
             const bestCI = (job as any).best_ci;
             const bestGP = (job as any).best_gp;
-            
-            if (bestVersionId && bestDocId === doc.id && bestVersionId !== baselineVersionId
+
+            // ── IEL GUARD: global_best_misuse — best_document_id must match current doc ──
+            if (bestVersionId && bestDocId && bestDocId !== doc.id) {
+              console.error(`[auto-run][IEL] global_best_misuse_blocked { job_id: "${jobId}", current_doc_type: "${currentDoc}", best_document_id: "${bestDocId}", best_version_id: "${bestVersionId}", action: "reanchor_skipped" }`);
+              // Do NOT use global best — it belongs to a different stage. Skip reanchor entirely.
+            } else if (bestVersionId && bestDocId === doc.id && bestVersionId !== baselineVersionId
                 && typeof bestCI === "number" && typeof bestGP === "number") {
-              // We need baseline scores. If last_analyzed doesn't match baseline, we must
-              // re-score baseline first (handled in BASELINE SCORE REUSE below).
-              // For re-anchor check, use job cache if available, otherwise skip (will be caught after scoring).
               const jobLastAnalyzed = (job as any).last_analyzed_version_id;
               const jobLastCI = (job as any).last_ci;
               const jobLastGP = (job as any).last_gp;
               
               if (typeof jobLastCI === "number" && typeof jobLastGP === "number") {
-                // Use cached scores as proxy (even if from different version — conservative check)
                 const baselineComposite = jobLastCI + jobLastGP;
                 const bestComposite = bestCI + bestGP;
-                const REANCHOR_MARGIN = 20; // composite must be this much worse
+                const REANCHOR_MARGIN = 20;
                 
                 if (bestComposite - baselineComposite >= REANCHOR_MARGIN) {
-                  // READ-ONLY re-anchor: only change in-memory variable, NOT is_current in DB
                   await logStep(supabase, jobId, null, currentDoc, "baseline_reanchored_to_best",
                     `Baseline collapsed (CI=${jobLastCI} GP=${jobLastGP}, composite=${baselineComposite}) below best (CI=${bestCI} GP=${bestGP}, composite=${bestComposite}). Read-only re-anchor to best version ${bestVersionId}. is_current NOT changed.`,
                     { ci: bestCI, gp: bestGP }, undefined,
                     { old_baseline: baselineVersionId, new_baseline: bestVersionId, old_ci: jobLastCI, old_gp: jobLastGP, best_ci: bestCI, best_gp: bestGP, margin: bestComposite - baselineComposite, REANCHOR_MARGIN, reason: 'read_only_reanchor' });
                   baselineVersionId = bestVersionId;
-                  // Do NOT call set_current_version — is_current stays unchanged
-                  // Do NOT reload currentAccepted — we're using bestVersionId as read-anchor only
                 }
               }
             }
@@ -6242,6 +6271,8 @@ Deno.serve(async (req) => {
               }
             }
           }
+
+          console.log(`[auto-run][IEL] baseline_selected { job_id: "${jobId}", doc_type: "${currentDoc}", baseline_version_id: "${baselineVersionId}", baseline_ci: ${baselineCI}, baseline_gp: ${baselineGP}, baseline_source: "${baselineVersionId === currentAccepted.id ? 'is_current' : 'reanchored_best'}" }`);
 
           const BASE_REGRESSION_THRESHOLD = getRegressionThreshold(currentDoc); // PROMOTE_DELTA — unchanged
           const BASE_EXPLORE_THRESHOLD = getExploreThreshold(currentDoc);       // EXPLORE_DELTA
@@ -6405,7 +6436,8 @@ Deno.serve(async (req) => {
               jobUpdate.best_score = candidateComposite;
               jobUpdate.best_document_id = doc.id;
               jobUpdate.best_blocker_count = cbc;
-              jobUpdate.best_blocker_score = cbc; // simple weight = count for now
+              jobUpdate.best_blocker_score = cbc;
+              console.log(`[auto-run][IEL] promote_selected { job_id: "${jobId}", doc_type: "${currentDoc}", promoted_version_id: "${candVersionId}", ci: ${candCI}, gp: ${candGP}, composite: ${candidateComposite}, source: "stage_best" }`);
             }
             await updateJob(supabase, jobId, jobUpdate);
             return true;
@@ -7004,7 +7036,9 @@ Deno.serve(async (req) => {
                 frontier_ci: null,
                 frontier_gp: null,
                 frontier_attempts: 0,
+                ...STAGE_BEST_RESET_FIELDS,
               });
+              console.log(`[auto-run][IEL] stage_best_reset { job_id: "${jobId}", from: "${currentDoc}", to: "${next}", trigger: "auto_approved_promote_writing" }`);
               return respondWithJob(supabase, jobId, "run-next");
             }
             // ── APPROVAL GATE: pause before promoting to next stage ──
