@@ -236,6 +236,11 @@ const CANON_ALIGNMENT_EXEMPT = new Set([
   "episode_grid", "season_master_script",
   // Early-ladder & foundational docs (canon is still forming at these stages)
   "idea", "concept_brief", "vertical_market_sheet", "market_sheet",
+  // Structural / canon-source docs — these define canon, not consume it
+  "season_arc", "vertical_episode_beats", "character_bible", "beat_sheet",
+  "treatment", "story_outline", "documentary_outline", "topline_narrative",
+  // Season script is the VD terminal deliverable; canon entities may not match feature-film patterns
+  "season_script", "complete_season_script",
 ]);
 
 /**
