@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
-import { CHARACTER_PRESSURE_MATRIX_V1, CPM_EVAL_PROMPT_EXTENSION, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
+import { isCPMEnabled, CPM_EVAL_PROMPT_EXTENSION, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
@@ -1107,7 +1107,7 @@ const DELIVERABLE_RUBRICS: Record<string, string> = {
   documentary_outline: `Evaluate as a DOCUMENTARY OUTLINE. Score narrative structure, subject access, thematic coherence, editorial approach. Do NOT invent characters, fabricate scenes, or generate INT./EXT. sluglines. Use [PLACEHOLDER] for missing information.`,
   format_rules: `Evaluate as FORMAT RULES. Score rule clarity, duration alignment with canonical qualifications, platform fit, and completeness.`,
   season_arc: `Evaluate as a SEASON ARC. Score arc architecture, escalation logic, episode count alignment with canonical qualifications, and thematic spine.`,
-  episode_grid: `Evaluate as an EPISODE GRID. Score grid completeness (must match canonical episode count), hook design per episode, escalation curve, and emotional engine distribution.${CHARACTER_PRESSURE_MATRIX_V1 ? "\n" + CPM_EVAL_PROMPT_EXTENSION : ""}`,
+  episode_grid: `Evaluate as an EPISODE GRID. Score grid completeness (must match canonical episode count), hook design per episode, escalation curve, and emotional engine distribution.`,
   vertical_episode_beats: `Evaluate as EPISODE BEATS for vertical drama. Score beat density per episode duration, scroll-stop hook design (3-10 second window), micro-cliffhanger endings, escalation intensity, and character agency.`,
   series_writer: `Evaluate as a SERIES WRITER episode script for vertical drama. Score canon consistency (characters, relationships must match Character Bible), emotional escalation from previous episode, immediate hook in opening lines, cliffhanger ending, location limit (max 3 primary), and season arc alignment per Episode Grid. Do NOT allow feature-film pacing. Do NOT introduce characters not in canon.`,
 };
@@ -1244,7 +1244,12 @@ function remapDocType(docType: string, format: string): string | null {
 }
 
 function buildAnalyzeSystem(deliverable: string, format: string, behavior: string, episodeDurationMin?: number, episodeDurationMax?: number): string {
-  const rubric = DELIVERABLE_RUBRICS[deliverable] || DELIVERABLE_RUBRICS.script;
+  let rubric = DELIVERABLE_RUBRICS[deliverable] || DELIVERABLE_RUBRICS.script;
+  // ── CPM_V1: runtime injection of CP eval criteria for episode_grid ──
+  if (deliverable === "episode_grid" && isCPMEnabled()) {
+    rubric += "\n" + CPM_EVAL_PROMPT_EXTENSION;
+    logCPM("cpm_v1_applied", { doc_type: "episode_grid", source: "dev-engine-v2-eval" });
+  }
   const behaviorMod = BEHAVIOR_MODIFIERS[behavior] || BEHAVIOR_MODIFIERS.market;
   const formatExp = FORMAT_EXPECTATIONS[format] || FORMAT_EXPECTATIONS.film;
   const ladder = getLadderForFormat(format);

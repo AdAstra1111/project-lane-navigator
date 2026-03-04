@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { CHARACTER_PRESSURE_MATRIX_V1, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
+import { isCPMEnabled, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
@@ -444,10 +444,11 @@ D) OUTPUT CONTRACT — At the top of your response, print:
       const nuanceBlock = buildNuancePromptBlock(nuanceParams);
 
       // ── CPM_V1: inject Character Pressure Matrix block for episode_grid ──
-      const cpmBlock = (CHARACTER_PRESSURE_MATRIX_V1 && docType === "episode_grid")
+      const cpmEnabled = isCPMEnabled();
+      const cpmBlock = (cpmEnabled && docType === "episode_grid")
         ? CPM_GENERATION_PROMPT_BLOCK
         : "";
-      if (CHARACTER_PRESSURE_MATRIX_V1 && docType === "episode_grid") {
+      if (cpmEnabled && docType === "episode_grid") {
         logCPM("cpm_v1_applied", { doc_type: "episode_grid", source: "generate-document" });
       }
 

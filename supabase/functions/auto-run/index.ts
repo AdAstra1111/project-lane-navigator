@@ -1,6 +1,6 @@
 const BUILD = "AUTORUN_BUILD_MARKER_2026_03_04_CPM_V1";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { CHARACTER_PRESSURE_MATRIX_V1, buildCPRepairDirections, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
+import { isCPMEnabled, buildCPRepairDirections, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
 import { isDurationEligibleDocType, isDeprecatedTargetDocType } from "../_shared/eligibilityRegistry.ts";
 import { getWritingLaneGroup, getDefaultWritingVoiceForLane } from "../_shared/writingVoiceResolver.ts";
@@ -6912,7 +6912,7 @@ Deno.serve(async (req) => {
           const mergedDirections = [...decisionDirections, ...strategyDirections];
 
           // ── CPM_V1: inject Character Pressure Matrix repair targeting for episode_grid ──
-          if (CHARACTER_PRESSURE_MATRIX_V1 && currentDoc === "episode_grid") {
+          if (isCPMEnabled() && currentDoc === "episode_grid") {
             const cpRepair = buildCPRepairDirections(
               allNotesForStrategy.blocking_issues || [],
               allNotesForStrategy.high_impact_notes || [],
