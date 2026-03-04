@@ -48,6 +48,14 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
     body: JSON.stringify({ action, ...extra }),
   });
   const result = await resp.json();
+  // Handle 409 STALE_DECISION gracefully
+  if (resp.status === 409 && result?.code === 'STALE_DECISION') {
+    return { ...result, _stale: true };
+  }
+  // Handle 409 RESUMABLE_JOB_EXISTS — return structured result instead of throwing
+  if (resp.status === 409 && (result?.error === 'RESUMABLE_JOB_EXISTS' || result?.existing_job_id)) {
+    return { ...result, _resumable: true };
+  }
   if (!resp.ok) throw new Error(result.error || 'Auto-run error');
   return result;
 }

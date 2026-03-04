@@ -112,6 +112,10 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
   if (resp.status === 409 && result?.code === 'STALE_DECISION') {
     return { ...result, _stale: true };
   }
+  // Handle 409 RESUMABLE_JOB_EXISTS — return structured result instead of throwing
+  if (resp.status === 409 && (result?.error === 'RESUMABLE_JOB_EXISTS' || result?.existing_job_id)) {
+    return { ...result, _resumable: true };
+  }
   if (!resp.ok) throw new Error(result.error || 'Auto-run error');
   return result;
 }
@@ -152,13 +156,28 @@ export function useAutoRun(projectId: string | undefined) {
     const mappedStart = mapDocTypeToLadderStage(startDocument);
 
     try {
-    const result = await callAutoRun('start', {
+      const result = await callAutoRun('start', {
         projectId,
         mode: 'balanced',
         start_document: mappedStart,
         target_document: 'production_draft',
         allow_defaults: true,
       });
+
+      // Handle RESUMABLE_JOB_EXISTS: auto-resume existing job
+      if (result._resumable && result.existing_job_id) {
+        console.log(`[useAutoRun][IEL] auto_resume { existing_job_id: "${result.existing_job_id}", current_document: "${result.current_document}" }`);
+        const statusResult = await callAutoRun('status', { projectId });
+        if (statusResult?.job) {
+          setJob(statusResult.job);
+          setSteps(statusResult.latest_steps || []);
+          await callAutoRun('resume', { jobId: statusResult.job.id, followLatest: true });
+          setIsRunning(true);
+          runLoopRef.current?.(statusResult.job.id);
+          return;
+        }
+      }
+
       setJob(result.job);
       setSteps(result.latest_steps || []);
       setIsRunning(true);
