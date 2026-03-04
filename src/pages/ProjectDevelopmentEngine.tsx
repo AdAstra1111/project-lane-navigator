@@ -101,6 +101,7 @@ import { DevEngineSimpleView } from '@/components/devengine/DevEngineSimpleView'
 import { EngineBar, deriveExecutionMode, type ExecutionMode } from '@/components/devengine/EngineBar';
 import { useUIMode } from '@/hooks/useUIMode';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
+import { normalizeDecisionsForUI } from '@/lib/decisions/normalizeDecisionUI';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -1718,31 +1719,28 @@ export default function ProjectDevelopmentEngine() {
                 // Build decisions: prefer job.pending_decisions, then OPTIONS run, then inline note decisions
                 const decisions = (() => {
                   if (jobHasDecisions) {
-                    // Convert PendingDecision[] from job to Decision[] shape for panel
-                    return (autoRun.job!.pending_decisions as any[]).map((d: any) => ({
-                      note_id: d.id,
-                      severity: d.impact === 'blocking' ? 'blocker' as const : 'high' as const,
-                      note: d.question,
-                      options: d.options?.map((o: any) => ({
-                        option_id: o.value,
-                        title: o.value,
-                        what_changes: [o.why],
-                      })),
-                      recommended_option_id: d.recommended,
-                    }));
+                    return normalizeDecisionsForUI(
+                      autoRun.job!.pending_decisions as any[],
+                      'project-development-engine:job_pending_decisions'
+                    ) as Decision[];
                   }
-                  if (optionsRunHasDecisions) return optionsRun.output_json.decisions;
+                  if (optionsRunHasDecisions) {
+                    return normalizeDecisionsForUI(
+                      optionsRun.output_json.decisions || [],
+                      'project-development-engine:options_run'
+                    ) as Decision[];
+                  }
                   const noteDecisions: Decision[] = [
                     ...tieredNotes.blockers.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                      note_id: n.id, severity: 'blocker' as const, note: n.description || n.note,
+                      note_id: n.id || n.note_key, severity: 'blocker' as const, note: n.description || n.note,
                       options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
                     })),
                     ...tieredNotes.high.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                      note_id: n.id, severity: 'high' as const, note: n.description || n.note,
+                      note_id: n.id || n.note_key, severity: 'high' as const, note: n.description || n.note,
                       options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
                     })),
                   ];
-                  return noteDecisions;
+                  return normalizeDecisionsForUI(noteDecisions as any[], 'project-development-engine:inline_note_decisions') as Decision[];
                 })();
 
                 return (

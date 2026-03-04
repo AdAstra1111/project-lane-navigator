@@ -26,6 +26,10 @@ export interface Decision {
   recommended_option_id?: string;
   /** legacy field */
   recommended?: string;
+  source?: string;
+  decision_key?: string;
+  malformed?: boolean;
+  missing_fields?: string[];
 }
 
 interface DecisionCardProps {
@@ -85,11 +89,21 @@ function OptionRow({
       </div>
       <div className="pl-5 space-y-0.5">
         <div className="flex flex-wrap gap-0.5">
-          {option.what_changes.map((c, i) => (
-            <Badge key={i} variant="outline" className="text-[8px] px-1 py-0 text-muted-foreground border-border/40">
-              {c}
-            </Badge>
-          ))}
+          {(() => {
+            const changes = Array.isArray(option.what_changes) ? option.what_changes : [];
+            if (!Array.isArray(option.what_changes)) {
+              console.warn('[decisions][IEL] malformed_payload', {
+                source: 'decision-card:option-row',
+                decision_key: option.option_id,
+                missing_fields: ['what_changes'],
+              });
+            }
+            return changes.map((c, i) => (
+              <Badge key={i} variant="outline" className="text-[8px] px-1 py-0 text-muted-foreground border-border/40">
+                {c}
+              </Badge>
+            ));
+          })()}
         </div>
         {tradeoffText && (
           <p className="text-[9px] text-muted-foreground italic">{tradeoffText}</p>
@@ -102,6 +116,28 @@ function OptionRow({
 export function DecisionCard({ decision, selectedOptionId, customDirection, onSelectOption, onCustomDirection }: DecisionCardProps) {
   const recommendedId = decision.recommended_option_id || decision.recommended;
   const isOtherSelected = selectedOptionId === OTHER_OPTION_ID;
+
+  const missingFields: string[] = [];
+  if (!decision?.note_id) missingFields.push('note_id');
+  if (!Array.isArray(decision?.options)) missingFields.push('options');
+  if (!decision?.note) missingFields.push('note');
+
+  if (missingFields.length > 0) {
+    console.warn('[decisions][IEL] malformed_payload', {
+      source: decision?.source || 'decision-card:render',
+      decision_key: decision?.decision_key || decision?.note_id || 'unknown',
+      missing_fields: decision?.missing_fields?.length ? decision.missing_fields : missingFields,
+    });
+
+    return (
+      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+        <p className="text-[11px] font-medium text-destructive">Malformed decision payload</p>
+        <p className="text-[10px] text-muted-foreground mt-1">This decision could not be rendered safely.</p>
+      </div>
+    );
+  }
+
+  const safeOptions = Array.isArray(decision.options) ? decision.options : [];
 
   // Auto-focus textarea when "Other" is selected
   const [textareaRef, setTextareaRef] = useState<HTMLTextAreaElement | null>(null);
@@ -139,7 +175,7 @@ export function DecisionCard({ decision, selectedOptionId, customDirection, onSe
       <p className="text-[11px] text-foreground leading-relaxed">{decision.note}</p>
 
       <div className="space-y-1.5">
-        {decision.options.map((opt) => (
+        {safeOptions.map((opt) => (
           <OptionRow
             key={opt.option_id}
             option={opt}
