@@ -461,7 +461,6 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         ? `Using the upstream documents below, generate the ${docType.replace(/_/g, " ")}.\n\n${upstreamContent}`
         : `Generate the ${docType.replace(/_/g, " ")} from scratch based on the project context.`;
     }
-    }
 
     // 5) Generate content
     let content: string;
