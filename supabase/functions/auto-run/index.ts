@@ -5651,16 +5651,38 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ── Re-fetch doc after empty-slot recovery (doc may have been nulled at line ~5425) ──
+      if (!doc) {
+        const { data: recoveredDocs } = await supabase.from("project_documents")
+          .select("id, doc_type, plaintext, extracted_text")
+          .eq("project_id", job.project_id).eq("doc_type", currentDoc)
+          .order("created_at", { ascending: false }).limit(1);
+        doc = recoveredDocs?.[0] || null;
+        if (doc && !latestVersion) {
+          const { data: recoveredVers } = await supabase.from("project_document_versions")
+            .select("id, plaintext, version_number, criteria_hash")
+            .eq("document_id", doc.id)
+            .order("version_number", { ascending: false }).limit(1);
+          latestVersion = recoveredVers?.[0] || null;
+        }
+        if (!doc) {
+          console.error(`[auto-run][IEL] doc_still_null_after_recovery { currentDoc: "${currentDoc}", jobId: "${jobId}" }`);
+          await updateJob(supabase, jobId, { status: "paused", pause_reason: "EMPTY_SLOT_RECOVERY_FAILED", error: `Document ${currentDoc} still missing after empty-slot recovery` });
+          return respondWithJob(supabase, jobId);
+        }
+        console.log(`[auto-run][IEL] doc_refetched_after_recovery { docId: "${doc.id}", currentDoc: "${currentDoc}" }`);
+      }
+
       // Log resume source usage
       if (resumeSourceUsed) {
         await logStep(supabase, jobId, stepCount, currentDoc, "resume_source_used",
-          `Using pinned source: doc=${doc.id} ver=${latestVersion.id}`,
-          {}, undefined, { documentId: doc.id, versionId: latestVersion.id, follow_latest: false }
+          `Using pinned source: doc=${doc.id} ver=${latestVersion?.id}`,
+          {}, undefined, { documentId: doc.id, versionId: latestVersion?.id, follow_latest: false }
         );
       }
 
       // ── Criteria classification: separate STALE_PROVENANCE from FAILS_CRITERIA_DURATION ──
-      const reviewTextForDuration = latestVersion?.plaintext || doc.extracted_text || doc.plaintext || "";
+      const reviewTextForDuration = latestVersion?.plaintext || doc?.extracted_text || doc?.plaintext || "";
       const measuredDuration = estimateDurationSeconds(reviewTextForDuration);
       const currentCriteriaHash = computeCriteriaHashEdge(latestCriteriaSnapshot);
       
@@ -5773,7 +5795,7 @@ Deno.serve(async (req) => {
       }
 
       // Resolve the actual text being fed into analysis (version plaintext > doc extracted_text > doc plaintext)
-      let reviewText = latestVersion.plaintext || doc.extracted_text || doc.plaintext || "";
+      let reviewText = latestVersion?.plaintext || doc?.extracted_text || doc?.plaintext || "";
       let reviewCharCount = reviewText.length;
 
       // ── C) AUTO-REGEN if current doc is stub or empty ──
@@ -6322,7 +6344,7 @@ Deno.serve(async (req) => {
           }
 
           if (!currentAccepted) {
-            const seedText = (doc.plaintext || doc.extracted_text || "").trim();
+            const seedText = (doc?.plaintext || doc?.extracted_text || "").trim();
             if (seedText.length > 0) {
               const { data: maxRow } = await supabase.from("project_document_versions")
                 .select("version_number")
@@ -6359,7 +6381,7 @@ Deno.serve(async (req) => {
             const { count: versionCount } = await supabase.from("project_document_versions")
               .select("id", { count: "exact", head: true })
               .eq("document_id", doc.id);
-            const hasSeedText = (doc.plaintext || doc.extracted_text || "").trim().length > 0;
+            const hasSeedText = (doc?.plaintext || doc?.extracted_text || "").trim().length > 0;
 
             if (!hasSeedText && (!versionCount || versionCount === 0)) {
               await logStep(supabase, jobId, null, currentDoc, "baseline_missing_no_text",
