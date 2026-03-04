@@ -94,20 +94,44 @@ export async function runPendingDecisionGate(
 
   for (const { key: semanticKey, hint } of allRequired) {
     const canonKey = buildPendingDecisionKey(format, docType, semanticKey);
-
-    // Already resolved as canon OR as workflow → skip
-    // resolvedCanonKeys contains ALL active decision_keys (both canon and workflow-namespaced)
     const wfKey = workflowKey(format, docType, semanticKey);
-    if (resolvedCanonKeys.has(canonKey) || resolvedCanonKeys.has(semanticKey) || resolvedCanonKeys.has(wfKey)) {
-      console.log(`[decision-gate][IEL] decision_already_resolved { key: "${semanticKey}", matched_by: "${resolvedCanonKeys.has(canonKey) ? 'canon' : resolvedCanonKeys.has(wfKey) ? 'workflow_active' : 'semantic'}" }`);
+
+    const matchedBy = resolvedCanonKeys.has(canonKey)
+      ? "canon"
+      : resolvedCanonKeys.has(wfKey)
+        ? "workflow_active"
+        : resolvedCanonKeys.has(semanticKey)
+          ? "semantic"
+          : null;
+
+    // Already resolved as canon/workflow active → skip deterministic re-creation
+    if (matchedBy) {
+      console.log(`[decision-gate][IEL] decision_already_resolved`, JSON.stringify({
+        project_id: projectId,
+        semantic_key: semanticKey,
+        canon_key: canonKey,
+        wf_key: wfKey,
+        matched_key_type: matchedBy,
+      }));
       continue;
     }
 
-    // wfKey already computed above for the resolved-key check
-
-    // Already has workflow_pending row → check classification with hint authority
-    const existing = workflowMap.get(wfKey);
+    // Existing workflow_pending row check (with ambiguity fail-closed)
+    const existing = workflowMap.get(wfKey) || workflowMap.get(canonKey) || workflowMap.get(semanticKey);
     if (existing) {
+      if (existing.decision_key !== wfKey) {
+        console.error(`[decision-gate][IEL] key_ambiguity_fail_closed`, JSON.stringify({
+          project_id: projectId,
+          semantic_key: semanticKey,
+          expected_wf_key: wfKey,
+          found_key: existing.decision_key,
+          existing_id: existing.id,
+        }));
+        // Fail closed: do not create duplicate rows when key shape is ambiguous
+        blockingIds.push(existing.id);
+        continue;
+      }
+
       const rawCls = existing.decision_value?.classification;
       // Registry authority: deferrable hint overrides BLOCKING_NOW
       const effectiveCls = (hint === "deferrable" && rawCls === "BLOCKING_NOW") ? "DEFERRABLE" : rawCls;
