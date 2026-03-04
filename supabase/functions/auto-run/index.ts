@@ -67,7 +67,7 @@ async function completionGate(
     }
   }
 
-  // Gate 2: Canon alignment for target document (universal — not just season_master_script)
+  // Gate 2: Target deliverable existence — doc + version + non-empty content
   {
     const { data: targetDoc } = await supabase
       .from("project_documents")
@@ -78,17 +78,33 @@ async function completionGate(
       .limit(1)
       .maybeSingle();
 
-    if (targetDoc) {
-      const currentVer = await getCurrentVersionForDoc(supabase, targetDoc.id);
-      if (currentVer?.plaintext) {
-        const alignment = await runCanonAlignmentGate(supabase, projectId, currentVer.plaintext);
-        if (alignment && !alignment.pass) {
-          return {
-            stop_reason: "CANON_MISMATCH",
-            details: `Canon alignment failed for ${targetDocument}: coverage=${alignment.result.entityCoverage}, missing=${alignment.result.missingEntities.slice(0, 5).join(",")}, foreign=${alignment.result.foreignEntities.slice(0, 5).join(",")}. Sources: ${alignment.sources.join(",")}`,
-          };
-        }
-        // alignment === null means no canon sources — allow completion
+    if (!targetDoc) {
+      console.error(`[auto-run][IEL] target_missing_fail_closed { project_id: "${projectId}", target_doc_type: "${targetDocument}", has_doc: false, has_version: false, content_len: 0 }`);
+      return {
+        stop_reason: "TARGET_DELIVERABLE_MISSING",
+        details: `Target document '${targetDocument}' does not exist in project_documents. Cannot declare completion without a persisted deliverable.`,
+      };
+    }
+
+    const currentVer = await getCurrentVersionForDoc(supabase, targetDoc.id);
+    const contentLen = currentVer?.plaintext?.length || 0;
+
+    if (!currentVer || contentLen === 0) {
+      console.error(`[auto-run][IEL] target_missing_fail_closed { project_id: "${projectId}", target_doc_type: "${targetDocument}", has_doc: true, has_version: ${!!currentVer}, content_len: ${contentLen} }`);
+      return {
+        stop_reason: "TARGET_DELIVERABLE_MISSING",
+        details: `Target document '${targetDocument}' exists but has no version with content (content_len=${contentLen}). Cannot declare completion without persisted content.`,
+      };
+    }
+
+    // Gate 3: Canon alignment for target document
+    if (currentVer.plaintext) {
+      const alignment = await runCanonAlignmentGate(supabase, projectId, currentVer.plaintext);
+      if (alignment && !alignment.pass) {
+        return {
+          stop_reason: "CANON_MISMATCH",
+          details: `Canon alignment failed for ${targetDocument}: coverage=${alignment.result.entityCoverage}, missing=${alignment.result.missingEntities.slice(0, 5).join(",")}, foreign=${alignment.result.foreignEntities.slice(0, 5).join(",")}. Sources: ${alignment.sources.join(",")}`,
+        };
       }
     }
   }
