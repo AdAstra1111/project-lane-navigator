@@ -296,6 +296,41 @@ async function checkPrerequisiteGate(
   return NOT_BLOCKED;
 }
 
+// ── Reusable prereq gate enforcer for any transition into a target stage ──
+// Returns true if blocked (caller must NOT advance). Handles logging + redirect.
+async function enforcePrereqGateBeforeAdvance(
+  supabase: any, jobId: string, targetStage: string, format: string, job: any,
+  stepCount: number, currentDoc: string, trigger: string,
+): Promise<boolean> {
+  const prereq = await checkPrerequisiteGate(supabase, jobId, targetStage, format, job);
+  if (!prereq.blocked) return false;
+
+  const gate = PREREQUISITE_GATES[targetStage];
+  console.error(`[auto-run][IEL] prereq_gate_blocked { job_id: "${jobId}", stage: "${targetStage}", prerequisite_stage: "${prereq.prerequisiteStage}", ci: ${prereq.ci}, gp: ${prereq.gp}, composite: ${prereq.composite}, required_ci: ${gate?.ci ?? 0}, required_gp: ${gate?.gp ?? 0}, required_composite: ${prereq.requiredComposite}, trigger: "${trigger}", result: "blocked" }`);
+
+  await logStep(supabase, jobId, stepCount + 1, targetStage, "prereq_gate_blocked",
+    `Advance to "${targetStage}" blocked (trigger: ${trigger}): prerequisite "${prereq.prerequisiteStage}" composite ${prereq.composite} < required ${prereq.requiredComposite}. Redirecting to ${prereq.prerequisiteStage}.`,
+    { ci: prereq.ci, gp: prereq.gp }, undefined,
+    { prerequisite_stage: prereq.prerequisiteStage, composite: prereq.composite, required_ci: gate?.ci, required_gp: gate?.gp, required_composite: prereq.requiredComposite, trigger });
+
+  await logStep(supabase, jobId, stepCount + 2, prereq.prerequisiteStage, "prereq_block_redirect",
+    `Redirected from "${targetStage}" to prerequisite "${prereq.prerequisiteStage}" due to quality gate (trigger: ${trigger}).`,
+    {}, undefined, { from: targetStage, to: prereq.prerequisiteStage, trigger });
+
+  console.log(`[auto-run][IEL] prereq_gate_redirect_applied { job_id: "${jobId}", from: "${targetStage}", to: "${prereq.prerequisiteStage}", trigger: "${trigger}" }`);
+
+  await updateJob(supabase, jobId, {
+    current_document: prereq.prerequisiteStage,
+    stage_loop_count: 0,
+    step_count: stepCount + 2,
+    stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
+    frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+    last_ui_message: `Redirected to ${prereq.prerequisiteStage}: composite ${prereq.composite} below required ${prereq.requiredComposite} for ${targetStage}.`,
+  });
+
+  return true; // blocked
+}
+
 // ── IEL: Version cap per doc_type per job (prevents runaway same-stage loops) ──
 // Fallback only — per-job value from auto_run_jobs.max_versions_per_doc_per_job takes precedence
 const DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB = 60;
@@ -3729,6 +3764,12 @@ Deno.serve(async (req) => {
             `AGGREGATE doc "${currentDoc}" is compile-only. Skipping rewrite, advancing to next stage.`);
            const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
           if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
+            // ── PREREQ GATE: check before advancing into nextAfterAgg ──
+            const gateBlocked = await enforcePrereqGateBeforeAdvance(supabase, jobId, nextAfterAgg, format, job, stepCount, currentDoc, "aggregate_skip");
+            if (gateBlocked) {
+              await releaseProcessingLock(supabase, jobId);
+              return respondWithJob(supabase, jobId, "run-next");
+            }
             await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0,
               // Clear frontier on stage change (best_* is global, preserved)
               frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
@@ -4187,6 +4228,12 @@ Deno.serve(async (req) => {
             `AGGREGATE doc "${currentDoc}" is compile-only. Skipping rewrite, advancing to next stage.`);
           const nextAfterAgg = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
           if (nextAfterAgg && isStageAtOrBeforeTarget(nextAfterAgg, job.target_document, format)) {
+            // ── PREREQ GATE: check before advancing into nextAfterAgg ──
+            const gateBlocked = await enforcePrereqGateBeforeAdvance(supabase, jobId, nextAfterAgg, format, job, stepCount, currentDoc, "aggregate_skip_decision");
+            if (gateBlocked) {
+              await releaseProcessingLock(supabase, jobId);
+              return respondWithJob(supabase, jobId, "run-next");
+            }
             await updateJob(supabase, jobId, { current_document: nextAfterAgg, stage_loop_count: 0,
               // Clear frontier on stage change (best_* is global, preserved)
               frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
@@ -6163,6 +6210,12 @@ Deno.serve(async (req) => {
 
             const nextAfterAggregate = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
             if (nextAfterAggregate && isStageAtOrBeforeTarget(nextAfterAggregate, job.target_document, format)) {
+              // ── PREREQ GATE: check before advancing into nextAfterAggregate ──
+              const gateBlocked = await enforcePrereqGateBeforeAdvance(supabase, jobId, nextAfterAggregate, format, job, stepCount, currentDoc, "aggregate_skip_writing");
+              if (gateBlocked) {
+                await releaseProcessingLock(supabase, jobId);
+                return respondWithJob(supabase, jobId, "run-next");
+              }
               await updateJob(supabase, jobId, {
                 current_document: nextAfterAggregate,
                 stage_loop_count: 0,
