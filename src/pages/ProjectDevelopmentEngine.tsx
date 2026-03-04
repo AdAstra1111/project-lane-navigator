@@ -1133,7 +1133,7 @@ export default function ProjectDevelopmentEngine() {
                 title: o.label || o.value || o.title || 'Option',
                 what_changes: [o.why || o.label || o.value || ''].filter(Boolean),
               })),
-              recommended_option_id: d.recommended,
+              recommended_option_id: typeof d.recommended === 'object' && d.recommended !== null ? d.recommended.value : d.recommended,
               decision_key: d.decision_key,
               source: d.source,
             };
