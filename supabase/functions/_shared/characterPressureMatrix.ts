@@ -7,8 +7,15 @@
  * Episode Grid format.
  */
 
-// ── Feature Flag ──
-export const CHARACTER_PRESSURE_MATRIX_V1 = false;
+// ── Feature Flag (runtime-toggleable via env var) ──
+// Set Edge secret CHARACTER_PRESSURE_MATRIX_V1=true to enable. No code edits needed.
+export function isCPMEnabled(): boolean {
+  try {
+    return Deno.env.get("CHARACTER_PRESSURE_MATRIX_V1") === "true";
+  } catch {
+    return false;
+  }
+}
 
 // ── Required CP fields per episode ──
 export const CP_FIELDS = [
