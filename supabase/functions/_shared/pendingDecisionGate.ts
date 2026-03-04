@@ -16,9 +16,11 @@ import {
   classifyDecision,
   buildPendingDecisionKey,
   DECISION_DEFS,
+  SEMANTIC_KEYS,
   isQualityPlateau,
   type ClassificationContext,
 } from "./decisionPolicyRegistry.ts";
+import { inferEpisodeCountFromDocs } from "./episode-count.ts";
 
 export interface PendingDecisionGateResult {
   shouldPause: boolean;
@@ -122,6 +124,48 @@ export async function runPendingDecisionGate(
       console.log(`[decision-gate] Registry override: ${semanticKey} classified BLOCKING_NOW but hint=deferrable → forced DEFERRABLE`);
     }
 
+    // Build options — inject canonical episode count for EPISODE_COUNT decisions
+    let options = def?.options || null;
+    let recommendation: any = null;
+    if (semanticKey === SEMANTIC_KEYS.EPISODE_COUNT && Array.isArray(options)) {
+      try {
+        // Resolve canonical episode count from project + docs
+        const { data: proj } = await supabase.from("projects")
+          .select("season_episode_count").eq("id", projectId).maybeSingle();
+        let canonCount = proj?.season_episode_count;
+        if (!canonCount || canonCount <= 0) {
+          canonCount = await inferEpisodeCountFromDocs(supabase, projectId);
+        }
+        if (typeof canonCount === "number" && canonCount > 0) {
+          const originalOptions = [...options];
+          const exists = options.some((o: any) => String(o.value) === String(canonCount));
+          if (!exists) {
+            options = [
+              { value: String(canonCount), label: `${canonCount} episodes (Current Canon)` },
+              ...options,
+            ];
+          } else {
+            // Mark the existing option as canon
+            options = options.map((o: any) =>
+              String(o.value) === String(canonCount)
+                ? { ...o, label: `${canonCount} episodes (Current Canon)` }
+                : o
+            );
+          }
+          recommendation = { value: String(canonCount), reason: "Matches canonical episode count" };
+          console.log(`[canon][IEL] episode_count_canon_injected`, JSON.stringify({
+            decision_key: wfKey, canonical_episode_count: canonCount,
+            original_options: originalOptions.map((o: any) => o.value),
+            final_options: options.map((o: any) => o.value),
+          }));
+        }
+      } catch (e: any) {
+        console.warn(`[canon][IEL] episode_count_canon_resolve_failed`, JSON.stringify({
+          decision_key: wfKey, error: e?.message,
+        }));
+      }
+    }
+
     // Insert workflow_pending row into decision_ledger
     const { data: inserted } = await supabase.from("decision_ledger").insert({
       project_id: projectId,
@@ -130,8 +174,8 @@ export async function runPendingDecisionGate(
       decision_text: result.reason + (effectiveClassification !== result.classification ? " (Deferrable-by-registry)" : ""),
       decision_value: {
         question: def?.question || `Decision required: ${semanticKey}`,
-        options: def?.options || null,
-        recommendation: null,
+        options,
+        recommendation,
         classification: effectiveClassification,
         raw_classification: result.classification,
         registry_hint: hint,
