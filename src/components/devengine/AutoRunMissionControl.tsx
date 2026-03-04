@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useRunSnapshot } from '@/hooks/useRunSnapshot';
 import { ChunkProgressPanel } from '@/components/documents/ChunkProgressPanel';
 import { StepBudgetControl } from './StepBudgetControl';
 import { VersionCapControl } from './VersionCapControl';
@@ -359,6 +360,7 @@ export function AutoRunMissionControl({
 }: AutoRunMissionControlProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const runSnapshot = useRunSnapshot(job, steps);
   const [safeMode, setSafeMode] = useState(false);
   const [startDocument, setStartDocument] = useState(currentDeliverable as string);
 
@@ -1323,45 +1325,62 @@ export function AutoRunMissionControl({
                 </div>
               )}
 
-              {/* Version Provenance Panel */}
+              {/* Version Provenance Panel — stage-scoped */}
               {(() => {
-                const bestVer = (job as any).best_version_id;
-                const frontierVer = (job as any).frontier_version_id;
-                const resumeVer = (job as any).resume_version_id;
-                const bestCI = (job as any).best_ci;
-                const bestGP = (job as any).best_gp;
-                const frontierCI = (job as any).frontier_ci;
-                const frontierGP = (job as any).frontier_gp;
-                const bestBlockers = (job as any).best_blocker_count;
-                if (!bestVer && !frontierVer && !resumeVer) return null;
+                const snapshot = runSnapshot;
+                if (!snapshot) return null;
+                const prov = snapshot.provenance;
+                const hasScopedData = prov.best.version_id || prov.frontier.version_id || prov.baseline_version_id;
+                if (!hasScopedData) return null;
                 return (
                   <div className="p-2 rounded border border-border/30 bg-muted/10 space-y-1">
-                    <div className="text-[8px] font-semibold text-muted-foreground uppercase tracking-wide">Version Provenance</div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-[8px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        Provenance ({docLabel(prov.doc_type)})
+                      </div>
+                      <Badge variant="outline" className="text-[7px] px-1 py-0 bg-muted text-muted-foreground">
+                        {prov.scope}
+                      </Badge>
+                    </div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[9px] font-mono">
-                      {resumeVer && (
+                      {prov.baseline_version_id && (
                         <>
                           <span className="text-muted-foreground">Baseline:</span>
-                          <span title={resumeVer}>{resumeVer.slice(0, 8)}…</span>
+                          <span title={prov.baseline_version_id}>{prov.baseline_version_id.slice(0, 8)}…</span>
                         </>
                       )}
-                      {bestVer && (
+                      {prov.best.version_id && (
                         <>
                           <span className="text-muted-foreground">Best:</span>
-                          <span title={bestVer} className="text-emerald-400">
-                            {bestVer.slice(0, 8)}… {bestCI != null && `CI:${bestCI} GP:${bestGP}`}
-                            {bestBlockers != null && ` B:${bestBlockers}`}
+                          <span title={prov.best.version_id} className="text-emerald-400">
+                            {prov.best.version_id.slice(0, 8)}… {prov.best.ci != null && `CI:${prov.best.ci} GP:${prov.best.gp}`}
+                            {prov.best.gap != null && ` Gap:${prov.best.gap}`}
                           </span>
                         </>
                       )}
-                      {frontierVer && (
+                      {prov.frontier.version_id && (
                         <>
                           <span className="text-muted-foreground">Frontier:</span>
-                          <span title={frontierVer} className="text-violet-400">
-                            {frontierVer.slice(0, 8)}… {frontierCI != null && `CI:${frontierCI} GP:${frontierGP}`}
+                          <span title={prov.frontier.version_id} className="text-violet-400">
+                            {prov.frontier.version_id.slice(0, 8)}… {prov.frontier.ci != null && `CI:${prov.frontier.ci} GP:${prov.frontier.gp}`}
                           </span>
+                        </>
+                      )}
+                      {prov.candidates_seen_count > 0 && (
+                        <>
+                          <span className="text-muted-foreground">Reviewed:</span>
+                          <span>{prov.candidates_seen_count} versions</span>
                         </>
                       )}
                     </div>
+                    {/* Cross-doc global best notice */}
+                    {snapshot.global_best.version_id && snapshot.global_best.document_id &&
+                     snapshot.global_best.version_id !== prov.best.version_id && (
+                      <div className="text-[8px] text-amber-400/70 mt-1 flex items-center gap-1">
+                        <AlertTriangle className="h-2.5 w-2.5" />
+                        Global best (CI:{snapshot.global_best.ci} GP:{snapshot.global_best.gp}) is on a different stage
+                      </div>
+                    )}
                   </div>
                 );
               })()}
