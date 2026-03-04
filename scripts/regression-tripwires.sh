@@ -276,6 +276,47 @@ else
   echo "PASS"
 fi
 
+echo ""
+echo "=== Regression Tripwire: rewrite-plan must store narrative_block in output_json ==="
+HITS_RP_NB=$(grep -c "narrative_block" supabase/functions/dev-engine-v2/index.ts | head -1 || echo "0")
+if [ "$HITS_RP_NB" = "0" ]; then
+  echo "FAIL: rewrite-plan does not store narrative_block in output_json"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: rewrite-chunk must inject narrative context from plan ==="
+HITS_RC_INJ=$(grep -c "injected_context_pack" supabase/functions/dev-engine-v2/index.ts || echo "0")
+if [ "$HITS_RC_INJ" = "0" ]; then
+  echo "FAIL: rewrite-chunk does not log injected_context_pack (context parity missing)"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: rewrite-chunk must use augmentedChunkSystem not bare REWRITE_CHUNK_SYSTEM ==="
+HITS_BARE=$(grep -n "REWRITE_CHUNK_SYSTEM," supabase/functions/dev-engine-v2/index.ts | grep "callAI" | grep -v "augmented" || true)
+if [ -n "$HITS_BARE" ]; then
+  echo "FAIL: rewrite-chunk still passes bare REWRITE_CHUNK_SYSTEM to callAI (must use augmentedChunkSystem):"
+  echo "$HITS_BARE"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: rewrite-chunk fallback resolve must log explicitly ==="
+HITS_FB=$(grep -c "fallback_resolve_in_chunk=true" supabase/functions/dev-engine-v2/index.ts || echo "0")
+if [ "$HITS_FB" = "0" ]; then
+  echo "FAIL: rewrite-chunk fallback resolve path missing explicit log marker"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."
