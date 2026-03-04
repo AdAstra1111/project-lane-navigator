@@ -102,6 +102,7 @@ import { EngineBar, deriveExecutionMode, type ExecutionMode } from '@/components
 import { useUIMode } from '@/hooks/useUIMode';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
 import { normalizeDecisionsForUI } from '@/lib/decisions/normalizeDecisionUI';
+import { useEnrichedPendingDecisions } from '@/hooks/useEnrichedPendingDecisions';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -279,6 +280,10 @@ export default function ProjectDevelopmentEngine() {
   const rewritePipeline = useRewritePipeline(projectId);
   const sceneRewrite = useSceneRewritePipeline(projectId);
   const autoRun = useAutoRunMissionControl(projectId);
+  const enrichedPending = useEnrichedPendingDecisions(
+    autoRun.job?.pending_decisions as any[] | undefined,
+    autoRun.job?.id,
+  );
   const seedStatus = useSeedPackStatus(projectId);
   const effectiveExecutionMode = autoRun.job ? deriveExecutionMode(autoRun.job) : localExecutionMode;
   const { resolveOnEntry, currentResolverHash, resolvedQuals } = useStageResolve(projectId);
@@ -1722,7 +1727,7 @@ export default function ProjectDevelopmentEngine() {
               {(() => {
                 const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').sort((a: any, b: any) => (a.created_at || '').localeCompare(b.created_at || '')).pop();
                 const optionsRunHasDecisions = (optionsRun?.output_json?.decisions?.length > 0);
-                const jobHasDecisions = Array.isArray(autoRun.job?.pending_decisions) && (autoRun.job!.pending_decisions as any[]).length > 0;
+                const jobHasDecisions = enrichedPending.decisions.length > 0 && autoRun.job?.pause_reason === 'pending_decisions';
                 const hasNoteDecisions = tieredNotes.blockers.some((n: any) => n.decisions?.length > 0) || tieredNotes.high.some((n: any) => n.decisions?.length > 0);
                 const showPanel = optionsRunHasDecisions || jobHasDecisions || hasNoteDecisions
                   || tieredNotes.blockers.length > 0 || tieredNotes.high.length > 0
@@ -1730,11 +1735,11 @@ export default function ProjectDevelopmentEngine() {
 
                 if (!showPanel) return null;
 
-                // Build decisions: prefer job.pending_decisions, then OPTIONS run, then inline note decisions
+                // Build decisions: prefer job.pending_decisions (enriched), then OPTIONS run, then inline note decisions
                 const decisions = (() => {
                   if (jobHasDecisions) {
                     return normalizeDecisionsForUI(
-                      autoRun.job!.pending_decisions as any[],
+                      enrichedPending.decisions as any[],
                       'project-development-engine:job_pending_decisions'
                     ) as Decision[];
                   }

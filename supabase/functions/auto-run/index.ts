@@ -7731,6 +7731,68 @@ const respond = jsonRes;
 async function respondWithJob(supabase: any, jobId: string, hint?: string): Promise<Response> {
   const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
   const { data: steps } = await supabase.from("auto_run_steps").select("*").eq("job_id", jobId).order("step_index", { ascending: false }).limit(200);
+
+  // ── Retro-enrich legacy pending_decisions (id-only payloads from before enrichment patch) ──
+  if (job && job.pause_reason === "pending_decisions" && Array.isArray(job.pending_decisions) && job.pending_decisions.length > 0) {
+    const needsEnrichment = job.pending_decisions.some((d: any) => !d.question && !d.options);
+    if (needsEnrichment) {
+      const legacyCount = job.pending_decisions.filter((d: any) => !d.question && !d.options).length;
+      console.log(`[auto-run][IEL] pending_decisions_legacy_detected`, JSON.stringify({
+        job_id: jobId, doc_type: job.current_document, count: job.pending_decisions.length, legacy_count: legacyCount,
+      }));
+      try {
+        const idsToFetch = job.pending_decisions
+          .filter((d: any) => !d.question && !d.options && d.id)
+          .map((d: any) => d.id);
+        if (idsToFetch.length > 0) {
+          const { data: fullRows, error: fetchErr } = await supabase
+            .from("decision_ledger")
+            .select("id, decision_key, title, decision_text, decision_value")
+            .in("id", idsToFetch);
+          if (fetchErr) {
+            console.error(`[auto-run][IEL] pending_decisions_enrich_failed`, JSON.stringify({ job_id: jobId, error: fetchErr.message }));
+          } else {
+            const rowMap = new Map((fullRows || []).map((r: any) => [r.id, r]));
+            const enriched = job.pending_decisions.map((d: any) => {
+              if (d.question && d.options) return d; // already enriched
+              const row = rowMap.get(d.id);
+              if (!row) {
+                return {
+                  ...d,
+                  question: "Decision details unavailable (missing decision_ledger row)",
+                  options: [],
+                  reason: "MISSING_DECISION_LEDGER_ROW",
+                };
+              }
+              const dv = row.decision_value || {};
+              return {
+                ...d,
+                question: dv.question || row.title || row.decision_text || `Decision required: ${row.decision_key}`,
+                options: Array.isArray(dv.options) ? dv.options : [],
+                recommended: dv.recommendation?.value || null,
+                decision_key: row.decision_key,
+                classification: dv.classification || "BLOCKING_NOW",
+                reason: row.decision_text || dv.question || null,
+                provenance: dv.provenance || null,
+                scope_json: dv.scope_json || null,
+              };
+            });
+            // Persist enrichment idempotently
+            await supabase.from("auto_run_jobs").update({ pending_decisions: enriched }).eq("id", jobId);
+            job.pending_decisions = enriched;
+            console.log(`[auto-run][IEL] pending_decisions_enriched`, JSON.stringify({
+              job_id: jobId, enriched_count: idsToFetch.length,
+              missing_rows: idsToFetch.filter((id: string) => !rowMap.has(id)),
+              option_counts: enriched.map((d: any) => (d.options || []).length),
+            }));
+          }
+        }
+      } catch (e: any) {
+        console.error(`[auto-run][IEL] pending_decisions_enrich_failed`, JSON.stringify({ job_id: jobId, error: e?.message }));
+      }
+    }
+  }
+
   return respond({
     job,
     latest_steps: (steps || []).reverse(),
