@@ -317,6 +317,50 @@ else
   echo "PASS"
 fi
 
+echo ""
+echo "=== Regression Tripwire: Edge function brace/paren/bracket/backtick balance ==="
+check_balance() {
+  local FILE="$1"
+  local LABEL="$2"
+  if [ ! -f "$FILE" ]; then
+    echo "FAIL: $LABEL — file not found: $FILE"
+    FAIL=1
+    return
+  fi
+  local OPEN_BRACE=$(grep -o '{' "$FILE" | wc -l | tr -d ' ')
+  local CLOSE_BRACE=$(grep -o '}' "$FILE" | wc -l | tr -d ' ')
+  local OPEN_PAREN=$(grep -o '(' "$FILE" | wc -l | tr -d ' ')
+  local CLOSE_PAREN=$(grep -o ')' "$FILE" | wc -l | tr -d ' ')
+  local OPEN_BRACKET=$(grep -o '\[' "$FILE" | wc -l | tr -d ' ')
+  local CLOSE_BRACKET=$(grep -o '\]' "$FILE" | wc -l | tr -d ' ')
+  local BACKTICKS=$(grep -o '`' "$FILE" | wc -l | tr -d ' ')
+  local BT_MOD=$((BACKTICKS % 2))
+  local OK=1
+  if [ "$OPEN_BRACE" != "$CLOSE_BRACE" ]; then
+    echo "FAIL: $LABEL — brace mismatch: { $OPEN_BRACE vs } $CLOSE_BRACE"
+    OK=0
+  fi
+  if [ "$OPEN_PAREN" != "$CLOSE_PAREN" ]; then
+    echo "FAIL: $LABEL — paren mismatch: ( $OPEN_PAREN vs ) $CLOSE_PAREN"
+    OK=0
+  fi
+  if [ "$OPEN_BRACKET" != "$CLOSE_BRACKET" ]; then
+    echo "FAIL: $LABEL — bracket mismatch: [ $OPEN_BRACKET vs ] $CLOSE_BRACKET"
+    OK=0
+  fi
+  if [ "$BT_MOD" != "0" ]; then
+    echo "FAIL: $LABEL — odd backtick count: $BACKTICKS"
+    OK=0
+  fi
+  if [ "$OK" = "0" ]; then
+    FAIL=1
+  else
+    echo "PASS ($LABEL: {$OPEN_BRACE ($OPEN_PAREN [$OPEN_BRACKET \`$BACKTICKS)"
+  fi
+}
+check_balance "supabase/functions/generate-document/index.ts" "generate-document"
+check_balance "supabase/functions/dev-engine-v2/index.ts" "dev-engine-v2"
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."
