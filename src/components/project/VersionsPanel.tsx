@@ -10,8 +10,7 @@ import { cn } from '@/lib/utils';
 import { Check, Loader2, FileText, Star, ArrowUp } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
-import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
+import { useDocTypeScopedBest } from '@/hooks/useRunSnapshot';
 
 interface VersionsPanelProps {
   projectId: string;
@@ -21,38 +20,6 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
   const { documents, isLoading: docsLoading } = useProjectDocuments(projectId);
   const [selectedDocId, setSelectedDocId] = useState<string | undefined>();
 
-  // Fetch best_version_id + its document_id from the latest auto-run job
-  const { data: bestInfo } = useQuery({
-    queryKey: ['auto-run-best-version', projectId],
-    queryFn: async () => {
-      const { data: job } = await supabase
-        .from('auto_run_jobs')
-        .select('best_version_id, best_score, best_document_id')
-        .eq('project_id', projectId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!job?.best_version_id) return null;
-      // If best_document_id isn't on the job, resolve it from the version
-      let docId = (job as any).best_document_id as string | null;
-      if (!docId) {
-        const { data: ver } = await (supabase as any)
-          .from('project_document_versions')
-          .select('document_id')
-          .eq('id', job.best_version_id)
-          .maybeSingle();
-        docId = ver?.document_id ?? null;
-      }
-      return { versionId: job.best_version_id as string, documentId: docId, score: job.best_score };
-    },
-    enabled: !!projectId,
-    staleTime: 15_000,
-  });
-
-  const bestVersionId = bestInfo?.versionId ?? null;
-  const bestDocumentId = bestInfo?.documentId ?? null;
-  const bestScore = bestInfo?.score ?? null;
-
   // Filter to dev-engine docs (those without file_path = pipeline docs)
   const devDocs = useMemo(() =>
     documents.filter(d => !d.file_path || (d.doc_type as string) === 'script_pdf'),
@@ -61,6 +28,13 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
 
   // Auto-select first if none selected
   const effectiveDocId = selectedDocId ?? devDocs[0]?.id;
+
+  // Fetch best version scoped to the selected document's doc_type (not global)
+  const { data: bestInfo } = useDocTypeScopedBest(projectId, effectiveDocId);
+
+  const bestVersionId = bestInfo?.versionId ?? null;
+  const bestScore = bestInfo?.score ?? null;
+  const bestDocType = bestInfo?.docType ?? null;
 
   const { data: versions = [], isLoading: versionsLoading } = useDocumentVersions(effectiveDocId);
   const setCurrentVersion = useSetCurrentVersion();
@@ -102,20 +76,13 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
         </Select>
       </div>
 
-      {/* Cross-doc best banner */}
-      {bestVersionId && bestDocumentId && bestDocumentId !== effectiveDocId && (() => {
-        const bestDoc = devDocs.find(d => d.id === bestDocumentId);
-        const bestDocLabel = bestDoc ? ((bestDoc.doc_type as string) || bestDoc.file_name || 'Document') : 'another document';
-        return (
-          <button
-            onClick={() => setSelectedDocId(bestDocumentId)}
-            className="w-full px-3 py-2 text-[11px] bg-amber-500/10 text-amber-400 border-b border-amber-500/20 hover:bg-amber-500/15 transition-colors text-left flex items-center gap-1.5"
-          >
-            <Star className="h-3 w-3 fill-amber-400 shrink-0" />
-            Best version (score {bestScore}) is on <span className="font-semibold">{bestDocLabel}</span> — click to view
-          </button>
-        );
-      })()}
+      {/* Best version info (now scoped to selected doc_type) */}
+      {bestVersionId && bestDocType && (
+        <div className="px-3 py-1.5 text-[10px] text-muted-foreground border-b border-border/20 flex items-center gap-1">
+          <Star className="h-3 w-3 text-amber-400 fill-amber-400 shrink-0" />
+          Best for {bestDocType.replace(/_/g, ' ')} (score {bestScore})
+        </div>
+      )}
 
       {/* Version list */}
       <div className="flex-1 overflow-y-auto">
