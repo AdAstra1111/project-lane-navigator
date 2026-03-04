@@ -236,6 +236,66 @@ async function getStageBestFromSteps(supabase: any, jobId: string, docType: stri
   return result;
 }
 
+// ── PREREQUISITE QUALITY GATES ──
+// Stages that require upstream quality thresholds before they can begin.
+// Key: the BLOCKED stage. Value: { prerequisite: the stage that must meet the threshold, thresholds }.
+const PREREQUISITE_GATES: Record<string, { prerequisite: string; ci: number; gp: number; composite: number }> = {
+  vertical_episode_beats: { prerequisite: "episode_grid", ci: 75, gp: 75, composite: 160 },
+  season_script:          { prerequisite: "vertical_episode_beats", ci: 80, gp: 80, composite: 170 },
+};
+
+type PrereqGateResult = {
+  blocked: boolean;
+  prerequisiteStage: string;
+  ci: number;
+  gp: number;
+  composite: number;
+  requiredComposite: number;
+};
+
+async function checkPrerequisiteGate(
+  supabase: any, jobId: string, currentDoc: string, format: string, job: any,
+): Promise<PrereqGateResult & { blocked: boolean }> {
+  const NOT_BLOCKED: PrereqGateResult & { blocked: false } = {
+    blocked: false, prerequisiteStage: "", ci: 0, gp: 0, composite: 0, requiredComposite: 0,
+  };
+
+  // Only apply to vertical-drama format
+  if (!format.includes("vertical")) return NOT_BLOCKED;
+
+  const gate = PREREQUISITE_GATES[currentDoc];
+  if (!gate) return NOT_BLOCKED;
+
+  // Check if the prerequisite stage has been reviewed in this job
+  const stageBest = await getStageBestFromSteps(supabase, jobId, gate.prerequisite);
+
+  if (!stageBest) {
+    // No reviews for prerequisite — block and redirect
+    console.log(`[auto-run][IEL] prereq_gate_no_reviews { job_id: "${jobId}", stage: "${currentDoc}", prerequisite: "${gate.prerequisite}" }`);
+    return {
+      blocked: true,
+      prerequisiteStage: gate.prerequisite,
+      ci: 0, gp: 0, composite: 0,
+      requiredComposite: gate.composite,
+    };
+  }
+
+  const composite = stageBest.ci + stageBest.gp;
+  if (composite < gate.composite || stageBest.ci < gate.ci || stageBest.gp < gate.gp) {
+    return {
+      blocked: true,
+      prerequisiteStage: gate.prerequisite,
+      ci: stageBest.ci,
+      gp: stageBest.gp,
+      composite,
+      requiredComposite: gate.composite,
+    };
+  }
+
+  console.log(`[auto-run][IEL] prereq_gate_passed { job_id: "${jobId}", stage: "${currentDoc}", prerequisite: "${gate.prerequisite}", ci: ${stageBest.ci}, gp: ${stageBest.gp}, composite: ${composite}, required: ${gate.composite} }`);
+  return NOT_BLOCKED;
+}
+
 // ── IEL: Version cap per doc_type per job (prevents runaway same-stage loops) ──
 // Fallback only — per-job value from auto_run_jobs.max_versions_per_doc_per_job takes precedence
 const DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB = 60;
@@ -4318,6 +4378,30 @@ Deno.serve(async (req) => {
             await releaseProcessingLock(supabase, jobId);
             return respondWithJob(supabase, jobId);
           }
+        }
+      }
+
+      // ── PREREQUISITE QUALITY GATE: block downstream stages if upstream quality is insufficient ──
+      // Vertical drama ladder enforces minimum composite scores before allowing progression.
+      {
+        const prereqResult = await checkPrerequisiteGate(supabase, jobId, currentDoc, format, job);
+        if (prereqResult.blocked) {
+          const prereq = prereqResult;
+          console.error(`[auto-run][IEL] prereq_gate_blocked { job_id: "${jobId}", stage: "${currentDoc}", prerequisite_stage: "${prereq.prerequisiteStage}", ci: ${prereq.ci}, gp: ${prereq.gp}, composite: ${prereq.composite}, required_composite: ${prereq.requiredComposite}, action: "redirect_to_prerequisite" }`);
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "prereq_gate_blocked",
+            `Stage "${currentDoc}" blocked: prerequisite "${prereq.prerequisiteStage}" composite ${prereq.composite} < required ${prereq.requiredComposite}. Redirecting to ${prereq.prerequisiteStage}.`,
+            { ci: prereq.ci, gp: prereq.gp }, undefined,
+            { prerequisite_stage: prereq.prerequisiteStage, composite: prereq.composite, required: prereq.requiredComposite });
+          // Redirect to the prerequisite stage for further improvement
+          await updateJob(supabase, jobId, {
+            current_document: prereq.prerequisiteStage,
+            stage_loop_count: 0,
+            step_count: stepCount + 1,
+            stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
+            last_ui_message: `Redirected to ${prereq.prerequisiteStage}: composite ${prereq.composite} below required ${prereq.requiredComposite} for ${currentDoc}.`,
+          });
+          await releaseProcessingLock(supabase, jobId);
+          return respondWithJob(supabase, jobId, "run-next");
         }
       }
 
