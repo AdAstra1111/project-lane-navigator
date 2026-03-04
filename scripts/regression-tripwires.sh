@@ -236,6 +236,46 @@ else
   echo "PASS"
 fi
 
+echo ""
+echo "=== Regression Tripwire: narrativeContextResolver must exist in _shared ==="
+HITS_NCR=$(grep -c "resolveNarrativeContext" supabase/functions/_shared/narrativeContextResolver.ts || echo "0")
+if [ "$HITS_NCR" = "0" ]; then
+  echo "FAIL: narrativeContextResolver.ts missing or does not export resolveNarrativeContext"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: dev-engine-v2 rewrite must use narrativeContextResolver ==="
+HITS_RW_NCR=$(grep -c "resolveNarrativeContext" supabase/functions/dev-engine-v2/index.ts || echo "0")
+if [ "$HITS_RW_NCR" = "0" ]; then
+  echo "FAIL: dev-engine-v2 does not import/use resolveNarrativeContext"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: generate-document must use narrativeContextResolver ==="
+HITS_GD_NCR=$(grep -c "resolveNarrativeContext" supabase/functions/generate-document/index.ts || echo "0")
+if [ "$HITS_GD_NCR" = "0" ]; then
+  echo "FAIL: generate-document does not import/use resolveNarrativeContext"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: narrativeContextResolver signals cap must be 6 ==="
+HITS_SIG_CAP=$(grep -c "SIGNALS_CAP = 6" supabase/functions/_shared/narrativeContextResolver.ts || echo "0")
+if [ "$HITS_SIG_CAP" = "0" ]; then
+  echo "FAIL: SIGNALS_CAP not set to 6 in narrativeContextResolver"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."

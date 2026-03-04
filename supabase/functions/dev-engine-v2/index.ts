@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
+import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
 import { composeSystem } from "../_shared/llm.ts";
@@ -3269,7 +3270,7 @@ MATERIAL:\n${version.plaintext}`;
       if (!version) throw new Error("Version not found");
 
       const { data: project } = await supabase.from("projects")
-        .select("format, development_behavior").eq("id", projectId).single();
+        .select("format, development_behavior, assigned_lane").eq("id", projectId).single();
 
       const effectiveFormat = (reqFormat || project?.format || "film").toLowerCase().replace(/_/g, "-");
       const effectiveBehavior = developmentBehavior || project?.development_behavior || "market";
@@ -3316,18 +3317,20 @@ MATERIAL:\n${version.plaintext}`;
 
       const rewriteSystemPrompt = buildRewriteSystem(effectiveDeliverable, effectiveFormat, effectiveBehavior);
 
-      // ── NEC Guardrail injection for rewrite ──
-      const rwNecBlock = await loadNECGuardrailBlock(supabase, projectId);
-
-      // ── Team Voice injection for rewrite ──
+      // ── Narrative Context Resolver: unified NEC + canon + signals + decisions + voice ──
       const rewriteLane = project?.assigned_lane || "independent-film";
-      const rwTvCtx = await loadTeamVoiceContext(supabase, projectId, rewriteLane);
-      const rwTeamVoiceBlock = rwTvCtx.block ? `\n${rwTvCtx.block}\n` : "";
+      const narrativeCtx = await resolveNarrativeContext(supabase, projectId, {
+        lane: rewriteLane,
+        format: effectiveFormat,
+        includeSignals: true,
+      });
+      const narrativeBlock = buildNarrativeContextBlock(narrativeCtx);
+      console.log(`[dev-engine-v2] rewrite: narrative-context hash=${narrativeCtx.metadata.resolverHash} signals=${narrativeCtx.metadata.counts.signals} decisions=${narrativeCtx.metadata.counts.decisions} canonChars=${narrativeCtx.metadata.counts.canonChars}`);
 
       const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
 
 APPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}${decisionDirectives}${globalDirContext}
-${rwTeamVoiceBlock}${rwNecBlock}
+${narrativeBlock}
 TARGET FORMAT: ${targetDocType || "same as source"}
 
 MATERIAL TO REWRITE:\n${fullText}`;
@@ -3374,7 +3377,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           if (rrResp.ok) { const rr = await rrResp.json(); rewriteResolverHash = rr.resolver_hash || null; }
         } catch (_) { /* non-fatal */ }
 
-        const rwMetaJson = rwTvCtx.metaStamp ? { ...rwTvCtx.metaStamp } : undefined;
+        const rwMetaJson = narrativeCtx.voice.voiceId ? { team_voice_id: narrativeCtx.voice.voiceId } : undefined;
         const { data: nv, error: vErr } = await writeVersionSafe(supabase, {
           documentId,
           versionNumber: nextVersion,

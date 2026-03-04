@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
+import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
 import { buildLadderPromptBlock, formatToLane } from "../_shared/documentLadders.ts";
 import { EPISODE_DOC_TYPES, extractEpisodeNumbersFromOutput, detectCollapsedRangeSummaries } from "../_shared/episodeScope.ts";
@@ -249,7 +250,7 @@ Deno.serve(async (req) => {
 
     // 2) Load project metadata
     const { data: project } = await supabase.from("projects")
-      .select("title, format, pipeline_stage, guardrails_config, season_style_template_version_id, season_style_profile, user_id")
+      .select("title, format, pipeline_stage, guardrails_config, season_style_template_version_id, season_style_profile, user_id, assigned_lane")
       .eq("id", projectId).single();
 
     if (!project) throw new Error("Project not found");
@@ -369,6 +370,17 @@ D) OUTPUT CONTRACT — At the top of your response, print:
 - Completion Status: COMPLETE (Full Detail) OR COMPLETE (Placeholder Detail)
 - Completeness Check: PASS (no missing sections/slots)`;
 
+    // ── Narrative Context Resolver: NEC + canon + signals + decisions + voice ──
+    const genLane = project.assigned_lane || "independent-film";
+    const genFormat = (resolvedQuals.format || project.format || "film").toLowerCase().replace(/_/g, "-");
+    const narrativeCtx = await resolveNarrativeContext(supabase, projectId, {
+      lane: genLane,
+      format: genFormat,
+      includeSignals: true,
+    });
+    const narrativeBlock = buildNarrativeContextBlock(narrativeCtx);
+    console.log(`[generate-document] narrative-context: hash=${narrativeCtx.metadata.resolverHash} signals=${narrativeCtx.metadata.counts.signals} decisions=${narrativeCtx.metadata.counts.decisions} canonChars=${narrativeCtx.metadata.counts.canonChars}`);
+
     // ── Topline narrative: bespoke system + validator ──────────────────────────
     const isTopline = docType === "topline_narrative";
 
@@ -422,6 +434,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         `5. Begin your response DIRECTLY with "# TOPLINE NARRATIVE". No preamble.`,
         qualBlock,
         styleBlock,
+        narrativeBlock,
       ].filter(Boolean).join("\n");
 
       userPrompt = `PROJECT FACTS (use these as the primary source of truth):\n${upstreamContent}\n\nGenerate the full Topline Narrative for "${project.title}" now. Replace every template placeholder with real content derived from the project facts above.`;
@@ -438,6 +451,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         styleBlock,
         ladderBlock,
         nuanceBlock,
+        narrativeBlock,
         additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
         `If the upstream documents contain sections titled "Creative DNA Targets (From Trend Convergence)" or "Convergence Guidance (Audience Appetite Context)", treat them as strong recommendations for voice, tone, pacing, and world density while staying original.`,
         mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
@@ -446,6 +460,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
       userPrompt = upstreamContent
         ? `Using the upstream documents below, generate the ${docType.replace(/_/g, " ")}.\n\n${upstreamContent}`
         : `Generate the ${docType.replace(/_/g, " ")} from scratch based on the project context.`;
+    }
     }
 
     // 5) Generate content

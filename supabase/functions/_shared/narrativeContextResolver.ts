@@ -1,0 +1,390 @@
+/**
+ * Narrative Context Resolver — single shared loader for NEC, canon, signals,
+ * locked decisions, voice, and format-specific structure.
+ *
+ * Used by dev-engine-v2 (rewrite) and generate-document to achieve context
+ * parity with the analyze path.
+ *
+ * INVARIANTS:
+ * - Deterministic: same DB state → same output.
+ * - No silent fallbacks: every fallback is logged with provenance.
+ * - Capped outputs to prevent prompt bloat.
+ * - Reuses existing loaders (prefs, teamVoice, canonContext, effective-profile).
+ */
+
+import { loadLanePrefs, loadTeamVoiceProfile } from "./prefs.ts";
+import { buildTeamVoicePromptBlock } from "./teamVoice.ts";
+import { buildEffectiveProfileContextBlock } from "./effective-profile-context.ts";
+
+// ── Caps ──
+const SIGNALS_CAP = 6;
+const LOCKED_DECISIONS_CAP = 20;
+const CHARACTERS_CAP = 25;
+const WORLD_RULES_CAP = 20;
+const NEC_MAX_CHARS = 3000;
+const CANON_BLOCK_MAX_CHARS = 6000;
+
+// ── Types ──
+
+export interface NarrativeContext {
+  nec: { prefTier: number; maxTier: number; source: string; blockText: string };
+  canon: {
+    title: string | null;
+    logline: string | null;
+    premise: string | null;
+    worldRules: string[];
+    characters: { name: string; detail: string }[];
+    entityAnchors: string[];
+    blockText: string;
+  };
+  signals: { topSignals: any[]; blockText: string };
+  lockedDecisions: { items: any[]; blockText: string };
+  voice: { voiceId: string | null; blockText: string };
+  effectiveProfile: { blockText: string };
+  metadata: {
+    provenance: Record<string, string>;
+    counts: Record<string, number>;
+    resolverHash: string;
+  };
+}
+
+export interface ResolveOpts {
+  includeSignals?: boolean;
+  includeStructure?: boolean;
+  lane?: string;
+  format?: string;
+}
+
+// ── NEC tier parsing (mirrors dev-engine-v2 inline logic) ──
+const PREF_TIER_RE = /(?:preferred\s*(?:operating\s*)?tier)[:\s]*(\d)/i;
+const MAX_TIER_RE = /(?:(?:absolute\s*)?max(?:imum)?\s*tier)[:\s]*(\d)/i;
+
+const NEC_HARD_ENFORCEMENT = `If your proposal introduces blackmail, public spectacle, mass-casualty/catastrophic stakes, life-ruin stakes, assassinations, or supernatural escalation and the NEC does not explicitly permit it, you MUST replace it with an alternative that stays at or below the Preferred Operating Tier, preserving tone and nuance.`;
+
+function parseTier(match: RegExpMatchArray | null, fallback: number): number {
+  if (!match) return fallback;
+  const n = parseInt(match[1], 10);
+  return (n >= 1 && n <= 5) ? n : fallback;
+}
+
+function clamp(s: string, n: number): string {
+  return s && s.length > n ? s.slice(0, n) + "\n[…truncated]" : (s || "");
+}
+
+function djb2(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+/**
+ * Resolve all narrative intelligence for a project in one call.
+ * Returns structured + block text for prompt injection.
+ */
+export async function resolveNarrativeContext(
+  supabase: any,
+  projectId: string,
+  opts: ResolveOpts = {},
+): Promise<NarrativeContext> {
+  const provenance: Record<string, string> = {};
+  const counts: Record<string, number> = {};
+  const lane = opts.lane || "independent-film";
+  const format = opts.format || "film";
+
+  // ── 1. NEC ──
+  let nec = { prefTier: 2, maxTier: 3, source: "default", blockText: "" };
+  try {
+    const { data: necDoc } = await supabase
+      .from("project_documents")
+      .select("id")
+      .eq("project_id", projectId)
+      .eq("doc_type", "nec")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (necDoc) {
+      const { data: necVer } = await supabase
+        .from("project_document_versions")
+        .select("plaintext")
+        .eq("document_id", necDoc.id)
+        .eq("is_current", true)
+        .maybeSingle();
+
+      const text = necVer?.plaintext;
+      if (text && text.length >= 20) {
+        const prefTier = parseTier(text.match(PREF_TIER_RE), 2);
+        const maxTier = parseTier(text.match(MAX_TIER_RE), 3);
+        nec = {
+          prefTier,
+          maxTier,
+          source: `nec:doc:${necDoc.id}`,
+          blockText: buildNECBlock(text, prefTier, maxTier, necDoc.id),
+        };
+        provenance.nec = `doc:${necDoc.id}`;
+      } else {
+        nec.blockText = buildDefaultNECBlock();
+        provenance.nec = "default:text_too_short";
+      }
+    } else {
+      nec.blockText = buildDefaultNECBlock();
+      provenance.nec = "default:no_nec_doc";
+    }
+  } catch (e) {
+    console.warn("[narrative-context] NEC load failed, using default:", e);
+    nec.blockText = buildDefaultNECBlock();
+    provenance.nec = "default:error";
+  }
+  counts.nec_pref = nec.prefTier;
+  counts.nec_max = nec.maxTier;
+
+  // ── 2. Canon ──
+  let canon = {
+    title: null as string | null,
+    logline: null as string | null,
+    premise: null as string | null,
+    worldRules: [] as string[],
+    characters: [] as { name: string; detail: string }[],
+    entityAnchors: [] as string[],
+    blockText: "",
+  };
+  try {
+    const { data: canonRow } = await supabase
+      .from("project_canon")
+      .select("canon_json")
+      .eq("project_id", projectId)
+      .maybeSingle();
+    const cj = canonRow?.canon_json || {};
+
+    const parts: string[] = [];
+    if (cj.title) { canon.title = cj.title; parts.push(`Title: ${cj.title}`); }
+    if (cj.logline && typeof cj.logline === "string" && cj.logline.trim()) { canon.logline = cj.logline; parts.push(`Logline: ${cj.logline}`); }
+    if (cj.premise && typeof cj.premise === "string" && cj.premise.trim()) { canon.premise = cj.premise; parts.push(`Premise: ${cj.premise}`); }
+    if (cj.format) parts.push(`Format: ${cj.format}`);
+    if (cj.genre) parts.push(`Genre: ${cj.genre}`);
+    if (cj.tone) parts.push(`Tone: ${cj.tone}`);
+    if (cj.tone_style && typeof cj.tone_style === "string" && cj.tone_style.trim()) parts.push(`Tone & Style: ${cj.tone_style}`);
+
+    // Episode meta
+    const epCount = typeof cj.episode_count === "number" ? cj.episode_count : null;
+    const epMin = typeof cj.episode_length_seconds_min === "number" ? cj.episode_length_seconds_min : null;
+    const epMax = typeof cj.episode_length_seconds_max === "number" ? cj.episode_length_seconds_max : null;
+    if (epCount) parts.push(`Episode count: ${epCount}`);
+    if (epMin != null && epMax != null) parts.push(`Episode duration range: ${epMin}–${epMax}s`);
+
+    // Characters
+    if (Array.isArray(cj.characters) && cj.characters.length > 0) {
+      const chars = cj.characters
+        .filter((c: any) => c.name && c.name.trim())
+        .slice(0, CHARACTERS_CAP);
+      canon.characters = chars.map((c: any) => ({
+        name: c.name,
+        detail: [c.role, c.goals, c.traits].filter(Boolean).join("; "),
+      }));
+      canon.entityAnchors = chars.map((c: any) => c.name);
+      const charLines = chars.map((c: any) => {
+        const details = [c.role, c.goals, c.traits].filter(Boolean).join("; ");
+        return `  - ${c.name}${details ? `: ${details}` : ""}`;
+      });
+      parts.push(`Characters:\n${charLines.join("\n")}`);
+    }
+
+    if (cj.timeline && typeof cj.timeline === "string" && cj.timeline.trim()) parts.push(`Timeline: ${cj.timeline}`);
+    if (cj.locations && typeof cj.locations === "string" && cj.locations.trim()) parts.push(`Locations: ${cj.locations}`);
+    if (cj.ongoing_threads && typeof cj.ongoing_threads === "string" && cj.ongoing_threads.trim()) parts.push(`Ongoing threads: ${cj.ongoing_threads}`);
+
+    // World rules
+    if (Array.isArray(cj.world_rules) && cj.world_rules.length > 0) {
+      canon.worldRules = cj.world_rules.slice(0, WORLD_RULES_CAP);
+      parts.push(`World rules: ${canon.worldRules.join("; ")}`);
+    } else if (typeof cj.world_rules === "string" && cj.world_rules.trim()) {
+      canon.worldRules = [cj.world_rules];
+      parts.push(`World rules: ${cj.world_rules}`);
+    }
+
+    if (Array.isArray(cj.forbidden_changes) && cj.forbidden_changes.length > 0) parts.push(`Forbidden changes: ${cj.forbidden_changes.join("; ")}`);
+    else if (typeof cj.forbidden_changes === "string" && cj.forbidden_changes.trim()) parts.push(`Forbidden changes: ${cj.forbidden_changes}`);
+    if (cj.format_constraints && typeof cj.format_constraints === "string" && cj.format_constraints.trim()) parts.push(`Format constraints: ${cj.format_constraints}`);
+
+    if (parts.length > 0) {
+      canon.blockText = clamp(`\nCANON OS (authoritative — these values override any other references):\n${parts.join("\n")}`, CANON_BLOCK_MAX_CHARS);
+      provenance.canon = "project_canon";
+    } else {
+      canon.blockText = `\nCANON OS: No canonical logline, premise, or characters established. Do NOT assert specific details as canonical facts.`;
+      provenance.canon = "empty";
+    }
+
+    // Effective profile (from seed_intel_pack)
+    let effectiveProfileBlock = "";
+    try {
+      const { data: proj } = await supabase.from("projects").select("assigned_lane, budget_range, tone").eq("id", projectId).maybeSingle();
+      if (cj.seed_intel_pack || (Array.isArray(cj.comparables) && cj.comparables.length > 0)) {
+        effectiveProfileBlock = buildEffectiveProfileContextBlock({ canonJson: cj, project: proj }) || "";
+      }
+    } catch (e) {
+      console.warn("[narrative-context] effective profile build failed:", e);
+    }
+
+    counts.canonChars = canon.blockText.length;
+    counts.characters = canon.characters.length;
+    counts.worldRules = canon.worldRules.length;
+
+    // ── 3. Signals ──
+    let signals = { topSignals: [] as any[], blockText: "" };
+    if (opts.includeSignals !== false) {
+      try {
+        const { data: projSettings } = await supabase.from("projects")
+          .select("signals_influence, signals_apply")
+          .eq("id", projectId).single();
+        const influence = (projSettings as any)?.signals_influence ?? 0.5;
+        const applyConfig = (projSettings as any)?.signals_apply ?? { pitch: true, dev: true, grid: true, doc: true };
+        if (applyConfig.dev !== false) {
+          const { data: matches } = await supabase
+            .from("project_signal_matches")
+            .select("relevance_score, impact_score, rationale, cluster:cluster_id(name, category, strength, velocity, saturation_risk, explanation)")
+            .eq("project_id", projectId)
+            .order("impact_score", { ascending: false })
+            .limit(SIGNALS_CAP);
+          if (matches && matches.length > 0) {
+            signals.topSignals = matches;
+            const fmt = format.includes("vertical") ? "vertical_drama" : format.includes("documentary") ? "documentary" : "film";
+            const influenceLabel = influence >= 0.65 ? "HIGH" : influence >= 0.35 ? "MODERATE" : "LOW";
+            const fmtNote = fmt === "vertical_drama" ? "Apply retention mechanics — cliff cadence, reveal pacing, twist density."
+              : fmt === "documentary" ? "Apply truth constraints — access/evidence plan. Signals inform subject positioning only."
+              : "Apply budget realism, lane liquidity, and saturation warnings.";
+            const lines = matches.map((m: any, i: number) => {
+              const c = m.cluster;
+              return `${i+1}. ${c?.name || "Signal"} [${c?.category || ""}] — strength ${c?.strength || 0}/10, ${c?.velocity || "Stable"}, saturation ${c?.saturation_risk || "Low"}\n   ${c?.explanation || ""}`;
+            }).join("\n");
+            signals.blockText = `\n=== MARKET & FORMAT SIGNALS (influence: ${influenceLabel}) ===\n${fmtNote}\n${lines}\n=== END SIGNALS ===`;
+            provenance.signals = "project_signal_matches";
+          } else {
+            provenance.signals = "none:no_matches";
+          }
+        } else {
+          provenance.signals = "disabled:signals_apply.dev=false";
+        }
+      } catch (e) {
+        console.warn("[narrative-context] signal fetch failed:", e);
+        provenance.signals = "error";
+      }
+    } else {
+      provenance.signals = "skipped";
+    }
+    counts.signals = signals.topSignals.length;
+
+    // ── 4. Locked Decisions ──
+    let lockedDecisions = { items: [] as any[], blockText: "" };
+    try {
+      const { data: decisions } = await supabase.from("decision_ledger")
+        .select("decision_key, title, decision_text")
+        .eq("project_id", projectId)
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(LOCKED_DECISIONS_CAP);
+      if (decisions && decisions.length > 0) {
+        lockedDecisions.items = decisions;
+        const bullets = decisions.map((d: any) => `- [${d.decision_key}] ${d.decision_text}`).join("\n");
+        lockedDecisions.blockText = `\n\nLOCKED DECISIONS (MUST FOLLOW — treat as canon, do not re-open):\n${bullets}`;
+        provenance.decisions = "decision_ledger";
+      } else {
+        provenance.decisions = "none";
+      }
+    } catch (e) {
+      console.warn("[narrative-context] locked decisions fetch failed:", e);
+      provenance.decisions = "error";
+    }
+    counts.decisions = lockedDecisions.items.length;
+
+    // ── 5. Voice ──
+    let voice = { voiceId: null as string | null, blockText: "" };
+    try {
+      const prefs = await loadLanePrefs(supabase, projectId, lane);
+      if (prefs?.team_voice?.id) {
+        const tv = await loadTeamVoiceProfile(supabase, prefs.team_voice.id);
+        if (tv) {
+          const hasWritingVoice = !!prefs.writing_voice?.id;
+          voice.blockText = `\n${buildTeamVoicePromptBlock(tv.label, tv.profile_json, hasWritingVoice)}`;
+          voice.voiceId = prefs.team_voice.id;
+          provenance.voice = `team_voice:${prefs.team_voice.id}`;
+        }
+      }
+      if (!voice.voiceId) provenance.voice = provenance.voice || "none";
+    } catch (e) {
+      console.warn("[narrative-context] voice load failed:", e);
+      provenance.voice = "error";
+    }
+
+    // ── Build resolver hash ──
+    const hashInput = `${nec.source}|${counts.canonChars}|${counts.signals}|${counts.decisions}|${voice.voiceId || "none"}`;
+    const resolverHash = djb2(hashInput);
+
+    console.log(`[narrative-context] project=${projectId} format=${format} hash=${resolverHash} nec=${provenance.nec} signals=${counts.signals} decisions=${counts.decisions} canonChars=${counts.canonChars} voice=${voice.voiceId || "null"}`);
+
+    return {
+      nec,
+      canon,
+      signals,
+      lockedDecisions,
+      voice,
+      effectiveProfile: { blockText: effectiveProfileBlock },
+      metadata: { provenance, counts, resolverHash },
+    };
+  } catch (e) {
+    console.error("[narrative-context] canon load failed:", e);
+    // Return minimal context on failure
+    const resolverHash = djb2(`error|${projectId}`);
+    return {
+      nec,
+      canon,
+      signals: { topSignals: [], blockText: "" },
+      lockedDecisions: { items: [], blockText: "" },
+      voice: { voiceId: null, blockText: "" },
+      effectiveProfile: { blockText: "" },
+      metadata: { provenance, counts, resolverHash },
+    };
+  }
+}
+
+/**
+ * Build a combined block text for prompt injection.
+ * Concatenates all non-empty block texts in canonical order.
+ */
+export function buildNarrativeContextBlock(ctx: NarrativeContext): string {
+  return [
+    ctx.nec.blockText,
+    ctx.canon.blockText,
+    ctx.effectiveProfile.blockText,
+    ctx.signals.blockText,
+    ctx.lockedDecisions.blockText,
+    ctx.voice.blockText,
+  ].filter(Boolean).join("\n");
+}
+
+// ── Internal NEC block builders ──
+
+function buildNECBlock(text: string, prefTier: number, maxTier: number, docId: string): string {
+  return `\nNEC_GUARDRAIL: source=nec doc_id=${docId} prefTier=${prefTier} maxTier=${maxTier}
+NARRATIVE ENERGY CONTRACT (from project NEC — AUTHORITATIVE, overrides all other stakes guidance):
+${clamp(text, NEC_MAX_CHARS)}
+
+HARD RULES (derived from NEC — non-negotiable):
+• Preferred Operating Tier: ${prefTier}. Absolute Maximum Tier: ${maxTier}.
+• Do NOT introduce events above Tier ${maxTier}. No assassinations, mass casualty events, catastrophic public scandal, "life-ruin" stakes, supernatural escalation, or blackmail unless NEC explicitly allows.
+• Prefer prestige pressure: intimate stakes, reputational friction, relational loss, psychological suspense over spectacle.
+• Stay inside the tonal envelope. Do NOT escalate beyond what the source material establishes.
+HARD ENFORCEMENT: ${NEC_HARD_ENFORCEMENT}`;
+}
+
+function buildDefaultNECBlock(): string {
+  return `\nNEC_GUARDRAIL: source=default prefTier=2 maxTier=3
+NARRATIVE ENERGY CONTRACT (DEFAULT — no project NEC found):
+- Preferred Operating Tier: 2 (psychological/relational pressure, status games, moral dilemmas).
+- Absolute Maximum Tier: 3 (career-ending revelations, major betrayals, institutional collapse).
+- HARD RULES:
+  • Do NOT introduce events above Tier 3.
+  • No assassinations, mass casualty events, catastrophic public scandal, "life-ruin" stakes, supernatural escalation, or blackmail unless the source material already contains them.
+  • Prefer prestige pressure: intimate stakes, reputational friction, relational loss, psychological suspense.
+  • Stay inside the tonal envelope established by the source material.
+HARD ENFORCEMENT: ${NEC_HARD_ENFORCEMENT}`;
+}
