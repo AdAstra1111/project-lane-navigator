@@ -185,9 +185,9 @@ function DecisionCard({ decision, selectedValue, onSelect }: {
 
   if (missingFields.length > 0) {
     console.warn('[decisions][IEL] malformed_payload', {
-      source: decision?.source || 'auto-run-mission-control:decision-card',
-      decision_key: decision?.decision_key || decision?.id || 'unknown',
-      missing_fields: decision?.missing_fields?.length ? decision.missing_fields : missingFields,
+      source: 'auto-run-mission-control:decision-card',
+      decision_key: (decision as any)?.decision_key ?? decision?.id ?? 'unknown',
+      missing_fields: missingFields,
     });
     return (
       <div className="border border-destructive/40 bg-destructive/5 rounded-md p-3">
