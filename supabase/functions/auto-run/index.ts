@@ -1811,17 +1811,36 @@ async function callEdgeFunction(
     });
   }
   const raw = await resp.text();
+
+  // ── IEL: Detect HTML/non-JSON responses (502/504 gateway timeouts) ──
+  const ct = resp.headers.get("content-type") || "";
+  const isHtml = raw.trimStart().startsWith("<!") || raw.includes("<html");
+  if (isHtml || (!ct.includes("application/json") && raw.length > 0 && !raw.trimStart().startsWith("{"))) {
+    const errorCode = isHtml ? "HTML_RESPONSE" : "NON_JSON_RESPONSE";
+    console.error(`[auto-run][IEL] non_json_response_detected { function: "${functionName}", status: ${resp.status}, content_type: "${ct}", error_code: "${errorCode}", body_prefix: "${raw.slice(0, 200)}" }`);
+    const userMsg = resp.status === 502 || resp.status === 504
+      ? `${functionName} timed out (${resp.status}). Will retry.`
+      : `${functionName} returned non-JSON (${resp.status}).`;
+    throw Object.assign(new Error(userMsg), {
+      structured: true, code: errorCode, status: resp.status, body: raw.slice(0, 300),
+      retryable: resp.status === 502 || resp.status === 504,
+    });
+  }
+
   if (!resp.ok) {
-    // Truncate HTML blobs to something useful
-    const snippet = raw.slice(0, 1000);
+    let parsed: any = {};
+    try { parsed = JSON.parse(raw); } catch { /* use raw snippet */ }
+    const snippet = parsed?.error || raw.slice(0, 1000);
+    console.error(`[auto-run][IEL] upstream_error_normalized { function: "${functionName}", status: ${resp.status}, error_code: "EDGE_FUNCTION_FAILED" }`);
     throw Object.assign(new Error(`${functionName} error (${resp.status}): ${snippet}`), {
-      structured: true, code: "EDGE_FUNCTION_FAILED", status: resp.status, body: snippet,
+      structured: true, code: "EDGE_FUNCTION_FAILED", status: resp.status, body: raw.slice(0, 1000),
     });
   }
   let data: any;
   try {
     data = JSON.parse(raw);
   } catch {
+    console.error(`[auto-run][IEL] json_parse_failed { function: "${functionName}", status: ${resp.status}, body_prefix: "${raw.slice(0, 200)}" }`);
     throw Object.assign(new Error(`${functionName} returned invalid JSON (${resp.status}): ${raw.slice(0, 500)}`), {
       structured: true, code: "EDGE_FUNCTION_INVALID_JSON", status: resp.status, body: raw.slice(0, 1000),
     });
@@ -1838,6 +1857,19 @@ async function callEdgeFunctionWithRetry(
     const result = await callEdgeFunction(supabaseUrl, functionName, body, token, forwardUserId);
     return { result, retried: false };
   } catch (e: any) {
+    // ── IEL: Retry on transient 502/504 (gateway timeout) with backoff ──
+    if (e.retryable === true) {
+      console.log(`[auto-run][IEL] retry_attempt { attempt: 1, error_code: "${e.code}", status: ${e.status}, function: "${functionName}" }`);
+      await new Promise(r => setTimeout(r, 3000));
+      try {
+        const result = await callEdgeFunction(supabaseUrl, functionName, body, token, forwardUserId);
+        return { result, retried: true };
+      } catch (retryErr: any) {
+        console.error(`[auto-run][IEL] escalation_after_retries { attempts: 2, error_code: "${retryErr.code || e.code}", function: "${functionName}" }`);
+        throw retryErr;
+      }
+    }
+
     if (!isQualificationError(e.message)) throw e;
 
     // Attempt blockage resolve

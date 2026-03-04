@@ -84,7 +84,29 @@ async function callEngineV2(action: string, extra: Record<string, any> = {}) {
     },
     body: JSON.stringify({ action, ...extra }),
   });
-  const result = await resp.json().catch(() => ({}));
+
+  // ── IEL: Hardened JSON boundary — never pass HTML/non-JSON to .json() ──
+  const contentType = resp.headers.get('content-type') || '';
+  const raw = await resp.text();
+  let result: any;
+
+  if (!contentType.includes('application/json')) {
+    const isHtml = raw.trimStart().startsWith('<!') || raw.includes('<html');
+    const errorCode = isHtml ? 'HTML_RESPONSE' : 'NON_JSON_RESPONSE';
+    console.error(`[dev-engine-v2][IEL] non_json_response_detected { status: ${resp.status}, content_type: "${contentType}", action: "${action}", error_code: "${errorCode}" }`);
+    if (resp.status === 502 || resp.status === 504) {
+      throw new Error('The backend service timed out. Please try again in a moment.');
+    }
+    throw new Error(`Unexpected response from engine (${resp.status}). Please retry.`);
+  }
+
+  try {
+    result = JSON.parse(raw);
+  } catch {
+    console.error(`[dev-engine-v2][IEL] json_parse_failed { status: ${resp.status}, action: "${action}", body_prefix: "${raw.slice(0, 200)}" }`);
+    throw new Error('Engine returned malformed data. Please retry.');
+  }
+
   if (resp.status === 402) throw new Error('AI credits exhausted. Please add funds to your workspace under Settings → Usage.');
   if (resp.status === 429) throw new Error('Rate limit reached. Please try again in a moment.');
   if (!resp.ok) throw new Error(result.error || 'Engine error');
