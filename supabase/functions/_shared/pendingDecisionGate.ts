@@ -95,10 +95,15 @@ export async function runPendingDecisionGate(
   for (const { key: semanticKey, hint } of allRequired) {
     const canonKey = buildPendingDecisionKey(format, docType, semanticKey);
 
-    // Already resolved as canon → skip
-    if (resolvedCanonKeys.has(canonKey) || resolvedCanonKeys.has(semanticKey)) continue;
-
+    // Already resolved as canon OR as workflow → skip
+    // resolvedCanonKeys contains ALL active decision_keys (both canon and workflow-namespaced)
     const wfKey = workflowKey(format, docType, semanticKey);
+    if (resolvedCanonKeys.has(canonKey) || resolvedCanonKeys.has(semanticKey) || resolvedCanonKeys.has(wfKey)) {
+      console.log(`[decision-gate][IEL] decision_already_resolved { key: "${semanticKey}", matched_by: "${resolvedCanonKeys.has(canonKey) ? 'canon' : resolvedCanonKeys.has(wfKey) ? 'workflow_active' : 'semantic'}" }`);
+      continue;
+    }
+
+    // wfKey already computed above for the resolved-key check
 
     // Already has workflow_pending row → check classification with hint authority
     const existing = workflowMap.get(wfKey);
