@@ -105,6 +105,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     if (existingJob?.job) {
       setJob(existingJob.job);
       setSteps(existingJob.latest_steps || []);
+      console.log(`[mission-control][IEL] job_rehydrate { job_id: "${existingJob.job.id}", status: "${existingJob.job.status}", current_document: "${existingJob.job.current_document}", step_count: ${existingJob.job.step_count} }`);
       if (existingJob.job.status === 'running' && !existingJob.job.awaiting_approval) {
         setIsRunning(true);
       } else {
@@ -269,11 +270,32 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       setJob(result.job);
       setSteps(result.latest_steps || []);
       setIsRunning(true);
+      console.log(`[mission-control][IEL] start_new_job { job_id: "${result.job?.id}", current_document: "${result.job?.current_document}" }`);
     } catch (e: any) {
+      // Handle RESUMABLE_JOB_EXISTS: auto-resume existing job instead of failing
+      if (e.message?.includes('RESUMABLE_JOB_EXISTS') || e.message?.includes('resumable job exists')) {
+        console.log(`[mission-control][IEL] start_vs_resume_decision { action: "auto_resume", reason: "resumable_job_exists" }`);
+        try {
+          // Fetch the existing job first
+          const statusResult = await callAutoRun('status', { projectId });
+          if (statusResult?.job) {
+            setJob(statusResult.job);
+            setSteps(statusResult.latest_steps || []);
+            // Resume the existing job
+            await callAutoRun('resume', { jobId: statusResult.job.id, followLatest: true });
+            setIsRunning(true);
+            refreshStatus();
+            return; // Success — resumed existing job
+          }
+        } catch (resumeErr: any) {
+          setError(`Failed to resume existing job: ${resumeErr.message}`);
+          throw resumeErr;
+        }
+      }
       setError(e.message);
-      throw e; // Re-throw so UI callers can catch
+      throw e;
     }
-  }, [projectId]);
+  }, [projectId, refreshStatus]);
 
   const pause = useCallback(async () => {
     if (!job) return;

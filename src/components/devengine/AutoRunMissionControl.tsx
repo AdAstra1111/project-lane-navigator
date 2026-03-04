@@ -722,6 +722,17 @@ export function AutoRunMissionControl({
   ];
 
   const handleStartClick = useCallback(async () => {
+    // If a resumable job already exists, resume instead of starting a new one
+    if (job && ['paused', 'running'].includes(job.status)) {
+      console.log(`[mission-control][IEL] start_vs_resume_decision { job_id: "${job.id}", status: "${job.status}", current_document: "${job.current_document}", chosen_action: "resume", reason: "resumable_job_in_state" }`);
+      try {
+        await onResume(true);
+        return;
+      } catch (e: any) {
+        toast({ title: 'Resume failed', description: e?.message, variant: 'destructive' });
+        return;
+      }
+    }
     setStarting(true);
     try {
       await onSaveStorySetup(storySetup);
@@ -731,7 +742,7 @@ export function AutoRunMissionControl({
     } finally {
       setStarting(false);
     }
-  }, [storySetup, startDocument, onSaveStorySetup, onStart]);
+  }, [storySetup, startDocument, onSaveStorySetup, onStart, job, onResume]);
 
   const handleApproveSeedCore = useCallback(async () => {
     setApprovingSeedCore(true);
@@ -1186,7 +1197,9 @@ export function AutoRunMissionControl({
                 ? <><Loader2 className="h-3 w-3 animate-spin" /> Starting…</>
                 : inferLoading
                   ? <><Loader2 className="h-3 w-3 animate-spin" /> Reading docs…</>
-                  : <><Play className="h-3.5 w-3.5" /> Confirm & Start</>
+                  : job && ['paused', 'running'].includes(job.status)
+                    ? <><Play className="h-3.5 w-3.5" /> Resume from {docLabel(job.current_document)}</>
+                    : <><Play className="h-3.5 w-3.5" /> Confirm & Start</>
               }
             </Button>
           </div>
