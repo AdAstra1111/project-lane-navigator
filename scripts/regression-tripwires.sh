@@ -361,6 +361,40 @@ check_balance() {
 check_balance "supabase/functions/generate-document/index.ts" "generate-document"
 check_balance "supabase/functions/dev-engine-v2/index.ts" "dev-engine-v2"
 
+echo ""
+echo "=== Regression Tripwire: Deferrable hint must override BLOCKING_NOW in pendingDecisionGate ==="
+HITS_DEF_OVERRIDE=$(grep -c 'hint === "deferrable"' supabase/functions/_shared/pendingDecisionGate.ts || echo "0")
+if [ "$HITS_DEF_OVERRIDE" = "0" ]; then
+  echo "FAIL: pendingDecisionGate does not check deferrable hint to override BLOCKING_NOW"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: shouldPause must only depend on blockingIds (not deferrableIds) ==="
+HITS_PAUSE_LOGIC=$(grep -n "shouldPause.*=.*blockingIds" supabase/functions/_shared/pendingDecisionGate.ts || true)
+HITS_PAUSE_DEFER=$(grep -n "shouldPause.*deferrableIds" supabase/functions/_shared/pendingDecisionGate.ts || true)
+if [ -z "$HITS_PAUSE_LOGIC" ]; then
+  echo "FAIL: shouldPause does not reference blockingIds"
+  FAIL=1
+elif [ -n "$HITS_PAUSE_DEFER" ]; then
+  echo "FAIL: shouldPause incorrectly references deferrableIds"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
+echo ""
+echo "=== Regression Tripwire: narrativeContextResolver must filter status=active only ==="
+HITS_NCR_ACTIVE=$(grep -c "\.eq(\"status\", \"active\")" supabase/functions/_shared/narrativeContextResolver.ts || echo "0")
+if [ "$HITS_NCR_ACTIVE" = "0" ]; then
+  echo "FAIL: narrativeContextResolver does not filter decision_ledger by status=active"
+  FAIL=1
+else
+  echo "PASS"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "Regression tripwires FAILED."

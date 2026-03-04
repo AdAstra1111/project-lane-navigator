@@ -88,8 +88,9 @@ export async function runPendingDecisionGate(
 
   const blockingIds: string[] = [];
   const deferrableIds: string[] = [];
+  let forcedDeferrableCount = 0;
 
-  for (const { key: semanticKey } of allRequired) {
+  for (const { key: semanticKey, hint } of allRequired) {
     const canonKey = buildPendingDecisionKey(format, docType, semanticKey);
 
     // Already resolved as canon → skip
@@ -97,12 +98,15 @@ export async function runPendingDecisionGate(
 
     const wfKey = workflowKey(format, docType, semanticKey);
 
-    // Already has workflow_pending row → check classification
+    // Already has workflow_pending row → check classification with hint authority
     const existing = workflowMap.get(wfKey);
     if (existing) {
-      const cls = existing.decision_value?.classification;
-      if (cls === "BLOCKING_NOW") blockingIds.push(existing.id);
-      else if (cls === "DEFERRABLE") deferrableIds.push(existing.id);
+      const rawCls = existing.decision_value?.classification;
+      // Registry authority: deferrable hint overrides BLOCKING_NOW
+      const effectiveCls = (hint === "deferrable" && rawCls === "BLOCKING_NOW") ? "DEFERRABLE" : rawCls;
+      if (hint === "deferrable" && rawCls === "BLOCKING_NOW") forcedDeferrableCount++;
+      if (effectiveCls === "BLOCKING_NOW") blockingIds.push(existing.id);
+      else if (effectiveCls === "DEFERRABLE") deferrableIds.push(existing.id);
       continue;
     }
 
@@ -110,17 +114,27 @@ export async function runPendingDecisionGate(
     const result = classifyDecision(semanticKey, ctx);
     const def = DECISION_DEFS[semanticKey];
 
+    // Registry authority: deferrable hint overrides BLOCKING_NOW from classifier
+    const effectiveClassification = (hint === "deferrable" && result.classification === "BLOCKING_NOW")
+      ? "DEFERRABLE" : result.classification;
+    if (hint === "deferrable" && result.classification === "BLOCKING_NOW") {
+      forcedDeferrableCount++;
+      console.log(`[decision-gate] Registry override: ${semanticKey} classified BLOCKING_NOW but hint=deferrable → forced DEFERRABLE`);
+    }
+
     // Insert workflow_pending row into decision_ledger
     const { data: inserted } = await supabase.from("decision_ledger").insert({
       project_id: projectId,
       decision_key: wfKey,
       title: def?.question || `Decision required: ${semanticKey}`,
-      decision_text: result.reason,
+      decision_text: result.reason + (effectiveClassification !== result.classification ? " (Deferrable-by-registry)" : ""),
       decision_value: {
         question: def?.question || `Decision required: ${semanticKey}`,
         options: def?.options || null,
         recommendation: null,
-        classification: result.classification,
+        classification: effectiveClassification,
+        raw_classification: result.classification,
+        registry_hint: hint,
         required_evidence: def?.required_evidence_template || [],
         revisit_stage: result.revisit_stage,
         scope_json: { format, doc_type: docType },
@@ -132,9 +146,8 @@ export async function runPendingDecisionGate(
     }).select("id, decision_value").single();
 
     if (inserted) {
-      const cls = inserted.decision_value?.classification;
-      if (cls === "BLOCKING_NOW") blockingIds.push(inserted.id);
-      else if (cls === "DEFERRABLE") deferrableIds.push(inserted.id);
+      if (effectiveClassification === "BLOCKING_NOW") blockingIds.push(inserted.id);
+      else deferrableIds.push(inserted.id);
     }
   }
 
@@ -143,7 +156,7 @@ export async function runPendingDecisionGate(
     ? `pending_decisions: ${blockingIds.length} blocking decision(s) for ${docType}`
     : null;
 
-  const logSummary = `[decision-gate] format=${format} doc=${docType} blocking=${blockingIds.length} deferrable=${deferrableIds.length} pause=${shouldPause}`;
+  const logSummary = `[decision-gate] format=${format} doc=${docType} blocking=${blockingIds.length} deferrable=${deferrableIds.length} forced_deferrable=${forcedDeferrableCount} pause=${shouldPause}`;
   console.log(logSummary);
 
   return { shouldPause, blockingIds, deferrableIds, pauseReason, logSummary };
