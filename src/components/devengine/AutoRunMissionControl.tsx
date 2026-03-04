@@ -1385,7 +1385,12 @@ export function AutoRunMissionControl({
                      snapshot.global_best.version_id !== prov.best.version_id && (
                       <div className="text-[8px] text-amber-400/70 mt-1 flex items-center gap-1">
                         <AlertTriangle className="h-2.5 w-2.5" />
-                        Global best (CI:{snapshot.global_best.ci} GP:{snapshot.global_best.gp}) on different stage ({snapshot.global_best.document_id.slice(0, 8)}…)
+                        Global best (CI:{snapshot.global_best.ci} GP:{snapshot.global_best.gp}) on {snapshot.global_best.doc_type ? snapshot.global_best.doc_type.replace(/_/g, ' ') : 'different stage'}
+                      </div>
+                    )}
+                    {prov.versions_considered_count > 0 && prov.versions_considered_count !== prov.candidates_seen_count && (
+                      <div className="text-[7px] text-muted-foreground/50 mt-0.5">
+                        {prov.candidates_seen_count} reviews → {prov.versions_considered_count} unique versions
                       </div>
                     )}
                   </div>
