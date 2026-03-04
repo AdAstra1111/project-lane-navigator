@@ -6,6 +6,9 @@
  *
  * Eliminates the global-best mismatch bug where provenance showed scores
  * from a different doc_type than the one being worked on.
+ *
+ * v2: Adds latest-per-version grouping, global best doc_type resolution,
+ *     and deterministic version selection policy.
  */
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -61,6 +64,7 @@ export interface StageScopedProvenance {
     step_index: number | null;
   };
   candidates_seen_count: number;
+  versions_considered_count: number;
 }
 
 export interface RunSnapshot {
@@ -74,6 +78,7 @@ export interface RunSnapshot {
   global_best: {
     version_id: string | null;
     document_id: string | null;
+    doc_type: string | null;
     ci: number | null;
     gp: number | null;
     score: number | null;
@@ -83,6 +88,9 @@ export interface RunSnapshot {
 /**
  * Derive stage-scoped provenance from auto_run_steps for the current doc_type.
  * Steps arrive sorted ASCENDING by step_index (backend sends desc, client reverses).
+ *
+ * Uses latest-per-version grouping: when multiple reviews reference the same version,
+ * only the latest review (highest step_index) contributes its score.
  */
 function computeStageScopedProvenance(
   job: AutoRunJob,
@@ -95,20 +103,33 @@ function computeStageScopedProvenance(
     s => s.document === docType && s.action === 'review' && s.ci != null
   );
 
-  // ── BEST: highest canonical score across ALL reviews for this doc_type ──
+  // ── LATEST-PER-VERSION GROUPING ──
+  // Group by resolved version_id, keep only the latest review per version (highest step_index).
+  const versionMap = new Map<string, { step: AutoRunStep; resolved: ReturnType<typeof resolveScoredVersionId> }>();
+  for (const s of docReviews) {
+    const resolved = resolveScoredVersionId(s);
+    if (!resolved.versionId) continue;
+    const existing = versionMap.get(resolved.versionId);
+    if (!existing || s.step_index > existing.step.step_index) {
+      versionMap.set(resolved.versionId, { step: s, resolved });
+    }
+  }
+
+  const versionsConsidered = versionMap.size;
+
+  // ── BEST: highest canonical score across deduplicated versions ──
   let best: StageScopedProvenance['best'] = {
     version_id: null, version_id_source: null,
     ci: null, gp: null, gap: null, step_index: null, scored_at: null,
   };
   let bestScore = -Infinity;
 
-  for (const s of docReviews) {
+  for (const [versionId, { step: s, resolved }] of versionMap) {
     const score = canonicalBestScore(s.ci, s.gp);
-    if (score > bestScore) {
+    if (score > bestScore || (score === bestScore && s.step_index > (best.step_index ?? -1))) {
       bestScore = score;
-      const resolved = resolveScoredVersionId(s);
       best = {
-        version_id: resolved.versionId,
+        version_id: versionId,
         version_id_source: resolved.source,
         ci: s.ci ?? null,
         gp: s.gp ?? null,
@@ -150,7 +171,7 @@ function computeStageScopedProvenance(
     baseline_source = 'job.resume_version_id';
   }
 
-  // IEL log
+  // IEL logs
   console.log('[mission-control][IEL] provenance_selected', {
     job_id: job.id,
     doc_type: docType,
@@ -159,9 +180,19 @@ function computeStageScopedProvenance(
     version_id_source: best.version_id_source,
     best_ci: best.ci,
     best_gp: best.gp,
+    score_formula: 'CI+GP',
     baseline_version_id,
     baseline_source,
     candidates_seen: docReviews.length,
+    versions_considered: versionsConsidered,
+  });
+
+  console.log('[mission-control][IEL] version_selection_policy', {
+    policy: 'latest_per_version',
+    doc_type: docType,
+    total_reviews: docReviews.length,
+    versions_considered: versionsConsidered,
+    deduplicated: docReviews.length - versionsConsidered,
   });
 
   return {
@@ -172,7 +203,28 @@ function computeStageScopedProvenance(
     best,
     frontier,
     candidates_seen_count: docReviews.length,
+    versions_considered_count: versionsConsidered,
   };
+}
+
+/**
+ * useGlobalBestDocType — resolves job.best_document_id → project_documents.doc_type.
+ */
+function useGlobalBestDocType(documentId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['global-best-doc-type', documentId],
+    queryFn: async () => {
+      if (!documentId) return null;
+      const { data } = await (supabase as any)
+        .from('project_documents')
+        .select('doc_type')
+        .eq('id', documentId)
+        .maybeSingle();
+      return (data?.doc_type as string) ?? null;
+    },
+    enabled: !!documentId,
+    staleTime: 60_000,
+  });
 }
 
 /**
@@ -185,6 +237,9 @@ export function useRunSnapshot(
   job: AutoRunJob | null,
   steps: AutoRunStep[],
 ): RunSnapshot | null {
+  const globalBestDocId = job ? (job as any).best_document_id ?? null : null;
+  const { data: globalBestDocType } = useGlobalBestDocType(globalBestDocId);
+
   return useMemo(() => {
     if (!job) {
       console.log('[mission-control][IEL] snapshot_fail_closed', { reason: 'no_active_job' });
@@ -212,6 +267,7 @@ export function useRunSnapshot(
       global_best: {
         version_id: (job as any).best_version_id ?? null,
         document_id: (job as any).best_document_id ?? null,
+        doc_type: globalBestDocType ?? null,
         ci: (job as any).best_ci ?? null,
         gp: (job as any).best_gp ?? null,
         score: (job as any).best_score ?? null,
@@ -228,21 +284,26 @@ export function useRunSnapshot(
       best_gp: provenance.best.gp,
       best_version_id_source: provenance.best.version_id_source,
       baseline_source: provenance.baseline_source,
+      score_formula: 'CI+GP',
+      version_selection_policy: 'latest_per_version',
+      versions_considered: provenance.versions_considered_count,
       global_best_version_id: snapshot.global_best.version_id,
+      global_best_doc_type: snapshot.global_best.doc_type,
     });
 
     // IEL: global best doc_type resolution
-    if (snapshot.global_best.version_id && snapshot.global_best.document_id) {
-      console.log('[mission-control][IEL] global_best_resolved', {
+    if (snapshot.global_best.version_id && snapshot.global_best.doc_type) {
+      console.log('[mission-control][IEL] global_best_doc_type_resolved', {
         job_id: job.id,
         best_version_id: snapshot.global_best.version_id,
-        global_best_document_id: snapshot.global_best.document_id,
-        matches_current_stage: snapshot.global_best.version_id === provenance.best.version_id,
+        best_document_id: snapshot.global_best.document_id,
+        best_doc_type: snapshot.global_best.doc_type,
+        matches_current_stage: snapshot.global_best.doc_type === provenance.doc_type,
       });
     }
 
     return snapshot;
-  }, [job, steps]);
+  }, [job, steps, globalBestDocType]);
 }
 
 /**
@@ -250,8 +311,7 @@ export function useRunSnapshot(
  * Fetches the best-scored version for a specific document (by document_id),
  * from the latest auto_run_steps rather than the global job.best_version_id.
  *
- * Orders by created_at DESC (not CI) and computes best by canonical CI+GP.
- * Uses a larger limit (200) to avoid missing the true best.
+ * Uses latest-per-version grouping and canonical CI+GP scoring.
  */
 export function useDocTypeScopedBest(projectId: string | undefined, documentId: string | undefined) {
   return useQuery({
@@ -290,15 +350,30 @@ export function useDocTypeScopedBest(projectId: string | undefined, documentId: 
 
       if (!steps || steps.length === 0) return null;
 
-      // Find best by canonical CI+GP
+      // Latest-per-version grouping
+      const versionMap = new Map<string, typeof steps[0]>();
+      for (const s of steps) {
+        const ref = s.output_ref;
+        const versionId = ref?.output_version_id || ref?.version_id || ref?.input_version_id;
+        if (!versionId) continue;
+        const existing = versionMap.get(versionId);
+        if (!existing || s.step_index > existing.step_index) {
+          versionMap.set(versionId, s);
+        }
+      }
+
+      // Find best by canonical CI+GP from deduplicated versions
       let best: any = null;
+      let bestVersionId: string | null = null;
       let bestScore = -Infinity;
       let bestSource: VersionIdSource = null;
-      for (const s of steps) {
+
+      for (const [versionId, s] of versionMap) {
         const score = canonicalBestScore(s.ci, s.gp);
-        if (score > bestScore) {
+        if (score > bestScore || (score === bestScore && s.step_index > (best?.step_index ?? -1))) {
           bestScore = score;
           best = s;
+          bestVersionId = versionId;
           const ref = s.output_ref;
           bestSource = ref?.output_version_id ? 'output_ref.output_version_id'
             : ref?.version_id ? 'output_ref.version_id'
@@ -307,19 +382,17 @@ export function useDocTypeScopedBest(projectId: string | undefined, documentId: 
         }
       }
 
-      const versionId = best?.output_ref?.output_version_id
-        || best?.output_ref?.version_id
-        || best?.output_ref?.input_version_id;
-      if (!versionId) return null;
+      if (!bestVersionId) return null;
 
       return {
-        versionId: versionId as string,
+        versionId: bestVersionId,
         score: bestScore,
         ci: best.ci as number,
         gp: best.gp as number,
         gap: best.gap as number | null,
         docType: doc.doc_type as string,
         versionIdSource: bestSource,
+        versionsConsidered: versionMap.size,
       };
     },
     enabled: !!projectId && !!documentId,
