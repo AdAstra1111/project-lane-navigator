@@ -1108,17 +1108,31 @@ export default function ProjectDevelopmentEngine() {
         {autoRun.job?.awaiting_approval && (() => {
           const jobHasDecisions = Array.isArray(autoRun.job?.pending_decisions) && (autoRun.job!.pending_decisions as any[]).length > 0;
           if (!jobHasDecisions) return null;
-          const decisions = (autoRun.job!.pending_decisions as any[]).map((d: any) => ({
-            note_id: d.id,
-            severity: d.impact === 'blocking' ? 'blocker' as const : 'high' as const,
-            note: d.question,
-            options: d.options?.map((o: any) => ({
-              option_id: o.value,
-              title: o.value,
-              what_changes: [o.why],
-            })),
-            recommended_option_id: d.recommended,
-          }));
+          const decisions = (autoRun.job!.pending_decisions as any[]).map((d: any) => {
+            const missingFields: string[] = [];
+            if (!d.question) missingFields.push('question');
+            if (!Array.isArray(d.options) || d.options.length === 0) missingFields.push('options');
+            if (missingFields.length > 0) {
+              console.warn('[ui][IEL] blocking_decision_rendered', {
+                job_id: autoRun.job?.id, doc_type: autoRun.job?.current_document,
+                decision_id: d.id, decision_key: d.decision_key,
+                missing_fields: missingFields,
+              });
+            }
+            return {
+              note_id: d.id,
+              severity: d.impact === 'blocking' ? 'blocker' as const : 'high' as const,
+              note: d.question || d.reason || d.decision_key || 'Decision required',
+              options: (Array.isArray(d.options) ? d.options : []).map((o: any) => ({
+                option_id: o.value || o.option_id || o.label || 'unknown',
+                title: o.label || o.value || o.title || 'Option',
+                what_changes: [o.why || o.label || o.value || ''].filter(Boolean),
+              })),
+              recommended_option_id: d.recommended,
+              decision_key: d.decision_key,
+              source: d.source,
+            };
+          });
           return (
             <DecisionModePanel
               projectId={projectId!}

@@ -4715,11 +4715,45 @@ Deno.serve(async (req) => {
         if (gateResult.shouldPause) {
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "pending_decisions",
             gateResult.logSummary, {}, undefined, { blockingIds: gateResult.blockingIds, deferrableIds: gateResult.deferrableIds });
+
+          // Fetch full decision details for blocking IDs so UI can render question/options
+          let enrichedDecisions: any[] = gateResult.blockingIds.map((id: string) => ({ id, impact: "blocking", source: "decision_policy_registry" }));
+          if (gateResult.blockingIds.length > 0) {
+            const { data: fullRows } = await supabase
+              .from("decision_ledger")
+              .select("id, decision_key, title, decision_text, decision_value")
+              .in("id", gateResult.blockingIds);
+            if (fullRows && fullRows.length > 0) {
+              enrichedDecisions = fullRows.map((row: any) => {
+                const dv = row.decision_value || {};
+                return {
+                  id: row.id,
+                  impact: "blocking",
+                  source: "decision_policy_registry",
+                  question: dv.question || row.title || row.decision_text || `Decision required: ${row.decision_key}`,
+                  options: Array.isArray(dv.options) ? dv.options : [],
+                  recommended: dv.recommendation?.value || null,
+                  decision_key: row.decision_key,
+                  classification: dv.classification || "BLOCKING_NOW",
+                  reason: row.decision_text || dv.question || null,
+                  provenance: dv.provenance || null,
+                  scope_json: dv.scope_json || null,
+                };
+              });
+              console.log(`[auto-run][IEL] pending_decision_emitted`, JSON.stringify({
+                job_id: jobId, doc_type: currentDoc,
+                count: enrichedDecisions.length,
+                has_options: enrichedDecisions.map((d: any) => d.options?.length > 0),
+                has_question: enrichedDecisions.map((d: any) => !!d.question),
+              }));
+            }
+          }
+
           await updateJob(supabase, jobId, {
             status: "paused",
             pause_reason: "pending_decisions",
             stop_reason: gateResult.pauseReason,
-            pending_decisions: gateResult.blockingIds.map((id: string) => ({ id, impact: "blocking", source: "decision_policy_registry" })),
+            pending_decisions: enrichedDecisions,
           });
           await releaseProcessingLock(supabase, jobId);
           return respondWithJob(supabase, jobId, "approve-decision");
