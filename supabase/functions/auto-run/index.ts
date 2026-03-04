@@ -2384,11 +2384,34 @@ Deno.serve(async (req) => {
 
     // ═══════════════════════════════════════
     if (action === "status") {
-      const query = jobId
-        ? supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).maybeSingle()
-        : supabase.from("auto_run_jobs").select("*").eq("project_id", projectId).eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
-      const { data: job, error } = await query;
-      if (error || !job) return respond({ job: null, latest_steps: [], next_action_hint: "No job found" });
+      let job: any = null;
+      let statusError: any = null;
+
+      if (jobId) {
+        const { data, error } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).maybeSingle();
+        job = data; statusError = error;
+      } else {
+        // Deterministic job selection: priority order running > paused/awaiting > failed > stopped > completed
+        const STATUS_PRIORITY = ["running", "paused", "failed", "stopped", "completed"];
+        const { data: candidates, error: candErr } = await supabase
+          .from("auto_run_jobs").select("*")
+          .eq("project_id", projectId).eq("user_id", userId)
+          .order("created_at", { ascending: false }).limit(20);
+        statusError = candErr;
+        if (candidates && candidates.length > 0) {
+          // Pick highest-priority status; within same status pick most recent
+          for (const status of STATUS_PRIORITY) {
+            const match = candidates.find((j: any) => {
+              if (status === "paused") return j.status === "paused" || j.awaiting_approval;
+              return j.status === status;
+            });
+            if (match) { job = match; break; }
+          }
+          if (!job) job = candidates[0]; // fallback to most recent
+        }
+        console.log(`[auto-run][IEL] job_selected { project_id: "${projectId}", job_id: "${job?.id || "none"}", status: "${job?.status || "none"}", current_document: "${job?.current_document || "none"}", reason: "priority_order" }`);
+      }
+      if (statusError || !job) return respond({ job: null, latest_steps: [], next_action_hint: "No job found" });
 
       // Update heartbeat (fire-and-forget, never block status)
       supabase.from("auto_run_jobs").update({ last_heartbeat_at: new Date().toISOString() }).eq("id", job.id).then(() => {});
@@ -2493,6 +2516,28 @@ Deno.serve(async (req) => {
 
       // ── Ensure seed pack docs exist before downstream generation ──
       const seedResult = await ensureSeedPack(supabase, supabaseUrl, projectId, token, jobUserId);
+
+      // ── Guard: check for existing resumable job before creating a new one ──
+      if (!body.force_new_run) {
+        const { data: existingJobs } = await supabase
+          .from("auto_run_jobs").select("id, status, current_document, step_count, awaiting_approval, created_at")
+          .eq("project_id", projectId).eq("user_id", jobUserId)
+          .in("status", ["running", "paused"])
+          .order("created_at", { ascending: false }).limit(1);
+        const resumable = existingJobs?.[0];
+        if (resumable) {
+          console.log(`[auto-run][IEL] start_vs_resume_decision { project_id: "${projectId}", existing_job_id: "${resumable.id}", existing_status: "${resumable.status}", current_document: "${resumable.current_document}", step_count: ${resumable.step_count}, chosen_action: "blocked_existing_job", reason: "resumable_job_exists" }`);
+          return respond({
+            error: "RESUMABLE_JOB_EXISTS",
+            message: `A resumable job exists at stage '${resumable.current_document}' (step ${resumable.step_count}). Use resume or set force_new_run=true.`,
+            existing_job_id: resumable.id,
+            existing_status: resumable.status,
+            current_document: resumable.current_document,
+            step_count: resumable.step_count,
+          }, 409);
+        }
+      }
+      console.log(`[auto-run][IEL] start_vs_resume_decision { project_id: "${projectId}", existing_job_id: null, chosen_action: "start_new", reason: "no_resumable_job" }`);
 
       const insertPayload = {
         user_id: jobUserId,
