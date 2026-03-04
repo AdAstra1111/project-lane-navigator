@@ -452,6 +452,16 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         logCPM("cpm_v1_applied", { doc_type: "episode_grid", source: "generate-document" });
       }
 
+      // ── CHARACTER_BIBLE_DEPTH_V1: inject depth checklist for character_bible ──
+      let charBibleDepthBlock = "";
+      try {
+        const { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_PROMPT_BLOCK } = await import("../_shared/ciBlockerGate.ts");
+        if (isCharBibleDepthEnabled() && docType === "character_bible") {
+          charBibleDepthBlock = CHARACTER_BIBLE_DEPTH_PROMPT_BLOCK;
+          console.log(`[generate-document][IEL] char_bible_depth_v1_applied { doc_type: "character_bible" }`);
+        }
+      } catch { /* flag off or import fails — no-op */ }
+
       system = [
         `You are a professional development document generator for film/TV projects.`,
         `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
@@ -463,6 +473,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         nuanceBlock,
         narrativeBlock,
         cpmBlock,
+        charBibleDepthBlock,
         additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
         `If the upstream documents contain sections titled "Creative DNA Targets (From Trend Convergence)" or "Convergence Guidance (Audience Appetite Context)", treat them as strong recommendations for voice, tone, pacing, and world density while staying original.`,
         mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",

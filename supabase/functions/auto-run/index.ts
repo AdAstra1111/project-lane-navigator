@@ -1,4 +1,4 @@
-const BUILD = "AUTORUN_BUILD_MARKER_2026_03_04_CPM_V1";
+const BUILD = "AUTORUN_BUILD_MARKER_2026_03_04_CI_PILLARS_V1";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isCPMEnabled, buildCPRepairDirections, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
@@ -7,6 +7,11 @@ import { getWritingLaneGroup, getDefaultWritingVoiceForLane } from "../_shared/w
 import { ensureDocSlot, createVersion } from "../_shared/doc-os.ts";
 import { runPendingDecisionGate, checkQualityPlateau } from "../_shared/pendingDecisionGate.ts";
 import { isAggregate, getRegressionThreshold, getExploreThreshold, getMaxFrontierAttempts, requireDocPolicy, validateLadderIntegrity, runCanonAlignmentGate, buildCanonEntitiesFromDB } from "../_shared/docPolicyRegistry.ts";
+import {
+  isCIBlockerGateEnabled, isPlateauV2Enabled, isRewriteTargetingEnabled,
+  parseLatestReviewForActiveVersion, evaluateCIBlockerGateFromPayload,
+  checkPlateauV2, compileRewriteDirectives, formatDirectivesAsDirections,
+} from "../_shared/ciBlockerGate.ts";
 import {
   DEFAULT_MAX_TOTAL_STEPS,
   DEFAULT_MAX_STAGE_LOOPS,
@@ -4616,14 +4621,42 @@ Deno.serve(async (req) => {
       // Allows unlimited stabilise attempts while CI is improving.
       // Fail-closes on plateau below GLOBAL_MIN_CI.
       {
+        // ── PILLAR 3: PLATEAU V2 — composite CI + blocker/high-impact trend check ──
+        if (isPlateauV2Enabled()) {
+          const plateauV2 = await checkPlateauV2(supabase, jobId, currentDoc, GLOBAL_MIN_CI, CI_PLATEAU_WINDOW);
+          console.log(`[auto-run][IEL] plateau_v2_eval ${JSON.stringify({ job_id: jobId, doc_type: currentDoc, ...plateauV2 })}`);
+
+          if (plateauV2.isPlateaued) {
+            console.error(`[auto-run][IEL] plateau_v2_stop ${JSON.stringify({ job_id: jobId, doc_type: currentDoc, ...plateauV2 })}`);
+            await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
+              `PLATEAU V2: CI=${plateauV2.currentCI}, blocker_delta=${plateauV2.blockerCountDelta}, hi_delta=${plateauV2.highImpactCountDelta}. Neither CI improving nor notes shrinking. Fail-closed.`,
+              { ci: plateauV2.currentCI }, undefined,
+              { ...plateauV2, global_min_ci: GLOBAL_MIN_CI, plateau_version: "v2" });
+            const { data: docForCap } = await supabase.from("project_documents")
+              .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+              .order("created_at", { ascending: false }).limit(1).maybeSingle();
+            if (docForCap) await finalizeBest(supabase, jobId, job, docForCap.id);
+            await updateJob(supabase, jobId, {
+              status: "paused",
+              stop_reason: "CI_PLATEAU_BELOW_90",
+              pause_reason: "CI_PLATEAU_BELOW_90",
+              error: `Plateau V2: CI=${plateauV2.currentCI}, blockers not shrinking, high-impact not shrinking for ${currentDoc}. Target: CI>=${GLOBAL_MIN_CI}.`,
+            });
+            await releaseProcessingLock(supabase, jobId);
+            return respondWithJob(supabase, jobId);
+          } else if (plateauV2.currentCI >= GLOBAL_MIN_CI) {
+            console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${plateauV2.currentCI}, plateau_version: "v2" }`);
+          } else {
+            console.log(`[auto-run][IEL] plateau_v2_continue { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${plateauV2.currentCI}, reason: "${plateauV2.reason}" }`);
+          }
+        } else {
+        // Original V1 plateau logic
         const ciProgress = await checkMonotonicCIImprovement(supabase, jobId, currentDoc);
         console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, min_ci: ${GLOBAL_MIN_CI}, improving: ${ciProgress.improving}, plateau_count: ${ciProgress.plateauCount}, rule: "monotonic_ci_loop" }`);
 
         if (ciProgress.currentCi >= GLOBAL_MIN_CI) {
           console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi} }`);
-          // CI target met — allow normal flow (promotion will be checked downstream)
         } else if (ciProgress.plateau) {
-          // CI is plateaued below 90 — FAIL CLOSED
           console.error(`[auto-run][IEL] ci_plateau_stop { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, plateau_count: ${ciProgress.plateauCount} }`);
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
             `CI PLATEAU BELOW ${GLOBAL_MIN_CI}: CI=${ciProgress.currentCi}, best=${ciProgress.bestCi}, ${ciProgress.plateauCount} consecutive non-improving ticks. Fail-closed.`,
@@ -4643,11 +4676,10 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         } else if (ciProgress.improving) {
           console.log(`[auto-run][IEL] ci_improvement_detected { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci_prior: ${ciProgress.bestCi}, delta: ${ciProgress.currentCi - ciProgress.bestCi} }`);
-          // CI is improving — allow continuation (no version cap stop)
         } else {
-          // Not yet plateaued but not improving — log tick
           console.log(`[auto-run][IEL] ci_plateau_tick { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, plateau_count: ${ciProgress.plateauCount} }`);
         }
+        } // end plateau version branch
       } // end CI gate inner block
       } // end CI gate else branch
       } // end fresh review guard
@@ -6420,7 +6452,67 @@ Deno.serve(async (req) => {
                   { ci: ciGate.ci }, undefined, { min_ci: GLOBAL_MIN_CI, trigger: "converge_promote" });
                 await updateJob(supabase, jobId, { stage_loop_count: newLoopCount });
                 // Fall through to rewrite below
+              }
+              // ── PILLAR 1: CI BLOCKER GATE V1 — block promotion if unresolved blockers/high-impact ──
+              else if (isCIBlockerGateEnabled()) {
+                const reviewPayload = await parseLatestReviewForActiveVersion(supabase, jobId, currentDoc, latestVersion?.id || null);
+                const blockerGate = evaluateCIBlockerGateFromPayload(reviewPayload, GLOBAL_MIN_CI);
+                console.log(`[auto-run][IEL] ci_blocker_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", pass: ${blockerGate.pass}, ci: ${blockerGate.ci}, blockers: ${blockerGate.blockerCount}, high_impact: ${blockerGate.highImpactCount}, reasons: ${JSON.stringify(blockerGate.blockReasons)} }`);
+                if (!blockerGate.pass) {
+                  console.warn(`[auto-run][IEL] ci_blocker_gate_blocked { job_id: "${jobId}", doc_type: "${currentDoc}", reasons: ${JSON.stringify(blockerGate.blockReasons)} }`);
+                  await logStep(supabase, jobId, null, currentDoc, "ci_blocker_gate_blocked",
+                    `Promotion blocked by CI Blocker Gate: ${blockerGate.blockReasons.join(", ")}. Continuing stabilise.`,
+                    { ci: blockerGate.ci, gp: blockerGate.gp }, undefined,
+                    { blockerCount: blockerGate.blockerCount, highImpactCount: blockerGate.highImpactCount, blockReasons: blockerGate.blockReasons });
+                  await updateJob(supabase, jobId, { stage_loop_count: newLoopCount });
+                  // Fall through to rewrite below
+                } else {
+                  console.log(`[auto-run][IEL] ci_blocker_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${blockerGate.ci} }`);
+                  // Proceed to promotion
+                  const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
+                  if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
+                    if (job.allow_defaults) {
+                      try {
+                        await supabase.from("project_document_versions").update({
+                          approval_status: "approved",
+                          approved_at: new Date().toISOString(),
+                          approved_by: job.user_id,
+                        }).eq("id", latestVersion.id);
+                      } catch (e: any) {
+                        console.warn("[auto-run] non-fatal auto-approve failed before promote:", e?.message || e);
+                      }
+                      await logStep(supabase, jobId, null, currentDoc, "auto_approved_promote",
+                        `Converged (CI=${ci}, GP=${gp}). Auto-promoting ${currentDoc} → ${next} (allow_defaults, blocker_gate_passed)`,
+                        {}, undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
+                      );
+                      await updateJob(supabase, jobId, {
+                        stage_loop_count: 0, current_document: next,
+                        stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
+                        status: "running", stop_reason: null,
+                        awaiting_approval: false, approval_type: null,
+                        pending_doc_id: null, pending_version_id: null,
+                        pending_doc_type: null, pending_next_doc_type: null,
+                        frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+                      });
+                      console.log(`[auto-run][IEL] stage_transition { job_id: "${jobId}", from: "${currentDoc}", to: "${next}", best_preserved: true, trigger: "blocker_gate_promote" }`);
+                      return respondWithJob(supabase, jobId, "run-next");
+                    }
+                    await logStep(supabase, jobId, null, currentDoc, "approval_required",
+                      `Converged (CI=${ci}, GP=${gp}). Review ${currentDoc} before promoting to ${next}`,
+                      {}, undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
+                    );
+                    await updateJob(supabase, jobId, {
+                      stage_loop_count: newLoopCount,
+                      status: "paused", stop_reason: `Converged — review ${currentDoc} before promoting to ${next}`,
+                      awaiting_approval: true, approval_type: "promote",
+                      pending_doc_id: doc.id, pending_version_id: latestVersion.id,
+                      pending_doc_type: currentDoc, pending_next_doc_type: next,
+                    });
+                    return respondWithJob(supabase, jobId, "awaiting-approval");
+                  }
+                }
               } else {
+              // Flag off — original promotion path
               console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci} }`);
               const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
               if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
@@ -6470,7 +6562,7 @@ Deno.serve(async (req) => {
                 });
                 return respondWithJob(supabase, jobId, "awaiting-approval");
               }
-              } // close else (ciGate.pass)
+              } // close else (flag off — original promotion)
             } // close else (convergedEnough)
           } // close if (newLoopCount >= max_stage_loops)
 
@@ -7068,6 +7160,28 @@ Deno.serve(async (req) => {
             }
             // Also inject the generation prompt block so rewrites maintain CP structure
             mergedDirections.push(CPM_GENERATION_PROMPT_BLOCK);
+          }
+
+          // ── PILLAR 2: REWRITE TARGETING V1 — deterministic note-to-directions compiler ──
+          if (isRewriteTargetingEnabled()) {
+            const compiled = compileRewriteDirectives(
+              allNotesForStrategy.blocking_issues || [],
+              allNotesForStrategy.high_impact_notes || [],
+              currentDoc,
+            );
+            if (compiled.failClosed) {
+              console.warn(`[dev-engine-v2][IEL] rewrite_targeting_fail_closed_missing_notes { job_id: "${jobId}", doc_type: "${currentDoc}", reason: "${compiled.reason}" }`);
+              await logStep(supabase, jobId, null, currentDoc, "rewrite_targeting_fail_closed",
+                `Rewrite targeting fail-closed: ${compiled.reason}`, { ci: baselineCI, gp: baselineGP });
+            } else if (compiled.directives.length > 0) {
+              const targetedLines = formatDirectivesAsDirections(compiled.directives, currentDoc);
+              mergedDirections.push(...targetedLines);
+              console.log(`[dev-engine-v2][IEL] rewrite_targeting_compiled { job_id: "${jobId}", doc_type: "${currentDoc}", directive_count: ${compiled.directives.length}, categories: ${JSON.stringify([...new Set(compiled.directives.map(d => d.category))])} }`);
+              await logStep(supabase, jobId, null, currentDoc, "rewrite_targeting_compiled",
+                `Compiled ${compiled.directives.length} targeted rewrite directives`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                { directive_count: compiled.directives.length, categories: [...new Set(compiled.directives.map(d => d.category))] });
+            }
           }
 
           // ── CANON-LOCK INJECTION: if retrying after CANON_MISMATCH, inject entity constraints ──
