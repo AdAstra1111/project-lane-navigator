@@ -3554,6 +3554,35 @@ MATERIAL TO REWRITE:\n${fullText}`;
         strategy = "legacy_slugline";
       }
 
+      // ── Context Parity: resolve narrative context + constraint pack at plan time ──
+      let narrativeBlock = "";
+      let narrativeResolverHash = "";
+      let narrativeCounts: Record<string, number> = {};
+      let constraintPackBlock = "";
+      try {
+        const { data: projForCtx } = await supabase.from("projects")
+          .select("assigned_lane, format")
+          .eq("id", projectId)
+          .maybeSingle();
+        const planLane = projForCtx?.assigned_lane || "independent-film";
+        const planFormat = projForCtx?.format || "film";
+
+        const narrativeCtx = await resolveNarrativeContext(supabase, projectId, {
+          lane: planLane,
+          format: planFormat,
+          includeSignals: true,
+        });
+        narrativeBlock = buildNarrativeContextBlock(narrativeCtx);
+        narrativeResolverHash = narrativeCtx.metadata.resolverHash;
+        narrativeCounts = narrativeCtx.metadata.counts;
+
+        constraintPackBlock = await loadConstraintPack(supabase, projectId);
+
+        console.log(`[dev-engine-v2] rewrite-plan: stored_context_pack hash=${narrativeResolverHash} narrative_chars=${narrativeBlock.length} constraint_chars=${constraintPackBlock.length} signals=${narrativeCounts.signals ?? 0} decisions=${narrativeCounts.decisions ?? 0} canonChars=${narrativeCounts.canonChars ?? 0} nec=${narrativeCounts.nec_pref ?? 0}/${narrativeCounts.nec_max ?? 0}`);
+      } catch (ctxErr: any) {
+        console.warn(`[dev-engine-v2] rewrite-plan: context pack resolution failed (proceeding without):`, ctxErr?.message || ctxErr);
+      }
+
       const { data: planRun } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
@@ -3571,6 +3600,10 @@ MATERIAL TO REWRITE:\n${fullText}`;
           strategy,
           episode_count: resolvedEpisodeCount,
           chunk_meta: chunkMeta,
+          narrative_block: narrativeBlock || null,
+          narrative_resolver_hash: narrativeResolverHash || null,
+          narrative_counts: Object.keys(narrativeCounts).length > 0 ? narrativeCounts : null,
+          constraint_pack_block: constraintPackBlock || null,
         },
       }).select().single();
 
@@ -3593,6 +3626,45 @@ MATERIAL TO REWRITE:\n${fullText}`;
       const plan = planRun.output_json as any;
       const chunkText = plan?.chunk_texts?.[chunkIndex];
       if (chunkText === undefined) throw new Error(`Chunk ${chunkIndex} not found`);
+
+      // ── Context Parity: extract stored narrative context from plan ──
+      let chunkNarrativeBlock = plan?.narrative_block || "";
+      let chunkConstraintBlock = plan?.constraint_pack_block || "";
+      let fallbackResolve = false;
+
+      if (!chunkNarrativeBlock) {
+        // Backwards compatibility: old plans without narrative_block — resolve on the fly
+        try {
+          const { data: planDoc } = await supabase.from("development_runs")
+            .select("project_id").eq("id", planRunId).single();
+          const fallbackProjectId = planDoc?.project_id;
+          if (fallbackProjectId) {
+            const { data: projForFallback } = await supabase.from("projects")
+              .select("assigned_lane, format")
+              .eq("id", fallbackProjectId)
+              .maybeSingle();
+            const fbLane = projForFallback?.assigned_lane || "independent-film";
+            const fbFormat = projForFallback?.format || "film";
+            const fbCtx = await resolveNarrativeContext(supabase, fallbackProjectId, {
+              lane: fbLane, format: fbFormat, includeSignals: true,
+            });
+            chunkNarrativeBlock = buildNarrativeContextBlock(fbCtx);
+            chunkConstraintBlock = await loadConstraintPack(supabase, fallbackProjectId);
+            fallbackResolve = true;
+            console.warn(`[dev-engine-v2] rewrite-chunk: fallback_resolve_in_chunk=true (old plan missing narrative_block) hash=${fbCtx.metadata.resolverHash} narrative_chars=${chunkNarrativeBlock.length}`);
+          }
+        } catch (fbErr: any) {
+          console.warn(`[dev-engine-v2] rewrite-chunk: fallback resolve failed:`, fbErr?.message || fbErr);
+        }
+      }
+
+      // Build augmented system prompt with narrative context
+      const contextInjection = [chunkNarrativeBlock, chunkConstraintBlock].filter(Boolean).join("\n");
+      const augmentedChunkSystem = contextInjection
+        ? `${REWRITE_CHUNK_SYSTEM}\n\n${contextInjection}`
+        : REWRITE_CHUNK_SYSTEM;
+
+      console.log(`[dev-engine-v2] rewrite-chunk: injected_context_pack resolver_hash=${plan?.narrative_resolver_hash || "none"} narrative_chars=${chunkNarrativeBlock.length} constraint_chars=${chunkConstraintBlock.length} has_nec=${chunkNarrativeBlock.includes("NEC_GUARDRAIL")} has_canon=${chunkNarrativeBlock.includes("CANON OS")} signals=${plan?.narrative_counts?.signals ?? "?"} decisions=${plan?.narrative_counts?.decisions ?? "?"} fallback_resolve=${fallbackResolve}`);
 
       const notesContext = `PROTECT (non-negotiable):\n${JSON.stringify(plan.protect_items || [])}\n\nAPPROVED NOTES:\n${JSON.stringify(plan.approved_notes || [])}`;
       const prevContext = previousChunkEnding
@@ -3618,7 +3690,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           rewrittenChunk = await callAI(
             LOVABLE_API_KEY,
             BALANCED_MODEL,
-            REWRITE_CHUNK_SYSTEM,
+            augmentedChunkSystem,
             episodicPrompt,
             0.4,
             20000,
@@ -3640,7 +3712,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
         const chunkPrompt = `${notesContext}${prevContext}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite this section, applying notes while preserving all scenes and story beats:\n\n${chunkText}`;
         console.log(`Rewrite chunk ${chunkIndex + 1}/${plan.total_chunks} (${chunkText.length} chars)`);
         rewrittenChunk = await callAI(
-          LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_CHUNK_SYSTEM, chunkPrompt, 0.4, 16000,
+          LOVABLE_API_KEY, BALANCED_MODEL, augmentedChunkSystem, chunkPrompt, 0.4, 16000,
         );
       }
 
