@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { CHARACTER_PRESSURE_MATRIX_V1, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
@@ -442,6 +443,14 @@ D) OUTPUT CONTRACT — At the top of your response, print:
       const ladderBlock = buildLadderPromptBlock(formatToLane(project.format));
       const nuanceBlock = buildNuancePromptBlock(nuanceParams);
 
+      // ── CPM_V1: inject Character Pressure Matrix block for episode_grid ──
+      const cpmBlock = (CHARACTER_PRESSURE_MATRIX_V1 && docType === "episode_grid")
+        ? CPM_GENERATION_PROMPT_BLOCK
+        : "";
+      if (CHARACTER_PRESSURE_MATRIX_V1 && docType === "episode_grid") {
+        logCPM("cpm_v1_applied", { doc_type: "episode_grid", source: "generate-document" });
+      }
+
       system = [
         `You are a professional development document generator for film/TV projects.`,
         `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
@@ -452,6 +461,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         ladderBlock,
         nuanceBlock,
         narrativeBlock,
+        cpmBlock,
         additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
         `If the upstream documents contain sections titled "Creative DNA Targets (From Trend Convergence)" or "Convergence Guidance (Audience Appetite Context)", treat them as strong recommendations for voice, tone, pacing, and world density while staying original.`,
         mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
