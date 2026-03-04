@@ -2493,7 +2493,7 @@ Deno.serve(async (req) => {
       // ── Ensure seed pack docs exist before downstream generation ──
       const seedResult = await ensureSeedPack(supabase, supabaseUrl, projectId, token, jobUserId);
 
-      const { data: job, error } = await supabase.from("auto_run_jobs").insert({
+      const insertPayload = {
         user_id: jobUserId,
         project_id: projectId,
         status: "running",
@@ -2509,9 +2509,18 @@ Deno.serve(async (req) => {
         max_versions_per_doc_per_job: typeof body.max_versions_per_doc_per_job === "number"
           ? Math.max(MIN_VERSION_CAP, Math.min(MAX_VERSION_CAP, body.max_versions_per_doc_per_job))
           : DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB,
-      }).select("*").single();
+      };
+      console.log(`[IEL] job insert pipeline_key=${insertPayload.pipeline_key} fmt=${fmt}`);
+      const { data: job, error } = await supabase.from("auto_run_jobs").insert(insertPayload).select("*").single();
 
       if (error) throw new Error(`Failed to create job: ${error.message}`);
+
+      // [IEL] Verify pipeline_key persisted — defensive correction if client silently dropped it
+      if (!job.pipeline_key && fmt) {
+        console.warn(`[IEL] pipeline_key NULL after insert — correcting to ${fmt}`);
+        await supabase.from("auto_run_jobs").update({ pipeline_key: fmt }).eq("id", job.id);
+        job.pipeline_key = fmt;
+      }
 
       await logStep(supabase, job.id, 0, effectiveStartDoc, "start", `Auto-run started: ${effectiveStartDoc} → ${effectiveTargetDoc} (${mode || "balanced"} mode)`);
 
@@ -4045,6 +4054,13 @@ Deno.serve(async (req) => {
         .eq("id", job.project_id).single();
       const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
       const behavior = project?.development_behavior || "market";
+
+      // [IEL] Backfill pipeline_key if NULL on running job (defensive; covers legacy jobs)
+      if (!job.pipeline_key && format) {
+        console.warn(`[IEL] Backfilling pipeline_key=${format} on job ${jobId}`);
+        await supabase.from("auto_run_jobs").update({ pipeline_key: format }).eq("id", jobId);
+        job.pipeline_key = format;
+      }
 
       // PATCH 5: Ladder integrity check in run-next (not just start)
       {
