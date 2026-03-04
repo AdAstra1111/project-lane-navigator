@@ -3290,7 +3290,14 @@ MATERIAL:\n${version.plaintext}`;
 
       const effectiveFormat = (reqFormat || project?.format || "film").toLowerCase().replace(/_/g, "-");
       const effectiveBehavior = developmentBehavior || project?.development_behavior || "market";
-      const effectiveDeliverable = deliverableType || "script";
+      // Resolve deliverableType from actual document doc_type — never fall back to generic "script"
+      let effectiveDeliverable = deliverableType;
+      if (!effectiveDeliverable) {
+        const { data: rewriteSourceDoc } = await supabase.from("project_documents")
+          .select("doc_type").eq("id", documentId).maybeSingle();
+        effectiveDeliverable = rewriteSourceDoc?.doc_type || resolveScriptTypeForFormat(project?.format);
+        console.log(`[dev-engine-v2] rewrite: resolved deliverableType from document doc_type="${effectiveDeliverable}" (was not provided in request)`);
+      }
 
       const fullText = version.plaintext || "";
       const LONG_THRESHOLD = 30000;
@@ -3464,10 +3471,11 @@ MATERIAL TO REWRITE:\n${fullText}`;
         .select("doc_type")
         .eq("id", documentId)
         .maybeSingle();
-      // Resolve format-aware script type if doc_type is missing or legacy "script"
+      // Resolve format-aware doc_type: use actual document doc_type, resolve legacy "script" alias via format
       const { data: planProject } = await supabase.from("projects").select("format").eq("id", projectId).single();
-      const rawSourceDocType = sourceDoc?.doc_type || "script";
+      const rawSourceDocType = sourceDoc?.doc_type || resolveScriptTypeForFormat(planProject?.format);
       const sourceDocType = (rawSourceDocType === "script") ? resolveScriptTypeForFormat(planProject?.format) : rawSourceDocType;
+      console.log(`[dev-engine-v2] rewrite-plan: sourceDocType="${sourceDocType}" (raw="${sourceDoc?.doc_type || 'null'}", format="${planProject?.format || 'null'}")`);
 
       const buildLegacySluglineChunks = (text: string): string[] => {
         const CHUNK_TARGET = 12000;
@@ -3747,11 +3755,20 @@ MATERIAL TO REWRITE:\n${fullText}`;
       const { projectId, documentId, versionId, planRunId, assembledText, rewriteModeSelected, rewriteModeEffective, rewriteModeReason, rewriteModeDebug, rewriteProbe, deliverableType: assembleDeliverableType } = body;
       if (!projectId || !documentId || !versionId || !assembledText) throw new Error("projectId, documentId, versionId, assembledText required");
 
-      // Resolve effectiveDeliverable within this action scope (not inherited from rewrite block)
-      // Resolve format-aware script type for deliverable
+      // Resolve effectiveDeliverable from actual document doc_type — never fall back to generic script type
       const { data: assembleProject } = await supabase.from("projects").select("format").eq("id", projectId).single();
-      const effectiveDeliverable = assembleDeliverableType
-        || (assembleProject?.format ? resolveScriptTypeForFormat(assembleProject.format) : "feature_script");
+      let effectiveDeliverable = assembleDeliverableType;
+      if (!effectiveDeliverable) {
+        const { data: assembleSourceDoc } = await supabase.from("project_documents")
+          .select("doc_type").eq("id", documentId).maybeSingle();
+        effectiveDeliverable = assembleSourceDoc?.doc_type || resolveScriptTypeForFormat(assembleProject?.format);
+        console.log(`[dev-engine-v2] rewrite-assemble: resolved deliverableType from document doc_type="${effectiveDeliverable}" (was not provided in request)`);
+      }
+      // Final safety: resolve legacy "script" alias
+      if (effectiveDeliverable === "script") {
+        effectiveDeliverable = resolveScriptTypeForFormat(assembleProject?.format);
+        console.log(`[dev-engine-v2] rewrite-assemble: resolved legacy "script" to "${effectiveDeliverable}"`);
+      }
 
       function estimateRuntimeMinutes(text: string, mode: string) {
         const words = (text || "").trim().split(/\s+/).filter(Boolean).length;
