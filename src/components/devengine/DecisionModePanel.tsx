@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { recordResolutions } from '@/lib/decisions/client';
 import { useCanonicalState } from '@/hooks/useCanonicalState';
 import { CanonEvidenceSection } from '@/components/canon/CanonEvidenceSection';
+import { normalizeDecisionsForUI } from '@/lib/decisions/normalizeDecisionUI';
 
 interface GlobalDirection {
   id: string;
@@ -72,7 +73,7 @@ export function DecisionModePanel({
   onRewriteComplete, onAutoRunContinue, onGenerateOptions,
   isGeneratingOptions, availableVersions, hideApplyButton,
 }: DecisionModePanelProps) {
-  const [decisions, setDecisions] = useState<Decision[]>(externalDecisions || []);
+  const [decisions, setDecisions] = useState<Decision[]>(() => normalizeDecisionsForUI(externalDecisions || [], 'decision-mode-panel:initial') as Decision[]);
   const [globalDirections, setGlobalDirections] = useState<GlobalDirection[]>(externalDirections || []);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
   const [customDirections, setCustomDirections] = useState<Record<string, string>>({});
@@ -91,17 +92,18 @@ export function DecisionModePanel({
   const prevDecisionFingerprint = React.useRef('');
   useEffect(() => {
     if (externalDecisions && externalDecisions.length > 0) {
+      const normalized = normalizeDecisionsForUI(externalDecisions, 'decision-mode-panel:external') as Decision[];
       // Fingerprint by note_ids + option counts to detect real changes
-      const fp = externalDecisions.map(d => `${d.note_id}:${d.options?.length || 0}`).sort().join('|');
+      const fp = normalized.map(d => `${d.note_id}:${d.options?.length || 0}`).sort().join('|');
       if (fp === prevDecisionFingerprint.current) {
         // Same decisions, don't reset user selections — just update decision objects
-        setDecisions(externalDecisions);
+        setDecisions(normalized);
         return;
       }
       prevDecisionFingerprint.current = fp;
-      setDecisions(externalDecisions);
+      setDecisions(normalized);
       const autoSelections: Record<string, string> = {};
-      for (const d of externalDecisions) {
+      for (const d of normalized) {
         const rec = d.recommended_option_id || d.recommended;
         if (rec) autoSelections[d.note_id] = rec;
       }
@@ -120,7 +122,7 @@ export function DecisionModePanel({
     try {
       const result = await callDevEngine('options', { projectId, documentId, versionId });
       const opts = result?.options || {};
-      setDecisions(opts.decisions || []);
+      setDecisions(normalizeDecisionsForUI(opts.decisions || [], 'decision-mode-panel:generate-options') as Decision[]);
       setGlobalDirections(opts.global_directions || []);
       const autoSelections: Record<string, string> = {};
       for (const d of (opts.decisions || [])) {

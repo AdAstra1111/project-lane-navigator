@@ -37,6 +37,7 @@ import { AUTO_RUN_EXECUTION_MODE, EXECUTION_MODE_LABEL } from '@/lib/autoRunConf
 
 // ── Constants ──
 import { ALL_DOC_TYPE_LABELS } from '@/lib/can-promote-to-script';
+import { normalizePendingDecisionsForUI } from '@/lib/decisions/normalizeDecisionUI';
 
 /** Deterministic label: canonical registry → snake_case Title Case fallback. Never returns undefined. */
 function docLabel(key: string | null | undefined): string {
@@ -177,6 +178,26 @@ function DecisionCard({ decision, selectedValue, onSelect }: {
   selectedValue?: string;
   onSelect: (id: string, val: string) => void;
 }) {
+  const missingFields: string[] = [];
+  if (!decision?.id) missingFields.push('id');
+  if (!decision?.question) missingFields.push('question');
+  if (!Array.isArray(decision?.options)) missingFields.push('options');
+
+  if (missingFields.length > 0) {
+    console.warn('[decisions][IEL] malformed_payload', {
+      source: decision?.source || 'auto-run-mission-control:decision-card',
+      decision_key: decision?.decision_key || decision?.id || 'unknown',
+      missing_fields: decision?.missing_fields?.length ? decision.missing_fields : missingFields,
+    });
+    return (
+      <div className="border border-destructive/40 bg-destructive/5 rounded-md p-3">
+        <p className="text-xs font-medium text-destructive">Malformed decision payload</p>
+      </div>
+    );
+  }
+
+  const safeOptions = Array.isArray(decision.options) ? decision.options : [];
+
   return (
     <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-3 space-y-2">
       <div className="flex items-start gap-2">
@@ -189,7 +210,7 @@ function DecisionCard({ decision, selectedValue, onSelect }: {
         </div>
       </div>
       <div className="space-y-1.5">
-        {(decision.options || []).map((opt) => (
+        {safeOptions.map((opt) => (
           <button key={opt.value} onClick={() => onSelect(decision.id, opt.value)}
             className={`w-full text-left text-[11px] p-2 rounded border transition-colors hover:bg-primary/10 hover:border-primary/40 ${
               selectedValue === opt.value ? 'border-primary bg-primary/10 ring-1 ring-primary/30' :
@@ -691,10 +712,11 @@ export function AutoRunMissionControl({
     // Step-limit pauses are fully owned by dedicated UI — no decisions
     if (job?.pause_reason === 'step_limit') return [];
     const raw = Array.isArray(job?.pending_decisions) && job.pending_decisions.length > 0
-      ? (job.pending_decisions as PendingDecision[])
-      : fallbackDecisions;
+      ? (job.pending_decisions as any[])
+      : (fallbackDecisions as any[]);
+    const normalized = normalizePendingDecisionsForUI(raw, 'auto-run-mission-control:active_decisions') as any[];
     // Filter out step-limit decisions — handled by StepBudgetControl
-    return raw.filter(d => d.id !== 'raise_step_limit_once' && !d.id?.endsWith(':raise_step_limit_once'));
+    return normalized.filter((d) => d.id !== 'raise_step_limit_once' && !d.id?.endsWith(':raise_step_limit_once')) as PendingDecision[];
   }, [job?.status, job?.pending_decisions, fallbackDecisions]);
 
   const hasDecisions = activeDecisions.length > 0;
