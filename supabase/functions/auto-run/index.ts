@@ -331,7 +331,76 @@ async function enforcePrereqGateBeforeAdvance(
   return true; // blocked
 }
 
-// ── IEL: Version cap per doc_type per job (prevents runaway same-stage loops) ──
+// ── GLOBAL CI GATE: No promotion / prereq pass unless CI >= GLOBAL_MIN_CI ──
+const GLOBAL_MIN_CI = 90;
+const CI_PLATEAU_WINDOW = 2;   // consecutive non-improving ticks before fail-close
+const CI_MIN_DELTA = 1;        // minimum CI improvement to count as progress
+
+/**
+ * Evaluate CI gate for stage advancement. Returns { pass, ci, bestCiSoFar }.
+ * Source of truth: stage-scoped best CI from auto_run_steps (action=review).
+ */
+async function evaluateCIGate(
+  supabase: any, jobId: string, docType: string,
+): Promise<{ pass: boolean; ci: number; bestCiSoFar: number }> {
+  const stageBest = await getStageBestFromSteps(supabase, jobId, docType);
+  const ci = stageBest?.ci ?? 0;
+  return { pass: ci >= GLOBAL_MIN_CI, ci, bestCiSoFar: ci };
+}
+
+/**
+ * Check monotonic CI improvement for the current stage.
+ * Returns: { improving, plateau, plateauCount, bestCi, currentCi }.
+ * Reads from auto_run_steps (action=review) for the doc_type, ordered by step_index desc.
+ */
+async function checkMonotonicCIImprovement(
+  supabase: any, jobId: string, docType: string,
+): Promise<{ improving: boolean; plateau: boolean; plateauCount: number; bestCi: number; currentCi: number }> {
+  // Get last CI_PLATEAU_WINDOW+1 review scores for this doc_type
+  const { data: recentReviews } = await supabase
+    .from("auto_run_steps")
+    .select("ci, step_index")
+    .eq("job_id", jobId)
+    .eq("document", docType)
+    .eq("action", "review")
+    .not("ci", "is", null)
+    .order("step_index", { ascending: false })
+    .limit(CI_PLATEAU_WINDOW + 2);
+
+  if (!recentReviews || recentReviews.length < 2) {
+    // Not enough data — allow continuation
+    return { improving: true, plateau: false, plateauCount: 0, bestCi: recentReviews?.[0]?.ci ?? 0, currentCi: recentReviews?.[0]?.ci ?? 0 };
+  }
+
+  const currentCi = recentReviews[0].ci;
+  const allCIs = recentReviews.map((r: any) => r.ci);
+  const bestCi = Math.max(...allCIs);
+
+  // Check if current CI is an improvement over all previous
+  const previousBest = Math.max(...allCIs.slice(1));
+  const improving = currentCi >= previousBest + CI_MIN_DELTA;
+
+  // Count consecutive non-improving ticks from the front
+  let plateauCount = 0;
+  for (let i = 0; i < allCIs.length - 1; i++) {
+    const laterBest = Math.max(...allCIs.slice(i + 1));
+    if (allCIs[i] < laterBest + CI_MIN_DELTA) {
+      plateauCount++;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    improving,
+    plateau: plateauCount >= CI_PLATEAU_WINDOW && currentCi < GLOBAL_MIN_CI,
+    plateauCount,
+    bestCi,
+    currentCi,
+  };
+}
+
+// ── IEL: Version cap per doc_type per job (SAFETY NET ONLY — monotonic CI loop is primary limiter) ──
 // Fallback only — per-job value from auto_run_jobs.max_versions_per_doc_per_job takes precedence
 const DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB = 60;
 const MIN_VERSION_CAP = 10;
@@ -4430,7 +4499,46 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ── IEL: Version cap guard — prevent runaway same-stage rewrites (job-scoped) ──
+      // ── IEL: MONOTONIC CI IMPROVEMENT GATE (PRIMARY LIMITER) ──
+      // Replaces version cap as the primary stop condition.
+      // Allows unlimited stabilise attempts while CI is improving.
+      // Fail-closes on plateau below GLOBAL_MIN_CI.
+      {
+        const ciProgress = await checkMonotonicCIImprovement(supabase, jobId, currentDoc);
+        console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, min_ci: ${GLOBAL_MIN_CI}, improving: ${ciProgress.improving}, plateau_count: ${ciProgress.plateauCount}, rule: "monotonic_ci_loop" }`);
+
+        if (ciProgress.currentCi >= GLOBAL_MIN_CI) {
+          console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi} }`);
+          // CI target met — allow normal flow (promotion will be checked downstream)
+        } else if (ciProgress.plateau) {
+          // CI is plateaued below 90 — FAIL CLOSED
+          console.error(`[auto-run][IEL] ci_plateau_stop { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, plateau_count: ${ciProgress.plateauCount} }`);
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
+            `CI PLATEAU BELOW ${GLOBAL_MIN_CI}: CI=${ciProgress.currentCi}, best=${ciProgress.bestCi}, ${ciProgress.plateauCount} consecutive non-improving ticks. Fail-closed.`,
+            { ci: ciProgress.currentCi }, undefined,
+            { best_ci: ciProgress.bestCi, plateau_count: ciProgress.plateauCount, global_min_ci: GLOBAL_MIN_CI });
+          const { data: docForCap } = await supabase.from("project_documents")
+            .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+            .order("created_at", { ascending: false }).limit(1).maybeSingle();
+          if (docForCap) await finalizeBest(supabase, jobId, job, docForCap.id);
+          await updateJob(supabase, jobId, {
+            status: "paused",
+            stop_reason: "CI_PLATEAU_BELOW_90",
+            pause_reason: "CI_PLATEAU_BELOW_90",
+            error: `CI plateaued at ${ciProgress.currentCi} (best: ${ciProgress.bestCi}) for ${currentDoc}. ${ciProgress.plateauCount} ticks without improvement. Target: CI>=${GLOBAL_MIN_CI}.`,
+          });
+          await releaseProcessingLock(supabase, jobId);
+          return respondWithJob(supabase, jobId);
+        } else if (ciProgress.improving) {
+          console.log(`[auto-run][IEL] ci_improvement_detected { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci_prior: ${ciProgress.bestCi}, delta: ${ciProgress.currentCi - ciProgress.bestCi} }`);
+          // CI is improving — allow continuation (no version cap stop)
+        } else {
+          // Not yet plateaued but not improving — log tick
+          console.log(`[auto-run][IEL] ci_plateau_tick { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, plateau_count: ${ciProgress.plateauCount} }`);
+        }
+      }
+
+      // ── IEL: Version cap guard — SAFETY NET ONLY (monotonic CI loop is primary limiter) ──
       {
         const effectiveCap = getEffectiveVersionCap(job);
         const { data: docForCap } = await supabase.from("project_documents")
@@ -4444,16 +4552,16 @@ Deno.serve(async (req) => {
             .gte("created_at", job.created_at);
           console.log(`[IEL] Version cap check for ${currentDoc}: ${versionCount} job-scoped versions, cap=${effectiveCap} (job.created_at=${job.created_at})`);
           if (typeof versionCount === "number" && versionCount >= effectiveCap) {
-            console.warn(`[IEL] Version cap reached for ${currentDoc}: ${versionCount} >= ${effectiveCap} (job-scoped since ${job.created_at})`);
+            console.warn(`[IEL] Version cap reached for ${currentDoc}: ${versionCount} >= ${effectiveCap} (job-scoped since ${job.created_at}) [SAFETY NET]`);
             await finalizeBest(supabase, jobId, job, docForCap.id);
             await updateJob(supabase, jobId, {
               status: "paused",
               stop_reason: "rewrite_cap_reached",
               pause_reason: "rewrite_cap_reached",
-              error: `Paused: ${versionCount} versions for ${currentDoc} created since job start (${job.created_at}) exceed cap of ${effectiveCap} (configured via Mission Control).`,
+              error: `Paused: ${versionCount} versions for ${currentDoc} created since job start (${job.created_at}) exceed cap of ${effectiveCap} (safety net).`,
             });
             await logStep(supabase, jobId, stepCount + 1, currentDoc, "rewrite_cap_reached",
-              `Paused: ${versionCount} job-scoped versions for ${currentDoc} exceed cap of ${effectiveCap}`);
+              `Paused: ${versionCount} job-scoped versions for ${currentDoc} exceed cap of ${effectiveCap} [safety net]`);
             await releaseProcessingLock(supabase, jobId);
             return respondWithJob(supabase, jobId);
           }
@@ -6160,7 +6268,19 @@ Deno.serve(async (req) => {
               }
               // If step budget exhausted, the step-limit guard at the top of run-next will catch it
             } else {
-              // Converged enough — proceed to promotion normally
+              // Converged enough — apply CI>=90 hard gate before promotion
+              const ciGate = await evaluateCIGate(supabase, jobId, currentDoc);
+              console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${GLOBAL_MIN_CI}, rule: "converge_promote_gate" }`);
+              if (!ciGate.pass) {
+                // CI below 90 — do NOT promote, continue stabilise
+                console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${GLOBAL_MIN_CI}, trigger: "converge_promote" }`);
+                await logStep(supabase, jobId, null, currentDoc, "ci_gate_blocked",
+                  `Promotion blocked: CI=${ciGate.ci} < ${GLOBAL_MIN_CI}. Continuing stabilise.`,
+                  { ci: ciGate.ci }, undefined, { min_ci: GLOBAL_MIN_CI, trigger: "converge_promote" });
+                await updateJob(supabase, jobId, { stage_loop_count: newLoopCount });
+                // Fall through to rewrite below
+              } else {
+              console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci} }`);
               const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
               if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
                 if (job.allow_defaults) {
@@ -6209,8 +6329,9 @@ Deno.serve(async (req) => {
                 });
                 return respondWithJob(supabase, jobId, "awaiting-approval");
               }
-            }
-          }
+              } // close else (ciGate.pass)
+            } // close else (convergedEnough)
+          } // close if (newLoopCount >= max_stage_loops)
 
           // ── DOC POLICY GUARD: fail closed on unknown doc types ──
           try {
@@ -7229,6 +7350,19 @@ Deno.serve(async (req) => {
 
         // ── PROMOTE ──
         if (promo.recommendation === "promote") {
+          // ── CI>=90 HARD GATE: no promotion unless CI meets global minimum ──
+          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc);
+          console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${GLOBAL_MIN_CI}, rule: "promote_gate_writing" }`);
+          if (!ciGate.pass) {
+            console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${GLOBAL_MIN_CI}, trigger: "promote_writing" }`);
+            await logStep(supabase, jobId, null, currentDoc, "ci_gate_blocked",
+              `Promotion blocked: CI=${ciGate.ci} < ${GLOBAL_MIN_CI}. Continuing stabilise despite readiness ${promo.readiness_score}.`,
+              { ci: ciGate.ci, gp }, undefined, { min_ci: GLOBAL_MIN_CI, readiness: promo.readiness_score, trigger: "promote_writing" });
+            await updateJob(supabase, jobId, { stage_loop_count: stageLoopCount + 1 });
+            return respondWithJob(supabase, jobId, "run-next");
+          }
+          console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci} }`);
+
           const modeConf = MODE_CONFIG[job.mode] || MODE_CONFIG.balanced;
           if (modeConf.require_readiness && promo.readiness_score < modeConf.require_readiness) {
             await updateJob(supabase, jobId, { stage_loop_count: stageLoopCount + 1 });
@@ -7250,7 +7384,7 @@ Deno.serve(async (req) => {
                 console.warn("[auto-run] non-fatal auto-approve failed before promote:", e?.message || e);
               }
               await logStep(supabase, jobId, null, currentDoc, "auto_approved_promote",
-                `Promote recommended: ${currentDoc} → ${next}. Auto-promoting (allow_defaults).`,
+                `Promote recommended: ${currentDoc} → ${next}. Auto-promoting (allow_defaults). CI=${ciGate.ci}≥${GLOBAL_MIN_CI}✓`,
                 { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence },
                 undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
               );
