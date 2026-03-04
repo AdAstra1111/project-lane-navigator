@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
+import { parseEdgeResponse } from '@/lib/edgeResponseGuard';
 
 export interface PendingDecision {
   id: string;
@@ -107,7 +108,8 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
     },
     body: JSON.stringify({ action, ...extra }),
   });
-  const result = await resp.json();
+  // ── IEL: Hardened JSON boundary — never pass HTML/non-JSON to .json() ──
+  const result = await parseEdgeResponse(resp, 'auto-run', action);
   // Handle 409 STALE_DECISION gracefully (must parse body only once)
   if (resp.status === 409 && result?.code === 'STALE_DECISION') {
     return { ...result, _stale: true };
