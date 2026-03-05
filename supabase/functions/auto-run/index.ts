@@ -7366,16 +7366,37 @@ Deno.serve(async (req) => {
               if (candA && scoreA && gateA) allCandidates.push({ versionId: candA, ci: scoreA.ci, gp: scoreA.gp, blockerCount: scoreA.blockerCount, label: "conservative", decision: gateA.decision });
               if (candB && scoreB && gateB) allCandidates.push({ versionId: candB, ci: scoreB.ci, gp: scoreB.gp, blockerCount: scoreB.blockerCount, label: "aggressive", decision: gateB.decision });
 
-              // Sort: fewer blockers first, then higher composite score
-              allCandidates.sort((a, b) => (a.blockerCount - b.blockerCount) || ((b.ci + b.gp) - (a.ci + a.gp)) || a.label.localeCompare(b.label));
+              // ── IEL: Deterministic fork winner selection ──
+              // Policy: 1) highest composite (ci+gp), 2) highest ci, 3) highest gp, 4) fewest blockers, 5) prefer aggressive (stable tiebreak)
+              const FORK_SELECTION_POLICY = "composite_first_v1";
+              function chooseForkWinner(candidates: ForkCandidate[]): { winner: ForkCandidate; loser: ForkCandidate | null; reason: string } {
+                if (candidates.length === 0) return { winner: candidates[0], loser: null, reason: "no_candidates" };
+                if (candidates.length === 1) return { winner: candidates[0], loser: null, reason: "single_candidate" };
+                const sorted = [...candidates].sort((a, b) => {
+                  const compositeA = a.ci + a.gp, compositeB = b.ci + b.gp;
+                  if (compositeB !== compositeA) return compositeB - compositeA; // higher composite first
+                  if (b.ci !== a.ci) return b.ci - a.ci; // higher ci first
+                  if (b.gp !== a.gp) return b.gp - a.gp; // higher gp first
+                  if (a.blockerCount !== b.blockerCount) return a.blockerCount - b.blockerCount; // fewer blockers first
+                  // Stable tiebreak: prefer aggressive
+                  return a.label === "aggressive" ? -1 : b.label === "aggressive" ? 1 : 0;
+                });
+                const w = sorted[0], l = sorted.length > 1 ? sorted[1] : null;
+                const wComp = w.ci + w.gp, lComp = l ? l.ci + l.gp : -1;
+                const reason = wComp > lComp ? "higher_composite" : w.ci > (l?.ci ?? -1) ? "higher_ci" : w.gp > (l?.gp ?? -1) ? "higher_gp" : w.blockerCount < (l?.blockerCount ?? Infinity) ? "fewer_blockers" : "tiebreak_aggressive";
+                return { winner: w, loser: l, reason };
+              }
+
+              console.log(`[auto-run][IEL] fork_scored { conservative: { id: "${candA}", ci: ${scoreA?.ci ?? 'null'}, gp: ${scoreA?.gp ?? 'null'}, blockers: ${scoreA?.blockerCount ?? 'null'} }, aggressive: { id: "${candB}", ci: ${scoreB?.ci ?? 'null'}, gp: ${scoreB?.gp ?? 'null'}, blockers: ${scoreB?.blockerCount ?? 'null'} }, baseline: { ci: ${baselineCI}, gp: ${baselineGP} } }`);
 
               // Try PROMOTE first
               const promotable = allCandidates.filter(c => c.decision === "PROMOTE");
               if (promotable.length > 0) {
-                const winner = promotable[0];
+                const { winner, loser, reason } = chooseForkWinner(promotable);
+                console.log(`[auto-run][IEL] fork_winner_selected { winner_id: "${winner.versionId}", winner_label: "${winner.label}", winner_ci: ${winner.ci}, winner_gp: ${winner.gp}, winner_composite: ${winner.ci + winner.gp}, loser_id: "${loser?.versionId ?? 'none'}", loser_ci: ${loser?.ci ?? 'N/A'}, loser_gp: ${loser?.gp ?? 'N/A'}, reason: "${reason}", policy: "${FORK_SELECTION_POLICY}" }`);
                 const promoted = await promoteCandidate(
                   winner.versionId, winner.ci, winner.gp,
-                  { baselineVersionId, forkInputVersionId, candA, candB, forkWinner: winner.label, scoreA, scoreB, gateA, gateB },
+                  { baselineVersionId, forkInputVersionId, candA, candB, forkWinner: winner.label, forkLoser: loser?.label, winner_version_id: winner.versionId, loser_version_id: loser?.versionId, winner_scores: { ci: winner.ci, gp: winner.gp, blockers: winner.blockerCount }, loser_scores: loser ? { ci: loser.ci, gp: loser.gp, blockers: loser.blockerCount } : null, selection_reason: reason, policy: FORK_SELECTION_POLICY, scoreA, scoreB, gateA, gateB },
                   winner.blockerCount
                 );
                 if (!promoted) {
