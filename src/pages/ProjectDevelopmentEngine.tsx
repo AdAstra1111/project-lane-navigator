@@ -847,10 +847,10 @@ export default function ProjectDevelopmentEngine() {
       setDriftOverrideOpen(true);
       return;
     }
-    // Use Pipeline Brain via promotionIntel (respects locked/approved docs) instead of stale LLM output
+    // PIPELINE AUTHORITY: use Pipeline Brain exclusively, never fall back to LLM output
     const promoteTarget = promotionIntel.data?.next_document;
-    const fallbackTarget = latestAnalysis?.convergence?.next_best_document;
-    const nextBestDocument = promoteTarget || fallbackTarget;
+    const nextBestDocument = promoteTarget;
+    console.log(`[IEL] promotion_resolved { current_doc: "${selectedDeliverableType}", next_doc: "${nextBestDocument || 'null'}", format: "${projectFormat}" }`);
     if (nextBestDocument) {
       // Lane gate: block conversion to feature_script for non-feature lanes
       const lane = project?.assigned_lane;
@@ -868,8 +868,8 @@ export default function ProjectDevelopmentEngine() {
       toast.error('Select a version before promoting');
       return;
     }
-    // Use Pipeline Brain via promotionIntel (respects locked/approved docs) instead of stale LLM output
-    const skipTarget = promotionIntel.data?.next_document || latestAnalysis?.convergence?.next_best_document;
+    // PIPELINE AUTHORITY: use Pipeline Brain exclusively
+    const skipTarget = promotionIntel.data?.next_document;
     setPendingStageAction(() => () => {
       if (skipTarget) {
         setSelectedDeliverableType(skipTarget as DeliverableType);
@@ -939,8 +939,16 @@ export default function ProjectDevelopmentEngine() {
 
   const analysisConvergence = latestAnalysis?.convergence;
   const isAnalysisConverged = analysisConvergence?.status === 'converged' || convergenceStatus === 'Converged';
-  const nextBestDocument = analysisConvergence?.next_best_document;
+  // PIPELINE AUTHORITY: nextBestDocument MUST come from Pipeline Brain (promotionIntel),
+  // NOT from LLM analysis output. The LLM's convergence.next_best_document is unreliable
+  // and can suggest stages that skip the ladder (e.g. concept_brief → episode_beats).
+  const nextBestDocument = promotionIntel.data?.next_document ?? null;
   const verticalDramaGating = analysisConvergence?.vertical_drama_gating || null;
+  // IEL: log if LLM suggestion disagrees with Pipeline Brain
+  const llmNextBest = analysisConvergence?.next_best_document;
+  if (llmNextBest && nextBestDocument && llmNextBest !== nextBestDocument) {
+    console.warn(`[IEL] stage_suggestion_mismatch { llm: "${llmNextBest}", pipeline_brain: "${nextBestDocument}", current_doc: "${selectedDeliverableType}", format: "${projectFormat}" }`);
+  }
 
   // Pipeline statuses
   const pipelineStatuses = useMemo(() => {
