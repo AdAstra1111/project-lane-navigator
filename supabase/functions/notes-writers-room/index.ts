@@ -1187,25 +1187,128 @@ Direction: ${changePlan.direction_summary || ''}`;
       }
 
       // ═══════════════════════════════════════════════════════════════════
-      // SCREENPLAY SCENE-SCOPED REWRITE PATH (existing behavior)
+      // SCREENPLAY SCENE-SCOPED REWRITE PATH
+      // Uses deterministic scene merge: only targeted scenes go to LLM,
+      // untouched scenes are preserved byte-identical.
       // ═══════════════════════════════════════════════════════════════════
 
-      // ── Determine scope before building prompt ──
-      const { parseScenes, detectOutOfScopeChanges, resolveApplyScope, computeScopedShrink } = await import("../_shared/sceneScope.ts");
+      const { parseScenes, resolveApplyScope, computeScopedShrink } = await import("../_shared/sceneScope.ts");
       const scopeResult = resolveApplyScope(changePlan, clientApplyScope);
       const isSelectiveRewrite = scopeResult.mode === 'scene' && scopeResult.allowedScenes.length > 0;
 
-      // ── Build rewrite prompt with preserve-text contract for selective rewrites ──
-      const preserveContract = isSelectiveRewrite
-        ? `\n\nSELECTIVE REWRITE RULES (MANDATORY):
-- You are rewriting ONLY scenes: ${scopeResult.allowedScenes.join(', ')}.
-- For target scenes: output the FULL scene text with the requested changes integrated. Do NOT summarize or compress.
-- All NON-TARGET scenes MUST be copied VERBATIM from the source script. Do not paraphrase, shorten, or rephrase them.
-- Maintain approximate length for each scene. Additions should INCREASE length, not reduce it.
-- Do NOT omit any scene. The output must contain every scene from the original.`
-        : '';
+      const scriptText = sourceVer.plaintext || '';
+      let rewrittenText: string;
 
-      const rewritePrompt = `You are a script rewriter. Apply the following changes to the script below.
+      if (isSelectiveRewrite) {
+        // ── SCENE-SELECTIVE MERGE (deterministic, like episode path) ──
+        const originalScenes = parseScenes(scriptText);
+        const allowedSet = new Set(scopeResult.allowedScenes);
+
+        // Extract text before first scene (title page, etc.)
+        const firstSceneStart = originalScenes.length > 0 ? originalScenes[0].startOffset : scriptText.length;
+        const preamble = scriptText.slice(0, firstSceneStart);
+
+        // Build target scene texts for the LLM
+        const targetScenes = originalScenes.filter(s => allowedSet.has(s.sceneNumber));
+        const targetSceneTexts = targetScenes.map(s =>
+          `[SCENE ${s.sceneNumber}]\n${s.heading}\n${s.body}`
+        ).join('\n\n---\n\n');
+
+        // Provide surrounding context (non-target scene headings) for continuity
+        const contextHeadings = originalScenes
+          .filter(s => !allowedSet.has(s.sceneNumber))
+          .map(s => `Scene ${s.sceneNumber}: ${s.heading}`)
+          .join('\n');
+
+        const sceneRewriteSystem = `You are a precise screenplay scene rewriter. You will receive specific scenes to rewrite and a change plan.
+
+CRITICAL RULES:
+1. Return ONLY the scenes listed below — rewritten with the requested changes applied.
+2. Each scene must be COMPLETE: full scene heading + all action lines + all dialogue. Do NOT summarize or abbreviate.
+3. Preserve the exact scene heading format from the original.
+4. Maintain or increase the length of each scene. Do NOT compress or shorten content.
+5. Keep character voices consistent with the original.
+
+You MUST respond with ONLY valid JSON matching this exact schema:
+{
+  "scenes": {
+    "<scene_number>": "<FULL rewritten scene text including heading line and all content>"
+  }
+}
+
+TARGET SCENES: ${scopeResult.allowedScenes.join(', ')}
+
+Other scenes in the script (for context, do NOT rewrite these):
+${contextHeadings}
+
+Changes to apply:
+${enabledChanges.map((c: any, i: number) => `${i + 1}. [${c.type}/${c.scope}] ${c.title}: ${c.instructions}`).join('\n')}
+
+Acceptance criteria:
+${enabledChanges.flatMap((c: any) => (c.acceptance_criteria || []).map((a: string) => `- ${a}`)).join('\n')}
+
+Direction: ${changePlan.direction_summary || ''}`;
+
+        const sceneRewriteUser = `Scenes to rewrite:\n\n${targetSceneTexts}`;
+
+        let parsedSceneJSON: Record<string, string> | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const result = await callLLM({
+            apiKey,
+            model: MODELS.PRO,
+            system: sceneRewriteSystem,
+            user: sceneRewriteUser,
+            temperature: 0.3,
+            maxTokens: 16000,
+          });
+
+          try {
+            const extracted = extractJSON(result.content);
+            const parsed = JSON.parse(extracted);
+            if (parsed.scenes && typeof parsed.scenes === 'object') {
+              parsedSceneJSON = parsed.scenes;
+              break;
+            }
+          } catch { /* retry */ }
+        }
+
+        if (!parsedSceneJSON) {
+          return err("Failed to generate valid scene rewrite JSON after 3 attempts");
+        }
+
+        // Build replacements map
+        const sceneReplacements = new Map<number, string>();
+        for (const [key, value] of Object.entries(parsedSceneJSON)) {
+          const sceneNum = parseInt(key, 10);
+          if (!isNaN(sceneNum) && typeof value === 'string') {
+            sceneReplacements.set(sceneNum, value);
+          }
+        }
+
+        // Deterministic merge: rebuild document preserving untouched scenes
+        const mergedParts: string[] = [preamble];
+        for (const scene of originalScenes) {
+          if (sceneReplacements.has(scene.sceneNumber)) {
+            mergedParts.push(sceneReplacements.get(scene.sceneNumber)!);
+          } else {
+            // Preserve original scene verbatim
+            mergedParts.push(scriptText.slice(scene.startOffset, scene.endOffset + 1));
+          }
+        }
+        rewrittenText = mergedParts.join('\n\n');
+
+        console.error(JSON.stringify({
+          type: "SCENE_SELECTIVE_MERGE",
+          targetScenes: scopeResult.allowedScenes,
+          replacedScenes: [...sceneReplacements.keys()],
+          preservedScenes: originalScenes.filter(s => !sceneReplacements.has(s.sceneNumber)).map(s => s.sceneNumber),
+          originalLength: scriptText.length,
+          mergedLength: rewrittenText.length,
+        }));
+
+      } else {
+        // ── FULL REWRITE (no scene targets — global changes like tone, pacing) ──
+        const rewritePrompt = `You are a script rewriter. Apply the following changes to the script below.
 
 Direction: ${changePlan.direction_summary || ''}
 
@@ -1216,23 +1319,19 @@ Acceptance criteria:
 ${enabledChanges.flatMap((c: any) => (c.acceptance_criteria || []).map((a: string) => `- ${a}`)).join('\n')}
 
 IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Preserve all formatting conventions.
-Do NOT summarize or compress any part of the script. Maintain the original length and detail level.${preserveContract}`;
+Do NOT summarize or compress any part of the script. Maintain the original length and detail level.`;
 
-      const scriptText = sourceVer.plaintext || '';
-      const cappedScript = scriptText.length > 12000
-        ? scriptText.slice(0, 6000) + "\n[...]\n" + scriptText.slice(-6000)
-        : scriptText;
+        const result = await callLLM({
+          apiKey,
+          model: MODELS.PRO,
+          system: rewritePrompt,
+          user: scriptText,
+          temperature: 0.3,
+          maxTokens: 16000,
+        });
 
-      const result = await callLLM({
-        apiKey,
-        model: MODELS.PRO,
-        system: rewritePrompt,
-        user: cappedScript,
-        temperature: 0.3,
-        maxTokens: 16000,
-      });
-
-      const rewrittenText = result.content;
+        rewrittenText = result.content;
+      }
 
       // ── Scope-aware shrink guard ──
       const SHRINK_GUARD_THRESHOLD = 0.3;
@@ -1242,11 +1341,9 @@ Do NOT summarize or compress any part of the script. Maintain the original lengt
         verification.warnings.push("Rewritten text is suspiciously short or empty");
       }
 
-      // Compute shrink scoped to targeted scenes (selective) or full document
       const shrinkResult = computeScopedShrink(scriptText, rewrittenText, scopeResult.allowedScenes);
 
       if (shrinkResult.shrinkFraction > SHRINK_GUARD_THRESHOLD) {
-        // Check if plan has explicit deletions
         const hasDeletions = enabledChanges.some((c: any) =>
           (c.type === 'structure' && /delet|remov/i.test(c.instructions)) ||
           /cut scene|remove scene/i.test(c.instructions)
@@ -1277,23 +1374,6 @@ Do NOT summarize or compress any part of the script. Maintain the original lengt
         verification.warnings.push("Rewritten text is significantly shorter than original");
       }
 
-      // ── Scene-scope enforcement ──
-      let scopeCheck: any = { ok: true, mode: scopeResult.mode };
-      if (isSelectiveRewrite) {
-        const originalScenes = parseScenes(scriptText);
-        const updatedScenes = parseScenes(rewrittenText);
-        const check = detectOutOfScopeChanges(originalScenes, updatedScenes, scopeResult.allowedScenes);
-        if (!check.ok) {
-          return ok({
-            blocked: true,
-            reason: "scope_guard",
-            out_of_scope_scenes: check.outOfScopeScenes,
-            message: check.message,
-          });
-        }
-        scopeCheck = { ...scopeCheck, ...check, allowedScenes: scopeResult.allowedScenes };
-      }
-
       // ── Compute diff summary ──
       const affectedScenes = new Set<number>();
       enabledChanges.forEach((c: any) => {
@@ -1307,7 +1387,7 @@ Do NOT summarize or compress any part of the script. Maintain the original lengt
         affected_scene_count: affectedScenes.size,
         affected_scenes: [...affectedScenes].sort((a, b) => a - b),
         changes_applied: enabledChanges.length,
-        scope_enforcement: scopeCheck,
+        scope_enforcement: { ok: true, mode: scopeResult.mode, allowedScenes: scopeResult.allowedScenes },
       };
 
       const { data: maxVer } = await admin.from("project_document_versions")
