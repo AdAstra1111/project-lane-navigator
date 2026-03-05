@@ -111,6 +111,44 @@ export function getNextStage(currentStage: string, format: string): DeliverableS
 }
 
 /**
+ * PAL: Validate that a promotion from one doc_type to another is allowed.
+ * Promotion is only valid for adjacent stages (index i → i+1) on the ladder.
+ * Returns { valid, reason } — callers MUST check before executing promotion.
+ */
+export function validatePromotion(
+  format: string,
+  fromDocType: string,
+  toDocType: string,
+): { valid: boolean; reason: string } {
+  const ladder = getLadderForFormat(format);
+  if (!ladder) {
+    return { valid: false, reason: `Unknown format "${format}" — no ladder available` };
+  }
+
+  const fromStage = mapDocTypeToLadderStage(fromDocType);
+  const toStage = mapDocTypeToLadderStage(toDocType);
+
+  const fromIdx = ladder.indexOf(fromStage);
+  const toIdx = ladder.indexOf(toStage);
+
+  if (fromIdx < 0) {
+    return { valid: false, reason: `"${fromDocType}" (→${fromStage}) is not on the ${format} ladder` };
+  }
+  if (toIdx < 0) {
+    return { valid: false, reason: `"${toDocType}" (→${toStage}) is not on the ${format} ladder` };
+  }
+  if (toIdx !== fromIdx + 1) {
+    return {
+      valid: false,
+      reason: `Promotion must be adjacent: "${fromStage}" (idx ${fromIdx}) → "${toStage}" (idx ${toIdx}). Expected target: "${ladder[fromIdx + 1] || 'END'}"`,
+    };
+  }
+
+  console.log(`[IEL] promotion_validated { format: "${format}", from: "${fromStage}", to: "${toStage}" }`);
+  return { valid: true, reason: 'Adjacent stage promotion' };
+}
+
+/**
  * Get the previous stage before currentStage for the given format.
  */
 export function getPrevStage(currentStage: string, format: string): DeliverableStage | null {
