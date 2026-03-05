@@ -834,7 +834,20 @@ export default function ProjectDevelopmentEngine() {
         deliverableType: selectedDeliverableType,
         developmentBehavior: projectBehavior,
         format: projectFormat,
-      }, { onSuccess: afterRewrite });
+      }, {
+        onSuccess: afterRewrite,
+        onError: (err: any) => {
+          // Auto-redirect to chunked pipeline if server says document is too long
+          if (err?.needsPipeline && selectedDocId && selectedVersionId) {
+            console.log(`[ui] needsPipeline fallback: single-pass rejected (${err.charCount} chars), redirecting to chunked pipeline`);
+            toast.info('Document too large for single-pass — using chunked rewrite pipeline.');
+            rewritePipeline.startRewrite(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
+            afterRewrite();
+          } else {
+            toast.error(err?.message || 'Rewrite failed');
+          }
+        },
+      });
     }
   };
 
