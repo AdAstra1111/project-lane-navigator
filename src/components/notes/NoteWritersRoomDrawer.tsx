@@ -212,8 +212,11 @@ export function NoteWritersRoomDrawer({
     if (currentPlan && (currentPlan.status === 'draft' || currentPlan.status === 'confirmed')) {
       setShowPlan(true);
       setTab('plan');
+    } else if (currentPlan && currentPlan.status === 'applied') {
+      setShowPlan(false);
+      setTab('discuss');
     }
-  }, [currentPlan?.id]);
+  }, [currentPlan?.id, currentPlan?.status]);
 
   function handleSendMessage() {
     if (!message.trim()) return;
