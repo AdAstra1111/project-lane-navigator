@@ -39,11 +39,11 @@ describe('normalizeDocType (global)', () => {
     expect(normalizeDocType('plot_architecture')).toBe('story_outline');
   });
 
-  it('resolves "script" to feature_script', () => {
+  it('resolves "script" to feature_script (no lane context)', () => {
     expect(normalizeDocType('script')).toBe('feature_script');
   });
 
-  it('resolves "draft" to feature_script', () => {
+  it('resolves "draft" to feature_script (no lane context)', () => {
     expect(normalizeDocType('draft')).toBe('feature_script');
   });
 
@@ -92,6 +92,30 @@ describe('normalizeDocType (lane-aware)', () => {
   it('format parameter works when lane is null', () => {
     expect(normalizeDocType('episode_beats', null, 'vertical-drama')).toBe('vertical_episode_beats');
     expect(normalizeDocType('episode_beats', null, 'tv-series')).toBe('episode_beats');
+  });
+
+  it('"script" in vertical_drama lane → season_script', () => {
+    expect(normalizeDocType('script', 'vertical_drama')).toBe('season_script');
+  });
+
+  it('"script" via format vertical-drama → season_script', () => {
+    expect(normalizeDocType('script', null, 'vertical-drama')).toBe('season_script');
+  });
+
+  it('"draft" in vertical_drama lane → season_script', () => {
+    expect(normalizeDocType('draft', 'vertical_drama')).toBe('season_script');
+  });
+
+  it('"feature_script" in vertical_drama lane → season_script', () => {
+    expect(normalizeDocType('feature_script', 'vertical_drama')).toBe('season_script');
+  });
+
+  it('"script" in series lane → episode_script', () => {
+    expect(normalizeDocType('script', 'series')).toBe('episode_script');
+  });
+
+  it('"script" in feature_film lane → feature_script (global alias)', () => {
+    expect(normalizeDocType('script', 'feature_film')).toBe('feature_script');
   });
 });
 

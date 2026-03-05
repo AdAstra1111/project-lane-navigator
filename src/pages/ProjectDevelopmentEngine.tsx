@@ -850,7 +850,7 @@ export default function ProjectDevelopmentEngine() {
     // PIPELINE AUTHORITY: use Pipeline Brain exclusively, never fall back to LLM output
     const promoteTarget = promotionIntel.data?.next_document;
     const nextBestDocument = promoteTarget;
-    console.log(`[IEL] promotion_resolved { current_doc: "${selectedDeliverableType}", next_doc: "${nextBestDocument || 'null'}", format: "${projectFormat}" }`);
+    console.log(`[ui][IEL] promotion_source_of_truth { project_id: "${projectId}", format: "${projectFormat}", from_doc: "${selectedDeliverableType}", to_doc: "${nextBestDocument || 'null'}" }`);
     if (nextBestDocument) {
       // Lane gate: block conversion to feature_script for non-feature lanes
       const lane = project?.assigned_lane;
@@ -947,7 +947,7 @@ export default function ProjectDevelopmentEngine() {
   // IEL: log if LLM suggestion disagrees with Pipeline Brain
   const llmNextBest = analysisConvergence?.next_best_document;
   if (llmNextBest && nextBestDocument && llmNextBest !== nextBestDocument) {
-    console.warn(`[IEL] stage_suggestion_mismatch { llm: "${llmNextBest}", pipeline_brain: "${nextBestDocument}", current_doc: "${selectedDeliverableType}", format: "${projectFormat}" }`);
+    console.warn(`[ui][IEL] promotion_alt_source_ignored { source: "llm_convergence", suggested: "${llmNextBest}", enforced: "${nextBestDocument}", current_doc: "${selectedDeliverableType}", format: "${projectFormat}" }`);
   }
 
   // Pipeline statuses
@@ -1529,7 +1529,12 @@ export default function ProjectDevelopmentEngine() {
                   <OperationProgress isActive={generateNotes.isPending} stages={DEV_NOTES_STAGES} onStop={() => generateNotes.reset()} onRestart={() => generateNotes.mutate(latestAnalysis)} />
                   <OperationProgress isActive={rewrite.isPending} stages={DEV_REWRITE_STAGES} onStop={() => rewrite.reset()} onRestart={() => handleRewrite()} />
                   <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} onStop={() => convert.reset()} onRestart={() => {
-                    const nbd = latestAnalysis?.convergence?.next_best_document;
+                    // PIPELINE AUTHORITY: use Pipeline Brain (promotionIntel), never LLM output
+                    const nbd = promotionIntel.data?.next_document;
+                    const llmNbd = latestAnalysis?.convergence?.next_best_document;
+                    if (llmNbd && nbd && llmNbd !== nbd) {
+                      console.warn(`[ui][IEL] promotion_alt_source_ignored { source: "llm_convergence", suggested: "${llmNbd}", enforced: "${nbd}" }`);
+                    }
                     if (nbd) convert.mutate({ targetOutput: nbd.toUpperCase(), protectItems: latestAnalysis?.protect });
                   }} />
                   {/* Chunk rewrite progress with ProcessProgressBar */}

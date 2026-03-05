@@ -173,8 +173,16 @@ export const DOC_LABEL_ALIASES: Record<string, string> = {
 export const DOC_LABEL_ALIASES_BY_LANE: Partial<Record<LaneKey, Record<string, string>>> = {
   vertical_drama: {
     episode_beats:  'vertical_episode_beats',
+    script:         'season_script',
+    draft:          'season_script',
+    feature_script: 'season_script',
   },
-  // For series/feature, episode_beats stays as-is (canonical key)
+  series: {
+    script:         'episode_script',
+    draft:          'episode_script',
+    feature_script: 'episode_script',
+  },
+  // For feature_film/animation/short, global aliases (script→feature_script) apply
 };
 
 // ── Normalization ──────────────────────────────────────────────────────────
