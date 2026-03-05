@@ -3699,7 +3699,12 @@ MATERIAL TO REWRITE:\n${fullText}`;
         : "";
 
       const strategy = plan?.strategy || "legacy_slugline";
-      const docType = plan?.doc_type || "script";
+      // PATCH: never fall back to generic "script" — use plan doc_type or resolve from format
+      const rawChunkDocType = plan?.doc_type;
+      const docType = (rawChunkDocType && rawChunkDocType !== "script")
+        ? rawChunkDocType
+        : resolveScriptTypeForFormat(plan?.format || null);
+      console.log(`[dev-engine-v2] rewrite-chunk: docType="${docType}" (plan.doc_type="${rawChunkDocType || "null"}", plan.format="${plan?.format || "null"}")`);
       const chunkMeta = Array.isArray(plan?.chunk_meta) ? plan.chunk_meta[chunkIndex] : null;
 
       let rewrittenChunk = "";
@@ -6020,7 +6025,11 @@ Previous attempt problems: ${validation.reasons.join("; ")}`;
 
       const effectiveFormat = (reqFormat || patchProject?.format || "film").toLowerCase().replace(/_/g, "-");
       const effectiveBehavior = developmentBehavior || patchProject?.development_behavior || "market";
-      const effectiveDeliverable = deliverableType || "script";
+      // PATCH: never fall back to generic "script" — resolve from format
+      const effectiveDeliverable = (deliverableType && deliverableType !== "script")
+        ? deliverableType
+        : resolveScriptTypeForFormat(effectiveFormat);
+      console.log(`[dev-engine-v2] episode_patch: effectiveDeliverable="${effectiveDeliverable}" (requested="${deliverableType || "null"}", format="${effectiveFormat}")`);
       const effectiveDuration = episodeTargetDurationSeconds || patchProject?.episode_target_duration_seconds;
 
       // 3) Fetch episode row
@@ -6632,7 +6641,16 @@ Return ONLY valid JSON:
 
       const effectiveFormat = (reqFormat || project?.format || "film").toLowerCase().replace(/_/g, "-");
       const effectiveBehavior = developmentBehavior || project?.development_behavior || "market";
-      const effectiveDeliverable = deliverableType || "script";
+      // PATCH: never fall back to generic "script" — resolve from format via document or format registry
+      let effectiveDeliverable = deliverableType;
+      if (!effectiveDeliverable || effectiveDeliverable === "script") {
+        const { data: bundleDoc } = await supabase.from("project_documents")
+          .select("doc_type").eq("id", documentId).maybeSingle();
+        effectiveDeliverable = (bundleDoc?.doc_type && bundleDoc.doc_type !== "script")
+          ? bundleDoc.doc_type
+          : resolveScriptTypeForFormat(effectiveFormat);
+      }
+      console.log(`[dev-engine-v2] apply_bundle_fix: effectiveDeliverable="${effectiveDeliverable}" (requested="${deliverableType || "null"}", format="${effectiveFormat}")`);
 
       const bundleSystem = `You are IFFY. Apply the given editorial plan to the document.
 DELIVERABLE TYPE: ${effectiveDeliverable}
