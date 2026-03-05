@@ -204,8 +204,9 @@ export default function InteractiveDemo() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); next(); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
+      if (e.key === ' ') { e.preventDefault(); setIsPlaying(p => !p); }
       if (e.key === 'Escape') navigate(-1);
     };
     window.addEventListener('keydown', handler);
@@ -717,12 +718,14 @@ export default function InteractiveDemo() {
 
       {/* Bottom nav */}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.5 }}
-        className="absolute bottom-[6%] left-1/2 -translate-x-1/2 z-40 flex items-center gap-6 text-white/20 text-xs font-display uppercase tracking-wider"
+        className="absolute bottom-[6%] left-1/2 -translate-x-1/2 z-40 flex items-center gap-6 text-white/30 text-xs font-display uppercase tracking-wider"
       >
-        <span className="hidden sm:inline">← → navigate</span>
+        <span className="hidden sm:inline">← → navigate · space pause</span>
         <span>{current + 1} / {total}</span>
-        <button onClick={() => setIsPlaying(!isPlaying)} className="hover:text-white/50 transition-colors">
-          {isPlaying ? <Pause className="h-3 w-3 inline" /> : <Play className="h-3 w-3 inline" />}
+        <button onClick={() => setIsPlaying(!isPlaying)}
+          className="h-9 w-9 rounded-full bg-white/10 border border-white/20 flex items-center justify-center hover:bg-white/20 transition-colors"
+        >
+          {isPlaying ? <Pause className="h-4 w-4 text-white/70" /> : <Play className="h-4 w-4 text-white/70 ml-0.5" />}
         </button>
       </motion.div>
 

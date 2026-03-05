@@ -122,8 +122,9 @@ export default function GuidedDemo() {
   // Keyboard
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextStep(); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); nextStep(); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); prevStep(); }
+      if (e.key === ' ') { e.preventDefault(); togglePlay(); }
       if (e.key === 'Escape') navigate(-1);
       if (e.key === 'c') setShowCaptions(c => !c);
     };
