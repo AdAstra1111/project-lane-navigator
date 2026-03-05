@@ -88,6 +88,18 @@ export const DELIVERABLE_PIPELINE_ORDER: DeliverableType[] = [
   'character_bible',
   'beat_sheet',
   'feature_script',
+  'production_draft',
+];
+
+export const SERIES_PIPELINE_ORDER: DeliverableType[] = [
+  'idea',
+  'concept_brief',
+  'market_sheet',
+  'blueprint',
+  'architecture',
+  'character_bible',
+  'beat_sheet',
+  'episode_script' as DeliverableType,
   'season_master_script',
   'production_draft',
 ];

@@ -1741,7 +1741,9 @@ export default function ProjectDevelopmentEngine() {
               <TabsTrigger value="convergence" className="text-xs">Convergence</TabsTrigger>
               <TabsTrigger value="qualifications" className="text-xs">Qualifications</TabsTrigger>
               <TabsTrigger value="autorun" className="text-xs">Auto-Run</TabsTrigger>
-              <TabsTrigger value="series-scripts" className="text-xs">Season Scripts</TabsTrigger>
+              {(isVerticalDrama || isSeriesFormat) && (
+                <TabsTrigger value="series-scripts" className="text-xs">Season Scripts</TabsTrigger>
+              )}
               <TabsTrigger value="criteria" className="text-xs">Criteria</TabsTrigger>
               <TabsTrigger value="package" className="text-xs">Package</TabsTrigger>
               <TabsTrigger value="canon" className="text-xs">Canon</TabsTrigger>

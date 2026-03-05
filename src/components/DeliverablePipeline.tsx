@@ -6,7 +6,8 @@
 
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { DELIVERABLE_PIPELINE_ORDER, VERTICAL_DRAMA_PIPELINE_ORDER, DELIVERABLE_LABELS, getDeliverableLabel, type DeliverableType } from '@/lib/dev-os-config';
+import { DELIVERABLE_PIPELINE_ORDER, SERIES_PIPELINE_ORDER, VERTICAL_DRAMA_PIPELINE_ORDER, DELIVERABLE_LABELS, getDeliverableLabel, type DeliverableType } from '@/lib/dev-os-config';
+import { isSeriesFormat } from '@/lib/format-helpers';
 
 export type PipelineStageStatus = 'not_started' | 'in_progress' | 'converged';
 
@@ -25,7 +26,7 @@ const STATUS_STYLES: Record<PipelineStageStatus, string> = {
 };
 
 export function DeliverablePipeline({ stageStatuses, activeDeliverable, onStageClick, isVerticalDrama, projectFormat }: Props) {
-  const order = isVerticalDrama ? VERTICAL_DRAMA_PIPELINE_ORDER : DELIVERABLE_PIPELINE_ORDER;
+  const order = isVerticalDrama ? VERTICAL_DRAMA_PIPELINE_ORDER : (projectFormat && isSeriesFormat(projectFormat) ? SERIES_PIPELINE_ORDER : DELIVERABLE_PIPELINE_ORDER);
 
   return (
     <div className="flex items-center gap-1 overflow-x-auto pb-1">
