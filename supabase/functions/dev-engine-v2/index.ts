@@ -3301,10 +3301,13 @@ MATERIAL:\n${version.plaintext}`;
 
       const fullText = version.plaintext || "";
       const LONG_THRESHOLD = 30000;
+      // Large-risk doc types only need chunked pipeline when content is actually large.
+      // Small documents (< 8000 chars) can safely use single-pass rewrite.
+      const LARGE_RISK_MIN_CHARS = 8000;
 
-      // ── LARGE-RISK DOC TYPE: ALWAYS force chunked rewrite regardless of length ──
-      if (isLargeRiskDocType(effectiveDeliverable)) {
-        console.log(`[dev-engine-v2] rewrite: Large-risk doc type "${effectiveDeliverable}" — forcing chunked rewrite (${fullText.length} chars)`);
+      // ── LARGE-RISK DOC TYPE: force chunked rewrite only when content is large enough ──
+      if (isLargeRiskDocType(effectiveDeliverable) && fullText.length >= LARGE_RISK_MIN_CHARS) {
+        console.log(`[dev-engine-v2] rewrite: Large-risk doc type "${effectiveDeliverable}" — forcing chunked rewrite (${fullText.length} chars >= ${LARGE_RISK_MIN_CHARS})`);
         return new Response(JSON.stringify({
           error: "Large-risk doc type requires chunked rewrite pipeline.",
           needsPipeline: true,
@@ -3314,6 +3317,9 @@ MATERIAL:\n${version.plaintext}`;
         }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+      }
+      if (isLargeRiskDocType(effectiveDeliverable)) {
+        console.log(`[dev-engine-v2] rewrite: Large-risk doc type "${effectiveDeliverable}" but small content (${fullText.length} chars < ${LARGE_RISK_MIN_CHARS}) — allowing single-pass`);
       }
 
       if (fullText.length > LONG_THRESHOLD) {
