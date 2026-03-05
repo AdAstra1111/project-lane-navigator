@@ -179,12 +179,16 @@ async function getStageBestFromSteps(supabase: any, jobId: string, docType: stri
   version_id: string; ci: number; gp: number; gap: number | null; score: number;
   step_index: number; versions_considered: number; version_id_source: string;
 } | null> {
+  // ── IEL: Include both 'review' AND 'rewrite_accepted' steps as CI data points ──
+  // This ensures promoted candidates' scores are visible to stage-best resolution,
+  // matching what the UI displays via job.last_ci/last_gp.
+  const CI_SCORED_ACTIONS = ["review", "rewrite_accepted"];
   const { data: reviewSteps } = await supabase
     .from("auto_run_steps")
-    .select("step_index, ci, gp, gap, output_ref")
+    .select("step_index, ci, gp, gap, output_ref, action")
     .eq("job_id", jobId)
     .eq("document", docType)
-    .eq("action", "review")
+    .in("action", CI_SCORED_ACTIONS)
     .not("ci", "is", null)
     .order("step_index", { ascending: false })
     .limit(200);
@@ -362,16 +366,21 @@ async function evaluateCIGate(
 async function checkMonotonicCIImprovement(
   supabase: any, jobId: string, docType: string,
 ): Promise<{ improving: boolean; plateau: boolean; plateauCount: number; bestCi: number; currentCi: number }> {
-  // Get last CI_PLATEAU_WINDOW+1 review scores for this doc_type
+  // ── IEL: Include both 'review' AND 'rewrite_accepted' steps as CI data points ──
+  // This ensures promoted candidates' scores are visible to the plateau gate,
+  // matching what the UI displays via job.last_ci/last_gp.
+  const CI_SCORED_ACTIONS = ["review", "rewrite_accepted"];
   const { data: recentReviews } = await supabase
     .from("auto_run_steps")
-    .select("ci, step_index")
+    .select("ci, step_index, action")
     .eq("job_id", jobId)
     .eq("document", docType)
-    .eq("action", "review")
+    .in("action", CI_SCORED_ACTIONS)
     .not("ci", "is", null)
     .order("step_index", { ascending: false })
     .limit(CI_PLATEAU_WINDOW + 2);
+
+  console.log(`[auto-run][IEL] monotonic_ci_source { job_id: "${jobId}", doc_type: "${docType}", steps_found: ${recentReviews?.length ?? 0}, actions_queried: ${JSON.stringify(CI_SCORED_ACTIONS)}, latest_ci: ${recentReviews?.[0]?.ci ?? 'null'}, latest_action: "${recentReviews?.[0]?.action ?? 'none'}", latest_step_index: ${recentReviews?.[0]?.step_index ?? 'null'} }`);
 
   if (!recentReviews || recentReviews.length < 2) {
     // Not enough data — allow continuation
@@ -482,11 +491,16 @@ async function needsFreshReview(
 
   console.log(`[auto-run][IEL] abvr_active_version_selected { job_id: "${jobId}", doc_type: "${currentDoc}", active_version_id: "${activeVersionId}", source: "${activeSource}", doc_id: "${docRow.id}" }`);
 
-  const { data: lastReview } = await supabase.from("auto_run_steps")
-    .select("output_ref").eq("job_id", jobId).eq("document", currentDoc).eq("action", "review")
+  // ── IEL: Check both 'review' AND 'rewrite_accepted' for last scored version ──
+  const { data: lastScoredStep } = await supabase.from("auto_run_steps")
+    .select("output_ref, action").eq("job_id", jobId).eq("document", currentDoc)
+    .in("action", ["review", "rewrite_accepted"])
     .not("ci", "is", null)
     .order("step_index", { ascending: false }).limit(1).maybeSingle();
-  const lastReviewedVersionId = lastReview?.output_ref?.input_version_id || null;
+  const lastReviewedVersionId = lastScoredStep?.output_ref?.input_version_id
+    || lastScoredStep?.output_ref?.version_id
+    || lastScoredStep?.output_ref?.output_version_id
+    || null;
 
   if (activeVersionId !== lastReviewedVersionId) {
     return { needed: true, activeVersionId, activeSource, lastReviewedVersionId, reason: "version_mismatch" };
