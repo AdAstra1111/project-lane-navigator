@@ -179,6 +179,7 @@ async function writeVersionSafe(
       generatorId,
       deliverableType: opts.deliverableType,
       metaJson: { ...(opts.metaJson || {}), content_hash: contentHash },
+      parentVersionId: opts.parentVersionId || undefined,
       inputsUsed: opts.inputsUsed || {
         generator_id: generatorId,
         document_id: opts.documentId,
