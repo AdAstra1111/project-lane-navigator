@@ -70,9 +70,13 @@ export const SEED_CORE_TYPES = Object.entries(DOC_TYPE_REGISTRY)
   .filter(([_, c]) => c.is_seed_core)
   .map(([k]) => k);
 
-/** Legacy alias map — mirrors DOC_TYPE_ALIASES from stage-ladders.json */
+/** Legacy alias map — mirrors DOC_TYPE_ALIASES from stage-ladders.json.
+ *  IMPORTANT: "script" is format-ambiguous and MUST be resolved via format-aware path.
+ *  The alias here is kept ONLY for non-format-aware callers; format-aware callers
+ *  MUST pass `format` to resolveDocType() which will reject "script" and require
+ *  explicit resolution. */
 const DOC_TYPE_ALIASES: Record<string, string> = {
-  script: "feature_script",
+  // "script" deliberately REMOVED — must use format-aware resolution
   draft: "feature_script",
   blueprint: "treatment",
   architecture: "story_outline",
@@ -90,16 +94,48 @@ const DOC_TYPE_ALIASES: Record<string, string> = {
   writers_room: "other",
 };
 
-/** Resolve a doc_type to its canonical config. Applies legacy aliases first. Throws for unknown types. */
-export function resolveDocType(docType: string): { key: string; config: DocTypeConfig } {
-  const canonical = DOC_TYPE_ALIASES[docType] ?? docType;
-  if (canonical !== docType) {
-    console.log(`[doc-os][IEL] alias_resolved { from: "${docType}", to: "${canonical}" }`);
+/** Format-aware script type resolution from stage-ladders */
+import { STAGE_LADDERS } from "./stage-ladders.ts";
+const FORMAT_SCRIPT_TYPES_PAL: Record<string, string> = STAGE_LADDERS.FORMAT_SCRIPT_TYPES;
+
+/**
+ * Resolve a doc_type to its canonical config.
+ * 
+ * PIPELINE AUTHORITY LAYER (PAL):
+ * - If `format` is provided and docType is "script", resolves to the correct
+ *   script type for that format (e.g. season_script for vertical-drama).
+ * - If `format` is NOT provided and docType is "script", REJECTS with error
+ *   (fail-closed: no silent fallback to feature_script).
+ * - All other aliases are applied as before.
+ */
+export function resolveDocType(docType: string, format?: string | null): { key: string; config: DocTypeConfig } {
+  let canonical: string;
+
+  // PAL: Handle "script" with format-awareness
+  if (docType === "script") {
+    const fmtKey = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, '-');
+    if (fmtKey && FORMAT_SCRIPT_TYPES_PAL[fmtKey]) {
+      canonical = FORMAT_SCRIPT_TYPES_PAL[fmtKey];
+      console.log(`[doc-os][IEL] script_resolved_by_format { format: "${fmtKey}", resolved: "${canonical}" }`);
+    } else if (fmtKey) {
+      // Format provided but not in FORMAT_SCRIPT_TYPES — fail closed
+      throw new Error(`resolveDocType: "script" cannot be resolved for unknown format "${fmtKey}". Provide explicit doc_type.`);
+    } else {
+      // No format provided — fail closed (no silent fallback to feature_script)
+      throw new Error(`resolveDocType: "script" is format-ambiguous. Provide format parameter or use explicit doc_type (feature_script, episode_script, season_script).`);
+    }
+  } else {
+    canonical = DOC_TYPE_ALIASES[docType] ?? docType;
+    if (canonical !== docType) {
+      console.log(`[doc-os][IEL] alias_resolved { from: "${docType}", to: "${canonical}" }`);
+    }
   }
+
   if (DOC_TYPE_REGISTRY[canonical]) {
+    console.log(`[doc-os][IEL] doc_type_resolved { input: "${docType}", canonical: "${canonical}", format: "${format || 'none'}" }`);
     return { key: canonical, config: DOC_TYPE_REGISTRY[canonical] };
   }
-  throw new Error(`resolveDocType: unknown doc_type "${docType}". Must be one of: ${Object.keys(DOC_TYPE_REGISTRY).join(", ")}`);
+  throw new Error(`resolveDocType: unknown doc_type "${docType}" (resolved to "${canonical}"). Must be one of: ${Object.keys(DOC_TYPE_REGISTRY).join(", ")}`);
 }
 
 // ── Canonical Doc Slot (upsert) ──
@@ -214,6 +250,8 @@ export interface CreateVersionOpts {
   generatorId?: string;
   /** PATCH 3: Provenance — inputs_used must be populated for system-generated versions */
   inputsUsed?: Record<string, any>;
+  /** PAL: Project format for lane-aware doc_type resolution and canon alignment */
+  format?: string | null;
 }
 
 // ── Known system generator IDs — versions from these MUST have non-empty inputs_used ──
@@ -230,20 +268,58 @@ const SYSTEM_GENERATOR_IDS = new Set([
 // seed-trigger is NOT in the set — it's DB-trigger generated and exempt from provenance
 // seed-pack IS in the set — seed-pack outputs should have provenance for auditability
 
-// ── Doc types exempt from canon alignment (they ARE canon sources, or structural/foundational) ──
-// PRINCIPLE: Only exempt types that DEFINE canon (not consume it) or where canon is still forming.
-// Script types (feature_script, episode_script, season_script) are NOT exempt — they consume canon.
-// The fix for VD CANON_MISMATCH is upstream: eliminating generic "script" fallbacks so doc_type
-// resolves correctly and reaches this gate as the actual type (e.g. "episode_grid", not "feature_script").
-const CANON_ALIGNMENT_EXEMPT = new Set([
-  // Seed pack / meta docs — define project identity, not narrative content
+// ── PIPELINE AUTHORITY LAYER: Lane-aware canon alignment control ──
+// Canon alignment should ONLY run on doc_types that CONSUME canon (scripts).
+// All other types either DEFINE canon or are structural.
+//
+// Instead of a broad exempt set, we define which doc_types per format SHOULD run alignment.
+// Everything else is implicitly exempt.
+
+const CANON_ALIGNMENT_APPLICABLE: Record<string, Set<string>> = {
+  "film":               new Set(["feature_script", "production_draft"]),
+  "feature":            new Set(["feature_script", "production_draft"]),
+  "short":              new Set(["feature_script"]),
+  "animation":          new Set(["feature_script"]),
+  "tv-series":          new Set(["episode_script", "season_master_script", "production_draft"]),
+  "limited-series":     new Set(["episode_script", "season_master_script", "production_draft"]),
+  "digital-series":     new Set(["episode_script", "season_master_script", "production_draft"]),
+  "anim-series":        new Set(["episode_script", "season_master_script", "production_draft"]),
+  "vertical-drama":     new Set(["season_script"]),
+  "documentary":        new Set([]),
+  "documentary-series": new Set([]),
+  "hybrid-documentary": new Set([]),
+  "reality":            new Set(["episode_script"]),
+};
+
+/**
+ * PAL: Determine if canon alignment should run for a given format + doc_type.
+ * Returns true ONLY if the doc_type is a canon-consuming type for this format.
+ * Fail-closed: if format is unknown, alignment does NOT run (no false positives).
+ */
+export function shouldRunCanonAlignment(format: string | null | undefined, docType: string): boolean {
+  const fmtKey = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, '-');
+  if (!fmtKey) {
+    console.warn(`[doc-os][PAL] canon_alignment_skipped: no format provided for doc_type="${docType}"`);
+    return false;
+  }
+  const applicable = CANON_ALIGNMENT_APPLICABLE[fmtKey];
+  if (!applicable) {
+    console.warn(`[doc-os][PAL] canon_alignment_skipped: unknown format="${fmtKey}" for doc_type="${docType}"`);
+    return false;
+  }
+  const should = applicable.has(docType);
+  console.log(`[doc-os][IEL] canon_alignment_check { format: "${fmtKey}", doc_type: "${docType}", should_run: ${should} }`);
+  return should;
+}
+
+// Legacy fallback for callers that don't have format context — minimal set
+const CANON_ALIGNMENT_EXEMPT_FALLBACK = new Set([
   "canon", "nec", "format_rules", "project_overview", "creative_brief", "market_positioning",
-  // Early-ladder — canon is still forming at these stages
   "idea", "concept_brief", "vertical_market_sheet", "market_sheet",
-  // Structural docs — these define canon structure, not consume it
-  "episode_grid", "season_master_script", "season_arc", "vertical_episode_beats",
+  "episode_grid", "season_arc", "vertical_episode_beats",
   "character_bible", "beat_sheet", "treatment", "story_outline",
-  "documentary_outline", "topline_narrative",
+  "documentary_outline", "topline_narrative", "season_master_script",
+  "deck", "episode_beats",
 ]);
 
 /**
@@ -258,11 +334,10 @@ export async function createVersion(
   supabase: any,
   opts: CreateVersionOpts
 ): Promise<any> {
-  const { key } = resolveDocType(opts.docType);
+  const { key } = resolveDocType(opts.docType, opts.format);
 
   // ── PATCH 3: Provenance enforcement hard gate ──
   const effectiveGeneratorId = opts.generatorId || "system";
-  // Any non-empty generatorId is treated as system-generated (prevents future holes)
   const isSystemGenerated = (SYSTEM_GENERATOR_IDS.has(effectiveGeneratorId) || (opts.generatorId && opts.generatorId.length > 0))
     && effectiveGeneratorId !== "seed-trigger";
   const hasProvenance = opts.inputsUsed && Object.keys(opts.inputsUsed).length > 0;
@@ -273,10 +348,19 @@ export async function createVersion(
     throw new Error(msg);
   }
 
-  // ── PATCH 6: Canon alignment gate — runs for all system-generated non-exempt docs ──
-  if (isSystemGenerated && !CANON_ALIGNMENT_EXEMPT.has(key) && opts.plaintext) {
+  // ── PAL: Lane-aware canon alignment gate ──
+  // Uses format-aware check if format is available; falls back to legacy exempt set otherwise.
+  const runAlignment = (() => {
+    if (!isSystemGenerated || !opts.plaintext) return false;
+    if (opts.format) {
+      return shouldRunCanonAlignment(opts.format, key);
+    }
+    // Legacy fallback: exempt set (for callers that don't pass format)
+    return !CANON_ALIGNMENT_EXEMPT_FALLBACK.has(key);
+  })();
+
+  if (runAlignment) {
     try {
-      // Retrieve project_id from the document
       const { data: docRow } = await supabase
         .from("project_documents")
         .select("project_id")
@@ -288,15 +372,14 @@ export async function createVersion(
         if (canon && canon.entities.length > 0) {
           const alignResult = validateCanonAlignment(opts.plaintext, canon.entities);
           if (!alignResult.pass) {
-            const msg = `CANON_MISMATCH: doc_type="${key}" generator="${effectiveGeneratorId}" coverage=${alignResult.entityCoverage} missing=[${alignResult.missingEntities.slice(0, 5).join(",")}] foreign=[${alignResult.foreignEntities.slice(0, 5).join(",")}]`;
+            const msg = `CANON_MISMATCH: doc_type="${key}" format="${opts.format || 'unknown'}" generator="${effectiveGeneratorId}" coverage=${alignResult.entityCoverage} missing=[${alignResult.missingEntities.slice(0, 5).join(",")}] foreign=[${alignResult.foreignEntities.slice(0, 5).join(",")}]`;
             console.error(`[doc-os] ${msg}`);
             throw new Error(msg);
           }
-          console.log(`[doc-os] canon_alignment_pass doc_type=${key} coverage=${alignResult.entityCoverage}`);
+          console.log(`[doc-os] canon_alignment_pass doc_type=${key} format=${opts.format || 'unknown'} coverage=${alignResult.entityCoverage}`);
         }
       }
     } catch (err: any) {
-      // Re-throw CANON_MISMATCH errors; swallow DB fetch errors to avoid blocking on transient issues
       if (err?.message?.startsWith("CANON_MISMATCH:")) throw err;
       console.warn(`[doc-os] canon alignment check skipped (non-fatal): ${err?.message}`);
     }
