@@ -1,11 +1,9 @@
 /**
  * DDG — Deterministic Development Graph
  *
- * A structured graph overlay that describes each document stage as a node
- * with explicit inputs, canon policies, alignment rules, and quality gates.
- *
- * SHADOW MODE: DDG computes in parallel with the existing ladder system.
- * Its outputs are logged via IEL but do NOT drive pipeline decisions yet.
+ * SHADOW MODE ONLY: DDG computes in parallel with the existing ladder system.
+ * Its outputs are logged via IEL but do NOT drive pipeline decisions.
+ * DDG MUST NEVER influence promotion targets, pipeline next-stage, or UI CTAs.
  *
  * Data source: supabase/_shared/stage-ladders.json (same canonical source
  * as registry.ts and pipeline-brain.ts — no drift).
@@ -15,7 +13,6 @@ import {
   getLadderForFormat,
   normalizeFormatKey,
   mapDocTypeToLadderStage,
-  FORMAT_LADDERS,
   type DeliverableStage,
 } from '@/lib/stages/registry';
 
@@ -41,7 +38,6 @@ export interface DDGState {
 }
 
 // ── Canon Policy Registry ──────────────────────────────────────────────────────
-// Defines whether each doc_type DEFINES canon, CONSUMES it, or is STRUCTURAL.
 
 const CANON_SOURCES = new Set<string>([
   'character_bible', 'season_arc', 'format_rules', 'treatment',
@@ -66,7 +62,6 @@ function getCanonPolicy(docType: string): GraphNode['canon_policy'] {
 }
 
 // ── Alignment Policy Registry ──────────────────────────────────────────────────
-// Maps to shouldRunCanonAlignment from doc-os.ts PAL.
 
 const ALIGNMENT_FULL: Record<string, Set<string>> = {
   'film': new Set(['feature_script', 'production_draft']),
@@ -90,15 +85,11 @@ function getAlignmentPolicy(docType: string, formatKey: string): GraphNode['alig
 
 // ── Graph Construction ─────────────────────────────────────────────────────────
 
-/**
- * Build the full development graph for a given format.
- * Each node's required_inputs is the preceding stage on the ladder.
- */
 export function buildGraph(format: string): GraphNode[] {
   const formatKey = normalizeFormatKey(format);
   const ladder = getLadderForFormat(format);
   if (!ladder) {
-    console.error(`[IEL] ddg_build_failed { format: "${format}", reason: "no_ladder" }`);
+    console.error(`[ddg][IEL] ddg_build_failed { format: "${format}", reason: "no_ladder" }`);
     return [];
   }
 
@@ -112,27 +103,18 @@ export function buildGraph(format: string): GraphNode[] {
   }));
 }
 
-// ── Core Resolvers ─────────────────────────────────────────────────────────────
+// ── Core Resolvers (SHADOW ONLY — no pipeline influence) ──────────────────────
 
-/**
- * Resolve the graph node for a given format + doc_type.
- * Returns null if the doc_type is not on the graph for this format.
- */
 export function resolveStage(format: string, docType: string): GraphNode | null {
   const nodes = buildGraph(format);
   const mapped = mapDocTypeToLadderStage(docType);
   const node = nodes.find(n => n.node_id === mapped);
   if (node) {
-    console.log(`[IEL] ddg_stage_resolved { format: "${format}", doc_type: "${docType}", node: "${node.node_id}", index: ${node.index} }`);
+    console.log(`[ddg][IEL] ddg_stage_resolved { format: "${format}", doc_type: "${docType}", node: "${node.node_id}", index: ${node.index} }`);
   }
   return node || null;
 }
 
-/**
- * Get the next available nodes after a given doc_type.
- * For a linear ladder, this is always the single next stage.
- * Future: could return multiple if graph has branches.
- */
 export function getNextNodes(format: string, docType: string): GraphNode[] {
   const nodes = buildGraph(format);
   const mapped = mapDocTypeToLadderStage(docType);
@@ -142,8 +124,8 @@ export function getNextNodes(format: string, docType: string): GraphNode[] {
 }
 
 /**
- * Validate that a promotion from one doc_type to another is valid in the graph.
- * Adjacent-only promotion (mirrors registry.ts validatePromotion).
+ * SHADOW ONLY: Validate promotion adjacency.
+ * This MUST NOT be used as a gate — use registry.ts validatePromotion instead.
  */
 export function validatePromotion(
   format: string,
@@ -165,20 +147,12 @@ export function validatePromotion(
   return { valid: true, reason: 'Adjacent promotion' };
 }
 
-/**
- * Determine if canon alignment should run for this format + doc_type.
- * Mirrors shouldRunCanonAlignment from doc-os.ts PAL.
- */
 export function shouldRunCanonAlignment(format: string, docType: string): boolean {
   const formatKey = normalizeFormatKey(format);
   const full = ALIGNMENT_FULL[formatKey];
   return full?.has(docType) ?? false;
 }
 
-/**
- * Compute which nodes are "dirty" (potentially affected) by a change to a given node.
- * In a linear graph, all downstream nodes are dirty.
- */
 export function computeDirtyNodes(format: string, changedNodeId: string): DeliverableStage[] {
   const nodes = buildGraph(format);
   const mapped = mapDocTypeToLadderStage(changedNodeId);
@@ -187,11 +161,8 @@ export function computeDirtyNodes(format: string, changedNodeId: string): Delive
   return nodes.slice(idx + 1).map(n => n.node_id);
 }
 
-// ── State Computation ──────────────────────────────────────────────────────────
+// ── State Computation (SHADOW ONLY) ────────────────────────────────────────────
 
-/**
- * Compute the full DDG state for a project given existing documents.
- */
 export function computeDDGState(
   format: string,
   existingDocTypes: string[],
@@ -206,18 +177,18 @@ export function computeDDGState(
   const nextNodes: DeliverableStage[] = [];
 
   for (const node of nodes) {
-    if (existingSet.has(node.node_id)) continue; // Already exists
+    if (existingSet.has(node.node_id)) continue;
 
     const inputsMet = node.required_inputs.every(inp => existingSet.has(inp));
     if (inputsMet) {
       readyNodes.push(node.node_id);
-      if (nextNodes.length === 0) nextNodes.push(node.node_id); // First ready = next
+      if (nextNodes.length === 0) nextNodes.push(node.node_id);
     } else {
       blockedNodes.push(node.node_id);
     }
   }
 
-  console.log(`[IEL] ddg_plan_computed { format: "${formatKey}", ready: [${readyNodes.join(',')}], blocked: [${blockedNodes.join(',')}], next: [${nextNodes.join(',')}] }`);
+  console.log(`[ddg][IEL] ddg_plan_computed { format: "${formatKey}", ready: [${readyNodes.join(',')}], blocked: [${blockedNodes.join(',')}], next: [${nextNodes.join(',')}] }`);
 
   return {
     format,
@@ -225,7 +196,7 @@ export function computeDDGState(
     nodes,
     ready_nodes: readyNodes,
     blocked_nodes: blockedNodes,
-    dirty_nodes: [], // Computed on-demand via computeDirtyNodes
+    dirty_nodes: [],
     next_nodes: nextNodes,
   };
 }

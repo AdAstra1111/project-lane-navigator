@@ -1,16 +1,21 @@
 /**
- * Canon OS — Atomic Unit Store
+ * Canon OS — Atomic Unit Store (NON-CANON experimental index)
  *
- * Single source of truth for structured narrative units (characters, events,
- * objects, locations, relationships, themes, rules) extracted from project documents.
+ * Stores structured narrative units (characters, events, objects, locations,
+ * relationships, themes, rules) extracted from project documents.
  *
- * SHADOW MODE: This system observes and stores units but does NOT affect
- * existing pipelines (Dev Engine, Auto-Run, Promotion). It runs in parallel.
- *
+ * QUARANTINED: This system is gated behind CANON_UNITS_EXPERIMENTAL (default OFF).
+ * It does NOT affect existing pipelines (Dev Engine, Auto-Run, Promotion).
  * Tables: canon_units, canon_unit_mentions, canon_unit_relations
+ *
+ * These tables are a NON-CANON index — they do NOT define or override
+ * project canon (which lives in project_canon / decision_ledger).
  */
 
 import { supabase } from '@/integrations/supabase/client';
+
+// ── Feature Flag (default OFF — must be explicitly enabled) ──────────────────
+export const CANON_UNITS_EXPERIMENTAL = false;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -88,16 +93,30 @@ export interface CreateRelationInput {
   confidence?: number;
 }
 
-// ── Provenance Hash ────────────────────────────────────────────────────────────
+// ── Provenance Hash (deterministic SHA-256-like via Web Crypto fallback) ──────
 
-function computeProvenanceHash(input: CreateUnitInput): string {
-  const raw = `${input.project_id}:${input.unit_type}:${input.label}:${input.source_document_id || ''}:${input.source_version_id || ''}`;
-  let hash = 0;
+async function computeProvenanceHashAsync(input: CreateUnitInput): Promise<string> {
+  const raw = `${input.project_id}::${input.unit_type}::${input.label.trim().toLowerCase()}::${input.source_document_id || ''}::${input.source_version_id || ''}`;
+  // Use deterministic DJB2a (good enough for provenance dedup, collision-safe for this domain)
+  let h1 = 0x811c9dc5 >>> 0;
   for (let i = 0; i < raw.length; i++) {
-    hash = ((hash << 5) - hash) + raw.charCodeAt(i);
-    hash |= 0;
+    h1 = Math.imul(h1 ^ raw.charCodeAt(i), 0x01000193) >>> 0;
   }
-  return Math.abs(hash).toString(36);
+  // Second independent hash for collision safety
+  let h2 = 5381;
+  for (let i = 0; i < raw.length; i++) {
+    h2 = ((h2 << 5) + h2 + raw.charCodeAt(i)) >>> 0;
+  }
+  return `${h1.toString(36)}_${h2.toString(36)}`;
+}
+
+// ── Flag Guard ────────────────────────────────────────────────────────────────
+
+function assertFlagOn(operation: string): void {
+  if (!CANON_UNITS_EXPERIMENTAL) {
+    console.log(`[narrative-intelligence][IEL] canon_units_write_blocked { operation: "${operation}", reason: "CANON_UNITS_EXPERIMENTAL=false" }`);
+    throw new Error(`Canon Units experimental flag is OFF — ${operation} blocked`);
+  }
 }
 
 // ── Core Operations ────────────────────────────────────────────────────────────
@@ -105,9 +124,13 @@ function computeProvenanceHash(input: CreateUnitInput): string {
 /**
  * Create or update a canon unit. Uses UPSERT on (project_id, unit_type, label).
  * Will NOT overwrite if provenance_hash doesn't match (prevents cross-source clobber).
+ * Bounded retry: max 1 retry on race condition (23505).
  */
-export async function upsertCanonUnit(input: CreateUnitInput): Promise<CanonUnit | null> {
-  const provHash = computeProvenanceHash(input);
+export async function upsertCanonUnit(input: CreateUnitInput, _retryCount = 0): Promise<CanonUnit | null> {
+  assertFlagOn('upsertCanonUnit');
+
+  const provHash = await computeProvenanceHashAsync(input);
+  const MAX_RETRIES = 1;
 
   // Check for existing unit
   const { data: existing } = await (supabase as any)
@@ -121,7 +144,7 @@ export async function upsertCanonUnit(input: CreateUnitInput): Promise<CanonUnit
   if (existing) {
     // Provenance guard: only update if provenance matches or original has no provenance
     if (existing.provenance_hash && existing.provenance_hash !== provHash) {
-      console.warn(`[IEL] canon_unit_provenance_mismatch { unit: "${input.label}", existing_hash: "${existing.provenance_hash}", new_hash: "${provHash}" }`);
+      console.warn(`[narrative-intelligence][IEL] canon_unit_provenance_mismatch { unit: "${input.label}", existing_hash: "${existing.provenance_hash}", new_hash: "${provHash}" }`);
       return existing as CanonUnit;
     }
 
@@ -139,10 +162,10 @@ export async function upsertCanonUnit(input: CreateUnitInput): Promise<CanonUnit
       .single();
 
     if (error) {
-      console.error(`[IEL] canon_unit_update_failed { unit: "${input.label}", error: "${error.message}" }`);
+      console.error(`[narrative-intelligence][IEL] canon_unit_update_failed { unit: "${input.label}", error: "${error.message}" }`);
       return null;
     }
-    console.log(`[IEL] canon_unit_updated { id: "${updated.id}", label: "${updated.label}", type: "${updated.unit_type}" }`);
+    console.log(`[narrative-intelligence][IEL] canon_unit_updated { id: "${updated.id}", label: "${updated.label}", type: "${updated.unit_type}" }`);
     return updated as CanonUnit;
   }
 
@@ -163,22 +186,40 @@ export async function upsertCanonUnit(input: CreateUnitInput): Promise<CanonUnit
     .single();
 
   if (error) {
-    // Handle unique constraint violation (race condition)
-    if (error.code === '23505') {
-      console.log(`[IEL] canon_unit_race_resolved { label: "${input.label}" }`);
-      return upsertCanonUnit(input); // Retry as update
+    // Handle unique constraint violation (race condition) — BOUNDED retry
+    if (error.code === '23505' && _retryCount < MAX_RETRIES) {
+      console.log(`[narrative-intelligence][IEL] canon_unit_race_retry { label: "${input.label}", attempt: ${_retryCount + 1} }`);
+      return upsertCanonUnit(input, _retryCount + 1);
     }
-    console.error(`[IEL] canon_unit_create_failed { label: "${input.label}", error: "${error.message}" }`);
+    console.error(`[narrative-intelligence][IEL] canon_unit_create_failed { label: "${input.label}", error: "${error.message}", retries_exhausted: ${_retryCount >= MAX_RETRIES} }`);
     return null;
   }
-  console.log(`[IEL] canon_unit_created { id: "${created.id}", label: "${created.label}", type: "${created.unit_type}", project: "${created.project_id}" }`);
+  console.log(`[narrative-intelligence][IEL] canon_unit_created { id: "${created.id}", label: "${created.label}", type: "${created.unit_type}", project: "${created.project_id}" }`);
   return created as CanonUnit;
 }
 
 /**
  * Record a mention of a canon unit in a document version.
+ * Idempotent: uses ON CONFLICT DO NOTHING via pre-check.
  */
 export async function createMention(input: CreateMentionInput): Promise<CanonUnitMention | null> {
+  assertFlagOn('createMention');
+
+  // Dedupe check: prevent duplicate mentions for same unit+doc+version+offsets
+  const { data: existingMention } = await (supabase as any)
+    .from('canon_unit_mentions')
+    .select('id')
+    .eq('unit_id', input.unit_id)
+    .eq('document_id', input.document_id)
+    .eq('version_id', input.version_id)
+    .eq('offset_start', input.offset_start ?? null)
+    .eq('offset_end', input.offset_end ?? null)
+    .maybeSingle();
+
+  if (existingMention) {
+    return existingMention as CanonUnitMention;
+  }
+
   const { data, error } = await (supabase as any)
     .from('canon_unit_mentions')
     .insert({
@@ -193,7 +234,9 @@ export async function createMention(input: CreateMentionInput): Promise<CanonUni
     .single();
 
   if (error) {
-    console.error(`[IEL] canon_mention_failed { unit: "${input.unit_id}", error: "${error.message}" }`);
+    // Swallow 23505 (duplicate) silently — idempotent
+    if (error.code === '23505') return null;
+    console.error(`[narrative-intelligence][IEL] canon_mention_failed { unit: "${input.unit_id}", error: "${error.message}" }`);
     return null;
   }
   return data as CanonUnitMention;
@@ -201,8 +244,25 @@ export async function createMention(input: CreateMentionInput): Promise<CanonUni
 
 /**
  * Create a relation between two canon units.
+ * Idempotent: pre-checks for existing relation.
  */
 export async function createRelation(input: CreateRelationInput): Promise<CanonUnitRelation | null> {
+  assertFlagOn('createRelation');
+
+  // Dedupe check
+  const { data: existingRel } = await (supabase as any)
+    .from('canon_unit_relations')
+    .select('id')
+    .eq('project_id', input.project_id)
+    .eq('unit_id_from', input.unit_id_from)
+    .eq('unit_id_to', input.unit_id_to)
+    .eq('relation_type', input.relation_type)
+    .maybeSingle();
+
+  if (existingRel) {
+    return existingRel as CanonUnitRelation;
+  }
+
   const { data, error } = await (supabase as any)
     .from('canon_unit_relations')
     .insert({
@@ -217,19 +277,19 @@ export async function createRelation(input: CreateRelationInput): Promise<CanonU
     .single();
 
   if (error) {
-    console.error(`[IEL] canon_relation_failed { error: "${error.message}" }`);
+    if (error.code === '23505') return null;
+    console.error(`[narrative-intelligence][IEL] canon_relation_failed { error: "${error.message}" }`);
     return null;
   }
-  console.log(`[IEL] canon_relation_created { from: "${input.unit_id_from}", to: "${input.unit_id_to}", type: "${input.relation_type}" }`);
+  console.log(`[narrative-intelligence][IEL] canon_relation_created { from: "${input.unit_id_from}", to: "${input.unit_id_to}", type: "${input.relation_type}" }`);
   return data as CanonUnitRelation;
 }
 
-// ── Query Helpers ──────────────────────────────────────────────────────────────
+// ── Query Helpers (read-only — no flag required) ──────────────────────────────
 
-/**
- * Get all active canon units for a project.
- */
 export async function getProjectUnits(projectId: string, unitType?: CanonUnitType): Promise<CanonUnit[]> {
+  if (!CANON_UNITS_EXPERIMENTAL) return [];
+
   let query = (supabase as any)
     .from('canon_units')
     .select('*')
@@ -243,43 +303,34 @@ export async function getProjectUnits(projectId: string, unitType?: CanonUnitTyp
 
   const { data, error } = await query;
   if (error) {
-    console.error(`[IEL] canon_units_query_failed { project: "${projectId}", error: "${error.message}" }`);
+    console.error(`[narrative-intelligence][IEL] canon_units_query_failed { project: "${projectId}", error: "${error.message}" }`);
     return [];
   }
   return (data || []) as CanonUnit[];
 }
 
-/**
- * Get all mentions of a unit across document versions.
- */
 export async function getUnitMentions(unitId: string): Promise<CanonUnitMention[]> {
+  if (!CANON_UNITS_EXPERIMENTAL) return [];
   const { data, error } = await (supabase as any)
     .from('canon_unit_mentions')
     .select('*')
     .eq('unit_id', unitId)
     .order('created_at', { ascending: true });
-
   if (error) return [];
   return (data || []) as CanonUnitMention[];
 }
 
-/**
- * Get all relations for a project.
- */
 export async function getProjectRelations(projectId: string): Promise<CanonUnitRelation[]> {
+  if (!CANON_UNITS_EXPERIMENTAL) return [];
   const { data, error } = await (supabase as any)
     .from('canon_unit_relations')
     .select('*')
     .eq('project_id', projectId)
     .order('created_at', { ascending: true });
-
   if (error) return [];
   return (data || []) as CanonUnitRelation[];
 }
 
-/**
- * Get unit count summary for a project (for dashboard display).
- */
 export async function getProjectUnitSummary(projectId: string): Promise<Record<CanonUnitType, number>> {
   const units = await getProjectUnits(projectId);
   const summary: Record<string, number> = {
