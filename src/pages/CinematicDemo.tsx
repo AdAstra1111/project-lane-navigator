@@ -186,8 +186,9 @@ export default function CinematicDemo() {
   // Keyboard nav
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); next(); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
+      if (e.key === ' ') { e.preventDefault(); setIsPlaying(p => !p); }
       if (e.key === 'Escape') navigate(-1);
     };
     window.addEventListener('keydown', handler);
@@ -491,15 +492,18 @@ export default function CinematicDemo() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 2 }}
-        className="absolute bottom-[7%] left-1/2 -translate-x-1/2 z-40 flex items-center gap-6 text-white/20 text-xs font-display uppercase tracking-wider"
+        className="absolute bottom-[7%] left-1/2 -translate-x-1/2 z-40 flex items-center gap-6 text-white/30 text-xs font-display uppercase tracking-wider"
       >
-        <span className="hidden sm:inline">← → to navigate</span>
+        <span className="hidden sm:inline">← → navigate · space pause</span>
         <span>{current + 1} / {total}</span>
         <button
           onClick={() => setIsPlaying(!isPlaying)}
-          className="hover:text-white/50 transition-colors"
+          className="h-9 w-9 rounded-full bg-white/10 border border-white/20 flex items-center justify-center hover:bg-white/20 transition-colors"
         >
-          {isPlaying ? 'Pause' : 'Play'}
+          {isPlaying
+            ? <span className="inline-block w-2.5 h-3 border-l-2 border-r-2 border-white/70" />
+            : <span className="inline-block w-0 h-0 ml-0.5 border-l-[8px] border-l-white/70 border-y-[5px] border-y-transparent" />
+          }
         </button>
       </motion.div>
 
