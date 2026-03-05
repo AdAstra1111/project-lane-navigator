@@ -230,17 +230,20 @@ const SYSTEM_GENERATOR_IDS = new Set([
 // seed-trigger is NOT in the set — it's DB-trigger generated and exempt from provenance
 // seed-pack IS in the set — seed-pack outputs should have provenance for auditability
 
-// ── Doc types exempt from canon alignment (they ARE canon sources, or structural) ──
+// ── Doc types exempt from canon alignment (they ARE canon sources, or structural/foundational) ──
+// PRINCIPLE: Only exempt types that DEFINE canon (not consume it) or where canon is still forming.
+// Script types (feature_script, episode_script, season_script) are NOT exempt — they consume canon.
+// The fix for VD CANON_MISMATCH is upstream: eliminating generic "script" fallbacks so doc_type
+// resolves correctly and reaches this gate as the actual type (e.g. "episode_grid", not "feature_script").
 const CANON_ALIGNMENT_EXEMPT = new Set([
+  // Seed pack / meta docs — define project identity, not narrative content
   "canon", "nec", "format_rules", "project_overview", "creative_brief", "market_positioning",
-  "episode_grid", "season_master_script",
-  // Early-ladder & foundational docs (canon is still forming at these stages)
+  // Early-ladder — canon is still forming at these stages
   "idea", "concept_brief", "vertical_market_sheet", "market_sheet",
-  // Structural / canon-source docs — these define canon, not consume it
-  "season_arc", "vertical_episode_beats", "character_bible", "beat_sheet",
-  "treatment", "story_outline", "documentary_outline", "topline_narrative",
-  // Season script is the VD terminal deliverable; canon entities may not match feature-film patterns
-  "season_script", "complete_season_script",
+  // Structural docs — these define canon structure, not consume it
+  "episode_grid", "season_master_script", "season_arc", "vertical_episode_beats",
+  "character_bible", "beat_sheet", "treatment", "story_outline",
+  "documentary_outline", "topline_narrative",
 ]);
 
 /**
