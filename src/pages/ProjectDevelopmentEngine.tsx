@@ -668,7 +668,9 @@ export default function ProjectDevelopmentEngine() {
         if (optionId === '__other__') {
           const customText = notesCustomDirections[noteId];
           if (customText) {
-            const note = [...(tieredNotes.blockers || []), ...(tieredNotes.high || [])].find((n: any) => (n.id || n.note_key) === noteId);
+            // Search ALL tiers for the note, not just blockers/high
+            const allTieredNotes = [...(tieredNotes.blockers || []), ...(tieredNotes.high || []), ...(tieredNotes.polish || [])];
+            const note = allTieredNotes.find((n: any) => (n.id || n.note_key) === noteId);
             decisionDirectives.push({
               note_id: noteId,
               note_description: note?.description || note?.note || '',
@@ -679,8 +681,9 @@ export default function ProjectDevelopmentEngine() {
           continue;
         }
 
-        // Find the note and its selected option
-        const note = [...(tieredNotes.blockers || []), ...(tieredNotes.high || [])].find((n: any) => n.id === noteId);
+        // Find the note and its selected option — search all tiers
+        const allTieredNotesForDecision = [...(tieredNotes.blockers || []), ...(tieredNotes.high || []), ...(tieredNotes.polish || [])];
+        const note = allTieredNotesForDecision.find((n: any) => n.id === noteId);
         if (note?.decisions) {
           const option = note.decisions.find((d: any) => d.option_id === optionId);
           if (option) {
@@ -707,7 +710,23 @@ export default function ProjectDevelopmentEngine() {
       return note;
     });
 
-    // Add global directions as additional context
+    // Inject any decision directives (especially "Other" custom directions) that weren't matched
+    // to an approved/checked note — these are user-authored creative notes that must always be included
+    const matchedNoteIds = new Set(enrichedNotes.map((n: any) => n.id));
+    const unmatchedDirectives = decisionDirectives.filter(d => !matchedNoteIds.has(d.note_id));
+    for (const directive of unmatchedDirectives) {
+      enrichedNotes.push({
+        id: directive.note_id,
+        category: 'user_direction',
+        description: directive.note_description,
+        note: `USER DIRECTION: ${directive.selected_option}. ${directive.what_changes.join(', ')}`,
+        resolution_directive: `Apply: "${directive.selected_option}". Changes: ${directive.what_changes.join(', ')}.`,
+        impact: 'high',
+        severity: 'blocker',
+      });
+    }
+
+
     if (globalDirections && globalDirections.length > 0) {
       const directionNotes = globalDirections.map((d: any) => ({
         category: 'direction',
