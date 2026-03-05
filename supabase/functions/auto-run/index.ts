@@ -417,6 +417,7 @@ async function resolveActiveVersionForDoc(
 ): Promise<{ versionId: string; source: "pinned" | "best_approved" | "is_current" | "latest_version_number" } | null> {
   // A) Pinned
   if (!job.follow_latest && job.resume_version_id && job.resume_document_id === documentId) {
+    console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${job.resume_version_id}", reason: "pinned", follow_latest: ${job.follow_latest}, resume_version_id: "${job.resume_version_id}" }`);
     return { versionId: job.resume_version_id, source: "pinned" };
   }
 
@@ -429,6 +430,7 @@ async function resolveActiveVersionForDoc(
     .limit(1)
     .maybeSingle();
   if (bestApproved) {
+    console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${bestApproved.id}", reason: "best_approved", version_number: ${bestApproved.version_number} }`);
     return { versionId: bestApproved.id, source: "best_approved" };
   }
 
@@ -441,6 +443,7 @@ async function resolveActiveVersionForDoc(
     .limit(1)
     .maybeSingle();
   if (currentVer) {
+    console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${currentVer.id}", reason: "is_current" }`);
     return { versionId: currentVer.id, source: "is_current" };
   }
 
@@ -452,9 +455,11 @@ async function resolveActiveVersionForDoc(
     .limit(1)
     .maybeSingle();
   if (latestVer) {
+    console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${latestVer.id}", reason: "latest_version_number" }`);
     return { versionId: latestVer.id, source: "latest_version_number" };
   }
 
+  console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: null, reason: "no_versions" }`);
   return null;
 }
 
@@ -2158,6 +2163,17 @@ async function finalizeBest(supabase: any, jobId: string, job: any, explicitCurr
       `Failed to promote best version ${bestVersionId}: ${error.message}`);
     return false;
   }
+
+  // ── IEL: Mark finalized best as approved so ABVR best_approved path resolves correctly ──
+  const { error: approvalErr } = await supabase.from("project_document_versions").update({
+    approval_status: "approved",
+    approved_at: new Date().toISOString(),
+    approved_by: job.user_id,
+  }).eq("id", bestVersionId);
+  if (approvalErr) {
+    console.warn(`[auto-run][IEL] finalize_approval_stamp_failed { version_id: "${bestVersionId}", error: "${approvalErr.message}" }`);
+  }
+  console.log(`[auto-run][IEL] candidate_accepted_persisted { document_id: "${ver.document_id}", accepted_version_id: "${bestVersionId}", approval_status_set: "approved", job_id: "${jobId}", source: "finalize_best" }`);
 
   await logStep(supabase, jobId, null, job.current_document || "unknown", "finalize_promote_best",
     `Job ending — promoted best version ${bestVersionId} (CI=${job.best_ci}, GP=${job.best_gp}, score=${job.best_score})`,
@@ -7002,6 +7018,24 @@ Deno.serve(async (req) => {
                 { ...meta, error: promoteErr.message });
               return false;
             }
+
+            // ── IEL: Mark accepted candidate as approved so ABVR best_approved path resolves correctly ──
+            const { error: approvalErr } = await supabase.from("project_document_versions").update({
+              approval_status: "approved",
+              approved_at: new Date().toISOString(),
+              approved_by: job.user_id,
+              meta_json: {
+                accepted_by: "auto-run",
+                accepted_from: meta.strategy || "fork",
+                job_id: jobId,
+                ci: candCI,
+                gp: candGP,
+              },
+            }).eq("id", candVersionId);
+            if (approvalErr) {
+              console.warn(`[auto-run][IEL] candidate_approval_stamp_failed { version_id: "${candVersionId}", error: "${approvalErr.message}" }`);
+            }
+            console.log(`[auto-run][IEL] candidate_accepted_persisted { document_id: "${doc.id}", accepted_version_id: "${candVersionId}", approval_status_set: "approved", job_id: "${jobId}", step_index: ${newStep}, ci: ${candCI}, gp: ${candGP} }`);
 
             // ── BLOCKER-AWARE BEST-OF TRACKING (STAGE-SCOPED from auto_run_steps + GLOBAL best update) ──
             // Stage-scoped best is derived from DB; global best_* on job is informational only.
