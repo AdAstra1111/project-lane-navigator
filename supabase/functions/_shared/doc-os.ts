@@ -252,6 +252,8 @@ export interface CreateVersionOpts {
   inputsUsed?: Record<string, any>;
   /** PAL: Project format for lane-aware doc_type resolution and canon alignment */
   format?: string | null;
+  /** Conflict detection: if provided and this version is no longer current, new version is NOT auto-promoted */
+  parentVersionId?: string;
 }
 
 // ── Known system generator IDs — versions from these MUST have non-empty inputs_used ──
@@ -395,12 +397,31 @@ export async function createVersion(
 
   const nextVersion = (maxRow?.[0]?.version_number || 0) + 1;
 
-  // Clear current flag
-  await supabase
-    .from("project_document_versions")
-    .update({ is_current: false })
-    .eq("document_id", opts.documentId)
-    .eq("is_current", true);
+  // ── Conflict detection: check if parent version is still current ──
+  let shouldPromote = true;
+  if (opts.parentVersionId) {
+    const { data: parentRow } = await supabase
+      .from("project_document_versions")
+      .select("id, is_current, version_number")
+      .eq("id", opts.parentVersionId)
+      .maybeSingle();
+
+    if (parentRow && !parentRow.is_current) {
+      // Parent is no longer current — a newer version exists (e.g. from Writers' Room)
+      // Create the version but do NOT auto-promote to current
+      shouldPromote = false;
+      console.warn(`[doc-os] VERSION_CONFLICT: parent ${opts.parentVersionId} (v${parentRow.version_number}) is no longer current. New version v${nextVersion} will NOT be auto-promoted. generator="${opts.generatorId || 'system'}"`);
+    }
+  }
+
+  if (shouldPromote) {
+    // Clear current flag
+    await supabase
+      .from("project_document_versions")
+      .update({ is_current: false })
+      .eq("document_id", opts.documentId)
+      .eq("is_current", true);
+  }
 
   // ── Deterministic resolver hash default ──
   const resolvedHash = opts.dependsOnResolverHash || computeDefaultResolverHash(key, effectiveGeneratorId, opts.label);
@@ -410,7 +431,7 @@ export async function createVersion(
     document_id: opts.documentId,
     version_number: nextVersion,
     plaintext: opts.plaintext,
-    is_current: true,
+    is_current: shouldPromote,
     status: "draft",
     label: opts.label,
     created_by: opts.createdBy,
