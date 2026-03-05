@@ -6033,6 +6033,27 @@ export type Database = {
         }
         Relationships: []
       }
+      feature_flags: {
+        Row: {
+          description: string | null
+          is_enabled: boolean
+          key: string
+          updated_at: string
+        }
+        Insert: {
+          description?: string | null
+          is_enabled?: boolean
+          key: string
+          updated_at?: string
+        }
+        Update: {
+          description?: string | null
+          is_enabled?: boolean
+          key?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       format_archetypes: {
         Row: {
           created_at: string
@@ -22683,6 +22704,7 @@ export type Database = {
         }
         Returns: string
       }
+      is_feature_flag_enabled: { Args: { _key: string }; Returns: boolean }
       match_trend_signals: {
         Args: {
           _limit?: number
