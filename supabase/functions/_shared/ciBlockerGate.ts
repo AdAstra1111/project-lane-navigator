@@ -182,15 +182,21 @@ export async function checkPlateauV2(
   minCI: number,
   windowSize: number = 2,
 ): Promise<PlateauV2Result> {
+  // ── IEL: Include both 'review' AND 'rewrite_accepted' steps as CI data points ──
+  // This ensures promoted candidates' scores are visible to the plateau gate,
+  // matching what the UI displays via job.last_ci/last_gp.
+  const CI_SCORED_ACTIONS = ["review", "rewrite_accepted"];
   const { data: recentReviews } = await supabase
     .from("auto_run_steps")
-    .select("ci, output_ref, step_index")
+    .select("ci, output_ref, step_index, action")
     .eq("job_id", jobId)
     .eq("document", docType)
-    .eq("action", "review")
+    .in("action", CI_SCORED_ACTIONS)
     .not("ci", "is", null)
     .order("step_index", { ascending: false })
     .limit(windowSize + 2);
+
+  console.log(`[auto-run][IEL] plateau_v2_ci_source { job_id: "${jobId}", doc_type: "${docType}", steps_found: ${recentReviews?.length ?? 0}, actions_queried: ${JSON.stringify(CI_SCORED_ACTIONS)}, latest_ci: ${recentReviews?.[0]?.ci ?? 'null'}, latest_action: "${recentReviews?.[0]?.action ?? 'none'}", latest_step_index: ${recentReviews?.[0]?.step_index ?? 'null'} }`);
 
   if (!recentReviews || recentReviews.length < 2) {
     return {
