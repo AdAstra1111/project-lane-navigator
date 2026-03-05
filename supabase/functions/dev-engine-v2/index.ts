@@ -3843,6 +3843,21 @@ MATERIAL TO REWRITE:\n${fullText}`;
       const chunkLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const chunkTvCtx = await loadTeamVoiceContext(supabase, projectId, chunkLane);
       const chunkMetaJson = chunkTvCtx.metaStamp ? { ...chunkTvCtx.metaStamp } : undefined;
+
+      // ── Fetch resolver hash for chunked rewrite (mirrors single-pass logic) ──
+      let chunkedResolverHash: string | null = null;
+      try {
+        const rrResp = await fetch(`${supabaseUrl}/functions/v1/resolve-qualifications`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: authHeader },
+          body: JSON.stringify({ projectId }),
+        });
+        if (rrResp.ok) { const rr = await rrResp.json(); chunkedResolverHash = rr.resolver_hash || rr.resolved_qualifications_hash || null; }
+      } catch (_) { /* non-fatal */ }
+      if (!chunkedResolverHash) {
+        console.warn(`[dev-engine-v2][IEL] missing_dependsOnResolverHash { project_id: "${projectId}", deliverableType: "${effectiveDeliverable}", generator: "dev-engine-v2-rewrite-chunked" }`);
+      }
+
       let newVersion: any = null;
       for (let _retry = 0; _retry < 3; _retry++) {
         const { data: maxRow } = await supabase.from("project_document_versions")
@@ -3863,6 +3878,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           generatorId: "dev-engine-v2-rewrite-chunked",
           metaJson: chunkMetaJson,
           deliverableType: effectiveDeliverable,
+          dependsOnResolverHash: chunkedResolverHash,
         });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;

@@ -17,7 +17,7 @@ export function StaleDocBanner({ docType, oldHash, currentHash, seasonEpisodeCou
       <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
       <div className="flex-1 space-y-1.5">
         <p className="text-foreground font-medium">
-          Stale: <span className="capitalize">{docType.replace(/_/g, ' ')}</span> references outdated qualifications
+          Stale: <span className="capitalize">{docType.replace(/_/g, ' ')}</span> is out of sync with current Canon inputs
         </p>
         <p className="text-muted-foreground">
           Document hash{' '}
