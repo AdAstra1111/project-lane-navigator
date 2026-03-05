@@ -7411,7 +7411,7 @@ Deno.serve(async (req) => {
                 return respondWithJob(supabase, jobId, "run-next");
               }
 
-              // Try EXPLORE (frontier) — pick best explorable
+              // Try EXPLORE (frontier) — pick best explorable using same deterministic policy
               // Read persisted frontier state for deterministic attempt counting
               const explorable = allCandidates.filter(c => c.decision === "EXPLORE");
               if (explorable.length > 0) {
@@ -7422,9 +7422,10 @@ Deno.serve(async (req) => {
                   .maybeSingle();
                 const frontierAttempts = freshJobFork?.frontier_attempts ?? 0;
                 if (frontierAttempts < MAX_FRONTIER_ATTEMPTS) {
-                  const best = explorable[0];
+                  const { winner: best, loser: explorLoser, reason: explorReason } = chooseForkWinner(explorable);
+                  console.log(`[auto-run][IEL] fork_winner_selected { winner_id: "${best.versionId}", winner_label: "${best.label}", winner_ci: ${best.ci}, winner_gp: ${best.gp}, winner_composite: ${best.ci + best.gp}, loser_id: "${explorLoser?.versionId ?? 'none'}", reason: "${explorReason}", policy: "${FORK_SELECTION_POLICY}", gate: "EXPLORE" }`);
                   await setFrontier(best.versionId, best.ci, best.gp,
-                    { baselineVersionId, forkInputVersionId, candA, candB, forkWinner: best.label, scoreA, scoreB, gateA, gateB });
+                    { baselineVersionId, forkInputVersionId, candA, candB, forkWinner: best.label, winner_version_id: best.versionId, loser_version_id: explorLoser?.versionId, selection_reason: explorReason, policy: FORK_SELECTION_POLICY, scoreA, scoreB, gateA, gateB });
                   return respondWithJob(supabase, jobId, "run-next");
                 }
                 // Frontier exhausted — clear and fall through to reject
