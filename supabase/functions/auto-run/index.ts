@@ -39,6 +39,124 @@ function extractCiGp(res: any): { ci: number | null; gp: number | null } {
   return { ci: typeof ciRaw === "number" ? ciRaw : null, gp: typeof gpRaw === "number" ? gpRaw : null };
 }
 
+const SCORE_DOWNGRADE_TOLERANCE = 0;
+
+function toNumericScore(value: any): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function parseVersionScores(metaJson: any): { ci: number | null; gp: number | null; scoreSource: string | null } {
+  const meta = metaJson && typeof metaJson === "object" && !Array.isArray(metaJson) ? metaJson : {};
+  return {
+    ci: toNumericScore(meta?.ci),
+    gp: toNumericScore(meta?.gp),
+    scoreSource: typeof meta?.score_source === "string" ? meta.score_source : null,
+  };
+}
+
+function pickBestScoredVersion<T extends { ci: number; gp: number; version_number: number; blockerCount?: number }>(rows: T[]): T | null {
+  if (!rows.length) return null;
+  const sorted = [...rows].sort((a, b) => {
+    const aComposite = a.ci + a.gp;
+    const bComposite = b.ci + b.gp;
+    if (bComposite !== aComposite) return bComposite - aComposite;
+    if (b.ci !== a.ci) return b.ci - a.ci;
+    if (b.gp !== a.gp) return b.gp - a.gp;
+    return b.version_number - a.version_number;
+  });
+  return sorted[0];
+}
+
+async function getVersionScoreSnapshot(supabase: any, versionId: string): Promise<{ ci: number | null; gp: number | null; scoreSource: string | null; meta: any }> {
+  const { data, error } = await supabase
+    .from("project_document_versions")
+    .select("meta_json")
+    .eq("id", versionId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return { ci: null, gp: null, scoreSource: null, meta: null };
+  }
+
+  const parsed = parseVersionScores(data.meta_json);
+  return { ci: parsed.ci, gp: parsed.gp, scoreSource: parsed.scoreSource, meta: data.meta_json || {} };
+}
+
+async function persistVersionScores(
+  supabase: any,
+  params: {
+    versionId: string;
+    ci: number;
+    gp: number;
+    source: string;
+    jobId: string;
+    protectHigher?: boolean;
+    docType?: string;
+  },
+): Promise<{ ci: number; gp: number; scoreSource: string; downgradedBlocked: boolean }> {
+  const { versionId, ci, gp, source, jobId, protectHigher = true, docType } = params;
+
+  const { data: existingRow, error: existingErr } = await supabase
+    .from("project_document_versions")
+    .select("meta_json")
+    .eq("id", versionId)
+    .maybeSingle();
+
+  if (existingErr || !existingRow) {
+    throw new Error(`VERSION_SCORE_READ_FAILED: ${existingErr?.message || `version ${versionId} not found`}`);
+  }
+
+  const existingMeta = existingRow.meta_json && typeof existingRow.meta_json === "object" && !Array.isArray(existingRow.meta_json)
+    ? existingRow.meta_json
+    : {};
+  const existingScores = parseVersionScores(existingMeta);
+
+  let effectiveCi = ci;
+  let effectiveGp = gp;
+  let downgradedBlocked = false;
+
+  if (protectHigher && existingScores.ci !== null && existingScores.gp !== null) {
+    const existingComposite = existingScores.ci + existingScores.gp;
+    const incomingComposite = ci + gp;
+    if (existingComposite - incomingComposite > SCORE_DOWNGRADE_TOLERANCE) {
+      downgradedBlocked = true;
+      effectiveCi = existingScores.ci;
+      effectiveGp = existingScores.gp;
+      console.warn(`[auto-run][IEL] score_conflict_preserved_higher { job_id: "${jobId}", doc_type: "${docType || 'unknown'}", version_id: "${versionId}", incoming_ci: ${ci}, incoming_gp: ${gp}, existing_ci: ${existingScores.ci}, existing_gp: ${existingScores.gp}, incoming_source: "${source}", existing_source: "${existingScores.scoreSource || 'unknown'}", policy: "preserve_higher" }`);
+    }
+  }
+
+  const mergedMeta = {
+    ...existingMeta,
+    ci: effectiveCi,
+    gp: effectiveGp,
+    score_source: source,
+    score_updated_at: new Date().toISOString(),
+    score_job_id: jobId,
+  };
+
+  const { error: updateErr } = await supabase
+    .from("project_document_versions")
+    .update({ meta_json: mergedMeta })
+    .eq("id", versionId);
+
+  if (updateErr) {
+    throw new Error(`VERSION_SCORE_WRITE_FAILED: ${updateErr.message}`);
+  }
+
+  return {
+    ci: effectiveCi,
+    gp: effectiveGp,
+    scoreSource: source,
+    downgradedBlocked,
+  };
+}
+
 // ── Get current accepted version for a document (fail-closed) ──
 async function getCurrentVersionForDoc(supabase: any, documentId: string): Promise<{ id: string; plaintext: string | null } | null> {
   const { data } = await supabase
@@ -419,53 +537,82 @@ async function checkMonotonicCIImprovement(
 // Deterministic resolver: picks the version Auto-Run must treat as current baseline.
 // Resolution rules (strict order):
 //   A) If resume_version_id present AND follow_latest is false → use it (pinned)
-//   B) Else → resolve "best approved version" for the document if any exist
-//   C) Fallback → is_current version, then latest by version_number
+//   B) Else → highest-scoring eligible version (approval_status=approved OR is_current=true) from DB-persisted meta_json.ci/gp
+//   C) Fallback → best approved by version_number, then is_current, then latest by version_number
 async function resolveActiveVersionForDoc(
-  supabase: any, job: any, documentId: string,
-): Promise<{ versionId: string; source: "pinned" | "best_approved" | "is_current" | "latest_version_number" } | null> {
+  supabase: any,
+  job: any,
+  documentId: string,
+  ctx?: { jobId?: string; docType?: string },
+): Promise<{ versionId: string; source: "pinned" | "eligible_best_score" | "best_approved" | "is_current" | "latest_version_number"; reason: string } | null> {
   // A) Pinned
   if (!job.follow_latest && job.resume_version_id && job.resume_document_id === documentId) {
     console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${job.resume_version_id}", reason: "pinned", follow_latest: ${job.follow_latest}, resume_version_id: "${job.resume_version_id}" }`);
-    return { versionId: job.resume_version_id, source: "pinned" };
+    return { versionId: job.resume_version_id, source: "pinned", reason: "pinned" };
   }
 
-  // B) Best approved version — prefer highest version_number among approved
-  const { data: bestApproved } = await supabase.from("project_document_versions")
-    .select("id, version_number")
+  const { data: versions, error: versionsErr } = await supabase
+    .from("project_document_versions")
+    .select("id, version_number, approval_status, is_current, created_by, meta_json")
     .eq("document_id", documentId)
-    .eq("approval_status", "approved")
-    .order("version_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("version_number", { ascending: false });
+
+  if (versionsErr) {
+    console.error(`[auto-run][IEL] abvr_versions_query_failed { document_id: "${documentId}", error: "${versionsErr.message}" }`);
+    return null;
+  }
+
+  const allVersions = versions || [];
+  if (!allVersions.length) {
+    console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: null, reason: "no_versions" }`);
+    return null;
+  }
+
+  const eligibleScored = allVersions
+    .map((v: any) => {
+      const parsed = parseVersionScores(v.meta_json);
+      const eligibilityReason = v.approval_status === "approved"
+        ? "approved"
+        : (v.is_current ? "is_current" : null);
+      return {
+        id: v.id,
+        version_number: v.version_number,
+        approval_status: v.approval_status,
+        is_current: !!v.is_current,
+        ci: parsed.ci,
+        gp: parsed.gp,
+        scoreSource: parsed.scoreSource,
+        eligibilityReason,
+        origin: (v.meta_json?.accepted_by === "auto-run" || `${v.meta_json?.score_source || ""}`.startsWith("auto-run")) ? "auto_run" : "user",
+      };
+    })
+    .filter((v: any) => v.eligibilityReason && v.ci !== null && v.gp !== null) as any[];
+
+  const bestEligible = pickBestScoredVersion(eligibleScored as any);
+  if (bestEligible) {
+    console.log(`[auto-run][IEL] eligible_best_detected { job_id: "${ctx?.jobId || 'unknown'}", doc_type: "${ctx?.docType || 'unknown'}", document_id: "${documentId}", best_version_id: "${bestEligible.id}", best_ci: ${bestEligible.ci}, best_gp: ${bestEligible.gp}, score_source: "${bestEligible.scoreSource || 'unknown'}", eligibility_reason: "${bestEligible.eligibilityReason}", origin: "${bestEligible.origin}" }`);
+    return { versionId: bestEligible.id, source: "eligible_best_score", reason: `eligible_best:${bestEligible.eligibilityReason}` };
+  }
+
+  // C1) Best approved by latest version_number (fallback when scores are missing)
+  const bestApproved = allVersions.find((v: any) => v.approval_status === "approved");
   if (bestApproved) {
     console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${bestApproved.id}", reason: "best_approved", version_number: ${bestApproved.version_number} }`);
-    return { versionId: bestApproved.id, source: "best_approved" };
+    return { versionId: bestApproved.id, source: "best_approved", reason: "best_approved_by_version" };
   }
 
-  // C) is_current
-  const { data: currentVer } = await supabase.from("project_document_versions")
-    .select("id")
-    .eq("document_id", documentId)
-    .eq("is_current", true)
-    .order("version_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // C2) is_current
+  const currentVer = allVersions.find((v: any) => !!v.is_current);
   if (currentVer) {
     console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${currentVer.id}", reason: "is_current" }`);
-    return { versionId: currentVer.id, source: "is_current" };
+    return { versionId: currentVer.id, source: "is_current", reason: "is_current" };
   }
 
-  // D) Latest by version_number (final fallback)
-  const { data: latestVer } = await supabase.from("project_document_versions")
-    .select("id")
-    .eq("document_id", documentId)
-    .order("version_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // C3) latest by version_number (final fallback)
+  const latestVer = allVersions[0];
   if (latestVer) {
     console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${latestVer.id}", reason: "latest_version_number" }`);
-    return { versionId: latestVer.id, source: "latest_version_number" };
+    return { versionId: latestVer.id, source: "latest_version_number", reason: "latest_version_number" };
   }
 
   console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: null, reason: "no_versions" }`);
@@ -483,7 +630,7 @@ async function needsFreshReview(
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (!docRow) return { needed: false, activeVersionId: null, activeSource: null, lastReviewedVersionId: null, reason: "no_document" };
 
-  const resolved = await resolveActiveVersionForDoc(supabase, job, docRow.id);
+  const resolved = await resolveActiveVersionForDoc(supabase, job, docRow.id, { jobId, docType: currentDoc });
   if (!resolved) return { needed: false, activeVersionId: null, activeSource: null, lastReviewedVersionId: null, reason: "no_versions" };
 
   const activeVersionId = resolved.versionId;
@@ -6829,35 +6976,30 @@ Deno.serve(async (req) => {
             });
             return respondWithJob(supabase, jobId);
           }
-          let baselineVersionId = currentAccepted.id;
-
-          // ── BASELINE REANCHOR TO STAGE-SCOPED BEST (never mutates is_current) ──
-          // Uses getStageBestFromSteps() to derive best from auto_run_steps for current doc_type.
-          // If baseline has collapsed below stage best, re-anchor in-memory only.
-          {
-            const stageBest = await getStageBestFromSteps(supabase, jobId, currentDoc);
-            if (stageBest && stageBest.version_id !== baselineVersionId) {
-              const jobLastCI = (job as any).last_ci;
-              const jobLastGP = (job as any).last_gp;
-              
-              if (typeof jobLastCI === "number" && typeof jobLastGP === "number") {
-                const baselineComposite = jobLastCI + jobLastGP;
-                const REANCHOR_MARGIN = 20;
-                
-                if (stageBest.score - baselineComposite >= REANCHOR_MARGIN) {
-                  await logStep(supabase, jobId, null, currentDoc, "baseline_reanchored_to_best",
-                    `Baseline collapsed (CI=${jobLastCI} GP=${jobLastGP}, composite=${baselineComposite}) below stage best (CI=${stageBest.ci} GP=${stageBest.gp}, composite=${stageBest.score}). Re-anchor to ${stageBest.version_id}. is_current NOT changed.`,
-                    { ci: stageBest.ci, gp: stageBest.gp }, undefined,
-                    { old_baseline: baselineVersionId, new_baseline: stageBest.version_id, old_ci: jobLastCI, old_gp: jobLastGP, stage_best_ci: stageBest.ci, stage_best_gp: stageBest.gp, margin: stageBest.score - baselineComposite, REANCHOR_MARGIN, reason: 'stage_scoped_reanchor', source: 'auto_run_steps' });
-                  baselineVersionId = stageBest.version_id;
-                }
-              }
-            }
-            console.log(`[auto-run][IEL] baseline_selected { job_id: "${jobId}", doc_type: "${currentDoc}", baseline_version_id: "${baselineVersionId}", baseline_source: "${stageBest && baselineVersionId === stageBest.version_id ? 'stage_best_reanchor' : 'is_current'}", stage_best_available: ${!!stageBest} }`);
+          const abvrResolved = await resolveActiveVersionForDoc(supabase, job, doc.id, { jobId, docType: currentDoc });
+          if (!abvrResolved?.versionId) {
+            await logStep(supabase, jobId, null, currentDoc, "baseline_resolution_failed",
+              `ABVR could not resolve an active version for ${currentDoc}. Failing closed.`,
+              {}, undefined, { documentId: doc.id, docType: currentDoc, reason: "abvr_no_version" });
+            await updateJob(supabase, jobId, {
+              stage_loop_count: newLoopCount,
+              status: "paused",
+              pause_reason: "BASELINE_RESOLUTION_FAILED",
+              stop_reason: `ABVR could not resolve active baseline for ${currentDoc}.`,
+            });
+            return respondWithJob(supabase, jobId);
           }
 
-          // ── BASELINE SCORE REUSE OPTIMIZATION ──
-          // Reuse cached scores ONLY if last_analyzed_version_id === baselineVersionId AND scores are present
+          let baselineVersionId = abvrResolved.versionId;
+          const baselineSourceLabel = abvrResolved.source;
+
+          if (job.follow_latest && currentAccepted?.id && baselineVersionId !== currentAccepted.id) {
+            console.log(`[auto-run][IEL] abvr_baseline_divergence { job_id: "${jobId}", doc_type: "${currentDoc}", document_id: "${doc.id}", abvr_version_id: "${baselineVersionId}", abvr_reason: "${abvrResolved.reason}", current_version_id: "${currentAccepted.id}", note: "ABVR and is_current differ while follow_latest=true" }`);
+          }
+
+          console.log(`[auto-run][IEL] baseline_selected { job_id: "${jobId}", doc_type: "${currentDoc}", baseline_version_id: "${baselineVersionId}", baseline_source: "${baselineSourceLabel}", baseline_reason: "${abvrResolved.reason}" }`);
+
+          // ── BASELINE SCORE RESOLUTION (DB-PERSISTED source-of-truth) ──
           let baselineCI: number;
           let baselineGP: number;
           {
@@ -6867,19 +7009,51 @@ Deno.serve(async (req) => {
             const canReuseFromJob = jobLastAnalyzed2 === baselineVersionId
               && typeof jobLastCI2 === "number" && typeof jobLastGP2 === "number";
 
-            if (canReuseFromJob) {
+            const persisted = await getVersionScoreSnapshot(supabase, baselineVersionId);
+
+            if (persisted.ci !== null && persisted.gp !== null) {
+              baselineCI = persisted.ci;
+              baselineGP = persisted.gp;
+              console.log(`[auto-run][IEL] baseline_score_branch { job_id: "${jobId}", doc_type: "${currentDoc}", action: "reuse", baseline_version_id: "${baselineVersionId}", last_analyzed_version_id: "${jobLastAnalyzed2 || 'null'}", source: "version_meta_json", score_source: "${persisted.scoreSource || 'unknown'}" }`);
+              await logStep(supabase, jobId, null, currentDoc, "baseline_score_reused",
+                `Reused DB-persisted scores for baseline ${baselineVersionId}: CI=${baselineCI} GP=${baselineGP}`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                { source: "version_meta_json", score_source: persisted.scoreSource, baselineVersionId, last_analyzed_version_id: jobLastAnalyzed2 });
+
+              if (jobLastAnalyzed2 !== baselineVersionId || jobLastCI2 !== baselineCI || jobLastGP2 !== baselineGP) {
+                await updateJob(supabase, jobId, {
+                  last_analyzed_version_id: baselineVersionId,
+                  last_ci: baselineCI,
+                  last_gp: baselineGP,
+                });
+              }
+            } else if (canReuseFromJob) {
               baselineCI = jobLastCI2;
               baselineGP = jobLastGP2;
+              console.log(`[auto-run][IEL] baseline_score_branch { job_id: "${jobId}", doc_type: "${currentDoc}", action: "reuse", baseline_version_id: "${baselineVersionId}", last_analyzed_version_id: "${jobLastAnalyzed2}", source: "job_cache_backfill" }`);
+
+              const persistedFromJob = await persistVersionScores(supabase, {
+                versionId: baselineVersionId,
+                ci: baselineCI,
+                gp: baselineGP,
+                source: "auto-run-job-cache-sync",
+                jobId,
+                protectHigher: false,
+                docType: currentDoc,
+              });
+              baselineCI = persistedFromJob.ci;
+              baselineGP = persistedFromJob.gp;
+
               await logStep(supabase, jobId, null, currentDoc, "baseline_score_reused",
-                `Reused job-cached scores for baseline ${baselineVersionId}: CI=${baselineCI} GP=${baselineGP}`,
+                `Reused job cache and backfilled version scores for baseline ${baselineVersionId}: CI=${baselineCI} GP=${baselineGP}`,
                 { ci: baselineCI, gp: baselineGP }, undefined,
-                { source: "job_cache", baselineVersionId, last_analyzed_version_id: jobLastAnalyzed2 });
+                { source: "job_cache_backfill", baselineVersionId, last_analyzed_version_id: jobLastAnalyzed2 });
             } else {
-              // Must re-score baseline (mismatch or missing scores)
               await logStep(supabase, jobId, null, currentDoc, "baseline_score_rescored",
                 `Re-scoring baseline ${baselineVersionId} (last_analyzed=${jobLastAnalyzed2 || 'null'}, mismatch=${jobLastAnalyzed2 !== baselineVersionId})`,
                 {}, undefined,
-                { baselineVersionId, last_analyzed_version_id: jobLastAnalyzed2, reason: jobLastAnalyzed2 !== baselineVersionId ? 'version_mismatch' : 'scores_missing' });
+                { baselineVersionId, last_analyzed_version_id: jobLastAnalyzed2, reason: jobLastAnalyzed2 !== baselineVersionId ? "version_mismatch" : "scores_missing" });
+              console.log(`[auto-run][IEL] baseline_score_branch { job_id: "${jobId}", doc_type: "${currentDoc}", action: "analyze", baseline_version_id: "${baselineVersionId}", last_analyzed_version_id: "${jobLastAnalyzed2 || 'null'}", source: "dev-engine-v2" }`);
               try {
                 const baselineScoreResult = await callEdgeFunctionWithRetry(
                   supabase, supabaseUrl, "dev-engine-v2", {
@@ -6896,10 +7070,20 @@ Deno.serve(async (req) => {
                 if (baselineScores.ci === null || baselineScores.gp === null) {
                   throw new Error(`Baseline scoring returned nulls (CI=${baselineScores.ci}, GP=${baselineScores.gp})`);
                 }
-                baselineCI = baselineScores.ci;
-                baselineGP = baselineScores.gp;
 
-                // Update job cache with fresh baseline scores
+                const persistedFromAnalyze = await persistVersionScores(supabase, {
+                  versionId: baselineVersionId,
+                  ci: baselineScores.ci,
+                  gp: baselineScores.gp,
+                  source: "auto-run-analyze",
+                  jobId,
+                  protectHigher: true,
+                  docType: currentDoc,
+                });
+
+                baselineCI = persistedFromAnalyze.ci;
+                baselineGP = persistedFromAnalyze.gp;
+
                 await updateJob(supabase, jobId, {
                   last_analyzed_version_id: baselineVersionId,
                   last_ci: baselineCI,
@@ -6920,7 +7104,7 @@ Deno.serve(async (req) => {
             }
           }
 
-          console.log(`[auto-run][IEL] baseline_selected { job_id: "${jobId}", doc_type: "${currentDoc}", baseline_version_id: "${baselineVersionId}", baseline_ci: ${baselineCI}, baseline_gp: ${baselineGP}, baseline_source: "${baselineVersionId === currentAccepted.id ? 'is_current' : 'reanchored_best'}" }`);
+          console.log(`[auto-run][IEL] baseline_selected { job_id: "${jobId}", doc_type: "${currentDoc}", baseline_version_id: "${baselineVersionId}", baseline_ci: ${baselineCI}, baseline_gp: ${baselineGP}, baseline_source: "${baselineSourceLabel}" }`);
 
           const BASE_REGRESSION_THRESHOLD = getRegressionThreshold(currentDoc); // PROMOTE_DELTA — unchanged
           const BASE_EXPLORE_THRESHOLD = getExploreThreshold(currentDoc);       // EXPLORE_DELTA
@@ -7027,34 +7211,80 @@ Deno.serve(async (req) => {
             });
             if (promoteErr) {
               await logStep(supabase, jobId, null, currentDoc, "promote_failed",
-                `set_current_version failed: ${promoteErr.message}. Baseline preserved.`,
+                `set_current_version failed: ${promoteErr.message}. Failing closed.`,
                 { ci: baselineCI, gp: baselineGP }, undefined,
                 { ...meta, error: promoteErr.message });
+              await updateJob(supabase, jobId, {
+                stage_loop_count: newLoopCount,
+                status: "paused",
+                pause_reason: "PROMOTE_FAILED",
+                stop_reason: `Promotion failed for ${currentDoc}: ${promoteErr.message}`,
+              });
               return false;
             }
 
-            // ── IEL: Mark accepted candidate as approved so ABVR best_approved path resolves correctly ──
-            const { error: approvalErr } = await supabase.from("project_document_versions").update({
-              approval_status: "approved",
-              approved_at: new Date().toISOString(),
-              approved_by: job.user_id,
-              meta_json: {
-                accepted_by: "auto-run",
-                accepted_from: meta.strategy || "fork",
-                job_id: jobId,
+            let acceptedCI = candCI;
+            let acceptedGP = candGP;
+
+            try {
+              const persistedForkScore = await persistVersionScores(supabase, {
+                versionId: candVersionId,
                 ci: candCI,
                 gp: candGP,
-              },
-            }).eq("id", candVersionId);
-            if (approvalErr) {
-              console.warn(`[auto-run][IEL] candidate_approval_stamp_failed { version_id: "${candVersionId}", error: "${approvalErr.message}" }`);
+                source: "auto-run-fork",
+                jobId,
+                protectHigher: true,
+                docType: currentDoc,
+              });
+
+              acceptedCI = persistedForkScore.ci;
+              acceptedGP = persistedForkScore.gp;
+
+              const latestScoreSnapshot = await getVersionScoreSnapshot(supabase, candVersionId);
+              const latestMeta = latestScoreSnapshot.meta && typeof latestScoreSnapshot.meta === "object" && !Array.isArray(latestScoreSnapshot.meta)
+                ? latestScoreSnapshot.meta
+                : {};
+
+              const approvalPayloadMeta = {
+                ...latestMeta,
+                accepted_by: "auto-run",
+                accepted_from: meta.strategy || "fork",
+                accepted_at: new Date().toISOString(),
+                accepted_job_id: jobId,
+              };
+
+              const { error: approvalErr } = await supabase.from("project_document_versions").update({
+                approval_status: "approved",
+                approved_at: new Date().toISOString(),
+                approved_by: job.user_id,
+                meta_json: approvalPayloadMeta,
+              }).eq("id", candVersionId);
+
+              if (approvalErr) {
+                throw new Error(approvalErr.message);
+              }
+            } catch (approvalStampErr: any) {
+              console.warn(`[auto-run][IEL] candidate_approval_stamp_failed { version_id: "${candVersionId}", error: "${approvalStampErr?.message || 'unknown'}" }`);
+              await logStep(supabase, jobId, null, currentDoc, "candidate_approval_stamp_failed",
+                `Approval/score persistence failed for accepted candidate ${candVersionId}. Failing closed.`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                { job_id: jobId, document_id: doc.id, version_id: candVersionId, error: approvalStampErr?.message || "unknown", rls_hint: "verify UPDATE policy/service role write path" });
+              await updateJob(supabase, jobId, {
+                stage_loop_count: newLoopCount,
+                status: "paused",
+                pause_reason: "CANDIDATE_APPROVAL_STAMP_FAILED",
+                stop_reason: `Accepted version stamp failed for ${currentDoc}.`,
+                error: approvalStampErr?.message || "candidate_approval_stamp_failed",
+              });
+              return false;
             }
-            console.log(`[auto-run][IEL] candidate_accepted_persisted { document_id: "${doc.id}", accepted_version_id: "${candVersionId}", approval_status_set: "approved", job_id: "${jobId}", step_index: ${newStep}, ci: ${candCI}, gp: ${candGP} }`);
+
+            console.log(`[auto-run][IEL] candidate_accepted_persisted { document_id: "${doc.id}", accepted_version_id: "${candVersionId}", approval_status_set: "approved", job_id: "${jobId}", step_index: ${newStep}, ci: ${acceptedCI}, gp: ${acceptedGP} }`);
 
             // ── BLOCKER-AWARE BEST-OF TRACKING (STAGE-SCOPED from auto_run_steps + GLOBAL best update) ──
             // Stage-scoped best is derived from DB; global best_* on job is informational only.
             const stageBest = await getStageBestFromSteps(supabase, jobId, currentDoc);
-            const candidateComposite = candCI + candGP;
+            const candidateComposite = acceptedCI + acceptedGP;
             const cbc = candBlockerCount ?? 0;
 
             // Compare against stage-scoped best for [NEW BEST] label
@@ -7078,17 +7308,18 @@ Deno.serve(async (req) => {
             const stagnationCount = (hasBlockers && !blockersImproved && lastBlockerCount !== null) ? prevStagnation + 1 : 0;
 
             await logStep(supabase, jobId, null, currentDoc, "rewrite_accepted",
-              `Candidate accepted (attempt ${attemptNumber}, ${strategy}). CI: ${baselineCI}→${candCI}, GP: ${baselineGP}→${candGP}. Blockers: ${blockersCount}→${cbc}${blockersImproved ? ' ✓ improved' : ''}${isStageBest ? ' [STAGE BEST]' : ''}${isGlobalBest ? ' [GLOBAL BEST]' : ''}`,
-              { ci: candCI, gp: candGP }, undefined,
-              { ...meta, attemptNumber, strategy, isStageBest, isGlobalBest, blocker_count_before: blockersCount, blocker_count_after: cbc, blockers_improved: blockersImproved, stagnation_count: stagnationCount });
+              `Candidate accepted (attempt ${attemptNumber}, ${strategy}). CI: ${baselineCI}→${acceptedCI}, GP: ${baselineGP}→${acceptedGP}. Blockers: ${blockersCount}→${cbc}${blockersImproved ? ' ✓ improved' : ''}${isStageBest ? ' [STAGE BEST]' : ''}${isGlobalBest ? ' [GLOBAL BEST]' : ''}`,
+              { ci: acceptedCI, gp: acceptedGP }, undefined,
+              { ...meta, attemptNumber, strategy, isStageBest, isGlobalBest, blocker_count_before: blockersCount, blocker_count_after: cbc, blockers_improved: blockersImproved, stagnation_count: stagnationCount, accepted_version_id: candVersionId, score_source: "auto-run-fork" });
 
             const jobUpdate: Record<string, any> = {
               stage_loop_count: newLoopCount,
               follow_latest: true,
               resume_document_id: doc.id,
               resume_version_id: candVersionId,
-              last_ci: candCI,
-              last_gp: candGP,
+              last_analyzed_version_id: candVersionId,
+              last_ci: acceptedCI,
+              last_gp: acceptedGP,
               last_blocker_count: cbc,
               stagnation_no_blocker_count: stagnationCount,
               // Clear frontier on successful promotion
@@ -7100,18 +7331,20 @@ Deno.serve(async (req) => {
             // Update global best_* (informational only — never used for stage decisions)
             if (isGlobalBest) {
               jobUpdate.best_version_id = candVersionId;
-              jobUpdate.best_ci = candCI;
-              jobUpdate.best_gp = candGP;
+              jobUpdate.best_ci = acceptedCI;
+              jobUpdate.best_gp = acceptedGP;
               jobUpdate.best_score = candidateComposite;
               jobUpdate.best_document_id = doc.id;
               jobUpdate.best_blocker_count = cbc;
               jobUpdate.best_blocker_score = cbc;
-              console.log(`[auto-run][IEL] global_best_updated { job_id: "${jobId}", doc_type: "${currentDoc}", version_id: "${candVersionId}", ci: ${candCI}, gp: ${candGP}, composite: ${candidateComposite}, note: "informational_only" }`);
+              console.log(`[auto-run][IEL] global_best_updated { job_id: "${jobId}", doc_type: "${currentDoc}", version_id: "${candVersionId}", ci: ${acceptedCI}, gp: ${acceptedGP}, composite: ${candidateComposite}, note: "informational_only" }`);
             }
             if (isStageBest) {
-              console.log(`[auto-run][IEL] promote_selected { job_id: "${jobId}", doc_type: "${currentDoc}", promoted_version_id: "${candVersionId}", ci: ${candCI}, gp: ${candGP}, composite: ${candidateComposite}, source: "stage_best_from_steps" }`);
+              console.log(`[auto-run][IEL] promote_selected { job_id: "${jobId}", doc_type: "${currentDoc}", promoted_version_id: "${candVersionId}", ci: ${acceptedCI}, gp: ${acceptedGP}, composite: ${candidateComposite}, source: "stage_best_from_steps" }`);
             }
             await updateJob(supabase, jobId, jobUpdate);
+
+            console.log(`[auto-run][IEL] acceptance_anchor_set { job_id: "${jobId}", doc_type: "${currentDoc}", document_id: "${doc.id}", accepted_version_id: "${candVersionId}", last_analyzed_version_id: "${candVersionId}", last_ci: ${acceptedCI}, last_gp: ${acceptedGP}, score_source: "auto-run-fork", eligibility_reason: "approved_after_accept" }`);
             return true;
           }
 
@@ -7414,13 +7647,7 @@ Deno.serve(async (req) => {
                   winner.blockerCount
                 );
                 if (!promoted) {
-                  await updateJob(supabase, jobId, {
-                    stage_loop_count: newLoopCount,
-                    follow_latest: false,
-                    resume_document_id: doc.id,
-                    resume_version_id: baselineVersionId,
-                    last_ci: baselineCI, last_gp: baselineGP,
-                  });
+                  return respondWithJob(supabase, jobId);
                 }
                 return respondWithJob(supabase, jobId, "run-next");
               }
@@ -7599,13 +7826,7 @@ Deno.serve(async (req) => {
                 candidateBlockerCount
               );
               if (!promoted) {
-                await updateJob(supabase, jobId, {
-                  stage_loop_count: newLoopCount,
-                  follow_latest: false,
-                  resume_document_id: doc.id,
-                  resume_version_id: baselineVersionId,
-                  last_ci: baselineCI, last_gp: baselineGP,
-                });
+                return respondWithJob(supabase, jobId);
               }
               return respondWithJob(supabase, jobId, "run-next");
             }
