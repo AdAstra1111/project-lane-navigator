@@ -1308,6 +1308,197 @@ export type Database = {
           },
         ]
       }
+      canon_unit_mentions: {
+        Row: {
+          confidence: number
+          created_at: string
+          document_id: string
+          id: string
+          offset_end: number | null
+          offset_start: number | null
+          unit_id: string
+          version_id: string
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          document_id: string
+          id?: string
+          offset_end?: number | null
+          offset_start?: number | null
+          unit_id: string
+          version_id: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          document_id?: string
+          id?: string
+          offset_end?: number | null
+          offset_start?: number | null
+          unit_id?: string
+          version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canon_unit_mentions_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "canon_unit_mentions_unit_id_fkey"
+            columns: ["unit_id"]
+            isOneToOne: false
+            referencedRelation: "canon_units"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "canon_unit_mentions_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      canon_unit_relations: {
+        Row: {
+          attributes: Json
+          confidence: number
+          created_at: string
+          id: string
+          project_id: string
+          relation_type: string
+          unit_id_from: string
+          unit_id_to: string
+        }
+        Insert: {
+          attributes?: Json
+          confidence?: number
+          created_at?: string
+          id?: string
+          project_id: string
+          relation_type: string
+          unit_id_from: string
+          unit_id_to: string
+        }
+        Update: {
+          attributes?: Json
+          confidence?: number
+          created_at?: string
+          id?: string
+          project_id?: string
+          relation_type?: string
+          unit_id_from?: string
+          unit_id_to?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canon_unit_relations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "canon_unit_relations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "canon_unit_relations_unit_id_from_fkey"
+            columns: ["unit_id_from"]
+            isOneToOne: false
+            referencedRelation: "canon_units"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "canon_unit_relations_unit_id_to_fkey"
+            columns: ["unit_id_to"]
+            isOneToOne: false
+            referencedRelation: "canon_units"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      canon_units: {
+        Row: {
+          attributes: Json
+          confidence: number
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string
+          project_id: string
+          provenance_hash: string | null
+          source_document_id: string | null
+          source_version_id: string | null
+          unit_type: string
+          updated_at: string
+        }
+        Insert: {
+          attributes?: Json
+          confidence?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label: string
+          project_id: string
+          provenance_hash?: string | null
+          source_document_id?: string | null
+          source_version_id?: string | null
+          unit_type: string
+          updated_at?: string
+        }
+        Update: {
+          attributes?: Json
+          confidence?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          project_id?: string
+          provenance_hash?: string | null
+          source_document_id?: string | null
+          source_version_id?: string | null
+          unit_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canon_units_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "canon_units_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "canon_units_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "canon_units_source_version_id_fkey"
+            columns: ["source_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cast_trends: {
         Row: {
           actor_name: string
