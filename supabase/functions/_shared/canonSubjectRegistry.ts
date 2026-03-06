@@ -6,8 +6,8 @@
  * assigns stable identities, computes subject-level deltas, and determines
  * projection targets for narrowed invalidation.
  *
- * Safe first rollout: format_rule, character_fact, relationship_fact,
- * concept_claim, season_arc_obligation.
+ * Safe initial rollout: format_rule, concept_claim, character_fact.
+ * Deferred (non-deterministic identity): relationship_fact, season_arc_obligation.
  *
  * ARCHITECTURE:
  * - Zero schema drift: operates on existing canon_json + dependency registry
