@@ -258,6 +258,7 @@ export default function ProjectDevelopmentEngine() {
   const [globalWritersRoomOpen, setGlobalWritersRoomOpen] = useState(false);
   const [nextActionNoteId, setNextActionNoteId] = useState<string | null>(null);
   const [nextActionDrawerOpen, setNextActionDrawerOpen] = useState(false);
+  const lastPromotionGateVersionRef = useRef<string | null>(null);
 
   // Canonical notes for NextActionsPanel
   const { data: canonicalNotes = [] } = useProjectNotes(projectId, {
