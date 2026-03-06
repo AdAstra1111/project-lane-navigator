@@ -473,30 +473,112 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
       return jsonRes({ error: "failure_modes must contain 3-5 entries" }, 422);
     }
 
-    // ── NUE-INFORMED STRUCTURAL SELF-CHECK (deterministic, post-generation) ──
-    const nueFailures: string[] = [];
-    const sv = parsed.sustainability_validation || {};
-    const da = parsed.differentiation_analysis || {};
-    const eit = parsed.engine_inevitability_test || {};
-
-    if (!sv.narrative_fuel || String(sv.narrative_fuel).trim().length < 15) nueFailures.push("missing_story_engine");
-    if (!sv.character_engine || String(sv.character_engine).trim().length < 15) nueFailures.push("missing_relationship_tension");
-    if (!da.unique_angle || String(da.unique_angle).trim().length < 10) nueFailures.push("missing_market_hook");
-    if (!eit.natural_pressure_source || String(eit.natural_pressure_source).trim().length < 10) nueFailures.push("missing_antagonist_force");
-
+    // ── PROPULSION VALIDATOR (deterministic, fail-closed) ──
     const seedIsEpisodic = ["tv-series", "limited-series", "digital-series", "vertical-drama", "anim-series", "reality", "series"].includes(lane);
-    if (seedIsEpisodic && (!sv.longevity_assessment || String(sv.longevity_assessment).trim().length < 10)) {
-      nueFailures.push("missing_serial_scalability");
+    const seedIsVD = lane === "vertical-drama";
+
+    function classifySeedPropulsion(p: any): { sources: string[]; primary: string | null; durable: boolean; failures: string[] } {
+      const sv = p.sustainability_validation || {};
+      const da = p.differentiation_analysis || {};
+      const eit = p.engine_inevitability_test || {};
+      const cd = p.concept_distillation || {};
+      const sources: string[] = [];
+      const failures: string[] = [];
+
+      const fuel = String(sv.narrative_fuel || "").trim();
+      const charEng = String(sv.character_engine || "").trim();
+      const pressure = String(eit.natural_pressure_source || "").trim();
+      const concept = String(cd.core_concept || "").trim();
+
+      // 1. Protagonist objective
+      if (concept.length >= 15 && !/vague|unclear/i.test(concept)) sources.push("protagonist_objective");
+      // 2. External pressure engine
+      if (pressure.length >= 15 && !/internal conflict alone|purely internal|self-doubt only/i.test(pressure)) sources.push("external_pressure_engine");
+      // 3. Relationship escalation
+      if (charEng.length >= 15 && /escala|forbidden|betray|rival|scandal|contract|trap|obligation|tension|conflict|pressure/i.test(charEng)) sources.push("relationship_escalation_engine");
+      // 4. Investigation
+      if (/investig|mystery|uncover|secret|conspiracy|detective|solve|revelation/i.test(fuel)) sources.push("investigation_engine");
+      // 5. Survival
+      if (/surviv|threat|siege|escape|hunted|pursuit|trapped|life.or.death/i.test(fuel)) sources.push("survival_threat_engine");
+      // 6. Competition/system
+      if (/compet|career|system|institution|corporate|political|ambition|power.struggle|status/i.test(fuel) ||
+          /compet|career|system|institution|corporate|political/i.test(pressure)) sources.push("competition_system_engine");
+
+      // Field presence
+      if (!da.unique_angle || String(da.unique_angle).trim().length < 10) failures.push("missing_market_hook");
+      if (fuel.length < 15) failures.push("missing_story_engine");
+
+      let durable = sources.length > 0;
+      if (seedIsVD) {
+        const hasRepeatable = sources.some(s => s !== "protagonist_objective");
+        if (!hasRepeatable) { durable = false; failures.push("vd_no_durable_serial_propulsion"); }
+        if (!sv.longevity_assessment || String(sv.longevity_assessment).trim().length < 10) failures.push("missing_serial_scalability");
+      } else if (seedIsEpisodic) {
+        if (sources.length <= 1 && !sources.some(s => s !== "protagonist_objective")) { durable = false; failures.push("episodic_weak_propulsion"); }
+      }
+
+      return { sources, primary: sources[0] || null, durable, failures };
     }
 
-    console.log(`[generate-seed-pack][IEL] nue_structural_self_check { project_id: "${projectId}", lane: "${lane}", failures: ${JSON.stringify(nueFailures)}, pass: ${nueFailures.length === 0} }`);
+    let seedPropulsion = classifySeedPropulsion(parsed);
+    console.log(`[generate-seed-pack][IEL] propulsion_validator { project_id: "${projectId}", lane: "${lane}", sources: ${JSON.stringify(seedPropulsion.sources)}, durable: ${seedPropulsion.durable}, failures: ${JSON.stringify(seedPropulsion.failures)} }`);
 
-    if (nueFailures.length > 0) {
-      parsed._structural_failures = nueFailures;
-      parsed._structural_pass = false;
-    } else {
-      parsed._structural_pass = true;
+    // ── SINGLE REPAIR RETRY if propulsion fails ──
+    if (!seedPropulsion.durable || seedPropulsion.failures.length > 0) {
+      console.warn(`[generate-seed-pack][IEL] propulsion_repair_triggered { project_id: "${projectId}", failures: ${JSON.stringify(seedPropulsion.failures)} }`);
+      try {
+        const repairPrompt = `STRUCTURAL REPAIR. Previous output had failures: ${seedPropulsion.failures.join(", ")}.
+Fix by strengthening propulsion sources. Allowed propulsion types: protagonist_objective, external_pressure_engine, relationship_escalation_engine, investigation_engine, survival_threat_engine, competition_system_engine.
+A reactive protagonist is ALLOWED if supported by durable external propulsion.
+${seedIsVD ? "VERTICAL DRAMA: needs repeatable 30+ episode external escalation, not just romance/vibe." : ""}
+Preserve the concept. Return the same JSON schema with structural elements strengthened.`;
+
+        const repairResult = await callLLM({
+          apiKey,
+          model: MODELS.FAST,
+          system: systemPrompt + "\n\n" + repairPrompt,
+          user: `Repair this seed pack:\n\n${JSON.stringify(parsed, null, 2)}`,
+          temperature: 0.2,
+          maxTokens: 8000,
+          retries: 0,
+        });
+
+        const repairCleaned = extractJSON(repairResult.content);
+        const repaired = JSON.parse(repairCleaned);
+        const repairPropulsion = classifySeedPropulsion(repaired);
+        console.log(`[generate-seed-pack][IEL] propulsion_repair_result { project_id: "${projectId}", sources: ${JSON.stringify(repairPropulsion.sources)}, durable: ${repairPropulsion.durable} }`);
+
+        if (repairPropulsion.durable && repairPropulsion.failures.length === 0) {
+          // Merge repaired analysis keys back while preserving structure
+          for (const key of ["concept_distillation", "emotional_thesis", "differentiation_analysis",
+            "sustainability_validation", "polarity_lock", "engine_inevitability_test", "failure_modes",
+            "risk_posture", "narrative_energy_contract", "final_seed_docs", "compression"]) {
+            if (repaired[key]) parsed[key] = repaired[key];
+          }
+          parsed._structural_repaired = true;
+          seedPropulsion = repairPropulsion;
+        }
+      } catch (repairErr) {
+        console.error(`[generate-seed-pack] Repair retry failed:`, repairErr);
+      }
     }
+
+    parsed._propulsion_sources = seedPropulsion.sources;
+    parsed._propulsion_primary = seedPropulsion.primary;
+    parsed._structural_pass = seedPropulsion.durable && seedPropulsion.failures.length === 0;
+    parsed._structural_failures = seedPropulsion.failures;
+
+    if (!parsed._structural_pass) {
+      console.error(`[generate-seed-pack][IEL] propulsion_gate_blocked { project_id: "${projectId}", failures: ${JSON.stringify(seedPropulsion.failures)} }`);
+      return jsonRes({
+        success: false, insertedCount: 0, updatedCount: 0,
+        error: "Seed lacks durable propulsion after repair attempt",
+        structural_failures: seedPropulsion.failures,
+        propulsion_sources: seedPropulsion.sources,
+      }, 422);
+    }
+
+    console.log(`[generate-seed-pack][IEL] propulsion_gate_passed { project_id: "${projectId}", sources: ${JSON.stringify(seedPropulsion.sources)}, repaired: ${parsed._structural_repaired || false} }`);
 
     // Validate risk_posture.derived_mode
     const validModes = ["robust", "edge", "provocative"];
