@@ -7900,6 +7900,59 @@ Deno.serve(async (req) => {
               }, jobId, newStep + 2, format, currentDoc
             );
 
+            // ── PHASE 2D-B: TRUE EPISODIC BLOCK PATCH EXECUTION ──
+            // After rewrite, if episode targeting was active, enforce episode-block integrity:
+            // Merge only the target episode from rewritten output; preserve all others from original.
+            if (episodicTargetEpisode != null && originalFullContent && candidateVersionId) {
+              try {
+                const { enforceEpisodeBlockIntegrity } = await import("../_shared/episodicBlockRegistry.ts");
+
+                const { data: candidateVer } = await supabase
+                  .from("project_document_versions")
+                  .select("plaintext")
+                  .eq("id", candidateVersionId)
+                  .maybeSingle();
+
+                const rewrittenContent = candidateVer?.plaintext || "";
+                if (rewrittenContent.length > 0) {
+                  const integrity = enforceEpisodeBlockIntegrity(originalFullContent, rewrittenContent, episodicTargetEpisode);
+
+                  if (integrity.ok && integrity.target_episode_found) {
+                    // Write the deterministically merged content
+                    await supabase.from("project_document_versions")
+                      .update({ plaintext: integrity.merged_content })
+                      .eq("id", candidateVersionId);
+
+                    console.log(`[auto-run][Phase2D-B] episode_integrity_enforced: target_ep=${episodicTargetEpisode} preserved=${integrity.episodes_preserved} corrected=${integrity.episodes_corrected} reason=${integrity.reason}`);
+                  } else if (integrity.target_episode_found) {
+                    // Integrity issues but target was found — still use merged content as best effort
+                    await supabase.from("project_document_versions")
+                      .update({ plaintext: integrity.merged_content })
+                      .eq("id", candidateVersionId);
+
+                    console.warn(`[auto-run][Phase2D-B] episode_integrity_partial: target_ep=${episodicTargetEpisode} missing=${integrity.episodes_missing.join(",")} reason=${integrity.reason}`);
+                  } else {
+                    // Target episode not found — fall back to full rewrite (don't replace)
+                    console.warn(`[auto-run][Phase2D-B] episode_integrity_fallback: target_ep=${episodicTargetEpisode} not found in rewritten output`);
+                  }
+
+                  if (episodicRepairMeta) {
+                    episodicRepairMeta.episodes_preserved = integrity.episodes_preserved;
+                    episodicRepairMeta.episodes_corrected = integrity.episodes_corrected;
+                    episodicRepairMeta.episodes_missing = integrity.episodes_missing;
+                    episodicRepairMeta.integrity_ok = integrity.ok;
+                    episodicRepairMeta.target_episode_found = integrity.target_episode_found;
+                  }
+                }
+              } catch (integrityErr: any) {
+                console.warn(`[auto-run][Phase2D-B] episode_integrity_error: ${integrityErr?.message}`);
+                if (episodicRepairMeta) {
+                  episodicRepairMeta.integrity_ok = false;
+                  episodicRepairMeta.integrity_error = integrityErr?.message;
+                }
+              }
+            }
+
             // ── PHASE 2D HARDENING: TRUE SECTION-ONLY PATCH EXECUTION ──
             // After rewrite, if section targeting was active, enforce section integrity:
             // Replace untouched sections with original verbatim content to guarantee preservation.
@@ -7907,7 +7960,6 @@ Deno.serve(async (req) => {
               try {
                 const { parseSections, replaceSection: replaceSec } = await import("../_shared/sectionRepairEngine.ts");
 
-                // Read the rewritten version content
                 const { data: candidateVer } = await supabase
                   .from("project_document_versions")
                   .select("plaintext")
@@ -7919,25 +7971,18 @@ Deno.serve(async (req) => {
                   const originalSections = parseSections(originalFullContent, currentDoc);
                   const rewrittenSections = parseSections(rewrittenContent, currentDoc);
 
-                  // Integrity check: verify target section exists in rewritten output
                   const targetInRewritten = rewrittenSections.find(s => s.section_key === sectionTargetKey);
 
                   if (targetInRewritten && originalSections.length >= 2 && rewrittenSections.length >= 2) {
-                    // Build merged document: original sections everywhere EXCEPT the target section
                     let mergedContent = rewrittenContent;
                     let sectionsPreserved = 0;
                     let sectionsCorrected = 0;
 
                     for (const origSec of originalSections) {
                       if (origSec.section_key === sectionTargetKey || origSec.section_key === "__preamble") continue;
-
-                      // Find this section in the rewritten output
                       const rewrittenSec = rewrittenSections.find(s => s.section_key === origSec.section_key);
                       if (!rewrittenSec) continue;
-
-                      // Check if content is identical
                       if (rewrittenSec.content.trim() !== origSec.content.trim()) {
-                        // AI modified a non-targeted section — replace with original
                         const result = replaceSec(mergedContent, currentDoc, origSec.section_key, origSec.content);
                         if (result.success) {
                           mergedContent = result.new_content;
@@ -7948,12 +7993,10 @@ Deno.serve(async (req) => {
                       }
                     }
 
-                    // Write merged content back if corrections were needed
                     if (sectionsCorrected > 0) {
                       await supabase.from("project_document_versions")
                         .update({ plaintext: mergedContent })
                         .eq("id", candidateVersionId);
-
                       console.log(`[auto-run][Phase2D] section_integrity_enforced: corrected=${sectionsCorrected} preserved=${sectionsPreserved} target=${sectionTargetKey}`);
                     } else {
                       console.log(`[auto-run][Phase2D] section_integrity_clean: all_preserved=${sectionsPreserved} target=${sectionTargetKey}`);
@@ -7965,7 +8008,6 @@ Deno.serve(async (req) => {
                       sectionRepairMeta.integrity_enforced = sectionsCorrected > 0;
                     }
                   } else {
-                    // Target section not found in rewritten output or insufficient sections — log but don't fail
                     console.warn(`[auto-run][Phase2D] section_integrity_skip: target_found=${!!targetInRewritten} orig_sections=${originalSections.length} rewritten_sections=${rewrittenSections.length}`);
                     if (sectionRepairMeta) {
                       sectionRepairMeta.integrity_enforced = false;
@@ -7980,6 +8022,14 @@ Deno.serve(async (req) => {
                   sectionRepairMeta.integrity_error = integrityErr?.message;
                 }
               }
+            }
+
+            // Log episodic block repair metadata for provenance
+            if (episodicRepairMeta) {
+              await logStep(supabase, jobId, null, currentDoc, "episode_block_repair_execution",
+                `Episode block repair: ${episodicRepairMeta.repair_target_type} [ep=${episodicRepairMeta.episode_number || "none"}] exec=${episodicRepairMeta.block_execution_mode} preserved=${episodicRepairMeta.episodes_preserved || 0}`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                episodicRepairMeta);
             }
 
             // Log section repair metadata for provenance
