@@ -337,7 +337,7 @@ export async function invalidateDescendants(
       if (!docs || docs.length === 0) continue;
 
       for (const doc of docs) {
-        if (entry.invalidation_policy === "stale") {
+        if (effectivePolicy === "stale") {
           // Hard invalidation — mark stale
           const { data: updated, error } = await supabase
             .from("project_document_versions")
@@ -353,7 +353,7 @@ export async function invalidateDescendants(
           if (!error && updated && updated.length > 0) {
             invalidatedDocs.push(entry.doc_type);
           }
-        } else if (entry.invalidation_policy === "review_only") {
+        } else if (effectivePolicy === "review_only") {
           // Soft invalidation — mark for review without forcing regen
           const { data: updated, error } = await supabase
             .from("project_document_versions")
