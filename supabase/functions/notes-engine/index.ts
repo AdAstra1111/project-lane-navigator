@@ -506,6 +506,14 @@ Generate a concrete change plan with exact text snippets from the document.`;
         changeEventId, newVersionId: (newVersion as any).id, newVersionNumber: (newVersion as any).version_number,
       }, userId);
 
+      // ── LIFECYCLE ENGINE: mark repair applied ──
+      try {
+        const normalizedIssue = normalizeIssueRecord("project_notes", { id: event.note_id, project_id: projectId_, ...note, status: "applied" });
+        await markIssueRepairApplied(db, normalizedIssue, userId, (newVersion as any).id, changeEventId);
+      } catch (lcErr: any) {
+        console.warn("[notes-engine] lifecycle markIssueRepairApplied non-fatal:", lcErr?.message);
+      }
+
       // ── DESCENDANT INVALIDATION after upstream repair ──
       // If the repaired doc is upstream of other docs, invalidate descendants.
       let invalidationResult = { invalidatedDocs: [] as string[], affectedJobIds: [] as string[] };
@@ -529,6 +537,15 @@ Generate a concrete change plan with exact text snippets from the document.`;
               new_version_id: (newVersion as any).id,
               lane,
             }, userId);
+
+            // ── LIFECYCLE ENGINE: mark descendants invalidated ──
+            try {
+              const normalizedIssue = normalizeIssueRecord("project_notes", { id: event.note_id, project_id: projectId_, ...note, status: "applied" });
+              await markIssueDescendantsInvalidated(db, normalizedIssue, userId, invalidationResult.invalidatedDocs, invalidationResult.affectedJobIds);
+            } catch (lcErr: any) {
+              console.warn("[notes-engine] lifecycle markIssueDescendantsInvalidated non-fatal:", lcErr?.message);
+            }
+
             console.log(`[notes-engine] descendant_invalidation { project_id: "${projectId_}", repaired: "${repairedDocType}", invalidated: ${JSON.stringify(invalidationResult.invalidatedDocs)}, affected_jobs: ${JSON.stringify(invalidationResult.affectedJobIds)} }`);
           }
         }
