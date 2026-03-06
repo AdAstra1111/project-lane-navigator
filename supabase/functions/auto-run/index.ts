@@ -6852,6 +6852,35 @@ Deno.serve(async (req) => {
             }
           }
 
+          // ── IEL: UPSTREAM NOTE DEBT GATE ──
+          // Check project_deferred_notes for unresolved upstream notes targeting this doc type.
+          // If high-severity upstream notes exist, pause rewriting — the source doc needs repair first.
+          {
+            const { data: upstreamDebt } = await supabase
+              .from("project_deferred_notes")
+              .select("id, note_key, source_doc_type, target_deliverable_type, severity, category, pinned")
+              .eq("project_id", job.project_id)
+              .eq("target_deliverable_type", currentDoc)
+              .in("status", ["open", "pinned"])
+              .in("severity", ["blocker", "high"]);
+            const upstreamBlockers = upstreamDebt || [];
+            if (upstreamBlockers.length > 0) {
+              const sourceDocs = [...new Set(upstreamBlockers.map((n: any) => n.source_doc_type).filter(Boolean))];
+              console.warn(`[auto-run][IEL] upstream_note_debt_gate { job_id: "${jobId}", doc_type: "${currentDoc}", upstream_blockers: ${upstreamBlockers.length}, source_docs: ${JSON.stringify(sourceDocs)}, note_keys: ${JSON.stringify(upstreamBlockers.map((n: any) => n.note_key))} }`);
+              await logStep(supabase, jobId, null, currentDoc, "upstream_note_debt_paused",
+                `${upstreamBlockers.length} unresolved upstream note(s) from [${sourceDocs.join(", ")}] target ${currentDoc}. Repair upstream docs first.`,
+                { ci, gp, gap }, undefined,
+                { upstreamBlockerCount: upstreamBlockers.length, sourceDocs, noteKeys: upstreamBlockers.map((n: any) => n.note_key) });
+              await updateJob(supabase, jobId, {
+                stage_loop_count: newLoopCount,
+                status: "paused",
+                pause_reason: "UPSTREAM_NOTE_DEBT",
+                stop_reason: `${upstreamBlockers.length} unresolved upstream note(s) from [${sourceDocs.join(", ")}] block rewriting ${currentDoc}. Resolve upstream issues first.`,
+              });
+              return respondWithJob(supabase, jobId);
+            }
+          }
+
           // No blockers or options already handled — apply rewrite with convergence policy
           const notesResult = await supabase.from("development_runs").select("output_json").eq("document_id", doc.id).eq("run_type", "NOTES").order("created_at", { ascending: false }).limit(1).maybeSingle();
           const notes = notesResult.data?.output_json;

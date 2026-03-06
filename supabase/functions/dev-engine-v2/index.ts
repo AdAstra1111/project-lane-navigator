@@ -3357,9 +3357,51 @@ MATERIAL:\n${version.plaintext}`;
       const narrativeBlock = buildNarrativeContextBlock(narrativeCtx);
       console.log(`[dev-engine-v2] rewrite: narrative-context hash=${narrativeCtx.metadata.resolverHash} signals=${narrativeCtx.metadata.counts.signals} decisions=${narrativeCtx.metadata.counts.decisions} canonChars=${narrativeCtx.metadata.counts.canonChars}`);
 
+      // ── UPSTREAM NOTE DEBT INJECTION ──
+      // Fetch unresolved deferred notes targeting this doc type from upstream docs
+      let upstreamNoteBlock = "";
+      {
+        const { data: upstreamNotes } = await supabase
+          .from("project_deferred_notes")
+          .select("note_key, source_doc_type, target_deliverable_type, severity, category, note_json")
+          .eq("project_id", projectId)
+          .eq("target_deliverable_type", effectiveDeliverable)
+          .in("status", ["open", "pinned"])
+          .order("severity", { ascending: true })
+          .limit(10);
+        if (upstreamNotes && upstreamNotes.length > 0) {
+          const noteLines = upstreamNotes.map((n: any) => {
+            const desc = n.note_json?.description || n.note_json?.note || n.note_key || "";
+            return `- [${n.severity}/${n.category}] (from ${n.source_doc_type}): ${desc}`;
+          });
+          upstreamNoteBlock = `\n\nUNRESOLVED UPSTREAM NOTES (from earlier pipeline stages — address these in your rewrite):\n${noteLines.join("\n")}`;
+          console.log(`[dev-engine-v2] rewrite: injected ${upstreamNotes.length} upstream deferred notes targeting ${effectiveDeliverable}`);
+        }
+      }
+
+      // ── MANUAL REWRITE VERSION PROLIFERATION GUARD ──
+      {
+        const MAX_MANUAL_VERSIONS = 50;
+        const { count: versionCount } = await supabase
+          .from("project_document_versions")
+          .select("id", { count: "exact", head: true })
+          .eq("document_id", documentId);
+        if (versionCount && versionCount >= MAX_MANUAL_VERSIONS) {
+          console.warn(`[dev-engine-v2] rewrite: version_proliferation_guard triggered for ${documentId} (${versionCount} versions >= ${MAX_MANUAL_VERSIONS})`);
+          return new Response(JSON.stringify({
+            error: `Version proliferation guard: ${versionCount} versions exist for this document. Review and consolidate before creating more.`,
+            version_count: versionCount,
+            max_versions: MAX_MANUAL_VERSIONS,
+            proliferation_guard: true,
+          }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
       const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
 
-APPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}${decisionDirectives}${globalDirContext}
+APPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}${decisionDirectives}${globalDirContext}${upstreamNoteBlock}
 ${narrativeBlock}
 TARGET FORMAT: ${targetDocType || "same as source"}
 
