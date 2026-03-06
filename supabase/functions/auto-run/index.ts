@@ -8132,7 +8132,14 @@ Deno.serve(async (req) => {
                 episodicRepairMeta);
             }
 
-            // Log section repair metadata for provenance
+            // Log scene repair metadata for provenance
+            if (sceneRepairMeta) {
+              await logStep(supabase, jobId, null, currentDoc, "scene_repair_execution",
+                `Scene repair: ${sceneRepairMeta.repair_target_type} [scene=${sceneRepairMeta.scene_number || "none"}] exec=${sceneRepairMeta.scene_execution_mode} preserved=${sceneRepairMeta.scenes_preserved || 0} corrected=${sceneRepairMeta.scenes_corrected || 0}`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                sceneRepairMeta);
+            }
+
             if (sectionRepairMeta) {
               await logStep(supabase, jobId, null, currentDoc, "section_repair_execution",
                 `Section repair: ${sectionRepairMeta.repair_target_type} [${sectionRepairMeta.section_key || "full_doc"}] exec=${sectionRepairMeta.section_execution_mode} corrected=${sectionRepairMeta.sections_corrected || 0}`,
