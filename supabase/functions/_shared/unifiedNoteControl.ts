@@ -236,6 +236,8 @@ export async function invalidateDescendants(
           .from("project_document_versions")
           .update({
             depends_on_resolver_hash: `invalidated_by_upstream_repair_${repairedDocType}_${newVersionId.slice(0, 8)}`,
+            is_stale: true,
+            stale_reason: "upstream_repair",
           })
           .eq("document_id", doc.id)
           .eq("is_current", true)
