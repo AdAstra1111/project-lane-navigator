@@ -2,6 +2,7 @@ import { createVersion } from "../_shared/doc-os.ts";
 import { invalidateDescendants } from "../_shared/unifiedNoteControl.ts";
 import { normalizeIssueRecord, markIssueRepairApplied, markIssueDescendantsInvalidated } from "../_shared/issueLifecycle.ts";
 import { formatToLane, getLaneLadder } from "../_shared/documentLadders.ts";
+import { applyCanonSyncIfEligible } from "../_shared/canonSyncRegistry.ts";
 
 /**
  * notes-engine — Unified notes lifecycle edge function.
@@ -512,6 +513,40 @@ Generate a concrete change plan with exact text snippets from the document.`;
         await markIssueRepairApplied(db, normalizedIssue, userId, (newVersion as any).id, changeEventId);
       } catch (lcErr: any) {
         console.warn("[notes-engine] lifecycle markIssueRepairApplied non-fatal:", lcErr?.message);
+      }
+
+      // ── PHASE 3B: CANON SYNC BRIDGE ──
+      // If the repaired doc type is a safe canon source (concept_brief, format_rules,
+      // character_bible), extract a canon patch from the new version content and update
+      // project_canon.canon_json. This enables Phase 3 subject propagation to compute
+      // non-empty deltas in the subsequent invalidateDescendants call.
+      // Fail-closed: if extraction fails, canon is NOT updated and doc-level invalidation
+      // proceeds normally.
+      let canonSyncResult: any = null;
+      try {
+        const repairedDocType = parentDoc.doc_type;
+        canonSyncResult = await applyCanonSyncIfEligible(
+          db,
+          projectId_,
+          repairedDocType,
+          text, // the repaired content that was just versioned
+          (newVersion as any).id,
+          userId,
+        );
+        if (canonSyncResult.canon_updated) {
+          await logNoteEvent(db, projectId_, event.note_id, "canon_synced", {
+            source_doc_type: repairedDocType,
+            source_version_id: (newVersion as any).id,
+            fields_patched: canonSyncResult.provenance.fields_patched,
+            fields_failed: canonSyncResult.provenance.fields_failed,
+          }, userId);
+          console.log(`[notes-engine] canon_sync_success { project: "${projectId_}", doc_type: "${repairedDocType}", fields: ${JSON.stringify(canonSyncResult.provenance.fields_patched)} }`);
+        } else if (canonSyncResult.skip_reason) {
+          console.log(`[notes-engine] canon_sync_skipped { project: "${projectId_}", doc_type: "${repairedDocType}", reason: "${canonSyncResult.skip_reason}" }`);
+        }
+      } catch (syncErr: any) {
+        // Fail closed: canon sync errors do NOT block the repair flow
+        console.warn(`[notes-engine] canon_sync_error (non-fatal): ${syncErr?.message}`);
       }
 
       // ── DESCENDANT INVALIDATION after upstream repair ──

@@ -245,18 +245,16 @@ export async function invalidateDescendants(
 
   // ── PHASE 3: Subject-level propagation narrowing ──
   //
-  // ACTIVATION PREREQUISITE (not yet met):
-  // Subject narrowing only produces deltas when project_canon.canon_json has been
-  // updated PRIOR to this invalidation call. Currently, document repairs (e.g.
-  // character_bible rewrite) do NOT sync changes back into canon JSON automatically.
-  // Therefore this narrowing logic is structurally complete but operationally inert
-  // until a future "canon-sync" phase connects document repair output to canon updates.
+  // ACTIVATION STATUS (Phase 3B canon-sync bridge implemented):
+  // Canon sync is now performed in notes-engine apply_change_plan BEFORE this
+  // invalidation call. When a safe source doc (concept_brief, format_rules,
+  // character_bible) is repaired, canonSyncRegistry extracts a canon patch and
+  // updates project_canon.canon_json, triggering auto_version_canon() to create
+  // a new version row. This means the current and previous canon snapshots
+  // fetched below will now reflect the repair, producing non-empty subject deltas.
   //
   // Active initial rollout classes: format_rule, concept_claim, character_fact.
   // Excluded: relationship_fact (regex identity), season_arc_obligation (index identity).
-  //
-  // If the repaired doc type is a subject source, attempt to narrow invalidation
-  // by computing subject-level deltas against previous canon state.
   let subjectPropagation: SubjectPropagationResult | undefined;
   let subjectNarrowedDocTypes: Set<string> | null = null;
   try {
