@@ -2467,6 +2467,17 @@ ${version.plaintext.slice(0, maxContextChars)}`;
       const allDeferred = [...blockersResult.deferred, ...highResult.deferred, ...polishResult.deferred];
       parsed.deferred_notes = allDeferred;
 
+      // ── IEL: IDEA-STAGE STRUCTURAL VALIDATION PROVENANCE ──
+      if (effectiveDeliverable === "idea") {
+        const premiseBlockerKeys = (parsed.blocking_issues || [])
+          .filter((n: any) => ["structural", "escalation", "lane"].includes(n.category))
+          .map((n: any) => n.note_key || n.id);
+        const deferredToConceptBrief = allDeferred
+          .filter((n: any) => n.target_deliverable_type === "concept_brief")
+          .map((n: any) => n.note_key || n.id);
+        console.log(`[dev-engine-v2][IEL] idea_structural_validation_result { format: "${effectiveFormat}", premise_blockers_now: [${premiseBlockerKeys.join(",")}], deferred_to_concept_brief: [${deferredToConceptBrief.join(",")}], total_now_blockers: ${(parsed.blocking_issues || []).length}, total_deferred: ${allDeferred.length} }`);
+      }
+
       // ── Persist deferred notes to DB ──
       if (allDeferred.length > 0 && projectId) {
         for (const dn of allDeferred) {
