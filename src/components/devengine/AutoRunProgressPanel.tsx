@@ -75,7 +75,7 @@ function ScoreBadge({ label, value }: { label: string; value: number | null }) {
 
 export function AutoRunProgressPanel({
   job, steps, format, isRunning, onPause, onResume, onStop,
-  onApproveAndContinue, onReject, className,
+  onApproveAndContinue, onReject, onForcePromote, className,
 }: Props) {
   const pipeline = getLadderForFormat(format) ?? [];
   const stageHistory: AutoRunStageHistoryEntry[] = job.stage_history || [];
