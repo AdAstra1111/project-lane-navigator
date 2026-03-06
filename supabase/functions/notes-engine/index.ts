@@ -2,6 +2,7 @@ import { createVersion } from "../_shared/doc-os.ts";
 import { invalidateDescendants } from "../_shared/unifiedNoteControl.ts";
 import { normalizeIssueRecord, markIssueRepairApplied, markIssueDescendantsInvalidated } from "../_shared/issueLifecycle.ts";
 import { formatToLane, getLaneLadder } from "../_shared/documentLadders.ts";
+import { applyCanonSyncIfEligible } from "../_shared/canonSyncRegistry.ts";
 
 /**
  * notes-engine — Unified notes lifecycle edge function.
