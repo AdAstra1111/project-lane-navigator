@@ -473,6 +473,31 @@ Generate the full Pitch Architecture analysis and seed pack now. Return ONLY val
       return jsonRes({ error: "failure_modes must contain 3-5 entries" }, 422);
     }
 
+    // ── NUE-INFORMED STRUCTURAL SELF-CHECK (deterministic, post-generation) ──
+    const nueFailures: string[] = [];
+    const sv = parsed.sustainability_validation || {};
+    const da = parsed.differentiation_analysis || {};
+    const eit = parsed.engine_inevitability_test || {};
+
+    if (!sv.narrative_fuel || String(sv.narrative_fuel).trim().length < 15) nueFailures.push("missing_story_engine");
+    if (!sv.character_engine || String(sv.character_engine).trim().length < 15) nueFailures.push("missing_relationship_tension");
+    if (!da.unique_angle || String(da.unique_angle).trim().length < 10) nueFailures.push("missing_market_hook");
+    if (!eit.natural_pressure_source || String(eit.natural_pressure_source).trim().length < 10) nueFailures.push("missing_antagonist_force");
+
+    const seedIsEpisodic = ["tv-series", "limited-series", "digital-series", "vertical-drama", "anim-series", "reality", "series"].includes(lane);
+    if (seedIsEpisodic && (!sv.longevity_assessment || String(sv.longevity_assessment).trim().length < 10)) {
+      nueFailures.push("missing_serial_scalability");
+    }
+
+    console.log(`[generate-seed-pack][IEL] nue_structural_self_check { project_id: "${projectId}", lane: "${lane}", failures: ${JSON.stringify(nueFailures)}, pass: ${nueFailures.length === 0} }`);
+
+    if (nueFailures.length > 0) {
+      parsed._structural_failures = nueFailures;
+      parsed._structural_pass = false;
+    } else {
+      parsed._structural_pass = true;
+    }
+
     // Validate risk_posture.derived_mode
     const validModes = ["robust", "edge", "provocative"];
     if (!parsed.risk_posture?.derived_mode || !validModes.includes(parsed.risk_posture.derived_mode)) {
