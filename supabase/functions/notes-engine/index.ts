@@ -261,9 +261,25 @@ Deno.serve(async (req) => {
         .select("*").eq("id", noteId).eq("project_id", projectId_).single();
       if (noteErr || !note) return json({ error: "Note not found" }, 404);
 
-      const docType = normDocType(note.doc_type) || normDocType(note.destination_doc_type) || "";
-      const resolvedVersion = await resolveBaseVersion(db, projectId_, docType, note.version_id || body.baseVersionId);
-      if (!resolvedVersion) return json({ error: `No document found for type "${docType}"`, needs_doc_creation: true }, 404);
+      // ── OWNERSHIP ROUTING: prefer source doc_type for upstream repair ──
+      // If the note originated from an upstream doc (source != destination), route repair to the source doc.
+      const noteDocType = normDocType(note.doc_type) || "";
+      const noteDestDocType = normDocType(note.destination_doc_type) || "";
+      let repairDocType = noteDocType || noteDestDocType || "";
+      let repairMode = "local_repair";
+
+      // Check if this is a deferred note from an upstream doc — if so, the note.doc_type IS the source
+      // and destination_doc_type is the downstream target. Repair should go to the source.
+      if (noteDocType && noteDestDocType && noteDocType !== noteDestDocType) {
+        // The note was generated while reviewing noteDocType, targeting noteDestDocType.
+        // Repair the SOURCE (noteDocType) since that's where the issue originates.
+        repairDocType = noteDocType;
+        repairMode = "upstream_repair";
+        console.log(`[notes-engine] propose_change_plan: upstream_repair routing — source_doc="${noteDocType}", target_doc="${noteDestDocType}", repairing source`);
+      }
+
+      const resolvedVersion = await resolveBaseVersion(db, projectId_, repairDocType, note.version_id || body.baseVersionId);
+      if (!resolvedVersion) return json({ error: `No document found for type "${repairDocType}"`, needs_doc_creation: true, repair_mode: repairMode, repair_doc_type: repairDocType }, 404);
 
       const baseText = resolvedVersion.plaintext || "";
 
