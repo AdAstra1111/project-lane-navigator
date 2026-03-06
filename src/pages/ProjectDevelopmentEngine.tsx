@@ -882,17 +882,32 @@ export default function ProjectDevelopmentEngine() {
     // PIPELINE AUTHORITY: use Pipeline Brain exclusively, never fall back to LLM output
     const promoteTarget = promotionIntel.data?.next_document;
     const nextBestDocument = promoteTarget;
-    console.log(`[ui][IEL] promotion_source_of_truth { project_id: "${projectId}", format: "${projectFormat}", from_doc: "${selectedDeliverableType}", to_doc: "${nextBestDocument || 'null'}" }`);
-    if (nextBestDocument) {
-      // Lane gate: block conversion to feature_script for non-feature lanes
-      const lane = project?.assigned_lane;
-      if (nextBestDocument === 'feature_script' && lane && !['feature_film', 'animation', 'short', 'unspecified'].includes(lane)) {
-        toast.error(`"Feature Script" is not available for ${lane.replace(/_/g, ' ')} projects`);
-        return;
-      }
-      setSelectedDeliverableType(nextBestDocument as DeliverableType);
-      convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
+    console.log(`[ui][IEL] promotion_source_of_truth { project_id: "${projectId}", format: "${projectFormat}", from_doc: "${selectedDeliverableType}", to_doc: "${nextBestDocument || 'null'}", recommendation: "${promotionIntel.data?.recommendation || 'none'}", readiness: ${promotionIntel.data?.readiness_score ?? 'N/A'} }`);
+    if (!promotionIntel.data) {
+      toast.error('Run a review first before promoting');
+      return;
     }
+    if (!nextBestDocument) {
+      // Provide actionable feedback based on recommendation
+      const rec = promotionIntel.data.recommendation;
+      const reasons = promotionIntel.data.reasons?.slice(0, 2).join('. ') || '';
+      if (rec === 'stabilise') {
+        toast.error(`Cannot promote yet — stabilisation needed. ${reasons}`);
+      } else if (rec === 'escalate') {
+        toast.error(`Cannot promote — escalation required. ${reasons}`);
+      } else {
+        toast.error(`No valid next stage found for promotion. ${reasons}`);
+      }
+      return;
+    }
+    // Lane gate: block conversion to feature_script for non-feature lanes
+    const lane = project?.assigned_lane;
+    if (nextBestDocument === 'feature_script' && lane && !['feature_film', 'animation', 'short', 'unspecified'].includes(lane)) {
+      toast.error(`"Feature Script" is not available for ${lane.replace(/_/g, ' ')} projects`);
+      return;
+    }
+    setSelectedDeliverableType(nextBestDocument as DeliverableType);
+    convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
   };
 
   const handleSkipStage = () => {
