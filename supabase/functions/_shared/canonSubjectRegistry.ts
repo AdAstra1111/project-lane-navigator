@@ -6,8 +6,8 @@
  * assigns stable identities, computes subject-level deltas, and determines
  * projection targets for narrowed invalidation.
  *
- * Safe initial rollout: format_rule, concept_claim, character_fact.
- * Deferred (non-deterministic identity): relationship_fact, season_arc_obligation.
+ * Active classes: format_rule, concept_claim, character_fact, relationship_fact.
+ * Deferred (non-deterministic identity): season_arc_obligation.
  *
  * ARCHITECTURE:
  * - Zero schema drift: operates on existing canon_json + dependency registry
@@ -107,18 +107,18 @@ const SUBJECT_CLASS_CONFIGS: Record<SubjectClass, SubjectClassConfig> = {
   },
   relationship_fact: {
     subject_class: "relationship_fact",
-    source_doc_types: ["character_bible", "season_arc"],
+    source_doc_types: ["character_bible"],
     projection_doc_types: [
       "character_bible", "season_arc", "beat_sheet", "episode_beats",
       "feature_script", "episode_script", "season_script",
     ],
     dependency_kind: "canon",
-    // EXCLUDED from initial rollout: regex-based name extraction from
-    // character.relationships text matches non-name capitalized words
-    // (cities, days, etc.), producing phantom subjects and false deltas.
-    // Requires structured relationship data or NER to be safe.
-    extraction_deterministic: false,
-    active_in_initial_rollout: false,
+    // Phase 3F: Activated using structured relationship data from
+    // characters[].relationships[] (Phase 3E structured extraction).
+    // Identity: sorted pair `a<>b` for stable, direction-independent propagation.
+    // Old regex-based extraction (extractRelationshipPairs) is replaced.
+    extraction_deterministic: true,
+    active_in_initial_rollout: true,
   },
   format_rule: {
     subject_class: "format_rule",
@@ -247,7 +247,8 @@ export function extractCanonicalSubjects(canonJson: Record<string, unknown>): Ca
       });
     }
 
-    // ── Character facts ──
+    // ── Character facts + relationship edge collection ──
+    const relationshipEdges: Array<{ source: string; target: string; arc_summary: string }> = [];
     if (Array.isArray(canonJson.characters)) {
       for (const char of canonJson.characters) {
         if (!char || typeof char !== "object" || !char.name) continue;
@@ -268,12 +269,54 @@ export function extractCanonicalSubjects(canonJson: Record<string, unknown>): Ca
           raw_value: char,
         });
 
-        // ── Relationship facts — Phase 3E structured source now available ──
-        // Structured relationships (from `**Relationship Arc (with NAME):**` headings)
-        // are now extracted into characters[].relationships[] via canon sync.
-        // Activation of relationship_fact subject propagation deferred to Phase 3F
-        // pending: identity strategy confirmation + canon sync integration test.
+        // ── Phase 3F: Relationship facts from structured characters[].relationships[] ──
+        // Collect directional edges; will be merged into sorted pairs below.
+        const rels = (char as any).relationships;
+        if (Array.isArray(rels)) {
+          for (const rel of rels) {
+            if (!rel || typeof rel !== "object") continue;
+            const targetName = rel.target_name;
+            if (!targetName || typeof targetName !== "string" || targetName.trim().length < 2) continue;
+            const arcSummary = rel.arc_summary || "";
+            relationshipEdges.push({
+              source: name,
+              target: targetName.trim(),
+              arc_summary: typeof arcSummary === "string" ? arcSummary.trim() : "",
+            });
+          }
+        }
       }
+    }
+
+    // ── Merge relationship edges into sorted pair subjects ──
+    // Each unique sorted pair (a<>b) becomes one relationship_fact subject.
+    // If both directions exist, summaries are concatenated for stable hashing.
+    const pairMap = new Map<string, { a: string; b: string; summaries: string[] }>();
+    for (const edge of relationshipEdges) {
+      const [a, b] = [edge.source, edge.target].sort((x, y) =>
+        x.toLowerCase().localeCompare(y.toLowerCase()),
+      );
+      const pairKey = `${a.toLowerCase()}<>${b.toLowerCase()}`;
+      if (!pairMap.has(pairKey)) {
+        pairMap.set(pairKey, { a, b, summaries: [] });
+      }
+      if (edge.arc_summary.length > 0) {
+        pairMap.get(pairKey)!.summaries.push(edge.arc_summary);
+      }
+    }
+
+    for (const [pairKey, pair] of pairMap) {
+      // Deterministic: sort summaries for stable hash regardless of extraction order
+      const sortedSummaries = pair.summaries.sort();
+      const valueStr = `${pair.a}|${pair.b}|${sortedSummaries.join("||")}`;
+      subjects.push({
+        subject_id: `relationship_fact::${pairKey}`,
+        subject_class: "relationship_fact",
+        label: `${pair.a} ↔ ${pair.b}`,
+        normalized_key: pairKey,
+        value_hash: djb2Hash(valueStr),
+        raw_value: { a: pair.a, b: pair.b, summaries: sortedSummaries },
+      });
     }
 
     // ── Season arc obligations — EXCLUDED from initial rollout ──
@@ -467,34 +510,5 @@ function djb2Hash(input: string): string {
   return `${h1.toString(36)}_${h2.toString(36)}`;
 }
 
-/**
- * Extract relationship pairs from a character's relationship text.
- * Returns sorted normalized pairs for stable identity.
- */
-function extractRelationshipPairs(
-  characterName: string,
-  relText: string,
-): { a: string; b: string; normalized_key: string }[] {
-  const pairs: { a: string; b: string; normalized_key: string }[] = [];
-  const seen = new Set<string>();
-
-  // Look for "Name" patterns — capitalized words that look like names
-  const namePattern = /\b([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20})?)\b/g;
-  const matches = [...relText.matchAll(namePattern)];
-
-  for (const m of matches) {
-    const otherName = m[1].trim();
-    if (otherName.toLowerCase() === characterName.toLowerCase()) continue;
-    if (otherName.length < 2) continue;
-
-    // Sort pair for stable identity
-    const [a, b] = [characterName, otherName].sort((x, y) => x.toLowerCase().localeCompare(y.toLowerCase()));
-    const nk = `${a.toLowerCase()}<>${b.toLowerCase()}`;
-    if (seen.has(nk)) continue;
-    seen.add(nk);
-
-    pairs.push({ a, b, normalized_key: nk });
-  }
-
-  return pairs;
-}
+// Old extractRelationshipPairs (regex-based, non-deterministic) removed in Phase 3F.
+// Replaced by structured extraction from characters[].relationships[] in extractCanonicalSubjects.

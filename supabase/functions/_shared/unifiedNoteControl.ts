@@ -253,8 +253,8 @@ export async function invalidateDescendants(
   // a new version row. This means the current and previous canon snapshots
   // fetched below will now reflect the repair, producing non-empty subject deltas.
   //
-  // Active initial rollout classes: format_rule, concept_claim, character_fact.
-  // Excluded: relationship_fact (regex identity), season_arc_obligation (index identity).
+  // Active classes: format_rule, concept_claim, character_fact, relationship_fact.
+  // Excluded: season_arc_obligation (index identity — order-fragile).
   let subjectPropagation: SubjectPropagationResult | undefined;
   let subjectNarrowedDocTypes: Set<string> | null = null;
   try {
