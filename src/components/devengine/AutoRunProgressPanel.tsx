@@ -28,6 +28,7 @@ interface Props {
   onStop: () => void;
   onApproveAndContinue?: () => void;
   onReject?: () => void;
+  onForcePromote?: () => void;
   className?: string;
 }
 

@@ -148,6 +148,18 @@ Deno.serve(async (req) => {
         await markVersionApproved(db, documentVersionId, userId);
       }
 
+      // IEL: Also set as current version so ABVR picks it up as authoritative
+      // This ensures Auto-Run rebinds to the user-approved version
+      try {
+        await db.rpc("set_current_version", {
+          p_document_id: version.document_id,
+          p_new_version_id: documentVersionId,
+        });
+        console.log(`[project-folder-engine] set_current_version { version_id: "${documentVersionId}", document_id: "${version.document_id}" }`);
+      } catch (setCurrentErr: any) {
+        console.warn(`[project-folder-engine] set_current_version_failed { version_id: "${documentVersionId}", error: "${setCurrentErr?.message}" }`);
+      }
+
       // Auto-set primary if this is a script authority doc type
       const SCRIPT_DOC_TYPES = ["season_script", "feature_script", "episode_script", "script", "pilot_script", "script_pdf"];
       const parentDocType = parentDoc?.doc_type || "";
