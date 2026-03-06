@@ -7826,11 +7826,66 @@ Deno.serve(async (req) => {
               }
             }
 
+            // ── PHASE 2E: SCENE-LEVEL REPAIR TARGETING ──
+            let sceneRepairMeta: Record<string, unknown> | null = null;
+            let sceneTargetNumber: number | null = null;
+            // Only attempt scene repair if episodic block repair is NOT active
+            if (!episodicTargetEpisode) {
+              try {
+                const { isSceneRepairSupported, getSceneRepairTarget } = await import("../_shared/sceneRepairRegistry.ts");
+
+                if (isSceneRepairSupported(currentDoc)) {
+                  if (!originalFullContent) {
+                    const { data: verContent } = await supabase
+                      .from("project_document_versions")
+                      .select("plaintext")
+                      .eq("id", baselineVersionId)
+                      .maybeSingle();
+                    originalFullContent = verContent?.plaintext || "";
+                  }
+
+                  if (originalFullContent && originalFullContent.length > 100) {
+                    const primaryIssue = (blockers && blockers.length > 0)
+                      ? { scene_number: (blockers[0] as any)?.scene_number, scene_numbers: (blockers[0] as any)?.scene_numbers || (blockers[0] as any)?.target?.scene_numbers, category: blockers[0]?.category, title: blockers[0]?.title || blockers[0]?.objective, summary: blockers[0]?.summary || blockers[0]?.detail, anchor: (blockers[0] as any)?.anchor, constraint_key: (blockers[0] as any)?.constraint_key }
+                      : (highImpact && highImpact.length > 0)
+                        ? { scene_number: (highImpact[0] as any)?.scene_number, scene_numbers: (highImpact[0] as any)?.scene_numbers || (highImpact[0] as any)?.target?.scene_numbers, category: highImpact[0]?.category, title: highImpact[0]?.title || highImpact[0]?.objective, summary: highImpact[0]?.summary || highImpact[0]?.detail, anchor: (highImpact[0] as any)?.anchor, constraint_key: (highImpact[0] as any)?.constraint_key }
+                        : null;
+
+                    if (primaryIssue) {
+                      const target = getSceneRepairTarget(primaryIssue, currentDoc, originalFullContent);
+                      sceneRepairMeta = {
+                        repair_target_type: target.repair_target_type,
+                        scene_number: target.scene_number,
+                        scene_heading: target.scene_heading,
+                        total_scenes: target.total_scenes,
+                        reason: target.reason,
+                        fallback_reason: target.fallback_reason,
+                        scene_execution_mode: target.repair_target_type === "scene" ? "true_scene_patch" : "full_doc_rewrite",
+                      };
+
+                      if (target.repair_target_type === "scene" && target.scene_number != null) {
+                        sceneTargetNumber = target.scene_number;
+                        mergedDirections.push(
+                          `SCENE-TARGETED REPAIR: Focus ALL changes on Scene ${target.scene_number} (${target.scene_heading || ""}). Preserve ALL other scenes EXACTLY as they are — do not modify, reorder, rename, or paraphrase any content outside Scene ${target.scene_number}.`
+                        );
+                        console.log(`[auto-run][Phase2E] scene_repair_targeted: doc=${currentDoc} scene=${target.scene_number} heading="${target.scene_heading}" total=${target.total_scenes} reason=${target.reason}`);
+                      } else {
+                        console.log(`[auto-run][Phase2E] scene_repair_fallback: doc=${currentDoc} reason=${target.reason} fallback=${target.fallback_reason}`);
+                      }
+                    }
+                  }
+                }
+              } catch (e: any) {
+                console.warn(`[auto-run][Phase2E] scene_repair_error: ${e?.message}`);
+                sceneTargetNumber = null; // fail closed
+              }
+            }
+
             // ── PHASE 2D: SECTION-LEVEL REPAIR TARGETING + TRUE PARTIAL EXECUTION ──
             let sectionRepairMeta: Record<string, unknown> | null = null;
             let sectionTargetKey: string | null = null;
-            // Only attempt section repair if episodic block repair is NOT active
-            if (!episodicTargetEpisode) {
+            // Only attempt section repair if neither episodic block nor scene repair is active
+            if (!episodicTargetEpisode && !sceneTargetNumber) {
               try {
                 const { getRepairTarget } = await import("../_shared/sectionRepairEngine.ts");
                 const { isSectionRepairSupported } = await import("../_shared/deliverableSectionRegistry.ts");
@@ -7953,7 +8008,52 @@ Deno.serve(async (req) => {
               }
             }
 
-            // ── PHASE 2D HARDENING: TRUE SECTION-ONLY PATCH EXECUTION ──
+            // ── PHASE 2E: TRUE SCENE-LEVEL PATCH EXECUTION ──
+            // After rewrite, if scene targeting was active, enforce scene integrity:
+            // Take only the target scene from rewritten output; preserve all others from original.
+            if (sceneTargetNumber != null && originalFullContent && candidateVersionId) {
+              try {
+                const { enforceSceneIntegrity } = await import("../_shared/sceneRepairRegistry.ts");
+
+                const { data: candidateVer } = await supabase
+                  .from("project_document_versions")
+                  .select("plaintext")
+                  .eq("id", candidateVersionId)
+                  .maybeSingle();
+
+                const rewrittenContent = candidateVer?.plaintext || "";
+                if (rewrittenContent.length > 0) {
+                  const integrity = enforceSceneIntegrity(originalFullContent, rewrittenContent, sceneTargetNumber);
+
+                  if (integrity.target_scene_found) {
+                    // Write the deterministically merged content
+                    await supabase.from("project_document_versions")
+                      .update({ plaintext: integrity.merged_content })
+                      .eq("id", candidateVersionId);
+
+                    console.log(`[auto-run][Phase2E] scene_integrity_enforced: target_scene=${sceneTargetNumber} preserved=${integrity.scenes_preserved} corrected=${integrity.scenes_corrected} ok=${integrity.ok} reason=${integrity.reason}`);
+                  } else {
+                    // Target scene not found — fall back (don't replace)
+                    console.warn(`[auto-run][Phase2E] scene_integrity_fallback: target_scene=${sceneTargetNumber} not found in rewritten output`);
+                  }
+
+                  if (sceneRepairMeta) {
+                    sceneRepairMeta.scenes_preserved = integrity.scenes_preserved;
+                    sceneRepairMeta.scenes_corrected = integrity.scenes_corrected;
+                    sceneRepairMeta.scenes_missing_from_rewrite = integrity.scenes_missing_from_rewrite;
+                    sceneRepairMeta.integrity_ok = integrity.ok;
+                    sceneRepairMeta.target_scene_found = integrity.target_scene_found;
+                  }
+                }
+              } catch (integrityErr: any) {
+                console.warn(`[auto-run][Phase2E] scene_integrity_error: ${integrityErr?.message}`);
+                if (sceneRepairMeta) {
+                  sceneRepairMeta.integrity_ok = false;
+                  sceneRepairMeta.integrity_error = integrityErr?.message;
+                }
+              }
+            }
+
             // After rewrite, if section targeting was active, enforce section integrity:
             // Replace untouched sections with original verbatim content to guarantee preservation.
             if (sectionTargetKey && originalFullContent && candidateVersionId) {
@@ -8032,7 +8132,14 @@ Deno.serve(async (req) => {
                 episodicRepairMeta);
             }
 
-            // Log section repair metadata for provenance
+            // Log scene repair metadata for provenance
+            if (sceneRepairMeta) {
+              await logStep(supabase, jobId, null, currentDoc, "scene_repair_execution",
+                `Scene repair: ${sceneRepairMeta.repair_target_type} [scene=${sceneRepairMeta.scene_number || "none"}] exec=${sceneRepairMeta.scene_execution_mode} preserved=${sceneRepairMeta.scenes_preserved || 0} corrected=${sceneRepairMeta.scenes_corrected || 0}`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                sceneRepairMeta);
+            }
+
             if (sectionRepairMeta) {
               await logStep(supabase, jobId, null, currentDoc, "section_repair_execution",
                 `Section repair: ${sectionRepairMeta.repair_target_type} [${sectionRepairMeta.section_key || "full_doc"}] exec=${sectionRepairMeta.section_execution_mode} corrected=${sectionRepairMeta.sections_corrected || 0}`,
