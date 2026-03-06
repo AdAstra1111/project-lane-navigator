@@ -527,14 +527,39 @@ function extractFullSection(content: string, headingPattern: RegExp): string | n
 }
 
 /**
+ * Structured relationship extracted from a character bible section.
+ */
+interface ExtractedRelationship {
+  target_name: string;
+  arc_summary: string;
+}
+
+/**
  * Extract character list from a character bible document.
  * Expects ## CHARACTER_NAME headings followed by **Role:** fields.
  * Deterministic: only extracts characters with explicit ## heading + **Role:** line.
+ *
+ * Phase 3E: Also extracts structured relationships from
+ * `**Relationship Arc (with NAME):**` headings — deterministic heading-based extraction.
  */
 function extractCharacterList(
   content: string,
-): Array<{ name: string; role: string; goals?: string; traits?: string; secrets?: string }> | null {
-  const characters: Array<{ name: string; role: string; goals?: string; traits?: string; secrets?: string }> = [];
+): Array<{
+  name: string;
+  role: string;
+  goals?: string;
+  traits?: string;
+  secrets?: string;
+  relationships?: Array<{ target_name: string; arc_summary: string }>;
+}> | null {
+  const characters: Array<{
+    name: string;
+    role: string;
+    goals?: string;
+    traits?: string;
+    secrets?: string;
+    relationships?: Array<{ target_name: string; arc_summary: string }>;
+  }> = [];
 
   // Split by ## headings (character names are typically ALL CAPS or Title Case at ## level)
   const charHeadingPattern = /^##\s+([A-Z][A-Za-z\s''-]+)\s*$/gm;
@@ -550,6 +575,9 @@ function extractCharacterList(
 
   if (headings.length === 0) return null;
 
+  // Collect all extracted character names for relationship target validation
+  const allCharacterNames = new Set(headings.map(h => h.name.toLowerCase().trim()));
+
   for (let i = 0; i < headings.length; i++) {
     const start = headings[i].index;
     const end = i + 1 < headings.length ? headings[i + 1].index - (headings[i + 1].name.length + 4) : content.length;
@@ -559,7 +587,14 @@ function extractCharacterList(
     const roleMatch = section.match(/\*\*Role:\*\*\s*(.+)/i);
     if (!roleMatch) continue;
 
-    const char: { name: string; role: string; goals?: string; traits?: string; secrets?: string } = {
+    const char: {
+      name: string;
+      role: string;
+      goals?: string;
+      traits?: string;
+      secrets?: string;
+      relationships?: Array<{ target_name: string; arc_summary: string }>;
+    } = {
       name: headings[i].name,
       role: roleMatch[1].trim(),
     };
@@ -574,8 +609,90 @@ function extractCharacterList(
     const secretsMatch = section.match(/\*\*(?:Secrets?|Contradictory Secret):\*\*\s*(.+)/i);
     if (secretsMatch) char.secrets = secretsMatch[1].trim();
 
+    // Phase 3E: Extract structured relationships from heading pattern
+    // `**Relationship Arc (with NAME):**` — deterministic, heading-based only
+    const rels = extractRelationshipArcsFromSection(section, headings[i].name, allCharacterNames);
+    if (rels.length > 0) {
+      char.relationships = rels;
+    }
+
     characters.push(char);
   }
 
   return characters.length > 0 ? characters : null;
+}
+
+/**
+ * Phase 3E: Extract structured relationship arcs from a character section.
+ *
+ * Deterministic extraction: only matches `**Relationship Arc (with NAME):**` headings.
+ * Target name must resolve to a known character in the extracted set.
+ * Content between the heading and the next bold heading is captured as arc_summary.
+ *
+ * Fail-closed: unknown target names are silently skipped (not invented).
+ */
+function extractRelationshipArcsFromSection(
+  section: string,
+  sourceCharName: string,
+  knownCharacterNames: Set<string>,
+): ExtractedRelationship[] {
+  const relationships: ExtractedRelationship[] = [];
+  const seen = new Set<string>();
+
+  // Match **Relationship Arc (with NAME):** pattern
+  const relHeadingPattern = /\*\*Relationship\s+Arc\s*\(with\s+(.+?)\)\s*:\*\*/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = relHeadingPattern.exec(section)) !== null) {
+    const targetName = match[1].trim();
+    if (!targetName || targetName.length < 2) continue;
+
+    // Fail-closed: target must be a known character name
+    const targetNormalized = targetName.toLowerCase().trim();
+    if (!knownCharacterNames.has(targetNormalized)) {
+      // Check partial match: first name only
+      const targetFirstName = targetNormalized.split(/[\s-]/)[0];
+      let found = false;
+      for (const known of knownCharacterNames) {
+        if (known === targetFirstName || known.startsWith(targetFirstName + " ")) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        console.warn(`[canon-sync] relationship_target_unknown: "${targetName}" not in character set, skipping`);
+        continue;
+      }
+    }
+
+    // Avoid duplicate entries for the same target
+    const dedupKey = targetNormalized;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+
+    // Extract arc content: text between this heading and the next bold heading or end of section
+    const afterMatch = section.slice(match.index + match[0].length);
+    const nextBoldHeading = afterMatch.match(/\n\*\*[A-Z]/);
+    const arcContent = nextBoldHeading && nextBoldHeading.index !== undefined
+      ? afterMatch.slice(0, nextBoldHeading.index).trim()
+      : afterMatch.trim();
+
+    // Only include if we got meaningful content
+    if (arcContent.length < 10) continue;
+
+    // Condense arc summary: collapse to a single-line summary for canon storage
+    const arcSummary = arcContent
+      .replace(/\n\s*\*\s+/g, " | ")  // bullet points to pipe-separated
+      .replace(/\*\*/g, "")            // strip bold markers
+      .replace(/\s+/g, " ")           // collapse whitespace
+      .trim()
+      .slice(0, 500);                 // cap length
+
+    relationships.push({
+      target_name: targetName,
+      arc_summary: arcSummary,
+    });
+  }
+
+  return relationships;
 }
