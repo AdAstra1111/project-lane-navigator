@@ -407,7 +407,7 @@ export async function invalidateDescendants(
     }
   }
 
-  console.log(`[unified-note-control] invalidateDescendants { project_id: "${projectId}", repaired_doc_type: "${repairedDocType}", lane: "${effectiveLane}", invalidated_docs: ${JSON.stringify(invalidatedDocs)}, skipped_docs: ${JSON.stringify(plan.skipped_doc_types)}, affected_jobs: ${JSON.stringify(affectedJobIds)}, plan_entries: ${plan.entries.length} }`);
+  console.log(`[unified-note-control] invalidateDescendants { project_id: "${projectId}", repaired_doc_type: "${repairedDocType}", lane: "${effectiveLane}", invalidated_docs: ${JSON.stringify(invalidatedDocs)}, skipped_docs: ${JSON.stringify(plan.skipped_doc_types)}, affected_jobs: ${JSON.stringify(affectedJobIds)}, plan_entries: ${plan.entries.length}, subject_propagation: ${subjectPropagation ? `deltas=${subjectPropagation.deltas_count},narrowing=${subjectPropagation.narrowing_ratio}` : "none"} }`);
 
-  return { invalidatedDocs, affectedJobIds, plan };
+  return { invalidatedDocs, affectedJobIds, plan, subjectPropagation };
 }
