@@ -2052,7 +2052,8 @@ interface PromotionResult {
 
 function computePromotion(
   ci: number, gp: number, gap: number, trajectory: string | null,
-  doc: string, blockersCount: number, highImpactCount: number, iterationCount: number
+  doc: string, blockersCount: number, highImpactCount: number, iterationCount: number,
+  allowDefaults = false,
 ): PromotionResult {
   const w = WEIGHTS[doc] || WEIGHTS.concept_brief;
   const gapScore = 100 - clamp(gap * 2, 0, 100);
@@ -2087,10 +2088,21 @@ function computePromotion(
     reasons.push("Trajectory eroding");
     return { recommendation: "escalate", readiness_score: readinessScore, confidence, risk_flags, reasons };
   }
+  // ── IEL: Relax early-stage high-impact gate when allow_defaults=true AND CI >= GLOBAL_MIN_CI ──
+  // Rationale: when Auto-Decide is ON and scores already meet the hard CI gate,
+  // remaining high-impact notes are refinement-safe and should not block promotion.
+  // This allows the executor to auto-promote after successful stabilise cycles.
   if ((doc === "idea" || doc === "concept_brief") && highImpactCount > 0) {
-    risk_flags.push("hard_gate:early_stage_high_impact");
-    reasons.push("Early-stage high-impact issues");
-    return { recommendation: "stabilise", readiness_score: readinessScore, confidence, risk_flags, reasons };
+    if (allowDefaults && ci >= GLOBAL_MIN_CI) {
+      risk_flags.push("soft_gate:early_stage_high_impact_relaxed");
+      reasons.push(`Early-stage high-impact issues (${highImpactCount}) — relaxed: allow_defaults=true, CI=${ci}≥${GLOBAL_MIN_CI}`);
+      console.log(`[auto-run][IEL] early_stage_hi_gate_relaxed { doc: "${doc}", highImpactCount: ${highImpactCount}, ci: ${ci}, allow_defaults: true }`);
+      // Don't force stabilise — fall through to normal readiness check
+    } else {
+      risk_flags.push("hard_gate:early_stage_high_impact");
+      reasons.push("Early-stage high-impact issues");
+      return { recommendation: "stabilise", readiness_score: readinessScore, confidence, risk_flags, reasons };
+    }
   }
 
   let recommendation: "promote" | "stabilise" | "escalate";
@@ -6451,7 +6463,7 @@ Deno.serve(async (req) => {
         );
 
         // Step C: Compute promotion intelligence
-        const promo = computePromotion(ci, gp, gap, trajectory, currentDoc, blockersCount, highImpactCount, stageLoopCount + 1);
+        const promo = computePromotion(ci, gp, gap, trajectory, currentDoc, blockersCount, highImpactCount, stageLoopCount + 1, job.allow_defaults !== false);
 
         await logStep(supabase, jobId, null, currentDoc, "promotion_check",
           `${promo.recommendation} (readiness: ${promo.readiness_score}, flags: ${promo.risk_flags.join(",") || "none"})`,
@@ -6610,6 +6622,41 @@ Deno.serve(async (req) => {
                   `Auto-accepted ${Object.keys(autoSelections).length} stabilise decisions`,
                   { ci, gp, gap }, undefined, { selections: autoSelections, decision_objects: finalDecisions }
                 );
+                // ── IEL: EARLY CONVERGENCE PROMOTION after auto-decided stabilise bundle ──
+                // If scores already meet promotion thresholds, skip unnecessary rewrite and promote directly.
+                // This is the "executor completion" path: the system has already identified and auto-applied
+                // the correct fixes; scores confirm readiness; no need for another rewrite cycle.
+                if (ci >= GLOBAL_MIN_CI && blockersCount === 0 && job.allow_defaults !== false) {
+                  const earlyNext = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
+                  if (earlyNext && isStageAtOrBeforeTarget(earlyNext, job.target_document, format)) {
+                    try {
+                      await supabase.from("project_document_versions").update({
+                        approval_status: "approved",
+                        approved_at: new Date().toISOString(),
+                        approved_by: job.user_id,
+                      }).eq("id", latestVersion.id);
+                    } catch (e: any) {
+                      console.warn("[auto-run] non-fatal early-converge auto-approve failed:", e?.message || e);
+                    }
+                    await logStep(supabase, jobId, null, currentDoc, "auto_approved_promote",
+                      `Early convergence after auto-decided stabilise: CI=${ci}≥${GLOBAL_MIN_CI}, blockers=0. Auto-promoting ${currentDoc} → ${earlyNext} (allow_defaults).`,
+                      { ci, gp, gap }, undefined,
+                      { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: earlyNext, trigger: "early_convergence_after_auto_decided" }
+                    );
+                    await updateJob(supabase, jobId, {
+                      stage_loop_count: 0, current_document: earlyNext,
+                      stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
+                      status: "running", stop_reason: null,
+                      awaiting_approval: false, approval_type: null,
+                      pending_doc_id: null, pending_version_id: null,
+                      pending_doc_type: null, pending_next_doc_type: null,
+                      pending_decisions: null,
+                      frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+                    });
+                    console.log(`[auto-run][IEL] stage_transition { job_id: "${jobId}", from: "${currentDoc}", to: "${earlyNext}", best_preserved: true, trigger: "early_convergence_after_auto_decided" }`);
+                    return respondWithJob(supabase, jobId, "run-next");
+                  }
+                }
                 // Don't pause — fall through to rewrite
               } else {
                 optionsGeneratedThisStep = true;
