@@ -147,7 +147,7 @@ export function ActionToolbar({
                 onPromote?.();
               }
             }}
-            disabled={anyPending || (!nextBestDocument && nextAction?.kind !== 'enter_mode')}>
+            disabled={anyPending}>
             {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             {nextAction && nextAction.kind !== 'none' && !isVerticalDrama
               ? renderActionPillText(nextAction)
