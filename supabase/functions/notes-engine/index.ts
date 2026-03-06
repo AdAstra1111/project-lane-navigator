@@ -1,5 +1,6 @@
 import { createVersion } from "../_shared/doc-os.ts";
 import { invalidateDescendants } from "../_shared/unifiedNoteControl.ts";
+import { normalizeIssueRecord, markIssueRepairApplied, markIssueDescendantsInvalidated } from "../_shared/issueLifecycle.ts";
 import { formatToLane, getLaneLadder } from "../_shared/documentLadders.ts";
 
 /**
