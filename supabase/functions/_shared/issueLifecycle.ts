@@ -442,15 +442,33 @@ async function logLifecycleEvent(
   payload: Record<string, unknown>,
   userId: string,
 ) {
-  // project_note_events only references project_notes.id — for other tables, log to console
-  if (issue.source_table === "project_notes") {
-    await supabase.from("project_note_events").insert({
+  // ── 1. Unified lifecycle event store (all source systems) ──
+  try {
+    await supabase.from("project_issue_lifecycle_events").insert({
       project_id: issue.project_id,
-      note_id: issue.source_row_id,
+      source_table: issue.source_table,
+      source_row_id: issue.source_row_id,
       event_type: eventType,
       payload: { ...payload, lifecycle_engine: true },
       created_by: userId,
     });
+  } catch (e: any) {
+    console.warn(`[issue-lifecycle] Failed to persist lifecycle event:`, e?.message);
+  }
+
+  // ── 2. Legacy backward compat: also write to project_note_events for project_notes ──
+  if (issue.source_table === "project_notes") {
+    try {
+      await supabase.from("project_note_events").insert({
+        project_id: issue.project_id,
+        note_id: issue.source_row_id,
+        event_type: eventType,
+        payload: { ...payload, lifecycle_engine: true },
+        created_by: userId,
+      });
+    } catch (e: any) {
+      console.warn(`[issue-lifecycle] Failed to write legacy project_note_events:`, e?.message);
+    }
   }
 
   console.log(`[issue-lifecycle] event { table: "${issue.source_table}", id: "${issue.source_row_id}", event: "${eventType}", payload: ${JSON.stringify(payload)} }`);
