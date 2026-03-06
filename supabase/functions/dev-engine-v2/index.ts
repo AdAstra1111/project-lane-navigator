@@ -1095,12 +1095,19 @@ function computeRuntimePressure(estSeconds: number, targetHigh: number, targetLo
 
 const DELIVERABLE_RUBRICS: Record<string, string> = {
   idea: `Evaluate as an IDEA/LOGLINE. Score clarity, originality, market hook, audience identification. Do NOT evaluate dialogue, pacing, or scene structure.
-PREMISE-LEVEL STRUCTURAL VALIDATION (MANDATORY for idea stage):
-You MUST also evaluate the following at idea stage. Do NOT defer these to concept_brief — they are premise-level concerns:
-1. STORY ENGINE VIABILITY: Does the premise contain a repeatable, scalable engine for generating episodic conflict? For series/episodic formats, a single event or static situation is insufficient — there must be a renewable source of dramatic tension. Flag as a NOW blocker if missing.
-2. GENRE ALIGNMENT: Is the stated genre consistent with the premise's tone, setting, and dramatic DNA? If the premise describes grounded realism but the creative DNA implies supernatural/horror/mythological elements (or vice versa), flag the contradiction as a NOW blocker.
-3. EPISODIC SCALABILITY: For series formats, can this premise sustain the expected episode count? For vertical drama (30+ episodes), the engine must support high-frequency short-form episodes. Flag as a NOW blocker if the premise is structurally a feature-length one-off concept being forced into episodic format.
-4. ESCALATION PATH: Does the premise contain or imply an external propulsion mechanism (external antagonist, ticking clock, escalating stakes from outside the protagonist)? A purely internal/contemplative premise without external pressure is a structural risk for commercial formats. Flag as high_impact if weak.
+
+NARRATIVE UNIT STRUCTURAL VALIDATION (NUE-INFORMED — MANDATORY for idea stage):
+You MUST evaluate ALL of the following at idea stage. Do NOT defer these to concept_brief — they are premise-level concerns:
+
+1. PROTAGONIST OBJECTIVE: Does the idea identify a protagonist with a concrete, actionable objective? A vague "character explores feelings" is structurally weak. Flag as high_impact if the protagonist objective is unclear or passive.
+2. ANTAGONIST FORCE / OPPOSITION SOURCE: Does the idea contain a specific opposition source — person, system, force, or structural threat? "Internal conflict alone" is insufficient for commercial formats. Flag as a NOW blocker if no external opposition exists.
+3. STORY ENGINE VIABILITY: Does the premise contain a repeatable, scalable engine for generating conflict? For series/episodic formats, a single event or static situation is insufficient — there must be a renewable source of dramatic tension. Flag as a NOW blocker if missing.
+4. GENRE ALIGNMENT: Is the stated genre consistent with the premise's tone, setting, and dramatic DNA? If the premise describes grounded realism but the creative DNA implies supernatural/horror/mythological elements (or vice versa), flag the contradiction as a NOW blocker.
+5. EPISODIC SCALABILITY: For series formats, can this premise sustain the expected episode count? For vertical drama (30+ episodes), the engine must support high-frequency short-form episodes with rapid escalation. Flag as a NOW blocker if the premise is structurally a feature-length concept forced into episodic format.
+6. ESCALATION PATH: Does the premise contain an external propulsion mechanism (external antagonist, ticking clock, escalating stakes from outside the protagonist)? A purely internal/contemplative premise without external pressure is a structural risk for commercial formats. Flag as high_impact if weak.
+7. RELATIONSHIP TENSION POTENTIAL: Does the premise establish or imply at least one dramatic relationship axis between characters with opposing needs or values? Flag as high_impact if no relationship friction exists.
+8. MARKET HOOK CLARITY: Is there a clear, distinctive commercial angle — something that would make a buyer lean forward? Not just genre labels — the unique selling proposition. Flag as high_impact if the hook is vague or generic.
+
 These checks prevent downstream repair loops. Evaluate them NOW at idea stage. Do NOT classify them as "later" or "next_doc".`,
   topline_narrative: `Evaluate as a TOPLINE NARRATIVE (logline + short synopsis + long synopsis + story pillars). Score logline clarity, synopsis coherence, story pillar completeness, theme/stakes articulation, and market positioning. Do NOT evaluate scene construction or dialogue. For series, also evaluate the series promise/engine and season arc snapshot.`,
   concept_brief: `Evaluate as a CONCEPT BRIEF. Score premise strength, theme clarity, genre positioning, tonal consistency. Do NOT evaluate scene-level craft or dialogue.`,

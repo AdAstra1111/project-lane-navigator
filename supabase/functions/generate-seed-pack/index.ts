@@ -44,11 +44,42 @@ function jsonRes(body: Record<string, unknown>, status = 200) {
 }
 
 function buildSystemPrompt(lane: string, format: string, seedSnapshotId: string, generatedAt: string, targetPlatform: string | null, riskOverride: string | null): string {
+  const isEpisodic = ["tv-series", "limited-series", "digital-series", "vertical-drama", "anim-series", "reality", "series"].includes(lane) ||
+    ["tv-series", "limited-series", "digital-series", "vertical-drama", "anim-series", "reality", "series"].includes(format);
+  const isVerticalDrama = lane === "vertical-drama" || format === "vertical-drama";
+
+  let laneStructuralBlock = "";
+  if (isVerticalDrama) {
+    laneStructuralBlock = `
+VERTICAL DRAMA STRUCTURAL REQUIREMENTS (MANDATORY):
+- sustainability_validation.narrative_fuel MUST describe a REPEATABLE EXTERNAL PRESSURE ENGINE, not just romance/vibe/internal conflict.
+- The engine must support 30+ episodes of short-form mobile-first content with high-frequency escalation.
+- engine_inevitability_test.natural_pressure_source MUST be an external force (antagonist, ticking clock, systemic threat) — purely internal/contemplative pressure is STRUCTURALLY INVALID.
+- If you cannot identify a clear external escalation source, flag it explicitly in failure_modes.`;
+  } else if (isEpisodic) {
+    laneStructuralBlock = `
+EPISODIC FORMAT REQUIREMENTS:
+- sustainability_validation.narrative_fuel MUST describe a renewable conflict engine that sustains a full season.
+- A single event or static situation is insufficient for episodic formats.`;
+  }
+
   return `You are a professional film/TV development architect. Generate a Pitch Architecture analysis and seed pack.
 
 OUTPUT RULES:
 - Return ONLY valid JSON. No markdown. No commentary. No backticks.
 - The JSON must match the exact schema below.
+
+NARRATIVE UNIT STRUCTURAL REQUIREMENTS (NUE-INFORMED — MANDATORY):
+Every generated seed pack MUST explicitly account for ALL of the following narrative architecture elements.
+These are NOT optional — a seed that omits any of these is structurally insufficient.
+
+1. PROTAGONIST OBJECTIVE: concept_distillation.core_concept and sustainability_validation.character_engine must clearly identify the protagonist and their concrete, actionable objective.
+2. ANTAGONIST FORCE: engine_inevitability_test must identify a specific opposition source — person, system, or structural threat. "Internal conflict alone" is insufficient for commercial formats.
+3. STORY ENGINE: sustainability_validation.narrative_fuel must describe the repeatable mechanism that generates conflict. For episodic formats, this must sustain multiple episodes.
+4. RELATIONSHIP TENSION AXIS: sustainability_validation.character_engine must identify the primary dramatic relationship between at least two named character archetypes with opposing needs/values.
+5. MARKET HOOK: differentiation_analysis.unique_angle must be a concrete commercial differentiator, not just genre labels. One sentence that would make a buyer lean forward.
+6. LANE FIT: The entire analysis must be tailored to the declared lane (${lane}) and format (${format}). A feature premise forced into series is a structural failure.
+${laneStructuralBlock}
 
 RESTRAINT BIAS RULES (MANDATORY):
 - Default escalation bias is RESTRAINED.
@@ -84,7 +115,7 @@ ${riskOverride ? `RISK OVERRIDE: "${riskOverride}" — apply this posture but st
 REQUIRED JSON SCHEMA:
 {
   "concept_distillation": {
-    "core_concept": "string",
+    "core_concept": "string — must include protagonist identity and objective",
     "central_question": "string",
     "thematic_spine": "string",
     "audience_promise": "string"
@@ -95,13 +126,13 @@ REQUIRED JSON SCHEMA:
     "cathartic_mechanism": "string"
   },
   "differentiation_analysis": {
-    "unique_angle": "string",
+    "unique_angle": "string — the concrete market hook that distinguishes this from competitors",
     "comparable_gap": "string",
     "market_white_space": "string"
   },
   "sustainability_validation": {
-    "narrative_fuel": "string",
-    "character_engine": "string",
+    "narrative_fuel": "string — the repeatable conflict engine (MUST be specific and renewable)",
+    "character_engine": "string — protagonist vs. key relationship axis with opposing values",
     "world_capacity": "string",
     "longevity_assessment": "string"
   },
@@ -113,7 +144,7 @@ REQUIRED JSON SCHEMA:
   "engine_inevitability_test": {
     "what_happens_if_no_one_acts": "string",
     "why_world_cannot_remain_stable": "string",
-    "natural_pressure_source": "string"
+    "natural_pressure_source": "string — MUST be an external force for commercial formats"
   },
   "failure_modes": [
     { "risk": "string", "safeguard": "string" }
