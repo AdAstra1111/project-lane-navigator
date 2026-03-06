@@ -1,4 +1,6 @@
 import { createVersion } from "../_shared/doc-os.ts";
+import { invalidateDescendants } from "../_shared/unifiedNoteControl.ts";
+import { formatToLane, getLaneLadder } from "../_shared/documentLadders.ts";
 
 /**
  * notes-engine — Unified notes lifecycle edge function.
@@ -503,10 +505,44 @@ Generate a concrete change plan with exact text snippets from the document.`;
         changeEventId, newVersionId: (newVersion as any).id, newVersionNumber: (newVersion as any).version_number,
       }, userId);
 
+      // ── DESCENDANT INVALIDATION after upstream repair ──
+      // If the repaired doc is upstream of other docs, invalidate descendants.
+      let invalidationResult = { invalidatedDocs: [] as string[], affectedJobIds: [] as string[] };
+      try {
+        const { data: proj } = await db.from("projects")
+          .select("format").eq("id", projectId_).maybeSingle();
+        const format = proj?.format || "";
+        const lane = formatToLane(format);
+        const ladder = getLaneLadder(lane);
+        const repairedDocType = parentDoc.doc_type;
+
+        if (ladder.includes(repairedDocType)) {
+          invalidationResult = await invalidateDescendants(
+            db, projectId_, repairedDocType, ladder, (newVersion as any).id,
+          );
+          if (invalidationResult.invalidatedDocs.length > 0) {
+            await logNoteEvent(db, projectId_, event.note_id, "descendants_invalidated", {
+              repaired_doc_type: repairedDocType,
+              invalidated_doc_types: invalidationResult.invalidatedDocs,
+              affected_job_ids: invalidationResult.affectedJobIds,
+              new_version_id: (newVersion as any).id,
+              lane,
+            }, userId);
+            console.log(`[notes-engine] descendant_invalidation { project_id: "${projectId_}", repaired: "${repairedDocType}", invalidated: ${JSON.stringify(invalidationResult.invalidatedDocs)}, affected_jobs: ${JSON.stringify(invalidationResult.affectedJobIds)} }`);
+          }
+        }
+      } catch (invErr: any) {
+        console.warn("[notes-engine] descendant invalidation failed (non-fatal):", invErr?.message);
+      }
+
       return json({
         ok: true,
         newVersionId: (newVersion as any).id,
         newVersionNumber: (newVersion as any).version_number,
+        descendantInvalidation: invalidationResult.invalidatedDocs.length > 0 ? {
+          invalidatedDocTypes: invalidationResult.invalidatedDocs,
+          affectedJobIds: invalidationResult.affectedJobIds,
+        } : undefined,
       });
     }
 
