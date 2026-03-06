@@ -272,7 +272,53 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
       throw new Error("No DevSeed output returned");
     }
 
-    // Store as a concept_expansion record (draft, not applied)
+    // ── NUE-INFORMED STRUCTURAL SELF-CHECK (deterministic, post-generation) ──
+    const structuralFailures: string[] = [];
+    const bs = devSeed.bible_starter || {};
+    const mr = devSeed.market_rationale || {};
+
+    // Check protagonist objective
+    if (!bs.protagonist_objective || String(bs.protagonist_objective).trim().length < 10) {
+      structuralFailures.push("missing_protagonist_objective");
+    }
+    // Check antagonist force
+    if (!bs.antagonist_force || String(bs.antagonist_force).trim().length < 10) {
+      structuralFailures.push("missing_antagonist_force");
+    }
+    // Check story engine
+    if (!bs.story_engine || String(bs.story_engine).trim().length < 20) {
+      structuralFailures.push("missing_story_engine");
+    }
+    // Check relationship tension
+    if (!bs.relationship_tension || String(bs.relationship_tension).trim().length < 10) {
+      structuralFailures.push("missing_relationship_tension");
+    }
+    // Check market hook
+    if (!mr.market_hook || String(mr.market_hook).trim().length < 10) {
+      structuralFailures.push("missing_market_hook");
+    }
+    // Check serial scalability for episodic formats
+    if (isEpisodic && (!mr.serial_scalability_note || String(mr.serial_scalability_note).trim().length < 10)) {
+      structuralFailures.push("missing_serial_scalability");
+    }
+    // Check characters exist
+    if (!Array.isArray(bs.characters) || bs.characters.length < 2) {
+      structuralFailures.push("insufficient_characters");
+    }
+
+    // IEL Logging
+    console.log(`[promote-to-devseed][IEL] nue_structural_self_check { pitch_idea_id: "${pitchIdeaId}", lane: "${idea.recommended_lane || "unknown"}", isEpisodic: ${isEpisodic}, isVerticalDrama: ${isVerticalDrama}, failures: ${JSON.stringify(structuralFailures)}, pass: ${structuralFailures.length === 0} }`);
+
+    // If structural self-check fails, return the seed but flag it
+    if (structuralFailures.length > 0) {
+      console.warn(`[promote-to-devseed][IEL] nue_structural_self_check_failed { pitch_idea_id: "${pitchIdeaId}", failures: ${JSON.stringify(structuralFailures)} }`);
+      // Attach failures to the seed for UI surfacing — do NOT silently pass
+      devSeed._structural_failures = structuralFailures;
+      devSeed._structural_pass = false;
+    } else {
+      devSeed._structural_pass = true;
+    }
+
     const { data: expansion, error: expErr } = await supabase
       .from("concept_expansions")
       .insert({
