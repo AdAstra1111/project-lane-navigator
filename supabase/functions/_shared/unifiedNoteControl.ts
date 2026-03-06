@@ -15,6 +15,16 @@
 import { type LaneKey } from "./documentLadders.ts";
 import { getInvalidationPlan, type InvalidationPlan } from "./deliverableDependencyRegistry.ts";
 
+// ── Phase 3: Subject Propagation Result ──
+export interface SubjectPropagationResult {
+  deltas_count: number;
+  affected_doc_types: string[];
+  unaffected_doc_types: string[];
+  narrowing_ratio: number;
+  subject_classes: string[];
+  delta_details: { subject_id: string; delta_type: string; label: string }[];
+}
+
 export interface UnifiedBlocker {
   id: string;
   source_table: "project_deferred_notes" | "project_notes" | "project_dev_note_state";
@@ -304,7 +314,19 @@ export async function invalidateDescendants(
   const affectedJobIds: string[] = [];
 
   // ── 1. Apply invalidation per dependency plan entry ──
+  // Phase 3 narrowing: if subject propagation computed affected projections,
+  // skip hard invalidation for doc types NOT in the affected set.
+  // This narrows the blast radius from doc-level to subject-level.
   for (const entry of plan.entries) {
+    // Subject-level narrowing: if we have subject data and this doc type
+    // is NOT affected by any subject delta, downgrade stale → review_only
+    let effectivePolicy = entry.invalidation_policy;
+    if (subjectNarrowedDocTypes && !subjectNarrowedDocTypes.has(entry.doc_type)) {
+      if (effectivePolicy === "stale") {
+        effectivePolicy = "review_only";
+        console.log(`[unified-note-control][Phase3] subject_narrowing_downgrade: ${entry.doc_type} stale→review_only (not in subject projection targets)`);
+      }
+    }
     try {
       const { data: docs } = await supabase
         .from("project_documents")
