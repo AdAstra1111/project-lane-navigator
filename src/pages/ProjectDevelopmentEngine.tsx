@@ -882,8 +882,8 @@ export default function ProjectDevelopmentEngine() {
     }
     // PIPELINE AUTHORITY: use Pipeline Brain exclusively, never fall back to LLM output
     const promoteTarget = promotionIntel.data?.next_document;
-    const selectedCi = latestAnalysis?.ci_score ?? latestAnalysis?.scores?.ci ?? (selectedVersion?.meta_json as any)?.ci ?? null;
-    const selectedGp = latestAnalysis?.gp_score ?? latestAnalysis?.scores?.gp ?? (selectedVersion?.meta_json as any)?.gp ?? null;
+    const selectedCi = latestAnalysis?.ci_score ?? latestAnalysis?.scores?.ci ?? ((selectedVersion as any)?.meta_json as any)?.ci ?? null;
+    const selectedGp = latestAnalysis?.gp_score ?? latestAnalysis?.scores?.gp ?? ((selectedVersion as any)?.meta_json as any)?.gp ?? null;
     const isApprovedAndHighConfidence = selectedVersion?.approval_status === 'approved'
       && typeof selectedCi === 'number'
       && typeof selectedGp === 'number'
