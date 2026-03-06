@@ -555,6 +555,17 @@ export default function ProjectDevelopmentEngine() {
   const authoritativeVersion = strictAuthoritativeVersion || fallbackApprovedVersion || null;
   const promotionGateVersionId = authoritativeVersion?.id || selectedVersionId || null;
 
+  // PATCH C — effectiveVersionId: authoritative wins over selected for all gate/convergence surfaces
+  const effectiveVersionId = authoritativeVersion?.id || selectedVersionId || null;
+
+  // Auto-select authoritative version in the UI when it exists but selectedVersionId points elsewhere
+  useEffect(() => {
+    if (authoritativeVersion?.id && selectedVersionId && authoritativeVersion.id !== selectedVersionId) {
+      console.info(`[ui][IEL] authoritative_ui_version_bound { project_id: "${projectId}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${authoritativeVersion.id}", selected_version_id: "${selectedVersionId}", action: "auto_rebind" }`);
+      setSelectedVersionId(authoritativeVersion.id);
+    }
+  }, [authoritativeVersion?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const promotionGateRuns = useMemo(
     () => (allDocRuns || []).filter((r: any) => r.version_id === promotionGateVersionId),
     [allDocRuns, promotionGateVersionId],
@@ -673,7 +684,11 @@ export default function ProjectDevelopmentEngine() {
 
     const convergenceVersionId = selectedVersionId || null;
     if (convergenceVersionId && convergenceVersionId !== promotionGateVersionId) {
-      console.warn(`[ui][IEL] promotion_gate_version_mismatch { project_id: "${projectId}", job_id: "${autoRun.job?.id || 'none'}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${promotionGateVersionId}", gate_version_id: "${promotionGateVersionId}", convergence_version_id: "${convergenceVersionId}" }`);
+      console.warn(`[ui][IEL] promotion_gate_version_mismatch { project_id: "${projectId}", job_id: "${autoRun.job?.id || 'none'}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${promotionGateVersionId}", gate_version_id: "${promotionGateVersionId}", convergence_version_id: "${convergenceVersionId}", action: "force_rebind" }`);
+      // PATCH D — functional mismatch correction: force rebind selectedVersionId to authoritative
+      if (authoritativeVersion?.id && authoritativeVersion.id !== selectedVersionId) {
+        setSelectedVersionId(authoritativeVersion.id);
+      }
     }
 
     if (lastPromotionGateVersionRef.current && lastPromotionGateVersionRef.current !== promotionGateVersionId) {
@@ -953,7 +968,9 @@ export default function ProjectDevelopmentEngine() {
   };
 
   const handlePromote = () => {
-    if (!selectedVersionId) {
+    // PATCH A — always use authoritative version, never stale selectedVersionId
+    const promoteVersionId = effectiveVersionId;
+    if (!promoteVersionId) {
       toast.error('Select a version before promoting');
       return;
     }
@@ -963,13 +980,15 @@ export default function ProjectDevelopmentEngine() {
     }
     // PIPELINE AUTHORITY: use Pipeline Brain exclusively, never fall back to LLM output
     const promoteTarget = promotionIntel.data?.next_document;
-    const selectedCi = latestAnalysis?.ci_score ?? latestAnalysis?.scores?.ci ?? ((selectedVersion as any)?.meta_json as any)?.ci ?? null;
-    const selectedGp = latestAnalysis?.gp_score ?? latestAnalysis?.scores?.gp ?? ((selectedVersion as any)?.meta_json as any)?.gp ?? null;
-    const isApprovedAndHighConfidence = selectedVersion?.approval_status === 'approved'
-      && typeof selectedCi === 'number'
-      && typeof selectedGp === 'number'
-      && selectedCi >= 85
-      && selectedGp >= 85;
+    // Use promotion-gate-bound analysis, not selected-version-scoped latestAnalysis
+    const gateAnalysis = promotionGateAnalysis || latestAnalysis;
+    const promoteCi = gateAnalysis?.ci_score ?? gateAnalysis?.scores?.ci ?? ((authoritativeVersion as any)?.meta_json as any)?.ci ?? null;
+    const promoteGp = gateAnalysis?.gp_score ?? gateAnalysis?.scores?.gp ?? ((authoritativeVersion as any)?.meta_json as any)?.gp ?? null;
+    const isApprovedAndHighConfidence = authoritativeVersion?.approval_status === 'approved'
+      && typeof promoteCi === 'number'
+      && typeof promoteGp === 'number'
+      && promoteCi >= 85
+      && promoteGp >= 85;
 
     // Approved + high-score manual override: allow deterministic adjacent promotion
     // even if local note-derived gates are stale/noisy.
@@ -978,7 +997,7 @@ export default function ProjectDevelopmentEngine() {
       : null;
 
     const nextBestDocument = promoteTarget || approvedOverrideTarget;
-    console.log(`[ui][IEL] promotion_source_of_truth { project_id: "${projectId}", format: "${projectFormat}", from_doc: "${selectedDeliverableType}", to_doc: "${nextBestDocument || 'null'}", recommendation: "${promotionIntel.data?.recommendation || 'none'}", readiness: ${promotionIntel.data?.readiness_score ?? 'N/A'}, approved_override: ${approvedOverrideTarget ? 'true' : 'false'}, selected_ci: ${selectedCi ?? 'N/A'}, selected_gp: ${selectedGp ?? 'N/A'} }`);
+    console.log(`[ui][IEL] promotion_source_of_truth { project_id: "${projectId}", format: "${projectFormat}", from_doc: "${selectedDeliverableType}", to_doc: "${nextBestDocument || 'null'}", recommendation: "${promotionIntel.data?.recommendation || 'none'}", readiness: ${promotionIntel.data?.readiness_score ?? 'N/A'}, approved_override: ${approvedOverrideTarget ? 'true' : 'false'}, promote_ci: ${promoteCi ?? 'N/A'}, promote_gp: ${promoteGp ?? 'N/A'}, effective_version_id: "${promoteVersionId}", authoritative_version_id: "${authoritativeVersion?.id || 'none'}", selected_version_id: "${selectedVersionId || 'none'}" }`);
     if (!promotionIntel.data && !approvedOverrideTarget) {
       toast.error('Run a review first before promoting');
       return;
@@ -1003,7 +1022,7 @@ export default function ProjectDevelopmentEngine() {
       return;
     }
     setSelectedDeliverableType(nextBestDocument as DeliverableType);
-    convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
+    convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: gateAnalysis?.protect });
   };
 
   const handleSkipStage = () => {
@@ -2118,10 +2137,10 @@ export default function ProjectDevelopmentEngine() {
             <TabsContent value="convergence" className="mt-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <ConvergencePanel
-                  latestAnalysis={latestAnalysis}
+                  latestAnalysis={authoritativeVersion ? (promotionGateAnalysis || latestAnalysis) : latestAnalysis}
                   convergenceHistory={convergenceHistory}
-                  convergenceStatus={convergenceStatus}
-                  tieredNotes={tieredNotes}
+                  convergenceStatus={authoritativeVersion ? promotionConvergenceStatus : convergenceStatus}
+                  tieredNotes={authoritativeVersion ? promotionTieredNotes : tieredNotes}
                 />
                 <div className="space-y-3">
                   {/* Auto-Run Progress Panel */}
