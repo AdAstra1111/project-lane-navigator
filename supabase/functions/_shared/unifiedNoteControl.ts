@@ -244,6 +244,17 @@ export async function invalidateDescendants(
   }
 
   // ── PHASE 3: Subject-level propagation narrowing ──
+  //
+  // ACTIVATION PREREQUISITE (not yet met):
+  // Subject narrowing only produces deltas when project_canon.canon_json has been
+  // updated PRIOR to this invalidation call. Currently, document repairs (e.g.
+  // character_bible rewrite) do NOT sync changes back into canon JSON automatically.
+  // Therefore this narrowing logic is structurally complete but operationally inert
+  // until a future "canon-sync" phase connects document repair output to canon updates.
+  //
+  // Active initial rollout classes: format_rule, concept_claim, character_fact.
+  // Excluded: relationship_fact (regex identity), season_arc_obligation (index identity).
+  //
   // If the repaired doc type is a subject source, attempt to narrow invalidation
   // by computing subject-level deltas against previous canon state.
   let subjectPropagation: SubjectPropagationResult | undefined;
