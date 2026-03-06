@@ -247,7 +247,8 @@ export function extractCanonicalSubjects(canonJson: Record<string, unknown>): Ca
       });
     }
 
-    // ── Character facts ──
+    // ── Character facts + relationship edge collection ──
+    const relationshipEdges: Array<{ source: string; target: string; arc_summary: string }> = [];
     if (Array.isArray(canonJson.characters)) {
       for (const char of canonJson.characters) {
         if (!char || typeof char !== "object" || !char.name) continue;
