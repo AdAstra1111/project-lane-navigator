@@ -11461,6 +11461,54 @@ export type Database = {
           },
         ]
       }
+      project_issue_lifecycle_events: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          event_type: string
+          id: string
+          payload: Json
+          project_id: string
+          source_row_id: string
+          source_table: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          event_type: string
+          id?: string
+          payload?: Json
+          project_id: string
+          source_row_id: string
+          source_table: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          event_type?: string
+          id?: string
+          payload?: Json
+          project_id?: string
+          source_row_id?: string
+          source_table?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_issue_lifecycle_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_issue_lifecycle_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_issues: {
         Row: {
           anchor: string | null
