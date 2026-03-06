@@ -41,7 +41,7 @@ import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 import { ChangeReportPanel } from '@/components/devengine/ChangeReportPanel';
 import { deriveScriptChangeArtifacts, isScriptDocType } from '@/lib/script_change';
-import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, getDeliverableLabel, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
+import { type DevelopmentBehavior, type ConvergenceStatus, computeConvergenceStatus, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, getDeliverableLabel, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
 import { isSeriesFormat as checkSeriesFormat } from '@/lib/format-helpers';
 import { FORMAT_DEFAULTS } from '@/lib/qualifications/resolveQualifications';
 import { DeliverablePipeline, type PipelineStageStatus } from '@/components/DeliverablePipeline';
