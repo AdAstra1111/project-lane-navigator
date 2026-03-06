@@ -318,7 +318,7 @@ Category: ${note.category}
 ${fixInstruction ? `\nFIX INSTRUCTION:\n${fixInstruction}` : ""}
 ${scope ? `\nSCOPE: ${scope}` : ""}
 
-DOCUMENT (${docType}):
+DOCUMENT (${repairDocType}):
 ${baseText.slice(0, 14000)}
 
 Generate a concrete change plan with exact text snippets from the document.`;
