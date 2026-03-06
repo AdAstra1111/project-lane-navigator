@@ -12,6 +12,9 @@
  * This is READ-ONLY normalization — no schema changes.
  */
 
+import { type LaneKey } from "./documentLadders.ts";
+import { getInvalidationPlan, type InvalidationPlan } from "./deliverableDependencyRegistry.ts";
+
 export interface UnifiedBlocker {
   id: string;
   source_table: "project_deferred_notes" | "project_notes" | "project_dev_note_state";
@@ -198,10 +201,16 @@ export function getDownstreamDocTypes(
 
 /**
  * Invalidate downstream documents after an upstream repair.
- * Resets depends_on_resolver_hash and clears last_analyzed_version_id
- * on auto_run_jobs targeting affected docs.
  *
- * Returns { invalidatedDocs, affectedJobs } counts.
+ * Phase 2B: Uses the dependency registry for precise invalidation.
+ * Only docs with invalidation_policy="stale" get marked stale.
+ * Docs with invalidation_policy="review_only" get a soft marker.
+ * Docs with invalidation_policy="none" are skipped entirely.
+ *
+ * Falls back to ladder-only slicing ONLY if the lane has no registry entries
+ * (logged explicitly as a fallback).
+ *
+ * Returns { invalidatedDocs, affectedJobs, plan } with provenance.
  */
 export async function invalidateDescendants(
   supabase: any,
@@ -209,75 +218,107 @@ export async function invalidateDescendants(
   repairedDocType: string,
   ladder: string[],
   newVersionId: string,
-): Promise<{ invalidatedDocs: string[]; affectedJobIds: string[] }> {
-  const downstream = getDownstreamDocTypes(repairedDocType, ladder);
-  if (downstream.length === 0) {
-    console.log(`[unified-note-control] invalidateDescendants: no downstream docs for ${repairedDocType} in ladder`);
-    return { invalidatedDocs: [], affectedJobIds: [] };
+  lane?: LaneKey,
+): Promise<{ invalidatedDocs: string[]; affectedJobIds: string[]; plan?: InvalidationPlan }> {
+  // ── Build dependency-aware invalidation plan ──
+  const effectiveLane: LaneKey = lane || "unspecified";
+  const plan = getInvalidationPlan(effectiveLane, repairedDocType);
+
+  // If plan has no entries AND ladder has downstream docs, this is unexpected — log it
+  if (plan.entries.length === 0) {
+    const ladderDownstream = getDownstreamDocTypes(repairedDocType, ladder);
+    if (ladderDownstream.length > 0) {
+      console.warn(`[unified-note-control] invalidateDescendants: dependency registry returned 0 entries but ladder has ${ladderDownstream.length} downstream docs for ${repairedDocType} in lane ${effectiveLane}. Skipping invalidation — no dependency edges defined.`);
+    }
+    return { invalidatedDocs: [], affectedJobIds: [], plan };
   }
 
   const invalidatedDocs: string[] = [];
   const affectedJobIds: string[] = [];
 
-  // ── 1. Find downstream documents and reset their current version's resolver hash ──
-  for (const docType of downstream) {
+  // ── 1. Apply invalidation per dependency plan entry ──
+  for (const entry of plan.entries) {
     try {
       const { data: docs } = await supabase
         .from("project_documents")
         .select("id")
         .eq("project_id", projectId)
-        .eq("doc_type", docType);
+        .eq("doc_type", entry.doc_type);
 
       if (!docs || docs.length === 0) continue;
 
       for (const doc of docs) {
-        // Reset resolver hash on the current version to force staleness
-        const { data: updated, error } = await supabase
-          .from("project_document_versions")
-          .update({
-            depends_on_resolver_hash: `invalidated_by_upstream_repair_${repairedDocType}_${newVersionId.slice(0, 8)}`,
-            is_stale: true,
-            stale_reason: "upstream_repair",
-          })
-          .eq("document_id", doc.id)
-          .eq("is_current", true)
-          .select("id");
+        if (entry.invalidation_policy === "stale") {
+          // Hard invalidation — mark stale
+          const { data: updated, error } = await supabase
+            .from("project_document_versions")
+            .update({
+              depends_on_resolver_hash: `invalidated_by_upstream_repair_${repairedDocType}_${newVersionId.slice(0, 8)}`,
+              is_stale: true,
+              stale_reason: "upstream_repair",
+            })
+            .eq("document_id", doc.id)
+            .eq("is_current", true)
+            .select("id");
 
-        if (!error && updated && updated.length > 0) {
-          invalidatedDocs.push(docType);
+          if (!error && updated && updated.length > 0) {
+            invalidatedDocs.push(entry.doc_type);
+          }
+        } else if (entry.invalidation_policy === "review_only") {
+          // Soft invalidation — mark for review without forcing regen
+          const { data: updated, error } = await supabase
+            .from("project_document_versions")
+            .update({
+              depends_on_resolver_hash: `review_suggested_after_${repairedDocType}_${newVersionId.slice(0, 8)}`,
+              // Do NOT set is_stale=true for review_only — just change the hash to flag review
+            })
+            .eq("document_id", doc.id)
+            .eq("is_current", true)
+            .select("id");
+
+          if (!error && updated && updated.length > 0) {
+            invalidatedDocs.push(entry.doc_type);
+          }
+        }
+        // invalidation_policy === "none" → skip entirely
+      }
+    } catch (e: any) {
+      console.warn(`[unified-note-control] invalidateDescendants: error invalidating ${entry.doc_type}:`, e?.message);
+    }
+  }
+
+  // ── 2. Reset auto_run_jobs for docs that need reanalysis ──
+  const reanalyzeDocs = plan.entries
+    .filter(e => e.revalidation_policy === "must_reanalyze")
+    .map(e => e.doc_type);
+
+  if (reanalyzeDocs.length > 0) {
+    try {
+      const { data: activeJobs } = await supabase
+        .from("auto_run_jobs")
+        .select("id, current_document")
+        .eq("project_id", projectId)
+        .in("status", ["running", "paused"])
+        .in("current_document", reanalyzeDocs);
+
+      if (activeJobs && activeJobs.length > 0) {
+        for (const job of activeJobs) {
+          await supabase
+            .from("auto_run_jobs")
+            .update({
+              last_analyzed_version_id: null,
+              last_ui_message: `Upstream repair on ${repairedDocType} — re-analysis required`,
+            })
+            .eq("id", job.id);
+          affectedJobIds.push(job.id);
         }
       }
     } catch (e: any) {
-      console.warn(`[unified-note-control] invalidateDescendants: error invalidating ${docType}:`, e?.message);
+      console.warn("[unified-note-control] invalidateDescendants: error resetting jobs:", e?.message);
     }
   }
 
-  // ── 2. Reset last_analyzed_version_id on active auto_run_jobs for downstream docs ──
-  try {
-    const { data: activeJobs } = await supabase
-      .from("auto_run_jobs")
-      .select("id, current_document")
-      .eq("project_id", projectId)
-      .in("status", ["running", "paused"])
-      .in("current_document", downstream);
+  console.log(`[unified-note-control] invalidateDescendants { project_id: "${projectId}", repaired_doc_type: "${repairedDocType}", lane: "${effectiveLane}", invalidated_docs: ${JSON.stringify(invalidatedDocs)}, skipped_docs: ${JSON.stringify(plan.skipped_doc_types)}, affected_jobs: ${JSON.stringify(affectedJobIds)}, plan_entries: ${plan.entries.length} }`);
 
-    if (activeJobs && activeJobs.length > 0) {
-      for (const job of activeJobs) {
-        await supabase
-          .from("auto_run_jobs")
-          .update({
-            last_analyzed_version_id: null,
-            last_ui_message: `Upstream repair on ${repairedDocType} — re-analysis required`,
-          })
-          .eq("id", job.id);
-        affectedJobIds.push(job.id);
-      }
-    }
-  } catch (e: any) {
-    console.warn("[unified-note-control] invalidateDescendants: error resetting jobs:", e?.message);
-  }
-
-  console.log(`[unified-note-control] invalidateDescendants { project_id: "${projectId}", repaired_doc_type: "${repairedDocType}", downstream_types: ${JSON.stringify(downstream)}, invalidated_docs: ${JSON.stringify(invalidatedDocs)}, affected_jobs: ${JSON.stringify(affectedJobIds)} }`);
-
-  return { invalidatedDocs, affectedJobIds };
+  return { invalidatedDocs, affectedJobIds, plan };
 }
