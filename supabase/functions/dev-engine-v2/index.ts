@@ -1331,7 +1331,7 @@ ${rubric}
 ${formatExp}
 
 ${behaviorMod}
-${verticalRules}${docGuard}
+${verticalRules}${docGuard}${ideaStructuralContext}
 
 SCORING RUBRIC (CANONICAL – v1):
 CI (Creative Integrity) evaluates:
