@@ -882,16 +882,30 @@ export default function ProjectDevelopmentEngine() {
     }
     // PIPELINE AUTHORITY: use Pipeline Brain exclusively, never fall back to LLM output
     const promoteTarget = promotionIntel.data?.next_document;
-    const nextBestDocument = promoteTarget;
-    console.log(`[ui][IEL] promotion_source_of_truth { project_id: "${projectId}", format: "${projectFormat}", from_doc: "${selectedDeliverableType}", to_doc: "${nextBestDocument || 'null'}", recommendation: "${promotionIntel.data?.recommendation || 'none'}", readiness: ${promotionIntel.data?.readiness_score ?? 'N/A'} }`);
-    if (!promotionIntel.data) {
+    const selectedCi = latestAnalysis?.ci_score ?? latestAnalysis?.scores?.ci ?? (selectedVersion?.meta_json as any)?.ci ?? null;
+    const selectedGp = latestAnalysis?.gp_score ?? latestAnalysis?.scores?.gp ?? (selectedVersion?.meta_json as any)?.gp ?? null;
+    const isApprovedAndHighConfidence = selectedVersion?.approval_status === 'approved'
+      && typeof selectedCi === 'number'
+      && typeof selectedGp === 'number'
+      && selectedCi >= 85
+      && selectedGp >= 85;
+
+    // Approved + high-score manual override: allow deterministic adjacent promotion
+    // even if local note-derived gates are stale/noisy.
+    const approvedOverrideTarget = !promoteTarget && isApprovedAndHighConfidence
+      ? getNextStage(selectedDeliverableType, projectFormat)
+      : null;
+
+    const nextBestDocument = promoteTarget || approvedOverrideTarget;
+    console.log(`[ui][IEL] promotion_source_of_truth { project_id: "${projectId}", format: "${projectFormat}", from_doc: "${selectedDeliverableType}", to_doc: "${nextBestDocument || 'null'}", recommendation: "${promotionIntel.data?.recommendation || 'none'}", readiness: ${promotionIntel.data?.readiness_score ?? 'N/A'}, approved_override: ${approvedOverrideTarget ? 'true' : 'false'}, selected_ci: ${selectedCi ?? 'N/A'}, selected_gp: ${selectedGp ?? 'N/A'} }`);
+    if (!promotionIntel.data && !approvedOverrideTarget) {
       toast.error('Run a review first before promoting');
       return;
     }
     if (!nextBestDocument) {
       // Provide actionable feedback based on recommendation
-      const rec = promotionIntel.data.recommendation;
-      const reasons = promotionIntel.data.reasons?.slice(0, 2).join('. ') || '';
+      const rec = promotionIntel.data?.recommendation;
+      const reasons = promotionIntel.data?.reasons?.slice(0, 2).join('. ') || '';
       if (rec === 'stabilise') {
         toast.error(`Cannot promote yet — stabilisation needed. ${reasons}`);
       } else if (rec === 'escalate') {
