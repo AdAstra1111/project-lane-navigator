@@ -245,13 +245,41 @@ export async function buildEligibilityInput(
 }
 
 /**
- * Read the previous eligibility fingerprint from auto_run_jobs.meta_json.
+ * Build the scope key for eligibility persistence.
+ * Scoped by doc_type + strategy to prevent cross-doc and cross-strategy collisions.
  */
-export function readPreviousEligibility(jobMetaJson: any): {
+export function buildEligibilityScopeKey(docType: string, strategy: string): string {
+  return `${docType}::${strategy}`;
+}
+
+/**
+ * Read the previous eligibility fingerprint from auto_run_jobs.meta_json,
+ * scoped by doc_type + strategy.
+ *
+ * Falls back to legacy flat fields for backward compatibility with
+ * jobs that were persisted before scoping was introduced.
+ */
+export function readPreviousEligibility(
+  jobMetaJson: any,
+  scopeKey?: string,
+): {
   fingerprint: string | null;
   input: EligibilityInput | null;
 } {
   if (!jobMetaJson) return { fingerprint: null, input: null };
+
+  // Scoped read (preferred)
+  if (scopeKey) {
+    const scopedMap = jobMetaJson.eligibility_state_by_scope;
+    if (scopedMap && scopedMap[scopeKey]) {
+      return {
+        fingerprint: scopedMap[scopeKey].fingerprint || null,
+        input: scopedMap[scopeKey].input || null,
+      };
+    }
+  }
+
+  // Legacy flat fallback (pre-scoping jobs)
   return {
     fingerprint: jobMetaJson.last_eligibility_fingerprint || null,
     input: jobMetaJson.last_eligibility_input || null,
@@ -259,15 +287,41 @@ export function readPreviousEligibility(jobMetaJson: any): {
 }
 
 /**
- * Build the meta_json patch to persist eligibility state after a rewrite attempt.
+ * Build the meta_json patch to persist eligibility state after a rewrite attempt,
+ * scoped by doc_type + strategy.
+ *
+ * Stores under `eligibility_state_by_scope[scopeKey]` to prevent cross-doc
+ * and cross-strategy fingerprint collisions within a single job.
+ *
+ * NOTE: Phase 2C eligibility is currently enforced on auto-run only.
+ * Manual rewrite path is NOT yet wired.
  */
 export function buildEligibilityPersistPatch(
   existingMetaJson: any,
   fingerprint: string,
   input: EligibilityInput,
+  scopeKey?: string,
 ): Record<string, any> {
+  const base = existingMetaJson || {};
+
+  if (scopeKey) {
+    const existingScoped = base.eligibility_state_by_scope || {};
+    return {
+      ...base,
+      eligibility_state_by_scope: {
+        ...existingScoped,
+        [scopeKey]: {
+          fingerprint,
+          input,
+          updated_at: new Date().toISOString(),
+        },
+      },
+    };
+  }
+
+  // Legacy flat write (should not be reached after this patch)
   return {
-    ...(existingMetaJson || {}),
+    ...base,
     last_eligibility_fingerprint: fingerprint,
     last_eligibility_input: input,
     last_eligibility_at: new Date().toISOString(),
