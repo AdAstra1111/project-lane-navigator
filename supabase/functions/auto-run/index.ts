@@ -2052,7 +2052,8 @@ interface PromotionResult {
 
 function computePromotion(
   ci: number, gp: number, gap: number, trajectory: string | null,
-  doc: string, blockersCount: number, highImpactCount: number, iterationCount: number
+  doc: string, blockersCount: number, highImpactCount: number, iterationCount: number,
+  allowDefaults = false,
 ): PromotionResult {
   const w = WEIGHTS[doc] || WEIGHTS.concept_brief;
   const gapScore = 100 - clamp(gap * 2, 0, 100);
@@ -2087,10 +2088,21 @@ function computePromotion(
     reasons.push("Trajectory eroding");
     return { recommendation: "escalate", readiness_score: readinessScore, confidence, risk_flags, reasons };
   }
+  // ── IEL: Relax early-stage high-impact gate when allow_defaults=true AND CI >= GLOBAL_MIN_CI ──
+  // Rationale: when Auto-Decide is ON and scores already meet the hard CI gate,
+  // remaining high-impact notes are refinement-safe and should not block promotion.
+  // This allows the executor to auto-promote after successful stabilise cycles.
   if ((doc === "idea" || doc === "concept_brief") && highImpactCount > 0) {
-    risk_flags.push("hard_gate:early_stage_high_impact");
-    reasons.push("Early-stage high-impact issues");
-    return { recommendation: "stabilise", readiness_score: readinessScore, confidence, risk_flags, reasons };
+    if (allowDefaults && ci >= GLOBAL_MIN_CI) {
+      risk_flags.push("soft_gate:early_stage_high_impact_relaxed");
+      reasons.push(`Early-stage high-impact issues (${highImpactCount}) — relaxed: allow_defaults=true, CI=${ci}≥${GLOBAL_MIN_CI}`);
+      console.log(`[auto-run][IEL] early_stage_hi_gate_relaxed { doc: "${doc}", highImpactCount: ${highImpactCount}, ci: ${ci}, allow_defaults: true }`);
+      // Don't force stabilise — fall through to normal readiness check
+    } else {
+      risk_flags.push("hard_gate:early_stage_high_impact");
+      reasons.push("Early-stage high-impact issues");
+      return { recommendation: "stabilise", readiness_score: readinessScore, confidence, risk_flags, reasons };
+    }
   }
 
   let recommendation: "promote" | "stabilise" | "escalate";
