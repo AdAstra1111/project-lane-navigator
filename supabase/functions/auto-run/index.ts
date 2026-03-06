@@ -4049,25 +4049,78 @@ Deno.serve(async (req) => {
       const { data: jobProj } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
       const jobFmt = (jobProj?.format || "film").toLowerCase().replace(/_/g, "-");
       const currentDoc = job.current_document as DocStage;
+
+      // ── IEL: Resolve the authoritative promotion source version ──
+      // Must resolve the approved/current version of the DEPARTING stage
+      // so downstream generation knows exactly which version was promoted.
+      const { data: promotingDoc } = await supabase.from("project_documents")
+        .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      let promotionSourceVersionId: string | null = null;
+      let promotionSourceReason = "no_document";
+      if (promotingDoc) {
+        const abvr = await resolveActiveVersionForDoc(supabase, job, promotingDoc.id, { jobId, docType: currentDoc });
+        if (abvr) {
+          promotionSourceVersionId = abvr.versionId;
+          promotionSourceReason = abvr.reason;
+        } else {
+          promotionSourceReason = "no_eligible_version";
+        }
+      }
+
+      console.log(`[auto-run][IEL] manual_promote_source_resolved { job_id: "${jobId}", doc_type: "${currentDoc}", source_version_id: "${promotionSourceVersionId}", reason: "${promotionSourceReason}", doc_id: "${promotingDoc?.id || 'none'}" }`);
+
+      // Fail-closed: if we cannot resolve the source version, block promotion
+      if (!promotionSourceVersionId) {
+        console.error(`[auto-run][IEL] rejected_manual_promote { job_id: "${jobId}", doc_type: "${currentDoc}", reason: "${promotionSourceReason}" }`);
+        return respond({ error: `Cannot promote: no eligible approved/current version for ${currentDoc} (${promotionSourceReason}). Approve a version first.` }, 400);
+      }
+
+      // Persist scores from the promoted version to best_* fields if they're better
+      const { data: sourceVer } = await supabase.from("project_document_versions")
+        .select("id, meta_json").eq("id", promotionSourceVersionId).single();
+      const srcMeta = sourceVer?.meta_json || {};
+      const srcCI = typeof srcMeta.ci === "number" ? srcMeta.ci : (job.last_ci ?? 0);
+      const srcGP = typeof srcMeta.gp === "number" ? srcMeta.gp : (job.last_gp ?? 0);
+
       const next = await nextUnsatisfiedStage(supabase, job.project_id, jobFmt, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
       if (!next) {
         const stepCount = job.step_count + 1;
-        await logStep(supabase, jobId, stepCount, currentDoc, "force_promote", "All stages satisfied up to target");
+        await logStep(supabase, jobId, stepCount, currentDoc, "force_promote", `All stages satisfied up to target (promoted version: ${promotionSourceVersionId})`);
         await updateJob(supabase, jobId, { step_count: stepCount, status: "completed", stop_reason: "All stages satisfied up to target" });
         return respondWithJob(supabase, jobId);
       }
       const stepCount = job.step_count + 1;
-      await logStep(supabase, jobId, stepCount, currentDoc, "force_promote", `Force-promoted: ${currentDoc} → ${next}`);
-      await updateJob(supabase, jobId, {
+      await logStep(supabase, jobId, stepCount, currentDoc, "force_promote",
+        `Force-promoted: ${currentDoc} → ${next} (source_version: ${promotionSourceVersionId}, CI:${srcCI}, GP:${srcGP})`,
+        {}, undefined, { promotion_source_version_id: promotionSourceVersionId, promotion_source_reason: promotionSourceReason }
+      );
+
+      // Update job: advance stage AND persist the promoted-from version in best_* and last_analyzed
+      const bestUpdateFields: Record<string, any> = {
         current_document: next, stage_loop_count: 0, step_count: stepCount,
         stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
         status: "running", stop_reason: null,
         awaiting_approval: false, approval_type: null, pending_doc_id: null, pending_version_id: null,
         pending_doc_type: null, pending_next_doc_type: null, pending_decisions: null,
+        // Persist promoted version as last_analyzed so downstream knows the source
+        last_analyzed_version_id: promotionSourceVersionId,
+        // Update best scores if the promoted version is better
+        last_ci: srcCI, last_gp: srcGP,
         // Clear frontier on stage change (best_* is global, preserved)
         frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
-      });
-      console.log(`[auto-run][IEL] stage_transition { job_id: "${jobId}", from: "${currentDoc}", to: "${next}", best_preserved: true, trigger: "force_promote" }`);
+      };
+      // Update global best if promoted version scores higher
+      if (srcCI + srcGP > ((job.best_ci ?? 0) + (job.best_gp ?? 0))) {
+        bestUpdateFields.best_ci = srcCI;
+        bestUpdateFields.best_gp = srcGP;
+        bestUpdateFields.best_score = srcCI + srcGP;
+        bestUpdateFields.best_version_id = promotionSourceVersionId;
+        bestUpdateFields.best_document_id = promotingDoc?.id || null;
+      }
+      await updateJob(supabase, jobId, bestUpdateFields);
+      console.log(`[auto-run][IEL] stage_transition { job_id: "${jobId}", from: "${currentDoc}", to: "${next}", best_preserved: true, trigger: "force_promote", source_version_id: "${promotionSourceVersionId}", source_ci: ${srcCI}, source_gp: ${srcGP} }`);
       return respondWithJob(supabase, jobId, "run-next");
     }
 
