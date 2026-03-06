@@ -112,14 +112,15 @@ const SYNC_CONFIGS: Record<string, CanonSyncConfig> = {
       },
     ],
   },
-  // DISABLED for initial rollout: mergeCanonPatch() replaces characters[]
-  // wholesale, which destroys existing fields (description, relationships)
-  // and can silently delete characters if extraction count drops.
-  // Re-enable only after implementing keyed name-based character merge.
+  // Phase 3C: Re-enabled with safe keyed merge (mergeCharactersByName).
+  // characters[] are merged by normalized name key, preserving existing
+  // fields not present in extracted patch. Sync is rejected if:
+  //   - extracted count < existing count (destructive shrink)
+  //   - duplicate normalized names in either set
+  //   - any extracted character has an empty/malformed name
   character_bible: {
     source_doc_type: "character_bible",
-    sync_enabled: false,
-    fail_closed_reason: "characters[] merge is destructive — keyed name-based merge required before re-enabling",
+    sync_enabled: true,
     field_mappings: [
       {
         canon_field: "characters",
@@ -219,9 +220,31 @@ export function validateCanonPatch(
   for (const [field, value] of Object.entries(patch.fields)) {
     if (field === "characters") {
       if (!Array.isArray(value) || value.length === 0) return false;
-      // Each character must have a name
+      // Each character must have a non-empty name
       for (const ch of value) {
-        if (!ch || typeof ch !== "object" || !(ch as any).name) return false;
+        if (!ch || typeof ch !== "object") return false;
+        const name = (ch as any).name;
+        if (!name || typeof name !== "string" || name.trim().length < 2) return false;
+      }
+      // Reject duplicate normalized names in extracted patch
+      const extractedNames = (value as any[]).map((c) => normalizeCharName(c.name));
+      if (new Set(extractedNames).size !== extractedNames.length) {
+        console.warn(`[canon-sync] validate_reject: duplicate names in extracted characters`);
+        return false;
+      }
+      // Reject if extracted count < existing count (destructive shrink)
+      const existingChars = existingCanon.characters;
+      if (Array.isArray(existingChars) && existingChars.length > 0) {
+        if (value.length < existingChars.length) {
+          console.warn(`[canon-sync] validate_reject: extracted ${value.length} chars < existing ${existingChars.length} (destructive shrink)`);
+          return false;
+        }
+        // Reject if duplicate normalized names in existing canon
+        const existingNames = existingChars.map((c: any) => normalizeCharName(c?.name || ""));
+        if (new Set(existingNames).size !== existingNames.length) {
+          console.warn(`[canon-sync] validate_reject: duplicate names in existing canon characters`);
+          return false;
+        }
       }
     } else if (typeof value !== "string" || value.trim().length < 5) {
       return false;
@@ -232,9 +255,89 @@ export function validateCanonPatch(
 }
 
 /**
+ * Normalize a character name for use as a merge key.
+ * Lowercases, trims, collapses whitespace.
+ */
+function normalizeCharName(name: string): string {
+  return name.toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Keyed merge for characters[] array.
+ * Merges by normalized character name:
+ *   - Existing fields NOT in extracted object are PRESERVED
+ *   - Extracted fields that are non-empty OVERWRITE existing
+ *   - New characters (in extracted but not in existing) are ADDED
+ *   - Characters only in existing are PRESERVED (no deletion)
+ *
+ * Returns the merged characters array.
+ */
+function mergeCharactersByName(
+  existing: any[],
+  extracted: any[],
+): { merged: any[]; matched: number; added: number; preserved: number } {
+  const existingByKey = new Map<string, any>();
+  for (const ch of existing) {
+    if (ch?.name) existingByKey.set(normalizeCharName(ch.name), { ...ch });
+  }
+
+  const seenKeys = new Set<string>();
+  let matched = 0;
+  let added = 0;
+
+  for (const ext of extracted) {
+    const key = normalizeCharName(ext.name);
+    seenKeys.add(key);
+
+    if (existingByKey.has(key)) {
+      // Merge: preserve existing fields, overwrite with non-empty extracted fields
+      const merged = existingByKey.get(key)!;
+      for (const [field, value] of Object.entries(ext)) {
+        if (value !== undefined && value !== null && value !== "") {
+          merged[field] = value;
+        }
+      }
+      existingByKey.set(key, merged);
+      matched++;
+    } else {
+      // New character from extraction
+      existingByKey.set(key, { ...ext });
+      added++;
+    }
+  }
+
+  // Characters only in existing are preserved (not deleted)
+  const preserved = existing.filter((ch) => ch?.name && !seenKeys.has(normalizeCharName(ch.name))).length;
+
+  // Build final array: existing order first, then new additions
+  const result: any[] = [];
+  const usedKeys = new Set<string>();
+
+  // Preserve original ordering for existing characters
+  for (const ch of existing) {
+    if (ch?.name) {
+      const key = normalizeCharName(ch.name);
+      if (existingByKey.has(key)) {
+        result.push(existingByKey.get(key));
+        usedKeys.add(key);
+      }
+    }
+  }
+  // Append new characters
+  for (const [key, ch] of existingByKey.entries()) {
+    if (!usedKeys.has(key)) {
+      result.push(ch);
+    }
+  }
+
+  return { merged: result, matched, added, preserved };
+}
+
+/**
  * Merge a canon patch into existing canon JSON.
  * Only overwrites fields present in the patch.
  * Never removes existing fields not in the patch.
+ * Uses keyed merge for characters[] to preserve existing fields.
  */
 export function mergeCanonPatch(
   existingCanon: Record<string, unknown>,
@@ -242,7 +345,14 @@ export function mergeCanonPatch(
 ): Record<string, unknown> {
   const merged = { ...existingCanon };
   for (const [field, value] of Object.entries(patch.fields)) {
-    merged[field] = value;
+    if (field === "characters" && Array.isArray(value)) {
+      const existingChars = Array.isArray(merged.characters) ? merged.characters as any[] : [];
+      const result = mergeCharactersByName(existingChars, value);
+      merged.characters = result.merged;
+      console.log(`[canon-sync] character_merge { matched: ${result.matched}, added: ${result.added}, preserved: ${result.preserved} }`);
+    } else {
+      merged[field] = value;
+    }
   }
   return merged;
 }
