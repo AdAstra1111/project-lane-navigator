@@ -7773,6 +7773,57 @@ Deno.serve(async (req) => {
               return respondWithJob(supabase, jobId, shouldHalt ? undefined : "run-next");
             }
 
+            // ── PHASE 2D: SECTION-LEVEL REPAIR TARGETING ──
+            let sectionRepairMeta: Record<string, unknown> | null = null;
+            {
+              try {
+                const { getRepairTarget } = await import("../_shared/sectionRepairEngine.ts");
+                const { isSectionRepairSupported } = await import("../_shared/deliverableSectionRegistry.ts");
+
+                if (isSectionRepairSupported(currentDoc)) {
+                  // Get current document content for section parsing
+                  const { data: verContent } = await supabase
+                    .from("project_document_versions")
+                    .select("plaintext")
+                    .eq("id", baselineVersionId)
+                    .maybeSingle();
+
+                  const docContent = verContent?.plaintext || "";
+                  if (docContent.length > 100) {
+                    // Use the highest-severity blocker as the primary repair issue
+                    const primaryIssue = (blockers && blockers.length > 0)
+                      ? { category: blockers[0]?.category, title: blockers[0]?.title || blockers[0]?.objective, summary: blockers[0]?.summary || blockers[0]?.detail }
+                      : (highImpact && highImpact.length > 0)
+                        ? { category: highImpact[0]?.category, title: highImpact[0]?.title || highImpact[0]?.objective, summary: highImpact[0]?.summary || highImpact[0]?.detail }
+                        : null;
+
+                    if (primaryIssue) {
+                      const target = getRepairTarget(primaryIssue, currentDoc, docContent);
+                      sectionRepairMeta = {
+                        repair_target_type: target.repair_target_type,
+                        section_key: target.section_key,
+                        section_label: target.section_label,
+                        reason: target.reason,
+                        fallback_reason: target.fallback_reason,
+                      };
+
+                      if (target.repair_target_type === "section" && target.section_key) {
+                        // Inject section-targeted direction into rewrite
+                        mergedDirections.push(
+                          `SECTION-TARGETED REPAIR: Focus changes on the "${target.section_label || target.section_key}" section. Preserve all other sections verbatim. Only modify content under the targeted section heading.`
+                        );
+                        console.log(`[auto-run][Phase2D] section_repair_targeted: doc=${currentDoc} section=${target.section_key} reason=${target.reason}`);
+                      } else {
+                        console.log(`[auto-run][Phase2D] section_repair_fallback: doc=${currentDoc} reason=${target.reason} fallback=${target.fallback_reason}`);
+                      }
+                    }
+                  }
+                }
+              } catch (e: any) {
+                console.warn(`[auto-run][Phase2D] section_repair_error: ${e?.message}`);
+              }
+            }
+
             // ── SINGLE CANDIDATE PATH (all other strategies) ──
             // Use frontier as input if available; compare against BASELINE
             const singleInputVersionId = (job as any).frontier_version_id ?? baselineVersionId;
@@ -7791,6 +7842,14 @@ Deno.serve(async (req) => {
                 globalDirections: mergedDirections.length > 0 ? mergedDirections : undefined,
               }, jobId, newStep + 2, format, currentDoc
             );
+
+            // Log section repair metadata for provenance
+            if (sectionRepairMeta) {
+              await logStep(supabase, jobId, null, currentDoc, "section_repair_targeting",
+                `Section repair: ${sectionRepairMeta.repair_target_type} [${sectionRepairMeta.section_key || "full_doc"}] — ${sectionRepairMeta.reason}`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                sectionRepairMeta);
+            }
 
             // ── Clear canon_lock_mode AFTER successful rewrite ──
             if (canonLockWasApplied) {
