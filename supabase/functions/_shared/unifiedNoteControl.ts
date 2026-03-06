@@ -15,6 +15,16 @@
 import { type LaneKey } from "./documentLadders.ts";
 import { getInvalidationPlan, type InvalidationPlan } from "./deliverableDependencyRegistry.ts";
 
+// ── Phase 3: Subject Propagation Result ──
+export interface SubjectPropagationResult {
+  deltas_count: number;
+  affected_doc_types: string[];
+  unaffected_doc_types: string[];
+  narrowing_ratio: number;
+  subject_classes: string[];
+  delta_details: { subject_id: string; delta_type: string; label: string }[];
+}
+
 export interface UnifiedBlocker {
   id: string;
   source_table: "project_deferred_notes" | "project_notes" | "project_dev_note_state";
@@ -219,7 +229,7 @@ export async function invalidateDescendants(
   ladder: string[],
   newVersionId: string,
   lane?: LaneKey,
-): Promise<{ invalidatedDocs: string[]; affectedJobIds: string[]; plan?: InvalidationPlan }> {
+): Promise<{ invalidatedDocs: string[]; affectedJobIds: string[]; plan?: InvalidationPlan; subjectPropagation?: SubjectPropagationResult }> {
   // ── Build dependency-aware invalidation plan ──
   const effectiveLane: LaneKey = lane || "unspecified";
   const plan = getInvalidationPlan(effectiveLane, repairedDocType);
@@ -233,11 +243,90 @@ export async function invalidateDescendants(
     return { invalidatedDocs: [], affectedJobIds: [], plan };
   }
 
+  // ── PHASE 3: Subject-level propagation narrowing ──
+  // If the repaired doc type is a subject source, attempt to narrow invalidation
+  // by computing subject-level deltas against previous canon state.
+  let subjectPropagation: SubjectPropagationResult | undefined;
+  let subjectNarrowedDocTypes: Set<string> | null = null;
+  try {
+    const {
+      isSubjectSourceDocType,
+      buildSubjectPropagationPlan,
+      extractCanonicalSubjects,
+    } = await import("./canonSubjectRegistry.ts");
+
+    if (isSubjectSourceDocType(repairedDocType)) {
+      // Fetch current and previous canon snapshots
+      const { data: canonRow } = await supabase
+        .from("project_canon")
+        .select("canon_json")
+        .eq("project_id", projectId)
+        .maybeSingle();
+
+      if (canonRow?.canon_json) {
+        // Fetch the most recent approved canon version (prior state) for delta comparison
+        const { data: prevVersion } = await supabase
+          .from("project_canon_versions")
+          .select("canon_json")
+          .eq("project_id", projectId)
+          .order("created_at", { ascending: false })
+          .limit(2);
+
+        // Use the second-most-recent version as "previous" (first is the current update)
+        const prevCanon = (prevVersion && prevVersion.length >= 2)
+          ? prevVersion[1].canon_json || {}
+          : {};
+        const currentCanon = canonRow.canon_json;
+
+        const propagationPlan = buildSubjectPropagationPlan(
+          prevCanon, currentCanon, repairedDocType, effectiveLane,
+        );
+
+        if (propagationPlan && propagationPlan.deltas.length > 0) {
+          const affectedDocTypes = Object.keys(propagationPlan.affected_projections);
+          subjectNarrowedDocTypes = new Set(affectedDocTypes);
+
+          subjectPropagation = {
+            deltas_count: propagationPlan.deltas.length,
+            affected_doc_types: affectedDocTypes,
+            unaffected_doc_types: propagationPlan.unaffected_doc_types,
+            narrowing_ratio: propagationPlan.narrowing_ratio,
+            subject_classes: [...new Set(propagationPlan.deltas.map(d => d.subject_class))],
+            delta_details: propagationPlan.deltas.map(d => ({
+              subject_id: d.subject_id,
+              delta_type: d.delta_type,
+              label: d.label,
+            })),
+          };
+
+          console.log(`[unified-note-control][Phase3] subject_propagation_computed { project: "${projectId}", repaired: "${repairedDocType}", deltas: ${propagationPlan.deltas.length}, affected: ${JSON.stringify(affectedDocTypes)}, unaffected: ${JSON.stringify(propagationPlan.unaffected_doc_types)}, narrowing: ${propagationPlan.narrowing_ratio} }`);
+        } else {
+          console.log(`[unified-note-control][Phase3] subject_propagation_no_deltas { project: "${projectId}", repaired: "${repairedDocType}" }`);
+        }
+      }
+    }
+  } catch (subjErr: any) {
+    // Fail closed: subject propagation error does NOT block doc-level invalidation
+    console.warn(`[unified-note-control][Phase3] subject_propagation_error: ${subjErr?.message}`);
+  }
+
   const invalidatedDocs: string[] = [];
   const affectedJobIds: string[] = [];
 
   // ── 1. Apply invalidation per dependency plan entry ──
+  // Phase 3 narrowing: if subject propagation computed affected projections,
+  // skip hard invalidation for doc types NOT in the affected set.
+  // This narrows the blast radius from doc-level to subject-level.
   for (const entry of plan.entries) {
+    // Subject-level narrowing: if we have subject data and this doc type
+    // is NOT affected by any subject delta, downgrade stale → review_only
+    let effectivePolicy = entry.invalidation_policy;
+    if (subjectNarrowedDocTypes && !subjectNarrowedDocTypes.has(entry.doc_type)) {
+      if (effectivePolicy === "stale") {
+        effectivePolicy = "review_only";
+        console.log(`[unified-note-control][Phase3] subject_narrowing_downgrade: ${entry.doc_type} stale→review_only (not in subject projection targets)`);
+      }
+    }
     try {
       const { data: docs } = await supabase
         .from("project_documents")
@@ -248,7 +337,7 @@ export async function invalidateDescendants(
       if (!docs || docs.length === 0) continue;
 
       for (const doc of docs) {
-        if (entry.invalidation_policy === "stale") {
+        if (effectivePolicy === "stale") {
           // Hard invalidation — mark stale
           const { data: updated, error } = await supabase
             .from("project_document_versions")
@@ -264,7 +353,7 @@ export async function invalidateDescendants(
           if (!error && updated && updated.length > 0) {
             invalidatedDocs.push(entry.doc_type);
           }
-        } else if (entry.invalidation_policy === "review_only") {
+        } else if (effectivePolicy === "review_only") {
           // Soft invalidation — mark for review without forcing regen
           const { data: updated, error } = await supabase
             .from("project_document_versions")
@@ -318,7 +407,7 @@ export async function invalidateDescendants(
     }
   }
 
-  console.log(`[unified-note-control] invalidateDescendants { project_id: "${projectId}", repaired_doc_type: "${repairedDocType}", lane: "${effectiveLane}", invalidated_docs: ${JSON.stringify(invalidatedDocs)}, skipped_docs: ${JSON.stringify(plan.skipped_doc_types)}, affected_jobs: ${JSON.stringify(affectedJobIds)}, plan_entries: ${plan.entries.length} }`);
+  console.log(`[unified-note-control] invalidateDescendants { project_id: "${projectId}", repaired_doc_type: "${repairedDocType}", lane: "${effectiveLane}", invalidated_docs: ${JSON.stringify(invalidatedDocs)}, skipped_docs: ${JSON.stringify(plan.skipped_doc_types)}, affected_jobs: ${JSON.stringify(affectedJobIds)}, plan_entries: ${plan.entries.length}, subject_propagation: ${subjectPropagation ? `deltas=${subjectPropagation.deltas_count},narrowing=${subjectPropagation.narrowing_ratio}` : "none"} }`);
 
-  return { invalidatedDocs, affectedJobIds, plan };
+  return { invalidatedDocs, affectedJobIds, plan, subjectPropagation };
 }
