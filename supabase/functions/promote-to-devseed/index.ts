@@ -92,13 +92,54 @@ serve(async (req) => {
     }
 
     // Generate DevSeed via AI
-    const systemPrompt = `You are IFFY's DevSeed Generator. Given a pitch idea, create a comprehensive development seed document with three sections:
+    // ── NUE-INFORMED STRUCTURAL REQUIREMENTS ──
+    const isEpisodic = ["vertical-drama", "vertical_drama", "tv-series", "series", "limited-series", "digital-series"].includes(
+      (idea.recommended_lane || idea.production_type || "").toLowerCase().replace(/_/g, "-"),
+    );
+    const isVerticalDrama = ["vertical-drama", "vertical_drama"].includes(
+      (idea.recommended_lane || idea.production_type || "").toLowerCase().replace(/_/g, "-"),
+    );
+
+    let laneSpecificRequirements = "";
+    if (isVerticalDrama) {
+      laneSpecificRequirements = `
+VERTICAL DRAMA STRUCTURAL REQUIREMENTS (MANDATORY):
+- The story engine MUST support 30+ episodes of short-form mobile-first content.
+- There MUST be a REPEATABLE EXTERNAL PRESSURE ENGINE — not just romance, internal conflict, or vibe.
+- The season must have durable serial escalation: each episode must be propelled by an external force that generates new conflict.
+- A purely contemplative, mood-driven, or romance-only premise is STRUCTURALLY INVALID for vertical drama.
+- If you cannot identify a clear external escalation source, the seed is structurally insufficient.`;
+    } else if (isEpisodic) {
+      laneSpecificRequirements = `
+EPISODIC FORMAT REQUIREMENTS:
+- The story engine must support recurring episodic conflict across a full season.
+- A single event or static situation is insufficient — there must be a renewable source of dramatic tension.`;
+    }
+
+    const systemPrompt = `You are IFFY's DevSeed Generator. Given a pitch idea, create a comprehensive development seed document with three sections.
+
+NARRATIVE UNIT STRUCTURAL REQUIREMENTS (NUE-INFORMED — MANDATORY):
+Every generated DevSeed MUST explicitly account for ALL of the following narrative architecture elements.
+If any element is missing or weak, the seed is structurally insufficient and will be rejected.
+
+1. PROTAGONIST OBJECTIVE: Who is the protagonist and what do they want? Must be concrete and actionable, not vague.
+2. ANTAGONIST FORCE: What is the primary opposition source? Must be specific — a person, system, force, or structural threat. "Internal conflict alone" is insufficient for commercial formats.
+3. STORY ENGINE: What is the repeatable mechanism that generates conflict and propels the narrative forward? For episodic formats, this must sustain multiple episodes. For features, it must sustain a full dramatic arc.
+4. RELATIONSHIP TENSION AXIS: What is the primary relationship that creates dramatic friction? Must involve at least two named characters with opposing needs/values.
+5. MARKET HOOK: What makes this commercially distinctive? One sentence that would make a buyer lean forward. Not just genre — the unique angle.
+6. LANE FIT: Does the premise genuinely fit the declared format/lane? A feature idea forced into series, or a series idea with no repeatable engine, is a structural failure.
+${laneSpecificRequirements}
+
+SECTIONS TO GENERATE:
 
 1. BIBLE STARTER — The foundational creative document:
    - World: Setting, rules, visual palette, period
    - Characters: 3-5 key characters with names, roles, arcs, flaws
    - Tone & Style: Reference points, what this feels like
-   - Story Engine: What drives episodes/scenes forward
+   - Story Engine: What drives episodes/scenes forward (MUST satisfy NUE story engine requirement above)
+   - Protagonist Objective: Explicit statement of protagonist's core goal
+   - Antagonist Force: Explicit identification of the opposition source
+   - Relationship Tension: The primary dramatic relationship axis
    - Themes: Core thematic pillars
 
 2. NUANCE CONTRACT — Creative guardrails for development:
@@ -109,8 +150,10 @@ serve(async (req) => {
    - Tone Boundaries: what this show/film IS NOT
 
 3. MARKET RATIONALE — Commercial justification:
+   - Market Hook: The single distinctive commercial angle (MUST satisfy NUE market hook requirement above)
    - Comparable Analysis: why each comp is relevant, what to take and avoid
    - Lane Justification: why this lane is optimal, alternatives considered
+   - Serial Scalability Note: How the engine sustains across the declared format length
    - Buyer Positioning: which buyers/platforms, pitch angle for each
    - Timing: market window, trend alignment
    - Risk Summary: top 3 risks with mitigations
@@ -142,9 +185,12 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
                       characters: { type: "array", items: { type: "object", properties: { name: { type: "string" }, role: { type: "string" }, arc: { type: "string" }, flaw: { type: "string" } }, required: ["name", "role", "arc"] } },
                       tone_and_style: { type: "string" },
                       story_engine: { type: "string" },
+                      protagonist_objective: { type: "string", description: "Explicit statement of protagonist's core actionable goal" },
+                      antagonist_force: { type: "string", description: "Specific opposition source: person, system, or structural threat" },
+                      relationship_tension: { type: "string", description: "Primary dramatic relationship axis between named characters" },
                       themes: { type: "array", items: { type: "string" } },
                     },
-                    required: ["world", "characters", "tone_and_style", "story_engine", "themes"],
+                    required: ["world", "characters", "tone_and_style", "story_engine", "protagonist_objective", "antagonist_force", "relationship_tension", "themes"],
                   },
                   nuance_contract: {
                     type: "object",
@@ -161,13 +207,15 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
                   market_rationale: {
                     type: "object",
                     properties: {
+                      market_hook: { type: "string", description: "Single distinctive commercial angle" },
+                      serial_scalability_note: { type: "string", description: "How the engine sustains across the declared format length" },
                       comparable_analysis: { type: "array", items: { type: "object", properties: { title: { type: "string" }, relevance: { type: "string" }, take: { type: "string" }, avoid: { type: "string" } }, required: ["title", "relevance"] } },
                       lane_justification: { type: "string" },
                       buyer_positioning: { type: "array", items: { type: "object", properties: { buyer: { type: "string" }, angle: { type: "string" } }, required: ["buyer", "angle"] } },
                       timing: { type: "string" },
                       risk_summary: { type: "array", items: { type: "object", properties: { risk: { type: "string" }, mitigation: { type: "string" } }, required: ["risk", "mitigation"] } },
                     },
-                    required: ["comparable_analysis", "lane_justification", "buyer_positioning", "timing", "risk_summary"],
+                    required: ["market_hook", "serial_scalability_note", "comparable_analysis", "lane_justification", "buyer_positioning", "timing", "risk_summary"],
                   },
                 },
                 required: ["bible_starter", "nuance_contract", "market_rationale"],
@@ -224,7 +272,53 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
       throw new Error("No DevSeed output returned");
     }
 
-    // Store as a concept_expansion record (draft, not applied)
+    // ── NUE-INFORMED STRUCTURAL SELF-CHECK (deterministic, post-generation) ──
+    const structuralFailures: string[] = [];
+    const bs = devSeed.bible_starter || {};
+    const mr = devSeed.market_rationale || {};
+
+    // Check protagonist objective
+    if (!bs.protagonist_objective || String(bs.protagonist_objective).trim().length < 10) {
+      structuralFailures.push("missing_protagonist_objective");
+    }
+    // Check antagonist force
+    if (!bs.antagonist_force || String(bs.antagonist_force).trim().length < 10) {
+      structuralFailures.push("missing_antagonist_force");
+    }
+    // Check story engine
+    if (!bs.story_engine || String(bs.story_engine).trim().length < 20) {
+      structuralFailures.push("missing_story_engine");
+    }
+    // Check relationship tension
+    if (!bs.relationship_tension || String(bs.relationship_tension).trim().length < 10) {
+      structuralFailures.push("missing_relationship_tension");
+    }
+    // Check market hook
+    if (!mr.market_hook || String(mr.market_hook).trim().length < 10) {
+      structuralFailures.push("missing_market_hook");
+    }
+    // Check serial scalability for episodic formats
+    if (isEpisodic && (!mr.serial_scalability_note || String(mr.serial_scalability_note).trim().length < 10)) {
+      structuralFailures.push("missing_serial_scalability");
+    }
+    // Check characters exist
+    if (!Array.isArray(bs.characters) || bs.characters.length < 2) {
+      structuralFailures.push("insufficient_characters");
+    }
+
+    // IEL Logging
+    console.log(`[promote-to-devseed][IEL] nue_structural_self_check { pitch_idea_id: "${pitchIdeaId}", lane: "${idea.recommended_lane || "unknown"}", isEpisodic: ${isEpisodic}, isVerticalDrama: ${isVerticalDrama}, failures: ${JSON.stringify(structuralFailures)}, pass: ${structuralFailures.length === 0} }`);
+
+    // If structural self-check fails, return the seed but flag it
+    if (structuralFailures.length > 0) {
+      console.warn(`[promote-to-devseed][IEL] nue_structural_self_check_failed { pitch_idea_id: "${pitchIdeaId}", failures: ${JSON.stringify(structuralFailures)} }`);
+      // Attach failures to the seed for UI surfacing — do NOT silently pass
+      devSeed._structural_failures = structuralFailures;
+      devSeed._structural_pass = false;
+    } else {
+      devSeed._structural_pass = true;
+    }
+
     const { data: expansion, error: expErr } = await supabase
       .from("concept_expansions")
       .insert({
