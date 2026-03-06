@@ -1270,6 +1270,20 @@ function buildAnalyzeSystem(deliverable: string, format: string, behavior: strin
   const formatExp = FORMAT_EXPECTATIONS[format] || FORMAT_EXPECTATIONS.film;
   const ladder = getLadderForFormat(format);
 
+  // ── IDEA-STAGE FORMAT-AWARE STRUCTURAL CONTEXT ──
+  // Inject lane/format expectations into idea evaluation so premise-level checks are grounded
+  let ideaStructuralContext = "";
+  if (deliverable === "idea") {
+    const isEpisodic = ["tv-series", "limited-series", "digital-series", "vertical-drama", "anim-series", "reality"].includes(format);
+    if (isEpisodic) {
+      ideaStructuralContext += `\nFORMAT CONTEXT FOR IDEA EVALUATION: This is an EPISODIC format (${format}). The premise MUST contain a scalable story engine that can generate recurring conflict across multiple episodes.`;
+      if (format === "vertical-drama") {
+        ideaStructuralContext += ` This is VERTICAL DRAMA — short-form mobile-first content typically requiring 30+ episodes per season. The story engine must support HIGH-FREQUENCY episodic output with rapid escalation and cliffhanger density. A premise that works for a single feature film or limited series is STRUCTURALLY INVALID for this format unless it contains a renewable conflict engine. Flag structural insufficiency as a NOW blocker, not a deferred note.`;
+      }
+    }
+    console.log(`[dev-engine-v2][IEL] idea_structural_context_injected { format: "${format}", isEpisodic: ${isEpisodic} }`);
+  }
+
   let verticalRules = "";
   if (format === "vertical-drama" && (episodeDurationMin || episodeDurationMax)) {
     const effMin = episodeDurationMin || episodeDurationMax || 60;
