@@ -71,6 +71,12 @@ export interface SubjectClassConfig {
   dependency_kind: string;
   /** Whether extraction is deterministic for this class */
   extraction_deterministic: boolean;
+  /**
+   * Whether this class is active in the initial Phase 3 rollout.
+   * Classes marked false are structurally defined but excluded from
+   * extraction and delta computation until their identity model is hardened.
+   */
+  active_in_initial_rollout: boolean;
 }
 
 export interface SubjectPropagationPlan {
@@ -97,6 +103,7 @@ const SUBJECT_CLASS_CONFIGS: Record<SubjectClass, SubjectClassConfig> = {
     ],
     dependency_kind: "canon",
     extraction_deterministic: true,
+    active_in_initial_rollout: true,
   },
   relationship_fact: {
     subject_class: "relationship_fact",
@@ -106,7 +113,12 @@ const SUBJECT_CLASS_CONFIGS: Record<SubjectClass, SubjectClassConfig> = {
       "feature_script", "episode_script", "season_script",
     ],
     dependency_kind: "canon",
-    extraction_deterministic: true,
+    // EXCLUDED from initial rollout: regex-based name extraction from
+    // character.relationships text matches non-name capitalized words
+    // (cities, days, etc.), producing phantom subjects and false deltas.
+    // Requires structured relationship data or NER to be safe.
+    extraction_deterministic: false,
+    active_in_initial_rollout: false,
   },
   format_rule: {
     subject_class: "format_rule",
@@ -118,6 +130,7 @@ const SUBJECT_CLASS_CONFIGS: Record<SubjectClass, SubjectClassConfig> = {
     ],
     dependency_kind: "style",
     extraction_deterministic: true,
+    active_in_initial_rollout: true,
   },
   concept_claim: {
     subject_class: "concept_claim",
@@ -128,6 +141,7 @@ const SUBJECT_CLASS_CONFIGS: Record<SubjectClass, SubjectClassConfig> = {
     ],
     dependency_kind: "canon",
     extraction_deterministic: true,
+    active_in_initial_rollout: true,
   },
   season_arc_obligation: {
     subject_class: "season_arc_obligation",
@@ -137,7 +151,12 @@ const SUBJECT_CLASS_CONFIGS: Record<SubjectClass, SubjectClassConfig> = {
       "episode_beats", "episode_script", "season_script",
     ],
     dependency_kind: "structure",
-    extraction_deterministic: true,
+    // EXCLUDED from initial rollout: index-based identity (arc_thread::0)
+    // is order-fragile — reordering or editing ongoing_threads lines shifts
+    // all subsequent identities, producing phantom adds/removes.
+    // Requires content-hash-based identity to be safe.
+    extraction_deterministic: false,
+    active_in_initial_rollout: false,
   },
 };
 
@@ -158,18 +177,21 @@ export function listSubjectClasses(): SubjectClass[] {
 }
 
 /**
- * Check whether a doc type is a source for any subject class.
+ * Check whether a doc type is a source for any ACTIVE subject class.
+ * Only classes with active_in_initial_rollout=true are considered.
  */
 export function isSubjectSourceDocType(docType: string): boolean {
-  return Object.values(SUBJECT_CLASS_CONFIGS).some(c => c.source_doc_types.includes(docType));
+  return Object.values(SUBJECT_CLASS_CONFIGS).some(
+    c => c.active_in_initial_rollout && c.source_doc_types.includes(docType),
+  );
 }
 
 /**
- * Get all subject classes sourced from a given doc type.
+ * Get all ACTIVE subject classes sourced from a given doc type.
  */
 export function getSubjectClassesForSourceDoc(docType: string): SubjectClass[] {
   return Object.values(SUBJECT_CLASS_CONFIGS)
-    .filter(c => c.source_doc_types.includes(docType))
+    .filter(c => c.active_in_initial_rollout && c.source_doc_types.includes(docType))
     .map(c => c.subject_class);
 }
 
