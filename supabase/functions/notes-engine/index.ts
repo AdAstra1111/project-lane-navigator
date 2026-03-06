@@ -527,7 +527,7 @@ Generate a concrete change plan with exact text snippets from the document.`;
 
         if (ladder.includes(repairedDocType)) {
           invalidationResult = await invalidateDescendants(
-            db, projectId_, repairedDocType, ladder, (newVersion as any).id,
+            db, projectId_, repairedDocType, ladder, (newVersion as any).id, lane,
           );
           if (invalidationResult.invalidatedDocs.length > 0) {
             await logNoteEvent(db, projectId_, event.note_id, "descendants_invalidated", {
