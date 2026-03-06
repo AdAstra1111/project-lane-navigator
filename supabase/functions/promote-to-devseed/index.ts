@@ -272,52 +272,233 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
       throw new Error("No DevSeed output returned");
     }
 
-    // ── NUE-INFORMED STRUCTURAL SELF-CHECK (deterministic, post-generation) ──
-    const structuralFailures: string[] = [];
-    const bs = devSeed.bible_starter || {};
-    const mr = devSeed.market_rationale || {};
+    // ── PROPULSION VALIDATOR (deterministic, fail-closed) ──
+    function classifyPropulsion(seed: any): { sources: string[]; primary: string | null; durable: boolean; failures: string[] } {
+      const bs = seed.bible_starter || {};
+      const mr = seed.market_rationale || {};
+      const sources: string[] = [];
+      const failures: string[] = [];
 
-    // Check protagonist objective
-    if (!bs.protagonist_objective || String(bs.protagonist_objective).trim().length < 10) {
-      structuralFailures.push("missing_protagonist_objective");
-    }
-    // Check antagonist force
-    if (!bs.antagonist_force || String(bs.antagonist_force).trim().length < 10) {
-      structuralFailures.push("missing_antagonist_force");
-    }
-    // Check story engine
-    if (!bs.story_engine || String(bs.story_engine).trim().length < 20) {
-      structuralFailures.push("missing_story_engine");
-    }
-    // Check relationship tension
-    if (!bs.relationship_tension || String(bs.relationship_tension).trim().length < 10) {
-      structuralFailures.push("missing_relationship_tension");
-    }
-    // Check market hook
-    if (!mr.market_hook || String(mr.market_hook).trim().length < 10) {
-      structuralFailures.push("missing_market_hook");
-    }
-    // Check serial scalability for episodic formats
-    if (isEpisodic && (!mr.serial_scalability_note || String(mr.serial_scalability_note).trim().length < 10)) {
-      structuralFailures.push("missing_serial_scalability");
-    }
-    // Check characters exist
-    if (!Array.isArray(bs.characters) || bs.characters.length < 2) {
-      structuralFailures.push("insufficient_characters");
+      // 1. Active protagonist objective
+      const po = String(bs.protagonist_objective || "").trim();
+      if (po.length >= 15 && !/vague|unclear|undefined/i.test(po)) {
+        sources.push("protagonist_objective");
+      }
+
+      // 2. External pressure / antagonist engine
+      const af = String(bs.antagonist_force || "").trim();
+      if (af.length >= 15 && !/internal conflict alone|self-doubt only|purely internal/i.test(af)) {
+        sources.push("external_pressure_engine");
+      }
+
+      // 3. Relationship escalation engine
+      const rt = String(bs.relationship_tension || "").trim();
+      const rtHasDurability = rt.length >= 15 && /escala|forbidden|secret|betray|rival|conflict|pressure|scandal|contract|trap|obligation|tension/i.test(rt);
+      if (rtHasDurability) {
+        sources.push("relationship_escalation_engine");
+      }
+
+      // 4. Investigation / mystery engine
+      const se = String(bs.story_engine || "").trim();
+      if (/investig|mystery|uncover|secret|conspiracy|truth|detective|solve|revelation/i.test(se)) {
+        sources.push("investigation_engine");
+      }
+
+      // 5. Survival / threat engine
+      if (/surviv|threat|danger|siege|escape|hunted|pursuit|trapped|life.or.death/i.test(se)) {
+        sources.push("survival_threat_engine");
+      }
+
+      // 6. Competition / career / system pressure
+      if (/compet|career|system|institution|corporate|political|ambition|power.struggle|status|rank/i.test(se) ||
+          /compet|career|system|institution|corporate|political/i.test(af)) {
+        sources.push("competition_system_engine");
+      }
+
+      // Basic field presence checks
+      if (po.length < 10 && !sources.includes("external_pressure_engine") && !sources.includes("relationship_escalation_engine")) {
+        failures.push("missing_protagonist_objective");
+      }
+      if (!mr.market_hook || String(mr.market_hook).trim().length < 10) {
+        failures.push("missing_market_hook");
+      }
+      if (!Array.isArray(bs.characters) || bs.characters.length < 2) {
+        failures.push("insufficient_characters");
+      }
+      if (se.length < 20) {
+        failures.push("missing_story_engine");
+      }
+
+      // Durability check — lane-aware
+      let durable = sources.length > 0;
+      if (isVerticalDrama) {
+        // VD needs at least one engine that can sustain 30+ episodes
+        const hasRepeatableEngine = sources.some(s =>
+          s === "external_pressure_engine" || s === "competition_system_engine" ||
+          s === "investigation_engine" || s === "survival_threat_engine" ||
+          s === "relationship_escalation_engine"
+        );
+        if (!hasRepeatableEngine) {
+          durable = false;
+          failures.push("vd_no_durable_serial_propulsion");
+        }
+        // Check serial scalability note
+        if (!mr.serial_scalability_note || String(mr.serial_scalability_note).trim().length < 10) {
+          failures.push("missing_serial_scalability");
+        }
+      } else if (isEpisodic) {
+        const hasRepeatableEngine = sources.some(s =>
+          s !== "protagonist_objective" // protagonist objective alone is not enough for episodic
+        );
+        if (!hasRepeatableEngine && sources.length <= 1) {
+          durable = false;
+          failures.push("episodic_weak_propulsion");
+        }
+      }
+
+      const primary = sources.length > 0 ? sources[0] : null;
+      return { sources, primary, durable, failures };
     }
 
-    // IEL Logging
-    console.log(`[promote-to-devseed][IEL] nue_structural_self_check { pitch_idea_id: "${pitchIdeaId}", lane: "${idea.recommended_lane || "unknown"}", isEpisodic: ${isEpisodic}, isVerticalDrama: ${isVerticalDrama}, failures: ${JSON.stringify(structuralFailures)}, pass: ${structuralFailures.length === 0} }`);
+    let propulsionResult = classifyPropulsion(devSeed);
 
-    // If structural self-check fails, return the seed but flag it
-    if (structuralFailures.length > 0) {
-      console.warn(`[promote-to-devseed][IEL] nue_structural_self_check_failed { pitch_idea_id: "${pitchIdeaId}", failures: ${JSON.stringify(structuralFailures)} }`);
-      // Attach failures to the seed for UI surfacing — do NOT silently pass
-      devSeed._structural_failures = structuralFailures;
-      devSeed._structural_pass = false;
-    } else {
-      devSeed._structural_pass = true;
+    console.log(`[promote-to-devseed][IEL] propulsion_validator { pitch_idea_id: "${pitchIdeaId}", lane: "${idea.recommended_lane || "unknown"}", sources: ${JSON.stringify(propulsionResult.sources)}, primary: "${propulsionResult.primary || "none"}", durable: ${propulsionResult.durable}, failures: ${JSON.stringify(propulsionResult.failures)} }`);
+
+    // ── SINGLE STRUCTURAL REPAIR RETRY if propulsion fails ──
+    if (!propulsionResult.durable || propulsionResult.failures.length > 0) {
+      console.warn(`[promote-to-devseed][IEL] propulsion_repair_triggered { pitch_idea_id: "${pitchIdeaId}", failures: ${JSON.stringify(propulsionResult.failures)} }`);
+
+      const repairInstruction = `STRUCTURAL REPAIR REQUIRED. The previous generation had these failures: ${propulsionResult.failures.join(", ")}.
+
+REPAIR RULES:
+- Preserve the promising concept, characters, and world.
+- Fix the missing structural propulsion. The seed MUST have at least one DURABLE propulsion source:
+  * active protagonist objective
+  * external pressure / antagonist engine
+  * relationship escalation engine (forbidden love + scandal/system pressure counts)
+  * investigation / mystery engine
+  * survival / threat engine
+  * competition / career / system-pressure engine
+- A reactive protagonist is ALLOWED if supported by durable external propulsion.
+- Do NOT reject the concept — repair it by strengthening the weakest structural elements.
+${isVerticalDrama ? "- VERTICAL DRAMA: Must support 30+ episodes with repeatable external escalation. Pure romance/mood/vibe without external pressure is insufficient." : ""}
+${isEpisodic ? "- EPISODIC: Must have a renewable conflict engine beyond a single protagonist goal." : ""}
+
+Return the same JSON schema as before with the structural elements strengthened.`;
+
+      const repairPayload = JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt + "\n\n" + repairInstruction },
+          { role: "user", content: `Repair this DevSeed to fix structural propulsion failures:\n\n${JSON.stringify(devSeed, null, 2)}` },
+        ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "submit_devseed",
+              description: "Submit the repaired DevSeed payload",
+              parameters: {
+                type: "object",
+                properties: {
+                  bible_starter: {
+                    type: "object",
+                    properties: {
+                      world: { type: "string" },
+                      characters: { type: "array", items: { type: "object", properties: { name: { type: "string" }, role: { type: "string" }, arc: { type: "string" }, flaw: { type: "string" } }, required: ["name", "role", "arc"] } },
+                      tone_and_style: { type: "string" },
+                      story_engine: { type: "string" },
+                      protagonist_objective: { type: "string" },
+                      antagonist_force: { type: "string" },
+                      relationship_tension: { type: "string" },
+                      themes: { type: "array", items: { type: "string" } },
+                    },
+                    required: ["world", "characters", "tone_and_style", "story_engine", "protagonist_objective", "antagonist_force", "relationship_tension", "themes"],
+                  },
+                  nuance_contract: { type: "object" },
+                  market_rationale: {
+                    type: "object",
+                    properties: {
+                      market_hook: { type: "string" },
+                      serial_scalability_note: { type: "string" },
+                      comparable_analysis: { type: "array", items: { type: "object" } },
+                      lane_justification: { type: "string" },
+                      buyer_positioning: { type: "array", items: { type: "object" } },
+                      timing: { type: "string" },
+                      risk_summary: { type: "array", items: { type: "object" } },
+                    },
+                    required: ["market_hook", "serial_scalability_note"],
+                  },
+                },
+                required: ["bible_starter", "nuance_contract", "market_rationale"],
+              },
+            },
+          },
+        ],
+        tool_choice: { type: "function", function: { name: "submit_devseed" } },
+      });
+
+      try {
+        const repairResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: repairPayload,
+        });
+
+        if (repairResp.ok) {
+          const repairResult = await repairResp.json();
+          const repairMsg = repairResult.choices?.[0]?.message;
+          const repairToolCall = repairMsg?.tool_calls?.[0];
+          let repairedSeed: any = null;
+
+          if (repairToolCall?.function?.arguments) {
+            repairedSeed = JSON.parse(repairToolCall.function.arguments);
+          } else if (repairMsg?.content) {
+            const jsonMatch = repairMsg.content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) repairedSeed = JSON.parse(jsonMatch[0]);
+          }
+
+          if (repairedSeed) {
+            const repairPropulsion = classifyPropulsion(repairedSeed);
+            console.log(`[promote-to-devseed][IEL] propulsion_repair_result { pitch_idea_id: "${pitchIdeaId}", sources: ${JSON.stringify(repairPropulsion.sources)}, durable: ${repairPropulsion.durable}, failures: ${JSON.stringify(repairPropulsion.failures)} }`);
+
+            if (repairPropulsion.durable && repairPropulsion.failures.length === 0) {
+              devSeed = repairedSeed;
+              devSeed._structural_repaired = true;
+              propulsionResult = repairPropulsion;
+            } else {
+              console.warn(`[promote-to-devseed][IEL] propulsion_repair_still_failed { pitch_idea_id: "${pitchIdeaId}" }`);
+            }
+          }
+        }
+      } catch (repairErr) {
+        console.error(`[promote-to-devseed] Repair retry failed:`, repairErr);
+      }
     }
+
+    // ── FINAL GATE: block if still structurally weak ──
+    devSeed._propulsion_sources = propulsionResult.sources;
+    devSeed._propulsion_primary = propulsionResult.primary;
+    devSeed._structural_pass = propulsionResult.durable && propulsionResult.failures.length === 0;
+    devSeed._structural_failures = propulsionResult.failures;
+
+    if (!devSeed._structural_pass) {
+      console.error(`[promote-to-devseed][IEL] propulsion_gate_blocked { pitch_idea_id: "${pitchIdeaId}", failures: ${JSON.stringify(propulsionResult.failures)} }`);
+      return new Response(JSON.stringify({
+        error: "Seed lacks durable propulsion after repair attempt",
+        structural_failures: propulsionResult.failures,
+        propulsion_sources: propulsionResult.sources,
+        hint: "The concept needs a stronger external pressure engine, antagonist force, or escalation mechanism suitable for " + (idea.recommended_lane || "the target lane"),
+      }), {
+        status: 422,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log(`[promote-to-devseed][IEL] propulsion_gate_passed { pitch_idea_id: "${pitchIdeaId}", sources: ${JSON.stringify(propulsionResult.sources)}, repaired: ${devSeed._structural_repaired || false} }`);
 
     const { data: expansion, error: expErr } = await supabase
       .from("concept_expansions")

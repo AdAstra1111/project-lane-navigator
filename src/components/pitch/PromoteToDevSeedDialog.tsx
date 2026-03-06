@@ -29,8 +29,19 @@ export function PromoteToDevSeedDialog({ idea, open, onOpenChange, onPromoted }:
         body: { pitchIdeaId: idea.id },
       });
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      toast.success('DevSeed created — ready to apply to a project');
+      if (data?.error) {
+        // Surface structural propulsion failures with actionable detail
+        if (data.structural_failures?.length) {
+          const hint = data.hint || 'The concept needs stronger narrative propulsion.';
+          throw new Error(`${data.error}. ${hint}`);
+        }
+        throw new Error(data.error);
+      }
+      const wasRepaired = data?.devseed?._structural_repaired;
+      toast.success(wasRepaired
+        ? 'DevSeed created (structural repair applied) — ready to apply to a project'
+        : 'DevSeed created — ready to apply to a project'
+      );
       onPromoted(idea);
     } catch (e: any) {
       toast.error(e.message || 'Promotion failed');

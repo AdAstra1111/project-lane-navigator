@@ -602,12 +602,51 @@ serve(async (req) => {
     const modalityBlock = buildModalityPromptBlock(pitchModality);
     const animMetaBlock = buildAnimationMetaPromptBlock(pitchModality, dbAnimMeta);
 
+    const isEpisodicPitch = ["vertical-drama", "vertical_drama", "tv-series", "series", "limited-series", "digital-series", "anim-series", "reality"].includes(
+      (typeLabel || "").toLowerCase().replace(/_/g, "-")
+    );
+    const isVDPitch = ["vertical-drama", "vertical_drama"].includes((typeLabel || "").toLowerCase().replace(/_/g, "-"));
+
+    let pitchPropulsionBlock = `
+STRUCTURAL PROPULSION REQUIREMENTS (MANDATORY):
+Every concept MUST have at least one DURABLE PROPULSION SOURCE. Ideas lacking propulsion will be rejected upstream.
+
+Accepted propulsion types (at least one required):
+1. Active protagonist objective — concrete, actionable goal
+2. External pressure / antagonist engine — person, system, or structural threat creating ongoing pressure
+3. Relationship escalation engine — durable interpersonal tension with escalation potential (forbidden love + scandal/system pressure counts)
+4. Investigation / mystery engine — truth-seeking, conspiracy, revelation
+5. Survival / threat engine — ongoing danger, pursuit, siege
+6. Competition / career / system-pressure engine — institutional, political, or career-driven conflict
+
+IMPORTANT: Reactive protagonists are ALLOWED if supported by durable external propulsion. Do NOT reject concepts because the protagonist is reactive.
+
+Each concept's one_page_pitch MUST clearly convey:
+- The protagonist's situation and what drives the narrative
+- The primary source of ongoing pressure/conflict
+- Why this engine sustains across the format length
+`;
+
+    if (isVDPitch) {
+      pitchPropulsionBlock += `
+VERTICAL DRAMA PROPULSION (MANDATORY):
+- Every VD concept MUST have a REPEATABLE EXTERNAL PRESSURE ENGINE supporting 30+ episodes.
+- Pure romance, mood, vibe, or internal journey without external escalation is STRUCTURALLY INVALID for vertical drama.
+- The format_summary MUST include episode count and the propulsion source type.
+`;
+    } else if (isEpisodicPitch) {
+      pitchPropulsionBlock += `
+EPISODIC PROPULSION:
+- Every episodic concept MUST have a renewable conflict engine beyond a single protagonist goal.
+`;
+    }
+
     const systemPrompt = `You are IFFY's Development Pitch Engine — an expert development executive who generates production-ready concept pitches for the entertainment industry.
 
 ${guardrails.textBlock}
 
 PRODUCTION TYPE: ${typeLabel}
-ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}${convergenceBlock}${modalityBlock}${animMetaBlock}
+ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${pitchPropulsionBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}${convergenceBlock}${modalityBlock}${animMetaBlock}
 
 Generate exactly ${batchSize} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
 
