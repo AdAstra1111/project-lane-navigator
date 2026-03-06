@@ -290,16 +290,21 @@ export function AutoRunProgressPanel({
               <Button size="sm" className="h-6 text-[9px] gap-1" onClick={() => onResume(true)}>
                 <Play className="h-3 w-3" /> Resume
               </Button>
-              {/* Manual promotion escape hatch: show when paused with high scores */}
-              {onForcePromote && (job.last_ci != null && job.last_ci >= 85) && (
-                <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10" onClick={onForcePromote}>
-                  <ArrowRight className="h-3 w-3" /> Promote to Next Stage
-                </Button>
-              )}
               <Button size="sm" variant="destructive" className="h-6 text-[9px] gap-1" onClick={onStop}>
                 <Square className="h-3 w-3" /> End
               </Button>
             </>
+          )}
+          {/* Manual promotion escape hatch: always visible when scores are high enough and job is not running */}
+          {onForcePromote && (job.last_ci != null && job.last_ci >= 85) && (isPaused || isStopped || isAwaitingApproval) && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-[9px] gap-1 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 relative z-10"
+              onClick={onForcePromote}
+            >
+              <ArrowRight className="h-3 w-3" /> Promote to Next Stage
+            </Button>
           )}
           {job.status === 'failed' && (
             <Button size="sm" className="h-6 text-[9px] gap-1" onClick={() => onResume(true)}>

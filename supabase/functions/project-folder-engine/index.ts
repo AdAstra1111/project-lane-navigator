@@ -143,6 +143,22 @@ Deno.serve(async (req) => {
 
       const docTypeKey = resolveDocTypeKey(version, parentDoc, isSeries);
 
+      // PATCH A: Demote all previous approvals for this document before approving new version
+      // This enforces the single-authoritative-version invariant per (project_id, doc_type)
+      const { data: prevApproved } = await db.from("project_document_versions")
+        .select("id")
+        .eq("document_id", version.document_id)
+        .eq("approval_status", "approved")
+        .neq("id", documentVersionId);
+
+      if (prevApproved && prevApproved.length > 0) {
+        const prevIds = prevApproved.map((v: any) => v.id);
+        await db.from("project_document_versions")
+          .update({ approval_status: "superseded" })
+          .in("id", prevIds);
+        console.log(`[project-folder-engine] approval_superseded_previous { document_id: "${version.document_id}", superseded_count: ${prevIds.length}, superseded_ids: ${JSON.stringify(prevIds)}, new_authoritative: "${documentVersionId}" }`);
+      }
+
       // Mark version as approved
       if (version.approval_status !== "approved") {
         await markVersionApproved(db, documentVersionId, userId);
@@ -217,6 +233,18 @@ Deno.serve(async (req) => {
           .eq("id", version.document_id).single();
 
         const docTypeKey = resolveDocTypeKey(version, parentDoc, isSeries);
+
+        // Demote previous approvals for this document
+        const { data: prevApproved } = await db.from("project_document_versions")
+          .select("id")
+          .eq("document_id", version.document_id)
+          .eq("approval_status", "approved")
+          .neq("id", versionId);
+        if (prevApproved && prevApproved.length > 0) {
+          await db.from("project_document_versions")
+            .update({ approval_status: "superseded" })
+            .in("id", prevApproved.map((v: any) => v.id));
+        }
 
         // Mark approved
         if (version.approval_status !== "approved") {

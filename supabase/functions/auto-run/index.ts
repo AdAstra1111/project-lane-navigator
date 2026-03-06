@@ -568,12 +568,12 @@ async function resolveActiveVersionForDoc(
     return null;
   }
 
-  // A.5) IEL: Approved + is_current takes absolute priority (user's explicit intent).
-  // When a user manually approves a version, it becomes both approved AND is_current.
-  // This must override any older scored version to prevent stale version continuation.
+  // A.5) AUTHORITATIVE VERSION: approved + is_current takes absolute priority.
+  // This is the single authoritative version per document. All other versions are historical.
+  // It overrides all scored/eligible logic to prevent stale version continuation.
   const approvedCurrent = allVersions.find((v: any) => v.approval_status === "approved" && !!v.is_current);
   if (approvedCurrent) {
-    console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${approvedCurrent.id}", reason: "approved_and_current", version_number: ${approvedCurrent.version_number} }`);
+    console.log(`[auto-run][IEL] authoritative_version_resolved { document_id: "${documentId}", version_id: "${approvedCurrent.id}", reason: "approved_and_current", version_number: ${approvedCurrent.version_number}, doc_type: "${ctx?.docType || 'unknown'}" }`);
     return { versionId: approvedCurrent.id, source: "eligible_best_score" as const, reason: "approved_and_current" };
   }
 
