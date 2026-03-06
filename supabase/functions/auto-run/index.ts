@@ -7773,16 +7773,15 @@ Deno.serve(async (req) => {
               return respondWithJob(supabase, jobId, shouldHalt ? undefined : "run-next");
             }
 
-            // ── PHASE 2D: SECTION-LEVEL REPAIR TARGETING + TRUE PARTIAL EXECUTION ──
-            let sectionRepairMeta: Record<string, unknown> | null = null;
-            let sectionTargetKey: string | null = null;
+            // ── PHASE 2D-B: EPISODIC BLOCK REPAIR TARGETING ──
+            let episodicRepairMeta: Record<string, unknown> | null = null;
+            let episodicTargetEpisode: number | null = null;
             let originalFullContent: string | null = null;
             {
               try {
-                const { getRepairTarget } = await import("../_shared/sectionRepairEngine.ts");
-                const { isSectionRepairSupported } = await import("../_shared/deliverableSectionRegistry.ts");
+                const { isEpisodicBlockRepairSupported, getEpisodeRepairTarget } = await import("../_shared/episodicBlockRegistry.ts");
 
-                if (isSectionRepairSupported(currentDoc)) {
+                if (isEpisodicBlockRepairSupported(currentDoc)) {
                   const { data: verContent } = await supabase
                     .from("project_document_versions")
                     .select("plaintext")
@@ -7793,13 +7792,68 @@ Deno.serve(async (req) => {
                   if (docContent.length > 100) {
                     originalFullContent = docContent;
                     const primaryIssue = (blockers && blockers.length > 0)
+                      ? { episodeIndex: (blockers[0] as any)?.episodeIndex, category: blockers[0]?.category, title: blockers[0]?.title || blockers[0]?.objective, summary: blockers[0]?.summary || blockers[0]?.detail, anchor: (blockers[0] as any)?.anchor, constraint_key: (blockers[0] as any)?.constraint_key }
+                      : (highImpact && highImpact.length > 0)
+                        ? { episodeIndex: (highImpact[0] as any)?.episodeIndex, category: highImpact[0]?.category, title: highImpact[0]?.title || highImpact[0]?.objective, summary: highImpact[0]?.summary || highImpact[0]?.detail, anchor: (highImpact[0] as any)?.anchor, constraint_key: (highImpact[0] as any)?.constraint_key }
+                        : null;
+
+                    if (primaryIssue) {
+                      const target = getEpisodeRepairTarget(primaryIssue, currentDoc, docContent);
+                      episodicRepairMeta = {
+                        repair_target_type: target.repair_target_type,
+                        episode_number: target.episode_number,
+                        total_episodes: target.total_episodes,
+                        reason: target.reason,
+                        fallback_reason: target.fallback_reason,
+                        block_execution_mode: target.repair_target_type === "episode_block" ? "true_block_patch" : "full_doc_rewrite",
+                      };
+
+                      if (target.repair_target_type === "episode_block" && target.episode_number != null) {
+                        episodicTargetEpisode = target.episode_number;
+                        mergedDirections.push(
+                          `EPISODE-TARGETED REPAIR: Focus ALL changes on Episode ${target.episode_number}. Preserve ALL other episodes EXACTLY as they are — do not modify, reorder, rename, or paraphrase any content outside Episode ${target.episode_number}.`
+                        );
+                        console.log(`[auto-run][Phase2D-B] episode_block_targeted: doc=${currentDoc} episode=${target.episode_number} total=${target.total_episodes} reason=${target.reason}`);
+                      } else {
+                        console.log(`[auto-run][Phase2D-B] episode_block_fallback: doc=${currentDoc} reason=${target.reason} fallback=${target.fallback_reason}`);
+                      }
+                    }
+                  }
+                }
+              } catch (e: any) {
+                console.warn(`[auto-run][Phase2D-B] episode_block_error: ${e?.message}`);
+                episodicTargetEpisode = null; // fail closed
+              }
+            }
+
+            // ── PHASE 2D: SECTION-LEVEL REPAIR TARGETING + TRUE PARTIAL EXECUTION ──
+            let sectionRepairMeta: Record<string, unknown> | null = null;
+            let sectionTargetKey: string | null = null;
+            // Only attempt section repair if episodic block repair is NOT active
+            if (!episodicTargetEpisode) {
+              try {
+                const { getRepairTarget } = await import("../_shared/sectionRepairEngine.ts");
+                const { isSectionRepairSupported } = await import("../_shared/deliverableSectionRegistry.ts");
+
+                if (isSectionRepairSupported(currentDoc)) {
+                  if (!originalFullContent) {
+                    const { data: verContent } = await supabase
+                      .from("project_document_versions")
+                      .select("plaintext")
+                      .eq("id", baselineVersionId)
+                      .maybeSingle();
+                    originalFullContent = verContent?.plaintext || "";
+                  }
+
+                  if (originalFullContent && originalFullContent.length > 100) {
+                    const primaryIssue = (blockers && blockers.length > 0)
                       ? { category: blockers[0]?.category, title: blockers[0]?.title || blockers[0]?.objective, summary: blockers[0]?.summary || blockers[0]?.detail }
                       : (highImpact && highImpact.length > 0)
                         ? { category: highImpact[0]?.category, title: highImpact[0]?.title || highImpact[0]?.objective, summary: highImpact[0]?.summary || highImpact[0]?.detail }
                         : null;
 
                     if (primaryIssue) {
-                      const target = getRepairTarget(primaryIssue, currentDoc, docContent);
+                      const target = getRepairTarget(primaryIssue, currentDoc, originalFullContent);
                       sectionRepairMeta = {
                         repair_target_type: target.repair_target_type,
                         section_key: target.section_key,
