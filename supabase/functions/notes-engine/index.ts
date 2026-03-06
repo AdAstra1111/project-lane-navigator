@@ -533,6 +533,8 @@ Generate a concrete change plan with exact text snippets from the document.`;
             await logNoteEvent(db, projectId_, event.note_id, "descendants_invalidated", {
               repaired_doc_type: repairedDocType,
               invalidated_doc_types: invalidationResult.invalidatedDocs,
+              skipped_doc_types: invalidationResult.plan?.skipped_doc_types || [],
+              dependency_edges_used: invalidationResult.plan?.entries.map(e => ({ doc: e.doc_type, kind: e.edge.kind, strength: e.edge.strength, policy: e.invalidation_policy })) || [],
               affected_job_ids: invalidationResult.affectedJobIds,
               new_version_id: (newVersion as any).id,
               lane,
