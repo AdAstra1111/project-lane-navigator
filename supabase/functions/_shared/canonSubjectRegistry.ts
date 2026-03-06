@@ -510,34 +510,5 @@ function djb2Hash(input: string): string {
   return `${h1.toString(36)}_${h2.toString(36)}`;
 }
 
-/**
- * Extract relationship pairs from a character's relationship text.
- * Returns sorted normalized pairs for stable identity.
- */
-function extractRelationshipPairs(
-  characterName: string,
-  relText: string,
-): { a: string; b: string; normalized_key: string }[] {
-  const pairs: { a: string; b: string; normalized_key: string }[] = [];
-  const seen = new Set<string>();
-
-  // Look for "Name" patterns — capitalized words that look like names
-  const namePattern = /\b([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20})?)\b/g;
-  const matches = [...relText.matchAll(namePattern)];
-
-  for (const m of matches) {
-    const otherName = m[1].trim();
-    if (otherName.toLowerCase() === characterName.toLowerCase()) continue;
-    if (otherName.length < 2) continue;
-
-    // Sort pair for stable identity
-    const [a, b] = [characterName, otherName].sort((x, y) => x.toLowerCase().localeCompare(y.toLowerCase()));
-    const nk = `${a.toLowerCase()}<>${b.toLowerCase()}`;
-    if (seen.has(nk)) continue;
-    seen.add(nk);
-
-    pairs.push({ a, b, normalized_key: nk });
-  }
-
-  return pairs;
-}
+// Old extractRelationshipPairs (regex-based, non-deterministic) removed in Phase 3F.
+// Replaced by structured extraction from characters[].relationships[] in extractCanonicalSubjects.
