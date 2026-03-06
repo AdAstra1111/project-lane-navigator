@@ -268,43 +268,15 @@ export function extractCanonicalSubjects(canonJson: Record<string, unknown>): Ca
           raw_value: char,
         });
 
-        // ── Relationship facts (from character.relationships field) ──
-        const rels = (char as any).relationships;
-        if (rels && typeof rels === "string" && rels.trim().length > 0) {
-          // Extract relationship target names if possible
-          const relPairs = extractRelationshipPairs(name, rels);
-          for (const pair of relPairs) {
-            subjects.push({
-              subject_id: `relationship_fact::${pair.normalized_key}`,
-              subject_class: "relationship_fact",
-              label: `${pair.a} ↔ ${pair.b}`,
-              normalized_key: pair.normalized_key,
-              value_hash: djb2Hash(`${pair.normalized_key}|${rels.trim()}`),
-              raw_value: { from: name, raw: rels },
-            });
-          }
-        }
+        // ── Relationship facts — EXCLUDED from initial rollout ──
+        // Skipped: regex-based name extraction is non-deterministic (see registry config).
+        // Will be re-enabled when structured relationship data or NER is available.
       }
     }
 
-    // ── Season arc obligations ──
-    // Look for arc-related structured content
-    const arcThreads = canonJson.ongoing_threads;
-    if (arcThreads && typeof arcThreads === "string" && arcThreads.trim().length > 0) {
-      // Split by newlines or semicolons for individual threads
-      const threads = arcThreads.split(/[\n;]+/).map(t => t.trim()).filter(t => t.length > 3);
-      threads.forEach((thread, idx) => {
-        const nk = `arc_thread::${idx}`;
-        subjects.push({
-          subject_id: `season_arc_obligation::${nk}`,
-          subject_class: "season_arc_obligation",
-          label: thread.slice(0, 80),
-          normalized_key: nk,
-          value_hash: djb2Hash(thread),
-          raw_value: thread,
-        });
-      });
-    }
+    // ── Season arc obligations — EXCLUDED from initial rollout ──
+    // Skipped: index-based identity is order-fragile (see registry config).
+    // Will be re-enabled when content-hash-based identity is implemented.
   } catch (err) {
     // Fail closed: return whatever was extracted so far
     console.warn(`[canon-subject-registry] extraction_error: ${(err as any)?.message}`);
