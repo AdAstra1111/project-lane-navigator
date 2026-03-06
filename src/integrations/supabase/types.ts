@@ -7367,6 +7367,70 @@ export type Database = {
         }
         Relationships: []
       }
+      narrative_units: {
+        Row: {
+          confidence: number
+          created_at: string
+          extraction_method: string
+          id: string
+          payload_json: Json
+          project_id: string
+          source_doc_type: string
+          source_doc_version_id: string | null
+          unit_key: string
+          unit_type: string
+          updated_at: string
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          extraction_method?: string
+          id?: string
+          payload_json?: Json
+          project_id: string
+          source_doc_type: string
+          source_doc_version_id?: string | null
+          unit_key: string
+          unit_type: string
+          updated_at?: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          extraction_method?: string
+          id?: string
+          payload_json?: Json
+          project_id?: string
+          source_doc_type?: string
+          source_doc_version_id?: string | null
+          unit_key?: string
+          unit_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "narrative_units_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "narrative_units_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "narrative_units_source_doc_version_id_fkey"
+            columns: ["source_doc_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       note_change_events: {
         Row: {
           base_version_id: string | null
