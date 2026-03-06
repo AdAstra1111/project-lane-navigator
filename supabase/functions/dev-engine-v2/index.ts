@@ -3357,25 +3357,20 @@ MATERIAL:\n${version.plaintext}`;
       const narrativeBlock = buildNarrativeContextBlock(narrativeCtx);
       console.log(`[dev-engine-v2] rewrite: narrative-context hash=${narrativeCtx.metadata.resolverHash} signals=${narrativeCtx.metadata.counts.signals} decisions=${narrativeCtx.metadata.counts.decisions} canonChars=${narrativeCtx.metadata.counts.canonChars}`);
 
-      // ── UPSTREAM NOTE DEBT INJECTION ──
-      // Fetch unresolved deferred notes targeting this doc type from upstream docs
+      // ── UPSTREAM NOTE DEBT INJECTION (UNIFIED — reads all 3 note systems) ──
       let upstreamNoteBlock = "";
       {
-        const { data: upstreamNotes } = await supabase
-          .from("project_deferred_notes")
-          .select("note_key, source_doc_type, target_deliverable_type, severity, category, note_json")
-          .eq("project_id", projectId)
-          .eq("target_deliverable_type", effectiveDeliverable)
-          .in("status", ["open", "pinned"])
-          .order("severity", { ascending: true })
-          .limit(10);
-        if (upstreamNotes && upstreamNotes.length > 0) {
-          const noteLines = upstreamNotes.map((n: any) => {
-            const desc = n.note_json?.description || n.note_json?.note || n.note_key || "";
-            return `- [${n.severity}/${n.category}] (from ${n.source_doc_type}): ${desc}`;
+        const { getUnifiedUpstreamNoteBlockers } = await import("../_shared/unifiedNoteControl.ts");
+        const upstreamBlockers = await getUnifiedUpstreamNoteBlockers(supabase, projectId, effectiveDeliverable, {
+          blockingSeverities: ["blocker", "high", "med"],
+          limitPerTable: 10,
+        });
+        if (upstreamBlockers.length > 0) {
+          const noteLines = upstreamBlockers.map((n: any) => {
+            return `- [${n.severity}/${n.category || "general"}] (from ${n.source_doc_type || "unknown"}, via ${n.source_table}): ${n.summary || n.title}`;
           });
           upstreamNoteBlock = `\n\nUNRESOLVED UPSTREAM NOTES (from earlier pipeline stages — address these in your rewrite):\n${noteLines.join("\n")}`;
-          console.log(`[dev-engine-v2] rewrite: injected ${upstreamNotes.length} upstream deferred notes targeting ${effectiveDeliverable}`);
+          console.log(`[dev-engine-v2] rewrite: injected ${upstreamBlockers.length} unified upstream notes targeting ${effectiveDeliverable}`);
         }
       }
 
