@@ -553,7 +553,7 @@ async function resolveActiveVersionForDoc(
 
   const { data: versions, error: versionsErr } = await supabase
     .from("project_document_versions")
-    .select("id, version_number, approval_status, is_current, created_by, meta_json")
+    .select("id, version_number, approval_status, is_current, created_by, meta_json, approved_at")
     .eq("document_id", documentId)
     .order("version_number", { ascending: false });
 
@@ -566,6 +566,15 @@ async function resolveActiveVersionForDoc(
   if (!allVersions.length) {
     console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: null, reason: "no_versions" }`);
     return null;
+  }
+
+  // A.5) IEL: Approved + is_current takes absolute priority (user's explicit intent).
+  // When a user manually approves a version, it becomes both approved AND is_current.
+  // This must override any older scored version to prevent stale version continuation.
+  const approvedCurrent = allVersions.find((v: any) => v.approval_status === "approved" && !!v.is_current);
+  if (approvedCurrent) {
+    console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${approvedCurrent.id}", reason: "approved_and_current", version_number: ${approvedCurrent.version_number} }`);
+    return { versionId: approvedCurrent.id, source: "eligible_best_score" as const, reason: "approved_and_current" };
   }
 
   const eligibleScored = allVersions
