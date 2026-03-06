@@ -664,18 +664,39 @@ export default function ProjectDevelopmentEngine() {
     }
   }, [allPrioritizedMoves]);
 
-  // Trigger Promotion Intelligence after analysis completes
+  // Trigger Promotion Intelligence from authoritative version-bound evaluation state
   useEffect(() => {
-    if (!latestAnalysis) { promotionIntel.clear(); return; }
-    const ci = latestAnalysis?.ci_score ?? latestAnalysis?.scores?.ci ?? 0;
-    const gp = latestAnalysis?.gp_score ?? latestAnalysis?.scores?.gp ?? 0;
-    const gap = latestAnalysis?.gap ?? 0;
-    const trajectory = latestAnalysis?.convergence?.trajectory ?? latestAnalysis?.trajectory ?? null;
-    const { blockers, highImpact } = extractNoteCounts(latestAnalysis, latestNotes);
+    if (!promotionGateAnalysis || !promotionGateVersionId) {
+      promotionIntel.clear();
+      return;
+    }
+
+    const convergenceVersionId = selectedVersionId || null;
+    if (convergenceVersionId && convergenceVersionId !== promotionGateVersionId) {
+      console.warn(`[ui][IEL] promotion_gate_version_mismatch { project_id: "${projectId}", job_id: "${autoRun.job?.id || 'none'}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${promotionGateVersionId}", gate_version_id: "${promotionGateVersionId}", convergence_version_id: "${convergenceVersionId}" }`);
+    }
+
+    if (lastPromotionGateVersionRef.current && lastPromotionGateVersionRef.current !== promotionGateVersionId) {
+      console.info(`[ui][IEL] stale_gate_state_invalidated { project_id: "${projectId}", job_id: "${autoRun.job?.id || 'none'}", doc_type: "${selectedDeliverableType}", old_gate_version_id: "${lastPromotionGateVersionRef.current}", new_gate_version_id: "${promotionGateVersionId}" }`);
+    }
+
+    const isApprovedGate = authoritativeVersion?.id === promotionGateVersionId && authoritativeVersion?.approval_status === 'approved';
+    const { blockers, highImpact } = extractNoteCounts(
+      promotionGateAnalysis,
+      isApprovedGate ? null : promotionGateNotes,
+    );
+
+    const ci = promotionGateAnalysis?.ci_score ?? promotionGateAnalysis?.scores?.ci ?? 0;
+    const gp = promotionGateAnalysis?.gp_score ?? promotionGateAnalysis?.scores?.gp ?? 0;
+    const gap = promotionGateAnalysis?.gap ?? 0;
+    const trajectory = promotionGateAnalysis?.convergence?.trajectory ?? promotionGateAnalysis?.trajectory ?? null;
     const iterCount = allDocRuns.filter((r: any) => r.run_type === 'ANALYZE').length;
-    promotionIntel.computeLocal({
+
+    console.info(`[ui][IEL] promotion_gate_version_bound { project_id: "${projectId}", job_id: "${autoRun.job?.id || 'none'}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${promotionGateVersionId}", gate_version_id: "${promotionGateVersionId}", ci: ${ci}, gp: ${gp}, blockers: ${blockers.length}, high_impact_count: ${highImpact.length} }`);
+
+    const result = promotionIntel.computeLocal({
       ci, gp, gap, trajectory,
-      convergenceStatus: convergenceStatus,
+      convergenceStatus: promotionConvergenceStatus,
       currentDocument: selectedDeliverableType,
       blockersCount: blockers.length,
       highImpactCount: highImpact.length,
@@ -687,8 +708,11 @@ export default function ProjectDevelopmentEngine() {
       approvedDocTypes: documents.filter((d: any) => !!(approvedVersionMap as any)?.[d.id]).map((d: any) => d.doc_type),
       seasonEpisodeCount: effectiveSeasonEpisodes ?? undefined,
     });
+
+    console.info(`[ui][IEL] authoritative_promotion_state_recomputed { project_id: "${projectId}", job_id: "${autoRun.job?.id || 'none'}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${promotionGateVersionId}", gate_version_id: "${promotionGateVersionId}", ci: ${ci}, gp: ${gp}, blockers: ${blockers.length}, high_impact_count: ${highImpact.length}, readiness_score: ${result.readiness_score} }`);
+    lastPromotionGateVersionRef.current = promotionGateVersionId;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestAnalysis, latestNotes, documents]);
+  }, [promotionGateAnalysis, promotionGateNotes, promotionGateVersionId, selectedVersionId, authoritativeVersion?.id, authoritativeVersion?.approval_status, allDocRuns, documents, approvedVersionMap, selectedDeliverableType, projectFormat, effectiveSeasonEpisodes, promotionConvergenceStatus, autoRun.job?.id]);
 
   const runAnalysisWithContext = () => {
     const prevVersion = versions.length > 1 ? versions[versions.length - 2] : null;
