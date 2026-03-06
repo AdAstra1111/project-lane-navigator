@@ -7773,15 +7773,16 @@ Deno.serve(async (req) => {
               return respondWithJob(supabase, jobId, shouldHalt ? undefined : "run-next");
             }
 
-            // ── PHASE 2D: SECTION-LEVEL REPAIR TARGETING ──
+            // ── PHASE 2D: SECTION-LEVEL REPAIR TARGETING + TRUE PARTIAL EXECUTION ──
             let sectionRepairMeta: Record<string, unknown> | null = null;
+            let sectionTargetKey: string | null = null;
+            let originalFullContent: string | null = null;
             {
               try {
                 const { getRepairTarget } = await import("../_shared/sectionRepairEngine.ts");
                 const { isSectionRepairSupported } = await import("../_shared/deliverableSectionRegistry.ts");
 
                 if (isSectionRepairSupported(currentDoc)) {
-                  // Get current document content for section parsing
                   const { data: verContent } = await supabase
                     .from("project_document_versions")
                     .select("plaintext")
@@ -7790,7 +7791,7 @@ Deno.serve(async (req) => {
 
                   const docContent = verContent?.plaintext || "";
                   if (docContent.length > 100) {
-                    // Use the highest-severity blocker as the primary repair issue
+                    originalFullContent = docContent;
                     const primaryIssue = (blockers && blockers.length > 0)
                       ? { category: blockers[0]?.category, title: blockers[0]?.title || blockers[0]?.objective, summary: blockers[0]?.summary || blockers[0]?.detail }
                       : (highImpact && highImpact.length > 0)
@@ -7805,14 +7806,15 @@ Deno.serve(async (req) => {
                         section_label: target.section_label,
                         reason: target.reason,
                         fallback_reason: target.fallback_reason,
+                        section_execution_mode: target.repair_target_type === "section" ? "true_partial_patch" : "full_doc_rewrite",
                       };
 
                       if (target.repair_target_type === "section" && target.section_key) {
-                        // Inject section-targeted direction into rewrite
+                        sectionTargetKey = target.section_key;
                         mergedDirections.push(
-                          `SECTION-TARGETED REPAIR: Focus changes on the "${target.section_label || target.section_key}" section. Preserve all other sections verbatim. Only modify content under the targeted section heading.`
+                          `SECTION-TARGETED REPAIR: Focus ALL changes on the "${target.section_label || target.section_key}" section. Preserve ALL other sections EXACTLY as they are — do not modify, reorder, rename, or paraphrase any content outside this section.`
                         );
-                        console.log(`[auto-run][Phase2D] section_repair_targeted: doc=${currentDoc} section=${target.section_key} reason=${target.reason}`);
+                        console.log(`[auto-run][Phase2D] section_repair_targeted: doc=${currentDoc} section=${target.section_key} mode=true_partial_patch reason=${target.reason}`);
                       } else {
                         console.log(`[auto-run][Phase2D] section_repair_fallback: doc=${currentDoc} reason=${target.reason} fallback=${target.fallback_reason}`);
                       }
@@ -7821,6 +7823,7 @@ Deno.serve(async (req) => {
                 }
               } catch (e: any) {
                 console.warn(`[auto-run][Phase2D] section_repair_error: ${e?.message}`);
+                sectionTargetKey = null; // fail closed
               }
             }
 
@@ -7843,10 +7846,92 @@ Deno.serve(async (req) => {
               }, jobId, newStep + 2, format, currentDoc
             );
 
+            // ── PHASE 2D HARDENING: TRUE SECTION-ONLY PATCH EXECUTION ──
+            // After rewrite, if section targeting was active, enforce section integrity:
+            // Replace untouched sections with original verbatim content to guarantee preservation.
+            if (sectionTargetKey && originalFullContent && candidateVersionId) {
+              try {
+                const { parseSections, replaceSection: replaceSec } = await import("../_shared/sectionRepairEngine.ts");
+
+                // Read the rewritten version content
+                const { data: candidateVer } = await supabase
+                  .from("project_document_versions")
+                  .select("plaintext")
+                  .eq("id", candidateVersionId)
+                  .maybeSingle();
+
+                const rewrittenContent = candidateVer?.plaintext || "";
+                if (rewrittenContent.length > 0) {
+                  const originalSections = parseSections(originalFullContent, currentDoc);
+                  const rewrittenSections = parseSections(rewrittenContent, currentDoc);
+
+                  // Integrity check: verify target section exists in rewritten output
+                  const targetInRewritten = rewrittenSections.find(s => s.section_key === sectionTargetKey);
+
+                  if (targetInRewritten && originalSections.length >= 2 && rewrittenSections.length >= 2) {
+                    // Build merged document: original sections everywhere EXCEPT the target section
+                    let mergedContent = rewrittenContent;
+                    let sectionsPreserved = 0;
+                    let sectionsCorrected = 0;
+
+                    for (const origSec of originalSections) {
+                      if (origSec.section_key === sectionTargetKey || origSec.section_key === "__preamble") continue;
+
+                      // Find this section in the rewritten output
+                      const rewrittenSec = rewrittenSections.find(s => s.section_key === origSec.section_key);
+                      if (!rewrittenSec) continue;
+
+                      // Check if content is identical
+                      if (rewrittenSec.content.trim() !== origSec.content.trim()) {
+                        // AI modified a non-targeted section — replace with original
+                        const result = replaceSec(mergedContent, currentDoc, origSec.section_key, origSec.content);
+                        if (result.success) {
+                          mergedContent = result.new_content;
+                          sectionsCorrected++;
+                        }
+                      } else {
+                        sectionsPreserved++;
+                      }
+                    }
+
+                    // Write merged content back if corrections were needed
+                    if (sectionsCorrected > 0) {
+                      await supabase.from("project_document_versions")
+                        .update({ plaintext: mergedContent })
+                        .eq("id", candidateVersionId);
+
+                      console.log(`[auto-run][Phase2D] section_integrity_enforced: corrected=${sectionsCorrected} preserved=${sectionsPreserved} target=${sectionTargetKey}`);
+                    } else {
+                      console.log(`[auto-run][Phase2D] section_integrity_clean: all_preserved=${sectionsPreserved} target=${sectionTargetKey}`);
+                    }
+
+                    if (sectionRepairMeta) {
+                      sectionRepairMeta.sections_corrected = sectionsCorrected;
+                      sectionRepairMeta.sections_preserved = sectionsPreserved;
+                      sectionRepairMeta.integrity_enforced = sectionsCorrected > 0;
+                    }
+                  } else {
+                    // Target section not found in rewritten output or insufficient sections — log but don't fail
+                    console.warn(`[auto-run][Phase2D] section_integrity_skip: target_found=${!!targetInRewritten} orig_sections=${originalSections.length} rewritten_sections=${rewrittenSections.length}`);
+                    if (sectionRepairMeta) {
+                      sectionRepairMeta.integrity_enforced = false;
+                      sectionRepairMeta.integrity_skip_reason = "target_not_found_or_insufficient_sections";
+                    }
+                  }
+                }
+              } catch (integrityErr: any) {
+                console.warn(`[auto-run][Phase2D] section_integrity_error: ${integrityErr?.message}`);
+                if (sectionRepairMeta) {
+                  sectionRepairMeta.integrity_enforced = false;
+                  sectionRepairMeta.integrity_error = integrityErr?.message;
+                }
+              }
+            }
+
             // Log section repair metadata for provenance
             if (sectionRepairMeta) {
-              await logStep(supabase, jobId, null, currentDoc, "section_repair_targeting",
-                `Section repair: ${sectionRepairMeta.repair_target_type} [${sectionRepairMeta.section_key || "full_doc"}] — ${sectionRepairMeta.reason}`,
+              await logStep(supabase, jobId, null, currentDoc, "section_repair_execution",
+                `Section repair: ${sectionRepairMeta.repair_target_type} [${sectionRepairMeta.section_key || "full_doc"}] exec=${sectionRepairMeta.section_execution_mode} corrected=${sectionRepairMeta.sections_corrected || 0}`,
                 { ci: baselineCI, gp: baselineGP }, undefined,
                 sectionRepairMeta);
             }
