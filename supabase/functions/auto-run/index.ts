@@ -8008,7 +8008,52 @@ Deno.serve(async (req) => {
               }
             }
 
-            // ── PHASE 2D HARDENING: TRUE SECTION-ONLY PATCH EXECUTION ──
+            // ── PHASE 2E: TRUE SCENE-LEVEL PATCH EXECUTION ──
+            // After rewrite, if scene targeting was active, enforce scene integrity:
+            // Take only the target scene from rewritten output; preserve all others from original.
+            if (sceneTargetNumber != null && originalFullContent && candidateVersionId) {
+              try {
+                const { enforceSceneIntegrity } = await import("../_shared/sceneRepairRegistry.ts");
+
+                const { data: candidateVer } = await supabase
+                  .from("project_document_versions")
+                  .select("plaintext")
+                  .eq("id", candidateVersionId)
+                  .maybeSingle();
+
+                const rewrittenContent = candidateVer?.plaintext || "";
+                if (rewrittenContent.length > 0) {
+                  const integrity = enforceSceneIntegrity(originalFullContent, rewrittenContent, sceneTargetNumber);
+
+                  if (integrity.target_scene_found) {
+                    // Write the deterministically merged content
+                    await supabase.from("project_document_versions")
+                      .update({ plaintext: integrity.merged_content })
+                      .eq("id", candidateVersionId);
+
+                    console.log(`[auto-run][Phase2E] scene_integrity_enforced: target_scene=${sceneTargetNumber} preserved=${integrity.scenes_preserved} corrected=${integrity.scenes_corrected} ok=${integrity.ok} reason=${integrity.reason}`);
+                  } else {
+                    // Target scene not found — fall back (don't replace)
+                    console.warn(`[auto-run][Phase2E] scene_integrity_fallback: target_scene=${sceneTargetNumber} not found in rewritten output`);
+                  }
+
+                  if (sceneRepairMeta) {
+                    sceneRepairMeta.scenes_preserved = integrity.scenes_preserved;
+                    sceneRepairMeta.scenes_corrected = integrity.scenes_corrected;
+                    sceneRepairMeta.scenes_missing_from_rewrite = integrity.scenes_missing_from_rewrite;
+                    sceneRepairMeta.integrity_ok = integrity.ok;
+                    sceneRepairMeta.target_scene_found = integrity.target_scene_found;
+                  }
+                }
+              } catch (integrityErr: any) {
+                console.warn(`[auto-run][Phase2E] scene_integrity_error: ${integrityErr?.message}`);
+                if (sceneRepairMeta) {
+                  sceneRepairMeta.integrity_ok = false;
+                  sceneRepairMeta.integrity_error = integrityErr?.message;
+                }
+              }
+            }
+
             // After rewrite, if section targeting was active, enforce section integrity:
             // Replace untouched sections with original verbatim content to guarantee preservation.
             if (sectionTargetKey && originalFullContent && candidateVersionId) {
