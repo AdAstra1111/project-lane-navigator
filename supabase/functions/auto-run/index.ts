@@ -7568,6 +7568,51 @@ Deno.serve(async (req) => {
             // NOTE: canon_lock_mode is cleared AFTER successful rewrite, not here
           }
 
+          // ── PHASE 2C: REWRITE ELIGIBILITY GATE (delta-based churn prevention) ──
+          {
+            const { buildEligibilityInput, getRewriteEligibility, readPreviousEligibility, computeEligibilityFingerprint, buildEligibilityPersistPatch } = await import("../_shared/rewriteEligibility.ts");
+            const eligInput = await buildEligibilityInput(supabase, job.project_id, currentDoc, baselineVersionId, {
+              blockers: blockers,
+              highImpactNotes: highImpact,
+              resolverHash,
+              acceptedDecisionsHash: decisionBundle?.accepted_decisions_hash || null,
+              strategy,
+              frontierVersionId: (job as any).frontier_version_id || null,
+            });
+            const prevElig = readPreviousEligibility(jobMeta);
+            const eligResult = getRewriteEligibility(eligInput, prevElig.fingerprint, prevElig.input, "auto");
+
+            console.log(`[auto-run][IEL] rewrite_eligibility_eval ${JSON.stringify({
+              job_id: jobId, doc_type: currentDoc, eligible: eligResult.eligible,
+              fingerprint: eligResult.fingerprint, prev_fingerprint: eligResult.previousFingerprint,
+              material_changes: eligResult.materialChanges, reason: eligResult.reason,
+            })}`);
+
+            if (!eligResult.eligible) {
+              await logStep(supabase, jobId, null, currentDoc, "rewrite_eligibility_denied",
+                `Rewrite denied: ${eligResult.reason}. No material delta since last attempt.`,
+                { ci: baselineCI, gp: baselineGP }, undefined,
+                { fingerprint: eligResult.fingerprint, previousFingerprint: eligResult.previousFingerprint, unchangedInputs: eligResult.unchangedInputs, blockingFactors: eligResult.blockingFactors });
+              await updateJob(supabase, jobId, {
+                stage_loop_count: newLoopCount,
+                status: "paused",
+                pause_reason: "REWRITE_ELIGIBILITY_DENIED",
+                stop_reason: `No material delta for ${currentDoc}: ${eligResult.reason}. Resolve upstream issues or change inputs to continue.`,
+                last_ui_message: `Rewrite skipped: no material change detected since last attempt. Modify inputs or resolve issues to continue.`,
+              });
+              return respondWithJob(supabase, jobId);
+            }
+
+            // Persist fingerprint for next comparison (after rewrite completes below)
+            const eligPatch = buildEligibilityPersistPatch(jobMeta, eligResult.fingerprint, eligInput);
+            await supabase.from("auto_run_jobs").update({ meta_json: eligPatch }).eq("id", jobId);
+
+            await logStep(supabase, jobId, null, currentDoc, "rewrite_eligibility_approved",
+              `Rewrite eligible: ${eligResult.materialChanges.join(", ")}`,
+              { ci: baselineCI, gp: baselineGP }, undefined,
+              { fingerprint: eligResult.fingerprint, materialChanges: eligResult.materialChanges });
+          }
+
           try {
             // ── FORK PATH: FORK_CONSERVATIVE_AGGRESSIVE ──
             if (strategy === "FORK_CONSERVATIVE_AGGRESSIVE") {
