@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import {
   CheckCircle2, Circle, Loader2, Lock, Play, Pause,
-  AlertTriangle, Square, RotateCcw,
+  AlertTriangle, Square, RotateCcw, ArrowRight,
 } from 'lucide-react';
 import type { AutoRunJob, AutoRunStep, AutoRunStageHistoryEntry } from '@/hooks/useAutoRun';
 import { getLadderForFormat } from '@/lib/stages/registry';
@@ -290,6 +290,12 @@ export function AutoRunProgressPanel({
               <Button size="sm" className="h-6 text-[9px] gap-1" onClick={() => onResume(true)}>
                 <Play className="h-3 w-3" /> Resume
               </Button>
+              {/* Manual promotion escape hatch: show when paused with high scores */}
+              {onForcePromote && (job.last_ci != null && job.last_ci >= 85) && (
+                <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10" onClick={onForcePromote}>
+                  <ArrowRight className="h-3 w-3" /> Promote to Next Stage
+                </Button>
+              )}
               <Button size="sm" variant="destructive" className="h-6 text-[9px] gap-1" onClick={onStop}>
                 <Square className="h-3 w-3" /> End
               </Button>
