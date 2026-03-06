@@ -7570,7 +7570,8 @@ Deno.serve(async (req) => {
 
           // ── PHASE 2C: REWRITE ELIGIBILITY GATE (delta-based churn prevention) ──
           {
-            const { buildEligibilityInput, getRewriteEligibility, readPreviousEligibility, computeEligibilityFingerprint, buildEligibilityPersistPatch } = await import("../_shared/rewriteEligibility.ts");
+            const { buildEligibilityInput, getRewriteEligibility, readPreviousEligibility, computeEligibilityFingerprint, buildEligibilityPersistPatch, buildEligibilityScopeKey } = await import("../_shared/rewriteEligibility.ts");
+            const eligScopeKey = buildEligibilityScopeKey(currentDoc, strategy);
             const eligInput = await buildEligibilityInput(supabase, job.project_id, currentDoc, baselineVersionId, {
               blockers: blockers,
               highImpactNotes: highImpact,
@@ -7579,20 +7580,20 @@ Deno.serve(async (req) => {
               strategy,
               frontierVersionId: (job as any).frontier_version_id || null,
             });
-            const prevElig = readPreviousEligibility(jobMeta);
+            const prevElig = readPreviousEligibility(jobMeta, eligScopeKey);
             const eligResult = getRewriteEligibility(eligInput, prevElig.fingerprint, prevElig.input, "auto");
 
             console.log(`[auto-run][IEL] rewrite_eligibility_eval ${JSON.stringify({
-              job_id: jobId, doc_type: currentDoc, eligible: eligResult.eligible,
+              job_id: jobId, doc_type: currentDoc, scope_key: eligScopeKey, eligible: eligResult.eligible,
               fingerprint: eligResult.fingerprint, prev_fingerprint: eligResult.previousFingerprint,
               material_changes: eligResult.materialChanges, reason: eligResult.reason,
             })}`);
 
             if (!eligResult.eligible) {
               await logStep(supabase, jobId, null, currentDoc, "rewrite_eligibility_denied",
-                `Rewrite denied: ${eligResult.reason}. No material delta since last attempt.`,
+                `Rewrite denied: ${eligResult.reason}. No material delta since last attempt. [scope=${eligScopeKey}]`,
                 { ci: baselineCI, gp: baselineGP }, undefined,
-                { fingerprint: eligResult.fingerprint, previousFingerprint: eligResult.previousFingerprint, unchangedInputs: eligResult.unchangedInputs, blockingFactors: eligResult.blockingFactors });
+                { fingerprint: eligResult.fingerprint, previousFingerprint: eligResult.previousFingerprint, unchangedInputs: eligResult.unchangedInputs, blockingFactors: eligResult.blockingFactors, scopeKey: eligScopeKey });
               await updateJob(supabase, jobId, {
                 stage_loop_count: newLoopCount,
                 status: "paused",
@@ -7603,8 +7604,8 @@ Deno.serve(async (req) => {
               return respondWithJob(supabase, jobId);
             }
 
-            // Persist fingerprint for next comparison (after rewrite completes below)
-            const eligPatch = buildEligibilityPersistPatch(jobMeta, eligResult.fingerprint, eligInput);
+            // Persist scoped fingerprint for next comparison
+            const eligPatch = buildEligibilityPersistPatch(jobMeta, eligResult.fingerprint, eligInput, eligScopeKey);
             await supabase.from("auto_run_jobs").update({ meta_json: eligPatch }).eq("id", jobId);
 
             await logStep(supabase, jobId, null, currentDoc, "rewrite_eligibility_approved",
