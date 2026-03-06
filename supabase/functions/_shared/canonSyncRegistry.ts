@@ -112,9 +112,14 @@ const SYNC_CONFIGS: Record<string, CanonSyncConfig> = {
       },
     ],
   },
+  // DISABLED for initial rollout: mergeCanonPatch() replaces characters[]
+  // wholesale, which destroys existing fields (description, relationships)
+  // and can silently delete characters if extraction count drops.
+  // Re-enable only after implementing keyed name-based character merge.
   character_bible: {
     source_doc_type: "character_bible",
-    sync_enabled: true,
+    sync_enabled: false,
+    fail_closed_reason: "characters[] merge is destructive — keyed name-based merge required before re-enabling",
     field_mappings: [
       {
         canon_field: "characters",
