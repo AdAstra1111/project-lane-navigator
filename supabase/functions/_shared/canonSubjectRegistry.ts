@@ -107,18 +107,18 @@ const SUBJECT_CLASS_CONFIGS: Record<SubjectClass, SubjectClassConfig> = {
   },
   relationship_fact: {
     subject_class: "relationship_fact",
-    source_doc_types: ["character_bible", "season_arc"],
+    source_doc_types: ["character_bible"],
     projection_doc_types: [
       "character_bible", "season_arc", "beat_sheet", "episode_beats",
       "feature_script", "episode_script", "season_script",
     ],
     dependency_kind: "canon",
-    // EXCLUDED from initial rollout: regex-based name extraction from
-    // character.relationships text matches non-name capitalized words
-    // (cities, days, etc.), producing phantom subjects and false deltas.
-    // Requires structured relationship data or NER to be safe.
-    extraction_deterministic: false,
-    active_in_initial_rollout: false,
+    // Phase 3F: Activated using structured relationship data from
+    // characters[].relationships[] (Phase 3E structured extraction).
+    // Identity: sorted pair `a<>b` for stable, direction-independent propagation.
+    // Old regex-based extraction (extractRelationshipPairs) is replaced.
+    extraction_deterministic: true,
+    active_in_initial_rollout: true,
   },
   format_rule: {
     subject_class: "format_rule",
@@ -268,12 +268,54 @@ export function extractCanonicalSubjects(canonJson: Record<string, unknown>): Ca
           raw_value: char,
         });
 
-        // ── Relationship facts — Phase 3E structured source now available ──
-        // Structured relationships (from `**Relationship Arc (with NAME):**` headings)
-        // are now extracted into characters[].relationships[] via canon sync.
-        // Activation of relationship_fact subject propagation deferred to Phase 3F
-        // pending: identity strategy confirmation + canon sync integration test.
+        // ── Phase 3F: Relationship facts from structured characters[].relationships[] ──
+        // Collect directional edges; will be merged into sorted pairs below.
+        const rels = (char as any).relationships;
+        if (Array.isArray(rels)) {
+          for (const rel of rels) {
+            if (!rel || typeof rel !== "object") continue;
+            const targetName = rel.target_name;
+            if (!targetName || typeof targetName !== "string" || targetName.trim().length < 2) continue;
+            const arcSummary = rel.arc_summary || "";
+            relationshipEdges.push({
+              source: name,
+              target: targetName.trim(),
+              arc_summary: typeof arcSummary === "string" ? arcSummary.trim() : "",
+            });
+          }
+        }
       }
+    }
+
+    // ── Merge relationship edges into sorted pair subjects ──
+    // Each unique sorted pair (a<>b) becomes one relationship_fact subject.
+    // If both directions exist, summaries are concatenated for stable hashing.
+    const pairMap = new Map<string, { a: string; b: string; summaries: string[] }>();
+    for (const edge of relationshipEdges) {
+      const [a, b] = [edge.source, edge.target].sort((x, y) =>
+        x.toLowerCase().localeCompare(y.toLowerCase()),
+      );
+      const pairKey = `${a.toLowerCase()}<>${b.toLowerCase()}`;
+      if (!pairMap.has(pairKey)) {
+        pairMap.set(pairKey, { a, b, summaries: [] });
+      }
+      if (edge.arc_summary.length > 0) {
+        pairMap.get(pairKey)!.summaries.push(edge.arc_summary);
+      }
+    }
+
+    for (const [pairKey, pair] of pairMap) {
+      // Deterministic: sort summaries for stable hash regardless of extraction order
+      const sortedSummaries = pair.summaries.sort();
+      const valueStr = `${pair.a}|${pair.b}|${sortedSummaries.join("||")}`;
+      subjects.push({
+        subject_id: `relationship_fact::${pairKey}`,
+        subject_class: "relationship_fact",
+        label: `${pair.a} ↔ ${pair.b}`,
+        normalized_key: pairKey,
+        value_hash: djb2Hash(valueStr),
+        raw_value: { a: pair.a, b: pair.b, summaries: sortedSummaries },
+      });
     }
 
     // ── Season arc obligations — EXCLUDED from initial rollout ──
