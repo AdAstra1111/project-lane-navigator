@@ -41,7 +41,7 @@ import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 import { ChangeReportPanel } from '@/components/devengine/ChangeReportPanel';
 import { deriveScriptChangeArtifacts, isScriptDocType } from '@/lib/script_change';
-import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, getDeliverableLabel, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
+import { type DevelopmentBehavior, type ConvergenceStatus, computeConvergenceStatus, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, getDeliverableLabel, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
 import { isSeriesFormat as checkSeriesFormat } from '@/lib/format-helpers';
 import { FORMAT_DEFAULTS } from '@/lib/qualifications/resolveQualifications';
 import { DeliverablePipeline, type PipelineStageStatus } from '@/components/DeliverablePipeline';
@@ -258,6 +258,7 @@ export default function ProjectDevelopmentEngine() {
   const [globalWritersRoomOpen, setGlobalWritersRoomOpen] = useState(false);
   const [nextActionNoteId, setNextActionNoteId] = useState<string | null>(null);
   const [nextActionDrawerOpen, setNextActionDrawerOpen] = useState(false);
+  const lastPromotionGateVersionRef = useRef<string | null>(null);
 
   // Canonical notes for NextActionsPanel
   const { data: canonicalNotes = [] } = useProjectNotes(projectId, {
@@ -542,6 +543,33 @@ export default function ProjectDevelopmentEngine() {
     }
   }, [selectedDoc?.doc_type]);
 
+  // Resolve authoritative version for promotion gating (strict approved+current, fallback approved)
+  const strictAuthoritativeVersion = useMemo(
+    () => versions.find((v: any) => v.approval_status === 'approved' && v.is_current === true) || null,
+    [versions],
+  );
+  const fallbackApprovedVersion = useMemo(
+    () => versions.filter((v: any) => v.approval_status === 'approved').slice(-1)[0] || null,
+    [versions],
+  );
+  const authoritativeVersion = strictAuthoritativeVersion || fallbackApprovedVersion || null;
+  const promotionGateVersionId = authoritativeVersion?.id || selectedVersionId || null;
+
+  const promotionGateRuns = useMemo(
+    () => (allDocRuns || []).filter((r: any) => r.version_id === promotionGateVersionId),
+    [allDocRuns, promotionGateVersionId],
+  );
+  const promotionGateAnalyzeRun = useMemo(
+    () => promotionGateRuns.filter((r: any) => r.run_type === 'ANALYZE').slice(-1)[0] || null,
+    [promotionGateRuns],
+  );
+  const promotionGateNotesRun = useMemo(
+    () => promotionGateRuns.filter((r: any) => r.run_type === 'NOTES').slice(-1)[0] || null,
+    [promotionGateRuns],
+  );
+  const promotionGateAnalysis = promotionGateAnalyzeRun?.output_json || null;
+  const promotionGateNotes = promotionGateNotesRun?.output_json || null;
+
   // Tiered notes — only NOW-timing notes in main tiers; deferred/carried separate
   const tieredNotes = useMemo(() => {
     const rawBlockers = latestNotes?.blocking_issues || latestAnalysis?.blocking_issues || [];
@@ -555,6 +583,35 @@ export default function ProjectDevelopmentEngine() {
       polish: rawPolish.filter(isNow),
     };
   }, [latestNotes, latestAnalysis]);
+
+  // Convergence/promotion must be version-bound to the same gate source
+  const promotionTieredNotes = useMemo(() => {
+    const rawBlockers = promotionGateNotes?.blocking_issues || promotionGateAnalysis?.blocking_issues || [];
+    const rawHigh = promotionGateNotes?.high_impact_notes || promotionGateAnalysis?.high_impact_notes || [];
+    const rawPolish = promotionGateNotes?.polish_notes || promotionGateAnalysis?.polish_notes || [];
+    const isNow = (n: any) => !n.apply_timing || n.apply_timing === 'now';
+    return {
+      blockers: rawBlockers.filter(isNow),
+      high: rawHigh.filter(isNow),
+      polish: rawPolish.filter(isNow),
+    };
+  }, [promotionGateNotes, promotionGateAnalysis]);
+
+  const promotionConvergenceStatus: ConvergenceStatus = useMemo(() => {
+    const analysis = promotionGateAnalysis || latestAnalysis;
+    const rewriteCount = allDocRuns.filter((r: any) => r.run_type === 'REWRITE').length;
+    const currentBehavior: DevelopmentBehavior = (analysis?.development_behavior as DevelopmentBehavior) || 'market';
+    const blockersRemaining = analysis?.convergence?.blockers_remaining ?? analysis?.blocking_issues?.length ?? null;
+    return computeConvergenceStatus(
+      analysis?.ci_score ?? null,
+      analysis?.gp_score ?? null,
+      analysis?.gap ?? null,
+      analysis?.allowed_gap ?? 25,
+      currentBehavior,
+      rewriteCount,
+      blockersRemaining,
+    );
+  }, [promotionGateAnalysis, latestAnalysis, allDocRuns]);
 
   // Deferred notes (for later deliverables)
   const deferredNotes = useMemo(() => {
@@ -607,18 +664,39 @@ export default function ProjectDevelopmentEngine() {
     }
   }, [allPrioritizedMoves]);
 
-  // Trigger Promotion Intelligence after analysis completes
+  // Trigger Promotion Intelligence from authoritative version-bound evaluation state
   useEffect(() => {
-    if (!latestAnalysis) { promotionIntel.clear(); return; }
-    const ci = latestAnalysis?.ci_score ?? latestAnalysis?.scores?.ci ?? 0;
-    const gp = latestAnalysis?.gp_score ?? latestAnalysis?.scores?.gp ?? 0;
-    const gap = latestAnalysis?.gap ?? 0;
-    const trajectory = latestAnalysis?.convergence?.trajectory ?? latestAnalysis?.trajectory ?? null;
-    const { blockers, highImpact } = extractNoteCounts(latestAnalysis, latestNotes);
+    if (!promotionGateAnalysis || !promotionGateVersionId) {
+      promotionIntel.clear();
+      return;
+    }
+
+    const convergenceVersionId = selectedVersionId || null;
+    if (convergenceVersionId && convergenceVersionId !== promotionGateVersionId) {
+      console.warn(`[ui][IEL] promotion_gate_version_mismatch { project_id: "${projectId}", job_id: "${autoRun.job?.id || 'none'}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${promotionGateVersionId}", gate_version_id: "${promotionGateVersionId}", convergence_version_id: "${convergenceVersionId}" }`);
+    }
+
+    if (lastPromotionGateVersionRef.current && lastPromotionGateVersionRef.current !== promotionGateVersionId) {
+      console.info(`[ui][IEL] stale_gate_state_invalidated { project_id: "${projectId}", job_id: "${autoRun.job?.id || 'none'}", doc_type: "${selectedDeliverableType}", old_gate_version_id: "${lastPromotionGateVersionRef.current}", new_gate_version_id: "${promotionGateVersionId}" }`);
+    }
+
+    const isApprovedGate = authoritativeVersion?.id === promotionGateVersionId && authoritativeVersion?.approval_status === 'approved';
+    const { blockers, highImpact } = extractNoteCounts(
+      promotionGateAnalysis,
+      isApprovedGate ? null : promotionGateNotes,
+    );
+
+    const ci = promotionGateAnalysis?.ci_score ?? promotionGateAnalysis?.scores?.ci ?? 0;
+    const gp = promotionGateAnalysis?.gp_score ?? promotionGateAnalysis?.scores?.gp ?? 0;
+    const gap = promotionGateAnalysis?.gap ?? 0;
+    const trajectory = promotionGateAnalysis?.convergence?.trajectory ?? promotionGateAnalysis?.trajectory ?? null;
     const iterCount = allDocRuns.filter((r: any) => r.run_type === 'ANALYZE').length;
-    promotionIntel.computeLocal({
+
+    console.info(`[ui][IEL] promotion_gate_version_bound { project_id: "${projectId}", job_id: "${autoRun.job?.id || 'none'}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${promotionGateVersionId}", gate_version_id: "${promotionGateVersionId}", ci: ${ci}, gp: ${gp}, blockers: ${blockers.length}, high_impact_count: ${highImpact.length} }`);
+
+    const result = promotionIntel.computeLocal({
       ci, gp, gap, trajectory,
-      convergenceStatus: convergenceStatus,
+      convergenceStatus: promotionConvergenceStatus,
       currentDocument: selectedDeliverableType,
       blockersCount: blockers.length,
       highImpactCount: highImpact.length,
@@ -630,8 +708,11 @@ export default function ProjectDevelopmentEngine() {
       approvedDocTypes: documents.filter((d: any) => !!(approvedVersionMap as any)?.[d.id]).map((d: any) => d.doc_type),
       seasonEpisodeCount: effectiveSeasonEpisodes ?? undefined,
     });
+
+    console.info(`[ui][IEL] authoritative_promotion_state_recomputed { project_id: "${projectId}", job_id: "${autoRun.job?.id || 'none'}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${promotionGateVersionId}", gate_version_id: "${promotionGateVersionId}", ci: ${ci}, gp: ${gp}, blockers: ${blockers.length}, high_impact_count: ${highImpact.length}, readiness_score: ${result.readiness_score} }`);
+    lastPromotionGateVersionRef.current = promotionGateVersionId;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestAnalysis, latestNotes, documents]);
+  }, [promotionGateAnalysis, promotionGateNotes, promotionGateVersionId, selectedVersionId, authoritativeVersion?.id, authoritativeVersion?.approval_status, allDocRuns, documents, approvedVersionMap, selectedDeliverableType, projectFormat, effectiveSeasonEpisodes, promotionConvergenceStatus, autoRun.job?.id]);
 
   const runAnalysisWithContext = () => {
     const prevVersion = versions.length > 1 ? versions[versions.length - 2] : null;
