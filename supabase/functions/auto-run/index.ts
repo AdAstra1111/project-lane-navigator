@@ -3375,6 +3375,8 @@ Deno.serve(async (req) => {
         awaiting_approval: false, approval_type: null, approval_payload: null,
         pending_doc_id: null, pending_version_id: null,
         pending_doc_type: null, pending_next_doc_type: null,
+        // IEL: Clear stale processing lock so run-next can acquire immediately
+        is_processing: false, processing_started_at: null, lock_expires_at: null,
         // IEL: Force fresh review on next tick by clearing last_analyzed_version_id
         last_analyzed_version_id: null,
       };
