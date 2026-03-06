@@ -2025,6 +2025,7 @@ export default function ProjectDevelopmentEngine() {
                       onStop={autoRun.stop}
                       onApproveAndContinue={() => autoRun.approveNext('approve')}
                       onReject={() => autoRun.approveNext('revise')}
+                      onForcePromote={autoRun.forcePromote}
                     />
                   )}
                   {/* Pipeline Brain — authoritative next step */}
