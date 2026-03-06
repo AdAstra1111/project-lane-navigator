@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt, getCorpusCalibration } from "../_shared/guardrails.ts";
-import { composeSystem } from "../_shared/llm.ts";
+import { buildGuardrailBlock, getCorpusCalibration } from "../_shared/guardrails.ts";
+import { composeSystem, callLLM, callLLMWithJsonRetry, parseAiJson, MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,40 +9,35 @@ const corsHeaders = {
 };
 
 // Tier 1 for deep analysis, Tier 2 for rewrite
-const REVIEW_MODEL = "google/gemini-2.5-pro";
-const REWRITE_MODEL = "google/gemini-3-flash-preview";
+const REVIEW_MODEL = MODELS.PRO;
+const REWRITE_MODEL = MODELS.BALANCED;
 
-function extractJSON(raw: string): string {
-  let content = raw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "");
-  if (!content.trim().startsWith("{")) {
-    const i = content.indexOf("{");
-    if (i >= 0) content = content.slice(i);
+// ─── Corpus calibration helper ───
+
+/**
+ * Fetch corpus calibration for a session's format/genre.
+ * Returns null silently — corpus is always optional/additive.
+ */
+async function fetchCorpus(supabase: any, format?: string, genre?: string): Promise<any> {
+  if (!format) return null;
+  try {
+    return await getCorpusCalibration(supabase, format, genre);
+  } catch {
+    return null;
   }
-  const last = content.lastIndexOf("}");
-  if (last >= 0) content = content.slice(0, last + 1);
-  return content.trim();
 }
 
-async function callAI(apiKey: string, model: string, system: string, user: string, temperature = 0.3, maxTokens = 6000): Promise<string> {
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      temperature,
-      max_tokens: maxTokens,
-    }),
+/**
+ * Build a guardrail + corpus system block for the given session context.
+ * Used consistently across all four phases.
+ */
+function buildSessionGuardrails(format: string | undefined, corpusCalibration: any) {
+  return buildGuardrailBlock({
+    productionType: format || "film",
+    engineName: "development-engine",
+    corpusEnabled: !!corpusCalibration,
+    corpusCalibration,
   });
-  if (!response.ok) {
-    if (response.status === 429) throw new Error("RATE_LIMIT");
-    if (response.status === 402) throw new Error("PAYMENT_REQUIRED");
-    const t = await response.text();
-    console.error("AI error:", response.status, t);
-    throw new Error("AI analysis failed");
-  }
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -177,21 +172,8 @@ serve(async (req) => {
     const body = await req.json();
     const { action, sessionId, inputText, approvedNotes, format, genres, lane, budget, title, projectId } = body;
 
-    // Build guardrails for this session with per-engine mode + corpus support
-    let corpusCalibration: any = null;
-    try {
-      const { getCorpusCalibration: getCorpusCal } = await import("../_shared/guardrails.ts");
-      corpusCalibration = await getCorpusCal(supabase, format || "film", (body.genres || [])[0]);
-    } catch { /* non-critical */ }
-
-    const guardrails = buildGuardrailBlock({
-      productionType: format,
-      engineName: "development-engine",
-      corpusEnabled: !!corpusCalibration,
-      corpusCalibration,
-    });
-    console.log(`[development-engine] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
-    const REVIEW_SYSTEM = composeSystem({ baseSystem: REVIEW_SYSTEM_BASE, guardrailsBlock: guardrails.textBlock });
+    // Corpus is fetched lazily per-action using session data for accuracy.
+    // We defer it here and let each action branch fetch it with the right format/genre.
 
     // ── CREATE SESSION ──
     if (action === "create-session") {
@@ -217,23 +199,27 @@ serve(async (req) => {
         .select("*").eq("id", sessionId).single();
       if (!session) throw new Error("Session not found");
 
+      // Fetch corpus using session's authoritative format/genre
+      const corpusCalibration = await fetchCorpus(supabase, session.format, session.genres?.[0]);
+      const guardrails = buildSessionGuardrails(session.format, corpusCalibration);
+      console.log(`[development-engine:review] guardrails=${guardrails.profileName} corpus=${!!corpusCalibration} hash=${guardrails.hash}`);
+
+      const reviewSystem = composeSystem({ baseSystem: REVIEW_SYSTEM_BASE, guardrailsBlock: guardrails.textBlock });
+
       const materialText = (inputText || session.input_text || "").slice(0, 20000);
       const contextLine = [
         session.format && `FORMAT: ${session.format}`,
         session.genres?.length && `GENRES: ${session.genres.join(", ")}`,
         session.lane && `LANE: ${session.lane}`,
         session.budget && `BUDGET: ${session.budget}`,
+        corpusCalibration && `CORPUS: ${corpusCalibration.sample_size || 'N/A'} scripts analyzed (median ${corpusCalibration.median_page_count || 'N/A'}pp, ${corpusCalibration.median_scene_count || 'N/A'} scenes)`,
       ].filter(Boolean).join("\n");
 
       const userPrompt = `${contextLine}\n\nMATERIAL:\n${materialText}`;
-      const raw = await callAI(LOVABLE_API_KEY, REVIEW_MODEL, REVIEW_SYSTEM, userPrompt);
-      let parsed: any;
-      try { parsed = JSON.parse(extractJSON(raw)); } catch {
-        // Repair
-        const repair = await callAI(LOVABLE_API_KEY, "google/gemini-2.5-flash",
-          "Fix this malformed JSON. Return JSON ONLY.", raw.slice(0, 5000));
-        parsed = JSON.parse(extractJSON(repair));
-      }
+      const parsed = await callLLMWithJsonRetry(
+        { apiKey: LOVABLE_API_KEY, model: REVIEW_MODEL, system: reviewSystem, user: userPrompt },
+        { handler: "development-engine:review" },
+      );
 
       const iterNum = (session.current_iteration || 0) + 1;
 
@@ -283,6 +269,11 @@ serve(async (req) => {
         .select("*").eq("session_id", sessionId).order("iteration_number", { ascending: false }).limit(1).single();
       if (!latestIt) throw new Error("No review found");
 
+      // Corpus + guardrails for notes phase
+      const corpusCalibration = await fetchCorpus(supabase, session.format, session.genres?.[0]);
+      const guardrails = buildSessionGuardrails(session.format, corpusCalibration);
+      const notesSystem = composeSystem({ baseSystem: NOTES_SYSTEM, guardrailsBlock: guardrails.textBlock });
+
       const reviewContext = JSON.stringify({
         ci_score: latestIt.ci_score,
         gp_score: latestIt.gp_score,
@@ -296,14 +287,15 @@ serve(async (req) => {
         commercial_risk: latestIt.primary_commercial_risk,
       });
 
-      const userPrompt = `REVIEW FINDINGS:\n${reviewContext}\n\nMATERIAL EXCERPT:\n${(session.input_text || "").slice(0, 8000)}`;
-      const raw = await callAI(LOVABLE_API_KEY, REVIEW_MODEL, NOTES_SYSTEM, userPrompt);
-      let parsed: any;
-      try { parsed = JSON.parse(extractJSON(raw)); } catch {
-        const repair = await callAI(LOVABLE_API_KEY, "google/gemini-2.5-flash",
-          "Fix this malformed JSON. Return JSON ONLY.", raw.slice(0, 5000));
-        parsed = JSON.parse(extractJSON(repair));
-      }
+      const corpusContext = corpusCalibration
+        ? `\nCORPUS NORMS (${corpusCalibration.sample_size || 'N/A'} scripts): median ${corpusCalibration.median_page_count || 'N/A'}pp, ${corpusCalibration.median_scene_count || 'N/A'} scenes, ${corpusCalibration.median_dialogue_ratio ? Math.round(corpusCalibration.median_dialogue_ratio * 100) + '% dialogue' : 'N/A dialogue ratio'}. Reference these norms when flagging structural deviations.`
+        : "";
+
+      const userPrompt = `REVIEW FINDINGS:\n${reviewContext}${corpusContext}\n\nMATERIAL EXCERPT:\n${(session.input_text || "").slice(0, 8000)}`;
+      const parsed = await callLLMWithJsonRetry(
+        { apiKey: LOVABLE_API_KEY, model: REVIEW_MODEL, system: notesSystem, user: userPrompt },
+        { handler: "development-engine:notes" },
+      );
 
       await supabase.from("dev_engine_iterations").update({
         phase: "notes",
@@ -341,13 +333,15 @@ APPROVED STRATEGIC NOTES:\n${JSON.stringify(approved)}
 
 MATERIAL TO REWRITE:\n${(session.input_text || "").slice(0, 15000)}`;
 
-      const raw = await callAI(LOVABLE_API_KEY, REWRITE_MODEL, REWRITE_SYSTEM, userPrompt, 0.4, 10000);
-      let parsed: any;
-      try { parsed = JSON.parse(extractJSON(raw)); } catch {
-        const repair = await callAI(LOVABLE_API_KEY, "google/gemini-2.5-flash",
-          "Fix this malformed JSON. Return JSON ONLY.", raw.slice(0, 8000));
-        parsed = JSON.parse(extractJSON(repair));
-      }
+      // Corpus + guardrails for rewrite — protect creative integrity against format drift
+      const corpusCalibration = await fetchCorpus(supabase, session.format, session.genres?.[0]);
+      const guardrails = buildSessionGuardrails(session.format, corpusCalibration);
+      const rewriteSystem = composeSystem({ baseSystem: REWRITE_SYSTEM, guardrailsBlock: guardrails.textBlock });
+
+      const parsed = await callLLMWithJsonRetry(
+        { apiKey: LOVABLE_API_KEY, model: REWRITE_MODEL, system: rewriteSystem, user: userPrompt, temperature: 0.4, maxTokens: 10000 },
+        { handler: "development-engine:rewrite" },
+      );
 
       await supabase.from("dev_engine_iterations").update({
         phase: "rewrite",
@@ -382,13 +376,17 @@ ${latestIt.changes_summary || "None listed"}
 
 Reassess and provide new scores with deltas.`;
 
-      const raw = await callAI(LOVABLE_API_KEY, REVIEW_MODEL, REASSESS_SYSTEM, userPrompt);
-      let parsed: any;
-      try { parsed = JSON.parse(extractJSON(raw)); } catch {
-        const repair = await callAI(LOVABLE_API_KEY, "google/gemini-2.5-flash",
-          "Fix this malformed JSON. Return JSON ONLY.", raw.slice(0, 5000));
-        parsed = JSON.parse(extractJSON(repair));
-      }
+      // Fetch session for format info (needed for corpus + guardrails on reassess)
+      const { data: sessionForReassess } = await supabase.from("dev_engine_sessions")
+        .select("format, genres").eq("id", sessionId).single();
+      const corpusCalibration = await fetchCorpus(supabase, sessionForReassess?.format, sessionForReassess?.genres?.[0]);
+      const guardrails = buildSessionGuardrails(sessionForReassess?.format, corpusCalibration);
+      const reassessSystem = composeSystem({ baseSystem: REASSESS_SYSTEM, guardrailsBlock: guardrails.textBlock });
+
+      const parsed = await callLLMWithJsonRetry(
+        { apiKey: LOVABLE_API_KEY, model: REVIEW_MODEL, system: reassessSystem, user: userPrompt },
+        { handler: "development-engine:reassess" },
+      );
 
       await supabase.from("dev_engine_iterations").update({
         phase: "reassess",
