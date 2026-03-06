@@ -268,9 +268,11 @@ export function extractCanonicalSubjects(canonJson: Record<string, unknown>): Ca
           raw_value: char,
         });
 
-        // ── Relationship facts — EXCLUDED from initial rollout ──
-        // Skipped: regex-based name extraction is non-deterministic (see registry config).
-        // Will be re-enabled when structured relationship data or NER is available.
+        // ── Relationship facts — Phase 3E structured source now available ──
+        // Structured relationships (from `**Relationship Arc (with NAME):**` headings)
+        // are now extracted into characters[].relationships[] via canon sync.
+        // Activation of relationship_fact subject propagation deferred to Phase 3F
+        // pending: identity strategy confirmation + canon sync integration test.
       }
     }
 
