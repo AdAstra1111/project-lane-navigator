@@ -206,31 +206,67 @@ export function getTransitiveDependents(lane: LaneKey, docType: string): Depende
   return result;
 }
 
+// ── Policy precedence (strictest wins) ───────────────────────────────────
+
+const INVALIDATION_RANK: Record<InvalidationPolicy, number> = { none: 0, review_only: 1, stale: 2 };
+const REVALIDATION_RANK: Record<RevalidationPolicy, number> = { none: 0, optional_review: 1, must_reanalyze: 2 };
+
 /**
  * Build a precise invalidation plan for a repaired doc type.
  *
- * Uses transitive dependency traversal. Only includes doc types
- * with invalidation_policy != "none". Explicitly lists skipped docs.
+ * Uses transitive dependency traversal. Collects ALL candidate edges
+ * per target doc, then selects the strictest invalidation + revalidation
+ * policy using explicit precedence ranks (stale > review_only > none,
+ * must_reanalyze > optional_review > none).
+ *
+ * This guarantees registry edge ordering never changes outcomes.
  */
 export function getInvalidationPlan(lane: LaneKey, repairedDocType: string): InvalidationPlan {
   const transitiveEdges = getTransitiveDependents(lane, repairedDocType);
+
+  // Phase 1: collect ALL candidate edges per target doc type
+  const candidates = new Map<string, DependencyEdge[]>();
+  for (const edge of transitiveEdges) {
+    if (!candidates.has(edge.to_doc_type)) {
+      candidates.set(edge.to_doc_type, []);
+    }
+    candidates.get(edge.to_doc_type)!.push(edge);
+  }
+
+  // Phase 2: resolve strictest policy per target
   const entries: InvalidationPlanEntry[] = [];
   const skipped: string[] = [];
-  const seen = new Set<string>();
 
-  for (const edge of transitiveEdges) {
-    if (seen.has(edge.to_doc_type)) continue;
-    seen.add(edge.to_doc_type);
+  for (const [docType, edges] of candidates) {
+    // Pick the edge with the strictest invalidation policy;
+    // break ties by strictest revalidation policy.
+    let winner = edges[0];
+    for (let i = 1; i < edges.length; i++) {
+      const challenger = edges[i];
+      const winnerInvRank = INVALIDATION_RANK[winner.invalidation_policy];
+      const challengerInvRank = INVALIDATION_RANK[challenger.invalidation_policy];
+      if (challengerInvRank > winnerInvRank) {
+        winner = challenger;
+      } else if (challengerInvRank === winnerInvRank) {
+        if (REVALIDATION_RANK[challenger.revalidation_policy] > REVALIDATION_RANK[winner.revalidation_policy]) {
+          winner = challenger;
+        }
+      }
+    }
 
-    if (edge.invalidation_policy === "none") {
-      skipped.push(edge.to_doc_type);
+    if (winner.invalidation_policy === "none") {
+      skipped.push(docType);
     } else {
       entries.push({
-        doc_type: edge.to_doc_type,
-        edge,
-        invalidation_policy: edge.invalidation_policy,
-        revalidation_policy: edge.revalidation_policy,
+        doc_type: docType,
+        edge: winner,
+        invalidation_policy: winner.invalidation_policy,
+        revalidation_policy: winner.revalidation_policy,
       });
+    }
+
+    if (edges.length > 1) {
+      console.log(`[dependency-registry] multi-path resolution for "${docType}": ${edges.length} candidates → winner="${winner.from_doc_type}→${winner.to_doc_type}" policy=${winner.invalidation_policy}/${winner.revalidation_policy}`);
     }
   }
 
@@ -240,7 +276,7 @@ export function getInvalidationPlan(lane: LaneKey, repairedDocType: string): Inv
   if (repairedIdx >= 0) {
     for (let i = repairedIdx + 1; i < ladder.length; i++) {
       const dt = ladder[i];
-      if (!seen.has(dt)) {
+      if (!candidates.has(dt)) {
         skipped.push(dt);
       }
     }
