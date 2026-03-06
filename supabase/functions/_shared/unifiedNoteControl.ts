@@ -219,7 +219,7 @@ export async function invalidateDescendants(
   ladder: string[],
   newVersionId: string,
   lane?: LaneKey,
-): Promise<{ invalidatedDocs: string[]; affectedJobIds: string[]; plan?: InvalidationPlan }> {
+): Promise<{ invalidatedDocs: string[]; affectedJobIds: string[]; plan?: InvalidationPlan; subjectPropagation?: SubjectPropagationResult }> {
   // ── Build dependency-aware invalidation plan ──
   const effectiveLane: LaneKey = lane || "unspecified";
   const plan = getInvalidationPlan(effectiveLane, repairedDocType);
@@ -231,6 +231,73 @@ export async function invalidateDescendants(
       console.warn(`[unified-note-control] invalidateDescendants: dependency registry returned 0 entries but ladder has ${ladderDownstream.length} downstream docs for ${repairedDocType} in lane ${effectiveLane}. Skipping invalidation — no dependency edges defined.`);
     }
     return { invalidatedDocs: [], affectedJobIds: [], plan };
+  }
+
+  // ── PHASE 3: Subject-level propagation narrowing ──
+  // If the repaired doc type is a subject source, attempt to narrow invalidation
+  // by computing subject-level deltas against previous canon state.
+  let subjectPropagation: SubjectPropagationResult | undefined;
+  let subjectNarrowedDocTypes: Set<string> | null = null;
+  try {
+    const {
+      isSubjectSourceDocType,
+      buildSubjectPropagationPlan,
+      extractCanonicalSubjects,
+    } = await import("./canonSubjectRegistry.ts");
+
+    if (isSubjectSourceDocType(repairedDocType)) {
+      // Fetch current and previous canon snapshots
+      const { data: canonRow } = await supabase
+        .from("project_canon")
+        .select("canon_json")
+        .eq("project_id", projectId)
+        .maybeSingle();
+
+      if (canonRow?.canon_json) {
+        // Fetch the most recent approved canon version (prior state) for delta comparison
+        const { data: prevVersion } = await supabase
+          .from("project_canon_versions")
+          .select("canon_json")
+          .eq("project_id", projectId)
+          .order("created_at", { ascending: false })
+          .limit(2);
+
+        // Use the second-most-recent version as "previous" (first is the current update)
+        const prevCanon = (prevVersion && prevVersion.length >= 2)
+          ? prevVersion[1].canon_json || {}
+          : {};
+        const currentCanon = canonRow.canon_json;
+
+        const propagationPlan = buildSubjectPropagationPlan(
+          prevCanon, currentCanon, repairedDocType, effectiveLane,
+        );
+
+        if (propagationPlan && propagationPlan.deltas.length > 0) {
+          const affectedDocTypes = Object.keys(propagationPlan.affected_projections);
+          subjectNarrowedDocTypes = new Set(affectedDocTypes);
+
+          subjectPropagation = {
+            deltas_count: propagationPlan.deltas.length,
+            affected_doc_types: affectedDocTypes,
+            unaffected_doc_types: propagationPlan.unaffected_doc_types,
+            narrowing_ratio: propagationPlan.narrowing_ratio,
+            subject_classes: [...new Set(propagationPlan.deltas.map(d => d.subject_class))],
+            delta_details: propagationPlan.deltas.map(d => ({
+              subject_id: d.subject_id,
+              delta_type: d.delta_type,
+              label: d.label,
+            })),
+          };
+
+          console.log(`[unified-note-control][Phase3] subject_propagation_computed { project: "${projectId}", repaired: "${repairedDocType}", deltas: ${propagationPlan.deltas.length}, affected: ${JSON.stringify(affectedDocTypes)}, unaffected: ${JSON.stringify(propagationPlan.unaffected_doc_types)}, narrowing: ${propagationPlan.narrowing_ratio} }`);
+        } else {
+          console.log(`[unified-note-control][Phase3] subject_propagation_no_deltas { project: "${projectId}", repaired: "${repairedDocType}" }`);
+        }
+      }
+    }
+  } catch (subjErr: any) {
+    // Fail closed: subject propagation error does NOT block doc-level invalidation
+    console.warn(`[unified-note-control][Phase3] subject_propagation_error: ${subjErr?.message}`);
   }
 
   const invalidatedDocs: string[] = [];
