@@ -7857,6 +7857,15 @@ Deno.serve(async (req) => {
             }
             await updateJob(supabase, jobId, jobUpdate);
 
+            // ── IEL: AUTO-RESOLVE actionable project_notes after successful rewrite ──
+            const noteResolution = await autoResolveActionableNotes(supabase, job.project_id, currentDoc, candVersionId, jobId, "auto_run_rewrite");
+            if (noteResolution.resolved > 0) {
+              await logStep(supabase, jobId, null, currentDoc, "note_auto_resolved",
+                `Resolved ${noteResolution.resolved} note(s) on ${currentDoc} after rewrite: [${noteResolution.notes.map(n => n.title).join("; ")}]. All notes exhausted — ready to promote.`,
+                { ci: acceptedCI, gp: acceptedGP }, undefined,
+                { resolved_count: noteResolution.resolved, resolved_notes: noteResolution.notes, resolver: "auto_run_rewrite", version_id: candVersionId });
+            }
+
             console.log(`[auto-run][IEL] acceptance_anchor_set { job_id: "${jobId}", doc_type: "${currentDoc}", document_id: "${doc.id}", accepted_version_id: "${candVersionId}", last_analyzed_version_id: "${candVersionId}", last_ci: ${acceptedCI}, last_gp: ${acceptedGP}, score_source: "auto-run-fork", eligibility_reason: "approved_after_accept" }`);
             return true;
           }
