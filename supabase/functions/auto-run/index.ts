@@ -5082,20 +5082,46 @@ Deno.serve(async (req) => {
           .map((s: any) => s?.note_id)
           .filter((id: string) => !!id);
         if (ledgerIdsToResolve.length > 0) {
-          const { error: ledgerErr } = await supabase
-            .from("decision_ledger")
-            .update({ status: "active" })
-            .in("id", ledgerIdsToResolve)
-            .eq("status", "workflow_pending");
-          if (ledgerErr) {
-            console.warn(`[auto-run][IEL] decision_ledger_resolve_failed`, JSON.stringify({
-              job_id: jobId, ids: ledgerIdsToResolve, error: ledgerErr.message,
-            }));
-          } else {
-            console.log(`[auto-run][IEL] decision_ledger_resolved`, JSON.stringify({
-              job_id: jobId, resolved_count: ledgerIdsToResolve.length, ids: ledgerIdsToResolve,
-            }));
+          // Separate UUIDs from string decision_keys
+          const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const uuidIds = ledgerIdsToResolve.filter((id: string) => uuidPattern.test(id));
+          const keyIds = ledgerIdsToResolve.filter((id: string) => !uuidPattern.test(id));
+
+          let resolvedCount = 0;
+          // Resolve by UUID id
+          if (uuidIds.length > 0) {
+            const { error: err1 } = await supabase
+              .from("decision_ledger")
+              .update({ status: "active" })
+              .in("id", uuidIds)
+              .eq("status", "workflow_pending");
+            if (err1) {
+              console.warn(`[auto-run][IEL] decision_ledger_resolve_failed_uuid`, JSON.stringify({
+                job_id: jobId, ids: uuidIds, error: err1.message,
+              }));
+            } else {
+              resolvedCount += uuidIds.length;
+            }
           }
+          // Resolve by decision_key for non-UUID keys
+          if (keyIds.length > 0) {
+            const { error: err2 } = await supabase
+              .from("decision_ledger")
+              .update({ status: "active" })
+              .in("decision_key", keyIds)
+              .eq("project_id", job.project_id)
+              .eq("status", "workflow_pending");
+            if (err2) {
+              console.warn(`[auto-run][IEL] decision_ledger_resolve_failed_key`, JSON.stringify({
+                job_id: jobId, keys: keyIds, error: err2.message,
+              }));
+            } else {
+              resolvedCount += keyIds.length;
+            }
+          }
+          console.log(`[auto-run][IEL] decision_ledger_resolved`, JSON.stringify({
+            job_id: jobId, resolved_count: resolvedCount, uuid_ids: uuidIds, key_ids: keyIds,
+          }));
         }
 
         await updateJob(supabase, jobId, {
