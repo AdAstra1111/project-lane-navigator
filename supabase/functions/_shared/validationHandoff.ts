@@ -162,9 +162,10 @@ export interface HandoffFindingResult {
   violationKey: string;
   eligibility: HandoffEligibility;
   reason: string;
-  outcome: "issue_created" | "duplicate_suppressed" | "blocked" | "informational_skipped" | "manual_only_skipped" | "planning_deferred" | "review_task_created" | "review_task_duplicate_suppressed" | "review_task_blocked";
+  outcome: "issue_created" | "duplicate_suppressed" | "blocked" | "informational_skipped" | "manual_only_skipped" | "planning_deferred" | "planning_created" | "planning_blocked" | "planning_duplicate_suppressed" | "review_task_created" | "review_task_duplicate_suppressed" | "review_task_blocked";
   issueId: string | null;
   reviewTaskId?: string | null;
+  planningRequestKey?: string | null;
 }
 
 export interface HandoffResult {
@@ -178,6 +179,9 @@ export interface HandoffResult {
   informationalSkipped: number;
   manualOnlySkipped: number;
   planningDeferred: number;
+  planningCreated: number;
+  planningBlocked: number;
+  planningDuplicatesSuppressed: number;
 }
 
 // ── Main Handoff Entry Point ──
