@@ -7128,6 +7128,7 @@ Deno.serve(async (req) => {
                     });
                     return respondWithJob(supabase, jobId, "awaiting-approval");
                   }
+                  } // close note exhaustion else
                 }
               } else {
               // Flag off — original promotion path
