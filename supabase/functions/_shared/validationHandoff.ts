@@ -30,6 +30,7 @@
 import type { Violation, ViolationType, ViolationSeverity, ValidationDomain } from "./narrativeIntegrityValidator.ts";
 import { emitTransition, TRANSITION_EVENTS } from "./transitionLedger.ts";
 import { routeToReviewQueue } from "./reviewQueueBridge.ts";
+import { handoffToPlanningQueue, type PlanningHandoffResult } from "./validationPlanningHandoff.ts";
 
 // ── Handoff Eligibility Classification ──
 
