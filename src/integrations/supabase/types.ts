@@ -13894,6 +13894,84 @@ export type Database = {
           },
         ]
       }
+      review_tasks: {
+        Row: {
+          anchor_section: string | null
+          created_at: string
+          created_from_run_id: string | null
+          detail: string
+          doc_type: string | null
+          doc_version_id: string | null
+          evidence_json: Json
+          fingerprint: string
+          id: string
+          last_seen_run_id: string | null
+          project_id: string
+          review_category: string
+          severity: number
+          source_key: string
+          source_type: string
+          status: string
+          summary: string
+          updated_at: string
+        }
+        Insert: {
+          anchor_section?: string | null
+          created_at?: string
+          created_from_run_id?: string | null
+          detail?: string
+          doc_type?: string | null
+          doc_version_id?: string | null
+          evidence_json?: Json
+          fingerprint: string
+          id?: string
+          last_seen_run_id?: string | null
+          project_id: string
+          review_category?: string
+          severity?: number
+          source_key: string
+          source_type?: string
+          status?: string
+          summary: string
+          updated_at?: string
+        }
+        Update: {
+          anchor_section?: string | null
+          created_at?: string
+          created_from_run_id?: string | null
+          detail?: string
+          doc_type?: string | null
+          doc_version_id?: string | null
+          evidence_json?: Json
+          fingerprint?: string
+          id?: string
+          last_seen_run_id?: string | null
+          project_id?: string
+          review_category?: string
+          severity?: number
+          source_key?: string
+          source_type?: string
+          status?: string
+          summary?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_tasks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "review_tasks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rewrite_jobs: {
         Row: {
           approved_notes: Json | null
