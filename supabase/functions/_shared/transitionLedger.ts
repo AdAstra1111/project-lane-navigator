@@ -48,6 +48,12 @@ export const TRANSITION_EVENTS = {
   // Gate outcomes
   STALE_GATE_STATE_INVALIDATED: "stale_gate_state_invalidated",
   PROMOTION_GATE_VERSION_MISMATCH: "promotion_gate_version_mismatch",
+
+  // Impact Engine v2
+  IMPACT_ANALYSIS_COMPLETED: "impact_analysis_completed",
+  AFFECTED_DOCUMENT_IDENTIFIED: "affected_document_identified",
+  BOUNDED_REPAIR_PLANNED: "bounded_repair_planned",
+  IMPACT_REPAIR_BLOCKED: "impact_repair_blocked",
 } as const;
 
 export type TransitionEventType = typeof TRANSITION_EVENTS[keyof typeof TRANSITION_EVENTS];
@@ -259,5 +265,6 @@ function inferDomain(eventType: string): string {
   if (eventType.startsWith("canon_")) return EVENT_DOMAINS.CANON;
   if (eventType.startsWith("decision_")) return EVENT_DOMAINS.DECISION;
   if (eventType.startsWith("promotion_") || eventType.startsWith("stale_")) return EVENT_DOMAINS.GATE;
+  if (eventType.startsWith("impact_") || eventType.startsWith("affected_") || eventType.startsWith("bounded_")) return "impact";
   return "pipeline";
 }
