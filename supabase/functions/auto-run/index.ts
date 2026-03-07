@@ -5178,7 +5178,7 @@ Deno.serve(async (req) => {
             await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
               `PLATEAU V2: CI=${plateauV2.currentCI}, blocker_delta=${plateauV2.blockerCountDelta}, hi_delta=${plateauV2.highImpactCountDelta}. Neither CI improving nor notes shrinking. Fail-closed.`,
               { ci: plateauV2.currentCI }, undefined,
-              { ...plateauV2, global_min_ci: GLOBAL_MIN_CI, plateau_version: "v2" });
+              { ...plateauV2, global_min_ci: targetCi, plateau_version: "v2" });
             const { data: docForCap } = await supabase.from("project_documents")
               .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
               .order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -8831,7 +8831,7 @@ Deno.serve(async (req) => {
                 console.warn("[auto-run] non-fatal auto-approve failed before promote:", e?.message || e);
               }
               await logStep(supabase, jobId, null, currentDoc, "auto_approved_promote",
-                `Promote recommended: ${currentDoc} → ${next}. Auto-promoting (allow_defaults). CI=${ciGate.ci}≥${GLOBAL_MIN_CI}✓`,
+                `Promote recommended: ${currentDoc} → ${next}. Auto-promoting (allow_defaults). CI=${ciGate.ci}≥${writeTargetCi}✓`,
                 { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence },
                 undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
               );
