@@ -6899,6 +6899,14 @@ Deno.serve(async (req) => {
               if (!ciGate.pass) {
                 // CI below 90 — do NOT promote, continue stabilise
                 console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${GLOBAL_MIN_CI}, trigger: "converge_promote" }`);
+                // ── TRANSITION LEDGER: promotion_gate_evaluated (blocked by CI) ──
+                await emitTransition(supabase, {
+                  projectId: job.project_id, eventType: TRANSITION_EVENTS.PROMOTION_GATE_EVALUATED,
+                  docType: currentDoc, stage: currentDoc, jobId, resultingVersionId: latestVersion?.id,
+                  status: "failed", trigger: "ci_hard_gate", sourceOfTruth: "auto-run",
+                  ci: ciGate.ci, previousState: { min_ci: GLOBAL_MIN_CI },
+                  resultingState: { pass: false, reason: "ci_below_threshold" },
+                });
                 await logStep(supabase, jobId, null, currentDoc, "ci_gate_blocked",
                   `Promotion blocked: CI=${ciGate.ci} < ${GLOBAL_MIN_CI}. Continuing stabilise.`,
                   { ci: ciGate.ci }, undefined, { min_ci: GLOBAL_MIN_CI, trigger: "converge_promote" });
@@ -6910,6 +6918,16 @@ Deno.serve(async (req) => {
                 const reviewPayload = await parseLatestReviewForActiveVersion(supabase, jobId, currentDoc, latestVersion?.id || null);
                 const blockerGate = evaluateCIBlockerGateFromPayload(reviewPayload, GLOBAL_MIN_CI);
                 console.log(`[auto-run][IEL] ci_blocker_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", pass: ${blockerGate.pass}, ci: ${blockerGate.ci}, blockers: ${blockerGate.blockerCount}, high_impact: ${blockerGate.highImpactCount}, reasons: ${JSON.stringify(blockerGate.blockReasons)} }`);
+                // ── TRANSITION LEDGER: promotion_gate_evaluated (blocker gate) ──
+                await emitTransition(supabase, {
+                  projectId: job.project_id, eventType: TRANSITION_EVENTS.PROMOTION_GATE_EVALUATED,
+                  docType: currentDoc, stage: currentDoc, jobId, resultingVersionId: latestVersion?.id,
+                  status: blockerGate.pass ? "completed" : "failed",
+                  trigger: "ci_blocker_gate", sourceOfTruth: "auto-run",
+                  ci: blockerGate.ci, gp: blockerGate.gp,
+                  previousState: { blockerCount: blockerGate.blockerCount, highImpactCount: blockerGate.highImpactCount },
+                  resultingState: { pass: blockerGate.pass, blockReasons: blockerGate.blockReasons },
+                });
                 if (!blockerGate.pass) {
                   console.warn(`[auto-run][IEL] ci_blocker_gate_blocked { job_id: "${jobId}", doc_type: "${currentDoc}", reasons: ${JSON.stringify(blockerGate.blockReasons)} }`);
                   await logStep(supabase, jobId, null, currentDoc, "ci_blocker_gate_blocked",
