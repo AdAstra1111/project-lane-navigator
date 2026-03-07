@@ -7018,7 +7018,7 @@ Deno.serve(async (req) => {
               // ── PILLAR 1: CI BLOCKER GATE V1 — block promotion if unresolved blockers/high-impact ──
               else if (isCIBlockerGateEnabled()) {
                 const reviewPayload = await parseLatestReviewForActiveVersion(supabase, jobId, currentDoc, latestVersion?.id || null);
-                const blockerGate = evaluateCIBlockerGateFromPayload(reviewPayload, GLOBAL_MIN_CI);
+                const blockerGate = evaluateCIBlockerGateFromPayload(reviewPayload, promoteTargetCi);
                 console.log(`[auto-run][IEL] ci_blocker_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", pass: ${blockerGate.pass}, ci: ${blockerGate.ci}, blockers: ${blockerGate.blockerCount}, high_impact: ${blockerGate.highImpactCount}, reasons: ${JSON.stringify(blockerGate.blockReasons)} }`);
                 // ── TRANSITION LEDGER: promotion_gate_evaluated (blocker gate) ──
                 await emitTransition(supabase, {
