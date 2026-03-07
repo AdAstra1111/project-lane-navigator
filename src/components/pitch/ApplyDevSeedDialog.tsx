@@ -442,20 +442,32 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
         if (match) canonEpisodeCount = parseInt(match[1]);
       }
 
-      // Auto-extract duration from format_summary (e.g. "30 x 2-3 min")
+      // Auto-extract duration from format_summary (e.g. "30 x 2-3 min" or "30 x 2-2.5 min")
       if (canonDurMin == null && canonDurMax == null) {
         const raw = idea.raw_response as any || {};
         const fmt = raw.format_summary || raw.format || '';
-        const durMatch = fmt.match(/(\d+)\s*[-–]\s*(\d+)\s*min/i);
+        // Support decimal minutes like "2-2.5 min" or "2.5-3 min"
+        const durMatch = fmt.match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*min/i);
         if (durMatch) {
-          canonDurMin = parseInt(durMatch[1]) * 60;
-          canonDurMax = parseInt(durMatch[2]) * 60;
+          canonDurMin = Math.round(parseFloat(durMatch[1]) * 60);
+          canonDurMax = Math.round(parseFloat(durMatch[2]) * 60);
         } else {
-          const singleMatch = fmt.match(/(\d+)\s*min/i);
+          const singleMatch = fmt.match(/(\d+(?:\.\d+)?)\s*min/i);
           if (singleMatch) {
-            canonDurMin = parseInt(singleMatch[1]) * 60;
+            canonDurMin = Math.round(parseFloat(singleMatch[1]) * 60);
             canonDurMax = canonDurMin;
           }
+        }
+      }
+
+      // VD lane fallback: if still no duration parsed, use sensible VD defaults (not 300s)
+      if (canonDurMin == null && canonDurMax == null) {
+        const normLane = (lane || '').toLowerCase();
+        const normFormat = (idea.production_type || '').toLowerCase();
+        if (normFormat === 'vertical-drama' || normFormat === 'vertical_drama' || normLane.includes('vertical')) {
+          canonDurMin = 120; // 2 min
+          canonDurMax = 180; // 3 min
+          console.log('[DevSeed] Using VD duration fallback: 120-180s');
         }
       }
 
