@@ -5269,6 +5269,15 @@ Deno.serve(async (req) => {
           console.log(`[auto-run][IEL] plateau_v2_eval ${JSON.stringify({ job_id: jobId, doc_type: currentDoc, ...plateauV2 })}`);
 
           if (plateauV2.isPlateaued) {
+            // ── IEL: When allow_defaults is ON and plateaued, auto-promote best version instead of looping ──
+            if (job.allow_defaults && plateauV2.currentCI >= GLOBAL_MIN_CI) {
+              console.log(`[auto-run][IEL] plateau_v2_auto_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${plateauV2.currentCI}, best_ci: ${plateauV2.currentCI}, allow_defaults: true, reason: "CI plateaued but meets GLOBAL_MIN_CI=${GLOBAL_MIN_CI}, auto-promoting best version" }`);
+              await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_auto_promote",
+                `CI plateaued at ${plateauV2.currentCI} (target: ${targetCi}) but meets minimum ${GLOBAL_MIN_CI}. allow_defaults=ON → auto-promoting best version.`,
+                { ci: plateauV2.currentCI }, undefined,
+                { ...plateauV2, global_min_ci: GLOBAL_MIN_CI, targetCi, plateau_version: "v2", action: "auto_promote" });
+              // Don't pause — fall through to promotion logic below
+            } else {
             console.error(`[auto-run][IEL] plateau_v2_stop ${JSON.stringify({ job_id: jobId, doc_type: currentDoc, ...plateauV2 })}`);
             await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
               `PLATEAU V2: CI=${plateauV2.currentCI}, blocker_delta=${plateauV2.blockerCountDelta}, hi_delta=${plateauV2.highImpactCountDelta}. Neither CI improving nor notes shrinking. Fail-closed.`,
@@ -5286,6 +5295,7 @@ Deno.serve(async (req) => {
             });
             await releaseProcessingLock(supabase, jobId);
             return respondWithJob(supabase, jobId);
+            }
           } else if (plateauV2.currentCI >= targetCi) {
             console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${plateauV2.currentCI}, plateau_version: "v2" }`);
           } else {
