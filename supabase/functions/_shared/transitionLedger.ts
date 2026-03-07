@@ -265,5 +265,6 @@ function inferDomain(eventType: string): string {
   if (eventType.startsWith("canon_")) return EVENT_DOMAINS.CANON;
   if (eventType.startsWith("decision_")) return EVENT_DOMAINS.DECISION;
   if (eventType.startsWith("promotion_") || eventType.startsWith("stale_")) return EVENT_DOMAINS.GATE;
+  if (eventType.startsWith("impact_") || eventType.startsWith("affected_") || eventType.startsWith("bounded_")) return "impact";
   return "pipeline";
 }
