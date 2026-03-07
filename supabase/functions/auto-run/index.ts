@@ -5507,7 +5507,6 @@ Deno.serve(async (req) => {
             });
             await releaseProcessingLock(supabase, jobId);
             return respondWithJob(supabase, jobId);
-            }
           } else if (plateauV2.currentCI >= targetCi) {
             console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${plateauV2.currentCI}, plateau_version: "v2" }`);
           } else {
@@ -5553,7 +5552,6 @@ Deno.serve(async (req) => {
           });
           await releaseProcessingLock(supabase, jobId);
           return respondWithJob(supabase, jobId);
-          }
         } else if (ciProgress.improving) {
           console.log(`[auto-run][IEL] ci_improvement_detected { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci_prior: ${ciProgress.bestCi}, delta: ${ciProgress.currentCi - ciProgress.bestCi} }`);
         } else {
