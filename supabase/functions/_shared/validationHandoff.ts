@@ -279,14 +279,8 @@ export async function handoffValidationFindings(
       }
 
       case "manual_only": {
-        result.findings.push({
-          violationKey: violation.violationKey,
-          eligibility,
-          reason,
-          outcome: "manual_only_skipped",
-          issueId: null,
-        });
-        result.manualOnlySkipped++;
+        // Route to review queue bridge
+        manualOnlyViolations.push(violation);
         break;
       }
 
