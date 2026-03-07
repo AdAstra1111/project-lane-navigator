@@ -97,6 +97,8 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consecutiveFailuresRef = useRef(0);
   const autoResumeFailCountRef = useRef(0);
+  const autoResumeInFlightRef = useRef(false);
+  const autoResumeLastAttemptSignatureRef = useRef<string | null>(null);
   const lastSuccessRef = useRef(Date.now());
   const pollInFlightRef = useRef(false);
   const doPollRef = useRef<() => Promise<void>>();
@@ -114,6 +116,9 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       pollRef.current = null;
     }
     consecutiveFailuresRef.current = 0;
+    autoResumeFailCountRef.current = 0;
+    autoResumeInFlightRef.current = false;
+    autoResumeLastAttemptSignatureRef.current = null;
     lastSuccessRef.current = Date.now();
     setJob(null);
     setSteps([]);
