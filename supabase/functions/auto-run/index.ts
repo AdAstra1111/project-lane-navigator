@@ -2130,7 +2130,7 @@ interface PromotionResult {
 function computePromotion(
   ci: number, gp: number, gap: number, trajectory: string | null,
   doc: string, blockersCount: number, highImpactCount: number, iterationCount: number,
-  allowDefaults = false,
+  allowDefaults = false, targetCi: number = GLOBAL_MIN_CI,
 ): PromotionResult {
   const w = WEIGHTS[doc] || WEIGHTS.concept_brief;
   const gapScore = 100 - clamp(gap * 2, 0, 100);
@@ -2170,9 +2170,9 @@ function computePromotion(
   // remaining high-impact notes are refinement-safe and should not block promotion.
   // This allows the executor to auto-promote after successful stabilise cycles.
   if ((doc === "idea" || doc === "concept_brief") && highImpactCount > 0) {
-    if (allowDefaults && ci >= GLOBAL_MIN_CI) {
+    if (allowDefaults && ci >= targetCi) {
       risk_flags.push("soft_gate:early_stage_high_impact_relaxed");
-      reasons.push(`Early-stage high-impact issues (${highImpactCount}) — relaxed: allow_defaults=true, CI=${ci}≥${GLOBAL_MIN_CI}`);
+      reasons.push(`Early-stage high-impact issues (${highImpactCount}) — relaxed: allow_defaults=true, CI=${ci}≥${targetCi}`);
       console.log(`[auto-run][IEL] early_stage_hi_gate_relaxed { doc: "${doc}", highImpactCount: ${highImpactCount}, ci: ${ci}, allow_defaults: true }`);
       // Don't force stabilise — fall through to normal readiness check
     } else {
