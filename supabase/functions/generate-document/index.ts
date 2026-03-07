@@ -543,7 +543,7 @@ ${toneAnchor ? `- Tone anchor: ${toneAnchor}` : ""}
 ${culturalAnchor ? `- Cultural anchor: ${culturalAnchor}` : ""}
 - ${pacingGuidance}
 - Dead air prohibition: no beat gap longer than ${vdBeatTargets.beatSpacingTargetSeconds + 3} seconds without narrative progression
-- Every scene must advance plot OR reveal character — never both passively
+- Every scene must contain forward momentum — no static exposition dumps
 
 ### LOCATION DISCIPLINE
 ${budgetDiscipline}
@@ -559,13 +559,9 @@ ${budgetDiscipline}
 - Budget band: ${budgetBand}
 ${budgetDiscipline}
 
-### SEASON STRUCTURE
-- ${epCount} episodes per season
-- Season arc must be self-contained with resolution
-- Episode-to-episode continuity required — no standalone/procedural episodes
-- Escalation curve: stakes must increase every 3–5 episodes
+IMPORTANT: Structure the output as a formal FORMAT RULES document with numbered rules under clear section headings. Every constraint above must appear as an explicit rule.
 
-IMPORTANT: Structure the output as a formal FORMAT RULES document with numbered rules under clear section headings. Every constraint above must appear as an explicit rule.`;
+SCOPE GUARD: This document contains ONLY format and technical production rules. Do NOT include season narrative arcs, character arcs, act breakdowns, episode story summaries, or any story content. Those belong in Season Arc, Episode Grid, and Character Bible respectively.`;
 
         console.log(`[generate-document] VD_FORMAT_RULES_SEED applied: epCount=${epCount} dur=${epDurMin}-${epDurMax}s budget=${budgetBand} cultural=${culturalAnchor || 'none'}`);
       }
@@ -612,10 +608,41 @@ If you find yourself writing content that belongs in another document type liste
         console.log(`[generate-document] SEASON_ARC_SCOPE applied: epCount=${sacEpCount}`);
       }
 
+      // ── FORMAT_RULES_SCOPE: scope definition for all format_rules documents ──
+      let formatRulesScopeBlock = "";
+      if (docType === "format_rules") {
+        formatRulesScopeBlock = `
+## FORMAT RULES — SCOPE DEFINITION (MANDATORY)
+
+You are generating a FORMAT RULES document. This document defines the technical and production constraints that govern how episodes are constructed. Follow the scope rules below exactly.
+
+### MUST CONTAIN — only technical/format rules:
+
+- Screen/aspect ratio rules (e.g. 9:16 for vertical, 16:9 for broadcast)
+- Episode length and pacing rules (target duration, word count targets, timing constraints)
+- Visual grammar — camera rules, framing rules, required/forbidden shot types
+- Beat cadence — hook window timing, beat count per episode, beat spacing targets
+- Dialogue rules — density limits, subtext requirements, exposition caps
+- Location and production discipline — location caps per episode, budget-driven constraints
+- Technical production constraints derived from format, budget, and platform
+
+### MUST NOT CONTAIN — scope violations will be flagged as blocking issues:
+
+- Season narrative structure, act breakdowns, or story arc → belongs in Season Arc
+- Character arcs, character descriptions, or backstory → belongs in Season Arc / Character Bible
+- Episode-by-episode story content or summaries → belongs in Episode Grid
+- Scripts, dialogue samples, or scene content → belongs in Season Script / Episode Script
+- Any story content whatsoever — this is a TECHNICAL document
+
+### SCOPE GUARD
+If you find yourself describing what happens in the story, which characters appear, or how the narrative develops, STOP. Format Rules describe HOW episodes are built (technical constraints), not WHAT they contain (story).
+`;
+      }
+
       system = [
-        `You are a professional development document generator for film/TV projects.`,
-        `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
-        `Production type: ${project.format || "film"}`,
+        \`You are a professional development document generator for film/TV projects.\`,
+        \`Generate a \${docType.replace(/_/g, " ")} document for the project "\${project.title}".\`,
+        \`Production type: \${project.format || "film"}\`,
         completenessBlock,
         qualBlock,
         styleBlock,
