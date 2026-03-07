@@ -39,9 +39,7 @@ import {
   validateRepairEligibility,
 } from "./impactEngine.ts";
 import {
-  parseSections,
   replaceSection,
-  extractSection,
   type SectionReplaceResult,
 } from "./sectionRepairEngine.ts";
 import { createVersion, type CreateVersionOpts } from "./doc-os.ts";
