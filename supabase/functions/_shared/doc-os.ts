@@ -5,6 +5,7 @@
  */
 
 import { buildCanonEntitiesFromDB, validateCanonAlignment } from "./docPolicyRegistry.ts";
+import { emitTransition, TRANSITION_EVENTS } from "./transitionLedger.ts";
 
 // ── Deterministic resolver hash (no crypto dependency) ──
 function simpleHash(str: string): string {
@@ -469,6 +470,39 @@ export async function createVersion(
     console.warn(`[doc-os] failed to set latest_version_id for doc ${opts.documentId}: ${lvErr.message}`);
   } else {
     console.log(`[doc-os] latest_version_id set for doc ${opts.documentId} → version ${newVersion.id}`);
+  }
+
+  // ── TRANSITION LEDGER: version_created (fail-closed) ──
+  // Resolve project_id from document for ledger context
+  let transitionProjectId: string | null = null;
+  try {
+    const { data: docForProject } = await supabase
+      .from("project_documents")
+      .select("project_id")
+      .eq("id", opts.documentId)
+      .maybeSingle();
+    transitionProjectId = docForProject?.project_id || null;
+  } catch { /* non-fatal for transition lookup */ }
+
+  if (transitionProjectId) {
+    await emitTransition(supabase, {
+      projectId: transitionProjectId,
+      eventType: TRANSITION_EVENTS.VERSION_CREATED,
+      docType: key,
+      resultingVersionId: newVersion.id,
+      sourceVersionId: opts.parentVersionId || undefined,
+      generatorId: effectiveGeneratorId,
+      trigger: opts.label,
+      sourceOfTruth: "doc-os.createVersion",
+      resultingState: {
+        version_number: nextVersion,
+        is_current: shouldPromote,
+        approval_status: opts.approvalStatus || "draft",
+        has_provenance: !!hasProvenance,
+        content_length: opts.plaintext?.length || 0,
+      },
+      createdBy: opts.createdBy,
+    });
   }
 
   return newVersion;

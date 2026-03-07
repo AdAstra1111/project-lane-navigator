@@ -1,4 +1,5 @@
-const BUILD = "AUTORUN_BUILD_MARKER_2026_03_04_CI_PILLARS_V1";
+const BUILD = "AUTORUN_BUILD_MARKER_2026_03_07_TRANSITION_LEDGER_V1";
+import { emitTransition, TRANSITION_EVENTS } from "../_shared/transitionLedger.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isCPMEnabled, buildCPRepairDirections, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
@@ -147,6 +148,32 @@ async function persistVersionScores(
 
   if (updateErr) {
     throw new Error(`VERSION_SCORE_WRITE_FAILED: ${updateErr.message}`);
+  }
+
+  // ── TRANSITION LEDGER: ci_gp_scores_computed ──
+  try {
+    const { data: verDoc } = await supabase
+      .from("project_document_versions")
+      .select("document_id, project_documents!inner(project_id)")
+      .eq("id", versionId)
+      .maybeSingle();
+    const projId = (verDoc as any)?.project_documents?.project_id;
+    if (projId) {
+      await emitTransition(supabase, {
+        projectId: projId,
+        eventType: TRANSITION_EVENTS.CI_GP_SCORES_COMPUTED,
+        docType: docType || undefined,
+        jobId,
+        resultingVersionId: versionId,
+        ci: effectiveCi,
+        gp: effectiveGp,
+        trigger: source,
+        sourceOfTruth: "persistVersionScores",
+        resultingState: { ci: effectiveCi, gp: effectiveGp, downgraded_blocked: downgradedBlocked, score_source: source },
+      }, { critical: false });
+    }
+  } catch (e: any) {
+    console.warn(`[auto-run][transition-ledger] scoring emit failed: ${e?.message}`);
   }
 
   return {
@@ -2269,7 +2296,68 @@ async function logStep(
   return idx;
 }
 
-// ── Helper: update job (with PATCH 5 completion gate) ──
+// ── Helper: emit stage transition to Transition Ledger ──
+async function emitStageTransition(
+  supabase: any,
+  projectId: string,
+  jobId: string,
+  from: string,
+  to: string,
+  trigger: string,
+  extra: { ci?: number; gp?: number; sourceVersionId?: string; createdBy?: string; lane?: string } = {}
+) {
+  try {
+    await emitTransition(supabase, {
+      projectId,
+      eventType: TRANSITION_EVENTS.STAGE_TRANSITION_EXECUTED,
+      docType: to,
+      stage: to,
+      lane: extra.lane,
+      jobId,
+      sourceVersionId: extra.sourceVersionId,
+      trigger,
+      sourceOfTruth: "auto-run",
+      ci: extra.ci,
+      gp: extra.gp,
+      previousState: { stage: from },
+      resultingState: { stage: to },
+      createdBy: extra.createdBy,
+    }, { critical: false }); // non-critical: stage transition already persisted in job state
+  } catch (e: any) {
+    console.warn(`[auto-run][transition-ledger] stage_transition emit failed: ${e?.message}`);
+  }
+}
+
+// ── Helper: emit scoring transition to Transition Ledger ──
+async function emitScoringTransition(
+  supabase: any,
+  projectId: string,
+  jobId: string,
+  docType: string,
+  versionId: string | undefined,
+  ci: number | null,
+  gp: number | null,
+  trigger: string,
+) {
+  try {
+    await emitTransition(supabase, {
+      projectId,
+      eventType: TRANSITION_EVENTS.CI_GP_SCORES_COMPUTED,
+      docType,
+      jobId,
+      resultingVersionId: versionId,
+      ci: ci ?? undefined,
+      gp: gp ?? undefined,
+      trigger,
+      sourceOfTruth: "auto-run",
+      resultingState: { ci, gp },
+    }, { critical: false });
+  } catch (e: any) {
+    console.warn(`[auto-run][transition-ledger] scoring emit failed: ${e?.message}`);
+  }
+}
+
+
 async function updateJob(supabase: any, jobId: string, fields: Record<string, any>) {
   // PATCH 5: Intercept completion — run gates before allowing status="completed"
   if (fields.status === "completed") {
@@ -2300,6 +2388,27 @@ async function updateJob(supabase: any, jobId: string, fields: Record<string, an
     }
   }
   await supabase.from("auto_run_jobs").update(fields).eq("id", jobId);
+
+  // ── TRANSITION LEDGER: auto-emit on stage change or terminal status ──
+  if (fields.current_document) {
+    try {
+      // Fetch project_id for transition context
+      const { data: jobRow } = await supabase.from("auto_run_jobs")
+        .select("project_id, current_document, last_ci, last_gp, user_id")
+        .eq("id", jobId).single();
+      if (jobRow?.project_id) {
+        await emitStageTransition(
+          supabase, jobRow.project_id, jobId,
+          jobRow.current_document || "unknown",
+          fields.current_document,
+          "updateJob",
+          { ci: fields.last_ci ?? jobRow.last_ci, gp: fields.last_gp ?? jobRow.last_gp, createdBy: jobRow.user_id }
+        );
+      }
+    } catch (e: any) {
+      console.warn(`[auto-run][transition-ledger] updateJob stage emit failed: ${e?.message}`);
+    }
+  }
 }
 
 // ── Helper: finalize-best — promote best_version_id on job end ──
