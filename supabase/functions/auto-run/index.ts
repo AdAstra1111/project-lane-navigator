@@ -7407,10 +7407,37 @@ Deno.serve(async (req) => {
           // No blockers or options already handled — apply rewrite with convergence policy
           const notesResult = await supabase.from("development_runs").select("output_json").eq("document_id", doc.id).eq("run_type", "NOTES").order("created_at", { ascending: false }).limit(1).maybeSingle();
           const notes = notesResult.data?.output_json;
+
+          // ── IEL: Inject actionable project_notes into rewrite strategy ──
+          // This ensures project_notes (which gate promotion) are actually addressed in rewrites
+          let injectedProjectNotes: any[] = [];
+          try {
+            const { data: pnotes } = await supabase
+              .from("project_notes")
+              .select("id, title, summary, detail, severity, suggested_fixes, category")
+              .eq("project_id", job.project_id)
+              .eq("doc_type", currentDoc)
+              .in("status", ["open", "in_progress", "reopened"])
+              .limit(30);
+            if (pnotes && pnotes.length > 0) {
+              injectedProjectNotes = pnotes.map((n: any) => ({
+                id: n.id,
+                note: n.summary || n.title,
+                severity: n.severity === "blocker" ? "blocker" : n.severity === "high" ? "high" : "med",
+                category: n.category || "general",
+                why_it_matters: n.detail || n.summary,
+                suggested_fix: n.suggested_fixes ? (Array.isArray(n.suggested_fixes) ? n.suggested_fixes[0]?.description : n.suggested_fixes) : undefined,
+              }));
+              console.log(`[auto-run][IEL] project_notes_injected_into_rewrite { doc_type: "${currentDoc}", count: ${injectedProjectNotes.length}, severities: ${JSON.stringify(pnotes.map((n: any) => n.severity))} }`);
+            }
+          } catch (e: any) {
+            console.warn(`[auto-run][IEL] project_notes_injection_failed: ${e?.message}`);
+          }
+
           const allNotesForStrategy = {
-            blocking_issues: notes?.blocking_issues || analyzeResult?.blocking_issues || [],
-            high_impact_notes: notes?.high_impact_notes || analyzeResult?.high_impact_notes || [],
-            polish_notes: notes?.polish_notes || analyzeResult?.polish_notes || [],
+            blocking_issues: [...(notes?.blocking_issues || analyzeResult?.blocking_issues || []), ...injectedProjectNotes.filter(n => n.severity === "blocker")],
+            high_impact_notes: [...(notes?.high_impact_notes || analyzeResult?.high_impact_notes || []), ...injectedProjectNotes.filter(n => n.severity === "high")],
+            polish_notes: [...(notes?.polish_notes || analyzeResult?.polish_notes || []), ...injectedProjectNotes.filter(n => n.severity !== "blocker" && n.severity !== "high")],
           };
           const protectItems = notes?.protect || analyzeResult?.protect || [];
 
