@@ -138,6 +138,18 @@ export default function PitchIdeas() {
       console.log('[PitchIdeas] invoke result — error:', error, 'data keys:', data ? Object.keys(data) : 'null', 'ideas count:', data?.ideas?.length);
 
       if (error) {
+        // Check if this is a fetch/timeout error — ideas may already be saved server-side
+        const isFetchTimeout = error.name === 'FunctionsFetchError' || error.message?.includes('Failed to fetch');
+        if (isFetchTimeout) {
+          console.warn('[PitchIdeas] Fetch timeout detected — checking if ideas were saved server-side...');
+          // Wait briefly for any in-flight DB writes to complete, then refetch
+          await new Promise(r => setTimeout(r, 3000));
+          await qc.invalidateQueries({ queryKey: ['pitch-ideas'] });
+          toast.info('Generation took longer than expected — refreshing ideas from server...');
+          setGenerating(false);
+          return;
+        }
+
         let errMsg = 'Generation failed';
         try {
           console.error('[PitchIdeas] FunctionsError details:', JSON.stringify(error, null, 2));
@@ -168,65 +180,74 @@ export default function PitchIdeas() {
         setLastSignalsMetadata(data.signals_metadata);
         try { localStorage.setItem(signalsStorageKey, JSON.stringify(data.signals_metadata)); } catch {}
       }
-      console.log('[PitchIdeas] Ideas to save:', pitchIdeas?.length, 'first title:', pitchIdeas?.[0]?.title);
-      if (!Array.isArray(pitchIdeas) || pitchIdeas.length === 0) {
-        throw new Error('No ideas returned. Please retry.');
-      }
 
-      let savedCount = 0;
-      const saveErrors: string[] = [];
-
-      for (const idea of pitchIdeas) {
-        try {
-          await save({
-            mode: 'greenlight',
-            status: 'draft',
-            production_type: criteria.productionType,
-            title: idea.title,
-            logline: idea.logline,
-            one_page_pitch: idea.one_page_pitch,
-            comps: idea.comps || [],
-            recommended_lane: idea.recommended_lane || '',
-            lane_confidence: idea.lane_confidence || 0,
-            budget_band: idea.budget_band || criteria.budgetBand || '',
-            packaging_suggestions: idea.packaging_suggestions || [],
-            development_sprint: idea.development_sprint || [],
-            risks_mitigations: idea.risks_mitigations || [],
-            why_us: idea.why_us || '',
-            genre: idea.genre || criteria.genre || '',
-            region: criteria.region || '',
-            platform_target: criteria.platformTarget || '',
-            risk_level: idea.risk_level || criteria.riskLevel || 'medium',
-            project_id: isProjectMode ? selectedProject : null,
-            raw_response: {
-              ...idea,
-              premise: idea.premise || '',
-              trend_fit_bullets: idea.trend_fit_bullets || [],
-              differentiation_move: idea.differentiation_move || '',
-              tone_tag: idea.tone_tag || '',
-              format_summary: idea.format_summary || '',
-              signals_metadata: data?.signals_metadata || null,
-            },
-            score_market_heat: idea.score_market_heat || 0,
-            score_feasibility: idea.score_feasibility || 0,
-            score_lane_fit: idea.score_lane_fit || 0,
-            score_saturation_risk: idea.score_saturation_risk || 0,
-            score_company_fit: idea.score_company_fit || 0,
-            score_total: idea.score_total || 0,
-          });
-          savedCount++;
-        } catch (saveErr: any) {
-          console.error(`[PitchIdeas] Failed to save idea "${idea.title}":`, saveErr);
-          saveErrors.push(idea.title || 'Untitled');
-        }
-      }
-
-      if (savedCount === 0) {
-        throw new Error('All ideas failed to save. Please retry.');
-      } else if (saveErrors.length > 0) {
-        toast.warning(`${savedCount} saved, ${saveErrors.length} failed: ${saveErrors.join(', ')}`);
+      // Ideas are now saved server-side — just invalidate the query to refetch
+      if (data?.server_saved && data?.saved_count > 0) {
+        console.log(`[PitchIdeas] Server saved ${data.saved_count} ideas, refetching...`);
+        await qc.invalidateQueries({ queryKey: ['pitch-ideas'] });
+        toast.success(`${data.saved_count} concepts generated`);
       } else {
-        toast.success(`${savedCount} concepts generated`);
+        // Fallback: save client-side (shouldn't happen with updated edge function)
+        console.log('[PitchIdeas] Ideas to save:', pitchIdeas?.length, 'first title:', pitchIdeas?.[0]?.title);
+        if (!Array.isArray(pitchIdeas) || pitchIdeas.length === 0) {
+          throw new Error('No ideas returned. Please retry.');
+        }
+
+        let savedCount = 0;
+        const saveErrors: string[] = [];
+
+        for (const idea of pitchIdeas) {
+          try {
+            await save({
+              mode: 'greenlight',
+              status: 'draft',
+              production_type: criteria.productionType,
+              title: idea.title,
+              logline: idea.logline,
+              one_page_pitch: idea.one_page_pitch,
+              comps: idea.comps || [],
+              recommended_lane: idea.recommended_lane || '',
+              lane_confidence: idea.lane_confidence || 0,
+              budget_band: idea.budget_band || criteria.budgetBand || '',
+              packaging_suggestions: idea.packaging_suggestions || [],
+              development_sprint: idea.development_sprint || [],
+              risks_mitigations: idea.risks_mitigations || [],
+              why_us: idea.why_us || '',
+              genre: idea.genre || criteria.genre || '',
+              region: criteria.region || '',
+              platform_target: criteria.platformTarget || '',
+              risk_level: idea.risk_level || criteria.riskLevel || 'medium',
+              project_id: isProjectMode ? selectedProject : null,
+              raw_response: {
+                ...idea,
+                premise: idea.premise || '',
+                trend_fit_bullets: idea.trend_fit_bullets || [],
+                differentiation_move: idea.differentiation_move || '',
+                tone_tag: idea.tone_tag || '',
+                format_summary: idea.format_summary || '',
+                signals_metadata: data?.signals_metadata || null,
+              },
+              score_market_heat: idea.score_market_heat || 0,
+              score_feasibility: idea.score_feasibility || 0,
+              score_lane_fit: idea.score_lane_fit || 0,
+              score_saturation_risk: idea.score_saturation_risk || 0,
+              score_company_fit: idea.score_company_fit || 0,
+              score_total: idea.score_total || 0,
+            });
+            savedCount++;
+          } catch (saveErr: any) {
+            console.error(`[PitchIdeas] Failed to save idea "${idea.title}":`, saveErr);
+            saveErrors.push(idea.title || 'Untitled');
+          }
+        }
+
+        if (savedCount === 0) {
+          throw new Error('All ideas failed to save. Please retry.');
+        } else if (saveErrors.length > 0) {
+          toast.warning(`${savedCount} saved, ${saveErrors.length} failed: ${saveErrors.join(', ')}`);
+        } else {
+          toast.success(`${savedCount} concepts generated`);
+        }
       }
     } catch (e: any) {
       setGenerateFailed(true);
