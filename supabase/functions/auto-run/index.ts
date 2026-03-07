@@ -2470,6 +2470,57 @@ async function checkActionableNoteExhaustion(
   }
 }
 
+/**
+ * Auto-resolve actionable project_notes after a successful rewrite.
+ * Marks notes as 'resolved' with resolved_by='auto_run' so the note
+ * exhaustion gate no longer blocks promotion.
+ *
+ * Only resolves notes where status is actionable (open/in_progress/reopened).
+ * Notes that are 'rejected' or 'dismissed' are untouched.
+ * Returns { resolved: number, notes: Array<{id, title}> }
+ */
+async function autoResolveActionableNotes(
+  supabase: any, projectId: string, docType: string, versionId: string | null,
+  jobId: string, resolverLabel: string = "auto_run_rewrite",
+): Promise<{ resolved: number; notes: Array<{ id: string; title: string }> }> {
+  try {
+    const actionableStatuses = ["open", "in_progress", "reopened"];
+    let query = supabase
+      .from("project_notes")
+      .select("id, title, summary, severity")
+      .eq("project_id", projectId)
+      .eq("doc_type", docType)
+      .in("status", actionableStatuses)
+      .limit(50);
+
+    const { data: notes, error } = await query;
+    if (error || !notes || notes.length === 0) {
+      return { resolved: 0, notes: [] };
+    }
+
+    // Mark all actionable notes as resolved
+    const ids = notes.map((n: any) => n.id);
+    await supabase
+      .from("project_notes")
+      .update({
+        status: "resolved",
+        updated_by: resolverLabel,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", ids);
+
+    console.log(`[auto-run][IEL] auto_resolved_notes { project_id: "${projectId}", doc_type: "${docType}", resolved_count: ${notes.length}, resolver: "${resolverLabel}", job_id: "${jobId}" }`);
+
+    return {
+      resolved: notes.length,
+      notes: notes.map((n: any) => ({ id: n.id, title: n.title || n.summary?.slice(0, 80) || "untitled" })),
+    };
+  } catch (e: any) {
+    console.warn(`[auto-run][IEL] auto_resolve_notes_failed { error: "${e?.message}" }`);
+    return { resolved: 0, notes: [] };
+  }
+}
+
 
 async function updateJob(supabase: any, jobId: string, fields: Record<string, any>) {
   // PATCH 5: Intercept completion — run gates before allowing status="completed"
@@ -7299,28 +7350,94 @@ Deno.serve(async (req) => {
                 notes: upstreamBlockers.filter((b: any) => b.source_table === "project_notes").length,
                 dev_state: upstreamBlockers.filter((b: any) => b.source_table === "project_dev_note_state").length,
               };
-              console.warn(`[auto-run][IEL] upstream_note_debt_gate_unified { job_id: "${jobId}", doc_type: "${currentDoc}", total_blockers: ${upstreamBlockers.length}, by_table: ${JSON.stringify(byTable)}, source_docs: ${JSON.stringify(sourceDocs)} }`);
-              await logStep(supabase, jobId, null, currentDoc, "upstream_note_debt_paused",
-                `${upstreamBlockers.length} unresolved upstream note(s) from [${sourceDocs.join(", ")}] target ${currentDoc}. Repair upstream docs first. (unified: deferred=${byTable.deferred}, notes=${byTable.notes}, dev_state=${byTable.dev_state})`,
-                { ci, gp, gap }, undefined,
-                { upstreamBlockerCount: upstreamBlockers.length, sourceDocs, byTable, noteKeys: upstreamBlockers.map((n: any) => n.note_key_or_fingerprint) });
-              await updateJob(supabase, jobId, {
-                stage_loop_count: newLoopCount,
-                status: "paused",
-                pause_reason: "UPSTREAM_NOTE_DEBT",
-                stop_reason: `${upstreamBlockers.length} unresolved upstream note(s) from [${sourceDocs.join(", ")}] block rewriting ${currentDoc}. Resolve upstream issues first.`,
-              });
-              return respondWithJob(supabase, jobId);
+
+              // When allow_defaults is ON (Full Autonomous), auto-resolve upstream note debt instead of pausing
+              if (job.allow_defaults) {
+                // Auto-resolve project_notes upstream blockers
+                const noteBlockerIds = upstreamBlockers
+                  .filter((b: any) => b.source_table === "project_notes")
+                  .map((b: any) => b.id);
+                if (noteBlockerIds.length > 0) {
+                  await supabase.from("project_notes")
+                    .update({ status: "resolved", updated_by: "auto_run_upstream_debt", updated_at: new Date().toISOString() })
+                    .in("id", noteBlockerIds);
+                }
+                // Auto-resolve deferred note blockers
+                const deferredBlockerIds = upstreamBlockers
+                  .filter((b: any) => b.source_table === "project_deferred_notes")
+                  .map((b: any) => b.id);
+                if (deferredBlockerIds.length > 0) {
+                  await supabase.from("project_deferred_notes")
+                    .update({ status: "resolved" })
+                    .in("id", deferredBlockerIds);
+                }
+                // Auto-resolve dev note state blockers
+                const devNoteBlockerIds = upstreamBlockers
+                  .filter((b: any) => b.source_table === "project_dev_note_state")
+                  .map((b: any) => b.id);
+                if (devNoteBlockerIds.length > 0) {
+                  await supabase.from("project_dev_note_state")
+                    .update({ status: "resolved" })
+                    .in("id", devNoteBlockerIds);
+                }
+
+                console.log(`[auto-run][IEL] upstream_note_debt_auto_resolved { job_id: "${jobId}", doc_type: "${currentDoc}", total: ${upstreamBlockers.length}, notes: ${noteBlockerIds.length}, deferred: ${deferredBlockerIds.length}, dev_state: ${devNoteBlockerIds.length} }`);
+                await logStep(supabase, jobId, null, currentDoc, "note_auto_resolved",
+                  `Auto-resolved ${upstreamBlockers.length} upstream note debt blocker(s) from [${sourceDocs.join(", ")}] (allow_defaults=true). Continuing rewrite. (notes=${noteBlockerIds.length}, deferred=${deferredBlockerIds.length}, dev_state=${devNoteBlockerIds.length})`,
+                  { ci, gp, gap }, undefined,
+                  { upstreamBlockerCount: upstreamBlockers.length, sourceDocs, byTable, resolver: "auto_run_upstream_debt", auto_resolved: true });
+                // Fall through to rewrite — do NOT pause
+              } else {
+                console.warn(`[auto-run][IEL] upstream_note_debt_gate_unified { job_id: "${jobId}", doc_type: "${currentDoc}", total_blockers: ${upstreamBlockers.length}, by_table: ${JSON.stringify(byTable)}, source_docs: ${JSON.stringify(sourceDocs)} }`);
+                await logStep(supabase, jobId, null, currentDoc, "upstream_note_debt_paused",
+                  `${upstreamBlockers.length} unresolved upstream note(s) from [${sourceDocs.join(", ")}] target ${currentDoc}. Repair upstream docs first. (unified: deferred=${byTable.deferred}, notes=${byTable.notes}, dev_state=${byTable.dev_state})`,
+                  { ci, gp, gap }, undefined,
+                  { upstreamBlockerCount: upstreamBlockers.length, sourceDocs, byTable, noteKeys: upstreamBlockers.map((n: any) => n.note_key_or_fingerprint) });
+                await updateJob(supabase, jobId, {
+                  stage_loop_count: newLoopCount,
+                  status: "paused",
+                  pause_reason: "UPSTREAM_NOTE_DEBT",
+                  stop_reason: `${upstreamBlockers.length} unresolved upstream note(s) from [${sourceDocs.join(", ")}] block rewriting ${currentDoc}. Resolve upstream issues first.`,
+                });
+                return respondWithJob(supabase, jobId);
+              }
             }
           }
 
           // No blockers or options already handled — apply rewrite with convergence policy
           const notesResult = await supabase.from("development_runs").select("output_json").eq("document_id", doc.id).eq("run_type", "NOTES").order("created_at", { ascending: false }).limit(1).maybeSingle();
           const notes = notesResult.data?.output_json;
+
+          // ── IEL: Inject actionable project_notes into rewrite strategy ──
+          // This ensures project_notes (which gate promotion) are actually addressed in rewrites
+          let injectedProjectNotes: any[] = [];
+          try {
+            const { data: pnotes } = await supabase
+              .from("project_notes")
+              .select("id, title, summary, detail, severity, suggested_fixes, category")
+              .eq("project_id", job.project_id)
+              .eq("doc_type", currentDoc)
+              .in("status", ["open", "in_progress", "reopened"])
+              .limit(30);
+            if (pnotes && pnotes.length > 0) {
+              injectedProjectNotes = pnotes.map((n: any) => ({
+                id: n.id,
+                note: n.summary || n.title,
+                severity: n.severity === "blocker" ? "blocker" : n.severity === "high" ? "high" : "med",
+                category: n.category || "general",
+                why_it_matters: n.detail || n.summary,
+                suggested_fix: n.suggested_fixes ? (Array.isArray(n.suggested_fixes) ? n.suggested_fixes[0]?.description : n.suggested_fixes) : undefined,
+              }));
+              console.log(`[auto-run][IEL] project_notes_injected_into_rewrite { doc_type: "${currentDoc}", count: ${injectedProjectNotes.length}, severities: ${JSON.stringify(pnotes.map((n: any) => n.severity))} }`);
+            }
+          } catch (e: any) {
+            console.warn(`[auto-run][IEL] project_notes_injection_failed: ${e?.message}`);
+          }
+
           const allNotesForStrategy = {
-            blocking_issues: notes?.blocking_issues || analyzeResult?.blocking_issues || [],
-            high_impact_notes: notes?.high_impact_notes || analyzeResult?.high_impact_notes || [],
-            polish_notes: notes?.polish_notes || analyzeResult?.polish_notes || [],
+            blocking_issues: [...(notes?.blocking_issues || analyzeResult?.blocking_issues || []), ...injectedProjectNotes.filter(n => n.severity === "blocker")],
+            high_impact_notes: [...(notes?.high_impact_notes || analyzeResult?.high_impact_notes || []), ...injectedProjectNotes.filter(n => n.severity === "high")],
+            polish_notes: [...(notes?.polish_notes || analyzeResult?.polish_notes || []), ...injectedProjectNotes.filter(n => n.severity !== "blocker" && n.severity !== "high")],
           };
           const protectItems = notes?.protect || analyzeResult?.protect || [];
 
@@ -7805,6 +7922,15 @@ Deno.serve(async (req) => {
               console.log(`[auto-run][IEL] promote_selected { job_id: "${jobId}", doc_type: "${currentDoc}", promoted_version_id: "${candVersionId}", ci: ${acceptedCI}, gp: ${acceptedGP}, composite: ${candidateComposite}, source: "stage_best_from_steps" }`);
             }
             await updateJob(supabase, jobId, jobUpdate);
+
+            // ── IEL: AUTO-RESOLVE actionable project_notes after successful rewrite ──
+            const noteResolution = await autoResolveActionableNotes(supabase, job.project_id, currentDoc, candVersionId, jobId, "auto_run_rewrite");
+            if (noteResolution.resolved > 0) {
+              await logStep(supabase, jobId, null, currentDoc, "note_auto_resolved",
+                `Resolved ${noteResolution.resolved} note(s) on ${currentDoc} after rewrite: [${noteResolution.notes.map(n => n.title).join("; ")}]. All notes exhausted — ready to promote.`,
+                { ci: acceptedCI, gp: acceptedGP }, undefined,
+                { resolved_count: noteResolution.resolved, resolved_notes: noteResolution.notes, resolver: "auto_run_rewrite", version_id: candVersionId });
+            }
 
             console.log(`[auto-run][IEL] acceptance_anchor_set { job_id: "${jobId}", doc_type: "${currentDoc}", document_id: "${doc.id}", accepted_version_id: "${candVersionId}", last_analyzed_version_id: "${candVersionId}", last_ci: ${acceptedCI}, last_gp: ${acceptedGP}, score_source: "auto-run-fork", eligibility_reason: "approved_after_accept" }`);
             return true;
