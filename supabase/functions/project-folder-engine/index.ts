@@ -157,12 +157,38 @@ Deno.serve(async (req) => {
           .update({ approval_status: "superseded" })
           .in("id", prevIds);
         console.log(`[project-folder-engine] approval_superseded_previous { document_id: "${version.document_id}", superseded_count: ${prevIds.length}, superseded_ids: ${JSON.stringify(prevIds)}, new_authoritative: "${documentVersionId}" }`);
+
+        // ── TRANSITION LEDGER: version_superseded for each demoted version ──
+        for (const prevId of prevIds) {
+          await emitTransition(db, {
+            projectId,
+            eventType: TRANSITION_EVENTS.VERSION_SUPERSEDED,
+            docType: docTypeKey,
+            sourceVersionId: prevId,
+            resultingVersionId: documentVersionId,
+            trigger: "approval_supersede",
+            sourceOfTruth: "project-folder-engine",
+            resultingState: { approval_status: "superseded" },
+          }, { critical: false });
+        }
       }
 
       // Mark version as approved
       if (version.approval_status !== "approved") {
         await markVersionApproved(db, documentVersionId, userId);
       }
+
+      // ── TRANSITION LEDGER: version_approved (fail-closed) ──
+      await emitTransition(db, {
+        projectId,
+        eventType: TRANSITION_EVENTS.VERSION_APPROVED,
+        docType: docTypeKey,
+        resultingVersionId: documentVersionId,
+        trigger: sourceFlow || "manual",
+        sourceOfTruth: "project-folder-engine",
+        createdBy: userId,
+        resultingState: { approval_status: "approved", doc_type_key: docTypeKey },
+      });
 
       // IEL: Also set as current version so ABVR picks it up as authoritative
       // This ensures Auto-Run rebinds to the user-approved version
@@ -175,6 +201,18 @@ Deno.serve(async (req) => {
       } catch (setCurrentErr: any) {
         console.warn(`[project-folder-engine] set_current_version_failed { version_id: "${documentVersionId}", error: "${setCurrentErr?.message}" }`);
       }
+
+      // ── TRANSITION LEDGER: authoritative_version_resolved (fail-closed) ──
+      await emitTransition(db, {
+        projectId,
+        eventType: TRANSITION_EVENTS.AUTHORITATIVE_VERSION_RESOLVED,
+        docType: docTypeKey,
+        resultingVersionId: documentVersionId,
+        trigger: sourceFlow || "manual",
+        sourceOfTruth: "project-folder-engine",
+        createdBy: userId,
+        resultingState: { is_current: true, approval_status: "approved", doc_type_key: docTypeKey },
+      });
 
       // Auto-set primary if this is a script authority doc type
       const SCRIPT_DOC_TYPES = ["season_script", "feature_script", "episode_script", "script", "pilot_script", "script_pdf"];
