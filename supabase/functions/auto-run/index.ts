@@ -7350,18 +7350,57 @@ Deno.serve(async (req) => {
                 notes: upstreamBlockers.filter((b: any) => b.source_table === "project_notes").length,
                 dev_state: upstreamBlockers.filter((b: any) => b.source_table === "project_dev_note_state").length,
               };
-              console.warn(`[auto-run][IEL] upstream_note_debt_gate_unified { job_id: "${jobId}", doc_type: "${currentDoc}", total_blockers: ${upstreamBlockers.length}, by_table: ${JSON.stringify(byTable)}, source_docs: ${JSON.stringify(sourceDocs)} }`);
-              await logStep(supabase, jobId, null, currentDoc, "upstream_note_debt_paused",
-                `${upstreamBlockers.length} unresolved upstream note(s) from [${sourceDocs.join(", ")}] target ${currentDoc}. Repair upstream docs first. (unified: deferred=${byTable.deferred}, notes=${byTable.notes}, dev_state=${byTable.dev_state})`,
-                { ci, gp, gap }, undefined,
-                { upstreamBlockerCount: upstreamBlockers.length, sourceDocs, byTable, noteKeys: upstreamBlockers.map((n: any) => n.note_key_or_fingerprint) });
-              await updateJob(supabase, jobId, {
-                stage_loop_count: newLoopCount,
-                status: "paused",
-                pause_reason: "UPSTREAM_NOTE_DEBT",
-                stop_reason: `${upstreamBlockers.length} unresolved upstream note(s) from [${sourceDocs.join(", ")}] block rewriting ${currentDoc}. Resolve upstream issues first.`,
-              });
-              return respondWithJob(supabase, jobId);
+
+              // When allow_defaults is ON (Full Autonomous), auto-resolve upstream note debt instead of pausing
+              if (job.allow_defaults) {
+                // Auto-resolve project_notes upstream blockers
+                const noteBlockerIds = upstreamBlockers
+                  .filter((b: any) => b.source_table === "project_notes")
+                  .map((b: any) => b.id);
+                if (noteBlockerIds.length > 0) {
+                  await supabase.from("project_notes")
+                    .update({ status: "resolved", updated_by: "auto_run_upstream_debt", updated_at: new Date().toISOString() })
+                    .in("id", noteBlockerIds);
+                }
+                // Auto-resolve deferred note blockers
+                const deferredBlockerIds = upstreamBlockers
+                  .filter((b: any) => b.source_table === "project_deferred_notes")
+                  .map((b: any) => b.id);
+                if (deferredBlockerIds.length > 0) {
+                  await supabase.from("project_deferred_notes")
+                    .update({ status: "resolved" })
+                    .in("id", deferredBlockerIds);
+                }
+                // Auto-resolve dev note state blockers
+                const devNoteBlockerIds = upstreamBlockers
+                  .filter((b: any) => b.source_table === "project_dev_note_state")
+                  .map((b: any) => b.id);
+                if (devNoteBlockerIds.length > 0) {
+                  await supabase.from("project_dev_note_state")
+                    .update({ status: "resolved" })
+                    .in("id", devNoteBlockerIds);
+                }
+
+                console.log(`[auto-run][IEL] upstream_note_debt_auto_resolved { job_id: "${jobId}", doc_type: "${currentDoc}", total: ${upstreamBlockers.length}, notes: ${noteBlockerIds.length}, deferred: ${deferredBlockerIds.length}, dev_state: ${devNoteBlockerIds.length} }`);
+                await logStep(supabase, jobId, null, currentDoc, "note_auto_resolved",
+                  `Auto-resolved ${upstreamBlockers.length} upstream note debt blocker(s) from [${sourceDocs.join(", ")}] (allow_defaults=true). Continuing rewrite. (notes=${noteBlockerIds.length}, deferred=${deferredBlockerIds.length}, dev_state=${devNoteBlockerIds.length})`,
+                  { ci, gp, gap }, undefined,
+                  { upstreamBlockerCount: upstreamBlockers.length, sourceDocs, byTable, resolver: "auto_run_upstream_debt", auto_resolved: true });
+                // Fall through to rewrite — do NOT pause
+              } else {
+                console.warn(`[auto-run][IEL] upstream_note_debt_gate_unified { job_id: "${jobId}", doc_type: "${currentDoc}", total_blockers: ${upstreamBlockers.length}, by_table: ${JSON.stringify(byTable)}, source_docs: ${JSON.stringify(sourceDocs)} }`);
+                await logStep(supabase, jobId, null, currentDoc, "upstream_note_debt_paused",
+                  `${upstreamBlockers.length} unresolved upstream note(s) from [${sourceDocs.join(", ")}] target ${currentDoc}. Repair upstream docs first. (unified: deferred=${byTable.deferred}, notes=${byTable.notes}, dev_state=${byTable.dev_state})`,
+                  { ci, gp, gap }, undefined,
+                  { upstreamBlockerCount: upstreamBlockers.length, sourceDocs, byTable, noteKeys: upstreamBlockers.map((n: any) => n.note_key_or_fingerprint) });
+                await updateJob(supabase, jobId, {
+                  stage_loop_count: newLoopCount,
+                  status: "paused",
+                  pause_reason: "UPSTREAM_NOTE_DEBT",
+                  stop_reason: `${upstreamBlockers.length} unresolved upstream note(s) from [${sourceDocs.join(", ")}] block rewriting ${currentDoc}. Resolve upstream issues first.`,
+                });
+                return respondWithJob(supabase, jobId);
+              }
             }
           }
 
