@@ -601,6 +601,24 @@ async function resolveActiveVersionForDoc(
   const approvedCurrent = allVersions.find((v: any) => v.approval_status === "approved" && !!v.is_current);
   if (approvedCurrent) {
     console.log(`[auto-run][IEL] authoritative_version_resolved { document_id: "${documentId}", version_id: "${approvedCurrent.id}", reason: "approved_and_current", version_number: ${approvedCurrent.version_number}, doc_type: "${ctx?.docType || 'unknown'}" }`);
+    // ── TRANSITION LEDGER: authoritative_version_resolved ──
+    try {
+      const { data: docRow } = await supabase.from("project_documents").select("project_id").eq("id", documentId).maybeSingle();
+      if (docRow?.project_id) {
+        await emitTransition(supabase, {
+          projectId: docRow.project_id,
+          eventType: TRANSITION_EVENTS.AUTHORITATIVE_VERSION_RESOLVED,
+          docType: ctx?.docType,
+          jobId: ctx?.jobId,
+          resultingVersionId: approvedCurrent.id,
+          trigger: "abvr_resolution",
+          sourceOfTruth: "auto-run",
+          resultingState: { reason: "approved_and_current", version_number: approvedCurrent.version_number },
+        });
+      }
+    } catch (e: any) {
+      console.warn(`[auto-run][transition-ledger] authoritative_version_resolved emit failed: ${e?.message}`);
+    }
     return { versionId: approvedCurrent.id, source: "eligible_best_score" as const, reason: "approved_and_current" };
   }
 
@@ -2261,9 +2279,11 @@ async function callEdgeFunctionWithRetry(
   }
 }
 
-// ── Helper: log a step ──
+// ── Helper: log a step + emit auto-run step lifecycle transition ──
 // stepIndex: pass null to auto-allocate via atomic DB increment (nextStepIndex).
 // Returns the step_index that was used.
+// ── TRANSITION LEDGER: emits auto_run_step_completed / auto_run_step_failed ──
+const STEP_FAILURE_ACTIONS = new Set(["ci_gate_blocked", "ci_blocker_gate_blocked", "doc_type_unregistered", "error", "failed", "rewrite_failed", "blockage_failed"]);
 async function logStep(
   supabase: any,
   jobId: string,
@@ -2293,6 +2313,33 @@ async function logStep(
     output_text: outputText ? outputText.slice(0, 4000) : null,
     output_ref: outputRef || null,
   });
+
+  // ── TRANSITION LEDGER: emit step lifecycle event (non-critical complement to auto_run_steps) ──
+  try {
+    const { data: jobRow } = await supabase.from("auto_run_jobs")
+      .select("project_id").eq("id", jobId).maybeSingle();
+    if (jobRow?.project_id) {
+      const isFailed = STEP_FAILURE_ACTIONS.has(action) || action.endsWith("_failed") || action.endsWith("_error");
+      await emitTransition(supabase, {
+        projectId: jobRow.project_id,
+        eventType: isFailed ? TRANSITION_EVENTS.AUTO_RUN_STEP_FAILED : TRANSITION_EVENTS.AUTO_RUN_STEP_COMPLETED,
+        eventDomain: "auto_run",
+        docType: document,
+        jobId,
+        status: isFailed ? "failed" : "completed",
+        trigger: action,
+        sourceOfTruth: "auto-run",
+        ci: scores.ci,
+        gp: scores.gp,
+        gap: scores.gap,
+        resultingState: { step_index: idx, action, summary: summary?.slice(0, 200) },
+      }, { critical: false });
+    }
+  } catch (e: any) {
+    // Non-critical: don't block step persistence
+    console.warn(`[auto-run][transition-ledger] step lifecycle emit failed: ${e?.message}`);
+  }
+
   return idx;
 }
 
@@ -2389,14 +2436,15 @@ async function updateJob(supabase: any, jobId: string, fields: Record<string, an
   }
   await supabase.from("auto_run_jobs").update(fields).eq("id", jobId);
 
-  // ── TRANSITION LEDGER: auto-emit on stage change or terminal status ──
+  // ── TRANSITION LEDGER: auto-emit on stage change (deduplicated) ──
   if (fields.current_document) {
     try {
-      // Fetch project_id for transition context
+      // Fetch PREVIOUS job state to compare — only emit if stage actually changed
       const { data: jobRow } = await supabase.from("auto_run_jobs")
         .select("project_id, current_document, last_ci, last_gp, user_id")
         .eq("id", jobId).single();
-      if (jobRow?.project_id) {
+      // DUPLICATE GUARD: only emit if the stage actually changed (not a no-op update)
+      if (jobRow?.project_id && jobRow.current_document !== fields.current_document) {
         await emitStageTransition(
           supabase, jobRow.project_id, jobId,
           jobRow.current_document || "unknown",
@@ -2844,12 +2892,15 @@ async function chunkedRewrite(
 
 // Wrapper: tries single-pass rewrite, falls back to chunked pipeline on needsPipeline error.
 // Returns { candidateVersionId } — explicitly extracted from the rewrite response.
+// ── TRANSITION LEDGER: emits rewrite_pass_executed / rewrite_pass_failed ──
 async function rewriteWithFallback(
   supabase: any, supabaseUrl: string, token: string,
   rewriteBody: Record<string, any>,
   jobId: string, stepCount: number,
   format: string, deliverableType: string
 ): Promise<{ candidateVersionId: string | null; raw?: any }> {
+  const projectId = rewriteBody.projectId;
+  const sourceVersionId = rewriteBody.versionId;
   try {
     const result = await callEdgeFunctionWithRetry(
       supabase, supabaseUrl, "dev-engine-v2", {
@@ -2859,6 +2910,16 @@ async function rewriteWithFallback(
     );
     // Extract candidateVersionId from single-pass rewrite response
     const candidateVersionId = result?.result?.newVersion?.id || result?.newVersion?.id || null;
+    // ── TRANSITION LEDGER: rewrite_pass_executed ──
+    if (projectId) {
+      await emitTransition(supabase, {
+        projectId, eventType: TRANSITION_EVENTS.REWRITE_PASS_EXECUTED,
+        docType: deliverableType, stage: deliverableType, jobId,
+        sourceVersionId, resultingVersionId: candidateVersionId || undefined,
+        trigger: "single_pass", sourceOfTruth: "auto-run",
+        resultingState: { mode: "single_pass", candidateVersionId },
+      });
+    }
     return { candidateVersionId, raw: result };
   } catch (e: any) {
     // Detect needsPipeline from the error message (400 response gets thrown)
@@ -2880,7 +2941,28 @@ async function rewriteWithFallback(
         selectedOptions: rewriteBody.selectedOptions,
         globalDirections: rewriteBody.globalDirections,
       }, jobId, stepCount);
+      // ── TRANSITION LEDGER: rewrite_pass_executed (chunked) ──
+      if (projectId) {
+        await emitTransition(supabase, {
+          projectId, eventType: TRANSITION_EVENTS.REWRITE_PASS_EXECUTED,
+          docType: deliverableType, stage: deliverableType, jobId,
+          sourceVersionId, resultingVersionId: chunkedResult.candidateVersionId || undefined,
+          trigger: "chunked_pipeline", sourceOfTruth: "auto-run",
+          resultingState: { mode: "chunked_pipeline", candidateVersionId: chunkedResult.candidateVersionId },
+        });
+      }
       return { candidateVersionId: chunkedResult.candidateVersionId };
+    }
+    // ── TRANSITION LEDGER: rewrite_pass_failed ──
+    if (projectId) {
+      try {
+        await emitTransition(supabase, {
+          projectId, eventType: TRANSITION_EVENTS.REWRITE_PASS_FAILED,
+          docType: deliverableType, stage: deliverableType, jobId,
+          sourceVersionId, status: "failed", trigger: "rewrite_error", sourceOfTruth: "auto-run",
+          resultingState: { error: e?.message?.slice(0, 500) },
+        }, { critical: false });
+      } catch (_) { /* non-critical */ }
     }
     throw e;
   }
@@ -6880,6 +6962,14 @@ Deno.serve(async (req) => {
               if (!ciGate.pass) {
                 // CI below 90 — do NOT promote, continue stabilise
                 console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${GLOBAL_MIN_CI}, trigger: "converge_promote" }`);
+                // ── TRANSITION LEDGER: promotion_gate_evaluated (blocked by CI) ──
+                await emitTransition(supabase, {
+                  projectId: job.project_id, eventType: TRANSITION_EVENTS.PROMOTION_GATE_EVALUATED,
+                  docType: currentDoc, stage: currentDoc, jobId, resultingVersionId: latestVersion?.id,
+                  status: "failed", trigger: "ci_hard_gate", sourceOfTruth: "auto-run",
+                  ci: ciGate.ci, previousState: { min_ci: GLOBAL_MIN_CI },
+                  resultingState: { pass: false, reason: "ci_below_threshold" },
+                });
                 await logStep(supabase, jobId, null, currentDoc, "ci_gate_blocked",
                   `Promotion blocked: CI=${ciGate.ci} < ${GLOBAL_MIN_CI}. Continuing stabilise.`,
                   { ci: ciGate.ci }, undefined, { min_ci: GLOBAL_MIN_CI, trigger: "converge_promote" });
@@ -6891,6 +6981,16 @@ Deno.serve(async (req) => {
                 const reviewPayload = await parseLatestReviewForActiveVersion(supabase, jobId, currentDoc, latestVersion?.id || null);
                 const blockerGate = evaluateCIBlockerGateFromPayload(reviewPayload, GLOBAL_MIN_CI);
                 console.log(`[auto-run][IEL] ci_blocker_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", pass: ${blockerGate.pass}, ci: ${blockerGate.ci}, blockers: ${blockerGate.blockerCount}, high_impact: ${blockerGate.highImpactCount}, reasons: ${JSON.stringify(blockerGate.blockReasons)} }`);
+                // ── TRANSITION LEDGER: promotion_gate_evaluated (blocker gate) ──
+                await emitTransition(supabase, {
+                  projectId: job.project_id, eventType: TRANSITION_EVENTS.PROMOTION_GATE_EVALUATED,
+                  docType: currentDoc, stage: currentDoc, jobId, resultingVersionId: latestVersion?.id,
+                  status: blockerGate.pass ? "completed" : "failed",
+                  trigger: "ci_blocker_gate", sourceOfTruth: "auto-run",
+                  ci: blockerGate.ci, gp: blockerGate.gp,
+                  previousState: { blockerCount: blockerGate.blockerCount, highImpactCount: blockerGate.highImpactCount },
+                  resultingState: { pass: blockerGate.pass, blockReasons: blockerGate.blockReasons },
+                });
                 if (!blockerGate.pass) {
                   console.warn(`[auto-run][IEL] ci_blocker_gate_blocked { job_id: "${jobId}", doc_type: "${currentDoc}", reasons: ${JSON.stringify(blockerGate.blockReasons)} }`);
                   await logStep(supabase, jobId, null, currentDoc, "ci_blocker_gate_blocked",

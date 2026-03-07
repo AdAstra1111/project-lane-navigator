@@ -13,7 +13,7 @@
  */
 
 // ── Event Type Registry ──
-// v1 transition types — extend as needed in future phases.
+// v1.1 transition types — extend as needed in future phases.
 export const TRANSITION_EVENTS = {
   // Version lifecycle
   VERSION_CREATED: "version_created",
@@ -35,6 +35,7 @@ export const TRANSITION_EVENTS = {
 
   // Rewrite
   REWRITE_PASS_EXECUTED: "rewrite_pass_executed",
+  REWRITE_PASS_FAILED: "rewrite_pass_failed",
 
   // Analysis
   ANALYSIS_RUN_COMPLETED: "analysis_run_completed",
@@ -110,6 +111,8 @@ const CRITICAL_EVENTS = new Set<string>([
   TRANSITION_EVENTS.STAGE_TRANSITION_EXECUTED,
   TRANSITION_EVENTS.REWRITE_PASS_EXECUTED,
   TRANSITION_EVENTS.VERSION_APPROVED,
+  TRANSITION_EVENTS.AUTHORITATIVE_VERSION_RESOLVED,
+  TRANSITION_EVENTS.PROMOTION_GATE_EVALUATED,
 ]);
 
 /**
