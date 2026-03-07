@@ -162,30 +162,7 @@ serve(async (req) => {
     let dbAnimMeta: { primary: string | null; tags: string[]; style: string | null } = { primary: null, tags: [], style: null };
     let projRow: any = null;
     let projSupa: any = svcClient; // service-role client reused in later projectId block
-    if (projectId) {
-      const { createClient: createSvcClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-      projSupa = createSvcClient(supabaseUrl, supabaseKey);
-
-      // a) Derive requestUserId via auth.getUser() (user-scoped client)
-      const authHeader = req.headers.get("Authorization") || "";
-      let requestUserId: string | null = null;
-      if (authHeader.startsWith("Bearer ")) {
-        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-        const sbUser = createSvcClient(supabaseUrl, anonKey, {
-          global: { headers: { Authorization: authHeader } },
-        });
-        const { data: userData, error: authErr } = await sbUser.auth.getUser();
-        if (!authErr && userData?.user) {
-          requestUserId = userData.user.id;
-        }
-      }
-      if (!requestUserId) {
-        console.warn(`[generate-pitch] auth_failed: could not derive user from token`);
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      console.log(`[generate-pitch] auth=user_scoped user_id=${requestUserId}`);
+      projSupa = svcClient;
 
       // b) Verify access via has_project_access (admin client) — BEFORE any project reads
       const { data: hasAccess, error: accessErr } = await projSupa.rpc("has_project_access", {
