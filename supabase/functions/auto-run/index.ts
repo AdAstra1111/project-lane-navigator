@@ -7133,6 +7133,17 @@ Deno.serve(async (req) => {
               } else {
               // Flag off — original promotion path
               console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci} }`);
+              // ── IEL: ACTIONABLE NOTE EXHAUSTION GATE (flag-off path) ──
+              const noteExhaustOrig = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null);
+              if (noteExhaustOrig.hasActionable) {
+                console.warn(`[auto-run][IEL] note_exhaustion_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", actionable_notes: ${noteExhaustOrig.count}, path: "flag_off" }`);
+                await logStep(supabase, jobId, null, currentDoc, "note_exhaustion_blocked",
+                  `Promotion blocked: ${noteExhaustOrig.count} actionable note(s) remain for ${currentDoc}. Continuing stabilise.`,
+                  { ci: ciGate.ci }, undefined,
+                  { actionable_count: noteExhaustOrig.count, trigger: "converge_promote_flag_off" });
+                await updateJob(supabase, jobId, { stage_loop_count: newLoopCount });
+                // Fall through to rewrite below
+              } else {
               const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
               if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
                 if (job.allow_defaults) {
