@@ -5133,8 +5133,9 @@ Deno.serve(async (req) => {
       // Fail-closes on plateau below GLOBAL_MIN_CI.
       {
         // ── PILLAR 3: PLATEAU V2 — composite CI + blocker/high-impact trend check ──
+        const targetCi = resolveTargetCI(job);
         if (isPlateauV2Enabled()) {
-          const plateauV2 = await checkPlateauV2(supabase, jobId, currentDoc, GLOBAL_MIN_CI, CI_PLATEAU_WINDOW);
+          const plateauV2 = await checkPlateauV2(supabase, jobId, currentDoc, targetCi, CI_PLATEAU_WINDOW);
           console.log(`[auto-run][IEL] plateau_v2_eval ${JSON.stringify({ job_id: jobId, doc_type: currentDoc, ...plateauV2 })}`);
 
           if (plateauV2.isPlateaued) {
@@ -5151,37 +5152,37 @@ Deno.serve(async (req) => {
               status: "paused",
               stop_reason: "CI_PLATEAU_BELOW_90",
               pause_reason: "CI_PLATEAU_BELOW_90",
-              error: `Plateau V2: CI=${plateauV2.currentCI}, blockers not shrinking, high-impact not shrinking for ${currentDoc}. Target: CI>=${GLOBAL_MIN_CI}.`,
+              error: `Plateau V2: CI=${plateauV2.currentCI}, blockers not shrinking, high-impact not shrinking for ${currentDoc}. Target: CI>=${targetCi}.`,
             });
             await releaseProcessingLock(supabase, jobId);
             return respondWithJob(supabase, jobId);
-          } else if (plateauV2.currentCI >= GLOBAL_MIN_CI) {
+          } else if (plateauV2.currentCI >= targetCi) {
             console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${plateauV2.currentCI}, plateau_version: "v2" }`);
           } else {
             console.log(`[auto-run][IEL] plateau_v2_continue { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${plateauV2.currentCI}, reason: "${plateauV2.reason}" }`);
           }
         } else {
         // Original V1 plateau logic
-        const ciProgress = await checkMonotonicCIImprovement(supabase, jobId, currentDoc);
-        console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, min_ci: ${GLOBAL_MIN_CI}, improving: ${ciProgress.improving}, plateau_count: ${ciProgress.plateauCount}, rule: "monotonic_ci_loop" }`);
+        const ciProgress = await checkMonotonicCIImprovement(supabase, jobId, currentDoc, targetCi);
+        console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, min_ci: ${targetCi}, improving: ${ciProgress.improving}, plateau_count: ${ciProgress.plateauCount}, rule: "monotonic_ci_loop" }`);
 
-        if (ciProgress.currentCi >= GLOBAL_MIN_CI) {
-          console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi} }`);
+        if (ciProgress.bestCi >= targetCi) {
+          console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", best_ci: ${ciProgress.bestCi}, current_ci: ${ciProgress.currentCi} }`);
         } else if (ciProgress.plateau) {
           console.error(`[auto-run][IEL] ci_plateau_stop { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, plateau_count: ${ciProgress.plateauCount} }`);
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
-            `CI PLATEAU BELOW ${GLOBAL_MIN_CI}: CI=${ciProgress.currentCi}, best=${ciProgress.bestCi}, ${ciProgress.plateauCount} consecutive non-improving ticks. Fail-closed.`,
+            `CI PLATEAU BELOW ${targetCi}: CI=${ciProgress.currentCi}, best=${ciProgress.bestCi}, ${ciProgress.plateauCount} consecutive non-improving ticks. Fail-closed.`,
             { ci: ciProgress.currentCi }, undefined,
-            { best_ci: ciProgress.bestCi, plateau_count: ciProgress.plateauCount, global_min_ci: GLOBAL_MIN_CI });
+            { best_ci: ciProgress.bestCi, plateau_count: ciProgress.plateauCount, global_min_ci: targetCi });
           const { data: docForCap } = await supabase.from("project_documents")
             .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
             .order("created_at", { ascending: false }).limit(1).maybeSingle();
           if (docForCap) await finalizeBest(supabase, jobId, job, docForCap.id);
           await updateJob(supabase, jobId, {
             status: "paused",
-            stop_reason: "CI_PLATEAU_BELOW_90",
-            pause_reason: "CI_PLATEAU_BELOW_90",
-            error: `CI plateaued at ${ciProgress.currentCi} (best: ${ciProgress.bestCi}) for ${currentDoc}. ${ciProgress.plateauCount} ticks without improvement. Target: CI>=${GLOBAL_MIN_CI}.`,
+            stop_reason: "CI_PLATEAU_BELOW_TARGET",
+            pause_reason: "CI_PLATEAU_BELOW_TARGET",
+            error: `CI plateaued at ${ciProgress.currentCi} (best: ${ciProgress.bestCi}) for ${currentDoc}. ${ciProgress.plateauCount} ticks without improvement. Target: CI>=${targetCi}.`,
           });
           await releaseProcessingLock(supabase, jobId);
           return respondWithJob(supabase, jobId);
