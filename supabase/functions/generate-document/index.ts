@@ -640,9 +640,9 @@ If you find yourself describing what happens in the story, which characters appe
       }
 
       system = [
-        \`You are a professional development document generator for film/TV projects.\`,
-        \`Generate a \${docType.replace(/_/g, " ")} document for the project "\${project.title}".\`,
-        \`Production type: \${project.format || "film"}\`,
+        `You are a professional development document generator for film/TV projects.`,
+        `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
+        `Production type: ${project.format || "film"}`,
         completenessBlock,
         qualBlock,
         styleBlock,
