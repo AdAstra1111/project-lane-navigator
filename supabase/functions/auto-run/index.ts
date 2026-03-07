@@ -2435,6 +2435,41 @@ async function emitScoringTransition(
   }
 }
 
+/**
+ * Check if actionable notes remain for a document version.
+ * "Actionable" = status in (open, in_progress, reopened), not dismissed/applied/deferred.
+ * Returns { hasActionable, count } to gate promotion until notes are exhausted.
+ */
+async function checkActionableNoteExhaustion(
+  supabase: any, projectId: string, docType: string, versionId: string | null,
+): Promise<{ hasActionable: boolean; count: number }> {
+  try {
+    // Query project_notes for unresolved notes targeting this doc_type
+    const actionableStatuses = ["open", "in_progress", "reopened"];
+    let query = supabase
+      .from("project_notes")
+      .select("id", { count: "exact", head: true })
+      .eq("project_id", projectId)
+      .eq("doc_type", docType)
+      .in("status", actionableStatuses);
+    
+    // If we have a version ID, also check version-scoped notes
+    // but don't exclude non-version-scoped notes (doc-level notes still count)
+    
+    const { count, error } = await query;
+    if (error) {
+      console.warn(`[auto-run][IEL] actionable_note_check_failed { project_id: "${projectId}", doc_type: "${docType}", error: "${error.message}" }`);
+      return { hasActionable: false, count: 0 }; // fail open — don't block on query error
+    }
+    const noteCount = count ?? 0;
+    console.log(`[auto-run][IEL] actionable_note_exhaustion_check { project_id: "${projectId}", doc_type: "${docType}", version_id: "${versionId}", actionable_count: ${noteCount} }`);
+    return { hasActionable: noteCount > 0, count: noteCount };
+  } catch (e: any) {
+    console.warn(`[auto-run][IEL] actionable_note_check_exception { error: "${e?.message}" }`);
+    return { hasActionable: false, count: 0 }; // fail open
+  }
+}
+
 
 async function updateJob(supabase: any, jobId: string, fields: Record<string, any>) {
   // PATCH 5: Intercept completion — run gates before allowing status="completed"
