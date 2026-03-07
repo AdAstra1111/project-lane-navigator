@@ -6070,8 +6070,10 @@ Deno.serve(async (req) => {
         }
 
         // ── Route large-risk doc types through generate-document (chunked pipeline) ──
+        // Also route format_rules through generate-document for vertical-drama (VD_FORMAT_RULES_SEED)
         const EPISODE_DOC_TYPES_SET = new Set(["episode_grid", "vertical_episode_beats", "episode_beats"]);
-        const useChunkedGenerator = EPISODE_DOC_TYPES_SET.has(currentDoc) || isLargeRiskDocType(currentDoc);
+        const isVdFormatRules = currentDoc === "format_rules" && format === "vertical-drama";
+        const useChunkedGenerator = EPISODE_DOC_TYPES_SET.has(currentDoc) || isLargeRiskDocType(currentDoc) || isVdFormatRules;
 
         try {
           let convertedDocId: string | null = null;
