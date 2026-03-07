@@ -885,6 +885,71 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
       warnings,
     };
 
+    // ── Server-side persistence: save ideas to pitch_ideas table ──
+    // This ensures ideas survive client-side fetch timeouts on long AI calls.
+    let savedCount = 0;
+    const savedIds: string[] = [];
+    for (const idea of ideas.ideas) {
+      try {
+        const row = {
+          user_id: requestUserId,
+          mode: 'greenlight',
+          status: 'draft',
+          production_type: typeLabel,
+          title: idea.title || 'Untitled',
+          logline: idea.logline || '',
+          one_page_pitch: idea.one_page_pitch || '',
+          comps: idea.comps || [],
+          recommended_lane: idea.recommended_lane || '',
+          lane_confidence: idea.lane_confidence || 0,
+          budget_band: idea.budget_band || budgetBand || '',
+          packaging_suggestions: idea.packaging_suggestions || [],
+          development_sprint: idea.development_sprint || [],
+          risks_mitigations: idea.risks_mitigations || [],
+          why_us: idea.why_us || '',
+          genre: idea.genre || genre || '',
+          region: region || '',
+          platform_target: platformTarget || '',
+          risk_level: idea.risk_level || riskLevel || 'medium',
+          project_id: projectId || null,
+          raw_response: {
+            ...idea,
+            premise: idea.premise || '',
+            trend_fit_bullets: idea.trend_fit_bullets || [],
+            differentiation_move: idea.differentiation_move || '',
+            tone_tag: idea.tone_tag || '',
+            format_summary: idea.format_summary || '',
+            signals_metadata: ideas.signals_metadata || null,
+          },
+          score_market_heat: idea.score_market_heat || 0,
+          score_feasibility: idea.score_feasibility || 0,
+          score_lane_fit: idea.score_lane_fit || 0,
+          score_saturation_risk: idea.score_saturation_risk || 0,
+          score_company_fit: idea.score_company_fit || 0,
+          score_total: idea.score_total || 0,
+        };
+        const { data: saved, error: saveErr } = await svcClient
+          .from('pitch_ideas')
+          .insert(row)
+          .select('id')
+          .single();
+        if (saveErr) {
+          console.warn(`[generate-pitch] Failed to save idea "${idea.title}": ${saveErr.message}`);
+        } else {
+          savedCount++;
+          savedIds.push(saved.id);
+        }
+      } catch (e: any) {
+        console.warn(`[generate-pitch] Save error for "${idea.title}": ${e.message}`);
+      }
+    }
+    console.log(`[generate-pitch] Server-side saved ${savedCount}/${ideas.ideas.length} ideas`);
+
+    // Include savedIds so client knows ideas are already persisted
+    ideas.server_saved = true;
+    ideas.saved_ids = savedIds;
+    ideas.saved_count = savedCount;
+
     console.log(`[generate-pitch] Returning ${ideas.ideas.length} ideas successfully`);
     return new Response(JSON.stringify(ideas), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
