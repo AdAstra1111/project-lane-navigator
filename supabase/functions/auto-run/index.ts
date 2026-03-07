@@ -2279,9 +2279,11 @@ async function callEdgeFunctionWithRetry(
   }
 }
 
-// ── Helper: log a step ──
+// ── Helper: log a step + emit auto-run step lifecycle transition ──
 // stepIndex: pass null to auto-allocate via atomic DB increment (nextStepIndex).
 // Returns the step_index that was used.
+// ── TRANSITION LEDGER: emits auto_run_step_completed / auto_run_step_failed ──
+const STEP_FAILURE_ACTIONS = new Set(["ci_gate_blocked", "ci_blocker_gate_blocked", "doc_type_unregistered", "error", "failed", "rewrite_failed", "blockage_failed"]);
 async function logStep(
   supabase: any,
   jobId: string,
@@ -2311,6 +2313,33 @@ async function logStep(
     output_text: outputText ? outputText.slice(0, 4000) : null,
     output_ref: outputRef || null,
   });
+
+  // ── TRANSITION LEDGER: emit step lifecycle event (non-critical complement to auto_run_steps) ──
+  try {
+    const { data: jobRow } = await supabase.from("auto_run_jobs")
+      .select("project_id").eq("id", jobId).maybeSingle();
+    if (jobRow?.project_id) {
+      const isFailed = STEP_FAILURE_ACTIONS.has(action) || action.endsWith("_failed") || action.endsWith("_error");
+      await emitTransition(supabase, {
+        projectId: jobRow.project_id,
+        eventType: isFailed ? TRANSITION_EVENTS.AUTO_RUN_STEP_FAILED : TRANSITION_EVENTS.AUTO_RUN_STEP_COMPLETED,
+        eventDomain: "auto_run",
+        docType: document,
+        jobId,
+        status: isFailed ? "failed" : "completed",
+        trigger: action,
+        sourceOfTruth: "auto-run",
+        ci: scores.ci,
+        gp: scores.gp,
+        gap: scores.gap,
+        resultingState: { step_index: idx, action, summary: summary?.slice(0, 200) },
+      }, { critical: false });
+    }
+  } catch (e: any) {
+    // Non-critical: don't block step persistence
+    console.warn(`[auto-run][transition-ledger] step lifecycle emit failed: ${e?.message}`);
+  }
+
   return idx;
 }
 
