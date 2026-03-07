@@ -8,7 +8,6 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
-// @deno-types="npm:@types/jszip"
 import JSZip from "npm:jszip@3";
 
 const corsHeaders = {
