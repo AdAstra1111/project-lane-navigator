@@ -67,6 +67,13 @@ export const TRANSITION_EVENTS = {
   NARRATIVE_VALIDATION_COMPLETED: "narrative_validation_completed",
   NARRATIVE_VALIDATION_BLOCKED: "narrative_validation_blocked",
   NARRATIVE_VIOLATION_DETECTED: "narrative_violation_detected",
+
+  // Validation-to-Issue/Planning Handoff
+  VALIDATION_HANDOFF_REQUESTED: "validation_handoff_requested",
+  VALIDATION_HANDOFF_CLASSIFIED: "validation_handoff_classified",
+  VALIDATION_HANDOFF_BLOCKED: "validation_handoff_blocked",
+  VALIDATION_ISSUE_CREATED: "validation_issue_created",
+  VALIDATION_HANDOFF_DUPLICATE_SUPPRESSED: "validation_handoff_duplicate_suppressed",
 } as const;
 
 export type TransitionEventType = typeof TRANSITION_EVENTS[keyof typeof TRANSITION_EVENTS];
@@ -281,5 +288,6 @@ function inferDomain(eventType: string): string {
   if (eventType.startsWith("impact_") || eventType.startsWith("affected_") || eventType.startsWith("bounded_")) return "impact";
   if (eventType.startsWith("projection_")) return "projection";
   if (eventType.startsWith("narrative_")) return "validation";
+  if (eventType.startsWith("validation_")) return "validation";
   return "pipeline";
 }
