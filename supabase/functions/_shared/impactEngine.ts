@@ -28,7 +28,7 @@ import {
   type InvalidationPlanEntry,
 } from "./deliverableDependencyRegistry.ts";
 import {
-  getDocTypeSectionConfig,
+  getSectionConfig,
   type DocTypeSectionConfig,
 } from "./deliverableSectionRegistry.ts";
 import { emitTransition, TRANSITION_EVENTS } from "./transitionLedger.ts";
