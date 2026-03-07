@@ -571,12 +571,18 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     }
   }, [projectId, job, qc]);
 
+  const applyingDecisionsRef = useRef(false);
+
   const applyDecisionsAndContinue = useCallback(async (
     selectedOptions: Array<{ note_id: string; option_id: string; custom_direction?: string }>,
     globalDirections?: string[]
   ) => {
     if (!job) return;
-    // Remove isRunning guard — job may show "running" while awaiting_approval
+    if (applyingDecisionsRef.current) {
+      console.warn('[auto-run] applyDecisionsAndContinue already in flight — skipping');
+      return;
+    }
+    applyingDecisionsRef.current = true;
     setError(null);
     abortRef.current = false;
     try {
@@ -594,6 +600,8 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       }
     } catch (e: any) {
       setError(e.message);
+    } finally {
+      applyingDecisionsRef.current = false;
     }
   }, [job]);
 
@@ -623,8 +631,13 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       setJob(prev => prev ? { ...prev, allow_defaults: val } : prev);
 
       // When enabling auto-decide while paused with pending decisions, auto-resolve them
+      // Use the in-flight guard to prevent racing with the button
       const hasPending = Array.isArray(job.pending_decisions) && (job.pending_decisions as any[]).length > 0;
-      if (val && job.status === 'paused' && hasPending) {
+      if (val && job.status === 'paused' && hasPending && !applyingDecisionsRef.current) {
+        // Small delay to let any concurrent button click claim the lock first
+        await new Promise(r => setTimeout(r, 200));
+        if (applyingDecisionsRef.current) return; // button click took priority
+        applyingDecisionsRef.current = true;
         try {
           const result = await callAutoRun('apply-decisions-and-continue', {
             jobId: job.id,
@@ -639,6 +652,8 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
           }
         } catch (resumeErr: any) {
           console.warn('[auto-run] auto-resolve pending decisions failed:', resumeErr.message);
+        } finally {
+          applyingDecisionsRef.current = false;
         }
       }
     } catch (e: any) { setError(e.message); }
