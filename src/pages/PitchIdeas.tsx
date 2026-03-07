@@ -27,6 +27,7 @@ export default function PitchIdeas() {
   const { user } = useAuth();
   const { ideas, isLoading, save, update, remove } = usePitchIdeas();
   const { projects } = useProjects();
+  const qc = useQueryClient();
   const [generating, setGenerating] = useState(false);
   const [generateFailed, setGenerateFailed] = useState(false);
   const [criteria, setCriteria] = useState<HardCriteria>({ ...EMPTY_CRITERIA });
