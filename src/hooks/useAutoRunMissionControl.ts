@@ -291,6 +291,20 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
             refreshStatus();
             return;
           }
+          // Status returned no job — force a new run to clear the stale state
+          console.warn('[mission-control] Resumable job reported but status returned no job, retrying with force_new_run');
+          const forceResult = await callAutoRun('start', {
+            projectId, mode: 'balanced', start_document: mappedStart, target_document: targetDocument || 'production_draft',
+            max_total_steps: 100, allow_defaults: allowDefaults ?? false, max_versions_per_doc_per_job: 60,
+            force_new_run: true,
+          });
+          if (forceResult?.job) {
+            setJob(forceResult.job);
+            setSteps(forceResult.latest_steps || []);
+            setIsRunning(true);
+            refreshStatus();
+          }
+          return;
         } catch (resumeErr: any) {
           setError(`Failed to resume existing job: ${resumeErr.message}`);
           throw resumeErr;
