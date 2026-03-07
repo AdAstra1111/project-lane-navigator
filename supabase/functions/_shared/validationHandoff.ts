@@ -240,6 +240,7 @@ export async function handoffValidationFindings(
 
   // ── Process each violation ──
   const manualOnlyViolations: Violation[] = [];
+  const planningEligibleViolations: Violation[] = [];
   const issueEvents: Array<{ issue_id: string; event_type: string; payload?: unknown }> = [];
 
   for (const violation of request.violations) {
