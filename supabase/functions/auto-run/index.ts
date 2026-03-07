@@ -2863,12 +2863,15 @@ async function chunkedRewrite(
 
 // Wrapper: tries single-pass rewrite, falls back to chunked pipeline on needsPipeline error.
 // Returns { candidateVersionId } — explicitly extracted from the rewrite response.
+// ── TRANSITION LEDGER: emits rewrite_pass_executed / rewrite_pass_failed ──
 async function rewriteWithFallback(
   supabase: any, supabaseUrl: string, token: string,
   rewriteBody: Record<string, any>,
   jobId: string, stepCount: number,
   format: string, deliverableType: string
 ): Promise<{ candidateVersionId: string | null; raw?: any }> {
+  const projectId = rewriteBody.projectId;
+  const sourceVersionId = rewriteBody.versionId;
   try {
     const result = await callEdgeFunctionWithRetry(
       supabase, supabaseUrl, "dev-engine-v2", {
@@ -2878,6 +2881,16 @@ async function rewriteWithFallback(
     );
     // Extract candidateVersionId from single-pass rewrite response
     const candidateVersionId = result?.result?.newVersion?.id || result?.newVersion?.id || null;
+    // ── TRANSITION LEDGER: rewrite_pass_executed ──
+    if (projectId) {
+      await emitTransition(supabase, {
+        projectId, eventType: TRANSITION_EVENTS.REWRITE_PASS_EXECUTED,
+        docType: deliverableType, stage: deliverableType, jobId,
+        sourceVersionId, resultingVersionId: candidateVersionId || undefined,
+        trigger: "single_pass", sourceOfTruth: "auto-run",
+        resultingState: { mode: "single_pass", candidateVersionId },
+      });
+    }
     return { candidateVersionId, raw: result };
   } catch (e: any) {
     // Detect needsPipeline from the error message (400 response gets thrown)
@@ -2899,7 +2912,28 @@ async function rewriteWithFallback(
         selectedOptions: rewriteBody.selectedOptions,
         globalDirections: rewriteBody.globalDirections,
       }, jobId, stepCount);
+      // ── TRANSITION LEDGER: rewrite_pass_executed (chunked) ──
+      if (projectId) {
+        await emitTransition(supabase, {
+          projectId, eventType: TRANSITION_EVENTS.REWRITE_PASS_EXECUTED,
+          docType: deliverableType, stage: deliverableType, jobId,
+          sourceVersionId, resultingVersionId: chunkedResult.candidateVersionId || undefined,
+          trigger: "chunked_pipeline", sourceOfTruth: "auto-run",
+          resultingState: { mode: "chunked_pipeline", candidateVersionId: chunkedResult.candidateVersionId },
+        });
+      }
       return { candidateVersionId: chunkedResult.candidateVersionId };
+    }
+    // ── TRANSITION LEDGER: rewrite_pass_failed ──
+    if (projectId) {
+      try {
+        await emitTransition(supabase, {
+          projectId, eventType: TRANSITION_EVENTS.REWRITE_PASS_FAILED,
+          docType: deliverableType, stage: deliverableType, jobId,
+          sourceVersionId, status: "failed", trigger: "rewrite_error", sourceOfTruth: "auto-run",
+          resultingState: { error: e?.message?.slice(0, 500) },
+        }, { critical: false });
+      } catch (_) { /* non-critical */ }
     }
     throw e;
   }
