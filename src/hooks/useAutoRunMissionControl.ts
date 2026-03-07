@@ -263,43 +263,79 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
 
   // ── Auto-resume effect: when paused + allow_defaults, resume automatically ──
   useEffect(() => {
-    if (!job || job.status !== 'paused') {
-      autoResumeFailCountRef.current = 0;
+    if (!job) return;
+
+    if (job.status !== 'paused') {
+      // Clear snapshot guard outside paused state so next real pause can be handled
+      autoResumeLastAttemptSignatureRef.current = null;
+      // Reset failed attempts once we leave pause (completed / running / stopped / failed)
+      if (['running', 'completed', 'stopped', 'failed'].includes(job.status)) {
+        autoResumeFailCountRef.current = 0;
+      }
       return;
     }
+
     if (!job.allow_defaults) return;
     if (isHumanRequiredPause(job)) return;
-    if (autoResumeFailCountRef.current >= 3) return;
+    if (autoResumeFailCountRef.current >= 3) {
+      setIsRunning(false);
+      return;
+    }
+    if (autoResumeInFlightRef.current) return;
+
+    const pauseSignature = buildPauseLoopSignature(job);
+    // Prevent duplicate scheduling for the same paused snapshot
+    if (autoResumeLastAttemptSignatureRef.current === pauseSignature) return;
+    autoResumeLastAttemptSignatureRef.current = pauseSignature;
 
     console.log(`[mission-control][IEL] auto_resume_scheduled { job_id: "${job.id}", pause_reason: "${job.pause_reason}", attempt: ${autoResumeFailCountRef.current + 1} }`);
 
     const timer = setTimeout(async () => {
+      autoResumeInFlightRef.current = true;
       try {
         const resumeResult = await callAutoRun('resume', { jobId: job.id, followLatest: true });
         if (resumeResult?.job) {
           setJob(resumeResult.job);
           setSteps(resumeResult.latest_steps || []);
         }
+
         // Nudge run-next immediately after resume
         const nextResult = await callAutoRun('run-next', { jobId: job.id });
         if (nextResult?.job) {
           setJob(nextResult.job);
           setSteps(nextResult.latest_steps || []);
         }
-        setIsRunning(true);
+
+        const postJob = nextResult?.job || resumeResult?.job || null;
+        if (postJob?.status === 'paused' && buildPauseLoopSignature(postJob) === pauseSignature) {
+          autoResumeFailCountRef.current += 1;
+          console.warn(`[mission-control] auto-resume stalled (attempt ${autoResumeFailCountRef.current}) for ${postJob.current_document}: ${postJob.pause_reason}`);
+          if (autoResumeFailCountRef.current >= 3) {
+            setIsRunning(false);
+          }
+          return;
+        }
+
+        // Successful progress (status changed and/or pause signature changed)
         autoResumeFailCountRef.current = 0;
+        autoResumeLastAttemptSignatureRef.current = null;
+        setIsRunning(postJob?.status === 'running');
         console.log(`[mission-control][IEL] auto_resume_success { job_id: "${job.id}" }`);
       } catch (e: any) {
         autoResumeFailCountRef.current += 1;
+        // Allow retry for the same paused snapshot on transient failures
+        autoResumeLastAttemptSignatureRef.current = null;
         console.warn(`[mission-control] auto-resume failed (attempt ${autoResumeFailCountRef.current}):`, e.message);
         if (autoResumeFailCountRef.current >= 3) {
           setIsRunning(false);
         }
+      } finally {
+        autoResumeInFlightRef.current = false;
       }
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [job?.id, job?.status, job?.allow_defaults, job?.pause_reason, job?.stop_reason]);
+  }, [job?.id, job?.status, job?.allow_defaults, job?.pause_reason, job?.stop_reason, job?.step_count, job?.last_ci, job?.stage_loop_count]);
 
   useEffect(() => {
     // Poll when backend job is actively running OR when paused-but-auto-resumable (allow_defaults ON)
