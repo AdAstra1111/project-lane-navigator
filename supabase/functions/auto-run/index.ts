@@ -5522,67 +5522,19 @@ Deno.serve(async (req) => {
           console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", best_ci: ${ciProgress.bestCi}, current_ci: ${ciProgress.currentCi} }`);
         } else if (ciProgress.plateau) {
           // ── IEL: When allow_defaults is ON and plateaued, auto-promote best version instead of looping ──
-          if (job.allow_defaults && ciProgress.bestCi >= GLOBAL_MIN_CI) {
-            console.log(`[auto-run][IEL] ci_plateau_auto_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, allow_defaults: true, reason: "CI plateaued but best meets GLOBAL_MIN_CI=${GLOBAL_MIN_CI}, force-promoting" }`);
-            await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_auto_promote",
-              `CI plateaued at ${ciProgress.currentCi} (best: ${ciProgress.bestCi}, target: ${targetCi}) but best meets minimum ${GLOBAL_MIN_CI}. allow_defaults=ON → force-promoting.`,
-              { ci: ciProgress.currentCi }, undefined,
-              { best_ci: ciProgress.bestCi, plateau_count: ciProgress.plateauCount, global_min_ci: GLOBAL_MIN_CI, targetCi, action: "force_promote" });
-
-            // ── FORCE-PROMOTE: execute promotion inline, bypassing all remaining gates ──
-            {
-              // 1. Finalize best version as current
-              const { data: v1PlateauDoc } = await supabase.from("project_documents")
-                .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
-                .order("created_at", { ascending: false }).limit(1).maybeSingle();
-              if (v1PlateauDoc) await finalizeBest(supabase, jobId, job, v1PlateauDoc.id);
-
-              // 2. Auto-approve the best version
-              if (job.best_version_id) {
-                try {
-                  await supabase.from("project_document_versions").update({
-                    approval_status: "approved",
-                    approved_at: new Date().toISOString(),
-                    approved_by: job.user_id,
-                  }).eq("id", job.best_version_id);
-                } catch (e: any) {
-                  console.warn("[auto-run] v1 plateau force-promote: non-fatal auto-approve failed:", e?.message);
-                }
-              }
-
-              // 3. Resolve next stage and advance
-              const v1PlateauNext = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
-              if (v1PlateauNext && isStageAtOrBeforeTarget(v1PlateauNext, job.target_document, format)) {
-                await logStep(supabase, jobId, stepCount + 2, currentDoc, "ci_plateau_force_promoted",
-                  `Force-promoted ${currentDoc} from best version (CI:${ciProgress.bestCi}) after plateau. Skipped hard_gate:blockers (allow_defaults=ON). Advancing to ${v1PlateauNext}.`,
-                  { ci: ciProgress.bestCi, gp: job.best_gp }, undefined,
-                  { from: currentDoc, to: v1PlateauNext, best_version_id: job.best_version_id, bypass: "hard_gate:blockers" });
-                await updateJob(supabase, jobId, {
-                  current_document: v1PlateauNext,
-                  stage_loop_count: 0,
-                  stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
-                  status: "running",
-                  stop_reason: null,
-                  pause_reason: null,
-                  error: null,
-                  awaiting_approval: false,
-                  approval_type: null,
-                  pending_doc_id: null,
-                  pending_version_id: null,
-                  pending_doc_type: null,
-                  pending_next_doc_type: null,
-                  frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
-                });
-                console.log(`[auto-run][IEL] stage_transition { job_id: "${jobId}", from: "${currentDoc}", to: "${v1PlateauNext}", trigger: "ci_plateau_force_promoted_v1" }`);
-                await releaseProcessingLock(supabase, jobId);
-                return respondWithJob(supabase, jobId, "run-next");
-              } else {
-                await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied up to target" });
-                await logStep(supabase, jobId, stepCount + 2, currentDoc, "stop", "All stages satisfied up to target (after v1 plateau force-promote)");
-                await releaseProcessingLock(supabase, jobId);
-                return respondWithJob(supabase, jobId);
-              }
-            }
+          if (job.allow_defaults) {
+            const plateauForcePromote = await tryPlateauForcePromote(supabase, {
+              jobId,
+              job,
+              currentDoc,
+              format,
+              stepCount,
+              targetCi,
+              detectedCi: ciProgress.currentCi,
+              detectedBestCi: ciProgress.bestCi,
+              plateauVersion: "v1",
+            });
+            if (plateauForcePromote) return plateauForcePromote;
           } else {
           console.error(`[auto-run][IEL] ci_plateau_stop { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, plateau_count: ${ciProgress.plateauCount} }`);
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
