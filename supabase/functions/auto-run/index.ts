@@ -1,4 +1,5 @@
-const BUILD = "AUTORUN_BUILD_MARKER_2026_03_04_CI_PILLARS_V1";
+const BUILD = "AUTORUN_BUILD_MARKER_2026_03_07_TRANSITION_LEDGER_V1";
+import { emitTransition, TRANSITION_EVENTS } from "../_shared/transitionLedger.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isCPMEnabled, buildCPRepairDirections, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
