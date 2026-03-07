@@ -60,6 +60,20 @@ export interface DocumentTextResult {
 
 export type ConnectionState = 'online' | 'reconnecting' | 'disconnected';
 
+// ── Human-required pause reasons that must NOT be auto-resumed ──
+const HUMAN_REQUIRED_PAUSES = [
+  'COMPLETED', 'ERROR', 'VERSION_CAP_REACHED',
+  'SAFE_MODE_GATE', 'STEP_LIMIT_REACHED',
+];
+
+function isHumanRequiredPause(job: AutoRunJob): boolean {
+  if (HUMAN_REQUIRED_PAUSES.some(r =>
+    job.stop_reason?.includes(r) || job.pause_reason?.includes(r)
+  )) return true;
+  if (job.awaiting_approval && (job as any).approval_type === 'human_required') return true;
+  return false;
+}
+
 export function useAutoRunMissionControl(projectId: string | undefined) {
   const qc = useQueryClient();
   const [job, setJob] = useState<AutoRunJob | null>(null);
@@ -71,6 +85,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   const abortRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consecutiveFailuresRef = useRef(0);
+  const autoResumeFailCountRef = useRef(0);
   const lastSuccessRef = useRef(Date.now());
   const pollInFlightRef = useRef(false);
   const doPollRef = useRef<() => Promise<void>>();
