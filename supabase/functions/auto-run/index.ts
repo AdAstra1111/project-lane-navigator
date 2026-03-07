@@ -2321,9 +2321,16 @@ async function logStep(
       .select("project_id").eq("id", jobId).maybeSingle();
     if (jobRow?.project_id) {
       const isFailed = STEP_FAILURE_ACTIONS.has(action) || action.endsWith("_failed") || action.endsWith("_error");
+      const isStarted = STEP_START_ACTIONS.has(action);
+      const eventType = isFailed
+        ? TRANSITION_EVENTS.AUTO_RUN_STEP_FAILED
+        : isStarted
+          ? TRANSITION_EVENTS.AUTO_RUN_STEP_STARTED
+          : TRANSITION_EVENTS.AUTO_RUN_STEP_COMPLETED;
+      const eventStatus = isFailed ? "failed" : isStarted ? "intent" : "completed";
       await emitTransition(supabase, {
         projectId: jobRow.project_id,
-        eventType: isFailed ? TRANSITION_EVENTS.AUTO_RUN_STEP_FAILED : TRANSITION_EVENTS.AUTO_RUN_STEP_COMPLETED,
+        eventType,
         eventDomain: "auto_run",
         docType: document,
         jobId,
