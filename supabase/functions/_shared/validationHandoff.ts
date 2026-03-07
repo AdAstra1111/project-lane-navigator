@@ -364,7 +364,39 @@ export async function handoffValidationFindings(
     result.manualOnlySkipped = reviewResult.created + reviewResult.duplicatesSuppressed + reviewResult.blocked;
   }
 
-  console.log(`[validation-handoff] completed { project: "${request.projectId}", violations: ${result.totalViolations}, issues_created: ${result.issuesCreated}, duplicates_suppressed: ${result.duplicatesSuppressed}, blocked: ${result.blocked}, informational: ${result.informationalSkipped}, manual_only: ${result.manualOnlySkipped}, planning_deferred: ${result.planningDeferred} }`);
+  // ── Route planning_eligible violations to planning handoff bridge ──
+  if (planningEligibleViolations.length > 0) {
+    const planningResult = await handoffToPlanningQueue(supabase, {
+      projectId: request.projectId,
+      lane: request.lane,
+      violations: planningEligibleViolations,
+      validationRunId: request.validationRunId,
+      skipTransitions: request.skipTransitions,
+    });
+
+    for (const r of planningResult.results) {
+      const outcomeMap: Record<string, HandoffFindingResult["outcome"]> = {
+        planning_created: "planning_created",
+        planning_blocked: "planning_blocked",
+        planning_deferred: "planning_deferred",
+        planning_duplicate_suppressed: "planning_duplicate_suppressed",
+      };
+      result.findings.push({
+        violationKey: r.violationKey,
+        eligibility: "planning_eligible",
+        reason: r.reason,
+        outcome: outcomeMap[r.outcome] || "planning_blocked",
+        issueId: null,
+        planningRequestKey: r.planningRequest?.planningKey || null,
+      });
+    }
+    result.planningCreated = planningResult.created;
+    result.planningBlocked = planningResult.blocked;
+    result.planningDeferred = planningResult.deferred;
+    result.planningDuplicatesSuppressed = planningResult.duplicatesSuppressed;
+  }
+
+  console.log(`[validation-handoff] completed { project: "${request.projectId}", violations: ${result.totalViolations}, issues_created: ${result.issuesCreated}, duplicates_suppressed: ${result.duplicatesSuppressed}, blocked: ${result.blocked}, informational: ${result.informationalSkipped}, manual_only: ${result.manualOnlySkipped}, planning_created: ${result.planningCreated}, planning_blocked: ${result.planningBlocked}, planning_deferred: ${result.planningDeferred} }`);
 
   return result;
 }
