@@ -5159,9 +5159,28 @@ Deno.serve(async (req) => {
       // service_role skips user_id filter (self-chain path)
       let preJobQuery = supabase.from("auto_run_jobs").select("*").eq("id", jobId);
       if (actor !== "service_role") preJobQuery = preJobQuery.eq("user_id", userId);
-      const { data: preJob, error: preJobErr } = await preJobQuery.single();
+      const { data: preJobRaw, error: preJobErr } = await preJobQuery.single();
+      let preJob: any = preJobRaw;
       if (preJobErr || !preJob) return respond({ error: "Job not found" }, 404);
       if (preJob.awaiting_approval) return respond({ job: preJob, latest_steps: [], next_action_hint: "awaiting-approval" });
+
+      // Auto-resume stale criteria pause when Auto-Decide is ON
+      if (preJob.status !== "running"
+        && preJob.status === "paused"
+        && preJob.pause_reason === "CRITERIA_STALE_PROVENANCE"
+        && preJob.allow_defaults === true) {
+        console.log(`[auto-run][IEL] auto_resume_stale_criteria_pause { job_id: "${jobId}", pause_reason: "${preJob.pause_reason}" }`);
+        await updateJob(supabase, jobId, {
+          status: "running",
+          pause_reason: null,
+          stop_reason: null,
+          error: null,
+          last_analyzed_version_id: null,
+        });
+        const { data: resumedJob } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+        if (resumedJob) preJob = resumedJob;
+      }
+
       if (preJob.status !== "running") return respond({ job: preJob, latest_steps: [], next_action_hint: getHint(preJob) });
 
       // ── SINGLE-FLIGHT LOCK: acquire processing lock ──
