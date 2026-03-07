@@ -706,6 +706,15 @@ async function needsFreshReview(
   if (activeVersionId !== lastReviewedVersionId) {
     return { needed: true, activeVersionId, activeSource, lastReviewedVersionId, reason: "version_mismatch" };
   }
+  // IEL: Step-log is ground truth. If step-log confirms this version was reviewed,
+  // trust it regardless of job.last_analyzed_version_id (which is cleared on resume
+  // and can trigger redundant re-reviews on unchanged versions, causing note churn
+  // and CI plateau loops). Only fall back to last_analyzed_mismatch when step-log
+  // has no confirmed review for the active version.
+  if (lastReviewedVersionId !== null) {
+    // Step-log confirmed — version already reviewed, no fresh review needed
+    return { needed: false, activeVersionId, activeSource, lastReviewedVersionId, reason: "step_log_confirmed" };
+  }
   if (activeVersionId !== job.last_analyzed_version_id) {
     return { needed: true, activeVersionId, activeSource, lastReviewedVersionId, reason: "last_analyzed_mismatch" };
   }
