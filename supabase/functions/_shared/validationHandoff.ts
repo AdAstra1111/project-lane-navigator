@@ -157,8 +157,9 @@ export interface HandoffFindingResult {
   violationKey: string;
   eligibility: HandoffEligibility;
   reason: string;
-  outcome: "issue_created" | "duplicate_suppressed" | "blocked" | "informational_skipped" | "manual_only_skipped" | "planning_deferred";
+  outcome: "issue_created" | "duplicate_suppressed" | "blocked" | "informational_skipped" | "manual_only_skipped" | "planning_deferred" | "review_task_created" | "review_task_duplicate_suppressed" | "review_task_blocked";
   issueId: string | null;
+  reviewTaskId?: string | null;
 }
 
 export interface HandoffResult {
