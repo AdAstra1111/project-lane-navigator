@@ -462,6 +462,114 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         }
       } catch { /* flag off or import fails — no-op */ }
 
+      // ── VD_FORMAT_RULES_SEED: deterministic constraints for Vertical Drama format_rules ──
+      let vdFormatRulesBlock = "";
+      if (docType === "format_rules" && isVerticalDrama) {
+        // Load pitch criteria from canon_json and project metadata
+        let canonData: any = null;
+        try {
+          const { data: canonRow } = await supabase.from("project_canon")
+            .select("canon_json").eq("project_id", projectId).maybeSingle();
+          canonData = canonRow?.canon_json;
+        } catch { /* no canon — proceed with defaults */ }
+
+        const epCount = resolvedQuals.season_episode_count || canonData?.episode_count || 30;
+        const epDurMin = durMin || 120;
+        const epDurMax = durMax || 180;
+        const epDurMidVal = Math.round((epDurMin + epDurMax) / 2);
+        const budgetBand = canonData?.budget_band || canonData?.budgetBand || "micro-to-low";
+        const culturalAnchor = canonData?.cultural_tag || canonData?.culturalTag || "";
+        const toneAnchor = canonData?.tone_anchor || canonData?.toneAnchor || "";
+
+        // Compute beat targets from shared module
+        const vdBeatTargets = (await import("../_shared/verticalDramaBeats.ts")).computeBeatTargets({
+          minSeconds: epDurMin,
+          maxSeconds: epDurMax,
+        });
+
+        // Pacing heuristic from cultural anchor
+        let pacingGuidance = "Standard scroll-stopping cadence with constant forward momentum.";
+        const culturalLower = culturalAnchor.toLowerCase();
+        if (culturalLower.includes("k-drama") || culturalLower.includes("korean")) {
+          pacingGuidance = "K-drama rhythmic pacing: emotional swell → beat → reaction → cliffhanger. Lingering close-ups on emotional pivots. Restrained dialogue density.";
+        } else if (culturalLower.includes("telenovela") || culturalLower.includes("latin")) {
+          pacingGuidance = "Telenovela-driven pacing: rapid emotional reversals, confrontational dialogue peaks, dramatic reveals every 30–45 seconds.";
+        } else if (culturalLower.includes("bollywood") || culturalLower.includes("indian")) {
+          pacingGuidance = "Bollywood-influenced pacing: melodrama peaks balanced with intimate moments, musical/emotional punctuation points, family-centric tension arcs.";
+        } else if (culturalLower.includes("anime") || culturalLower.includes("manga")) {
+          pacingGuidance = "Anime-influenced pacing: hard cuts between action and stillness, internal monologue beats, visual metaphor moments, escalating power dynamics.";
+        }
+
+        // Budget discipline from budgetBand
+        let budgetDiscipline = "Standard production constraints.";
+        const budgetLower = budgetBand.toLowerCase();
+        if (budgetLower.includes("micro") || budgetLower.includes("ultra-low")) {
+          budgetDiscipline = "ULTRA-TIGHT BUDGET: Maximum 2 standing locations per episode. No crowd scenes. No VFX. No stunts. Cast limit: 3–5 principals per episode. Natural lighting preferred. Single-camera coverage.";
+        } else if (budgetLower.includes("low")) {
+          budgetDiscipline = "LOW BUDGET: Maximum 3 locations per episode. Minimal extras. No complex VFX. Cast limit: 5–7 principals per episode. Simple practical effects only.";
+        } else if (budgetLower.includes("mid") || budgetLower.includes("medium")) {
+          budgetDiscipline = "MID BUDGET: Maximum 4–5 locations per episode. Modest extras allowed. Simple VFX permitted. Cast limit: 8–10 principals per episode.";
+        }
+
+        vdFormatRulesBlock = `## VERTICAL DRAMA FORMAT RULES — DETERMINISTIC SEED (MANDATORY)
+
+The following constraints are NON-NEGOTIABLE. The generated Format Rules document MUST include ALL of these as explicit, numbered rules. Do NOT omit or soften any constraint.
+
+### FRAME & DELIVERY
+- Aspect ratio: 9:16 (vertical, mobile-first)
+- Platform: Mobile streaming / short-form vertical platform
+- Delivery format: Episodic series, ${epCount} episodes per season
+
+### EPISODE DURATION
+- Target duration range: ${epDurMin}–${epDurMax} seconds per episode (midpoint: ${epDurMidVal}s)
+- Hard minimum: ${epDurMin}s — no episode may be shorter
+- Hard maximum: ${epDurMax}s — no episode may exceed this
+
+### BEAT CADENCE
+- ${vdBeatTargets.summaryText}
+- Beat spacing target: ${vdBeatTargets.beatSpacingLabel}
+- HOOK within first ${vdBeatTargets.hookWindowSeconds[0]}–${vdBeatTargets.hookWindowSeconds[1]} seconds — scroll-stopping opening mandatory
+- Micro-cliffhanger REQUIRED at end of every episode — no resolution within same episode
+- 3-beat minimum structure: HOOK → CORE TURN → CLIFFHANGER
+
+### VISUAL GRAMMAR
+- Close-up dominant: 60–70% of shots must be close-ups or medium close-ups (MCU)
+- No wide establishing shots longer than 3 seconds
+- Vertical framing: all composition optimized for 9:16 — no horizontal pans, no letterboxing
+- Single-subject framing preferred — avoid two-shots wider than MCU
+
+### PACING & CULTURAL ANCHOR
+${toneAnchor ? `- Tone anchor: ${toneAnchor}` : ""}
+${culturalAnchor ? `- Cultural anchor: ${culturalAnchor}` : ""}
+- ${pacingGuidance}
+- Dead air prohibition: no beat gap longer than ${vdBeatTargets.beatSpacingTargetSeconds + 3} seconds without narrative progression
+- Every scene must advance plot OR reveal character — never both passively
+
+### LOCATION DISCIPLINE
+${budgetDiscipline}
+- Location repetition encouraged — audience builds spatial familiarity in short-form
+- Exterior-to-interior ratio: favor interiors (70%+ interior) for lighting and audio control
+
+### DIALOGUE RULES
+- Maximum 3 lines of uninterrupted dialogue before a visual cut, reaction, or beat shift
+- Dialogue must be speakable in under ${Math.round(epDurMidVal * 0.4)} seconds total per episode (≈40% dialogue ratio)
+- Subtext preferred over exposition — show don't tell
+
+### BUDGET DISCIPLINE
+- Budget band: ${budgetBand}
+${budgetDiscipline}
+
+### SEASON STRUCTURE
+- ${epCount} episodes per season
+- Season arc must be self-contained with resolution
+- Episode-to-episode continuity required — no standalone/procedural episodes
+- Escalation curve: stakes must increase every 3–5 episodes
+
+IMPORTANT: Structure the output as a formal FORMAT RULES document with numbered rules under clear section headings. Every constraint above must appear as an explicit rule.`;
+
+        console.log(`[generate-document] VD_FORMAT_RULES_SEED applied: epCount=${epCount} dur=${epDurMin}-${epDurMax}s budget=${budgetBand} cultural=${culturalAnchor || 'none'}`);
+      }
+
       system = [
         `You are a professional development document generator for film/TV projects.`,
         `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
@@ -474,6 +582,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         narrativeBlock,
         cpmBlock,
         charBibleDepthBlock,
+        vdFormatRulesBlock,
         additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
         `If the upstream documents contain sections titled "Creative DNA Targets (From Trend Convergence)" or "Convergence Guidance (Audience Appetite Context)", treat them as strong recommendations for voice, tone, pacing, and world density while staying original.`,
         mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
