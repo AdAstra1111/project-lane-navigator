@@ -5185,8 +5185,8 @@ Deno.serve(async (req) => {
             if (docForCap) await finalizeBest(supabase, jobId, job, docForCap.id);
             await updateJob(supabase, jobId, {
               status: "paused",
-              stop_reason: "CI_PLATEAU_BELOW_90",
-              pause_reason: "CI_PLATEAU_BELOW_90",
+              stop_reason: "CI_PLATEAU_BELOW_TARGET",
+              pause_reason: "CI_PLATEAU_BELOW_TARGET",
               error: `Plateau V2: CI=${plateauV2.currentCI}, blockers not shrinking, high-impact not shrinking for ${currentDoc}. Target: CI>=${targetCi}.`,
             });
             await releaseProcessingLock(supabase, jobId);
