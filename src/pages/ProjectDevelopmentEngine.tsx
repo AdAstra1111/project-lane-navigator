@@ -558,11 +558,17 @@ export default function ProjectDevelopmentEngine() {
   // PATCH C — effectiveVersionId: authoritative wins over selected for all gate/convergence surfaces
   const effectiveVersionId = authoritativeVersion?.id || selectedVersionId || null;
 
-  // Auto-select authoritative version in the UI when it exists but selectedVersionId points elsewhere
+  // Auto-select authoritative version ONLY when the authoritative version first appears or changes
+  // (not continuously — that blocks manual version browsing in the sidebar)
+  const prevAuthVersionRef = useRef<string | null>(null);
   useEffect(() => {
-    if (authoritativeVersion?.id && selectedVersionId && authoritativeVersion.id !== selectedVersionId) {
-      console.info(`[ui][IEL] authoritative_ui_version_bound { project_id: "${projectId}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${authoritativeVersion.id}", selected_version_id: "${selectedVersionId}", action: "auto_rebind" }`);
-      setSelectedVersionId(authoritativeVersion.id);
+    const authId = authoritativeVersion?.id ?? null;
+    if (authId && authId !== prevAuthVersionRef.current) {
+      prevAuthVersionRef.current = authId;
+      if (selectedVersionId && authId !== selectedVersionId) {
+        console.info(`[ui][IEL] authoritative_ui_version_bound { project_id: "${projectId}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${authId}", selected_version_id: "${selectedVersionId}", action: "auto_rebind_once" }`);
+        setSelectedVersionId(authId);
+      }
     }
   }, [authoritativeVersion?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -685,10 +691,8 @@ export default function ProjectDevelopmentEngine() {
     const convergenceVersionId = selectedVersionId || null;
     if (convergenceVersionId && convergenceVersionId !== promotionGateVersionId) {
       console.warn(`[ui][IEL] promotion_gate_version_mismatch { project_id: "${projectId}", job_id: "${autoRun.job?.id || 'none'}", doc_type: "${selectedDeliverableType}", authoritative_version_id: "${promotionGateVersionId}", gate_version_id: "${promotionGateVersionId}", convergence_version_id: "${convergenceVersionId}", action: "force_rebind" }`);
-      // PATCH D — functional mismatch correction: force rebind selectedVersionId to authoritative
-      if (authoritativeVersion?.id && authoritativeVersion.id !== selectedVersionId) {
-        setSelectedVersionId(authoritativeVersion.id);
-      }
+      // PATCH D — log mismatch but do NOT force-rebind (allows manual version browsing)
+      // The authoritative version is still used for gate evaluation via effectiveVersionId
     }
 
     if (lastPromotionGateVersionRef.current && lastPromotionGateVersionRef.current !== promotionGateVersionId) {
