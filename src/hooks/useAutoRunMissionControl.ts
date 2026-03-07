@@ -60,6 +60,20 @@ export interface DocumentTextResult {
 
 export type ConnectionState = 'online' | 'reconnecting' | 'disconnected';
 
+// ── Human-required pause reasons that must NOT be auto-resumed ──
+const HUMAN_REQUIRED_PAUSES = [
+  'COMPLETED', 'ERROR', 'VERSION_CAP_REACHED',
+  'SAFE_MODE_GATE', 'STEP_LIMIT_REACHED',
+];
+
+function isHumanRequiredPause(job: AutoRunJob): boolean {
+  if (HUMAN_REQUIRED_PAUSES.some(r =>
+    job.stop_reason?.includes(r) || job.pause_reason?.includes(r)
+  )) return true;
+  if (job.awaiting_approval && (job as any).approval_type === 'human_required') return true;
+  return false;
+}
+
 export function useAutoRunMissionControl(projectId: string | undefined) {
   const qc = useQueryClient();
   const [job, setJob] = useState<AutoRunJob | null>(null);
@@ -71,6 +85,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   const abortRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consecutiveFailuresRef = useRef(0);
+  const autoResumeFailCountRef = useRef(0);
   const lastSuccessRef = useRef(Date.now());
   const pollInFlightRef = useRef(false);
   const doPollRef = useRef<() => Promise<void>>();
@@ -183,9 +198,12 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
 
       const running = !!result.job && result.job.status === 'running' && !result.job.awaiting_approval;
-      setIsRunning(running);
+      const isPausedAutoResumable = !!result.job && result.job.status === 'paused' && result.job.allow_defaults === true && !isHumanRequiredPause(result.job) && autoResumeFailCountRef.current < 3;
 
-      if (!running) {
+      // During auto-resumable pauses, keep showing "Running" in UI
+      setIsRunning(running || isPausedAutoResumable);
+
+      if (!running && !isPausedAutoResumable) {
         return; // Don't reschedule — polling stops
       }
 
@@ -226,15 +244,62 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   // Keep ref in sync so schedulePoll always calls latest doPoll
   doPollRef.current = doPoll;
 
+  // ── Auto-resume effect: when paused + allow_defaults, resume automatically ──
   useEffect(() => {
-    // Poll whenever backend job is actively running (job.status is source of truth)
-    const shouldPoll = !!job && job.status === 'running' && !job.awaiting_approval && !shouldPausePollingForDecisions;
+    if (!job || job.status !== 'paused') {
+      autoResumeFailCountRef.current = 0;
+      return;
+    }
+    if (!job.allow_defaults) return;
+    if (isHumanRequiredPause(job)) return;
+    if (autoResumeFailCountRef.current >= 3) return;
+
+    console.log(`[mission-control][IEL] auto_resume_scheduled { job_id: "${job.id}", pause_reason: "${job.pause_reason}", attempt: ${autoResumeFailCountRef.current + 1} }`);
+
+    const timer = setTimeout(async () => {
+      try {
+        const resumeResult = await callAutoRun('resume', { jobId: job.id, followLatest: true });
+        if (resumeResult?.job) {
+          setJob(resumeResult.job);
+          setSteps(resumeResult.latest_steps || []);
+        }
+        // Nudge run-next immediately after resume
+        const nextResult = await callAutoRun('run-next', { jobId: job.id });
+        if (nextResult?.job) {
+          setJob(nextResult.job);
+          setSteps(nextResult.latest_steps || []);
+        }
+        setIsRunning(true);
+        autoResumeFailCountRef.current = 0;
+        console.log(`[mission-control][IEL] auto_resume_success { job_id: "${job.id}" }`);
+      } catch (e: any) {
+        autoResumeFailCountRef.current += 1;
+        console.warn(`[mission-control] auto-resume failed (attempt ${autoResumeFailCountRef.current}):`, e.message);
+        if (autoResumeFailCountRef.current >= 3) {
+          setIsRunning(false);
+        }
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [job?.id, job?.status, job?.allow_defaults, job?.pause_reason, job?.stop_reason]);
+
+  useEffect(() => {
+    // Poll when backend job is actively running OR when paused-but-auto-resumable (allow_defaults ON)
+    const isPausedAutoResumable = !!job && job.status === 'paused' && job.allow_defaults === true && !isHumanRequiredPause(job) && autoResumeFailCountRef.current < 3;
+    const shouldPoll = (!!job && job.status === 'running' && !job.awaiting_approval && !shouldPausePollingForDecisions) || isPausedAutoResumable;
+
     if (!shouldPoll) {
-      if (isRunning && (!job || job.status !== 'running' || job.awaiting_approval || shouldPausePollingForDecisions)) {
+      if (isRunning && (!job || (job.status !== 'running' && !isPausedAutoResumable) || job.awaiting_approval || shouldPausePollingForDecisions)) {
         setIsRunning(false);
       }
       if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; }
       return;
+    }
+
+    // Keep isRunning true during auto-resumable pauses so UI shows "Running" not "Paused"
+    if (isPausedAutoResumable && !isRunning) {
+      setIsRunning(true);
     }
 
     // Reset failure counters when starting fresh polling
@@ -246,7 +311,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     doPoll();
 
     return () => { if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; } };
-  }, [job?.id, job?.status, job?.awaiting_approval, shouldPausePollingForDecisions, doPoll]);
+  }, [job?.id, job?.status, job?.awaiting_approval, job?.allow_defaults, shouldPausePollingForDecisions, doPoll]);
 
   // ── Core actions ──
   const refreshStatus = useCallback(async () => {
