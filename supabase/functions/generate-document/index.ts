@@ -570,6 +570,48 @@ IMPORTANT: Structure the output as a formal FORMAT RULES document with numbered 
         console.log(`[generate-document] VD_FORMAT_RULES_SEED applied: epCount=${epCount} dur=${epDurMin}-${epDurMax}s budget=${budgetBand} cultural=${culturalAnchor || 'none'}`);
       }
 
+      // ── SEASON_ARC_SCOPE: deterministic scope definition for season_arc ──
+      let seasonArcScopeBlock = "";
+      if (docType === "season_arc") {
+        const sacEpCount = resolvedQuals?.season_episode_count || 30;
+        seasonArcScopeBlock = `
+## SEASON ARC — SCOPE DEFINITION (MANDATORY)
+
+You are generating a SEASON ARC document. This document defines the macro-level narrative architecture of the entire season. Follow the scope rules below exactly.
+
+### MUST CONTAIN — every section below is required:
+
+1. **Series Arc** — The overarching narrative spine from episode 1 to the finale. State the central dramatic question and how it resolves.
+
+2. **Act Structure** — How the ${sacEpCount} episodes divide into acts (typically 3). Lock turning-point episode numbers (e.g. Act 1: eps 1–N, Act 2: eps N+1–M, Act 3: eps M+1–${sacEpCount}).
+
+3. **Character Arcs** — For each principal character: internal vs. external transformation, what they want vs. what they need, where they start vs. where they end.
+
+4. **Relationship Arc** — The central relationship progression beat by beat from first meeting/encounter to resolution.
+
+5. **Antagonist Arc** — The antagonist's escalation, revelation, and resolution across the season.
+
+6. **Thematic Arc** — How the central theme builds, complicates, and pays off across the season.
+
+7. **Key Episode Anchors** — Locked story pivots with episode numbers: inciting incident, midpoint revelation, break into Act 3, climax, finale.
+
+8. **Tone Map** — Emotional rhythm across the season: when tension peaks, when it breathes, where comedy relief lands.
+
+### MUST NOT CONTAIN — scope violations will be flagged as blocking issues:
+
+- Format or technical production rules → belongs in Format Rules
+- Episode-by-episode breakdown or per-episode summaries → belongs in Episode Grid
+- Individual episode scripts or dialogue → belongs in Season Script
+- Character descriptions, backstory, or casting notes → belongs in Character Bible
+- Vertical beat structure or episode templates → belongs in Format Rules / Vertical Episode Beats
+- Scene-level detail or shot descriptions → belongs in Episode Script
+
+### SCOPE GUARD
+If you find yourself writing content that belongs in another document type listed above, STOP and redirect. The Season Arc is a MACRO document — it operates at the season level, not the episode level. Each section should describe trajectories and turning points, not granular scene-by-scene content.
+`;
+        console.log(`[generate-document] SEASON_ARC_SCOPE applied: epCount=${sacEpCount}`);
+      }
+
       system = [
         `You are a professional development document generator for film/TV projects.`,
         `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
@@ -583,6 +625,7 @@ IMPORTANT: Structure the output as a formal FORMAT RULES document with numbered 
         cpmBlock,
         charBibleDepthBlock,
         vdFormatRulesBlock,
+        seasonArcScopeBlock,
         additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
         `If the upstream documents contain sections titled "Creative DNA Targets (From Trend Convergence)" or "Convergence Guidance (Audience Appetite Context)", treat them as strong recommendations for voice, tone, pacing, and world density while staying original.`,
         mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
