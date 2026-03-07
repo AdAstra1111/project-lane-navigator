@@ -5,6 +5,7 @@
  */
 
 import { buildCanonEntitiesFromDB, validateCanonAlignment } from "./docPolicyRegistry.ts";
+import { emitTransition, TRANSITION_EVENTS } from "./transitionLedger.ts";
 
 // ── Deterministic resolver hash (no crypto dependency) ──
 function simpleHash(str: string): string {
