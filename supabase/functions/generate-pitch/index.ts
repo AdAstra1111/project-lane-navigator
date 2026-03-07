@@ -162,7 +162,7 @@ serve(async (req) => {
     let dbAnimMeta: { primary: string | null; tags: string[]; style: string | null } = { primary: null, tags: [], style: null };
     let projRow: any = null;
     let projSupa: any = svcClient; // service-role client reused in later projectId block
-      projSupa = svcClient;
+    if (projectId) {
 
       // b) Verify access via has_project_access (admin client) — BEFORE any project reads
       const { data: hasAccess, error: accessErr } = await projSupa.rpc("has_project_access", {
