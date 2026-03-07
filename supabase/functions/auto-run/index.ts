@@ -2334,7 +2334,7 @@ async function logStep(
         eventDomain: "auto_run",
         docType: document,
         jobId,
-        status: isFailed ? "failed" : "completed",
+        status: eventStatus,
         trigger: action,
         sourceOfTruth: "auto-run",
         ci: scores.ci,
