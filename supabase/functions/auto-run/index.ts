@@ -150,6 +150,32 @@ async function persistVersionScores(
     throw new Error(`VERSION_SCORE_WRITE_FAILED: ${updateErr.message}`);
   }
 
+  // ── TRANSITION LEDGER: ci_gp_scores_computed ──
+  try {
+    const { data: verDoc } = await supabase
+      .from("project_document_versions")
+      .select("document_id, project_documents!inner(project_id)")
+      .eq("id", versionId)
+      .maybeSingle();
+    const projId = (verDoc as any)?.project_documents?.project_id;
+    if (projId) {
+      await emitTransition(supabase, {
+        projectId: projId,
+        eventType: TRANSITION_EVENTS.CI_GP_SCORES_COMPUTED,
+        docType: docType || undefined,
+        jobId,
+        resultingVersionId: versionId,
+        ci: effectiveCi,
+        gp: effectiveGp,
+        trigger: source,
+        sourceOfTruth: "persistVersionScores",
+        resultingState: { ci: effectiveCi, gp: effectiveGp, downgraded_blocked: downgradedBlocked, score_source: source },
+      }, { critical: false });
+    }
+  } catch (e: any) {
+    console.warn(`[auto-run][transition-ledger] scoring emit failed: ${e?.message}`);
+  }
+
   return {
     ci: effectiveCi,
     gp: effectiveGp,
