@@ -653,6 +653,7 @@ If you find yourself describing what happens in the story, which characters appe
         charBibleDepthBlock,
         vdFormatRulesBlock,
         seasonArcScopeBlock,
+        formatRulesScopeBlock,
         additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
         `If the upstream documents contain sections titled "Creative DNA Targets (From Trend Convergence)" or "Convergence Guidance (Audience Appetite Context)", treat them as strong recommendations for voice, tone, pacing, and world density while staying original.`,
         mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
