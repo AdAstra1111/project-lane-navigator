@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { initEditedFields, normalizePitchCriteria, type EditedFieldsMap } from '@/lib/pitch/normalizePitchCriteria';
 import { motion } from 'framer-motion';
 import { Lightbulb, Loader2, Download, RefreshCw, Globe } from 'lucide-react';
