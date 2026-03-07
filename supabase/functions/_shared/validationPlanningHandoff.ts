@@ -47,6 +47,8 @@ interface PlanningEligibilityRule {
 
 const PLANNING_ELIGIBILITY_GUARD: PlanningEligibilityRule[] = [
   // required_sections incompleteness with known doc type → planning eligible
+  // Validator emits: violationType="incompleteness", severity="warning", scopeLevel="section", affectedSectionKey=<key>
+  // Bounded scope: YES — section-level, deterministic via deliverableSectionRegistry
   {
     domain: "required_sections",
     violationType: "incompleteness",
@@ -62,14 +64,10 @@ const PLANNING_ELIGIBILITY_GUARD: PlanningEligibilityRule[] = [
     changeSourceKind: "doc_type_repair",
     requiresSectionScope: false,
   },
-  // canon_entity_coverage warnings with known doc type + authority → planning eligible
-  {
-    domain: "canon_entity_coverage",
-    violationType: "incompleteness",
-    severity: "warning",
-    changeSourceKind: "canon_unit",
-    requiresSectionScope: false,
-  },
+  // NOTE: canon_entity_coverage is NOT planning-eligible.
+  // Validator emits violationType="contradiction" (not "incompleteness"),
+  // scopeLevel="document", affectedSectionKey=null.
+  // No bounded section scope is derivable → routed to issue_eligible instead.
 ];
 
 function findPlanningRule(violation: Violation): PlanningEligibilityRule | null {
