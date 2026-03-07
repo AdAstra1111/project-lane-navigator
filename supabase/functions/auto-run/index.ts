@@ -601,6 +601,24 @@ async function resolveActiveVersionForDoc(
   const approvedCurrent = allVersions.find((v: any) => v.approval_status === "approved" && !!v.is_current);
   if (approvedCurrent) {
     console.log(`[auto-run][IEL] authoritative_version_resolved { document_id: "${documentId}", version_id: "${approvedCurrent.id}", reason: "approved_and_current", version_number: ${approvedCurrent.version_number}, doc_type: "${ctx?.docType || 'unknown'}" }`);
+    // ── TRANSITION LEDGER: authoritative_version_resolved ──
+    try {
+      const { data: docRow } = await supabase.from("project_documents").select("project_id").eq("id", documentId).maybeSingle();
+      if (docRow?.project_id) {
+        await emitTransition(supabase, {
+          projectId: docRow.project_id,
+          eventType: TRANSITION_EVENTS.AUTHORITATIVE_VERSION_RESOLVED,
+          docType: ctx?.docType,
+          jobId: ctx?.jobId,
+          resultingVersionId: approvedCurrent.id,
+          trigger: "abvr_resolution",
+          sourceOfTruth: "auto-run",
+          resultingState: { reason: "approved_and_current", version_number: approvedCurrent.version_number },
+        });
+      }
+    } catch (e: any) {
+      console.warn(`[auto-run][transition-ledger] authoritative_version_resolved emit failed: ${e?.message}`);
+    }
     return { versionId: approvedCurrent.id, source: "eligible_best_score" as const, reason: "approved_and_current" };
   }
 
@@ -2389,14 +2407,15 @@ async function updateJob(supabase: any, jobId: string, fields: Record<string, an
   }
   await supabase.from("auto_run_jobs").update(fields).eq("id", jobId);
 
-  // ── TRANSITION LEDGER: auto-emit on stage change or terminal status ──
+  // ── TRANSITION LEDGER: auto-emit on stage change (deduplicated) ──
   if (fields.current_document) {
     try {
-      // Fetch project_id for transition context
+      // Fetch PREVIOUS job state to compare — only emit if stage actually changed
       const { data: jobRow } = await supabase.from("auto_run_jobs")
         .select("project_id, current_document, last_ci, last_gp, user_id")
         .eq("id", jobId).single();
-      if (jobRow?.project_id) {
+      // DUPLICATE GUARD: only emit if the stage actually changed (not a no-op update)
+      if (jobRow?.project_id && jobRow.current_document !== fields.current_document) {
         await emitStageTransition(
           supabase, jobRow.project_id, jobId,
           jobRow.current_document || "unknown",
