@@ -5159,9 +5159,28 @@ Deno.serve(async (req) => {
       // service_role skips user_id filter (self-chain path)
       let preJobQuery = supabase.from("auto_run_jobs").select("*").eq("id", jobId);
       if (actor !== "service_role") preJobQuery = preJobQuery.eq("user_id", userId);
-      const { data: preJob, error: preJobErr } = await preJobQuery.single();
+      const { data: preJobRaw, error: preJobErr } = await preJobQuery.single();
+      let preJob: any = preJobRaw;
       if (preJobErr || !preJob) return respond({ error: "Job not found" }, 404);
       if (preJob.awaiting_approval) return respond({ job: preJob, latest_steps: [], next_action_hint: "awaiting-approval" });
+
+      // Auto-resume stale criteria pause when Auto-Decide is ON
+      if (preJob.status !== "running"
+        && preJob.status === "paused"
+        && preJob.pause_reason === "CRITERIA_STALE_PROVENANCE"
+        && preJob.allow_defaults === true) {
+        console.log(`[auto-run][IEL] auto_resume_stale_criteria_pause { job_id: "${jobId}", pause_reason: "${preJob.pause_reason}" }`);
+        await updateJob(supabase, jobId, {
+          status: "running",
+          pause_reason: null,
+          stop_reason: null,
+          error: null,
+          last_analyzed_version_id: null,
+        });
+        const { data: resumedJob } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+        if (resumedJob) preJob = resumedJob;
+      }
+
       if (preJob.status !== "running") return respond({ job: preJob, latest_steps: [], next_action_hint: getHint(preJob) });
 
       // ── SINGLE-FLIGHT LOCK: acquire processing lock ──
@@ -6653,20 +6672,45 @@ Deno.serve(async (req) => {
       });
 
       if (criteriaResult.classification === 'CRITERIA_STALE_PROVENANCE') {
-        // True provenance mismatch — criteria actually changed mid-run
-        await logStep(supabase, jobId, stepCount + 1, currentDoc, "criteria_stale_provenance",
-          `Criteria provenance mismatch: ${criteriaResult.detail}`,
-          { risk_flags: ["criteria_stale_provenance"] },
-        );
-        await updateJob(supabase, jobId, {
-          step_count: stepCount + 1,
-          status: "paused",
-          pause_reason: "CRITERIA_STALE_PROVENANCE",
-          stop_reason: `Criteria changed since last analysis: ${criteriaResult.detail}. Regenerate or approve continuing.`,
-          last_risk_flags: [...(job.last_risk_flags || []), "criteria_stale_provenance"],
-          last_ui_message: `⚠ Criteria provenance mismatch detected`,
-        });
-        return respondWithJob(supabase, jobId, "rebase-required");
+        // If Auto-Decide is ON, rebase the latest version to current criteria hash and continue.
+        // This prevents deadlocks after canon/criteria tweaks during long-running jobs.
+        if (job.allow_defaults) {
+          if (latestVersion?.id && currentCriteriaHash) {
+            const { error: rebaseErr } = await supabase
+              .from("project_document_versions")
+              .update({ criteria_hash: currentCriteriaHash })
+              .eq("id", latestVersion.id);
+            if (rebaseErr) {
+              console.warn(`[auto-run][IEL] criteria_stale_rebase_failed`, JSON.stringify({
+                job_id: jobId,
+                version_id: latestVersion.id,
+                error: rebaseErr.message,
+              }));
+            } else {
+              console.log(`[auto-run][IEL] criteria_stale_auto_rebased`, JSON.stringify({
+                job_id: jobId,
+                doc_type: currentDoc,
+                version_id: latestVersion.id,
+                criteria_hash: currentCriteriaHash,
+              }));
+            }
+          }
+        } else {
+          // True provenance mismatch — criteria changed mid-run and requires explicit user action
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "criteria_stale_provenance",
+            `Criteria provenance mismatch: ${criteriaResult.detail}`,
+            { risk_flags: ["criteria_stale_provenance"] },
+          );
+          await updateJob(supabase, jobId, {
+            step_count: stepCount + 1,
+            status: "paused",
+            pause_reason: "CRITERIA_STALE_PROVENANCE",
+            stop_reason: `Criteria changed since last analysis: ${criteriaResult.detail}. Regenerate or approve continuing.`,
+            last_risk_flags: [...(job.last_risk_flags || []), "criteria_stale_provenance"],
+            last_ui_message: `⚠ Criteria provenance mismatch detected`,
+          });
+          return respondWithJob(supabase, jobId, "rebase-required");
+        }
       }
       
       if (criteriaResult.classification === 'CRITERIA_FAIL_DURATION') {
