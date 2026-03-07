@@ -621,6 +621,26 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     try {
       await supabase.from('auto_run_jobs').update({ allow_defaults: val } as any).eq('id', job.id);
       setJob(prev => prev ? { ...prev, allow_defaults: val } : prev);
+
+      // When enabling auto-decide while paused with pending decisions, auto-resolve them
+      const hasPending = Array.isArray(job.pending_decisions) && (job.pending_decisions as any[]).length > 0;
+      if (val && job.status === 'paused' && hasPending) {
+        try {
+          const result = await callAutoRun('apply-decisions-and-continue', {
+            jobId: job.id,
+            selectedOptions: [],
+          });
+          if (result.job) {
+            setJob(result.job);
+            setSteps(result.latest_steps || []);
+            if (result.job.status === 'running') {
+              setIsRunning(true);
+            }
+          }
+        } catch (resumeErr: any) {
+          console.warn('[auto-run] auto-resolve pending decisions failed:', resumeErr.message);
+        }
+      }
     } catch (e: any) { setError(e.message); }
   }, [job]);
 
