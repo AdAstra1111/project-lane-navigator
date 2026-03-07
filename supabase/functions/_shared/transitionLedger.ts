@@ -61,6 +61,12 @@ export const TRANSITION_EVENTS = {
   PROJECTION_EXECUTION_STARTED: "projection_execution_started",
   PROJECTION_EXECUTION_COMPLETED: "projection_execution_completed",
   PROJECTION_EXECUTION_FAILED: "projection_execution_failed",
+
+  // Narrative Integrity Validation
+  NARRATIVE_VALIDATION_STARTED: "narrative_validation_started",
+  NARRATIVE_VALIDATION_COMPLETED: "narrative_validation_completed",
+  NARRATIVE_VALIDATION_BLOCKED: "narrative_validation_blocked",
+  NARRATIVE_VIOLATION_DETECTED: "narrative_violation_detected",
 } as const;
 
 export type TransitionEventType = typeof TRANSITION_EVENTS[keyof typeof TRANSITION_EVENTS];
@@ -274,5 +280,6 @@ function inferDomain(eventType: string): string {
   if (eventType.startsWith("promotion_") || eventType.startsWith("stale_")) return EVENT_DOMAINS.GATE;
   if (eventType.startsWith("impact_") || eventType.startsWith("affected_") || eventType.startsWith("bounded_")) return "impact";
   if (eventType.startsWith("projection_")) return "projection";
+  if (eventType.startsWith("narrative_")) return "validation";
   return "pipeline";
 }
