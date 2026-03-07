@@ -2270,7 +2270,68 @@ async function logStep(
   return idx;
 }
 
-// ── Helper: update job (with PATCH 5 completion gate) ──
+// ── Helper: emit stage transition to Transition Ledger ──
+async function emitStageTransition(
+  supabase: any,
+  projectId: string,
+  jobId: string,
+  from: string,
+  to: string,
+  trigger: string,
+  extra: { ci?: number; gp?: number; sourceVersionId?: string; createdBy?: string; lane?: string } = {}
+) {
+  try {
+    await emitTransition(supabase, {
+      projectId,
+      eventType: TRANSITION_EVENTS.STAGE_TRANSITION_EXECUTED,
+      docType: to,
+      stage: to,
+      lane: extra.lane,
+      jobId,
+      sourceVersionId: extra.sourceVersionId,
+      trigger,
+      sourceOfTruth: "auto-run",
+      ci: extra.ci,
+      gp: extra.gp,
+      previousState: { stage: from },
+      resultingState: { stage: to },
+      createdBy: extra.createdBy,
+    }, { critical: false }); // non-critical: stage transition already persisted in job state
+  } catch (e: any) {
+    console.warn(`[auto-run][transition-ledger] stage_transition emit failed: ${e?.message}`);
+  }
+}
+
+// ── Helper: emit scoring transition to Transition Ledger ──
+async function emitScoringTransition(
+  supabase: any,
+  projectId: string,
+  jobId: string,
+  docType: string,
+  versionId: string | undefined,
+  ci: number | null,
+  gp: number | null,
+  trigger: string,
+) {
+  try {
+    await emitTransition(supabase, {
+      projectId,
+      eventType: TRANSITION_EVENTS.CI_GP_SCORES_COMPUTED,
+      docType,
+      jobId,
+      resultingVersionId: versionId,
+      ci: ci ?? undefined,
+      gp: gp ?? undefined,
+      trigger,
+      sourceOfTruth: "auto-run",
+      resultingState: { ci, gp },
+    }, { critical: false });
+  } catch (e: any) {
+    console.warn(`[auto-run][transition-ledger] scoring emit failed: ${e?.message}`);
+  }
+}
+
+
 async function updateJob(supabase: any, jobId: string, fields: Record<string, any>) {
   // PATCH 5: Intercept completion — run gates before allowing status="completed"
   if (fields.status === "completed") {
