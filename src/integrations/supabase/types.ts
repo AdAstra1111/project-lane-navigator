@@ -8137,6 +8137,102 @@ export type Database = {
           },
         ]
       }
+      pipeline_transitions: {
+        Row: {
+          analysis_run_id: string | null
+          ci: number | null
+          created_at: string
+          created_by: string | null
+          decision_id: string | null
+          doc_type: string | null
+          event_domain: string
+          event_type: string
+          gap: number | null
+          generator_id: string | null
+          gp: number | null
+          id: string
+          job_id: string | null
+          lane: string | null
+          previous_state: Json
+          project_id: string
+          resulting_state: Json
+          resulting_version_id: string | null
+          run_id: string | null
+          source_of_truth: string | null
+          source_version_id: string | null
+          stage: string | null
+          status: string
+          trigger: string | null
+        }
+        Insert: {
+          analysis_run_id?: string | null
+          ci?: number | null
+          created_at?: string
+          created_by?: string | null
+          decision_id?: string | null
+          doc_type?: string | null
+          event_domain?: string
+          event_type: string
+          gap?: number | null
+          generator_id?: string | null
+          gp?: number | null
+          id?: string
+          job_id?: string | null
+          lane?: string | null
+          previous_state?: Json
+          project_id: string
+          resulting_state?: Json
+          resulting_version_id?: string | null
+          run_id?: string | null
+          source_of_truth?: string | null
+          source_version_id?: string | null
+          stage?: string | null
+          status?: string
+          trigger?: string | null
+        }
+        Update: {
+          analysis_run_id?: string | null
+          ci?: number | null
+          created_at?: string
+          created_by?: string | null
+          decision_id?: string | null
+          doc_type?: string | null
+          event_domain?: string
+          event_type?: string
+          gap?: number | null
+          generator_id?: string | null
+          gp?: number | null
+          id?: string
+          job_id?: string | null
+          lane?: string | null
+          previous_state?: Json
+          project_id?: string
+          resulting_state?: Json
+          resulting_version_id?: string | null
+          run_id?: string | null
+          source_of_truth?: string | null
+          source_version_id?: string | null
+          stage?: string | null
+          status?: string
+          trigger?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_transitions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "pipeline_transitions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pitch_decks: {
         Row: {
           created_at: string
