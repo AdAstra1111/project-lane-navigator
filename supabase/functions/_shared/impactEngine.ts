@@ -1,24 +1,61 @@
 /**
- * Impact Engine v2 — Deterministic Unit Dependency Graph + Bounded Repair Planning
+ * Impact Engine v2 — Deterministic Impact Resolver + Bounded Repair Planner
  *
  * Resolves downstream impact from upstream truth changes (canon units, locked decisions,
  * doc-type repairs) and computes bounded, lane-aware repair plans.
  *
+ * TERMINOLOGY (v2.1 — honest naming):
+ *   This is NOT a full dependency graph layer. It is:
+ *   - An impact resolver: determines which documents are affected by upstream changes
+ *   - A bounded repair planner: computes safe, lane-aware repair scope
+ *   - An IEL eligibility validator: ensures repairs bind to authoritative versions
+ *
+ * DEPENDENCY TYPES MODELED (v2.1):
+ *   1. Structural dependency — doc-to-doc edges via deliverableDependencyRegistry
+ *      Explicitly modeled. Deterministic. Lane-scoped. Project-scoped.
+ *   2. Reference/mention dependency — unit-to-document via canon_unit_mentions
+ *      Explicitly modeled. Deterministic. Uses persisted mention records.
+ *      Section narrowing via mention offsets when available.
+ *   3. Decision constraint dependency — decision-to-document via decision_ledger.targets
+ *      and project_document_versions.source_decision_ids
+ *      Explicitly modeled. Deterministic.
+ *   4. Derived dependency — unit-to-unit via canon_unit_relations, then to documents
+ *      Implicitly derived at resolution time. Not persisted as edges.
+ *
+ * NOT YET MODELED (deferred):
+ *   - Canonical dependency as a first-class edge type distinct from structural
+ *     (currently subsumed by the dependency registry's "canon" kind edges)
+ *   - Repair eligibility dependency as a formal edge type
+ *     (currently enforced procedurally by IEL guard logic)
+ *
+ * SCOPE (v2.1):
+ *   This patch covers: analysis + bounded repair planning ONLY.
+ *   Repair execution is NOT integrated — remains in existing rewrite pathways.
+ *   The event `impact_repair_executed` is NOT emitted by this engine.
+ *
  * ARCHITECTURE:
- * - Uses existing dependency registry for doc-to-doc edges
- * - Uses canon_unit_mentions for unit-to-document edges
- * - Uses decision_ledger.targets + source_decision_ids for decision-to-document edges
+ * - Uses existing dependency registry for doc-to-doc edges (structural dependency)
+ * - Uses canon_unit_mentions for unit-to-document edges (reference/mention dependency)
+ * - Uses decision_ledger.targets + source_decision_ids for decision constraints
  * - Uses deliverableSectionRegistry for section-level scope targeting
+ * - Uses canon_unit_mentions offsets to narrow sections where deterministic
+ * - Uses episodicBlockRegistry for episode-block targeting where applicable
+ * - Enforces lane-aware exclusion: doc types not in lane ladder are excluded
  * - Binds only to authoritative (is_current + approved) versions
- * - Fails closed on ambiguous impact
+ * - Fails closed on ambiguous impact (analysis-level: blocks repair plan generation)
  * - Emits transition events via Transition Ledger v1.1
  * - No schema drift: operates on existing tables only
  *
  * TRUTH HIERARCHY (enforced):
  *   Canon > Locked Decisions > Canon Units > Authoritative Documents > Corpus > AI Inference
+ *
+ * FAIL-CLOSED SCOPE:
+ *   - Analysis-level: ambiguous impact prevents repair plan generation
+ *   - Repair-plan-level: missing authoritative version or invalid lane blocks the plan
+ *   - Execution-level: NOT in scope — execution remains in existing rewrite pathways
  */
 
-import { type LaneKey } from "./documentLadders.ts";
+import { type LaneKey, LANE_DOC_LADDERS } from "./documentLadders.ts";
 import {
   getDirectDependents,
   getTransitiveDependents,
@@ -30,7 +67,11 @@ import {
 import {
   getSectionConfig,
   type DocTypeSectionConfig,
+  type SectionDefinition,
 } from "./deliverableSectionRegistry.ts";
+import {
+  isEpisodicBlockRepairSupported,
+} from "./episodicBlockRegistry.ts";
 import { emitTransition, TRANSITION_EVENTS } from "./transitionLedger.ts";
 
 // ── Change Source Types ──
@@ -78,7 +119,17 @@ export interface SectionScope {
   sectionKey: string;
   label: string;
   repairMode: string;
+  /** How this section was targeted */
+  targetingMethod: "mention_offset" | "section_registry_fallback" | "episode_block";
 }
+
+// ── Scope Precision Classification ──
+
+export type ScopePrecision =
+  | "precise_section_targeted"     // narrowed via mention offsets or episode blocks
+  | "section_capable_fallback"     // all sections of doc type are candidates (no offset data)
+  | "document_level_fallback"      // no section support for this doc type
+  | "blocked";                     // repair not possible
 
 // ── Bounded Repair Plan ──
 
@@ -90,6 +141,8 @@ export interface BoundedRepairPlan {
   affectedSections: SectionScope[];
   /** Whether section-level repair is possible or requires full-doc fallback */
   scopeMode: "section_targeted" | "full_document" | "blocked";
+  /** Precision classification — honest labeling of targeting quality */
+  scopePrecision: ScopePrecision;
   /** The upstream change that triggered this plan */
   changeSource: ChangeSource;
   /** Dependent units involved */
@@ -122,15 +175,19 @@ export interface ImpactAnalysisResult {
   hasAmbiguity: boolean;
   /** Ambiguity details */
   ambiguityDetails: string[];
+  /** Lane-excluded doc types (documented for audit) */
+  laneExcluded: { docType: string; reason: string }[];
 }
 
-// ── Impact Engine ──
+// ── Impact Resolver ──
 
 /**
  * Compute bounded downstream impact for an upstream truth change.
  *
- * FAIL-CLOSED: If impact cannot be determined cleanly, marks affected
- * targets as blocked with explicit reasons rather than silently propagating.
+ * FAIL-CLOSED (analysis-level):
+ *   If impact cannot be determined cleanly, marks affected targets as blocked
+ *   with explicit reasons. Ambiguous analysis prevents repair plan generation.
+ *   This is analysis-level fail-closed — execution is not in scope.
  */
 export async function computeImpact(
   supabase: any,
@@ -145,13 +202,20 @@ export async function computeImpact(
     analyzedAt: new Date().toISOString(),
     hasAmbiguity: false,
     ambiguityDetails: [],
+    laneExcluded: [],
   };
 
   try {
     // ── Step 1: Resolve affected doc types from change source ──
-    const affectedDocTypes = await resolveAffectedDocTypes(supabase, changeSource);
+    const rawAffectedDocTypes = await resolveAffectedDocTypes(supabase, changeSource);
 
-    // ── Step 2: Resolve actual documents + authoritative versions ──
+    // ── Step 2: Lane-aware exclusion ──
+    const { included: affectedDocTypes, excluded } = applyLaneExclusion(
+      rawAffectedDocTypes, changeSource.lane,
+    );
+    result.laneExcluded = excluded;
+
+    // ── Step 3: Resolve actual documents + authoritative versions ──
     for (const affected of affectedDocTypes) {
       const docs = await resolveDocumentsForDocType(
         supabase, changeSource.projectId, affected.docType,
@@ -182,14 +246,6 @@ export async function computeImpact(
       }
     }
 
-    // ── Step 3: Build bounded repair plans for eligible documents ──
-    for (const affected of result.affectedDocuments) {
-      if (!affected.repairEligible) continue;
-
-      const plan = buildRepairPlan(affected, changeSource);
-      result.repairPlans.push(plan);
-    }
-
     // ── Step 4: Detect ambiguity ──
     if (affectedDocTypes.length === 0 && changeSource.kind !== "doc_type_repair") {
       result.hasAmbiguity = true;
@@ -198,7 +254,19 @@ export async function computeImpact(
       );
     }
 
-    // ── Step 5: Emit transition event ──
+    // ── Step 5: Build bounded repair plans (only if no ambiguity) ──
+    if (!result.hasAmbiguity) {
+      for (const affected of result.affectedDocuments) {
+        if (!affected.repairEligible) continue;
+        const plan = await buildRepairPlan(supabase, affected, changeSource);
+        result.repairPlans.push(plan);
+      }
+    } else {
+      // Ambiguity fail-closed: no repair plans generated
+      console.warn(`[impact-engine] ambiguity detected — repair plan generation blocked`);
+    }
+
+    // ── Step 6: Emit transition events ──
     await emitImpactTransitions(supabase, result);
 
   } catch (err: any) {
@@ -207,9 +275,43 @@ export async function computeImpact(
     result.ambiguityDetails.push(`Engine error: ${err?.message}`);
   }
 
-  console.log(`[impact-engine] computeImpact { project_id: "${changeSource.projectId}", source_kind: "${changeSource.kind}", source_id: "${changeSource.sourceId}", affected: ${result.affectedDocuments.length}, plans: ${result.repairPlans.length}, blocked: ${result.blockedDocuments.length}, ambiguous: ${result.hasAmbiguity} }`);
+  console.log(`[impact-engine] computeImpact { project: "${changeSource.projectId}", source: "${changeSource.kind}:${changeSource.sourceId}", affected: ${result.affectedDocuments.length}, plans: ${result.repairPlans.length}, blocked: ${result.blockedDocuments.length}, lane_excluded: ${result.laneExcluded.length}, ambiguous: ${result.hasAmbiguity} }`);
 
   return result;
+}
+
+// ── Lane-Aware Exclusion ──
+
+/**
+ * Filter affected doc types by lane ladder membership.
+ * Doc types NOT in the lane's ladder are excluded with explicit reason.
+ * This enforces that repair scope cannot target documents outside the lane's valid flow.
+ */
+function applyLaneExclusion(
+  affected: AffectedDocType[],
+  lane: LaneKey,
+): { included: AffectedDocType[]; excluded: { docType: string; reason: string }[] } {
+  const ladder = LANE_DOC_LADDERS[lane] || [];
+  const ladderSet = new Set(ladder);
+  const included: AffectedDocType[] = [];
+  const excluded: { docType: string; reason: string }[] = [];
+
+  for (const a of affected) {
+    if (ladderSet.has(a.docType)) {
+      included.push(a);
+    } else {
+      excluded.push({
+        docType: a.docType,
+        reason: `doc_type_not_in_lane_ladder:${lane}`,
+      });
+    }
+  }
+
+  if (excluded.length > 0) {
+    console.log(`[impact-engine] lane exclusion: lane=${lane}, excluded=[${excluded.map(e => e.docType).join(",")}]`);
+  }
+
+  return { included, excluded };
 }
 
 // ── Internal: Resolve affected doc types ──
@@ -229,7 +331,7 @@ async function resolveAffectedDocTypes(
 
   switch (changeSource.kind) {
     case "doc_type_repair": {
-      // Use existing dependency registry — most mature path
+      // Structural dependency: use existing dependency registry — most mature path
       const plan = getInvalidationPlan(changeSource.lane, changeSource.sourceId);
       for (const entry of plan.entries) {
         affected.push({
@@ -243,12 +345,11 @@ async function resolveAffectedDocTypes(
     }
 
     case "canon_unit": {
-      // Resolve via canon_unit_mentions → document_id → doc_type
+      // Reference/mention dependency: resolve via canon_unit_mentions → document_id → doc_type
       const mentionDocTypes = await resolveDocTypesFromUnitMentions(
         supabase, changeSource.projectId, changeSource.sourceId,
       );
       for (const docType of mentionDocTypes) {
-        // Check dependency edge from originDocType to this doc's type
         const edge = changeSource.originDocType
           ? findEdgeForDocType(changeSource.lane, changeSource.originDocType, docType)
           : null;
@@ -260,12 +361,12 @@ async function resolveAffectedDocTypes(
         });
       }
 
-      // Also resolve via unit relations (transitive unit dependencies)
+      // Derived dependency: unit-to-unit via canon_unit_relations, then to documents
       const relatedUnitDocTypes = await resolveDocTypesFromUnitRelations(
         supabase, changeSource.projectId, changeSource.sourceId,
       );
       for (const docType of relatedUnitDocTypes) {
-        if (affected.some(a => a.docType === docType)) continue; // deduplicate
+        if (affected.some(a => a.docType === docType)) continue;
         affected.push({
           docType,
           impactKind: "transitive_dependency",
@@ -274,8 +375,7 @@ async function resolveAffectedDocTypes(
         });
       }
 
-      // Fallback: if no mentions exist, use the unit's source_document_id
-      // to determine origin doc_type and traverse dependency graph
+      // Fallback: if no mentions exist, use origin doc_type to traverse structural graph
       if (affected.length === 0 && changeSource.originDocType) {
         const plan = getInvalidationPlan(changeSource.lane, changeSource.originDocType);
         for (const entry of plan.entries) {
@@ -291,7 +391,7 @@ async function resolveAffectedDocTypes(
     }
 
     case "locked_decision": {
-      // Resolve via decision_ledger.targets + source_decision_ids on versions
+      // Decision constraint dependency: via decision_ledger.targets + source_decision_ids
       const decisionDocTypes = await resolveDocTypesFromDecision(
         supabase, changeSource.projectId, changeSource.sourceId,
       );
@@ -310,7 +410,7 @@ async function resolveAffectedDocTypes(
     }
 
     case "unit_relation": {
-      // Resolve both sides of the relation
+      // Derived dependency: resolve both sides of the relation
       const { data: relation } = await supabase
         .from("canon_unit_relations")
         .select("unit_id_from, unit_id_to")
@@ -371,7 +471,6 @@ async function resolveDocTypesFromUnitRelations(
   projectId: string,
   unitId: string,
 ): Promise<string[]> {
-  // Find related units
   const { data: relations } = await supabase
     .from("canon_unit_relations")
     .select("unit_id_from, unit_id_to")
@@ -386,7 +485,6 @@ async function resolveDocTypesFromUnitRelations(
     if (r.unit_id_to !== unitId) relatedUnitIds.add(r.unit_id_to);
   }
 
-  // Resolve doc types from related units' mentions
   const allDocTypes = new Set<string>();
   for (const relatedId of relatedUnitIds) {
     const docTypes = await resolveDocTypesFromUnitMentions(supabase, projectId, relatedId);
@@ -506,12 +604,13 @@ async function resolveAuthoritativeVersion(
   return current?.id || null;
 }
 
-// ── Internal: Build bounded repair plan ──
+// ── Internal: Build bounded repair plan with section narrowing ──
 
-function buildRepairPlan(
+async function buildRepairPlan(
+  supabase: any,
   affected: AffectedDocument,
   changeSource: ChangeSource,
-): BoundedRepairPlan {
+): Promise<BoundedRepairPlan> {
   const sectionConfig = getSectionConfig(affected.docType);
   const blockReasons: string[] = [];
 
@@ -526,30 +625,55 @@ function buildRepairPlan(
     blockReasons.push("no_authoritative_version");
   }
 
-  // Determine scope mode
+  // Determine scope mode with precision classification
   let scopeMode: BoundedRepairPlan["scopeMode"];
+  let scopePrecision: ScopePrecision;
   let affectedSections: SectionScope[] = [];
   let recommendedRewriteMode: BoundedRepairPlan["recommendedRewriteMode"];
 
   if (blockReasons.length > 0) {
     scopeMode = "blocked";
+    scopePrecision = "blocked";
     recommendedRewriteMode = "manual_review";
-  } else if (sectionConfig && sectionConfig.section_repair_supported) {
-    // Section-level targeting available
+  } else if (isEpisodicBlockRepairSupported(affected.docType)) {
+    // Episode-block targeting for episodic doc types
     scopeMode = "section_targeted";
+    scopePrecision = "section_capable_fallback"; // episode targeting available but not offset-narrowed
     recommendedRewriteMode = "replace_section";
+    affectedSections = [{
+      sectionKey: "episode_block",
+      label: "Episode Block (episodic targeting available)",
+      repairMode: "replace_section",
+      targetingMethod: "episode_block",
+    }];
+  } else if (sectionConfig && sectionConfig.section_repair_supported) {
+    // Section-level targeting available — attempt precision narrowing via mention offsets
+    const narrowedSections = await narrowSectionsViaMentionOffsets(
+      supabase, affected, changeSource, sectionConfig,
+    );
 
-    // Determine which sections are likely affected
-    // For now, all sections of matching doc type are candidates
-    // (Future: use unit mentions + offsets to narrow further)
-    affectedSections = sectionConfig.sections.map(s => ({
-      sectionKey: s.section_key,
-      label: s.label,
-      repairMode: s.repair_mode,
-    }));
+    if (narrowedSections.length > 0) {
+      // Precise: we have offset-backed section targeting
+      scopeMode = "section_targeted";
+      scopePrecision = "precise_section_targeted";
+      recommendedRewriteMode = "replace_section";
+      affectedSections = narrowedSections;
+    } else {
+      // Fallback: all sections of this doc type are candidates
+      scopeMode = "section_targeted";
+      scopePrecision = "section_capable_fallback";
+      recommendedRewriteMode = "replace_section";
+      affectedSections = sectionConfig.sections.map(s => ({
+        sectionKey: s.section_key,
+        label: s.label,
+        repairMode: s.repair_mode,
+        targetingMethod: "section_registry_fallback" as const,
+      }));
+    }
   } else {
     // No section support — full document fallback
     scopeMode = "full_document";
+    scopePrecision = "document_level_fallback";
     recommendedRewriteMode = "full_doc_rewrite";
   }
 
@@ -559,6 +683,7 @@ function buildRepairPlan(
     authoritativeVersionId: affected.authoritativeVersionId,
     affectedSections,
     scopeMode,
+    scopePrecision,
     changeSource,
     dependentUnitIds: changeSource.kind === "canon_unit" ? [changeSource.sourceId] : [],
     dependentDecisionIds: changeSource.kind === "locked_decision" ? [changeSource.sourceId] : [],
@@ -566,6 +691,126 @@ function buildRepairPlan(
     recommendedRewriteMode,
     blockReasons,
   };
+}
+
+// ── Section Narrowing via Mention Offsets ──
+
+/**
+ * Attempt to narrow section targeting using canon_unit_mentions offsets.
+ *
+ * If the changed unit has mentions with offset_start/offset_end in the
+ * target document's authoritative version, we can determine which section
+ * headings the mention falls within, producing precise section targeting.
+ *
+ * Returns empty array if no offset-backed narrowing is possible
+ * (triggering section_capable_fallback).
+ */
+async function narrowSectionsViaMentionOffsets(
+  supabase: any,
+  affected: AffectedDocument,
+  changeSource: ChangeSource,
+  sectionConfig: DocTypeSectionConfig,
+): Promise<SectionScope[]> {
+  if (changeSource.kind !== "canon_unit") return [];
+  if (!affected.authoritativeVersionId) return [];
+
+  // Fetch mentions for this unit in the target document's authoritative version
+  const { data: mentions } = await supabase
+    .from("canon_unit_mentions")
+    .select("offset_start, offset_end")
+    .eq("unit_id", changeSource.sourceId)
+    .eq("document_id", affected.documentId)
+    .eq("version_id", affected.authoritativeVersionId);
+
+  if (!mentions || mentions.length === 0) return [];
+
+  // Check if any mentions have usable offsets
+  const offsetMentions = mentions.filter(
+    (m: any) => m.offset_start != null && m.offset_end != null,
+  );
+  if (offsetMentions.length === 0) return [];
+
+  // Fetch the document text to map offsets to sections
+  const { data: version } = await supabase
+    .from("project_document_versions")
+    .select("plaintext")
+    .eq("id", affected.authoritativeVersionId)
+    .maybeSingle();
+
+  if (!version?.plaintext) return [];
+
+  // Map sections to their offset ranges in the document
+  const sectionRanges = computeSectionRanges(version.plaintext, sectionConfig.sections);
+  if (sectionRanges.length === 0) return [];
+
+  // Find which sections contain mention offsets
+  const matchedSectionKeys = new Set<string>();
+  for (const mention of offsetMentions) {
+    for (const sr of sectionRanges) {
+      if (mention.offset_start >= sr.start && mention.offset_start < sr.end) {
+        matchedSectionKeys.add(sr.sectionKey);
+      }
+    }
+  }
+
+  if (matchedSectionKeys.size === 0) return [];
+
+  return sectionConfig.sections
+    .filter(s => matchedSectionKeys.has(s.section_key))
+    .map(s => ({
+      sectionKey: s.section_key,
+      label: s.label,
+      repairMode: s.repair_mode,
+      targetingMethod: "mention_offset" as const,
+    }));
+}
+
+/**
+ * Compute offset ranges for each section in document text.
+ * Uses heading regex from section registry to find section boundaries.
+ */
+function computeSectionRanges(
+  text: string,
+  sections: SectionDefinition[],
+): { sectionKey: string; start: number; end: number }[] {
+  const lines = text.split("\n");
+  const ranges: { sectionKey: string; start: number; lineIndex: number }[] = [];
+
+  let charOffset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    for (const section of sections) {
+      if (section.match_mode === "heading_regex" || section.match_mode === "heading_exact") {
+        try {
+          const pattern = section.match_mode === "heading_exact"
+            ? new RegExp(`^#+\\s*${escapeRegex(section.match_pattern)}\\s*$`, "i")
+            : new RegExp(section.match_pattern, "i");
+          if (pattern.test(line)) {
+            ranges.push({ sectionKey: section.section_key, start: charOffset, lineIndex: i });
+          }
+        } catch {
+          // Invalid regex — skip
+        }
+      }
+    }
+    charOffset += line.length + 1; // +1 for newline
+  }
+
+  // Convert to start/end ranges (each section ends where the next begins)
+  const result: { sectionKey: string; start: number; end: number }[] = [];
+  for (let i = 0; i < ranges.length; i++) {
+    result.push({
+      sectionKey: ranges[i].sectionKey,
+      start: ranges[i].start,
+      end: i + 1 < ranges.length ? ranges[i + 1].start : text.length,
+    });
+  }
+
+  return result;
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ── Internal: Emit transition events ──
@@ -580,7 +825,7 @@ async function emitImpactTransitions(
   try {
     await emitTransition(supabase, {
       projectId: changeSource.projectId,
-      eventType: "impact_analysis_completed",
+      eventType: TRANSITION_EVENTS.IMPACT_ANALYSIS_COMPLETED,
       eventDomain: "impact",
       docType: changeSource.originDocType || changeSource.sourceId,
       lane: changeSource.lane,
@@ -591,6 +836,7 @@ async function emitImpactTransitions(
         affected_count: result.affectedDocuments.length,
         repair_plans: result.repairPlans.length,
         blocked_count: result.blockedDocuments.length,
+        lane_excluded_count: result.laneExcluded.length,
         has_ambiguity: result.hasAmbiguity,
         source_kind: changeSource.kind,
         source_id: changeSource.sourceId,
@@ -606,7 +852,7 @@ async function emitImpactTransitions(
     try {
       await emitTransition(supabase, {
         projectId: changeSource.projectId,
-        eventType: "affected_document_identified",
+        eventType: TRANSITION_EVENTS.AFFECTED_DOCUMENT_IDENTIFIED,
         eventDomain: "impact",
         docType: affected.docType,
         lane: changeSource.lane,
@@ -631,7 +877,7 @@ async function emitImpactTransitions(
     try {
       await emitTransition(supabase, {
         projectId: changeSource.projectId,
-        eventType: "bounded_repair_planned",
+        eventType: TRANSITION_EVENTS.BOUNDED_REPAIR_PLANNED,
         eventDomain: "impact",
         docType: plan.targetDocType,
         lane: changeSource.lane,
@@ -641,8 +887,11 @@ async function emitImpactTransitions(
         status: plan.scopeMode === "blocked" ? "failed" : "completed",
         resultingState: {
           scope_mode: plan.scopeMode,
+          scope_precision: plan.scopePrecision,
           recommended_rewrite_mode: plan.recommendedRewriteMode,
-          affected_sections: plan.affectedSections.length,
+          affected_sections_count: plan.affectedSections.length,
+          affected_section_keys: plan.affectedSections.map(s => s.sectionKey),
+          targeting_methods: [...new Set(plan.affectedSections.map(s => s.targetingMethod))],
           block_reasons: plan.blockReasons,
         },
       }, { critical: false });
@@ -656,7 +905,7 @@ async function emitImpactTransitions(
     try {
       await emitTransition(supabase, {
         projectId: changeSource.projectId,
-        eventType: "impact_repair_blocked",
+        eventType: TRANSITION_EVENTS.IMPACT_REPAIR_BLOCKED,
         eventDomain: "impact",
         docType: blocked.docType,
         lane: changeSource.lane,
