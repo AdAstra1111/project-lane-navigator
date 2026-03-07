@@ -198,9 +198,12 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
 
       const running = !!result.job && result.job.status === 'running' && !result.job.awaiting_approval;
-      setIsRunning(running);
+      const isPausedAutoResumable = !!result.job && result.job.status === 'paused' && result.job.allow_defaults === true && !isHumanRequiredPause(result.job) && autoResumeFailCountRef.current < 3;
 
-      if (!running) {
+      // During auto-resumable pauses, keep showing "Running" in UI
+      setIsRunning(running || isPausedAutoResumable);
+
+      if (!running && !isPausedAutoResumable) {
         return; // Don't reschedule — polling stops
       }
 
