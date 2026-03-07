@@ -30,6 +30,7 @@
 import type { Violation, ViolationType, ViolationSeverity, ValidationDomain } from "./narrativeIntegrityValidator.ts";
 import { emitTransition, TRANSITION_EVENTS } from "./transitionLedger.ts";
 import { routeToReviewQueue } from "./reviewQueueBridge.ts";
+import { handoffToPlanningQueue, type PlanningHandoffResult } from "./validationPlanningHandoff.ts";
 
 // ── Handoff Eligibility Classification ──
 
@@ -73,7 +74,11 @@ const ELIGIBILITY_RULES: EligibilityRule[] = [
   // Blocking incompleteness → issue eligible
   { violationType: "incompleteness", severity: "blocking", domain: "*", eligibility: "issue_eligible", reason: "blocking_incompleteness" },
 
-  // Warning incompleteness → issue eligible
+  // Warning incompleteness on planning-supported domains → planning eligible
+  { violationType: "incompleteness", severity: "warning", domain: "required_sections", eligibility: "planning_eligible", reason: "plannable_missing_sections" },
+  { violationType: "incompleteness", severity: "warning", domain: "canon_entity_coverage", eligibility: "planning_eligible", reason: "plannable_missing_entity_coverage" },
+
+  // Warning incompleteness (other domains) → issue eligible
   { violationType: "incompleteness", severity: "warning", domain: "*", eligibility: "issue_eligible", reason: "warning_incompleteness" },
 
   // Informational incompleteness → informational only
@@ -157,9 +162,10 @@ export interface HandoffFindingResult {
   violationKey: string;
   eligibility: HandoffEligibility;
   reason: string;
-  outcome: "issue_created" | "duplicate_suppressed" | "blocked" | "informational_skipped" | "manual_only_skipped" | "planning_deferred" | "review_task_created" | "review_task_duplicate_suppressed" | "review_task_blocked";
+  outcome: "issue_created" | "duplicate_suppressed" | "blocked" | "informational_skipped" | "manual_only_skipped" | "planning_deferred" | "planning_created" | "planning_blocked" | "planning_duplicate_suppressed" | "review_task_created" | "review_task_duplicate_suppressed" | "review_task_blocked";
   issueId: string | null;
   reviewTaskId?: string | null;
+  planningRequestKey?: string | null;
 }
 
 export interface HandoffResult {
@@ -173,6 +179,9 @@ export interface HandoffResult {
   informationalSkipped: number;
   manualOnlySkipped: number;
   planningDeferred: number;
+  planningCreated: number;
+  planningBlocked: number;
+  planningDuplicatesSuppressed: number;
 }
 
 // ── Main Handoff Entry Point ──
@@ -208,6 +217,9 @@ export async function handoffValidationFindings(
     informationalSkipped: 0,
     manualOnlySkipped: 0,
     planningDeferred: 0,
+    planningCreated: 0,
+    planningBlocked: 0,
+    planningDuplicatesSuppressed: 0,
   };
 
   // ── Emit handoff requested event ──
@@ -228,6 +240,7 @@ export async function handoffValidationFindings(
 
   // ── Process each violation ──
   const manualOnlyViolations: Violation[] = [];
+  const planningEligibleViolations: Violation[] = [];
   const issueEvents: Array<{ issue_id: string; event_type: string; payload?: unknown }> = [];
 
   for (const violation of request.violations) {
@@ -267,15 +280,8 @@ export async function handoffValidationFindings(
       }
 
       case "planning_eligible": {
-        // DEFERRED in v1: planning handoff not yet safe
-        result.findings.push({
-          violationKey: violation.violationKey,
-          eligibility,
-          reason,
-          outcome: "planning_deferred",
-          issueId: null,
-        });
-        result.planningDeferred++;
+        // v2: Route to planning handoff bridge
+        planningEligibleViolations.push(violation);
         break;
       }
 
@@ -358,7 +364,39 @@ export async function handoffValidationFindings(
     result.manualOnlySkipped = reviewResult.created + reviewResult.duplicatesSuppressed + reviewResult.blocked;
   }
 
-  console.log(`[validation-handoff] completed { project: "${request.projectId}", violations: ${result.totalViolations}, issues_created: ${result.issuesCreated}, duplicates_suppressed: ${result.duplicatesSuppressed}, blocked: ${result.blocked}, informational: ${result.informationalSkipped}, manual_only: ${result.manualOnlySkipped}, planning_deferred: ${result.planningDeferred} }`);
+  // ── Route planning_eligible violations to planning handoff bridge ──
+  if (planningEligibleViolations.length > 0) {
+    const planningResult = await handoffToPlanningQueue(supabase, {
+      projectId: request.projectId,
+      lane: request.lane,
+      violations: planningEligibleViolations,
+      validationRunId: request.validationRunId,
+      skipTransitions: request.skipTransitions,
+    });
+
+    for (const r of planningResult.results) {
+      const outcomeMap: Record<string, HandoffFindingResult["outcome"]> = {
+        planning_created: "planning_created",
+        planning_blocked: "planning_blocked",
+        planning_deferred: "planning_deferred",
+        planning_duplicate_suppressed: "planning_duplicate_suppressed",
+      };
+      result.findings.push({
+        violationKey: r.violationKey,
+        eligibility: "planning_eligible",
+        reason: r.reason,
+        outcome: outcomeMap[r.outcome] || "planning_blocked",
+        issueId: null,
+        planningRequestKey: r.planningRequest?.planningKey || null,
+      });
+    }
+    result.planningCreated = planningResult.created;
+    result.planningBlocked = planningResult.blocked;
+    result.planningDeferred = planningResult.deferred;
+    result.planningDuplicatesSuppressed = planningResult.duplicatesSuppressed;
+  }
+
+  console.log(`[validation-handoff] completed { project: "${request.projectId}", violations: ${result.totalViolations}, issues_created: ${result.issuesCreated}, duplicates_suppressed: ${result.duplicatesSuppressed}, blocked: ${result.blocked}, informational: ${result.informationalSkipped}, manual_only: ${result.manualOnlySkipped}, planning_created: ${result.planningCreated}, planning_blocked: ${result.planningBlocked}, planning_deferred: ${result.planningDeferred} }`);
 
   return result;
 }
