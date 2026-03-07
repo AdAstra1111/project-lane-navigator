@@ -486,21 +486,33 @@ async function enforcePrereqGateBeforeAdvance(
   return true; // blocked
 }
 
-// ── GLOBAL CI GATE: No promotion / prereq pass unless CI >= GLOBAL_MIN_CI ──
-const GLOBAL_MIN_CI = 90;
+// ── GLOBAL CI GATE: No promotion / prereq pass unless CI >= target ──
+const GLOBAL_MIN_CI = 90; // default fallback when job has no converge_target_json.ci
 const CI_PLATEAU_WINDOW = 2;   // consecutive non-improving ticks before fail-close
 const CI_MIN_DELTA = 1;        // minimum CI improvement to count as progress
+
+/**
+ * Resolve the effective CI target for a job.
+ * Reads converge_target_json.ci from the job; falls back to GLOBAL_MIN_CI (90).
+ */
+function resolveTargetCI(job: any): number {
+  const ct = job?.converge_target_json;
+  if (ct && typeof ct === "object" && typeof ct.ci === "number" && ct.ci >= 0 && ct.ci <= 100) {
+    return ct.ci;
+  }
+  return GLOBAL_MIN_CI;
+}
 
 /**
  * Evaluate CI gate for stage advancement. Returns { pass, ci, bestCiSoFar }.
  * Source of truth: stage-scoped best CI from auto_run_steps (action=review).
  */
 async function evaluateCIGate(
-  supabase: any, jobId: string, docType: string,
+  supabase: any, jobId: string, docType: string, targetCi: number = GLOBAL_MIN_CI,
 ): Promise<{ pass: boolean; ci: number; bestCiSoFar: number }> {
   const stageBest = await getStageBestFromSteps(supabase, jobId, docType);
   const ci = stageBest?.ci ?? 0;
-  return { pass: ci >= GLOBAL_MIN_CI, ci, bestCiSoFar: ci };
+  return { pass: ci >= targetCi, ci, bestCiSoFar: ci };
 }
 
 /**
@@ -509,7 +521,7 @@ async function evaluateCIGate(
  * Reads from auto_run_steps (action=review) for the doc_type, ordered by step_index desc.
  */
 async function checkMonotonicCIImprovement(
-  supabase: any, jobId: string, docType: string,
+  supabase: any, jobId: string, docType: string, targetCi: number = GLOBAL_MIN_CI,
 ): Promise<{ improving: boolean; plateau: boolean; plateauCount: number; bestCi: number; currentCi: number }> {
   // ── IEL: Include both 'review' AND 'rewrite_accepted' steps as CI data points ──
   // This ensures promoted candidates' scores are visible to the plateau gate,
@@ -551,9 +563,11 @@ async function checkMonotonicCIImprovement(
     }
   }
 
+  // ── IEL: Use bestCi (not currentCi) for plateau threshold ──
+  // If best CI already meets target, no plateau — even if current regressed.
   return {
     improving,
-    plateau: plateauCount >= CI_PLATEAU_WINDOW && currentCi < GLOBAL_MIN_CI,
+    plateau: plateauCount >= CI_PLATEAU_WINDOW && bestCi < targetCi,
     plateauCount,
     bestCi,
     currentCi,
