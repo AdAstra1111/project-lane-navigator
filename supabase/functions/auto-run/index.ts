@@ -2470,6 +2470,57 @@ async function checkActionableNoteExhaustion(
   }
 }
 
+/**
+ * Auto-resolve actionable project_notes after a successful rewrite.
+ * Marks notes as 'resolved' with resolved_by='auto_run' so the note
+ * exhaustion gate no longer blocks promotion.
+ *
+ * Only resolves notes where status is actionable (open/in_progress/reopened).
+ * Notes that are 'rejected' or 'dismissed' are untouched.
+ * Returns { resolved: number, notes: Array<{id, title}> }
+ */
+async function autoResolveActionableNotes(
+  supabase: any, projectId: string, docType: string, versionId: string | null,
+  jobId: string, resolverLabel: string = "auto_run_rewrite",
+): Promise<{ resolved: number; notes: Array<{ id: string; title: string }> }> {
+  try {
+    const actionableStatuses = ["open", "in_progress", "reopened"];
+    let query = supabase
+      .from("project_notes")
+      .select("id, title, summary, severity")
+      .eq("project_id", projectId)
+      .eq("doc_type", docType)
+      .in("status", actionableStatuses)
+      .limit(50);
+
+    const { data: notes, error } = await query;
+    if (error || !notes || notes.length === 0) {
+      return { resolved: 0, notes: [] };
+    }
+
+    // Mark all actionable notes as resolved
+    const ids = notes.map((n: any) => n.id);
+    await supabase
+      .from("project_notes")
+      .update({
+        status: "resolved",
+        updated_by: resolverLabel,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", ids);
+
+    console.log(`[auto-run][IEL] auto_resolved_notes { project_id: "${projectId}", doc_type: "${docType}", resolved_count: ${notes.length}, resolver: "${resolverLabel}", job_id: "${jobId}" }`);
+
+    return {
+      resolved: notes.length,
+      notes: notes.map((n: any) => ({ id: n.id, title: n.title || n.summary?.slice(0, 80) || "untitled" })),
+    };
+  } catch (e: any) {
+    console.warn(`[auto-run][IEL] auto_resolve_notes_failed { error: "${e?.message}" }`);
+    return { resolved: 0, notes: [] };
+  }
+}
+
 
 async function updateJob(supabase: any, jobId: string, fields: Record<string, any>) {
   // PATCH 5: Intercept completion — run gates before allowing status="completed"
