@@ -27,7 +27,7 @@ const EXECUTION_MODE_LABELS: Record<ExecutionMode, string> = {
 const EXECUTION_MODE_DESC: Record<ExecutionMode, string> = {
   manual: 'Pause on every gate',
   assisted: 'Auto-decide recommended, pause on blockers',
-  full_autopilot: 'Auto-approve everything',
+  full_autopilot: 'Auto-decide ALL including blockers',
 };
 
 // ── Status mapping ──

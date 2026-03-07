@@ -3962,6 +3962,24 @@ Deno.serve(async (req) => {
       );
 
       if (hasBlockingRemaining) {
+        // When allow_defaults is on, auto-resolve remaining blocking decisions instead of re-pausing
+        if (job.allow_defaults) {
+          const remainingBlocking = remainingDecisions.filter((d: any) => d.impact === "blocking");
+          for (const rd of remainingBlocking) {
+            const autoValue = rd.recommended || rd.options?.[0]?.value || "accept";
+            await logStep(supabase, jobId, stepCount, job.current_document, "auto_decided_all",
+              `Auto-resolved remaining decision: ${rd.question || rd.id} → ${autoValue}`,
+              {}, undefined, { decisionId: rd.id, selectedValue: autoValue, source: "allow_defaults_remaining" }
+            );
+          }
+          await updateJob(supabase, jobId, {
+            step_count: stepCount,
+            status: "running",
+            stop_reason: null,
+            pending_decisions: null,
+          });
+          return respondWithJob(supabase, jobId, "run-next");
+        }
         const nextBlocking = remainingDecisions.find((d: any) => d.impact === "blocking");
         await updateJob(supabase, jobId, {
           step_count: stepCount,
