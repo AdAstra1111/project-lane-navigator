@@ -7192,6 +7192,7 @@ Deno.serve(async (req) => {
                 });
                 return respondWithJob(supabase, jobId, "awaiting-approval");
               }
+              } // close note exhaustion else (flag-off path)
               } // close else (flag off — original promotion)
             } // close else (convergedEnough)
           } // close if (newLoopCount >= max_stage_loops)
