@@ -74,7 +74,11 @@ const ELIGIBILITY_RULES: EligibilityRule[] = [
   // Blocking incompleteness → issue eligible
   { violationType: "incompleteness", severity: "blocking", domain: "*", eligibility: "issue_eligible", reason: "blocking_incompleteness" },
 
-  // Warning incompleteness → issue eligible
+  // Warning incompleteness on planning-supported domains → planning eligible
+  { violationType: "incompleteness", severity: "warning", domain: "required_sections", eligibility: "planning_eligible", reason: "plannable_missing_sections" },
+  { violationType: "incompleteness", severity: "warning", domain: "canon_entity_coverage", eligibility: "planning_eligible", reason: "plannable_missing_entity_coverage" },
+
+  // Warning incompleteness (other domains) → issue eligible
   { violationType: "incompleteness", severity: "warning", domain: "*", eligibility: "issue_eligible", reason: "warning_incompleteness" },
 
   // Informational incompleteness → informational only
