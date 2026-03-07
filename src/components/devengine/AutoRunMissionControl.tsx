@@ -1631,7 +1631,7 @@ export function AutoRunMissionControl({
                   className="scale-75"
                 />
                 <span className="text-[9px] text-muted-foreground">
-                  Auto-decide (accept recommended options without pausing)
+                  Full Autonomous — auto-decide all decisions including High Impact & Blockers
                 </span>
               </div>
             </CardContent>
