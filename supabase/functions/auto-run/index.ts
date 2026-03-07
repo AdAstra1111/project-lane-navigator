@@ -6750,7 +6750,7 @@ Deno.serve(async (req) => {
         );
 
         // Step C: Compute promotion intelligence
-        const promo = computePromotion(ci, gp, gap, trajectory, currentDoc, blockersCount, highImpactCount, stageLoopCount + 1, job.allow_defaults !== false);
+        const promo = computePromotion(ci, gp, gap, trajectory, currentDoc, blockersCount, highImpactCount, stageLoopCount + 1, job.allow_defaults !== false, resolveTargetCI(job));
 
         await logStep(supabase, jobId, null, currentDoc, "promotion_check",
           `${promo.recommendation} (readiness: ${promo.readiness_score}, flags: ${promo.risk_flags.join(",") || "none"})`,
