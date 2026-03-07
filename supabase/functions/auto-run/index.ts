@@ -5489,7 +5489,7 @@ Deno.serve(async (req) => {
                 plateauVersion: "v2",
               });
               if (plateauForcePromote) return plateauForcePromote;
-            } else {
+            }
             console.error(`[auto-run][IEL] plateau_v2_stop ${JSON.stringify({ job_id: jobId, doc_type: currentDoc, ...plateauV2 })}`);
             await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
               `PLATEAU V2: CI=${plateauV2.currentCI}, blocker_delta=${plateauV2.blockerCountDelta}, hi_delta=${plateauV2.highImpactCountDelta}. Neither CI improving nor notes shrinking. Fail-closed.`,
@@ -5535,7 +5535,7 @@ Deno.serve(async (req) => {
               plateauVersion: "v1",
             });
             if (plateauForcePromote) return plateauForcePromote;
-          } else {
+          }
           console.error(`[auto-run][IEL] ci_plateau_stop { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, plateau_count: ${ciProgress.plateauCount} }`);
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
             `CI PLATEAU BELOW ${targetCi}: CI=${ciProgress.currentCi}, best=${ciProgress.bestCi}, ${ciProgress.plateauCount} consecutive non-improving ticks. Fail-closed.`,
