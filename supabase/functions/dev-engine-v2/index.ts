@@ -12213,16 +12213,29 @@ ${scenesForPrompt}`;
 
       // Build initial canon from project + documents
       const { data: project } = await supabase.from("projects")
-        .select("title, production_type, format, genre, target_audience, episode_count, qualifications")
+        .select("title, production_type, format, genre, target_audience, episode_count, qualifications, episode_target_duration_min_seconds, episode_target_duration_max_seconds")
         .eq("id", projectId).single();
 
       const quals = (project?.qualifications || {}) as any;
+      const fmt = (project?.format || project?.production_type || "").toLowerCase();
+
+      // Resolve episode duration: quals → project columns → format defaults
+      let durMin = quals.episode_duration_min || project?.episode_target_duration_min_seconds || null;
+      let durMax = quals.episode_duration_max || project?.episode_target_duration_max_seconds || null;
+      if (durMin == null && durMax == null) {
+        const fmtDef = FORMAT_DEFAULTS_ENGINE[fmt];
+        if (fmtDef) {
+          durMin = fmtDef.episode_target_duration_min_seconds || null;
+          durMax = fmtDef.episode_target_duration_max_seconds || null;
+        }
+      }
+
       const canonData: any = {
         title: project?.title || "",
         format: project?.format || project?.production_type || "",
         episode_count: project?.episode_count || quals.episode_count || null,
-        episode_length_seconds_min: quals.episode_duration_min || null,
-        episode_length_seconds_max: quals.episode_duration_max || null,
+        episode_length_seconds_min: durMin,
+        episode_length_seconds_max: durMax,
         genre: project?.genre || quals.genre || null,
         tone: quals.tone || null,
         world_rules: [],
