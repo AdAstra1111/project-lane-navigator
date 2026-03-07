@@ -2282,8 +2282,9 @@ async function callEdgeFunctionWithRetry(
 // ── Helper: log a step + emit auto-run step lifecycle transition ──
 // stepIndex: pass null to auto-allocate via atomic DB increment (nextStepIndex).
 // Returns the step_index that was used.
-// ── TRANSITION LEDGER: emits auto_run_step_completed / auto_run_step_failed ──
+// ── TRANSITION LEDGER: emits auto_run_step_started / auto_run_step_completed / auto_run_step_failed ──
 const STEP_FAILURE_ACTIONS = new Set(["ci_gate_blocked", "ci_blocker_gate_blocked", "doc_type_unregistered", "error", "failed", "rewrite_failed", "blockage_failed"]);
+const STEP_START_ACTIONS = new Set(["start", "restart_from_stage", "seed_pack_ensured", "preflight_resolve", "doc_slots_ensured"]);
 async function logStep(
   supabase: any,
   jobId: string,
@@ -2320,13 +2321,20 @@ async function logStep(
       .select("project_id").eq("id", jobId).maybeSingle();
     if (jobRow?.project_id) {
       const isFailed = STEP_FAILURE_ACTIONS.has(action) || action.endsWith("_failed") || action.endsWith("_error");
+      const isStarted = STEP_START_ACTIONS.has(action);
+      const eventType = isFailed
+        ? TRANSITION_EVENTS.AUTO_RUN_STEP_FAILED
+        : isStarted
+          ? TRANSITION_EVENTS.AUTO_RUN_STEP_STARTED
+          : TRANSITION_EVENTS.AUTO_RUN_STEP_COMPLETED;
+      const eventStatus = isFailed ? "failed" : isStarted ? "intent" : "completed";
       await emitTransition(supabase, {
         projectId: jobRow.project_id,
-        eventType: isFailed ? TRANSITION_EVENTS.AUTO_RUN_STEP_FAILED : TRANSITION_EVENTS.AUTO_RUN_STEP_COMPLETED,
+        eventType,
         eventDomain: "auto_run",
         docType: document,
         jobId,
-        status: isFailed ? "failed" : "completed",
+        status: eventStatus,
         trigger: action,
         sourceOfTruth: "auto-run",
         ci: scores.ci,
