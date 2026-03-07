@@ -178,6 +178,10 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       setJob(result.job);
       setSteps(result.latest_steps || []);
 
+      // Refresh document tray on every poll so auto-run-created docs appear immediately
+      qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+      qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
+
       const running = !!result.job && result.job.status === 'running' && !result.job.awaiting_approval;
       setIsRunning(running);
 
