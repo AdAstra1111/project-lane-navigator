@@ -2362,6 +2362,27 @@ async function updateJob(supabase: any, jobId: string, fields: Record<string, an
     }
   }
   await supabase.from("auto_run_jobs").update(fields).eq("id", jobId);
+
+  // ── TRANSITION LEDGER: auto-emit on stage change or terminal status ──
+  if (fields.current_document) {
+    try {
+      // Fetch project_id for transition context
+      const { data: jobRow } = await supabase.from("auto_run_jobs")
+        .select("project_id, current_document, last_ci, last_gp, user_id")
+        .eq("id", jobId).single();
+      if (jobRow?.project_id) {
+        await emitStageTransition(
+          supabase, jobRow.project_id, jobId,
+          jobRow.current_document || "unknown",
+          fields.current_document,
+          "updateJob",
+          { ci: fields.last_ci ?? jobRow.last_ci, gp: fields.last_gp ?? jobRow.last_gp, createdBy: jobRow.user_id }
+        );
+      }
+    } catch (e: any) {
+      console.warn(`[auto-run][transition-ledger] updateJob stage emit failed: ${e?.message}`);
+    }
+  }
 }
 
 // ── Helper: finalize-best — promote best_version_id on job end ──
