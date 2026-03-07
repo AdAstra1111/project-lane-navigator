@@ -6913,7 +6913,11 @@ Deno.serve(async (req) => {
                 // If scores already meet promotion thresholds, skip unnecessary rewrite and promote directly.
                 // This is the "executor completion" path: the system has already identified and auto-applied
                 // the correct fixes; scores confirm readiness; no need for another rewrite cycle.
-                if (ci >= GLOBAL_MIN_CI && blockersCount === 0 && job.allow_defaults !== false) {
+                // Uses stage best CI (not current review CI) to prevent regression blocking.
+                const earlyTargetCi = resolveTargetCI(job);
+                const earlyStageBest = await getStageBestFromSteps(supabase, jobId, currentDoc);
+                const earlyBestCi = earlyStageBest?.ci ?? ci;
+                if (earlyBestCi >= earlyTargetCi && blockersCount === 0 && job.allow_defaults !== false) {
                   const earlyNext = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
                   if (earlyNext && isStageAtOrBeforeTarget(earlyNext, job.target_document, format)) {
                     try {
@@ -6926,7 +6930,7 @@ Deno.serve(async (req) => {
                       console.warn("[auto-run] non-fatal early-converge auto-approve failed:", e?.message || e);
                     }
                     await logStep(supabase, jobId, null, currentDoc, "auto_approved_promote",
-                      `Early convergence after auto-decided stabilise: CI=${ci}≥${GLOBAL_MIN_CI}, blockers=0. Auto-promoting ${currentDoc} → ${earlyNext} (allow_defaults).`,
+                      `Early convergence after auto-decided stabilise: best_CI=${earlyBestCi}≥${earlyTargetCi}, blockers=0. Auto-promoting ${currentDoc} → ${earlyNext} (allow_defaults).`,
                       { ci, gp, gap }, undefined,
                       { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: earlyNext, trigger: "early_convergence_after_auto_decided" }
                     );
@@ -6990,23 +6994,24 @@ Deno.serve(async (req) => {
               }
               // If step budget exhausted, the step-limit guard at the top of run-next will catch it
             } else {
-              // Converged enough — apply CI>=90 hard gate before promotion
-              const ciGate = await evaluateCIGate(supabase, jobId, currentDoc);
-              console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${GLOBAL_MIN_CI}, rule: "converge_promote_gate" }`);
+              // Converged enough — apply CI hard gate before promotion (uses job target_ci)
+              const promoteTargetCi = resolveTargetCI(job);
+              const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, promoteTargetCi);
+              console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${promoteTargetCi}, rule: "converge_promote_gate" }`);
               if (!ciGate.pass) {
-                // CI below 90 — do NOT promote, continue stabilise
-                console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${GLOBAL_MIN_CI}, trigger: "converge_promote" }`);
+                // CI below target — do NOT promote, continue stabilise
+                console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${promoteTargetCi}, trigger: "converge_promote" }`);
                 // ── TRANSITION LEDGER: promotion_gate_evaluated (blocked by CI) ──
                 await emitTransition(supabase, {
                   projectId: job.project_id, eventType: TRANSITION_EVENTS.PROMOTION_GATE_EVALUATED,
                   docType: currentDoc, stage: currentDoc, jobId, resultingVersionId: latestVersion?.id,
                   status: "failed", trigger: "ci_hard_gate", sourceOfTruth: "auto-run",
-                  ci: ciGate.ci, previousState: { min_ci: GLOBAL_MIN_CI },
+                  ci: ciGate.ci, previousState: { min_ci: promoteTargetCi },
                   resultingState: { pass: false, reason: "ci_below_threshold" },
                 });
                 await logStep(supabase, jobId, null, currentDoc, "ci_gate_blocked",
-                  `Promotion blocked: CI=${ciGate.ci} < ${GLOBAL_MIN_CI}. Continuing stabilise.`,
-                  { ci: ciGate.ci }, undefined, { min_ci: GLOBAL_MIN_CI, trigger: "converge_promote" });
+                  `Promotion blocked: CI=${ciGate.ci} < ${promoteTargetCi}. Continuing stabilise.`,
+                  { ci: ciGate.ci }, undefined, { min_ci: promoteTargetCi, trigger: "converge_promote" });
                 await updateJob(supabase, jobId, { stage_loop_count: newLoopCount });
                 // Fall through to rewrite below
               }
@@ -8732,14 +8737,15 @@ Deno.serve(async (req) => {
 
         // ── PROMOTE ──
         if (promo.recommendation === "promote") {
-          // ── CI>=90 HARD GATE: no promotion unless CI meets global minimum ──
-          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc);
-          console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${GLOBAL_MIN_CI}, rule: "promote_gate_writing" }`);
+          // ── CI HARD GATE: no promotion unless CI meets job target (default 90) ──
+          const writeTargetCi = resolveTargetCI(job);
+          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, writeTargetCi);
+          console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${writeTargetCi}, rule: "promote_gate_writing" }`);
           if (!ciGate.pass) {
-            console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${GLOBAL_MIN_CI}, trigger: "promote_writing" }`);
+            console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${writeTargetCi}, trigger: "promote_writing" }`);
             await logStep(supabase, jobId, null, currentDoc, "ci_gate_blocked",
-              `Promotion blocked: CI=${ciGate.ci} < ${GLOBAL_MIN_CI}. Continuing stabilise despite readiness ${promo.readiness_score}.`,
-              { ci: ciGate.ci, gp }, undefined, { min_ci: GLOBAL_MIN_CI, readiness: promo.readiness_score, trigger: "promote_writing" });
+              `Promotion blocked: CI=${ciGate.ci} < ${writeTargetCi}. Continuing stabilise despite readiness ${promo.readiness_score}.`,
+              { ci: ciGate.ci, gp }, undefined, { min_ci: writeTargetCi, readiness: promo.readiness_score, trigger: "promote_writing" });
             await updateJob(supabase, jobId, { stage_loop_count: stageLoopCount + 1 });
             return respondWithJob(supabase, jobId, "run-next");
           }
