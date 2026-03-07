@@ -2644,6 +2644,193 @@ async function finalizeBest(supabase: any, jobId: string, job: any, explicitCurr
   return true;
 }
 
+async function resolveBestScoredEligibleVersionForDoc(
+  supabase: any,
+  projectId: string,
+  docType: string,
+): Promise<{ documentId: string; versionId: string; ci: number; gp: number } | null> {
+  const { data: docRow } = await supabase.from("project_documents")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("doc_type", docType)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!docRow?.id) return null;
+
+  const { data: versions, error } = await supabase.from("project_document_versions")
+    .select("id, version_number, approval_status, is_current, meta_json")
+    .eq("document_id", docRow.id)
+    .order("version_number", { ascending: false });
+
+  if (error || !versions?.length) return null;
+
+  const eligibleScored = (versions || [])
+    .map((v: any) => {
+      const parsed = parseVersionScores(v.meta_json);
+      return {
+        id: v.id,
+        version_number: v.version_number,
+        ci: parsed.ci,
+        gp: parsed.gp,
+        approval_status: v.approval_status,
+        is_current: !!v.is_current,
+      };
+    })
+    .filter((v: any) => (v.approval_status === "approved" || v.is_current) && v.ci !== null && v.gp !== null) as Array<{
+      id: string;
+      version_number: number;
+      ci: number;
+      gp: number;
+      approval_status: string;
+      is_current: boolean;
+    }>;
+
+  const best = pickBestScoredVersion(eligibleScored as any);
+  if (!best) return null;
+
+  return {
+    documentId: docRow.id,
+    versionId: best.id,
+    ci: best.ci,
+    gp: best.gp,
+  };
+}
+
+async function tryPlateauForcePromote(
+  supabase: any,
+  params: {
+    jobId: string;
+    job: any;
+    currentDoc: string;
+    format: string;
+    stepCount: number;
+    targetCi: number;
+    detectedCi: number;
+    detectedBestCi: number;
+    plateauVersion: "v1" | "v2";
+  }
+): Promise<Response | null> {
+  const { jobId, job, currentDoc, format, stepCount, targetCi, detectedCi, detectedBestCi, plateauVersion } = params;
+  if (!job.allow_defaults) return null;
+
+  const bestForDoc = await resolveBestScoredEligibleVersionForDoc(supabase, job.project_id, currentDoc);
+  const docBestCi = bestForDoc?.ci ?? -Infinity;
+  const effectiveBestCi = Math.max(
+    typeof detectedBestCi === "number" ? detectedBestCi : -Infinity,
+    docBestCi,
+  );
+
+  if (!bestForDoc || effectiveBestCi < GLOBAL_MIN_CI) return null;
+
+  await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_auto_promote",
+    `CI plateaued at ${detectedCi} (target: ${targetCi}) but best eligible version is CI:${bestForDoc.ci}, GP:${bestForDoc.gp} (>=${GLOBAL_MIN_CI}). allow_defaults=ON → force-promoting.`,
+    { ci: detectedCi, gp: bestForDoc.gp },
+    undefined,
+    {
+      action: "force_promote",
+      plateau_version: plateauVersion,
+      detected_best_ci: detectedBestCi,
+      doc_best_ci: bestForDoc.ci,
+      doc_best_gp: bestForDoc.gp,
+      global_min_ci: GLOBAL_MIN_CI,
+      targetCi,
+      best_version_id: bestForDoc.versionId,
+      best_document_id: bestForDoc.documentId,
+    }
+  );
+
+  const { error: promoteErr } = await supabase.rpc("set_current_version", {
+    p_document_id: bestForDoc.documentId,
+    p_new_version_id: bestForDoc.versionId,
+  });
+
+  if (promoteErr) {
+    await logStep(supabase, jobId, stepCount + 2, currentDoc, "ci_plateau_force_promote_failed",
+      `Force-promote failed while setting best version current: ${promoteErr.message}`,
+      { ci: bestForDoc.ci, gp: bestForDoc.gp },
+      undefined,
+      { best_version_id: bestForDoc.versionId, best_document_id: bestForDoc.documentId, plateau_version: plateauVersion }
+    );
+    return null;
+  }
+
+  await supabase.from("project_document_versions").update({
+    approval_status: "approved",
+    approved_at: new Date().toISOString(),
+    approved_by: job.user_id,
+  }).eq("id", bestForDoc.versionId);
+
+  await updateJob(supabase, jobId, {
+    best_version_id: bestForDoc.versionId,
+    best_document_id: bestForDoc.documentId,
+    best_ci: bestForDoc.ci,
+    best_gp: bestForDoc.gp,
+    best_score: bestForDoc.ci + bestForDoc.gp,
+  });
+
+  const nextDoc = await nextUnsatisfiedStage(
+    supabase,
+    job.project_id,
+    format,
+    currentDoc,
+    job.target_document,
+    job.allow_defaults,
+    job.user_id,
+    jobId,
+  );
+
+  if (nextDoc && isStageAtOrBeforeTarget(nextDoc, job.target_document, format)) {
+    await logStep(supabase, jobId, stepCount + 2, currentDoc, "ci_plateau_force_promoted",
+      `Force-promoted ${currentDoc} from best version (CI:${bestForDoc.ci}, GP:${bestForDoc.gp}) after plateau. Skipped hard_gate:blockers (allow_defaults=ON). Advancing to ${nextDoc}.`,
+      { ci: bestForDoc.ci, gp: bestForDoc.gp },
+      undefined,
+      {
+        from: currentDoc,
+        to: nextDoc,
+        bypass: "hard_gate:blockers",
+        best_version_id: bestForDoc.versionId,
+        best_document_id: bestForDoc.documentId,
+        plateau_version: plateauVersion,
+      }
+    );
+
+    await updateJob(supabase, jobId, {
+      current_document: nextDoc,
+      stage_loop_count: 0,
+      stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
+      status: "running",
+      stop_reason: null,
+      pause_reason: null,
+      error: null,
+      awaiting_approval: false,
+      approval_type: null,
+      pending_doc_id: null,
+      pending_version_id: null,
+      pending_doc_type: null,
+      pending_next_doc_type: null,
+      frontier_version_id: null,
+      frontier_ci: null,
+      frontier_gp: null,
+      frontier_attempts: 0,
+    });
+
+    await releaseProcessingLock(supabase, jobId);
+    return respondWithJob(supabase, jobId, "run-next");
+  }
+
+  await updateJob(supabase, jobId, {
+    status: "completed",
+    stop_reason: "All stages satisfied up to target",
+    pause_reason: null,
+    error: null,
+  });
+  await logStep(supabase, jobId, stepCount + 2, currentDoc, "stop", "All stages satisfied up to target (after plateau force-promote)");
+  await releaseProcessingLock(supabase, jobId);
+  return respondWithJob(supabase, jobId);
+}
+
 // ── Helper: get job ──
 async function getJob(supabase: any, jobId: string) {
   const { data } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).maybeSingle();
@@ -5289,69 +5476,20 @@ Deno.serve(async (req) => {
 
           if (plateauV2.isPlateaued) {
             // ── IEL: When allow_defaults is ON and plateaued, auto-promote best version instead of looping ──
-            if (job.allow_defaults && plateauV2.currentCI >= GLOBAL_MIN_CI) {
-              console.log(`[auto-run][IEL] plateau_v2_auto_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${plateauV2.currentCI}, best_ci: ${plateauV2.currentCI}, allow_defaults: true, reason: "CI plateaued but meets GLOBAL_MIN_CI=${GLOBAL_MIN_CI}, force-promoting best version" }`);
-              await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_auto_promote",
-                `CI plateaued at ${plateauV2.currentCI} (target: ${targetCi}) but meets minimum ${GLOBAL_MIN_CI}. allow_defaults=ON → force-promoting best version.`,
-                { ci: plateauV2.currentCI }, undefined,
-                { ...plateauV2, global_min_ci: GLOBAL_MIN_CI, targetCi, plateau_version: "v2", action: "force_promote" });
-
-              // ── FORCE-PROMOTE: execute promotion inline, bypassing all remaining gates ──
-              {
-                // 1. Finalize best version as current
-                const { data: plateauDoc } = await supabase.from("project_documents")
-                  .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
-                  .order("created_at", { ascending: false }).limit(1).maybeSingle();
-                if (plateauDoc) await finalizeBest(supabase, jobId, job, plateauDoc.id);
-
-                // 2. Auto-approve the best version
-                if (job.best_version_id) {
-                  try {
-                    await supabase.from("project_document_versions").update({
-                      approval_status: "approved",
-                      approved_at: new Date().toISOString(),
-                      approved_by: job.user_id,
-                    }).eq("id", job.best_version_id);
-                  } catch (e: any) {
-                    console.warn("[auto-run] plateau force-promote: non-fatal auto-approve failed:", e?.message);
-                  }
-                }
-
-                // 3. Resolve next stage and advance
-                const plateauNext = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
-                if (plateauNext && isStageAtOrBeforeTarget(plateauNext, job.target_document, format)) {
-                  await logStep(supabase, jobId, stepCount + 2, currentDoc, "ci_plateau_force_promoted",
-                    `Force-promoted ${currentDoc} from best version (CI:${plateauV2.currentCI}) after plateau. Skipped hard_gate:blockers (allow_defaults=ON). Advancing to ${plateauNext}.`,
-                    { ci: plateauV2.currentCI, gp: job.best_gp }, undefined,
-                    { from: currentDoc, to: plateauNext, best_version_id: job.best_version_id, bypass: "hard_gate:blockers" });
-                  await updateJob(supabase, jobId, {
-                    current_document: plateauNext,
-                    stage_loop_count: 0,
-                    stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
-                    status: "running",
-                    stop_reason: null,
-                    pause_reason: null,
-                    error: null,
-                    awaiting_approval: false,
-                    approval_type: null,
-                    pending_doc_id: null,
-                    pending_version_id: null,
-                    pending_doc_type: null,
-                    pending_next_doc_type: null,
-                    frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
-                  });
-                  console.log(`[auto-run][IEL] stage_transition { job_id: "${jobId}", from: "${currentDoc}", to: "${plateauNext}", trigger: "ci_plateau_force_promoted" }`);
-                  await releaseProcessingLock(supabase, jobId);
-                  return respondWithJob(supabase, jobId, "run-next");
-                } else {
-                  // All stages satisfied — complete the job
-                  await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied up to target" });
-                  await logStep(supabase, jobId, stepCount + 2, currentDoc, "stop", "All stages satisfied up to target (after plateau force-promote)");
-                  await releaseProcessingLock(supabase, jobId);
-                  return respondWithJob(supabase, jobId);
-                }
-              }
-            } else {
+            if (job.allow_defaults) {
+              const plateauForcePromote = await tryPlateauForcePromote(supabase, {
+                jobId,
+                job,
+                currentDoc,
+                format,
+                stepCount,
+                targetCi,
+                detectedCi: plateauV2.currentCI,
+                detectedBestCi: plateauV2.currentCI,
+                plateauVersion: "v2",
+              });
+              if (plateauForcePromote) return plateauForcePromote;
+            }
             console.error(`[auto-run][IEL] plateau_v2_stop ${JSON.stringify({ job_id: jobId, doc_type: currentDoc, ...plateauV2 })}`);
             await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
               `PLATEAU V2: CI=${plateauV2.currentCI}, blocker_delta=${plateauV2.blockerCountDelta}, hi_delta=${plateauV2.highImpactCountDelta}. Neither CI improving nor notes shrinking. Fail-closed.`,
@@ -5369,7 +5507,6 @@ Deno.serve(async (req) => {
             });
             await releaseProcessingLock(supabase, jobId);
             return respondWithJob(supabase, jobId);
-            }
           } else if (plateauV2.currentCI >= targetCi) {
             console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${plateauV2.currentCI}, plateau_version: "v2" }`);
           } else {
@@ -5384,68 +5521,20 @@ Deno.serve(async (req) => {
           console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", best_ci: ${ciProgress.bestCi}, current_ci: ${ciProgress.currentCi} }`);
         } else if (ciProgress.plateau) {
           // ── IEL: When allow_defaults is ON and plateaued, auto-promote best version instead of looping ──
-          if (job.allow_defaults && ciProgress.bestCi >= GLOBAL_MIN_CI) {
-            console.log(`[auto-run][IEL] ci_plateau_auto_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, allow_defaults: true, reason: "CI plateaued but best meets GLOBAL_MIN_CI=${GLOBAL_MIN_CI}, force-promoting" }`);
-            await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_auto_promote",
-              `CI plateaued at ${ciProgress.currentCi} (best: ${ciProgress.bestCi}, target: ${targetCi}) but best meets minimum ${GLOBAL_MIN_CI}. allow_defaults=ON → force-promoting.`,
-              { ci: ciProgress.currentCi }, undefined,
-              { best_ci: ciProgress.bestCi, plateau_count: ciProgress.plateauCount, global_min_ci: GLOBAL_MIN_CI, targetCi, action: "force_promote" });
-
-            // ── FORCE-PROMOTE: execute promotion inline, bypassing all remaining gates ──
-            {
-              // 1. Finalize best version as current
-              const { data: v1PlateauDoc } = await supabase.from("project_documents")
-                .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
-                .order("created_at", { ascending: false }).limit(1).maybeSingle();
-              if (v1PlateauDoc) await finalizeBest(supabase, jobId, job, v1PlateauDoc.id);
-
-              // 2. Auto-approve the best version
-              if (job.best_version_id) {
-                try {
-                  await supabase.from("project_document_versions").update({
-                    approval_status: "approved",
-                    approved_at: new Date().toISOString(),
-                    approved_by: job.user_id,
-                  }).eq("id", job.best_version_id);
-                } catch (e: any) {
-                  console.warn("[auto-run] v1 plateau force-promote: non-fatal auto-approve failed:", e?.message);
-                }
-              }
-
-              // 3. Resolve next stage and advance
-              const v1PlateauNext = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
-              if (v1PlateauNext && isStageAtOrBeforeTarget(v1PlateauNext, job.target_document, format)) {
-                await logStep(supabase, jobId, stepCount + 2, currentDoc, "ci_plateau_force_promoted",
-                  `Force-promoted ${currentDoc} from best version (CI:${ciProgress.bestCi}) after plateau. Skipped hard_gate:blockers (allow_defaults=ON). Advancing to ${v1PlateauNext}.`,
-                  { ci: ciProgress.bestCi, gp: job.best_gp }, undefined,
-                  { from: currentDoc, to: v1PlateauNext, best_version_id: job.best_version_id, bypass: "hard_gate:blockers" });
-                await updateJob(supabase, jobId, {
-                  current_document: v1PlateauNext,
-                  stage_loop_count: 0,
-                  stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
-                  status: "running",
-                  stop_reason: null,
-                  pause_reason: null,
-                  error: null,
-                  awaiting_approval: false,
-                  approval_type: null,
-                  pending_doc_id: null,
-                  pending_version_id: null,
-                  pending_doc_type: null,
-                  pending_next_doc_type: null,
-                  frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
-                });
-                console.log(`[auto-run][IEL] stage_transition { job_id: "${jobId}", from: "${currentDoc}", to: "${v1PlateauNext}", trigger: "ci_plateau_force_promoted_v1" }`);
-                await releaseProcessingLock(supabase, jobId);
-                return respondWithJob(supabase, jobId, "run-next");
-              } else {
-                await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied up to target" });
-                await logStep(supabase, jobId, stepCount + 2, currentDoc, "stop", "All stages satisfied up to target (after v1 plateau force-promote)");
-                await releaseProcessingLock(supabase, jobId);
-                return respondWithJob(supabase, jobId);
-              }
-            }
-          } else {
+          if (job.allow_defaults) {
+            const plateauForcePromote = await tryPlateauForcePromote(supabase, {
+              jobId,
+              job,
+              currentDoc,
+              format,
+              stepCount,
+              targetCi,
+              detectedCi: ciProgress.currentCi,
+              detectedBestCi: ciProgress.bestCi,
+              plateauVersion: "v1",
+            });
+            if (plateauForcePromote) return plateauForcePromote;
+          }
           console.error(`[auto-run][IEL] ci_plateau_stop { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, plateau_count: ${ciProgress.plateauCount} }`);
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
             `CI PLATEAU BELOW ${targetCi}: CI=${ciProgress.currentCi}, best=${ciProgress.bestCi}, ${ciProgress.plateauCount} consecutive non-improving ticks. Fail-closed.`,
@@ -5463,7 +5552,6 @@ Deno.serve(async (req) => {
           });
           await releaseProcessingLock(supabase, jobId);
           return respondWithJob(supabase, jobId);
-          }
         } else if (ciProgress.improving) {
           console.log(`[auto-run][IEL] ci_improvement_detected { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci_prior: ${ciProgress.bestCi}, delta: ${ciProgress.currentCi - ciProgress.bestCi} }`);
         } else {
