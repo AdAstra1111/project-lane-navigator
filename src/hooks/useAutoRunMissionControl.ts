@@ -224,7 +224,8 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       }
 
       // If backend idle and still running, nudge run-next
-      if (!result.job.is_processing) {
+      // IMPORTANT: do not nudge paused jobs here (auto-resume effect handles those)
+      if (running && !result.job.is_processing) {
         callAutoRun('run-next', { jobId: result.job.id }).catch((nudgeErr) => {
           console.warn('[auto-run poll] nudge run-next failed:', nudgeErr.message);
         });
