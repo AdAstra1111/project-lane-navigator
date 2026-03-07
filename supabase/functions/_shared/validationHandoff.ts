@@ -217,6 +217,9 @@ export async function handoffValidationFindings(
     informationalSkipped: 0,
     manualOnlySkipped: 0,
     planningDeferred: 0,
+    planningCreated: 0,
+    planningBlocked: 0,
+    planningDuplicatesSuppressed: 0,
   };
 
   // ── Emit handoff requested event ──
