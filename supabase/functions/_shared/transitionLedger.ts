@@ -54,6 +54,13 @@ export const TRANSITION_EVENTS = {
   AFFECTED_DOCUMENT_IDENTIFIED: "affected_document_identified",
   BOUNDED_REPAIR_PLANNED: "bounded_repair_planned",
   IMPACT_REPAIR_BLOCKED: "impact_repair_blocked",
+
+  // Projection Execution Layer
+  PROJECTION_EXECUTION_VALIDATED: "projection_execution_validated",
+  PROJECTION_EXECUTION_BLOCKED: "projection_execution_blocked",
+  PROJECTION_EXECUTION_STARTED: "projection_execution_started",
+  PROJECTION_EXECUTION_COMPLETED: "projection_execution_completed",
+  PROJECTION_EXECUTION_FAILED: "projection_execution_failed",
 } as const;
 
 export type TransitionEventType = typeof TRANSITION_EVENTS[keyof typeof TRANSITION_EVENTS];
