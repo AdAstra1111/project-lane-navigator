@@ -2715,6 +2715,35 @@ async function tryPlateauForcePromote(
   const { jobId, job, currentDoc, format, stepCount, targetCi, detectedCi, detectedBestCi, plateauVersion } = params;
   if (!job.allow_defaults) return null;
 
+  // ── Note exhaustion gate: do NOT force-promote if actionable notes remain ──
+  try {
+    const { data: actionableNotes } = await supabase
+      .from("project_notes")
+      .select("id, title, severity")
+      .eq("project_id", job.project_id)
+      .eq("doc_type", currentDoc)
+      .in("status", ["open", "in_progress", "reopened"])
+      .limit(10);
+
+    if (actionableNotes && actionableNotes.length > 0) {
+      await logStep(supabase, jobId, stepCount + 1, currentDoc, "force_promote_deferred_notes",
+        `Force-promote deferred: ${actionableNotes.length} actionable note(s) remain for ${currentDoc}. Applying notes before promoting.`,
+        { ci: detectedCi },
+        undefined,
+        {
+          plateau_version: plateauVersion,
+          note_count: actionableNotes.length,
+          note_ids: actionableNotes.map((n: any) => n.id).slice(0, 5),
+          note_titles: actionableNotes.map((n: any) => n.title).slice(0, 5),
+        }
+      );
+      return null; // Let rewrite loop apply notes first
+    }
+  } catch (noteCheckErr: any) {
+    // Fail OPEN — if note query fails, proceed with force-promote
+    console.warn(`[tryPlateauForcePromote] note exhaustion check failed (proceeding): ${noteCheckErr.message}`);
+  }
+
   const bestForDoc = await resolveBestScoredEligibleVersionForDoc(supabase, job.project_id, currentDoc);
   const docBestCi = bestForDoc?.ci ?? -Infinity;
   const effectiveBestCi = Math.max(
