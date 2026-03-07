@@ -74,6 +74,11 @@ export const TRANSITION_EVENTS = {
   VALIDATION_HANDOFF_BLOCKED: "validation_handoff_blocked",
   VALIDATION_ISSUE_CREATED: "validation_issue_created",
   VALIDATION_HANDOFF_DUPLICATE_SUPPRESSED: "validation_handoff_duplicate_suppressed",
+
+  // Manual Review Queue Bridge
+  VALIDATION_REVIEW_TASK_CREATED: "validation_review_task_created",
+  VALIDATION_REVIEW_DUPLICATE_SUPPRESSED: "validation_review_duplicate_suppressed",
+  VALIDATION_REVIEW_BLOCKED: "validation_review_blocked",
 } as const;
 
 export type TransitionEventType = typeof TRANSITION_EVENTS[keyof typeof TRANSITION_EVENTS];
