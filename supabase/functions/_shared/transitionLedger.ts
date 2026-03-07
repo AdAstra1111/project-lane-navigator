@@ -79,6 +79,13 @@ export const TRANSITION_EVENTS = {
   VALIDATION_REVIEW_TASK_CREATED: "validation_review_task_created",
   VALIDATION_REVIEW_DUPLICATE_SUPPRESSED: "validation_review_duplicate_suppressed",
   VALIDATION_REVIEW_BLOCKED: "validation_review_blocked",
+
+  // Validation-to-Planning Handoff
+  VALIDATION_PLANNING_HANDOFF_REQUESTED: "validation_planning_handoff_requested",
+  VALIDATION_PLANNING_HANDOFF_CLASSIFIED: "validation_planning_handoff_classified",
+  VALIDATION_PLANNING_HANDOFF_BLOCKED: "validation_planning_handoff_blocked",
+  VALIDATION_PLANNING_REQUEST_CREATED: "validation_planning_request_created",
+  VALIDATION_PLANNING_DUPLICATE_SUPPRESSED: "validation_planning_duplicate_suppressed",
 } as const;
 
 export type TransitionEventType = typeof TRANSITION_EVENTS[keyof typeof TRANSITION_EVENTS];
