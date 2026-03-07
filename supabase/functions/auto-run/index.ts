@@ -8817,6 +8817,18 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId, "run-next");
           }
 
+          // ── IEL: ACTIONABLE NOTE EXHAUSTION GATE (writing promote path) ──
+          const writeNoteExhaust = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null);
+          if (writeNoteExhaust.hasActionable) {
+            console.warn(`[auto-run][IEL] note_exhaustion_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", actionable_notes: ${writeNoteExhaust.count}, path: "writing_promote" }`);
+            await logStep(supabase, jobId, null, currentDoc, "note_exhaustion_blocked",
+              `Promotion blocked: ${writeNoteExhaust.count} actionable note(s) remain for ${currentDoc}. Continuing stabilise.`,
+              { ci: ciGate.ci, gp }, undefined,
+              { actionable_count: writeNoteExhaust.count, trigger: "writing_promote" });
+            await updateJob(supabase, jobId, { stage_loop_count: stageLoopCount + 1 });
+            return respondWithJob(supabase, jobId, "run-next");
+          }
+
           const next = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
           if (next && isStageAtOrBeforeTarget(next, job.target_document, format)) {
             if (job.allow_defaults) {
