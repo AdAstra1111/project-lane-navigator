@@ -227,6 +227,7 @@ export async function handoffValidationFindings(
   }
 
   // ── Process each violation ──
+  const manualOnlyViolations: Violation[] = [];
   const issueEvents: Array<{ issue_id: string; event_type: string; payload?: unknown }> = [];
 
   for (const violation of request.violations) {
@@ -327,6 +328,34 @@ export async function handoffValidationFindings(
   // ── Batch-insert issue events ──
   if (issueEvents.length > 0) {
     await supabase.from("project_issue_events").insert(issueEvents);
+  }
+
+  // ── Route manual_only violations to review queue ──
+  if (manualOnlyViolations.length > 0) {
+    const reviewResult = await routeToReviewQueue(supabase, {
+      projectId: request.projectId,
+      violations: manualOnlyViolations,
+      lane: request.lane,
+      validationRunId: request.validationRunId,
+      skipTransitions: request.skipTransitions,
+    });
+
+    for (const r of reviewResult.results) {
+      const outcomeMap: Record<string, HandoffFindingResult["outcome"]> = {
+        review_task_created: "review_task_created",
+        duplicate_suppressed: "review_task_duplicate_suppressed",
+        blocked: "review_task_blocked",
+      };
+      result.findings.push({
+        violationKey: r.violationKey,
+        eligibility: "manual_only",
+        reason: r.reason,
+        outcome: outcomeMap[r.outcome] || "review_task_blocked",
+        issueId: null,
+        reviewTaskId: r.reviewTaskId,
+      });
+    }
+    result.manualOnlySkipped = reviewResult.created + reviewResult.duplicatesSuppressed + reviewResult.blocked;
   }
 
   console.log(`[validation-handoff] completed { project: "${request.projectId}", violations: ${result.totalViolations}, issues_created: ${result.issuesCreated}, duplicates_suppressed: ${result.duplicatesSuppressed}, blocked: ${result.blocked}, informational: ${result.informationalSkipped}, manual_only: ${result.manualOnlySkipped}, planning_deferred: ${result.planningDeferred} }`);
