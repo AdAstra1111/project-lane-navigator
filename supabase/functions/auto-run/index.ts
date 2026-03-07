@@ -2282,8 +2282,9 @@ async function callEdgeFunctionWithRetry(
 // ── Helper: log a step + emit auto-run step lifecycle transition ──
 // stepIndex: pass null to auto-allocate via atomic DB increment (nextStepIndex).
 // Returns the step_index that was used.
-// ── TRANSITION LEDGER: emits auto_run_step_completed / auto_run_step_failed ──
+// ── TRANSITION LEDGER: emits auto_run_step_started / auto_run_step_completed / auto_run_step_failed ──
 const STEP_FAILURE_ACTIONS = new Set(["ci_gate_blocked", "ci_blocker_gate_blocked", "doc_type_unregistered", "error", "failed", "rewrite_failed", "blockage_failed"]);
+const STEP_START_ACTIONS = new Set(["start", "restart_from_stage", "seed_pack_ensured", "preflight_resolve", "doc_slots_ensured"]);
 async function logStep(
   supabase: any,
   jobId: string,
