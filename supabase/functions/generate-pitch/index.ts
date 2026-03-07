@@ -134,36 +134,35 @@ serve(async (req) => {
     const HIGH_CONFIDENCE_FIELDS = new Set(["subgenre", "toneAnchor", "culturalTag", "locationVibe", "arenaProfession"]);
     const getMinStrength = (field: string) => HIGH_CONFIDENCE_FIELDS.has(field) ? 6 : 4;
 
+    // ── Auth (always required for server-side persistence) ──
+    const { createClient: createSvcClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+    const svcClient = createSvcClient(supabaseUrl, supabaseKey);
+    const authHeader = req.headers.get("Authorization") || "";
+    let requestUserId: string | null = null;
+    if (authHeader.startsWith("Bearer ")) {
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+      const sbUser = createSvcClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: authErr } = await sbUser.auth.getUser();
+      if (!authErr && userData?.user) {
+        requestUserId = userData.user.id;
+      }
+    }
+    if (!requestUserId) {
+      console.warn(`[generate-pitch] auth_failed: could not derive user from token`);
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ── Auth + Access + Project fetch (MUST happen before auto-fields uses dbModality) ──
     // Enforced order: auth.getUser() → has_project_access → project fetch → modality derivation
     let dbModality: string | null = null;
     let dbAnimMeta: { primary: string | null; tags: string[]; style: string | null } = { primary: null, tags: [], style: null };
     let projRow: any = null;
-    let projSupa: any = null; // service-role client reused in later projectId block
-    if (projectId) {
-      const { createClient: createSvcClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-      projSupa = createSvcClient(supabaseUrl, supabaseKey);
-
-      // a) Derive requestUserId via auth.getUser() (user-scoped client)
-      const authHeader = req.headers.get("Authorization") || "";
-      let requestUserId: string | null = null;
-      if (authHeader.startsWith("Bearer ")) {
-        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-        const sbUser = createSvcClient(supabaseUrl, anonKey, {
-          global: { headers: { Authorization: authHeader } },
-        });
-        const { data: userData, error: authErr } = await sbUser.auth.getUser();
-        if (!authErr && userData?.user) {
-          requestUserId = userData.user.id;
-        }
-      }
-      if (!requestUserId) {
-        console.warn(`[generate-pitch] auth_failed: could not derive user from token`);
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      console.log(`[generate-pitch] auth=user_scoped user_id=${requestUserId}`);
+    let projSupa: any = svcClient; // service-role client reused in later projectId block
+      projSupa = svcClient;
 
       // b) Verify access via has_project_access (admin client) — BEFORE any project reads
       const { data: hasAccess, error: accessErr } = await projSupa.rpc("has_project_access", {
@@ -885,6 +884,71 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
       auto_field_status: resolutionMeta,
       warnings,
     };
+
+    // ── Server-side persistence: save ideas to pitch_ideas table ──
+    // This ensures ideas survive client-side fetch timeouts on long AI calls.
+    let savedCount = 0;
+    const savedIds: string[] = [];
+    for (const idea of ideas.ideas) {
+      try {
+        const row = {
+          user_id: requestUserId,
+          mode: 'greenlight',
+          status: 'draft',
+          production_type: typeLabel,
+          title: idea.title || 'Untitled',
+          logline: idea.logline || '',
+          one_page_pitch: idea.one_page_pitch || '',
+          comps: idea.comps || [],
+          recommended_lane: idea.recommended_lane || '',
+          lane_confidence: idea.lane_confidence || 0,
+          budget_band: idea.budget_band || budgetBand || '',
+          packaging_suggestions: idea.packaging_suggestions || [],
+          development_sprint: idea.development_sprint || [],
+          risks_mitigations: idea.risks_mitigations || [],
+          why_us: idea.why_us || '',
+          genre: idea.genre || genre || '',
+          region: region || '',
+          platform_target: platformTarget || '',
+          risk_level: idea.risk_level || riskLevel || 'medium',
+          project_id: projectId || null,
+          raw_response: {
+            ...idea,
+            premise: idea.premise || '',
+            trend_fit_bullets: idea.trend_fit_bullets || [],
+            differentiation_move: idea.differentiation_move || '',
+            tone_tag: idea.tone_tag || '',
+            format_summary: idea.format_summary || '',
+            signals_metadata: ideas.signals_metadata || null,
+          },
+          score_market_heat: idea.score_market_heat || 0,
+          score_feasibility: idea.score_feasibility || 0,
+          score_lane_fit: idea.score_lane_fit || 0,
+          score_saturation_risk: idea.score_saturation_risk || 0,
+          score_company_fit: idea.score_company_fit || 0,
+          score_total: idea.score_total || 0,
+        };
+        const { data: saved, error: saveErr } = await svcClient
+          .from('pitch_ideas')
+          .insert(row)
+          .select('id')
+          .single();
+        if (saveErr) {
+          console.warn(`[generate-pitch] Failed to save idea "${idea.title}": ${saveErr.message}`);
+        } else {
+          savedCount++;
+          savedIds.push(saved.id);
+        }
+      } catch (e: any) {
+        console.warn(`[generate-pitch] Save error for "${idea.title}": ${e.message}`);
+      }
+    }
+    console.log(`[generate-pitch] Server-side saved ${savedCount}/${ideas.ideas.length} ideas`);
+
+    // Include savedIds so client knows ideas are already persisted
+    ideas.server_saved = true;
+    ideas.saved_ids = savedIds;
+    ideas.saved_count = savedCount;
 
     console.log(`[generate-pitch] Returning ${ideas.ideas.length} ideas successfully`);
     return new Response(JSON.stringify(ideas), {
