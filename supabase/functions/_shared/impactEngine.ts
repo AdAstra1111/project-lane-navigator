@@ -512,7 +512,7 @@ function buildRepairPlan(
   affected: AffectedDocument,
   changeSource: ChangeSource,
 ): BoundedRepairPlan {
-  const sectionConfig = getDocTypeSectionConfig(affected.docType);
+  const sectionConfig = getSectionConfig(affected.docType);
   const blockReasons: string[] = [];
 
   // Lane validation
@@ -717,6 +717,6 @@ export async function validateRepairEligibility(
   return null; // Valid
 }
 
-// ── Public: Get doc type section config (re-export for convenience) ──
+// ── Public: Re-export section config for convenience ──
 
-export { getDocTypeSectionConfig } from "./deliverableSectionRegistry.ts";
+export { getSectionConfig } from "./deliverableSectionRegistry.ts";
