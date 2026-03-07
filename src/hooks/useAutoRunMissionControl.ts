@@ -74,6 +74,17 @@ function isHumanRequiredPause(job: AutoRunJob): boolean {
   return false;
 }
 
+function buildPauseLoopSignature(job: AutoRunJob): string {
+  return [
+    job.id,
+    job.current_document,
+    job.pause_reason || '',
+    String(job.step_count ?? ''),
+    String(job.last_ci ?? ''),
+    String(job.stage_loop_count ?? ''),
+  ].join('|');
+}
+
 export function useAutoRunMissionControl(projectId: string | undefined) {
   const qc = useQueryClient();
   const [job, setJob] = useState<AutoRunJob | null>(null);
