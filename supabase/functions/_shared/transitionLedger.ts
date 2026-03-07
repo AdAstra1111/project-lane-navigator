@@ -288,5 +288,6 @@ function inferDomain(eventType: string): string {
   if (eventType.startsWith("impact_") || eventType.startsWith("affected_") || eventType.startsWith("bounded_")) return "impact";
   if (eventType.startsWith("projection_")) return "projection";
   if (eventType.startsWith("narrative_")) return "validation";
+  if (eventType.startsWith("validation_")) return "validation";
   return "pipeline";
 }
