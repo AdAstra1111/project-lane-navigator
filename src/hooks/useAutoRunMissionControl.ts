@@ -571,12 +571,18 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     }
   }, [projectId, job, qc]);
 
+  const applyingDecisionsRef = useRef(false);
+
   const applyDecisionsAndContinue = useCallback(async (
     selectedOptions: Array<{ note_id: string; option_id: string; custom_direction?: string }>,
     globalDirections?: string[]
   ) => {
     if (!job) return;
-    // Remove isRunning guard — job may show "running" while awaiting_approval
+    if (applyingDecisionsRef.current) {
+      console.warn('[auto-run] applyDecisionsAndContinue already in flight — skipping');
+      return;
+    }
+    applyingDecisionsRef.current = true;
     setError(null);
     abortRef.current = false;
     try {
@@ -594,6 +600,8 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       }
     } catch (e: any) {
       setError(e.message);
+    } finally {
+      applyingDecisionsRef.current = false;
     }
   }, [job]);
 
