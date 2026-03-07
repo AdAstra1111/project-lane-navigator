@@ -280,15 +280,8 @@ export async function handoffValidationFindings(
       }
 
       case "planning_eligible": {
-        // DEFERRED in v1: planning handoff not yet safe
-        result.findings.push({
-          violationKey: violation.violationKey,
-          eligibility,
-          reason,
-          outcome: "planning_deferred",
-          issueId: null,
-        });
-        result.planningDeferred++;
+        // v2: Route to planning handoff bridge
+        planningEligibleViolations.push(violation);
         break;
       }
 
