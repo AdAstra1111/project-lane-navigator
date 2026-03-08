@@ -174,138 +174,95 @@ function ShotListDemo() {
 }
 
 // ── STORYBOARD DEMO ──
+const TMDB_W = 'https://image.tmdb.org/t/p/w780';
+
 const PANELS = [
   {
     num: 1,
     label: 'Panel 1',
     shot: 'ELS — Corridor',
+    img: `${TMDB_W}/roAYL9HPX1N74hOjCraWOI2ZDiP.jpg`,
     direction: 'Natural school light floods from windows L. Background bokeh of students. Billy enters frame R.',
     mood: 'Bright · Open · Arrival',
     color: 'hsl(38,60%,52%)',
-    layout: 'wide-establishing',
   },
   {
     num: 2,
     label: 'Panel 2',
     shot: 'MS — Archie & Amelia',
+    img: `${TMDB_W}/kggJIpJFJoZI7qdapcolJBiKYCl.jpg`,
     direction: 'Warm ambient. Amelia animated. Archie subdued. Eye-line converges on Billy off-screen R.',
     mood: 'Warm · Tense · Unspoken',
     color: 'hsl(200,65%,55%)',
-    layout: 'two-shot',
   },
   {
     num: 3,
     label: 'Panel 3',
     shot: 'CU — Archie',
+    img: `${TMDB_W}/naPmyLVo6iRRM4IIL90MovP7qVp.jpg`,
     direction: '85mm, shallow DOF. Corridor noise fades. Only Archie\'s face. Subtle rack to soft background.',
     mood: 'Intimate · Quiet · Dread',
     color: 'hsl(280,55%,60%)',
-    layout: 'close-up',
   },
   {
     num: 4,
     label: 'Panel 4',
     shot: 'OTS — Billy smiles',
+    img: `${TMDB_W}/xHhDA63HYklr4FMdxAd05FqhhhF.jpg`,
     direction: 'Archie\'s shoulder anchors frame L. Billy and Amelia sharp R. Warm practical from window.',
     mood: 'Excluded · Bittersweet',
     color: 'hsl(350,60%,55%)',
-    layout: 'over-shoulder',
   },
 ];
 
-// Storyboard panel as a stylised frame
+// Storyboard panel using real film stills styled as sketch frames
 function StoryboardPanel({ panel, active }: { panel: typeof PANELS[0]; active: boolean }) {
   return (
     <motion.div
       animate={{
-        borderColor: active ? `${panel.color}50` : 'hsl(225,20%,15%)',
-        background: active ? `${panel.color}06` : 'transparent',
+        borderColor: active ? `${panel.color}60` : 'hsl(225,20%,18%)',
+        boxShadow: active ? `0 0 20px ${panel.color}18` : 'none',
       }}
       transition={{ duration: 0.3 }}
-      className="rounded-xl border overflow-hidden"
+      className="rounded-xl border overflow-hidden bg-[hsl(225,20%,6%)]"
     >
-      {/* The frame */}
-      <div
-        className="relative bg-[hsl(225,20%,9%)] overflow-hidden"
-        style={{ aspectRatio: '16/9' }}
-      >
-        {/* Scene elements based on layout */}
-        {panel.layout === 'wide-establishing' && (
-          <>
-            {/* Floor line */}
-            <div className="absolute bottom-[25%] left-0 right-0 h-px bg-foreground/5" />
-            {/* Background figures */}
-            {[15, 30, 55, 70, 85].map(x => (
-              <div key={x} className="absolute bottom-[25%]" style={{ left: `${x}%` }}>
-                <div className="w-1.5 h-6 rounded-t-full opacity-20" style={{ background: panel.color }} />
-              </div>
-            ))}
-            {/* Hero — Billy entering R */}
-            <motion.div
-              animate={active ? { x: 0, opacity: 1 } : { x: 20, opacity: 0 }}
-              transition={{ duration: 0.6, delay: 0.3 }}
-              className="absolute bottom-[25%] right-[20%] w-3 h-10 rounded-t-full"
-              style={{ background: panel.color, opacity: 0.7 }}
-            />
-            {/* Light rays from windows */}
-            <div className="absolute top-0 left-[10%] w-12 h-full opacity-5"
-              style={{ background: `linear-gradient(180deg, ${panel.color}, transparent)` }} />
-            <div className="absolute top-0 left-[35%] w-8 h-full opacity-5"
-              style={{ background: `linear-gradient(180deg, ${panel.color}, transparent)` }} />
-          </>
-        )}
-        {panel.layout === 'two-shot' && (
-          <>
-            <div className="absolute bottom-[20%] left-[28%] w-4 h-12 rounded-t-full" style={{ background: panel.color, opacity: 0.6 }} />
-            <div className="absolute bottom-[20%] left-[60%] w-4 h-11 rounded-t-full bg-muted-foreground/30" />
-            {/* Eyeline arrow */}
-            <motion.div
-              animate={active ? { width: '20%', opacity: 0.3 } : { width: 0, opacity: 0 }}
-              transition={{ duration: 0.5, delay: 0.5 }}
-              className="absolute top-[40%] right-[8%] h-px origin-right"
-              style={{ background: panel.color }}
-            />
-          </>
-        )}
-        {panel.layout === 'close-up' && (
-          <>
-            {/* Large face fill */}
-            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-24 h-[90%] rounded-t-[50%]"
-              style={{ background: `linear-gradient(180deg, ${panel.color}20, ${panel.color}08)` }} />
-            {/* Eyes */}
-            <div className="absolute top-[38%] left-[40%] w-2.5 h-1.5 rounded-full" style={{ background: panel.color, opacity: 0.5 }} />
-            <div className="absolute top-[38%] left-[57%] w-2.5 h-1.5 rounded-full" style={{ background: panel.color, opacity: 0.5 }} />
-            {/* Shallow DOF blur bg */}
-            <div className="absolute inset-0 backdrop-blur-[1px] opacity-20 rounded-full scale-150" />
-          </>
-        )}
-        {panel.layout === 'over-shoulder' && (
-          <>
-            {/* OTS shoulder */}
-            <div className="absolute bottom-0 left-0 w-24 h-20 rounded-tr-[60%]" style={{ background: panel.color, opacity: 0.15 }} />
-            {/* Background couple */}
-            <div className="absolute bottom-[20%] right-[25%] w-3 h-10 rounded-t-full" style={{ background: panel.color, opacity: 0.7 }} />
-            <div className="absolute bottom-[20%] right-[38%] w-3 h-9 rounded-t-full bg-muted-foreground/40" />
-            {/* Window light */}
-            <div className="absolute top-0 right-[20%] w-16 h-full opacity-8"
-              style={{ background: `linear-gradient(180deg, ${panel.color}30, transparent)` }} />
-          </>
-        )}
-
-        {/* Panel number */}
-        <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/40 text-[9px] font-mono text-foreground/50">
+      {/* Film still styled as storyboard sketch */}
+      <div className="relative overflow-hidden" style={{ aspectRatio: '16/9' }}>
+        <img
+          src={panel.img}
+          alt={panel.shot}
+          className="w-full h-full object-cover"
+          style={{
+            filter: 'grayscale(100%) contrast(1.3) brightness(0.88)',
+            mixBlendMode: 'luminosity',
+          }}
+        />
+        {/* Sketch overlay — slight texture */}
+        <div className="absolute inset-0 opacity-20"
+          style={{ background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.015) 2px, rgba(255,255,255,0.015) 4px)' }}
+        />
+        {/* Active colour tint */}
+        <motion.div
+          className="absolute inset-0"
+          animate={{ opacity: active ? 0.12 : 0 }}
+          transition={{ duration: 0.3 }}
+          style={{ background: panel.color }}
+        />
+        {/* Panel label */}
+        <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/60 text-[9px] font-mono text-white/70 backdrop-blur-sm">
           {panel.label}
         </div>
-
-        {/* Shot label overlay */}
+        {/* Shot type */}
         <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-          <span className="text-[9px] font-mono text-foreground/40">{panel.shot}</span>
+          <span className="text-[9px] font-mono text-white/60 bg-black/50 px-1.5 py-0.5 rounded backdrop-blur-sm">
+            {panel.shot}
+          </span>
           {active && (
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="h-1.5 w-1.5 rounded-full"
-              style={{ background: panel.color }}
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              className="h-2 w-2 rounded-full"
+              style={{ background: panel.color, boxShadow: `0 0 6px ${panel.color}` }}
             />
           )}
         </div>
