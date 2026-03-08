@@ -6,7 +6,20 @@ import { supabase } from '@/integrations/supabase/client';
 import { createPendingUpload, MAX_PENDING_FILES, MAX_PENDING_FILE_SIZE } from '@/lib/pendingUploads';
 import { toast } from 'sonner';
 import { ArrowRight, Sparkles, ChevronDown } from 'lucide-react';
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, Component, ReactNode } from 'react';
+
+class TourErrorBoundary extends Component<{ children: ReactNode }, { error: boolean }> {
+  state = { error: false };
+  static getDerivedStateFromError() { return { error: true }; }
+  render() {
+    if (this.state.error) return (
+      <div className="py-24 text-center text-muted-foreground/40 text-sm">
+        Tour unavailable — <a href="/auth" className="text-primary/60 hover:text-primary underline">sign in to explore IFFY</a>
+      </div>
+    );
+    return this.props.children;
+  }
+}
 const CinematicDemo = lazy(() => import('@/components/landing/CinematicDemo').then(m => ({ default: m.CinematicDemo })));
 
 // ── Compatibility tool list ──
@@ -211,13 +224,15 @@ const Landing = () => {
             Watch the full pipeline run — from idea to storyboard, finance model to shot list.
           </p>
         </div>
-        <Suspense fallback={
-          <div className="flex items-center justify-center py-24">
-            <div className="h-8 w-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
-          </div>
-        }>
-          <CinematicDemo />
-        </Suspense>
+        <TourErrorBoundary>
+          <Suspense fallback={
+            <div className="flex items-center justify-center py-24">
+              <div className="h-8 w-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+            </div>
+          }>
+            <CinematicDemo />
+          </Suspense>
+        </TourErrorBoundary>
       </div>
 
     </div>

@@ -6,7 +6,7 @@ import { useRef } from 'react';
 import { Section1CinematicIntro } from './sections/Section1CinematicIntro';
 import { SectionProducerDemo } from './sections/SectionProducerDemo';
 import { Section3DualPipeline } from './sections/Section3DualPipeline';
-import { SectionFullCapabilities } from './sections/SectionFullCapabilities';
+
 import { SectionFinanceDemo } from './sections/SectionFinanceDemo';
 import { SectionVisualDev } from './sections/SectionVisualDev';
 import { Section6StudioControl } from './sections/Section6StudioControl';
@@ -23,7 +23,6 @@ export function CinematicDemo() {
       <Section1CinematicIntro />
       <SectionProducerDemo />
       <Section3DualPipeline />
-      <SectionFullCapabilities />
       <SectionFinanceDemo />
       <SectionVisualDev />
       <SectionStudioMode />
