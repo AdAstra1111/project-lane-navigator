@@ -318,9 +318,41 @@ const ALL_STAGES = new Set<string>(Object.values(FORMAT_LADDERS).flat());
 // ── STAGE-SCOPED BEST: derived from auto_run_steps, NOT from job.best_* ──
 // job.best_* remains GLOBAL BEST across job lifetime (informational only).
 // Stage-local comparisons use getStageBestFromSteps() which queries auto_run_steps.
+// getStageBestFromDB() provides cross-job fallback from project_document_versions.meta_json.
+
+// Helper: get stage-scoped best from project_document_versions.meta_json (cross-job, persistent)
+async function getStageBestFromDB(
+  supabase: any, projectId: string, docType: string,
+): Promise<{ version_id: string; ci: number; gp: number; score: number } | null> {
+  const { data: doc } = await supabase
+    .from("project_documents").select("id")
+    .eq("project_id", projectId).eq("doc_type", docType)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (!doc) return null;
+
+  const { data: versions } = await supabase
+    .from("project_document_versions")
+    .select("id, meta_json, version_number, approval_status, is_current")
+    .eq("document_id", doc.id)
+    .order("version_number", { ascending: false });
+  if (!versions || versions.length === 0) return null;
+
+  const scored = versions
+    .map((v: any) => {
+      const p = parseVersionScores(v.meta_json);
+      return { version_id: v.id, ci: p.ci ?? 0, gp: p.gp ?? 0, score: (p.ci ?? 0) + (p.gp ?? 0), approval_status: v.approval_status };
+    })
+    .filter((v: any) => v.ci > 0 || v.gp > 0)
+    .sort((a: any, b: any) => b.score - a.score);
+
+  if (scored.length === 0) return null;
+  const best = scored.find((v: any) => v.approval_status === "approved") || scored[0];
+  console.log(`[auto-run][IEL] stage_best_from_db { project_id: "${projectId}", doc_type: "${docType}", version_id: "${best.version_id}", ci: ${best.ci}, gp: ${best.gp} }`);
+  return best;
+}
 
 // Helper: get stage-scoped best from auto_run_steps for a given doc_type
-async function getStageBestFromSteps(supabase: any, jobId: string, docType: string): Promise<{
+async function getStageBestFromSteps(supabase: any, jobId: string, docType: string, projectId: string | null = null): Promise<{
   version_id: string; ci: number; gp: number; gap: number | null; score: number;
   step_index: number; versions_considered: number; version_id_source: string;
 } | null> {
@@ -339,6 +371,13 @@ async function getStageBestFromSteps(supabase: any, jobId: string, docType: stri
     .limit(200);
 
   if (!reviewSteps || reviewSteps.length === 0) {
+    if (projectId) {
+      const dbBest = await getStageBestFromDB(supabase, projectId, docType);
+      if (dbBest) {
+        console.log(`[auto-run][IEL] stage_best_db_fallback { job_id: "${jobId}", doc_type: "${docType}", ci: ${dbBest.ci}, gp: ${dbBest.gp} }`);
+        return { version_id: dbBest.version_id, ci: dbBest.ci, gp: dbBest.gp, gap: null, score: dbBest.score, step_index: -1, versions_considered: 1, version_id_source: "meta_json_fallback" };
+      }
+    }
     console.log(`[auto-run][IEL] stage_best_missing { job_id: "${jobId}", doc_type: "${docType}", reason: "no_scored_reviews" }`);
     return null;
   }
@@ -387,6 +426,15 @@ async function getStageBestFromSteps(supabase: any, jobId: string, docType: stri
     version_id_source: best._vsource,
   };
 
+  // ── IEL: Merge with DB-persisted scores so we never return lower than what's stored ──
+  if (projectId) {
+    const dbBest = await getStageBestFromDB(supabase, projectId, docType);
+    if (dbBest && dbBest.score > result.score) {
+      console.log(`[auto-run][IEL] stage_best_db_upgrade { job_id: "${jobId}", doc_type: "${docType}", step_log_ci: ${result.ci}, db_ci: ${dbBest.ci} }`);
+      return { version_id: dbBest.version_id, ci: dbBest.ci, gp: dbBest.gp, gap: null, score: dbBest.score, step_index: result.step_index, versions_considered: result.versions_considered + 1, version_id_source: "meta_json_merged" };
+    }
+  }
+
   console.log(`[auto-run][IEL] stage_best_resolved { job_id: "${jobId}", doc_type: "${docType}", version_id: "${result.version_id}", ci: ${result.ci}, gp: ${result.gp}, score_formula: "CI+GP", versions_considered: ${result.versions_considered}, version_id_source: "${result.version_id_source}" }`);
   return result;
 }
@@ -422,7 +470,7 @@ async function checkPrerequisiteGate(
   if (!gate) return NOT_BLOCKED;
 
   // Check if the prerequisite stage has been reviewed in this job
-  const stageBest = await getStageBestFromSteps(supabase, jobId, gate.prerequisite);
+  const stageBest = await getStageBestFromSteps(supabase, jobId, gate.prerequisite, job?.project_id ?? null);
 
   if (!stageBest) {
     // No reviews for prerequisite — block and redirect
@@ -509,12 +557,14 @@ function resolveTargetCI(job: any): number {
 
 /**
  * Evaluate CI gate for stage advancement. Returns { pass, ci, bestCiSoFar }.
- * Source of truth: stage-scoped best CI from auto_run_steps (action=review).
+ * Source of truth: stage-scoped best CI from auto_run_steps (action=review),
+ * with DB-persisted fallback from project_document_versions.meta_json.
  */
 async function evaluateCIGate(
   supabase: any, jobId: string, docType: string, targetCi: number = GLOBAL_MIN_CI,
+  projectId: string | null = null,
 ): Promise<{ pass: boolean; ci: number; bestCiSoFar: number }> {
-  const stageBest = await getStageBestFromSteps(supabase, jobId, docType);
+  const stageBest = await getStageBestFromSteps(supabase, jobId, docType, projectId);
   const ci = stageBest?.ci ?? 0;
   return { pass: ci >= targetCi, ci, bestCiSoFar: ci };
 }
@@ -523,9 +573,11 @@ async function evaluateCIGate(
  * Check monotonic CI improvement for the current stage.
  * Returns: { improving, plateau, plateauCount, bestCi, currentCi }.
  * Reads from auto_run_steps (action=review) for the doc_type, ordered by step_index desc.
+ * Falls back to DB-persisted meta_json scores when step log is insufficient.
  */
 async function checkMonotonicCIImprovement(
   supabase: any, jobId: string, docType: string, targetCi: number = GLOBAL_MIN_CI,
+  projectId: string | null = null,
 ): Promise<{ improving: boolean; plateau: boolean; plateauCount: number; bestCi: number; currentCi: number }> {
   // ── IEL: Include both 'review' AND 'rewrite_accepted' steps as CI data points ──
   // This ensures promoted candidates' scores are visible to the plateau gate,
@@ -544,6 +596,13 @@ async function checkMonotonicCIImprovement(
   console.log(`[auto-run][IEL] monotonic_ci_source { job_id: "${jobId}", doc_type: "${docType}", steps_found: ${recentReviews?.length ?? 0}, actions_queried: ${JSON.stringify(CI_SCORED_ACTIONS)}, latest_ci: ${recentReviews?.[0]?.ci ?? 'null'}, latest_action: "${recentReviews?.[0]?.action ?? 'none'}", latest_step_index: ${recentReviews?.[0]?.step_index ?? 'null'} }`);
 
   if (!recentReviews || recentReviews.length < 2) {
+    // Not enough step data — check DB-persisted scores as fallback
+    if (projectId) {
+      const dbBest = await getStageBestFromDB(supabase, projectId, docType);
+      if (dbBest && dbBest.ci >= targetCi) {
+        return { improving: true, plateau: false, plateauCount: 0, bestCi: dbBest.ci, currentCi: dbBest.ci };
+      }
+    }
     // Not enough data — allow continuation
     return { improving: true, plateau: false, plateauCount: 0, bestCi: recentReviews?.[0]?.ci ?? 0, currentCi: recentReviews?.[0]?.ci ?? 0 };
   }
@@ -5778,7 +5837,7 @@ Deno.serve(async (req) => {
           }
         } else {
         // Original V1 plateau logic
-        const ciProgress = await checkMonotonicCIImprovement(supabase, jobId, currentDoc, targetCi);
+        const ciProgress = await checkMonotonicCIImprovement(supabase, jobId, currentDoc, targetCi, job.project_id);
         console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, min_ci: ${targetCi}, improving: ${ciProgress.improving}, plateau_count: ${ciProgress.plateauCount}, rule: "monotonic_ci_loop" }`);
 
         if (ciProgress.bestCi >= targetCi) {
@@ -7659,7 +7718,7 @@ Deno.serve(async (req) => {
                 // the correct fixes; scores confirm readiness; no need for another rewrite cycle.
                 // Uses stage best CI (not current review CI) to prevent regression blocking.
                 const earlyTargetCi = resolveTargetCI(job);
-                const earlyStageBest = await getStageBestFromSteps(supabase, jobId, currentDoc);
+                const earlyStageBest = await getStageBestFromSteps(supabase, jobId, currentDoc, job.project_id);
                 const earlyBestCi = earlyStageBest?.ci ?? ci;
                 if (earlyBestCi >= earlyTargetCi && blockersCount === 0 && job.allow_defaults !== false) {
                   const earlyNext = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
@@ -7740,7 +7799,7 @@ Deno.serve(async (req) => {
             } else {
               // Converged enough — apply CI hard gate before promotion (uses job target_ci)
               const promoteTargetCi = resolveTargetCI(job);
-              const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, promoteTargetCi);
+              const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, promoteTargetCi, job.project_id);
               console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${promoteTargetCi}, rule: "converge_promote_gate" }`);
               if (!ciGate.pass) {
                 // CI below target — do NOT promote, continue stabilise
@@ -8502,7 +8561,7 @@ Deno.serve(async (req) => {
 
             // ── BLOCKER-AWARE BEST-OF TRACKING (STAGE-SCOPED from auto_run_steps + GLOBAL best update) ──
             // Stage-scoped best is derived from DB; global best_* on job is informational only.
-            const stageBest = await getStageBestFromSteps(supabase, jobId, currentDoc);
+            const stageBest = await getStageBestFromSteps(supabase, jobId, currentDoc, job.project_id);
             const candidateComposite = acceptedCI + acceptedGP;
             const cbc = candBlockerCount ?? 0;
 
@@ -9582,7 +9641,7 @@ Deno.serve(async (req) => {
         if (promo.recommendation === "promote") {
           // ── CI HARD GATE: no promotion unless CI meets job target (default 90) ──
           const writeTargetCi = resolveTargetCI(job);
-          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, writeTargetCi);
+          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, writeTargetCi, job.project_id);
           console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${writeTargetCi}, rule: "promote_gate_writing" }`);
           if (!ciGate.pass) {
             console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${writeTargetCi}, trigger: "promote_writing" }`);
