@@ -6678,8 +6678,16 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
 
-        const { data: prevVersions } = await supabase.from("project_document_versions").select("id").eq("document_id", prevDoc.id).order("version_number", { ascending: false }).limit(1);
-        const prevVersion = prevVersions?.[0];
+        // Prefer approved+current (authoritative) version; fallback to latest by version_number
+        const { data: prevVersions } = await supabase.from("project_document_versions")
+          .select("id, approval_status, is_current, version_number")
+          .eq("document_id", prevDoc.id)
+          .order("version_number", { ascending: false });
+        const prevVersionCandidates = prevVersions || [];
+        const prevVersion =
+          prevVersionCandidates.find((v: any) => v.approval_status === "approved" && v.is_current === true) ||
+          prevVersionCandidates.find((v: any) => v.approval_status === "approved") ||
+          prevVersionCandidates[0] || null;
         if (!prevVersion) {
           await updateJob(supabase, jobId, { status: "failed", error: `No version for ${prevStage} document` });
           return respondWithJob(supabase, jobId);
@@ -6763,12 +6771,16 @@ Deno.serve(async (req) => {
           if (job.allow_defaults) {
             // Full Autopilot: auto-approve the generated doc and continue
             if (convertedVersionId) {
+              // Stamp provenance: source_version_id in meta_json + approval fields
+              const { data: existingVer } = await supabase.from("project_document_versions")
+                .select("meta_json").eq("id", convertedVersionId).maybeSingle();
+              const mergedMeta = { ...(existingVer?.meta_json || {}), source_version_id: prevVersion.id };
               await supabase.from("project_document_versions").update({
                 approval_status: "approved",
                 approved_at: new Date().toISOString(),
                 approved_by: job.user_id,
-                // Provenance invariant: ensure generator_id is never null for auto-run converts
                 generator_id: "auto-run-convert",
+                meta_json: mergedMeta,
               }).eq("id", convertedVersionId);
             }
             await logStep(supabase, jobId, null, currentDoc, "auto_approved_convert",
