@@ -5612,7 +5612,8 @@ Deno.serve(async (req) => {
               .map((v: any) => ({ ...v, _ci: parseVersionScores(v.meta_json).ci ?? 0, _gp: parseVersionScores(v.meta_json).gp ?? 0 }))
               .sort((a: any, b: any) => (b._ci + b._gp) - (a._ci + a._gp))[0];
             if (best._ci >= satisfiedTargetCi) {
-              const nextStage = nextDoc(currentDoc, format);
+              const guardFormat = (job.pipeline_key || "film").toLowerCase().replace(/_/g, "-");
+              const nextStage = nextDoc(currentDoc, guardFormat);
               await logStep(supabase, jobId, stepCount, currentDoc, "stage_already_satisfied",
                 `Stage ${currentDoc} already has approved version CI:${best._ci}, GP:${best._gp} (target: ${satisfiedTargetCi}). Advancing to ${nextStage ?? "complete"}.`,
                 { ci: best._ci, gp: best._gp }, undefined,
