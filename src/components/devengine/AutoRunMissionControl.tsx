@@ -1604,9 +1604,15 @@ export function AutoRunMissionControl({
               <div className="flex items-center gap-2 mt-2">
                 <Switch
                   checked={job.follow_latest !== false}
-                  onCheckedChange={(checked) => {
+                  onCheckedChange={async (checked) => {
                     if (checked) {
                       onResume(true);
+                    } else {
+                      // Directly update follow_latest to false in the database
+                      const { supabase } = await import('@/integrations/supabase/client');
+                      await supabase.from('auto_run_jobs').update({ follow_latest: false }).eq('id', job.id);
+                      // Refresh status to pick up the change
+                      onRunNext();
                     }
                   }}
                   className="scale-75"
