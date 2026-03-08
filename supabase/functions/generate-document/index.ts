@@ -220,7 +220,7 @@ Deno.serve(async (req) => {
     // Dep graph validity gate
     if (!DEP_GRAPH_VALID) return jsonRes({ error: "DEP_GRAPH_INVALID", message: "UPSTREAM_DEPS contains a cycle or self-dependency. Cannot proceed." }, 500);
 
-    const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext } = body;
+    const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext, sourceDocType, sourceVersionId } = body;
 
     // Extract nuance parameters (with defaults)
     const nuanceParams: NuanceParams = {
@@ -291,7 +291,12 @@ Deno.serve(async (req) => {
 
       for (const doc of (allDocs || [])) {
         const candidates = versionsByDoc.get(doc.id) || [];
+        const explicitSourceVersion =
+          sourceVersionId && sourceDocType === doc.doc_type
+            ? candidates.find((v: any) => v.id === sourceVersionId)
+            : null;
         const version =
+          explicitSourceVersion ||
           candidates.find((v: any) => v.approval_status === "approved" && v.is_current === true) ||
           candidates.find((v: any) => v.approval_status === "approved") ||
           (doc.latest_version_id ? candidates.find((v: any) => v.id === doc.latest_version_id) : null) ||
