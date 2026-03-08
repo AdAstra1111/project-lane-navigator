@@ -2624,7 +2624,20 @@ async function finalizeBest(supabase: any, jobId: string, job: any, explicitCurr
     return false;
   }
 
-  // ── IEL: Mark finalized best as approved so ABVR best_approved path resolves correctly ──
+  // ── IEL: Mark finalized best as approved + persist CI/GP atomically ──
+  try {
+    await persistVersionScores(supabase, {
+      versionId: bestVersionId,
+      ci: job.best_ci ?? 0,
+      gp: job.best_gp ?? 0,
+      source: "auto-run-finalize-promote",
+      jobId,
+      protectHigher: true,
+      docType: job.current_document,
+    });
+  } catch (scoreErr: any) {
+    console.warn(`[auto-run][IEL] finalize_score_persist_failed { version_id: "${bestVersionId}", error: "${scoreErr?.message}" }`);
+  }
   const { error: approvalErr } = await supabase.from("project_document_versions").update({
     approval_status: "approved",
     approved_at: new Date().toISOString(),
@@ -2633,7 +2646,7 @@ async function finalizeBest(supabase: any, jobId: string, job: any, explicitCurr
   if (approvalErr) {
     console.warn(`[auto-run][IEL] finalize_approval_stamp_failed { version_id: "${bestVersionId}", error: "${approvalErr.message}" }`);
   }
-  console.log(`[auto-run][IEL] candidate_accepted_persisted { document_id: "${ver.document_id}", accepted_version_id: "${bestVersionId}", approval_status_set: "approved", job_id: "${jobId}", source: "finalize_best" }`);
+  console.log(`[auto-run][IEL] candidate_accepted_persisted { document_id: "${ver.document_id}", accepted_version_id: "${bestVersionId}", approval_status_set: "approved", ci: ${job.best_ci}, gp: ${job.best_gp}, job_id: "${jobId}", source: "finalize_best" }`);
 
   await logStep(supabase, jobId, null, job.current_document || "unknown", "finalize_promote_best",
     `Job ending — promoted best version ${bestVersionId} (CI=${job.best_ci}, GP=${job.best_gp}, score=${job.best_score})`,
@@ -2790,6 +2803,20 @@ async function tryPlateauForcePromote(
     return null;
   }
 
+  // Persist CI/GP scores atomically with approval
+  try {
+    await persistVersionScores(supabase, {
+      versionId: bestForDoc.versionId,
+      ci: bestForDoc.ci,
+      gp: bestForDoc.gp,
+      source: "auto-run-plateau-force-promote",
+      jobId,
+      protectHigher: true,
+      docType: currentDoc,
+    });
+  } catch (scoreErr: any) {
+    console.warn(`[tryPlateauForcePromote] score_persist_failed { version_id: "${bestForDoc.versionId}", error: "${scoreErr?.message}" }`);
+  }
   await supabase.from("project_document_versions").update({
     approval_status: "approved",
     approved_at: new Date().toISOString(),
@@ -4477,6 +4504,24 @@ Deno.serve(async (req) => {
       const approveVersionId = job.pending_version_id || null;
       if (approveVersionId) {
         try {
+          // Persist CI/GP scores atomically with approval
+          const approveCi = job.last_ci ?? job.best_ci ?? null;
+          const approveGp = job.last_gp ?? job.best_gp ?? null;
+          if (typeof approveCi === "number" && typeof approveGp === "number") {
+            try {
+              await persistVersionScores(supabase, {
+                versionId: approveVersionId,
+                ci: approveCi,
+                gp: approveGp,
+                source: "auto-run-approve-next",
+                jobId,
+                protectHigher: true,
+                docType: currentDoc,
+              });
+            } catch (scoreErr: any) {
+              console.warn(`[auto-run] approve-next score_persist_failed { version_id: "${approveVersionId}", error: "${scoreErr?.message}" }`);
+            }
+          }
           await supabase.from("project_document_versions").update({
             approval_status: "approved",
             approved_at: new Date().toISOString(),

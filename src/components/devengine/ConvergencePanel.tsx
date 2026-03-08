@@ -10,6 +10,8 @@ interface ConvergencePanelProps {
   convergenceHistory: any[];
   convergenceStatus: string;
   tieredNotes: { blockers: any[]; high: any[]; polish: any[] };
+  /** DB-persisted meta_json scores — primary source of truth */
+  versionMetaJson?: { ci?: number; gp?: number } | null;
 }
 
 function Sparkline({ history }: { history: any[] }) {
@@ -36,10 +38,15 @@ function Sparkline({ history }: { history: any[] }) {
   );
 }
 
-export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergenceStatus, tieredNotes }: ConvergencePanelProps) {
-  const ci = latestAnalysis?.ci_score || latestAnalysis?.scores?.ci_score || 0;
-  const gp = latestAnalysis?.gp_score || latestAnalysis?.scores?.gp_score || 0;
-  const gap = latestAnalysis?.gap || latestAnalysis?.scores?.gap || 0;
+export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergenceStatus, tieredNotes, versionMetaJson }: ConvergencePanelProps) {
+  // DB meta_json is source of truth; analysis is fallback
+  const metaCi = typeof versionMetaJson?.ci === 'number' ? versionMetaJson.ci : null;
+  const metaGp = typeof versionMetaJson?.gp === 'number' ? versionMetaJson.gp : null;
+  const analysisCi = latestAnalysis?.ci_score || latestAnalysis?.scores?.ci_score || 0;
+  const analysisGp = latestAnalysis?.gp_score || latestAnalysis?.scores?.gp_score || 0;
+  const ci = metaCi ?? analysisCi;
+  const gp = metaGp ?? analysisGp;
+  const gap = latestAnalysis?.gap || latestAnalysis?.scores?.gap || Math.abs(ci - gp);
   const statusColor = convergenceStatus === 'Converged' ? 'text-emerald-400' :
     convergenceStatus === 'In Progress' ? 'text-amber-400' : 'text-muted-foreground';
 
