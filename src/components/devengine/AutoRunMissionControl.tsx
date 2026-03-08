@@ -1603,7 +1603,7 @@ export function AutoRunMissionControl({
               {/* Follow Latest toggle */}
               <div className="flex items-center gap-2 mt-2">
                 <Switch
-                  checked={job.follow_latest !== false}
+                  checked={job.follow_latest === true}
                   onCheckedChange={async (checked) => {
                     if (checked) {
                       onResume(true);

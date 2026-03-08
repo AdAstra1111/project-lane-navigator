@@ -3772,6 +3772,7 @@ Deno.serve(async (req) => {
         max_total_steps: effectiveMaxSteps,
         converge_target_json: body.converge_target_json || { ci: 100, gp: 100 },
         allow_defaults: body.allow_defaults === true,
+        follow_latest: body.follow_latest === true ? true : false,
         pipeline_key: fmt,
         max_versions_per_doc_per_job: typeof body.max_versions_per_doc_per_job === "number"
           ? Math.max(MIN_VERSION_CAP, Math.min(MAX_VERSION_CAP, body.max_versions_per_doc_per_job))

@@ -1,0 +1,1 @@
+ALTER TABLE public.auto_run_jobs ALTER COLUMN follow_latest SET DEFAULT false;
