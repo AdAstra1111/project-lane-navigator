@@ -986,8 +986,13 @@ export default function ProjectDevelopmentEngine() {
     const promoteTarget = promotionIntel.data?.next_document;
     // Use promotion-gate-bound analysis, not selected-version-scoped latestAnalysis
     const gateAnalysis = promotionGateAnalysis || latestAnalysis;
-    const promoteCi = gateAnalysis?.ci_score ?? gateAnalysis?.scores?.ci ?? ((authoritativeVersion as any)?.meta_json as any)?.ci ?? null;
-    const promoteGp = gateAnalysis?.gp_score ?? gateAnalysis?.scores?.gp ?? ((authoritativeVersion as any)?.meta_json as any)?.gp ?? null;
+    // DB meta_json is source of truth; analysis is fallback only
+    const metaCi = ((authoritativeVersion as any)?.meta_json as any)?.ci ?? null;
+    const metaGp = ((authoritativeVersion as any)?.meta_json as any)?.gp ?? null;
+    const analysisCi = gateAnalysis?.ci_score ?? gateAnalysis?.scores?.ci ?? null;
+    const analysisGp = gateAnalysis?.gp_score ?? gateAnalysis?.scores?.gp ?? null;
+    const promoteCi = (typeof metaCi === 'number') ? metaCi : analysisCi;
+    const promoteGp = (typeof metaGp === 'number') ? metaGp : analysisGp;
     const isApprovedAndHighConfidence = authoritativeVersion?.approval_status === 'approved'
       && typeof promoteCi === 'number'
       && typeof promoteGp === 'number'
