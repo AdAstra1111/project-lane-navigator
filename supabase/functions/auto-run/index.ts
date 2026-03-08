@@ -4115,6 +4115,8 @@ Deno.serve(async (req) => {
                 status: "paused",
                 stop_reason: `Approval required: ${blockingDecisions[0].question}`,
                 pending_decisions: mustDecide,
+                pending_doc_id: doc.id,
+                pending_version_id: latestVersion.id,
               });
               return respondWithJob(supabase, jobId, "approve-decision");
             }
@@ -4928,6 +4930,8 @@ Deno.serve(async (req) => {
               status: "paused",
               stop_reason: `Executive strategy decision required: ${blockingDecisions[0].question}`,
               pending_decisions: mustDecide,
+              pending_doc_id: doc.id,
+              pending_version_id: latestVersion.id,
             });
             return respondWithJob(supabase, jobId, "approve-decision");
           }
@@ -5169,9 +5173,17 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId, status === "running" ? "run-next" : "none");
       }
 
-      // Resolve doc and version — use pending or fall back to latest
+      // Resolve doc and version — prefer client-supplied source_version_id, then pending, then latest
+      const clientSourceVersionId = body.source_version_id || null;
       let docId = job.pending_doc_id;
-      let versionId = job.pending_version_id;
+      let versionId = clientSourceVersionId || job.pending_version_id;
+
+      // If client supplied a source_version_id, resolve its document_id
+      if (clientSourceVersionId && !docId) {
+        const { data: srcVer } = await supabase.from("project_document_versions")
+          .select("document_id").eq("id", clientSourceVersionId).single();
+        if (srcVer) docId = srcVer.document_id;
+      }
 
       // Fallback: resolve latest document/version for current stage if pending not set
       if (!docId || !versionId) {
@@ -5185,6 +5197,14 @@ Deno.serve(async (req) => {
             .order("version_number", { ascending: false }).limit(1).single();
           versionId = latestVer?.id || null;
         }
+      }
+
+      if (clientSourceVersionId) {
+        console.log(`[auto-run][IEL] apply_decisions_version_source { job_id: "${jobId}", source: "client_source_version_id", version_id: "${clientSourceVersionId}", doc_id: "${docId}" }`);
+      } else if (job.pending_version_id) {
+        console.log(`[auto-run][IEL] apply_decisions_version_source { job_id: "${jobId}", source: "job_pending_version_id", version_id: "${job.pending_version_id}", doc_id: "${docId}" }`);
+      } else {
+        console.log(`[auto-run][IEL] apply_decisions_version_source { job_id: "${jobId}", source: "fallback_latest", version_id: "${versionId}", doc_id: "${docId}" }`);
       }
 
       // Fallback: if current stage has no versions (empty slot after promotion),
