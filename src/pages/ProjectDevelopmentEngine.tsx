@@ -2146,11 +2146,11 @@ export default function ProjectDevelopmentEngine() {
             <TabsContent value="convergence" className="mt-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <ConvergencePanel
-                  latestAnalysis={authoritativeVersion ? (promotionGateAnalysis || latestAnalysis) : latestAnalysis}
+                  latestAnalysis={latestAnalysis}
                   convergenceHistory={convergenceHistory}
-                  convergenceStatus={authoritativeVersion ? promotionConvergenceStatus : convergenceStatus}
-                  tieredNotes={authoritativeVersion ? promotionTieredNotes : tieredNotes}
-                  versionMetaJson={(authoritativeVersion as any)?.meta_json ?? null}
+                  convergenceStatus={convergenceStatus}
+                  tieredNotes={tieredNotes}
+                  versionMetaJson={(selectedVersion as any)?.meta_json ?? null}
                 />
                 <div className="space-y-3">
                   {/* Auto-Run Progress Panel */}
