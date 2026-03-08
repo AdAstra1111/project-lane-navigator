@@ -5591,6 +5591,46 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ── IEL: STAGE ALREADY SATISFIED GUARD ──
+      // Prevents re-doing work on a stage already approved in a prior job.
+      // getStageBestFromSteps() is job-scoped; this guard checks DB-persisted approval.
+      {
+        const satisfiedTargetCi = resolveTargetCI(job);
+        const { data: satisfiedDoc } = await supabase
+          .from("project_documents").select("id")
+          .eq("project_id", job.project_id).eq("doc_type", currentDoc)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (satisfiedDoc) {
+          const { data: approvedVers } = await supabase
+            .from("project_document_versions")
+            .select("id, meta_json, version_number")
+            .eq("document_id", satisfiedDoc.id)
+            .eq("approval_status", "approved")
+            .order("version_number", { ascending: false });
+          if (approvedVers && approvedVers.length > 0) {
+            const best = approvedVers
+              .map((v: any) => ({ ...v, _ci: parseVersionScores(v.meta_json).ci ?? 0, _gp: parseVersionScores(v.meta_json).gp ?? 0 }))
+              .sort((a: any, b: any) => (b._ci + b._gp) - (a._ci + a._gp))[0];
+            if (best._ci >= satisfiedTargetCi) {
+              const guardFormat = (job.pipeline_key || "film").toLowerCase().replace(/_/g, "-");
+              const nextStage = nextDoc(currentDoc, guardFormat);
+              await logStep(supabase, jobId, stepCount, currentDoc, "stage_already_satisfied",
+                `Stage ${currentDoc} already has approved version CI:${best._ci}, GP:${best._gp} (target: ${satisfiedTargetCi}). Advancing to ${nextStage ?? "complete"}.`,
+                { ci: best._ci, gp: best._gp }, undefined,
+                { approved_version_id: best.id, target_ci: satisfiedTargetCi, next_stage: nextStage });
+              if (!nextStage) {
+                await updateJob(supabase, jobId, { status: "stopped", stop_reason: "All stages complete", last_ci: best._ci, last_gp: best._gp });
+                await releaseProcessingLock(supabase, jobId);
+                return respondWithJob(supabase, jobId);
+              }
+              await updateJob(supabase, jobId, { current_document: nextStage, stage_loop_count: 0, last_ci: best._ci, last_gp: best._gp });
+              await releaseProcessingLock(supabase, jobId);
+              return respondWithJob(supabase, jobId, "run-next");
+            }
+          }
+        }
+      }
+
       // Resolve project metadata once per run-next cycle
       const { data: project } = await supabase.from("projects")
         .select("title, format, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config, assigned_lane, budget_range, genres")
