@@ -2150,6 +2150,7 @@ export default function ProjectDevelopmentEngine() {
                   convergenceHistory={convergenceHistory}
                   convergenceStatus={authoritativeVersion ? promotionConvergenceStatus : convergenceStatus}
                   tieredNotes={authoritativeVersion ? promotionTieredNotes : tieredNotes}
+                  versionMetaJson={(authoritativeVersion as any)?.meta_json ?? null}
                 />
                 <div className="space-y-3">
                   {/* Auto-Run Progress Panel */}
