@@ -94,11 +94,14 @@ const Landing = () => {
           </span>
         </motion.div>
 
-        <motion.h1 {...fade(0.2)} className="font-display font-bold text-foreground tracking-tight mb-5 max-w-2xl" style={{ fontSize: 'clamp(2.2rem, 7vw, 4rem)', lineHeight: 1.05 }}>
+        <motion.h1 {...fade(0.2)} className="font-display font-bold text-foreground tracking-tight mb-3 max-w-2xl" style={{ fontSize: 'clamp(2.2rem, 7vw, 4rem)', lineHeight: 1.05 }}>
           Your next project
           <br />
           starts here.
         </motion.h1>
+        <motion.p {...fade(0.25)} className="text-xs font-mono text-muted-foreground/30 tracking-widest mb-5 uppercase">
+          Intelligent Film Flow &amp; Yield
+        </motion.p>
 
         <motion.p {...fade(0.3)} className="text-base text-muted-foreground max-w-md mx-auto leading-relaxed mb-14">
           Whether you have a finished script or a raw idea — IFFY takes you through development systematically and gets you to production-ready.
