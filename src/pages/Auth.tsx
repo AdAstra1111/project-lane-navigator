@@ -201,17 +201,11 @@ export default function Auth() {
           )}
 
           <div className="mt-6 flex flex-col gap-2 lg:hidden">
-            <Link to="/demo" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors group">
-              <span className="h-8 w-8 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
-                <Play className="h-3.5 w-3.5 fill-primary text-primary" />
-              </span>
-              Watch the trailer
-            </Link>
-            <Link to="/demo/executive" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors group">
+            <Link to="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors group">
               <span className="h-8 w-8 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
                 <Shield className="h-3.5 w-3.5 text-primary" />
               </span>
-              Explore Executive Mode
+              Back to IFFY
             </Link>
           </div>
         </motion.div>
@@ -230,23 +224,9 @@ export default function Auth() {
           <h2 className="text-2xl font-display font-bold text-foreground mb-3 leading-snug">
             From inception to legacy.
           </h2>
-          <p className="text-muted-foreground text-base leading-relaxed mb-8">
-            IFFY guides film and TV projects from development through production to monetisation.
+          <p className="text-muted-foreground text-base leading-relaxed">
+            IFFY guides film and TV projects from development through production to monetisation — systematically, at every stage.
           </p>
-          <div className="flex flex-col items-center gap-3">
-            <Link to="/demo" className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 transition-colors group">
-              <span className="h-9 w-9 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
-                <Play className="h-4 w-4 fill-primary text-primary" />
-              </span>
-              Watch the trailer
-            </Link>
-            <Link to="/demo/executive" className="inline-flex items-center gap-2 text-sm font-medium text-primary/70 hover:text-primary transition-colors group">
-              <span className="h-9 w-9 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
-                <Shield className="h-4 w-4 text-primary" />
-              </span>
-              Explore Executive Mode
-            </Link>
-          </div>
         </div>
       </div>
     </div>
