@@ -125,7 +125,7 @@ export default function GuidedDemo() {
       if (e.key === 'ArrowRight') { e.preventDefault(); nextStep(); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); prevStep(); }
       if (e.key === ' ') { e.preventDefault(); togglePlay(); }
-      if (e.key === 'Escape') navigate(-1);
+      if (e.key === 'Escape') navigate('/');
       if (e.key === 'c') setShowCaptions(c => !c);
     };
     window.addEventListener('keydown', handler);
