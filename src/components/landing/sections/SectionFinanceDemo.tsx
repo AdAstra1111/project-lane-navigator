@@ -1,30 +1,60 @@
 /**
  * SectionFinanceDemo — Animated demos for Tax Incentives, Budgeting, Casting Triage, Contracts
+ * Reference project: "How to Date Billy Walsh" (Amazon Prime, 2024) — produced by Paradox House
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SectionShell } from '../shared/SectionShell';
 import { useInView } from '../hooks/useInView';
 import {
   Receipt, Calculator, Users, FileText,
-  CheckCircle2, AlertTriangle, Clock, Globe,
-  TrendingUp, DollarSign, ChevronRight, Sparkles,
-  MapPin, BarChart3, Shield, Package
+  CheckCircle2, AlertTriangle, Clock,
+  TrendingUp, Sparkles
 } from 'lucide-react';
+
+const TMDB = 'https://image.tmdb.org/t/p/w185';
 
 // ── TAX INCENTIVES DEMO ──
 const TAX_TERRITORIES = [
-  { name: 'United Kingdom', code: 'UK', rate: 25, base: 5000000, color: 'hsl(38,60%,52%)', eligible: true, notes: 'HETV Credit · Qualifying spend' },
-  { name: 'Ireland', code: 'IE', rate: 32, base: 1200000, color: 'hsl(150,55%,50%)', eligible: true, notes: 'Section 481 · Co-production' },
-  { name: 'France', code: 'FR', rate: 30, base: 800000, color: 'hsl(200,65%,55%)', eligible: true, notes: 'TRIP · Rebate on French spend' },
+  {
+    name: 'United Kingdom',
+    code: 'UK',
+    rate: 25,
+    base: 3200000,
+    color: 'hsl(38,60%,52%)',
+    notes: 'UK Film Tax Relief · BFI qualifying',
+    delay: 0,
+  },
+  {
+    name: 'High-End Production',
+    code: 'HETV',
+    rate: 5,
+    base: 3200000,
+    color: 'hsl(150,55%,50%)',
+    notes: 'Additional uplift · Amazon Prime',
+    delay: 1,
+  },
+  {
+    name: 'Creative England',
+    code: 'CE',
+    rate: 0,
+    base: 0,
+    flat: 85000,
+    color: 'hsl(200,65%,55%)',
+    notes: 'Production Growth Fund · location grant',
+    delay: 2,
+  },
 ];
 
 function TaxIncentivesDemo() {
   const { ref, inView } = useInView({ threshold: 0.3 });
   const [step, setStep] = useState(0);
   const [selected, setSelected] = useState<number[]>([]);
+
+  const calcCredit = (t: typeof TAX_TERRITORIES[0]) =>
+    t.flat ?? Math.round((t.base * t.rate) / 100);
   const totalStack = TAX_TERRITORIES.filter((_, i) => selected.includes(i))
-    .reduce((sum, t) => sum + Math.round((t.base * t.rate) / 100), 0);
+    .reduce((sum, t) => sum + calcCredit(t), 0);
 
   useEffect(() => {
     if (!inView) { setStep(0); setSelected([]); return; }
@@ -39,14 +69,19 @@ function TaxIncentivesDemo() {
     <div ref={ref} className="flex flex-col gap-4">
       <AnimatePresence>
         {step >= 1 && (
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-lg bg-[hsl(225,20%,8%)] border border-border/10 px-4 py-3">
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            className="rounded-lg bg-[hsl(225,20%,8%)] border border-border/10 px-4 py-3 flex flex-col gap-1">
             <div className="flex justify-between">
-              <span className="text-[10px] font-mono text-muted-foreground/50">Project Budget</span>
-              <span className="text-[10px] font-mono font-bold text-foreground/80">£5,000,000</span>
+              <span className="text-[10px] font-mono text-muted-foreground/50">Project</span>
+              <span className="text-[10px] font-mono font-bold text-foreground/80">How to Date Billy Walsh</span>
             </div>
-            <div className="flex justify-between mt-1">
-              <span className="text-[10px] font-mono text-muted-foreground/50">Production Type</span>
-              <span className="text-[10px] font-mono text-primary/80">High-End TV Drama</span>
+            <div className="flex justify-between">
+              <span className="text-[10px] font-mono text-muted-foreground/50">Production Budget</span>
+              <span className="text-[10px] font-mono font-bold text-foreground/80">£4,200,000</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-[10px] font-mono text-muted-foreground/50">Distributor</span>
+              <span className="text-[10px] font-mono text-primary/70">Amazon Prime Video</span>
             </div>
           </motion.div>
         )}
@@ -65,7 +100,7 @@ function TaxIncentivesDemo() {
               background: selected.includes(i) ? `${t.color}08` : 'transparent',
             }}
           >
-            <div className="flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center border"
+            <div className="flex-shrink-0 w-9 h-7 rounded-md flex items-center justify-center border"
               style={{ borderColor: `${t.color}30`, background: `${t.color}10` }}>
               <span className="text-[9px] font-mono font-bold" style={{ color: t.color }}>{t.code}</span>
             </div>
@@ -75,11 +110,13 @@ function TaxIncentivesDemo() {
                 {selected.includes(i) && (
                   <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }}
                     className="text-xs font-mono font-bold" style={{ color: t.color }}>
-                    +£{((t.base * t.rate) / 100).toLocaleString()}
+                    +£{calcCredit(t).toLocaleString()}
                   </motion.span>
                 )}
               </div>
-              <span className="text-[10px] font-mono text-muted-foreground/40">{t.notes} · {t.rate}%</span>
+              <span className="text-[10px] font-mono text-muted-foreground/40">
+                {t.notes}{t.rate > 0 ? ` · ${t.rate}%` : ''}
+              </span>
             </div>
             {selected.includes(i) && (
               <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" style={{ color: t.color }} />
@@ -98,7 +135,9 @@ function TaxIncentivesDemo() {
             </div>
             <div className="text-right">
               <p className="text-[10px] font-mono text-muted-foreground/40">Effective rate</p>
-              <p className="text-sm font-mono font-bold text-foreground/70">{Math.round((totalStack / 5000000) * 100)}% of budget</p>
+              <p className="text-sm font-mono font-bold text-foreground/70">
+                {Math.round((totalStack / 4200000) * 100)}% of budget
+              </p>
             </div>
           </motion.div>
         )}
@@ -109,13 +148,14 @@ function TaxIncentivesDemo() {
 
 // ── BUDGETING DEMO ──
 const BUDGET_LINES = [
-  { label: 'Story & Screenplay', amount: 180000, category: 'ATL', color: 'hsl(38,60%,52%)' },
-  { label: 'Director Fees', amount: 320000, category: 'ATL', color: 'hsl(38,60%,52%)' },
-  { label: 'Principal Cast', amount: 680000, category: 'ATL', color: 'hsl(38,60%,52%)' },
-  { label: 'Production Design', amount: 420000, category: 'BTL', color: 'hsl(200,65%,55%)' },
-  { label: 'Camera & Lenses', amount: 280000, category: 'BTL', color: 'hsl(200,65%,55%)' },
-  { label: 'Visual Effects', amount: 650000, category: 'POST', color: 'hsl(280,55%,60%)' },
-  { label: 'Music & Sound', amount: 190000, category: 'POST', color: 'hsl(280,55%,60%)' },
+  { label: 'Story & Screenplay',  amount: 95000,  category: 'ATL',  color: 'hsl(38,60%,52%)' },
+  { label: 'Director Fees',       amount: 180000, category: 'ATL',  color: 'hsl(38,60%,52%)' },
+  { label: 'Principal Cast',      amount: 620000, category: 'ATL',  color: 'hsl(38,60%,52%)' },
+  { label: 'Production Design',   amount: 310000, category: 'BTL',  color: 'hsl(200,65%,55%)' },
+  { label: 'Camera & Lenses',     amount: 195000, category: 'BTL',  color: 'hsl(200,65%,55%)' },
+  { label: 'Locations (UK)',      amount: 240000, category: 'BTL',  color: 'hsl(200,65%,55%)' },
+  { label: 'Visual Effects',      amount: 420000, category: 'POST', color: 'hsl(280,55%,60%)' },
+  { label: 'Music & Score',       amount: 140000, category: 'POST', color: 'hsl(280,55%,60%)' },
 ];
 
 function BudgetingDemo() {
@@ -139,15 +179,20 @@ function BudgetingDemo() {
     return () => clearInterval(interval);
   }, [inView]);
 
-  const categories = ['ATL', 'BTL', 'POST'];
-  const catTotals = categories.map(c => ({
-    label: c === 'ATL' ? 'Above the Line' : c === 'BTL' ? 'Below the Line' : 'Post Production',
-    color: c === 'ATL' ? 'hsl(38,60%,52%)' : c === 'BTL' ? 'hsl(200,65%,55%)' : 'hsl(280,55%,60%)',
-    total: BUDGET_LINES.filter(l => l.category === c).reduce((s, l) => s + l.amount, 0),
+  const catTotals = [
+    { label: 'Above the Line', key: 'ATL', color: 'hsl(38,60%,52%)' },
+    { label: 'Below the Line', key: 'BTL', color: 'hsl(200,65%,55%)' },
+    { label: 'Post Production', key: 'POST', color: 'hsl(280,55%,60%)' },
+  ].map(c => ({
+    ...c,
+    total: BUDGET_LINES.filter(l => l.category === c.key).reduce((s, l) => s + l.amount, 0),
   }));
 
   return (
     <div ref={ref} className="flex flex-col gap-3">
+      <div className="rounded-lg bg-[hsl(225,20%,8%)] border border-border/10 px-4 py-2 mb-1">
+        <span className="text-[10px] font-mono text-muted-foreground/50">How to Date Billy Walsh · Feature Film · Low Budget</span>
+      </div>
       {BUDGET_LINES.map((line, i) => (
         <AnimatePresence key={line.label}>
           {i < visibleLines && (
@@ -174,7 +219,6 @@ function BudgetingDemo() {
           )}
         </AnimatePresence>
       ))}
-
       <AnimatePresence>
         {showTotal && (
           <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
@@ -185,7 +229,7 @@ function BudgetingDemo() {
             </div>
             <div className="flex gap-3">
               {catTotals.map(c => (
-                <div key={c.label} className="flex-1 text-center">
+                <div key={c.key} className="flex-1 text-center">
                   <p className="text-xs font-mono font-bold" style={{ color: c.color }}>£{(c.total / 1000).toFixed(0)}K</p>
                   <p className="text-[8px] font-mono text-muted-foreground/40 leading-tight">{c.label}</p>
                 </div>
@@ -201,27 +245,76 @@ function BudgetingDemo() {
 // ── CASTING TRIAGE DEMO ──
 const CAST_ROLES = [
   {
-    role: 'Lead — Hana',
-    suggestions: [
-      { name: 'Ayaka Miyoshi', score: 94, copro: 'JP/UK', availability: 'Available Q3', trending: '+12%' },
-      { name: 'Kaya Scodelario', score: 88, copro: 'UK', availability: 'Available Q4', trending: '+5%' },
-    ],
+    role: 'Lead — Billy Walsh',
     color: 'hsl(38,60%,52%)',
+    suggestions: [
+      {
+        name: 'Tanner Buchanan',
+        img: `${TMDB}/r4BhpeAIorW6Po2zOIRyhwKGA2y.jpg`,
+        score: 94,
+        credits: 'Cobra Kai · He\'s All That',
+        territory: 'US',
+        trending: '+22%',
+        note: 'Confirmed',
+      },
+      {
+        name: 'Jacob Elordi',
+        img: `${TMDB}/2mFGfkRGWKQ0k87k3bS9yvzHH4T.jpg`,
+        score: 91,
+        credits: 'Saltburn · Priscilla',
+        territory: 'AU/US',
+        trending: '+41%',
+        note: 'Alt. option',
+      },
+    ],
   },
   {
-    role: 'Antagonist — Kaito',
-    suggestions: [
-      { name: 'Hiroyuki Sanada', score: 97, copro: 'JP/UK/US', availability: 'Negotiating', trending: '+28%' },
-      { name: 'Takehiro Hira', score: 91, copro: 'JP/UK', availability: 'Available Q3', trending: '+18%' },
-    ],
+    role: 'Lead — Archie',
     color: 'hsl(200,65%,55%)',
+    suggestions: [
+      {
+        name: 'Sebastian Croft',
+        img: `${TMDB}/uv2foDEA3rgrzQsoyyV77Nb65ga.jpg`,
+        score: 92,
+        credits: 'Heartstopper · Game of Thrones',
+        territory: 'UK',
+        trending: '+18%',
+        note: 'Confirmed',
+      },
+      {
+        name: 'Kit Connor',
+        img: `${TMDB}/5kMqwlGt7MPaBgMEAMMYbNb7Kbi.jpg`,
+        score: 90,
+        credits: 'Heartstopper · Rocketman',
+        territory: 'UK',
+        trending: '+35%',
+        note: 'Alt. option',
+      },
+    ],
   },
   {
-    role: 'Supporting — Elder Rin',
-    suggestions: [
-      { name: 'Yuki Amami', score: 89, copro: 'JP', availability: 'Available Q3', trending: '+7%' },
-    ],
+    role: 'Lead — Amelia',
     color: 'hsl(150,55%,50%)',
+    suggestions: [
+      {
+        name: 'Charithra Chandran',
+        img: `${TMDB}/xLFgJmfXjd2Nnbjx3ZtavReGwjK.jpg`,
+        score: 95,
+        credits: 'Bridgerton · Alex Rider',
+        territory: 'UK',
+        trending: '+29%',
+        note: 'Confirmed',
+      },
+      {
+        name: 'Mia McKenna-Bruce',
+        img: `${TMDB}/A7cHXFrgEY5X89JiWgm1Gr4Gnqz.jpg`,
+        score: 88,
+        credits: 'How to Have Sex · The Witcher',
+        territory: 'UK',
+        trending: '+44%',
+        note: 'Alt. option',
+      },
+    ],
   },
 ];
 
@@ -238,24 +331,29 @@ function CastingTriageDemo() {
       setVisibleRoles(i);
       if (i >= CAST_ROLES.length) {
         clearInterval(interval);
-        // Auto-select best
-        setTimeout(() => {
-          setSelected({ 0: 0, 1: 0, 2: 0 });
-        }, 600);
+        setTimeout(() => setSelected({ 0: 0, 1: 0, 2: 0 }), 500);
       }
     }, 700);
     return () => clearInterval(interval);
   }, [inView]);
 
-  const castScore = Object.keys(selected).length === CAST_ROLES.length
-    ? Math.round(CAST_ROLES.reduce((sum, role, i) => sum + role.suggestions[selected[i] ?? 0].score, 0) / CAST_ROLES.length)
-    : null;
+  const castScore =
+    Object.keys(selected).length === CAST_ROLES.length
+      ? Math.round(
+          CAST_ROLES.reduce((sum, role, i) => sum + role.suggestions[selected[i] ?? 0].score, 0) /
+            CAST_ROLES.length,
+        )
+      : null;
 
   return (
     <div ref={ref} className="flex flex-col gap-3">
       {CAST_ROLES.slice(0, visibleRoles).map((role, ri) => (
-        <motion.div key={role.role} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-border/15 bg-[hsl(225,20%,8%)] overflow-hidden">
+        <motion.div
+          key={role.role}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-border/15 bg-[hsl(225,20%,8%)] overflow-hidden"
+        >
           <div className="px-3 py-2 border-b border-border/10 flex items-center gap-2">
             <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: role.color }} />
             <span className="text-[10px] font-mono text-muted-foreground/60">{role.role}</span>
@@ -268,22 +366,54 @@ function CastingTriageDemo() {
                 animate={{ opacity: 1 }}
                 transition={{ delay: si * 0.15 }}
                 onClick={() => setSelected(prev => ({ ...prev, [ri]: si }))}
-                className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-all"
+                className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-all"
                 style={{
                   background: selected[ri] === si ? `${role.color}12` : 'transparent',
-                  borderWidth: 1, borderStyle: 'solid',
+                  borderWidth: 1,
+                  borderStyle: 'solid',
                   borderColor: selected[ri] === si ? `${role.color}40` : 'transparent',
                 }}
               >
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-display font-semibold text-foreground/85">{s.name}</span>
-                    <span className="text-[9px] font-mono px-1 rounded" style={{ background: `${role.color}15`, color: role.color }}>{s.copro}</span>
-                    <span className="text-[9px] font-mono text-green-500/70">{s.trending}</span>
-                  </div>
-                  <span className="text-[9px] font-mono text-muted-foreground/40">{s.availability}</span>
+                {/* Actor photo */}
+                <div
+                  className="flex-shrink-0 w-10 h-10 rounded-lg overflow-hidden bg-[hsl(225,20%,12%)] border"
+                  style={{ borderColor: selected[ri] === si ? `${role.color}40` : 'hsl(225,20%,18%)' }}
+                >
+                  <img
+                    src={s.img}
+                    alt={s.name}
+                    className="w-full h-full object-cover object-top"
+                    onError={e => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
                 </div>
-                <span className="text-sm font-display font-bold flex-shrink-0" style={{ color: role.color }}>{s.score}</span>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-display font-semibold text-foreground/85">{s.name}</span>
+                    <span
+                      className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
+                      style={{ background: `${role.color}15`, color: role.color }}
+                    >
+                      {s.territory}
+                    </span>
+                    <span className="text-[9px] font-mono text-green-500/70">{s.trending}</span>
+                    {s.note === 'Confirmed' && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-400/80 border border-green-500/20">
+                        ✓ Cast
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[9px] font-mono text-muted-foreground/40">{s.credits}</span>
+                </div>
+
+                <span
+                  className="text-base font-display font-bold flex-shrink-0"
+                  style={{ color: role.color }}
+                >
+                  {s.score}
+                </span>
               </motion.button>
             ))}
           </div>
@@ -292,13 +422,18 @@ function CastingTriageDemo() {
 
       <AnimatePresence>
         {castScore && (
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            className="rounded-xl border border-primary/30 bg-primary/8 p-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="rounded-xl border border-primary/30 bg-primary/8 p-3 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-2.5">
               <Sparkles className="h-4 w-4 text-primary" />
               <div>
                 <p className="text-[10px] font-mono text-primary/60">Cast Package Score</p>
-                <p className="text-xs font-mono text-muted-foreground/50">Co-pro eligible · 3 territories</p>
+                <p className="text-[10px] font-mono text-muted-foreground/50">
+                  All leads UK-eligible · Amazon pre-sold
+                </p>
               </div>
             </div>
             <p className="text-2xl font-display font-bold text-primary">{castScore}</p>
@@ -311,12 +446,14 @@ function CastingTriageDemo() {
 
 // ── CONTRACTS DEMO ──
 const CONTRACTS = [
-  { title: 'Option Agreement — "Last Love Letter of Gion"', type: 'Option', status: 'signed', expires: '2027-03-01', risk: null },
-  { title: 'Director Agreement — Yuki Tanaka', type: 'Services', status: 'pending', expires: '2026-04-15', risk: 'Expires in 38 days' },
-  { title: 'Co-Production Agreement — Fuji Creative', type: 'Co-Pro', status: 'signed', expires: '2028-01-01', risk: null },
-  { title: 'Chain of Title — Source Material', type: 'Rights', status: 'signed', expires: null, risk: null },
-  { title: 'Composer Agreement — Sakura Works', type: 'Music', status: 'draft', expires: null, risk: 'Unsigned' },
-  { title: 'Distribution Pre-Sale — Channel 4', type: 'Pre-Sale', status: 'negotiating', expires: null, risk: 'In negotiation' },
+  { title: 'Option Agreement — Original Screenplay', type: 'Option', status: 'signed', expires: '2026-08-01', risk: null },
+  { title: 'Amazon Prime Video Distribution Deal', type: 'Distribution', status: 'signed', expires: null, risk: null },
+  { title: 'Director Services — Alex Pillai', type: 'Services', status: 'signed', expires: null, risk: null },
+  { title: 'Chain of Title Documentation', type: 'Rights', status: 'signed', expires: null, risk: null },
+  { title: 'Composer Agreement — Original Score', type: 'Music', status: 'signed', expires: null, risk: null },
+  { title: 'UK Film Tax Relief Application', type: 'Tax Credit', status: 'pending', expires: '2026-06-30', risk: 'Filing due June' },
+  { title: 'E&O Insurance Policy', type: 'Insurance', status: 'signed', expires: '2027-04-01', risk: null },
+  { title: 'Co-Production Agreement — Paradox House', type: 'Co-Pro', status: 'signed', expires: null, risk: null },
 ];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
@@ -346,24 +483,31 @@ function ContractsDemo() {
 
   return (
     <div ref={ref} className="flex flex-col gap-2">
+      <div className="rounded-lg bg-[hsl(225,20%,8%)] border border-border/10 px-4 py-2 mb-1">
+        <span className="text-[10px] font-mono text-muted-foreground/50">How to Date Billy Walsh · Amazon Prime Video · 2024</span>
+      </div>
       <div className="flex gap-3 mb-1">
-        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[hsl(150,55%,50%,0.1)] border border-[hsl(150,55%,50%,0.2)]">
+        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-500/10 border border-green-500/20">
           <CheckCircle2 className="h-3 w-3 text-green-500/70" />
           <span className="text-[10px] font-mono text-green-500/70">{signed} signed</span>
         </div>
         {risks > 0 && (
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[hsl(38,60%,52%,0.1)] border border-[hsl(38,60%,52%,0.2)]">
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 border border-primary/20">
             <AlertTriangle className="h-3 w-3 text-primary/70" />
             <span className="text-[10px] font-mono text-primary/70">{risks} need attention</span>
           </div>
         )}
       </div>
 
-      {CONTRACTS.slice(0, visible).map((contract, i) => {
+      {CONTRACTS.slice(0, visible).map(contract => {
         const status = STATUS_CONFIG[contract.status];
         return (
-          <motion.div key={contract.title} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
-            className="rounded-lg border border-border/10 bg-[hsl(225,20%,8%)] px-3 py-2.5 flex items-center gap-3">
+          <motion.div
+            key={contract.title}
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="rounded-lg border border-border/10 bg-[hsl(225,20%,8%)] px-3 py-2.5 flex items-center gap-3"
+          >
             <div className="flex-1 min-w-0">
               <p className="text-xs font-display font-medium text-foreground/80 truncate">{contract.title}</p>
               <div className="flex items-center gap-2 mt-0.5">
@@ -378,8 +522,14 @@ function ContractsDemo() {
                 )}
               </div>
             </div>
-            <span className="text-[9px] font-mono px-2 py-0.5 rounded-full flex-shrink-0"
-              style={{ background: `${status.color}15`, color: status.color, border: `1px solid ${status.color}30` }}>
+            <span
+              className="text-[9px] font-mono px-2 py-0.5 rounded-full flex-shrink-0"
+              style={{
+                background: `${status.color}15`,
+                color: status.color,
+                border: `1px solid ${status.color}30`,
+              }}
+            >
               {status.label}
             </span>
           </motion.div>
@@ -391,12 +541,11 @@ function ContractsDemo() {
 
 // ── MAIN SECTION ──
 const TABS = [
-  { key: 'tax', label: 'Tax Incentives', icon: Receipt, color: 'hsl(38,60%,52%)', tagline: 'Multi-territory incentive stacking' },
-  { key: 'budget', label: 'Budgeting', icon: Calculator, color: 'hsl(200,65%,55%)', tagline: 'Dynamic budget modelling by department' },
-  { key: 'casting', label: 'Casting Triage', icon: Users, color: 'hsl(150,55%,50%)', tagline: 'AI-ranked cast with co-pro eligibility' },
-  { key: 'contracts', label: 'Contracts', icon: FileText, color: 'hsl(280,55%,60%)', tagline: 'Chain of title, rights & deal status' },
+  { key: 'tax',      label: 'Tax Incentives', icon: Receipt,    color: 'hsl(38,60%,52%)',   tagline: 'UK Film Tax Relief · incentive stacking' },
+  { key: 'budget',   label: 'Budgeting',      icon: Calculator, color: 'hsl(200,65%,55%)',  tagline: 'Department budget breakdown' },
+  { key: 'casting',  label: 'Casting Triage', icon: Users,      color: 'hsl(150,55%,50%)',  tagline: 'AI-ranked cast with co-pro eligibility' },
+  { key: 'contracts',label: 'Contracts',      icon: FileText,   color: 'hsl(280,55%,60%)',  tagline: 'Chain of title, rights & deal status' },
 ] as const;
-
 type TabKey = typeof TABS[number]['key'];
 
 export function SectionFinanceDemo() {
@@ -406,12 +555,14 @@ export function SectionFinanceDemo() {
   return (
     <SectionShell id="finance-demo" className="bg-[hsl(225,20%,5%)]">
       <div className="text-center mb-10">
-        <p className="text-xs font-display uppercase tracking-[0.3em] text-primary/50 mb-4">Deep Dive</p>
+        <p className="text-xs font-display uppercase tracking-[0.3em] text-primary/50 mb-4">Real Production Demo</p>
         <h2 className="text-3xl sm:text-5xl font-display font-bold text-foreground tracking-tight">
           Finance & Production Intelligence
         </h2>
         <p className="text-muted-foreground mt-4 max-w-lg mx-auto">
-          See how IFFY handles the complex financial and legal layers that make or break independent productions.
+          How IFFY handled the production of{' '}
+          <span className="text-foreground/80 font-medium italic">How to Date Billy Walsh</span>
+          {' '}— from tax credit stacking to cast selection to contract management.
         </p>
       </div>
 
@@ -427,7 +578,8 @@ export function SectionFinanceDemo() {
                 onClick={() => setActiveTab(tab.key)}
                 className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-display font-medium transition-all duration-200"
                 style={{
-                  borderWidth: 1, borderStyle: 'solid',
+                  borderWidth: 1,
+                  borderStyle: 'solid',
                   borderColor: isActive ? tab.color : 'hsl(225,20%,18%)',
                   background: isActive ? `${tab.color}12` : 'transparent',
                   color: isActive ? tab.color : 'hsl(225,10%,55%)',
@@ -442,7 +594,7 @@ export function SectionFinanceDemo() {
 
         {/* Demo panel */}
         <div className="rounded-2xl border border-border/15 bg-[hsl(225,20%,6%)] overflow-hidden">
-          {/* Panel chrome */}
+          {/* Chrome */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/10 bg-[hsl(225,20%,5%)]">
             <div className="flex items-center gap-2">
               <div className="h-2.5 w-2.5 rounded-full bg-red-500/40" />
