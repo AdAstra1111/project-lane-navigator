@@ -413,6 +413,7 @@ export function useAutoRun(projectId: string | undefined) {
         jobId: job.id,
         selectedOptions,
         globalDirections,
+        source_version_id: job.pending_version_id || undefined,
       });
       setJob(result.job);
       setSteps(result.latest_steps || []);
