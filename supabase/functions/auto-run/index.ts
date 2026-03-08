@@ -5588,7 +5588,7 @@ Deno.serve(async (req) => {
                     `Force-promoting ${currentDoc} after ${noteRewriteCountV2} note-driven rewrite cycles without reaching CI floor. Best CI: ${bestAvailMaxIter?.ci ?? "?"}, GP: ${bestAvailMaxIter?.gp ?? "?"}.`,
                     { ci: plateauV2.currentCI }, undefined,
                     { iterations: noteRewriteCountV2, max: NOTE_REWRITE_MAX_ITERATIONS, plateau_version: "v2", best_ci: bestAvailMaxIter?.ci, best_gp: bestAvailMaxIter?.gp, remaining_notes: plateauOpenNotes.length });
-                  if (bestAvailMaxIter && bestAvailMaxIter.ci >= GLOBAL_MIN_CI) {
+                  if (bestAvailMaxIter) {
                     const { error: promErr } = await supabase.rpc("set_current_version", { p_document_id: bestAvailMaxIter.documentId, p_new_version_id: bestAvailMaxIter.versionId });
                     if (!promErr) {
                       await supabase.from("project_document_versions").update({ approval_status: "approved", approved_at: new Date().toISOString(), approved_by: job.user_id }).eq("id", bestAvailMaxIter.versionId);
@@ -5605,8 +5605,8 @@ Deno.serve(async (req) => {
                       return respondWithJob(supabase, jobId);
                     }
                   }
-                  // Best not available or CI too low — pause for human review
-                  await updateJob(supabase, jobId, { status: "paused", stop_reason: "NOTE_REWRITE_MAX_ITERATIONS", pause_reason: "NOTE_REWRITE_MAX_ITERATIONS", error: `${noteRewriteCountV2} note-driven rewrite cycles for ${currentDoc} without reaching CI floor. Best CI: ${bestAvailMaxIter?.ci ?? "?"}.` });
+                  // No best version available — pause for human review
+                  await updateJob(supabase, jobId, { status: "paused", stop_reason: "NOTE_REWRITE_MAX_ITERATIONS", pause_reason: "NOTE_REWRITE_MAX_ITERATIONS", error: `${noteRewriteCountV2} note-driven rewrite cycles for ${currentDoc} without improvement. Best CI: ${bestAvailMaxIter?.ci ?? "?"}.` });
                   await releaseProcessingLock(supabase, jobId);
                   return respondWithJob(supabase, jobId);
                 }
@@ -5704,7 +5704,7 @@ Deno.serve(async (req) => {
                   `Force-promoting ${currentDoc} after ${noteRewriteCountV1} note-driven rewrite cycles without reaching CI floor. Best CI: ${bestAvailMaxIterV1?.ci ?? "?"}, GP: ${bestAvailMaxIterV1?.gp ?? "?"}.`,
                   { ci: ciProgress.currentCi }, undefined,
                   { iterations: noteRewriteCountV1, max: NOTE_REWRITE_MAX_ITERATIONS, plateau_version: "v1", best_ci: bestAvailMaxIterV1?.ci, best_gp: bestAvailMaxIterV1?.gp, remaining_notes: plateauOpenNotesV1.length });
-                if (bestAvailMaxIterV1 && bestAvailMaxIterV1.ci >= GLOBAL_MIN_CI) {
+                if (bestAvailMaxIterV1) {
                   const { error: promErrV1 } = await supabase.rpc("set_current_version", { p_document_id: bestAvailMaxIterV1.documentId, p_new_version_id: bestAvailMaxIterV1.versionId });
                   if (!promErrV1) {
                     await supabase.from("project_document_versions").update({ approval_status: "approved", approved_at: new Date().toISOString(), approved_by: job.user_id }).eq("id", bestAvailMaxIterV1.versionId);
@@ -5721,8 +5721,8 @@ Deno.serve(async (req) => {
                     return respondWithJob(supabase, jobId);
                   }
                 }
-                // Best not available or CI too low — pause for human review
-                await updateJob(supabase, jobId, { status: "paused", stop_reason: "NOTE_REWRITE_MAX_ITERATIONS", pause_reason: "NOTE_REWRITE_MAX_ITERATIONS", error: `${noteRewriteCountV1} note-driven rewrite cycles for ${currentDoc} without reaching CI floor. Best CI: ${bestAvailMaxIterV1?.ci ?? "?"}.` });
+                // No best version available — pause for human review
+                await updateJob(supabase, jobId, { status: "paused", stop_reason: "NOTE_REWRITE_MAX_ITERATIONS", pause_reason: "NOTE_REWRITE_MAX_ITERATIONS", error: `${noteRewriteCountV1} note-driven rewrite cycles for ${currentDoc} without improvement. Best CI: ${bestAvailMaxIterV1?.ci ?? "?"}.` });
                 await releaseProcessingLock(supabase, jobId);
                 return respondWithJob(supabase, jobId);
               }
