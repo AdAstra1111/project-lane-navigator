@@ -608,9 +608,12 @@ async function resolveActiveVersionForDoc(
     return null;
   }
 
-  // A) AUTHORITATIVE VERSION: approved + is_current takes absolute priority.
-  // This is the single authoritative version per document. All other versions are historical.
-  const approvedCurrent = allVersions.find((v: any) => v.approval_status === "approved" && !!v.is_current);
+  // A) APPROVED-FIRST RESOLUTION (hard invariant)
+  // If any approved version exists, Auto-Run must bind to approved lineage only.
+  const approvedVersions = allVersions.filter((v: any) => v.approval_status === "approved");
+
+  // A1) Authoritative approved+current
+  const approvedCurrent = approvedVersions.find((v: any) => !!v.is_current);
   if (approvedCurrent) {
     if (!job.follow_latest && job.resume_version_id && job.resume_document_id === documentId && job.resume_version_id !== approvedCurrent.id) {
       console.log(`[auto-run][IEL] pinned_overridden_by_authoritative { job_id: "${ctx?.jobId || 'unknown'}", doc_type: "${ctx?.docType || 'unknown'}", document_id: "${documentId}", pinned_version_id: "${job.resume_version_id}", authoritative_version_id: "${approvedCurrent.id}", reason: "approved_and_current_must_win" }`);
@@ -635,10 +638,39 @@ async function resolveActiveVersionForDoc(
     } catch (e: any) {
       console.warn(`[auto-run][transition-ledger] authoritative_version_resolved emit failed: ${e?.message}`);
     }
-    return { versionId: approvedCurrent.id, source: "eligible_best_score" as const, reason: "approved_and_current" };
+    return { versionId: approvedCurrent.id, source: "best_approved", reason: "approved_and_current" };
   }
 
-  // B) Pinned (only when authoritative version does not exist)
+  // A2) Best approved by persisted score (CI+GP)
+  const approvedScored = approvedVersions
+    .map((v: any) => {
+      const parsed = parseVersionScores(v.meta_json);
+      return {
+        id: v.id,
+        version_number: v.version_number,
+        approval_status: v.approval_status,
+        is_current: !!v.is_current,
+        ci: parsed.ci,
+        gp: parsed.gp,
+        scoreSource: parsed.scoreSource,
+      };
+    })
+    .filter((v: any) => v.ci !== null && v.gp !== null) as any[];
+
+  const bestApprovedScored = pickBestScoredVersion(approvedScored as any);
+  if (bestApprovedScored) {
+    console.log(`[auto-run][IEL] approved_best_detected { job_id: "${ctx?.jobId || 'unknown'}", doc_type: "${ctx?.docType || 'unknown'}", document_id: "${documentId}", best_version_id: "${bestApprovedScored.id}", best_ci: ${bestApprovedScored.ci}, best_gp: ${bestApprovedScored.gp}, score_source: "${bestApprovedScored.scoreSource || 'unknown'}", reason: "approved_best_score" }`);
+    return { versionId: bestApprovedScored.id, source: "best_approved", reason: "approved_best_score" };
+  }
+
+  // A3) Fallback to newest approved version
+  const newestApproved = approvedVersions[0];
+  if (newestApproved) {
+    console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${newestApproved.id}", reason: "best_approved", version_number: ${newestApproved.version_number} }`);
+    return { versionId: newestApproved.id, source: "best_approved", reason: "best_approved_by_version" };
+  }
+
+  // B) Pinned (only when no approved version exists)
   if (!job.follow_latest && job.resume_version_id && job.resume_document_id === documentId) {
     const pinnedExists = allVersions.some((v: any) => v.id === job.resume_version_id);
     if (pinnedExists) {
@@ -648,12 +680,11 @@ async function resolveActiveVersionForDoc(
     console.warn(`[auto-run][IEL] pinned_version_missing { job_id: "${ctx?.jobId || 'unknown'}", doc_type: "${ctx?.docType || 'unknown'}", document_id: "${documentId}", pinned_version_id: "${job.resume_version_id}" }`);
   }
 
+  // C) No approved version exists: use best scored current candidate
   const eligibleScored = allVersions
     .map((v: any) => {
       const parsed = parseVersionScores(v.meta_json);
-      const eligibilityReason = v.approval_status === "approved"
-        ? "approved"
-        : (v.is_current ? "is_current" : null);
+      const eligibilityReason = v.is_current ? "is_current" : null;
       return {
         id: v.id,
         version_number: v.version_number,
@@ -674,14 +705,7 @@ async function resolveActiveVersionForDoc(
     return { versionId: bestEligible.id, source: "eligible_best_score", reason: `eligible_best:${bestEligible.eligibilityReason}` };
   }
 
-  // C1) Best approved by latest version_number (fallback when scores are missing)
-  const bestApproved = allVersions.find((v: any) => v.approval_status === "approved");
-  if (bestApproved) {
-    console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${bestApproved.id}", reason: "best_approved", version_number: ${bestApproved.version_number} }`);
-    return { versionId: bestApproved.id, source: "best_approved", reason: "best_approved_by_version" };
-  }
-
-  // C2) is_current
+  // C1) is_current
   const currentVer = allVersions.find((v: any) => !!v.is_current);
   if (currentVer) {
     console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${currentVer.id}", reason: "is_current" }`);
