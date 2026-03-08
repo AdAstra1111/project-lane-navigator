@@ -389,7 +389,28 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     setError(null);
     abortRef.current = false;
     const mappedStart = mapDocTypeToLadderStage(startDocument);
+
     try {
+      // Preflight: avoid 409 by resuming any existing resumable job first.
+      try {
+        const existing = await callAutoRun('status', { projectId });
+        if (existing?.job && ['paused', 'running', 'queued'].includes(existing.job.status)) {
+          console.log(`[mission-control][IEL] start_vs_resume_decision { action: "preflight_resume", reason: "resumable_job_exists", existing_job_id: "${existing.job.id}", current_document: "${existing.job.current_document}", step_count: ${existing.job.step_count} }`);
+          setJob(existing.job);
+          setSteps(existing.latest_steps || []);
+
+          if (existing.job.status === 'paused') {
+            await callAutoRun('resume', { jobId: existing.job.id, followLatest: true });
+          }
+
+          setIsRunning(true);
+          refreshStatus();
+          return;
+        }
+      } catch {
+        // No resumable job found — continue with normal start path.
+      }
+
       const result = await callAutoRun('start', {
         projectId, mode: AUTO_RUN_EXECUTION_MODE === 'full' ? 'balanced' : 'staged', start_document: mappedStart, target_document: targetDocument || 'production_draft',
         max_total_steps: 100,
@@ -397,8 +418,8 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
         max_versions_per_doc_per_job: 60,
       });
 
-      // Handle RESUMABLE_JOB_EXISTS: auto-resume existing job instead of failing
-      if (result._resumable && result.existing_job_id) {
+      // Fallback guard (legacy callers / races): if backend still returns resumable, recover gracefully.
+      if ((result._resumable || result?.error === 'RESUMABLE_JOB_EXISTS') && result.existing_job_id) {
         console.log(`[mission-control][IEL] start_vs_resume_decision { action: "auto_resume", reason: "resumable_job_exists", existing_job_id: "${result.existing_job_id}", current_document: "${result.current_document}", step_count: ${result.step_count} }`);
         try {
           const statusResult = await callAutoRun('status', { projectId });
@@ -410,20 +431,6 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
             refreshStatus();
             return;
           }
-          // Status returned no job — force a new run to clear the stale state
-          console.warn('[mission-control] Resumable job reported but status returned no job, retrying with force_new_run');
-          const forceResult = await callAutoRun('start', {
-            projectId, mode: 'balanced', start_document: mappedStart, target_document: targetDocument || 'production_draft',
-            max_total_steps: 100, allow_defaults: allowDefaults ?? false, max_versions_per_doc_per_job: 60,
-            force_new_run: true,
-          });
-          if (forceResult?.job) {
-            setJob(forceResult.job);
-            setSteps(forceResult.latest_steps || []);
-            setIsRunning(true);
-            refreshStatus();
-          }
-          return;
         } catch (resumeErr: any) {
           setError(`Failed to resume existing job: ${resumeErr.message}`);
           throw resumeErr;
