@@ -259,7 +259,7 @@ const CAST_ROLES = [
       },
       {
         name: 'Jacob Elordi',
-        img: `${TMDB}/2mFGfkRGWKQ0k87k3bS9yvzHH4T.jpg`,
+        img: `${TMDB}/qZNRPWCP2c5d0YaYLTzHXU9Rdoe.jpg`,
         score: 91,
         credits: 'Saltburn · Priscilla',
         territory: 'AU/US',
@@ -283,7 +283,7 @@ const CAST_ROLES = [
       },
       {
         name: 'Kit Connor',
-        img: `${TMDB}/5kMqwlGt7MPaBgMEAMMYbNb7Kbi.jpg`,
+        img: `${TMDB}/ut64CyBwiRudb3DxOgUa2j9Wxep.jpg`,
         score: 90,
         credits: 'Heartstopper · Rocketman',
         territory: 'UK',
@@ -307,7 +307,7 @@ const CAST_ROLES = [
       },
       {
         name: 'Mia McKenna-Bruce',
-        img: `${TMDB}/A7cHXFrgEY5X89JiWgm1Gr4Gnqz.jpg`,
+        img: `${TMDB}/3CbwQW082wmd8C0IpmgDvxJUjog.jpg`,
         score: 88,
         credits: 'How to Have Sex · The Witcher',
         territory: 'UK',
