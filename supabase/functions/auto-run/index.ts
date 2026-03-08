@@ -490,21 +490,7 @@ async function enforcePrereqGateBeforeAdvance(
 const GLOBAL_MIN_CI = 85; // default fallback when job has no converge_target_json.ci
 const CI_PLATEAU_WINDOW = 2;   // consecutive non-improving ticks before fail-close
 const CI_MIN_DELTA = 1;        // minimum CI improvement to count as progress
-const NOTE_REWRITE_MAX_ITERATIONS = 5; // max note_driven_rewrite_continue cycles per doc before force-promote
-
-/**
- * Count how many note_driven_rewrite_continue steps have been logged
- * for a given document type within this job.
- */
-async function countNoteRewriteIterations(supabase: any, jobId: string, docType: string): Promise<number> {
-  const { count } = await supabase
-    .from("auto_run_steps")
-    .select("id", { count: "exact", head: true })
-    .eq("job_id", jobId)
-    .eq("document", docType)
-    .eq("action", "note_driven_rewrite_continue");
-  return count ?? 0;
-}
+// NOTE: Promotion is blocked only by blocker + high severity notes. Polish notes do not block.
 
 /**
  * Resolve the effective CI target for a job.
@@ -2741,6 +2727,7 @@ async function tryPlateauForcePromote(
       .eq("project_id", job.project_id)
       .eq("doc_type", currentDoc)
       .in("status", ["open", "in_progress", "reopened"])
+      .in("severity", ["blocker", "high"])
       .limit(10);
 
     if (actionableNotes && actionableNotes.length > 0) {
