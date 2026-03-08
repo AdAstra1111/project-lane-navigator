@@ -707,6 +707,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     try {
       const result = await callAutoRun('apply-decisions-and-continue', {
         jobId: job.id, selectedOptions, globalDirections,
+        source_version_id: job.pending_version_id || job.best_version_id || undefined,
       });
       setJob(result.job);
       setSteps(result.latest_steps || []);
@@ -761,6 +762,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
           const result = await callAutoRun('apply-decisions-and-continue', {
             jobId: job.id,
             selectedOptions: [],
+            source_version_id: job.pending_version_id || job.best_version_id || undefined,
           });
           if (result.job) {
             setJob(result.job);

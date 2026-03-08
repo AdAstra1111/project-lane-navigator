@@ -302,6 +302,7 @@ export function DecisionPanel({
           jobId,
           selectedOptions: opts,
           globalDirections: gd,
+          source_version_id: versionId || undefined,
         });
         onAutoRunContinue?.();
       } else {
