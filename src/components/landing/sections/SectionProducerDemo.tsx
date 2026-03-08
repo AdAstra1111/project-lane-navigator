@@ -72,8 +72,7 @@ export function SectionProducerDemo() {
   }, []);
 
   useEffect(() => {
-    if (!inView) return;
-    reset();
+    if (!inView) { reset(); return; }
     const t = setTimeout(() => setPhase(1), 400);
     return () => clearTimeout(t);
   }, [inView, reset]);

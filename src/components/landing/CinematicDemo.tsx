@@ -11,7 +11,6 @@ import { SectionFinanceDemo } from './sections/SectionFinanceDemo';
 import { SectionVisualDev } from './sections/SectionVisualDev';
 import { Section6StudioControl } from './sections/Section6StudioControl';
 import { SectionStudioMode } from './sections/SectionStudioMode';
-import { Section7AIPipeline } from './sections/Section7AIPipeline';
 
 import { Section9InvestorConfidence } from './sections/Section9InvestorConfidence';
 import { Section10CTA } from './sections/Section10CTA';
@@ -29,8 +28,6 @@ export function CinematicDemo() {
       <SectionVisualDev />
       <SectionStudioMode />
       <Section6StudioControl />
-      <Section7AIPipeline />
-
       <Section9InvestorConfidence />
       <Section10CTA />
     </div>
