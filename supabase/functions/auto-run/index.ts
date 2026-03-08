@@ -487,7 +487,7 @@ async function enforcePrereqGateBeforeAdvance(
 }
 
 // ── GLOBAL CI GATE: No promotion / prereq pass unless CI >= target ──
-const GLOBAL_MIN_CI = 90; // default fallback when job has no converge_target_json.ci
+const GLOBAL_MIN_CI = 85; // default fallback when job has no converge_target_json.ci
 const CI_PLATEAU_WINDOW = 2;   // consecutive non-improving ticks before fail-close
 const CI_MIN_DELTA = 1;        // minimum CI improvement to count as progress
 
