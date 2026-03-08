@@ -232,16 +232,19 @@ export function useDevEngineV2(projectId: string | undefined) {
     enabled: !!selectedDocId,
   });
 
-  // Convergence history for document
+  // Convergence history — scoped to selected version when available, else document
   const { data: convergenceHistory = [] } = useQuery({
-    queryKey: ['dev-v2-convergence', selectedDocId],
+    queryKey: ['dev-v2-convergence', selectedDocId, selectedVersionId],
     queryFn: async () => {
       if (!selectedDocId) return [];
-      const { data, error } = await (supabase as any)
+      let query = (supabase as any)
         .from('dev_engine_convergence_history')
         .select('*')
-        .eq('document_id', selectedDocId)
-        .order('created_at', { ascending: true });
+        .eq('document_id', selectedDocId);
+      if (selectedVersionId) {
+        query = query.eq('version_id', selectedVersionId);
+      }
+      const { data, error } = await query.order('created_at', { ascending: true });
       if (error) throw error;
       return (data || []) as ConvergencePoint[];
     },
