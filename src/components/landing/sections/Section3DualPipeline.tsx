@@ -15,7 +15,7 @@ const PIPELINES: Pipeline[] = [
   {
     key: 'film',
     label: 'Feature Film',
-    badge: 'Prestige',
+    badge: 'Film',
     color: 'hsl(38,60%,52%)',
     stages: ['Idea', 'Concept Brief', 'Market Sheet', 'Treatment', 'Story Outline', 'Character Bible', 'Beat Sheet', 'Feature Script', 'Production Draft', 'Deck'],
   },
