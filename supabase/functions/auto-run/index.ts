@@ -7799,7 +7799,7 @@ Deno.serve(async (req) => {
             } else {
               // Converged enough — apply CI hard gate before promotion (uses job target_ci)
               const promoteTargetCi = resolveTargetCI(job);
-              const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, promoteTargetCi);
+              const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, promoteTargetCi, job.project_id);
               console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${promoteTargetCi}, rule: "converge_promote_gate" }`);
               if (!ciGate.pass) {
                 // CI below target — do NOT promote, continue stabilise
