@@ -46,7 +46,7 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
   const analysisGp = latestAnalysis?.gp_score || latestAnalysis?.scores?.gp_score || 0;
   const ci = metaCi ?? analysisCi;
   const gp = metaGp ?? analysisGp;
-  const gap = latestAnalysis?.gap || latestAnalysis?.scores?.gap || Math.abs(ci - gp);
+  const gap = Math.abs(ci - gp);
   const statusColor = convergenceStatus === 'Converged' ? 'text-emerald-400' :
     convergenceStatus === 'In Progress' ? 'text-amber-400' : 'text-muted-foreground';
 
