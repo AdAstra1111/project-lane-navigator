@@ -2,10 +2,10 @@ import { motion } from 'framer-motion';
 import { SectionShell } from '../shared/SectionShell';
 
 const projects = [
-  { name: 'Vengeance Red', type: 'Feature Film', stage: 'Packaging', progress: 85, color: 'hsl(38,60%,52%)' },
-  { name: 'The Silence Protocol', type: 'Limited Series', stage: 'Development', progress: 45, color: 'hsl(200,65%,55%)' },
-  { name: 'Midnight Frequency', type: 'Vertical Drama', stage: 'Production', progress: 92, color: 'hsl(150,55%,50%)' },
-  { name: 'Glass Empire', type: 'Feature Film', stage: 'Pre-Production', progress: 68, color: 'hsl(280,55%,60%)' },
+  { name: 'How to Date Billy Walsh', type: 'Feature Film', stage: 'Delivered', progress: 100, color: 'hsl(38,60%,52%)' },
+  { name: 'Vengeance Red', type: 'Feature Film', stage: 'Packaging', progress: 78, color: 'hsl(200,65%,55%)' },
+  { name: 'Mount Fuji\'s Fury', type: 'Limited Series', stage: 'Development', progress: 52, color: 'hsl(150,55%,50%)' },
+  { name: 'Beyond the Door', type: 'Documentary', stage: 'Pre-Production', progress: 64, color: 'hsl(280,55%,60%)' },
 ];
 
 export function Section6StudioControl() {
