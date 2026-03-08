@@ -6,7 +6,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { createPendingUpload, MAX_PENDING_FILES, MAX_PENDING_FILE_SIZE } from '@/lib/pendingUploads';
 import { toast } from 'sonner';
 import { ArrowRight, Sparkles, ChevronDown } from 'lucide-react';
-import { CinematicDemo } from '@/components/landing/CinematicDemo';
+import { lazy, Suspense } from 'react';
+const CinematicDemo = lazy(() => import('@/components/landing/CinematicDemo').then(m => ({ default: m.CinematicDemo })));
 
 // ── Compatibility tool list ──
 const COMPAT_TOOLS = [
@@ -210,7 +211,13 @@ const Landing = () => {
             Watch the full pipeline run — from idea to storyboard, finance model to shot list.
           </p>
         </div>
-        <CinematicDemo />
+        <Suspense fallback={
+          <div className="flex items-center justify-center py-24">
+            <div className="h-8 w-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+          </div>
+        }>
+          <CinematicDemo />
+        </Suspense>
       </div>
 
     </div>
