@@ -5837,7 +5837,7 @@ Deno.serve(async (req) => {
           }
         } else {
         // Original V1 plateau logic
-        const ciProgress = await checkMonotonicCIImprovement(supabase, jobId, currentDoc, targetCi);
+        const ciProgress = await checkMonotonicCIImprovement(supabase, jobId, currentDoc, targetCi, job.project_id);
         console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, min_ci: ${targetCi}, improving: ${ciProgress.improving}, plateau_count: ${ciProgress.plateauCount}, rule: "monotonic_ci_loop" }`);
 
         if (ciProgress.bestCi >= targetCi) {
