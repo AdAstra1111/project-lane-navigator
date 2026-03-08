@@ -557,12 +557,14 @@ function resolveTargetCI(job: any): number {
 
 /**
  * Evaluate CI gate for stage advancement. Returns { pass, ci, bestCiSoFar }.
- * Source of truth: stage-scoped best CI from auto_run_steps (action=review).
+ * Source of truth: stage-scoped best CI from auto_run_steps (action=review),
+ * with DB-persisted fallback from project_document_versions.meta_json.
  */
 async function evaluateCIGate(
   supabase: any, jobId: string, docType: string, targetCi: number = GLOBAL_MIN_CI,
+  projectId: string | null = null,
 ): Promise<{ pass: boolean; ci: number; bestCiSoFar: number }> {
-  const stageBest = await getStageBestFromSteps(supabase, jobId, docType);
+  const stageBest = await getStageBestFromSteps(supabase, jobId, docType, projectId);
   const ci = stageBest?.ci ?? 0;
   return { pass: ci >= targetCi, ci, bestCiSoFar: ci };
 }
@@ -571,9 +573,11 @@ async function evaluateCIGate(
  * Check monotonic CI improvement for the current stage.
  * Returns: { improving, plateau, plateauCount, bestCi, currentCi }.
  * Reads from auto_run_steps (action=review) for the doc_type, ordered by step_index desc.
+ * Falls back to DB-persisted meta_json scores when step log is insufficient.
  */
 async function checkMonotonicCIImprovement(
   supabase: any, jobId: string, docType: string, targetCi: number = GLOBAL_MIN_CI,
+  projectId: string | null = null,
 ): Promise<{ improving: boolean; plateau: boolean; plateauCount: number; bestCi: number; currentCi: number }> {
   // ── IEL: Include both 'review' AND 'rewrite_accepted' steps as CI data points ──
   // This ensures promoted candidates' scores are visible to the plateau gate,
@@ -592,6 +596,13 @@ async function checkMonotonicCIImprovement(
   console.log(`[auto-run][IEL] monotonic_ci_source { job_id: "${jobId}", doc_type: "${docType}", steps_found: ${recentReviews?.length ?? 0}, actions_queried: ${JSON.stringify(CI_SCORED_ACTIONS)}, latest_ci: ${recentReviews?.[0]?.ci ?? 'null'}, latest_action: "${recentReviews?.[0]?.action ?? 'none'}", latest_step_index: ${recentReviews?.[0]?.step_index ?? 'null'} }`);
 
   if (!recentReviews || recentReviews.length < 2) {
+    // Not enough step data — check DB-persisted scores as fallback
+    if (projectId) {
+      const dbBest = await getStageBestFromDB(supabase, projectId, docType);
+      if (dbBest && dbBest.ci >= targetCi) {
+        return { improving: true, plateau: false, plateauCount: 0, bestCi: dbBest.ci, currentCi: dbBest.ci };
+      }
+    }
     // Not enough data — allow continuation
     return { improving: true, plateau: false, plateauCount: 0, bestCi: recentReviews?.[0]?.ci ?? 0, currentCi: recentReviews?.[0]?.ci ?? 0 };
   }
