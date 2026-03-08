@@ -24,8 +24,9 @@ export function SectionShell({ children, className = '', id }: Props) {
 
       <motion.div
         initial={{ opacity: 0, y: 40 }}
-        animate={inView ? { opacity: 1, y: 0 } : {}}
+        animate={inView ? { opacity: 1, y: 0 } : { opacity: 0, y: 40 }}
         transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+        style={{ willChange: 'opacity, transform' }}
         className="relative z-10 w-full max-w-7xl mx-auto"
       >
         {children}

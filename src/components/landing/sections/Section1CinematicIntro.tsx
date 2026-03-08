@@ -29,19 +29,19 @@ export function Section1CinematicIntro() {
           transition={{ delay: 0.2 }}
           className="text-xs font-display uppercase tracking-[0.3em] text-primary/60"
         >
-          Introducing
+          How It Works
         </motion.p>
 
-        <motion.h1
+        <motion.h2
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4, duration: 0.8 }}
           className="font-display text-4xl sm:text-6xl lg:text-7xl font-bold text-foreground tracking-tight leading-[1.05]"
         >
-          The Future of
+          One Idea.
           <br />
-          <span className="text-primary">Film Development</span>
-        </motion.h1>
+          <span className="text-primary">Every Document.</span>
+        </motion.h2>
 
         <motion.p
           initial={{ opacity: 0 }}
@@ -49,7 +49,7 @@ export function Section1CinematicIntro() {
           transition={{ delay: 0.8 }}
           className="text-lg text-muted-foreground max-w-xl leading-relaxed"
         >
-          IFFY transforms ideas into production-ready projects through a deterministic cinematic pipeline.
+          IFFY builds every document your project needs — from concept brief to season scripts — in a single connected pipeline.
         </motion.p>
 
         {/* Animated network visualization */}

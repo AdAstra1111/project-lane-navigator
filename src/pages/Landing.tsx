@@ -51,8 +51,19 @@ const Landing = () => {
 
   return (
     <div className="bg-[hsl(225,20%,4%)] text-foreground">
+      {/* Sticky nav */}
+      <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 bg-[hsl(225,20%,4%)]/80 backdrop-blur-md border-b border-border/10">
+        <span className="text-sm font-display font-bold tracking-[0.2em] uppercase text-foreground/90">IFFY</span>
+        <button
+          onClick={() => navigate('/auth')}
+          className="text-xs font-display font-medium tracking-wide text-muted-foreground hover:text-foreground border border-border/30 hover:border-border/60 rounded-full px-4 py-1.5 transition-all duration-200"
+        >
+          Sign in
+        </button>
+      </nav>
+
       {/* Hero section */}
-      <div className="min-h-screen flex items-center justify-center px-6">
+      <div className="min-h-screen flex items-center justify-center px-6 pt-16">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -108,6 +119,21 @@ const Landing = () => {
           </motion.button>
         </motion.div>
       </div>
+
+      {/* Scroll indicator */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 1.2, duration: 0.8 }}
+        className="flex flex-col items-center gap-2 pb-10 -mt-8"
+      >
+        <span className="text-[10px] font-display uppercase tracking-[0.25em] text-muted-foreground/30">Explore</span>
+        <motion.div
+          animate={{ y: [0, 6, 0] }}
+          transition={{ repeat: Infinity, duration: 1.8, ease: 'easeInOut' }}
+          className="w-px h-8 bg-gradient-to-b from-muted-foreground/20 to-transparent"
+        />
+      </motion.div>
 
       {/* Cinematic Demo Experience */}
       <CinematicDemo />
