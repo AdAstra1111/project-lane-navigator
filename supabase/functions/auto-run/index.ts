@@ -493,14 +493,17 @@ const CI_MIN_DELTA = 1;        // minimum CI improvement to count as progress
 
 /**
  * Resolve the effective CI target for a job.
- * Reads converge_target_json.ci from the job; falls back to GLOBAL_MIN_CI (85).
+ * Reads converge_target_json.ci from the job; falls back to 100 (aspirational).
+ * NOTE: This is the *aspiration* target the rewrite loop drives toward.
+ * GLOBAL_MIN_CI (85) is the separate force-promote floor used only when
+ * genuinely stuck (plateau + notes exhausted).
  */
 function resolveTargetCI(job: any): number {
   const ct = job?.converge_target_json;
   if (ct && typeof ct === "object" && typeof ct.ci === "number" && ct.ci >= 0 && ct.ci <= 100) {
     return ct.ci;
   }
-  return GLOBAL_MIN_CI;
+  return 100;
 }
 
 /**
@@ -3647,7 +3650,7 @@ Deno.serve(async (req) => {
         current_document: effectiveStartDoc,
         max_stage_loops: effectiveMaxLoops,
         max_total_steps: effectiveMaxSteps,
-        converge_target_json: body.converge_target_json || { ci: GLOBAL_MIN_CI, gp: 100 },
+        converge_target_json: body.converge_target_json || { ci: 100, gp: 100 },
         allow_defaults: body.allow_defaults === true,
         pipeline_key: fmt,
         max_versions_per_doc_per_job: typeof body.max_versions_per_doc_per_job === "number"
