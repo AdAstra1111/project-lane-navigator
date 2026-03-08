@@ -5,7 +5,22 @@ import { FileUpload } from '@/components/FileUpload';
 import { supabase } from '@/integrations/supabase/client';
 import { createPendingUpload, MAX_PENDING_FILES, MAX_PENDING_FILE_SIZE } from '@/lib/pendingUploads';
 import { toast } from 'sonner';
-import { CinematicDemo } from '@/components/landing/CinematicDemo';
+import { ArrowRight, Sparkles } from 'lucide-react';
+
+// ── Compatibility tool list ──
+const COMPAT_TOOLS = [
+  { category: 'Script', tools: ['Final Draft', 'Highland', 'Fade In', 'WriterDuet', 'Celtx', 'Arc Studio'] },
+  { category: 'Scheduling', tools: ['Movie Magic Scheduling', 'StudioBinder', 'Gorilla Scheduling'] },
+  { category: 'Budgeting', tools: ['Movie Magic Budgeting', 'EP Budgeting', 'Showbiz Budgeting', 'Gorilla'] },
+  { category: 'Payroll & Finance', tools: ['EP Payroll', 'Cast & Crew', 'Wrapbook', 'Media Services'] },
+  { category: 'Sales & Packaging', tools: ['FilmFreeway', 'Cinando', 'Slated', 'The Black List'] },
+];
+
+const fade = (delay = 0) => ({
+  initial: { opacity: 0, y: 16 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] as any },
+});
 
 const Landing = () => {
   const [files, setFiles] = useState<File[]>([]);
@@ -22,18 +37,10 @@ const Landing = () => {
   const handleFilesChange = async (newFiles: File[]) => {
     setFiles(newFiles);
     if (newFiles.length === 0 || processing) return;
-
-    if (newFiles.length > MAX_PENDING_FILES) {
-      toast.error(`Maximum ${MAX_PENDING_FILES} files allowed`);
-      return;
-    }
+    if (newFiles.length > MAX_PENDING_FILES) { toast.error(`Maximum ${MAX_PENDING_FILES} files allowed`); return; }
     for (const f of newFiles) {
-      if (f.size > MAX_PENDING_FILE_SIZE) {
-        toast.error(`"${f.name}" exceeds the 20 MB limit`);
-        return;
-      }
+      if (f.size > MAX_PENDING_FILE_SIZE) { toast.error(`"${f.name}" exceeds the 20 MB limit`); return; }
     }
-
     setProcessing(true);
     try {
       const { id } = await createPendingUpload(newFiles);
@@ -50,8 +57,9 @@ const Landing = () => {
   };
 
   return (
-    <div className="bg-[hsl(225,20%,4%)] text-foreground">
-      {/* Sticky nav */}
+    <div className="bg-[hsl(225,20%,4%)] text-foreground min-h-screen">
+
+      {/* ── Nav ── */}
       <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 bg-[hsl(225,20%,4%)]/80 backdrop-blur-md border-b border-border/10">
         <span className="text-sm font-display font-bold tracking-[0.2em] uppercase text-foreground/90">IFFY</span>
         <button
@@ -62,81 +70,124 @@ const Landing = () => {
         </button>
       </nav>
 
-      {/* Hero section */}
-      <div className="min-h-screen flex items-center justify-center px-6 pt-16">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-          className="w-full max-w-lg flex flex-col items-center text-center gap-10"
-        >
-          <motion.span
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.15, duration: 0.6 }}
-            className="text-sm font-display font-semibold tracking-[0.25em] uppercase text-muted-foreground/60"
-          >
-            IFFY
-          </motion.span>
+      {/* ── Hero ── */}
+      <section className="min-h-screen flex flex-col items-center justify-center px-6 pt-24 pb-20 text-center">
+        <motion.div {...fade(0.1)} className="mb-5">
+          <span className="inline-flex items-center gap-2 text-xs font-display font-medium tracking-[0.2em] uppercase text-primary/70 border border-primary/20 rounded-full px-4 py-1.5">
+            <Sparkles className="h-3 w-3" />
+            AI-Native Film Development OS
+          </span>
+        </motion.div>
 
-          <div className="space-y-4">
-            <h1 className="font-display text-4xl sm:text-5xl font-medium tracking-tight text-foreground leading-[1.1]">
-              Drop your script.
-              <br />
-              Get clarity.
-            </h1>
-            <p className="text-base text-muted-foreground max-w-sm mx-auto leading-relaxed">
-              IFFY analyses your project and tells you exactly what to do next.
-            </p>
+        <motion.h1 {...fade(0.2)} className="font-display font-bold text-foreground tracking-tight mb-5 max-w-2xl" style={{ fontSize: 'clamp(2.2rem, 7vw, 4rem)', lineHeight: 1.05 }}>
+          Your next project
+          <br />
+          starts here.
+        </motion.h1>
+
+        <motion.p {...fade(0.3)} className="text-base text-muted-foreground max-w-md mx-auto leading-relaxed mb-14">
+          Whether you have a finished script or a raw idea — IFFY takes you through development systematically and gets you to production-ready.
+        </motion.p>
+
+        {/* ── Dual entry ── */}
+        <motion.div {...fade(0.4)} className="w-full max-w-2xl grid gap-4" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+
+          {/* Card A — I have a script */}
+          <div className="flex flex-col gap-5 rounded-2xl border border-border/20 bg-[hsl(225,20%,6%)] p-6 text-left hover:border-primary/20 transition-all duration-300">
+            <div>
+              <p className="text-xs font-mono text-primary/60 uppercase tracking-widest mb-2">Already have a script?</p>
+              <h3 className="font-display font-semibold text-foreground text-lg leading-snug">Drop it in. Get clarity.</h3>
+              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">IFFY reviews your script, identifies development gaps, and tells you exactly what to do next.</p>
+            </div>
+            <div className="[&_div:first-child>div:first-child]:border-border/30 [&_div:first-child>div:first-child]:bg-[hsl(225,20%,8%)]">
+              <FileUpload files={files} onFilesChange={handleFilesChange} />
+            </div>
+            <p className="text-[10px] text-muted-foreground/40">Review takes about 60 seconds.</p>
           </div>
 
-          <motion.div
-            initial={{ opacity: 0, scale: 0.97 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.3, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="w-full [&_div:first-child>div:first-child]:border-border/40 [&_div:first-child>div:first-child]:bg-background [&_div:first-child>div:first-child]:shadow-[0_2px_24px_-4px_hsl(var(--foreground)/0.06)] [&_div:first-child>div:first-child]:hover:shadow-[0_4px_32px_-4px_hsl(var(--primary)/0.12)] [&_div:first-child>div:first-child]:hover:border-primary/30 [&_div:first-child>div:first-child]:transition-all [&_div:first-child>div:first-child]:duration-500"
-          >
-            <FileUpload files={files} onFilesChange={handleFilesChange} />
-          </motion.div>
+          {/* Card B — I have an idea */}
+          <div className="flex flex-col justify-between gap-5 rounded-2xl border border-border/20 bg-[hsl(225,20%,6%)] p-6 text-left hover:border-primary/20 transition-all duration-300">
+            <div>
+              <p className="text-xs font-mono text-primary/60 uppercase tracking-widest mb-2">Starting from scratch?</p>
+              <h3 className="font-display font-semibold text-foreground text-lg leading-snug">Build from idea to script.</h3>
+              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">From a one-line idea, IFFY builds your concept brief, character bible, season arc, episode grid and full scripts — automatically.</p>
+            </div>
+            <div className="space-y-2">
+              {['Concept Brief + Market Sheet', 'Character Bible + Season Arc', 'Episode Grid + Scripts'].map((step, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground/60">
+                  <div className="h-1.5 w-1.5 rounded-full bg-primary/40 shrink-0" />
+                  {step}
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => navigate('/auth')}
+              className="flex items-center justify-center gap-2 w-full rounded-xl bg-primary text-primary-foreground text-sm font-display font-medium py-3 hover:bg-primary/90 transition-colors"
+            >
+              Start developing <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
 
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5, duration: 0.6 }}
-            className="text-xs text-muted-foreground/50"
-          >
-            Quick Review takes about 60 seconds.
-          </motion.p>
-
-          <motion.button
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.6, duration: 0.6 }}
-            onClick={() => navigate('/auth')}
-            className="text-xs text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-          >
-            Sign in →
-          </motion.button>
         </motion.div>
-      </div>
+      </section>
 
-      {/* Scroll indicator */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 1.2, duration: 0.8 }}
-        className="flex flex-col items-center gap-2 pb-10 -mt-8"
-      >
-        <span className="text-[10px] font-display uppercase tracking-[0.25em] text-muted-foreground/30">Explore</span>
-        <motion.div
-          animate={{ y: [0, 6, 0] }}
-          transition={{ repeat: Infinity, duration: 1.8, ease: 'easeInOut' }}
-          className="w-px h-8 bg-gradient-to-b from-muted-foreground/20 to-transparent"
-        />
-      </motion.div>
+      {/* ── How it works ── */}
+      <section className="px-6 py-20 border-t border-border/10">
+        <motion.div {...fade(0)} className="text-center mb-12">
+          <p className="text-xs font-display uppercase tracking-[0.3em] text-primary/50 mb-3">How it works</p>
+          <h2 className="font-display font-bold text-foreground" style={{ fontSize: 'clamp(1.6rem, 5vw, 2.5rem)' }}>Systematic. Auditable. Fast.</h2>
+        </motion.div>
+        <div className="max-w-3xl mx-auto grid gap-6" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          {[
+            { num: '01', title: 'Define', body: 'IFFY locks in your concept, format, lane and market position before a single document is written.' },
+            { num: '02', title: 'Generate', body: 'Each stage builds on the last — characters, arcs, episodes, scripts — all scored against a quality gate.' },
+            { num: '03', title: 'Package', body: 'Export production-ready documents that plug straight into your existing tools and workflows.' },
+          ].map((s, i) => (
+            <motion.div key={s.num} {...fade(i * 0.1)} className="p-5 rounded-2xl border border-border/15 bg-[hsl(225,20%,5%)]">
+              <p className="font-mono text-xs text-primary/40 mb-3">{s.num}</p>
+              <h4 className="font-display font-semibold text-foreground mb-2">{s.title}</h4>
+              <p className="text-xs text-muted-foreground/70 leading-relaxed">{s.body}</p>
+            </motion.div>
+          ))}
+        </div>
+      </section>
 
-      {/* Cinematic Demo Experience */}
-      <CinematicDemo />
+      {/* ── Compatibility ── */}
+      <section className="px-6 py-20 border-t border-border/10 bg-[hsl(225,20%,5%)]">
+        <motion.div {...fade(0)} className="text-center mb-12">
+          <p className="text-xs font-display uppercase tracking-[0.3em] text-primary/50 mb-3">Works with your stack</p>
+          <h2 className="font-display font-bold text-foreground" style={{ fontSize: 'clamp(1.6rem, 5vw, 2.5rem)' }}>Compatible with every major production tool</h2>
+          <p className="text-muted-foreground text-sm mt-3 max-w-md mx-auto">IFFY generates structured documents that import directly into the software your production already uses.</p>
+        </motion.div>
+        <div className="max-w-4xl mx-auto space-y-6">
+          {COMPAT_TOOLS.map((group, i) => (
+            <motion.div key={group.category} {...fade(i * 0.08)} className="flex items-start gap-4">
+              <span className="text-[10px] font-mono text-muted-foreground/40 uppercase tracking-widest pt-0.5 shrink-0 w-28">{group.category}</span>
+              <div className="flex flex-wrap gap-2">
+                {group.tools.map(tool => (
+                  <span key={tool} className="text-xs text-muted-foreground/70 border border-border/20 rounded-full px-3 py-1 bg-[hsl(225,20%,6%)]">
+                    {tool}
+                  </span>
+                ))}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Footer CTA ── */}
+      <section className="px-6 py-24 border-t border-border/10 text-center">
+        <motion.h2 {...fade(0)} className="font-display font-bold text-foreground mb-4" style={{ fontSize: 'clamp(1.8rem, 5vw, 3rem)' }}>
+          Ready to develop smarter?
+        </motion.h2>
+        <motion.p {...fade(0.1)} className="text-muted-foreground text-sm mb-8 max-w-sm mx-auto">
+          Join producers and writers using IFFY to develop film and television faster.
+        </motion.p>
+        <motion.button {...fade(0.2)} onClick={() => navigate('/auth')} className="inline-flex items-center gap-2 bg-primary text-primary-foreground font-display font-medium text-sm rounded-full px-8 py-3 hover:bg-primary/90 transition-colors">
+          Get started <ArrowRight className="h-4 w-4" />
+        </motion.button>
+      </section>
+
     </div>
   );
 };
