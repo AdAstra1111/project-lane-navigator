@@ -5476,6 +5476,44 @@ Deno.serve(async (req) => {
       const stepCount = job.step_count;
       const stageLoopCount = job.stage_loop_count;
 
+      // ── IEL: Sync job.best_version_id with DB reality on every tick ──
+      // If the current approved version in project_documents has a higher CI than
+      // what the job record remembers, update the job to match. Prevents stale job fields.
+      {
+        const { data: dbDoc } = await supabase.from("project_documents")
+          .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (dbDoc) {
+          const { data: dbApproved } = await supabase.from("project_document_versions")
+            .select("id, meta_json, version_number")
+            .eq("document_id", dbDoc.id)
+            .eq("is_current", true)
+            .eq("approval_status", "approved")
+            .maybeSingle();
+          if (dbApproved) {
+            const dbMeta = dbApproved.meta_json && typeof dbApproved.meta_json === "object" ? dbApproved.meta_json : {};
+            const dbCi = typeof (dbMeta as any)?.ci === "number" ? (dbMeta as any).ci : null;
+            const dbGp = typeof (dbMeta as any)?.gp === "number" ? (dbMeta as any).gp : null;
+            const jobBestCi = typeof job.best_ci === "number" ? job.best_ci : -Infinity;
+            if (dbCi !== null && dbCi > jobBestCi) {
+              console.log(`[auto-run][IEL] best_version_sync { job_id: "${jobId}", doc_type: "${currentDoc}", db_version_id: "${dbApproved.id}", db_ci: ${dbCi}, db_gp: ${dbGp}, job_best_ci: ${jobBestCi}, action: "updating_job_best" }`);
+              await updateJob(supabase, jobId, {
+                best_version_id: dbApproved.id,
+                best_document_id: dbDoc.id,
+                best_ci: dbCi,
+                best_gp: dbGp,
+                best_score: (dbCi || 0) + (dbGp || 0),
+              });
+              job.best_version_id = dbApproved.id;
+              job.best_document_id = dbDoc.id;
+              job.best_ci = dbCi;
+              job.best_gp = dbGp;
+              job.best_score = (dbCi || 0) + (dbGp || 0);
+            }
+          }
+        }
+      }
+
       // Resolve project metadata once per run-next cycle
       const { data: project } = await supabase.from("projects")
         .select("title, format, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config, assigned_lane, budget_range, genres")
