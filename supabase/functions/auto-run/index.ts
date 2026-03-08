@@ -5556,53 +5556,24 @@ Deno.serve(async (req) => {
               });
               if (plateauForcePromote) return plateauForcePromote;
 
-              // ── IEL: tryPlateauForcePromote returned null. Check WHY: notes remain or CI too low. ──
+              // ── IEL: tryPlateauForcePromote returned null. Check WHY: blocker/high notes remain or CI too low. ──
+              // Only blocker + high severity notes block promotion. Polish notes do not.
               const { data: plateauOpenNotes } = await supabase
                 .from("project_notes")
                 .select("id")
                 .eq("project_id", job.project_id)
                 .eq("doc_type", currentDoc)
                 .in("status", ["open", "in_progress", "reopened"])
+                .in("severity", ["blocker", "high"])
                 .limit(5);
 
               if (plateauOpenNotes && plateauOpenNotes.length > 0) {
-                // ── IEL: Max iteration guard — prevent infinite note-driven rewrite cycles ──
-                const noteRewriteCountV2 = await countNoteRewriteIterations(supabase, jobId, currentDoc);
-                if (noteRewriteCountV2 >= NOTE_REWRITE_MAX_ITERATIONS) {
-                  console.warn(`[auto-run][IEL] note_rewrite_max_iterations_reached { job_id: "${jobId}", doc_type: "${currentDoc}", iterations: ${noteRewriteCountV2}, plateau_version: "v2" }`);
-                  const bestAvailMaxIter = await resolveBestScoredEligibleVersionForDoc(supabase, job.project_id, currentDoc);
-                  await logStep(supabase, jobId, stepCount + 1, currentDoc, "note_rewrite_max_iterations_reached",
-                    `Force-promoting ${currentDoc} after ${noteRewriteCountV2} note-driven rewrite cycles without reaching CI floor. Best CI: ${bestAvailMaxIter?.ci ?? "?"}, GP: ${bestAvailMaxIter?.gp ?? "?"}.`,
-                    { ci: plateauV2.currentCI }, undefined,
-                    { iterations: noteRewriteCountV2, max: NOTE_REWRITE_MAX_ITERATIONS, plateau_version: "v2", best_ci: bestAvailMaxIter?.ci, best_gp: bestAvailMaxIter?.gp, remaining_notes: plateauOpenNotes.length });
-                  if (bestAvailMaxIter) {
-                    const { error: promErr } = await supabase.rpc("set_current_version", { p_document_id: bestAvailMaxIter.documentId, p_new_version_id: bestAvailMaxIter.versionId });
-                    if (!promErr) {
-                      await supabase.from("project_document_versions").update({ approval_status: "approved", approved_at: new Date().toISOString(), approved_by: job.user_id }).eq("id", bestAvailMaxIter.versionId);
-                      await updateJob(supabase, jobId, { best_version_id: bestAvailMaxIter.versionId, best_document_id: bestAvailMaxIter.documentId, best_ci: bestAvailMaxIter.ci, best_gp: bestAvailMaxIter.gp, best_score: bestAvailMaxIter.ci + bestAvailMaxIter.gp });
-                      const nextDocMaxIter = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
-                      if (nextDocMaxIter && isStageAtOrBeforeTarget(nextDocMaxIter, job.target_document, format)) {
-                        await logStep(supabase, jobId, stepCount + 2, currentDoc, "ci_plateau_force_promoted", `Force-promoted ${currentDoc} after max note-rewrite iterations (CI:${bestAvailMaxIter.ci}, GP:${bestAvailMaxIter.gp}). Advancing to ${nextDocMaxIter}.`, { ci: bestAvailMaxIter.ci, gp: bestAvailMaxIter.gp }, undefined, { from: currentDoc, to: nextDocMaxIter, bypass: "note_rewrite_max_iterations", best_version_id: bestAvailMaxIter.versionId, plateau_version: "v2" });
-                        await updateJob(supabase, jobId, { current_document: nextDocMaxIter, stage_loop_count: 0, stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4, status: "running", stop_reason: null, pause_reason: null, error: null, awaiting_approval: false, approval_type: null, pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null, frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0 });
-                        await releaseProcessingLock(supabase, jobId);
-                        return respondWithJob(supabase, jobId, "run-next");
-                      }
-                      await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied up to target (after note-rewrite max iterations)", pause_reason: null, error: null });
-                      await releaseProcessingLock(supabase, jobId);
-                      return respondWithJob(supabase, jobId);
-                    }
-                  }
-                  // No best version available — pause for human review
-                  await updateJob(supabase, jobId, { status: "paused", stop_reason: "NOTE_REWRITE_MAX_ITERATIONS", pause_reason: "NOTE_REWRITE_MAX_ITERATIONS", error: `${noteRewriteCountV2} note-driven rewrite cycles for ${currentDoc} without improvement. Best CI: ${bestAvailMaxIter?.ci ?? "?"}.` });
-                  await releaseProcessingLock(supabase, jobId);
-                  return respondWithJob(supabase, jobId);
-                }
-                // Notes remain and under iteration limit — skip plateau gate, let rewrite loop apply them
-                console.log(`[auto-run][IEL] note_driven_rewrite_continue { job_id: "${jobId}", doc_type: "${currentDoc}", note_count: ${plateauOpenNotes.length}, plateau_version: "v2", iteration: ${noteRewriteCountV2}/${NOTE_REWRITE_MAX_ITERATIONS} }`);
+                // Blocker/high notes remain — skip plateau gate, let rewrite loop apply them
+                console.log(`[auto-run][IEL] note_driven_rewrite_continue { job_id: "${jobId}", doc_type: "${currentDoc}", note_count: ${plateauOpenNotes.length}, plateau_version: "v2" }`);
                 await logStep(supabase, jobId, stepCount + 1, currentDoc, "note_driven_rewrite_continue",
-                  `CI plateaued (V2) at ${plateauV2.currentCI} but ${plateauOpenNotes.length} actionable note(s) remain (iteration ${noteRewriteCountV2 + 1}/${NOTE_REWRITE_MAX_ITERATIONS}). Skipping plateau gate → rewrite loop will apply notes.`,
+                  `CI plateaued (V2) at ${plateauV2.currentCI} but ${plateauOpenNotes.length} blocker/high note(s) remain. Skipping plateau gate → rewrite loop will apply notes.`,
                   { ci: plateauV2.currentCI }, undefined,
-                  { plateau_version: "v2", note_count: plateauOpenNotes.length, note_ids: plateauOpenNotes.map((n: any) => n.id), iteration: noteRewriteCountV2 + 1, max_iterations: NOTE_REWRITE_MAX_ITERATIONS });
+                  { plateau_version: "v2", note_count: plateauOpenNotes.length, note_ids: plateauOpenNotes.map((n: any) => n.id) });
                 // Fall through to analysis/rewrite block — DO NOT pause
               } else {
                 // Notes exhausted but CI still below target — genuinely stuck
