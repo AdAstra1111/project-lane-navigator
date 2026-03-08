@@ -210,6 +210,17 @@ export function SectionProducerDemo() {
             <div className="h-2.5 w-2.5 rounded-full bg-yellow-500/50" />
             <div className="h-2.5 w-2.5 rounded-full bg-green-500/50" />
             <span className="ml-3 text-[10px] font-mono text-muted-foreground/40">IFFY · Auto-Run · The Last Love Letter of Gion</span>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-[9px] font-mono text-muted-foreground/30">{Math.round((phase / 11) * 100)}%</span>
+            </div>
+          </div>
+          {/* Progress bar */}
+          <div className="h-0.5 bg-border/10 w-full">
+            <motion.div
+              className="h-full bg-primary/60"
+              animate={{ width: `${Math.round((phase / 11) * 100)}%` }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
+            />
           </div>
 
           <div className="p-6 min-h-[420px] flex flex-col gap-5">
