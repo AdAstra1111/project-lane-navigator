@@ -20,7 +20,7 @@ class TourErrorBoundary extends Component<{ children: ReactNode }, { error: bool
     return this.props.children;
   }
 }
-const CinematicDemo = lazy(() => import('@/components/landing/CinematicDemo').then(m => ({ default: m.CinematicDemo })));
+const CinematicDemo = lazy(() => import('@/components/landing/CinematicDemo'));
 
 // ── Compatibility tool list ──
 const COMPAT_TOOLS = [
