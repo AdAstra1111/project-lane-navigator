@@ -128,12 +128,18 @@ export function SectionProducerDemo() {
   useEffect(() => {
     if (phase !== 5) return;
     setNotes(NOTES.map(n => ({ ...n, resolved: false })));
-    setTimeout(() => { setNotes([{ ...NOTES[0], resolved: true }, { ...NOTES[1], resolved: false }]); setLiveCi(96); }, 1000);
-    setTimeout(() => { setNotes(NOTES.map(n => ({ ...n, resolved: true }))); setLiveCi(98); setTimeout(() => setPhase(6), 600); }, 2200);
+    const t1 = setTimeout(() => { setNotes([{ ...NOTES[0], resolved: true }, { ...NOTES[1], resolved: false }]); setLiveCi(96); }, 1000);
+    const t2 = setTimeout(() => { setNotes(NOTES.map(n => ({ ...n, resolved: true }))); setLiveCi(98); }, 2200);
+    const t3 = setTimeout(() => setPhase(6), 2800);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [phase]);
 
   // Phase 6 — approval toast
-  useEffect(() => { if (phase === 6) setTimeout(() => setPhase(7), 1600); }, [phase]);
+  useEffect(() => {
+    if (phase !== 6) return;
+    const t = setTimeout(() => setPhase(7), 1600);
+    return () => clearTimeout(t);
+  }, [phase]);
 
   // Phase 7 — episode script
   useEffect(() => {
@@ -166,8 +172,10 @@ export function SectionProducerDemo() {
   useEffect(() => {
     if (phase !== 10) return;
     setBoardVisible(0);
-    setTimeout(() => setBoardVisible(1), 400);
-    setTimeout(() => { setBoardVisible(2); setTimeout(() => setPhase(11), 1600); }, 1000);
+    const t1 = setTimeout(() => setBoardVisible(1), 400);
+    const t2 = setTimeout(() => setBoardVisible(2), 1000);
+    const t3 = setTimeout(() => setPhase(11), 2600);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [phase]);
 
   // Phase 11 — output fan + loop
