@@ -8561,7 +8561,7 @@ Deno.serve(async (req) => {
 
             // ── BLOCKER-AWARE BEST-OF TRACKING (STAGE-SCOPED from auto_run_steps + GLOBAL best update) ──
             // Stage-scoped best is derived from DB; global best_* on job is informational only.
-            const stageBest = await getStageBestFromSteps(supabase, jobId, currentDoc);
+            const stageBest = await getStageBestFromSteps(supabase, jobId, currentDoc, job.project_id);
             const candidateComposite = acceptedCI + acceptedGP;
             const cbc = candBlockerCount ?? 0;
 
