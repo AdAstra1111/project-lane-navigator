@@ -7718,7 +7718,7 @@ Deno.serve(async (req) => {
                 // the correct fixes; scores confirm readiness; no need for another rewrite cycle.
                 // Uses stage best CI (not current review CI) to prevent regression blocking.
                 const earlyTargetCi = resolveTargetCI(job);
-                const earlyStageBest = await getStageBestFromSteps(supabase, jobId, currentDoc);
+                const earlyStageBest = await getStageBestFromSteps(supabase, jobId, currentDoc, job.project_id);
                 const earlyBestCi = earlyStageBest?.ci ?? ci;
                 if (earlyBestCi >= earlyTargetCi && blockersCount === 0 && job.allow_defaults !== false) {
                   const earlyNext = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
