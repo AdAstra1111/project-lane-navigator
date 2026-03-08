@@ -5616,59 +5616,46 @@ Deno.serve(async (req) => {
             });
             if (plateauForcePromote) return plateauForcePromote;
 
-            // ── IEL: Relaxed force-promote V1 — break the loop when best_ci < GLOBAL_MIN_CI or notes remain ──
-            const relaxedBestV1 = await resolveBestScoredEligibleVersionForDoc(supabase, job.project_id, currentDoc);
-            if (relaxedBestV1) {
-              console.log(`[auto-run][IEL] relaxed_force_promote { job_id: "${jobId}", doc_type: "${currentDoc}", best_ci: ${relaxedBestV1.ci}, best_gp: ${relaxedBestV1.gp}, plateau_version: "v1" }`);
-              await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_relaxed_promote",
-                `CI plateaued (V1) at ${ciProgress.currentCi} (best: ${ciProgress.bestCi}). allow_defaults=ON → relaxed force-promote from CI:${relaxedBestV1.ci}, GP:${relaxedBestV1.gp}.`,
-                { ci: relaxedBestV1.ci, gp: relaxedBestV1.gp }, undefined,
-                { plateau_version: "v1", best_version_id: relaxedBestV1.versionId, best_document_id: relaxedBestV1.documentId, plateau_count: ciProgress.plateauCount });
+            // ── IEL: tryPlateauForcePromote returned null. Check WHY: notes remain or CI too low. ──
+            const { data: plateauOpenNotesV1 } = await supabase
+              .from("project_notes")
+              .select("id")
+              .eq("project_id", job.project_id)
+              .eq("doc_type", currentDoc)
+              .in("status", ["open", "in_progress", "reopened"])
+              .limit(5);
 
-              const { error: rpErr } = await supabase.rpc("set_current_version", {
-                p_document_id: relaxedBestV1.documentId,
-                p_new_version_id: relaxedBestV1.versionId,
+            if (plateauOpenNotesV1 && plateauOpenNotesV1.length > 0) {
+              // Notes remain — skip plateau gate, let rewrite loop apply them
+              console.log(`[auto-run][IEL] note_driven_rewrite_continue { job_id: "${jobId}", doc_type: "${currentDoc}", note_count: ${plateauOpenNotesV1.length}, plateau_version: "v1" }`);
+              await logStep(supabase, jobId, stepCount + 1, currentDoc, "note_driven_rewrite_continue",
+                `CI plateaued (V1) at ${ciProgress.currentCi} (best: ${ciProgress.bestCi}) but ${plateauOpenNotesV1.length} actionable note(s) remain. Skipping plateau gate → rewrite loop will apply notes.`,
+                { ci: ciProgress.currentCi }, undefined,
+                { plateau_version: "v1", note_count: plateauOpenNotesV1.length, note_ids: plateauOpenNotesV1.map((n: any) => n.id), plateau_count: ciProgress.plateauCount });
+              // Fall through to analysis/rewrite block — DO NOT pause
+            } else {
+              // Notes exhausted but CI still below target — genuinely stuck
+              console.warn(`[auto-run][IEL] notes_unresolvable { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, target: ${targetCi}, plateau_version: "v1" }`);
+              const bestAvailV1 = await resolveBestScoredEligibleVersionForDoc(supabase, job.project_id, currentDoc);
+              await logStep(supabase, jobId, stepCount + 1, currentDoc, "notes_unresolvable",
+                `CI plateaued (V1) at ${ciProgress.currentCi}, notes exhausted, best CI:${bestAvailV1?.ci ?? "?"} below target ${targetCi}. Cannot improve further.`,
+                { ci: ciProgress.currentCi }, undefined,
+                { plateau_version: "v1", best_ci: bestAvailV1?.ci, best_gp: bestAvailV1?.gp, target_ci: targetCi, plateau_count: ciProgress.plateauCount });
+              const { data: docForCap } = await supabase.from("project_documents")
+                .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+                .order("created_at", { ascending: false }).limit(1).maybeSingle();
+              if (docForCap) await finalizeBest(supabase, jobId, job, docForCap.id);
+              await updateJob(supabase, jobId, {
+                status: "paused",
+                stop_reason: "NOTES_UNRESOLVABLE",
+                pause_reason: "NOTES_UNRESOLVABLE",
+                error: `Notes exhausted but CI=${ciProgress.currentCi} (best: ${ciProgress.bestCi}) still below target ${targetCi} for ${currentDoc}.`,
               });
-              if (!rpErr) {
-                await supabase.from("project_document_versions").update({
-                  approval_status: "approved",
-                  approved_at: new Date().toISOString(),
-                  approved_by: job.user_id,
-                }).eq("id", relaxedBestV1.versionId);
-
-                await updateJob(supabase, jobId, {
-                  best_version_id: relaxedBestV1.versionId,
-                  best_document_id: relaxedBestV1.documentId,
-                  best_ci: relaxedBestV1.ci,
-                  best_gp: relaxedBestV1.gp,
-                  best_score: relaxedBestV1.ci + relaxedBestV1.gp,
-                });
-
-                const nextDocV1 = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
-                if (nextDocV1 && isStageAtOrBeforeTarget(nextDocV1, job.target_document, format)) {
-                  await logStep(supabase, jobId, stepCount + 2, currentDoc, "ci_plateau_force_promoted",
-                    `Relaxed force-promoted ${currentDoc} (CI:${relaxedBestV1.ci}, GP:${relaxedBestV1.gp}) after plateau V1. allow_defaults=ON → advancing to ${nextDocV1}.`,
-                    { ci: relaxedBestV1.ci, gp: relaxedBestV1.gp }, undefined,
-                    { from: currentDoc, to: nextDocV1, bypass: "relaxed_ci_gate", plateau_version: "v1" });
-                  await updateJob(supabase, jobId, {
-                    current_document: nextDocV1,
-                    stage_loop_count: 0,
-                    stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
-                    status: "running",
-                    stop_reason: null, pause_reason: null, error: null,
-                    awaiting_approval: false, approval_type: null,
-                    frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
-                  });
-                  await releaseProcessingLock(supabase, jobId);
-                  return respondWithJob(supabase, jobId, "run-next");
-                } else {
-                  await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied (relaxed promote V1)", pause_reason: null, error: null });
-                  await releaseProcessingLock(supabase, jobId);
-                  return respondWithJob(supabase, jobId);
-                }
-              }
+              await releaseProcessingLock(supabase, jobId);
+              return respondWithJob(supabase, jobId);
             }
-          }
+          } else {
+          // allow_defaults=false — original pause behavior
           console.error(`[auto-run][IEL] ci_plateau_stop { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, plateau_count: ${ciProgress.plateauCount} }`);
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_stop",
             `CI PLATEAU BELOW ${targetCi}: CI=${ciProgress.currentCi}, best=${ciProgress.bestCi}, ${ciProgress.plateauCount} consecutive non-improving ticks. Fail-closed.`,
@@ -5686,6 +5673,7 @@ Deno.serve(async (req) => {
           });
           await releaseProcessingLock(supabase, jobId);
           return respondWithJob(supabase, jobId);
+          }
         } else if (ciProgress.improving) {
           console.log(`[auto-run][IEL] ci_improvement_detected { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci_prior: ${ciProgress.bestCi}, delta: ${ciProgress.currentCi - ciProgress.bestCi} }`);
         } else {
