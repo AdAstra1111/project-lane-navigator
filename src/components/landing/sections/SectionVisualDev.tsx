@@ -232,14 +232,6 @@ function StoryboardPanel({ panel, active }: { panel: typeof PANELS[0]; active: b
           src={panel.img}
           alt={panel.shot}
           className="w-full h-full object-cover"
-          style={{
-            filter: 'grayscale(100%) contrast(1.3) brightness(0.88)',
-            mixBlendMode: 'luminosity',
-          }}
-        />
-        {/* Sketch overlay — slight texture */}
-        <div className="absolute inset-0 opacity-20"
-          style={{ background: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.015) 2px, rgba(255,255,255,0.015) 4px)' }}
         />
         {/* Active colour tint */}
         <motion.div
