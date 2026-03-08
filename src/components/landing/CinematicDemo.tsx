@@ -10,6 +10,7 @@ import { SectionFullCapabilities } from './sections/SectionFullCapabilities';
 import { SectionFinanceDemo } from './sections/SectionFinanceDemo';
 import { SectionVisualDev } from './sections/SectionVisualDev';
 import { Section6StudioControl } from './sections/Section6StudioControl';
+import { SectionStudioMode } from './sections/SectionStudioMode';
 import { Section7AIPipeline } from './sections/Section7AIPipeline';
 
 import { Section9InvestorConfidence } from './sections/Section9InvestorConfidence';
@@ -26,6 +27,7 @@ export function CinematicDemo() {
       <SectionFullCapabilities />
       <SectionFinanceDemo />
       <SectionVisualDev />
+      <SectionStudioMode />
       <Section6StudioControl />
       <Section7AIPipeline />
 
