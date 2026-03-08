@@ -26,12 +26,13 @@ const TAX_TERRITORIES = [
     delay: 0,
   },
   {
-    name: 'High-End Production',
-    code: 'HETV',
-    rate: 5,
-    base: 3200000,
+    name: 'BFI Film Fund',
+    code: 'BFI',
+    rate: 0,
+    base: 0,
+    flat: 250000,
     color: 'hsl(150,55%,50%)',
-    notes: 'Additional uplift · Amazon Prime',
+    notes: 'Production grant · British content',
     delay: 1,
   },
   {
