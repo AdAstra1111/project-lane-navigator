@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
         const { project_id } = params;
         const { data, error } = await supabase
           .from("projects")
-          .select("id, title, format, viability_score, created_at, updated_at")
+          .select("id, title, format, created_at, updated_at")
           .eq("id", project_id)
           .maybeSingle();
         if (error) throw error;
@@ -210,7 +210,7 @@ Deno.serve(async (req) => {
         const { limit = 20 } = params;
         const { data, error } = await supabase
           .from("projects")
-          .select("id, title, format, viability_score, created_at, updated_at")
+          .select("id, title, format, created_at, updated_at")
           .order("updated_at", { ascending: false })
           .limit(limit);
         if (error) throw error;
