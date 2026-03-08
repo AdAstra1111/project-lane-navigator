@@ -1,131 +1,190 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SectionShell } from '../shared/SectionShell';
-import {
-  ScrollText, Users, Clapperboard, DollarSign, MapPin,
-  Calculator, BarChart3, Shield, Package, Layers,
-  Sparkles, FileText, Target, BookOpen, LayoutGrid,
-  Zap, UsersRound, ArrowRight
-} from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 
-interface PipelineNode {
-  icon: any;
+interface Pipeline {
+  key: string;
   label: string;
-  description: string;
+  badge: string;
   color: string;
+  stages: string[];
 }
 
-const prestigeNodes: PipelineNode[] = [
-  { icon: ScrollText, label: 'Script Intake', description: 'Ingest existing screenplay with full structural analysis', color: 'hsl(38,60%,52%)' },
-  { icon: Sparkles, label: 'Creative Development', description: 'Guided story architecture and narrative refinement', color: 'hsl(38,60%,52%)' },
-  { icon: Users, label: 'Cast Attachments', description: 'Strategic casting aligned with market positioning', color: 'hsl(200,65%,55%)' },
-  { icon: Clapperboard, label: 'Director / Producer', description: 'Attach key creative and producing elements', color: 'hsl(200,65%,55%)' },
-  { icon: Calculator, label: 'Budget Creation', description: 'Production budget modelling with scenario analysis', color: 'hsl(150,55%,50%)' },
-  { icon: BarChart3, label: 'Production Schedule', description: 'Detailed shooting schedule and resource planning', color: 'hsl(150,55%,50%)' },
-  { icon: LayoutGrid, label: 'Shot Lists', description: 'Scene-by-scene shot breakdown with visual references', color: 'hsl(280,55%,60%)' },
-  { icon: MapPin, label: 'Location Strategy', description: 'Tax-optimised location selection and scouting', color: 'hsl(280,55%,60%)' },
-  { icon: DollarSign, label: 'Tax Credits', description: 'Maximise incentive returns across territories', color: 'hsl(350,60%,55%)' },
-  { icon: Shield, label: 'Co-Production', description: 'Treaty-compliant co-production structuring', color: 'hsl(350,60%,55%)' },
-  { icon: Package, label: 'Finance Structure', description: 'Multi-source financing with waterfall modelling', color: 'hsl(38,60%,52%)' },
-  { icon: Layers, label: 'Investor Package', description: 'Auto-assembled investor-ready project package', color: 'hsl(38,60%,52%)' },
+const PIPELINES: Pipeline[] = [
+  {
+    key: 'film',
+    label: 'Feature Film',
+    badge: 'Prestige',
+    color: 'hsl(38,60%,52%)',
+    stages: ['Idea', 'Concept Brief', 'Market Sheet', 'Treatment', 'Story Outline', 'Character Bible', 'Beat Sheet', 'Feature Script', 'Production Draft', 'Deck'],
+  },
+  {
+    key: 'vertical-drama',
+    label: 'Vertical Drama',
+    badge: 'Mobile-First',
+    color: 'hsl(200,65%,55%)',
+    stages: ['Idea', 'Concept Brief', 'Market Sheet', 'Format Rules', 'Character Bible', 'Season Arc', 'Episode Grid', 'Episode Beats', 'Season Scripts'],
+  },
+  {
+    key: 'tv-series',
+    label: 'TV Series',
+    badge: 'Long-Form',
+    color: 'hsl(280,55%,60%)',
+    stages: ['Idea', 'Concept Brief', 'Market Sheet', 'Treatment', 'Story Outline', 'Character Bible', 'Beat Sheet', 'Episode Beats', 'Episode Script', 'Season Master Script', 'Production Draft'],
+  },
+  {
+    key: 'limited-series',
+    label: 'Limited Series',
+    badge: 'Prestige TV',
+    color: 'hsl(350,60%,55%)',
+    stages: ['Idea', 'Concept Brief', 'Market Sheet', 'Treatment', 'Story Outline', 'Character Bible', 'Beat Sheet', 'Episode Beats', 'Episode Script', 'Season Master Script', 'Production Draft'],
+  },
+  {
+    key: 'documentary',
+    label: 'Documentary',
+    badge: 'Non-Fiction',
+    color: 'hsl(150,55%,50%)',
+    stages: ['Idea', 'Concept Brief', 'Market Sheet', 'Documentary Outline', 'Deck'],
+  },
+  {
+    key: 'animation',
+    label: 'Animation',
+    badge: 'Animated',
+    color: 'hsl(60,65%,50%)',
+    stages: ['Idea', 'Concept Brief', 'Market Sheet', 'Treatment', 'Character Bible', 'Beat Sheet', 'Feature Script'],
+  },
+  {
+    key: 'reality',
+    label: 'Reality / Unscripted',
+    badge: 'Unscripted',
+    color: 'hsl(25,70%,55%)',
+    stages: ['Idea', 'Concept Brief', 'Market Sheet', 'Treatment', 'Beat Sheet', 'Episode Beats', 'Episode Script'],
+  },
+  {
+    key: 'short',
+    label: 'Short Film',
+    badge: 'Festival',
+    color: 'hsl(170,55%,48%)',
+    stages: ['Idea', 'Concept Brief', 'Feature Script'],
+  },
 ];
-
-const verticalNodes: PipelineNode[] = [
-  { icon: Sparkles, label: 'Idea Generation', description: 'AI-assisted concept development and validation', color: 'hsl(38,60%,52%)' },
-  { icon: FileText, label: 'Concept Brief', description: 'Structured concept with market positioning', color: 'hsl(38,60%,52%)' },
-  { icon: Target, label: 'Market Fit Analysis', description: 'Audience and platform alignment scoring', color: 'hsl(200,65%,55%)' },
-  { icon: BookOpen, label: 'Character Bible', description: 'Standardised character development system', color: 'hsl(200,65%,55%)' },
-  { icon: LayoutGrid, label: 'Episode Grid', description: 'Multi-episode narrative architecture', color: 'hsl(150,55%,50%)' },
-  { icon: Zap, label: 'Rapid Script Gen', description: 'Fast-turnaround episodic script production', color: 'hsl(150,55%,50%)' },
-  { icon: LayoutGrid, label: 'Storyboards', description: 'Visual production direction at scale', color: 'hsl(280,55%,60%)' },
-  { icon: BarChart3, label: 'Production Planning', description: 'Standardised production scheduling', color: 'hsl(280,55%,60%)' },
-  { icon: UsersRound, label: 'Multi-Team Coord', description: 'Parallel production team management', color: 'hsl(350,60%,55%)' },
-  { icon: Clapperboard, label: 'Fast Production', description: 'Rapid turnaround production execution', color: 'hsl(350,60%,55%)' },
-];
-
-function PipelineColumn({ title, subtitle, nodes }: { title: string; subtitle: string; nodes: PipelineNode[] }) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-
-  return (
-    <div className="flex-1 min-w-[300px]">
-      <h3 className="text-xl sm:text-2xl font-display font-bold text-foreground mb-1">{title}</h3>
-      <p className="text-sm text-muted-foreground mb-8">{subtitle}</p>
-      <div className="space-y-1">
-        {nodes.map((node, i) => {
-          const Icon = node.icon;
-          const isHovered = hoveredIdx === i;
-          return (
-            <motion.div
-              key={node.label}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.08 }}
-              onMouseEnter={() => setHoveredIdx(i)}
-              onMouseLeave={() => setHoveredIdx(null)}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-300 cursor-default ${isHovered ? 'border-primary/30 bg-primary/5' : 'border-transparent bg-transparent'}`}
-            >
-              <div
-                className="h-10 w-10 rounded-xl border flex items-center justify-center shrink-0"
-                style={{
-                  backgroundColor: `color-mix(in srgb, ${node.color} 10%, transparent)`,
-                  borderColor: `color-mix(in srgb, ${node.color} 25%, transparent)`,
-                }}
-              >
-                <Icon className="h-4 w-4" style={{ color: node.color }} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-display font-medium text-foreground">{node.label}</p>
-                <AnimatePresence>
-                  {isHovered && (
-                    <motion.p
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="text-xs text-muted-foreground overflow-hidden"
-                    >
-                      {node.description}
-                    </motion.p>
-                  )}
-                </AnimatePresence>
-              </div>
-              {i < nodes.length - 1 && (
-                <ArrowRight className="h-3 w-3 text-muted-foreground/20 shrink-0" />
-              )}
-            </motion.div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 export function Section3DualPipeline() {
+  const [active, setActive] = useState(0);
+  const pipeline = PIPELINES[active];
+
   return (
-    <SectionShell id="dual-pipeline" className="bg-[hsl(225,20%,4%)]">
-      <div className="text-center mb-16">
-        <p className="text-xs font-display uppercase tracking-[0.3em] text-primary/50 mb-4">Production Models</p>
+    <SectionShell id="pipelines" className="bg-[hsl(225,20%,5%)]">
+      <div className="text-center mb-12">
+        <p className="text-xs font-display uppercase tracking-[0.3em] text-primary/50 mb-4">Production Formats</p>
         <h2 className="text-3xl sm:text-5xl font-display font-bold text-foreground tracking-tight">
-          Two Pipelines. One System.
+          One System. Every Format.
         </h2>
-        <p className="text-muted-foreground mt-4 max-w-xl mx-auto">
-          From prestige features to rapid vertical drama — IFFY adapts to your production model.
+        <p className="text-muted-foreground mt-4 max-w-lg mx-auto">
+          IFFY builds the right pipeline for your project type — feature, series, vertical, documentary and more.
         </p>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-12 lg:gap-16">
-        <PipelineColumn
-          title="Prestige Film"
-          subtitle="Existing script → Production ready"
-          nodes={prestigeNodes}
-        />
-        <div className="hidden lg:flex items-center">
-          <div className="w-px h-full bg-gradient-to-b from-transparent via-primary/20 to-transparent" />
+      <div className="max-w-4xl mx-auto flex flex-col gap-8">
+        {/* Format selector */}
+        <div className="flex flex-wrap gap-2 justify-center">
+          {PIPELINES.map((p, i) => (
+            <button
+              key={p.key}
+              onClick={() => setActive(i)}
+              className="relative px-3 py-1.5 rounded-full text-xs font-display font-medium transition-all duration-200"
+              style={{
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderColor: active === i ? p.color : 'hsl(225,20%,20%)',
+                color: active === i ? p.color : 'hsl(225,10%,55%)',
+                background: active === i ? `${p.color}15` : 'transparent',
+              }}
+            >
+              {p.label}
+              {active === i && (
+                <motion.span
+                  layoutId="badge"
+                  className="ml-1.5 text-[9px] uppercase tracking-wider opacity-70"
+                >
+                  {p.badge}
+                </motion.span>
+              )}
+            </button>
+          ))}
         </div>
-        <PipelineColumn
-          title="Vertical Drama"
-          subtitle="Idea generation → Fast production"
-          nodes={verticalNodes}
-        />
+
+        {/* Pipeline stages display */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={pipeline.key}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            className="rounded-2xl border border-border/15 bg-[hsl(225,20%,6%)] p-6"
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: pipeline.color, boxShadow: `0 0 8px ${pipeline.color}` }}
+              />
+              <span className="font-display font-semibold text-foreground">{pipeline.label}</span>
+              <span
+                className="text-[10px] font-mono px-2 py-0.5 rounded-full border"
+                style={{ borderColor: `${pipeline.color}40`, color: pipeline.color, background: `${pipeline.color}10` }}
+              >
+                {pipeline.stages.length} stages
+              </span>
+            </div>
+
+            {/* Stage flow */}
+            <div className="flex flex-wrap items-center gap-y-3 gap-x-1">
+              {pipeline.stages.map((stage, i) => (
+                <div key={stage} className="flex items-center gap-1">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: i * 0.06, duration: 0.3 }}
+                    className="rounded-lg border px-3 py-1.5 text-xs font-mono"
+                    style={{
+                      borderColor: i === 0 ? `${pipeline.color}60` : 'hsl(225,20%,18%)',
+                      background: i === 0 ? `${pipeline.color}12` : 'hsl(225,20%,8%)',
+                      color: i === 0 ? pipeline.color : 'hsl(225,10%,65%)',
+                    }}
+                  >
+                    {stage}
+                  </motion.div>
+                  {i < pipeline.stages.length - 1 && (
+                    <ChevronRight className="h-3 w-3 flex-shrink-0" style={{ color: `${pipeline.color}30` }} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        </AnimatePresence>
+
+        {/* Format summary grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {PIPELINES.map((p, i) => (
+            <motion.button
+              key={p.key}
+              onClick={() => setActive(i)}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="rounded-xl border p-3 text-left transition-all duration-200"
+              style={{
+                borderColor: active === i ? `${p.color}40` : 'hsl(225,20%,14%)',
+                background: active === i ? `${p.color}08` : 'hsl(225,20%,6%)',
+              }}
+            >
+              <p className="text-[10px] font-mono mb-1" style={{ color: p.color }}>{p.badge}</p>
+              <p className="text-xs font-display text-foreground/80 leading-tight">{p.label}</p>
+              <p className="text-[10px] text-muted-foreground/40 mt-1">{p.stages.length} stages</p>
+            </motion.button>
+          ))}
+        </div>
       </div>
     </SectionShell>
   );
