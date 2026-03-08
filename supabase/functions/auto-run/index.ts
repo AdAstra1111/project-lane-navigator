@@ -6678,8 +6678,16 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
 
-        const { data: prevVersions } = await supabase.from("project_document_versions").select("id").eq("document_id", prevDoc.id).order("version_number", { ascending: false }).limit(1);
-        const prevVersion = prevVersions?.[0];
+        // Prefer approved+current (authoritative) version; fallback to latest by version_number
+        const { data: prevVersions } = await supabase.from("project_document_versions")
+          .select("id, approval_status, is_current, version_number")
+          .eq("document_id", prevDoc.id)
+          .order("version_number", { ascending: false });
+        const prevVersionCandidates = prevVersions || [];
+        const prevVersion =
+          prevVersionCandidates.find((v: any) => v.approval_status === "approved" && v.is_current === true) ||
+          prevVersionCandidates.find((v: any) => v.approval_status === "approved") ||
+          prevVersionCandidates[0] || null;
         if (!prevVersion) {
           await updateJob(supabase, jobId, { status: "failed", error: `No version for ${prevStage} document` });
           return respondWithJob(supabase, jobId);
