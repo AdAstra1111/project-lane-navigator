@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
           .from("auto_run_jobs")
           .select("id, status, current_document, step_count, last_ci, last_gp, stop_reason, pause_reason, follow_latest, converge_target_json, stage_loop_count, created_at, updated_at")
           .eq("project_id", project_id)
-          .in("status", ["running", "paused", "stopped"])
+          .in("status", ["running", "paused", "stopped", "queued", "completed"])
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
         const { project_id } = params;
         const { data, error } = await supabase
           .from("projects")
-          .select("id, title, format, status, viability_score, created_at, updated_at")
+          .select("id, title, format, viability_score, created_at, updated_at")
           .eq("id", project_id)
           .maybeSingle();
         if (error) throw error;
@@ -210,7 +210,7 @@ Deno.serve(async (req) => {
         const { limit = 20 } = params;
         const { data, error } = await supabase
           .from("projects")
-          .select("id, title, format, status, viability_score, created_at")
+          .select("id, title, format, viability_score, created_at, updated_at")
           .order("updated_at", { ascending: false })
           .limit(limit);
         if (error) throw error;
