@@ -9641,7 +9641,7 @@ Deno.serve(async (req) => {
         if (promo.recommendation === "promote") {
           // ── CI HARD GATE: no promotion unless CI meets job target (default 90) ──
           const writeTargetCi = resolveTargetCI(job);
-          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, writeTargetCi);
+          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, writeTargetCi, job.project_id);
           console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${writeTargetCi}, rule: "promote_gate_writing" }`);
           if (!ciGate.pass) {
             console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${writeTargetCi}, trigger: "promote_writing" }`);
