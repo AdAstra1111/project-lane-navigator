@@ -7,6 +7,7 @@ import { Section1CinematicIntro } from './sections/Section1CinematicIntro';
 import { SectionProducerDemo } from './sections/SectionProducerDemo';
 import { Section3DualPipeline } from './sections/Section3DualPipeline';
 import { SectionFullCapabilities } from './sections/SectionFullCapabilities';
+import { SectionFinanceDemo } from './sections/SectionFinanceDemo';
 import { Section6StudioControl } from './sections/Section6StudioControl';
 import { Section7AIPipeline } from './sections/Section7AIPipeline';
 
@@ -22,6 +23,7 @@ export function CinematicDemo() {
       <SectionProducerDemo />
       <Section3DualPipeline />
       <SectionFullCapabilities />
+      <SectionFinanceDemo />
       <Section6StudioControl />
       <Section7AIPipeline />
 
