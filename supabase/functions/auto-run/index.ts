@@ -7338,6 +7338,21 @@ Deno.serve(async (req) => {
           { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags }
         );
 
+        // Persist analysis scores to the version's meta_json so best-version sync can find them
+        try {
+          await persistVersionScores(supabase, {
+            versionId: latestVersion.id,
+            ci, gp,
+            source: `auto-run-analyze-${currentDoc}`,
+            jobId,
+            protectHigher: true,
+            docType: currentDoc,
+          });
+          console.log(`[auto-run][IEL] analyze_scores_persisted { job_id: "${jobId}", version_id: "${latestVersion.id}", ci: ${ci}, gp: ${gp}, doc_type: "${currentDoc}" }`);
+        } catch (persistErr: any) {
+          console.error(`[auto-run] analyze_score_persist_failed { version_id: "${latestVersion.id}", error: "${persistErr?.message}" }`);
+        }
+
         // Update job scores + last_analyzed_version_id + blocker tracking
         await updateJob(supabase, jobId, {
           last_ci: ci, last_gp: gp, last_gap: gap, last_blocker_count: blockersCount,
