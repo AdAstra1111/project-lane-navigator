@@ -10,7 +10,7 @@ const PIPELINE_STAGES = ['Idea', 'Concept Brief', 'Character Bible', 'Season Arc
 
 const DOC_LINES = [
   'TITLE: The Last Love Letter of Gion',
-  'FORMAT: Vertical Drama · 10 × 15 min',
+  'FORMAT: Vertical Drama · 30 × 2 min',
   'LOGLINE: A grieving geisha discovers her lover\'s ghost',
   'MARKET FIT: Premium streaming · Asia / Global',
   'TONE: Melancholic, supernatural, visually lush',
