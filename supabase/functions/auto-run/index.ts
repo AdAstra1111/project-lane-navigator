@@ -470,7 +470,7 @@ async function checkPrerequisiteGate(
   if (!gate) return NOT_BLOCKED;
 
   // Check if the prerequisite stage has been reviewed in this job
-  const stageBest = await getStageBestFromSteps(supabase, jobId, gate.prerequisite);
+  const stageBest = await getStageBestFromSteps(supabase, jobId, gate.prerequisite, job?.project_id ?? null);
 
   if (!stageBest) {
     // No reviews for prerequisite — block and redirect
