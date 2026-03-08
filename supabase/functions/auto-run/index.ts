@@ -581,21 +581,16 @@ async function checkMonotonicCIImprovement(
 // ── IEL: ABVR — Active Best Version Resolution ──
 // Deterministic resolver: picks the version Auto-Run must treat as current baseline.
 // Resolution rules (strict order):
-//   A) If resume_version_id present AND follow_latest is false → use it (pinned)
-//   B) Else → highest-scoring eligible version (approval_status=approved OR is_current=true) from DB-persisted meta_json.ci/gp
-//   C) Fallback → best approved by version_number, then is_current, then latest by version_number
+//   A) Authoritative approved+current version (always wins)
+//   B) If resume_version_id present AND follow_latest is false → use it (pinned) when still valid
+//   C) Else → highest-scoring eligible version (approval_status=approved OR is_current=true) from DB-persisted meta_json.ci/gp
+//   D) Fallback → best approved by version_number, then is_current, then latest by version_number
 async function resolveActiveVersionForDoc(
   supabase: any,
   job: any,
   documentId: string,
   ctx?: { jobId?: string; docType?: string },
 ): Promise<{ versionId: string; source: "pinned" | "eligible_best_score" | "best_approved" | "is_current" | "latest_version_number"; reason: string } | null> {
-  // A) Pinned
-  if (!job.follow_latest && job.resume_version_id && job.resume_document_id === documentId) {
-    console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${job.resume_version_id}", reason: "pinned", follow_latest: ${job.follow_latest}, resume_version_id: "${job.resume_version_id}" }`);
-    return { versionId: job.resume_version_id, source: "pinned", reason: "pinned" };
-  }
-
   const { data: versions, error: versionsErr } = await supabase
     .from("project_document_versions")
     .select("id, version_number, approval_status, is_current, created_by, meta_json, approved_at")
@@ -613,11 +608,14 @@ async function resolveActiveVersionForDoc(
     return null;
   }
 
-  // A.5) AUTHORITATIVE VERSION: approved + is_current takes absolute priority.
+  // A) AUTHORITATIVE VERSION: approved + is_current takes absolute priority.
   // This is the single authoritative version per document. All other versions are historical.
-  // It overrides all scored/eligible logic to prevent stale version continuation.
   const approvedCurrent = allVersions.find((v: any) => v.approval_status === "approved" && !!v.is_current);
   if (approvedCurrent) {
+    if (!job.follow_latest && job.resume_version_id && job.resume_document_id === documentId && job.resume_version_id !== approvedCurrent.id) {
+      console.log(`[auto-run][IEL] pinned_overridden_by_authoritative { job_id: "${ctx?.jobId || 'unknown'}", doc_type: "${ctx?.docType || 'unknown'}", document_id: "${documentId}", pinned_version_id: "${job.resume_version_id}", authoritative_version_id: "${approvedCurrent.id}", reason: "approved_and_current_must_win" }`);
+    }
+
     console.log(`[auto-run][IEL] authoritative_version_resolved { document_id: "${documentId}", version_id: "${approvedCurrent.id}", reason: "approved_and_current", version_number: ${approvedCurrent.version_number}, doc_type: "${ctx?.docType || 'unknown'}" }`);
     // ── TRANSITION LEDGER: authoritative_version_resolved ──
     try {
@@ -638,6 +636,16 @@ async function resolveActiveVersionForDoc(
       console.warn(`[auto-run][transition-ledger] authoritative_version_resolved emit failed: ${e?.message}`);
     }
     return { versionId: approvedCurrent.id, source: "eligible_best_score" as const, reason: "approved_and_current" };
+  }
+
+  // B) Pinned (only when authoritative version does not exist)
+  if (!job.follow_latest && job.resume_version_id && job.resume_document_id === documentId) {
+    const pinnedExists = allVersions.some((v: any) => v.id === job.resume_version_id);
+    if (pinnedExists) {
+      console.log(`[auto-run][IEL] abvr_active_version_selected { document_id: "${documentId}", selected_version_id: "${job.resume_version_id}", reason: "pinned", follow_latest: ${job.follow_latest}, resume_version_id: "${job.resume_version_id}" }`);
+      return { versionId: job.resume_version_id, source: "pinned", reason: "pinned" };
+    }
+    console.warn(`[auto-run][IEL] pinned_version_missing { job_id: "${ctx?.jobId || 'unknown'}", doc_type: "${ctx?.docType || 'unknown'}", document_id: "${documentId}", pinned_version_id: "${job.resume_version_id}" }`);
   }
 
   const eligibleScored = allVersions
