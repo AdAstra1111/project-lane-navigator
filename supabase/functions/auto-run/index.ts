@@ -493,7 +493,7 @@ const CI_MIN_DELTA = 1;        // minimum CI improvement to count as progress
 
 /**
  * Resolve the effective CI target for a job.
- * Reads converge_target_json.ci from the job; falls back to GLOBAL_MIN_CI (90).
+ * Reads converge_target_json.ci from the job; falls back to GLOBAL_MIN_CI (85).
  */
 function resolveTargetCI(job: any): number {
   const ct = job?.converge_target_json;
@@ -3647,7 +3647,7 @@ Deno.serve(async (req) => {
         current_document: effectiveStartDoc,
         max_stage_loops: effectiveMaxLoops,
         max_total_steps: effectiveMaxSteps,
-        converge_target_json: body.converge_target_json || { ci: 100, gp: 100 },
+        converge_target_json: body.converge_target_json || { ci: GLOBAL_MIN_CI, gp: 100 },
         allow_defaults: body.allow_defaults === true,
         pipeline_key: fmt,
         max_versions_per_doc_per_job: typeof body.max_versions_per_doc_per_job === "number"
@@ -7493,7 +7493,7 @@ Deno.serve(async (req) => {
             // Parse convergence targets
             const convergeTarget = (typeof job.converge_target_json === 'object' && job.converge_target_json) 
               ? job.converge_target_json as { ci: number; gp: number }
-              : { ci: 100, gp: 100 };
+              : { ci: GLOBAL_MIN_CI, gp: 100 };
             const convergedEnough = (ci >= convergeTarget.ci) && (gp >= convergeTarget.gp);
 
             if (!convergedEnough) {
