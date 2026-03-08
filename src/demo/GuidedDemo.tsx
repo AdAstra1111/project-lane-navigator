@@ -202,7 +202,7 @@ export default function GuidedDemo() {
             <RotateCcw className="h-4 w-4" />
           </button>
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate('/')}
             className="p-1.5 rounded text-white/25 hover:text-white/50 transition-colors"
           >
             <X className="h-4 w-4" />
