@@ -220,7 +220,7 @@ Deno.serve(async (req) => {
     // Dep graph validity gate
     if (!DEP_GRAPH_VALID) return jsonRes({ error: "DEP_GRAPH_INVALID", message: "UPSTREAM_DEPS contains a cycle or self-dependency. Cannot proceed." }, 500);
 
-    const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext } = body;
+    const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext, sourceDocType, sourceVersionId } = body;
 
     // Extract nuance parameters (with defaults)
     const nuanceParams: NuanceParams = {
@@ -267,26 +267,42 @@ Deno.serve(async (req) => {
     const upstreamBlocks = new Map<string, string>();
 
     if (upstreamTypes.length > 0) {
-      // Get all project_documents for this project
+      // Get upstream project_documents for this project
       const { data: allDocs } = await supabase.from("project_documents")
         .select("id, doc_type, latest_version_id")
         .eq("project_id", projectId)
         .in("doc_type", upstreamTypes);
 
-      const versionIds = (allDocs || [])
-        .filter((d: any) => d.latest_version_id)
-        .map((d: any) => d.latest_version_id);
+      const upstreamDocIds = (allDocs || []).map((d: any) => d.id);
+      const versionsByDoc = new Map<string, any[]>();
 
-      let versionMap = new Map<string, any>();
-      if (versionIds.length > 0) {
+      if (upstreamDocIds.length > 0) {
         const { data: versions } = await supabase.from("project_document_versions")
-          .select("id, document_id, version_number, status, plaintext")
-          .in("id", versionIds);
-        versionMap = new Map((versions || []).map((v: any) => [v.id, v]));
+          .select("id, document_id, version_number, approval_status, is_current, plaintext, created_at")
+          .in("document_id", upstreamDocIds)
+          .order("version_number", { ascending: false });
+
+        for (const v of (versions || [])) {
+          const arr = versionsByDoc.get(v.document_id) || [];
+          arr.push(v);
+          versionsByDoc.set(v.document_id, arr);
+        }
       }
 
       for (const doc of (allDocs || [])) {
-        const version = doc.latest_version_id ? versionMap.get(doc.latest_version_id) : null;
+        const candidates = versionsByDoc.get(doc.id) || [];
+        const explicitSourceVersion =
+          sourceVersionId && sourceDocType === doc.doc_type
+            ? candidates.find((v: any) => v.id === sourceVersionId)
+            : null;
+        const version =
+          explicitSourceVersion ||
+          candidates.find((v: any) => v.approval_status === "approved" && v.is_current === true) ||
+          candidates.find((v: any) => v.approval_status === "approved") ||
+          (doc.latest_version_id ? candidates.find((v: any) => v.id === doc.latest_version_id) : null) ||
+          candidates[0] ||
+          null;
+
         if (version) {
           inputsUsed[doc.doc_type] = {
             version_id: version.id,

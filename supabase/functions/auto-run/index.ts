@@ -6712,6 +6712,8 @@ Deno.serve(async (req) => {
               projectId: job.project_id,
               docType: currentDoc,
               userId: job.user_id,
+              sourceDocType: prevStage,
+              sourceVersionId: prevVersion.id,
             }, token);
 
             convertedDocId = genResult?.documentId || genResult?.document_id || null;
@@ -6893,8 +6895,14 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
         const { data: prevVersions2 } = await supabase.from("project_document_versions")
-          .select("id").eq("document_id", prevDoc2.id).order("version_number", { ascending: false }).limit(1);
-        const prevVersion2 = prevVersions2?.[0];
+          .select("id, approval_status, is_current, version_number")
+          .eq("document_id", prevDoc2.id)
+          .order("version_number", { ascending: false });
+        const prevVersion2Candidates = prevVersions2 || [];
+        const prevVersion2 =
+          prevVersion2Candidates.find((v: any) => v.approval_status === "approved" && v.is_current === true) ||
+          prevVersion2Candidates.find((v: any) => v.approval_status === "approved") ||
+          prevVersion2Candidates[0] || null;
         if (!prevVersion2) {
           await updateJob(supabase, jobId, { status: "failed", error: `No version for ${prevStage2} in empty-slot recovery` });
           return respondWithJob(supabase, jobId);
@@ -6909,6 +6917,8 @@ Deno.serve(async (req) => {
               projectId: job.project_id,
               docType: currentDoc,
               userId: job.user_id,
+              sourceDocType: prevStage2,
+              sourceVersionId: prevVersion2.id,
             }, token);
 
             genDocId2 = genResult2?.documentId || genResult2?.document_id || null;
@@ -6968,7 +6978,16 @@ Deno.serve(async (req) => {
           await updateJob(supabase, jobId, { step_count: ns2, stage_loop_count: 0, stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4 });
           if (job.allow_defaults) {
             if (genVerId2) {
-              await supabase.from("project_document_versions").update({ approval_status: "approved", approved_at: new Date().toISOString(), approved_by: job.user_id }).eq("id", genVerId2);
+              const { data: existingVer2 } = await supabase.from("project_document_versions")
+                .select("meta_json").eq("id", genVerId2).maybeSingle();
+              const mergedMeta2 = { ...(existingVer2?.meta_json || {}), source_version_id: prevVersion2.id };
+              await supabase.from("project_document_versions").update({
+                approval_status: "approved",
+                approved_at: new Date().toISOString(),
+                approved_by: job.user_id,
+                generator_id: "auto-run-convert",
+                meta_json: mergedMeta2,
+              }).eq("id", genVerId2);
             }
             await logStep(supabase, jobId, null, currentDoc, "auto_approved_convert", `Auto-approved generated ${currentDoc} (allow_defaults, empty-slot)`, {}, undefined, { docId: genDocId2, versionId: genVerId2, doc_type: currentDoc, from_stage: prevStage2 });
             // Continue — don't pause
