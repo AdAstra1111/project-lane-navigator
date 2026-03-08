@@ -6,7 +6,7 @@ import { ChevronRight } from 'lucide-react';
 interface Pipeline {
   key: string;
   label: string;
-  badge: string;
+  badge?: string;
   color: string;
   stages: string[];
 }
@@ -15,7 +15,6 @@ const PIPELINES: Pipeline[] = [
   {
     key: 'film',
     label: 'Feature Film',
-    badge: 'Feature Film',
     color: 'hsl(38,60%,52%)',
     stages: ['Idea', 'Concept Brief', 'Market Sheet', 'Treatment', 'Story Outline', 'Character Bible', 'Beat Sheet', 'Feature Script', 'Production Draft', 'Deck'],
   },
