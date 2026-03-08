@@ -5,7 +5,8 @@ import { FileUpload } from '@/components/FileUpload';
 import { supabase } from '@/integrations/supabase/client';
 import { createPendingUpload, MAX_PENDING_FILES, MAX_PENDING_FILE_SIZE } from '@/lib/pendingUploads';
 import { toast } from 'sonner';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, Sparkles, ChevronDown } from 'lucide-react';
+import { CinematicDemo } from '@/components/landing/CinematicDemo';
 
 // ── Compatibility tool list ──
 const COMPAT_TOOLS = [
@@ -186,7 +187,31 @@ const Landing = () => {
         <motion.button {...fade(0.2)} onClick={() => navigate('/auth')} className="inline-flex items-center gap-2 bg-primary text-primary-foreground font-display font-medium text-sm rounded-full px-8 py-3 hover:bg-primary/90 transition-colors">
           Get started <ArrowRight className="h-4 w-4" />
         </motion.button>
+
+        {/* Tour link */}
+        <motion.div {...fade(0.4)} className="mt-16 flex flex-col items-center gap-3">
+          <a href="#tour" className="flex flex-col items-center gap-2 text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors group">
+            <span className="text-xs font-display uppercase tracking-[0.25em]">Take the tour</span>
+            <motion.div animate={{ y: [0, 6, 0] }} transition={{ repeat: Infinity, duration: 1.8, ease: 'easeInOut' }}>
+              <ChevronDown className="h-4 w-4" />
+            </motion.div>
+          </a>
+        </motion.div>
       </section>
+
+      {/* ── Animated Tour ── */}
+      <div id="tour" className="border-t border-border/10">
+        <div className="text-center py-16 px-6">
+          <p className="text-xs font-display uppercase tracking-[0.3em] text-primary/50 mb-3">Interactive Tour</p>
+          <h2 className="font-display font-bold text-foreground" style={{ fontSize: 'clamp(1.6rem, 5vw, 2.5rem)' }}>
+            See IFFY in action
+          </h2>
+          <p className="text-muted-foreground text-sm mt-3 max-w-md mx-auto">
+            Watch the full pipeline run — from idea to storyboard, finance model to shot list.
+          </p>
+        </div>
+        <CinematicDemo />
+      </div>
 
     </div>
   );
