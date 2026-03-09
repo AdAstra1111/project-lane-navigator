@@ -5,7 +5,29 @@
 
 // ─── Constants ───
 
-export const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+export const GATEWAY_URL_LOVABLE = "https://ai.gateway.lovable.dev/v1/chat/completions";
+export const GATEWAY_URL_OPENROUTER = "https://openrouter.ai/api/v1/chat/completions";
+export const GATEWAY_URL_OPENAI = "https://api.openai.com/v1/chat/completions";
+
+/**
+ * Resolve the active gateway URL and API key from environment.
+ * Priority: LOVABLE_API_KEY → OPENROUTER_API_KEY → OPENAI_API_KEY
+ */
+export function resolveGateway(): { url: string; apiKey: string } {
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+  if (lovableKey) return { url: GATEWAY_URL_LOVABLE, apiKey: lovableKey };
+
+  const openrouterKey = Deno.env.get("OPENROUTER_API_KEY");
+  if (openrouterKey) return { url: GATEWAY_URL_OPENROUTER, apiKey: openrouterKey };
+
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  if (openaiKey) return { url: GATEWAY_URL_OPENAI, apiKey: openaiKey };
+
+  throw new Error("No AI gateway key configured. Set LOVABLE_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY.");
+}
+
+// Backwards-compatible default for code that still reads GATEWAY_URL directly
+export const GATEWAY_URL = GATEWAY_URL_LOVABLE;
 
 export const MODELS = {
   PRO: "google/gemini-2.5-pro",
@@ -378,11 +400,17 @@ export async function callLLM(opts: CallLLMOptions): Promise<CallLLMResult> {
     if (tools) body.tools = tools;
     if (toolChoice) body.tool_choice = toolChoice;
 
-    const response = await fetch(GATEWAY_URL, {
+    // Resolve gateway: use provided apiKey with resolveGateway() URL fallback
+    const gateway = resolveGateway();
+    const effectiveKey = apiKey || gateway.apiKey;
+    const effectiveUrl = gateway.url;
+
+    const response = await fetch(effectiveUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${effectiveKey}`,
         "Content-Type": "application/json",
+        ...(effectiveUrl.includes("openrouter.ai") ? { "HTTP-Referer": "https://iffy.app", "X-Title": "IFFY" } : {}),
       },
       body: JSON.stringify(body),
     });
