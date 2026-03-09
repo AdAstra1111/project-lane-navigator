@@ -625,6 +625,74 @@ If you find yourself writing content that belongs in another document type liste
       }
 
       // ── FORMAT_RULES_SCOPE: scope definition for all format_rules documents ──
+      // ── SEASON_SCRIPT_SCOPE: scope definition for vertical drama season scripts ──
+      let seasonScriptScopeBlock = "";
+      if (docType === "season_script") {
+        const ssEpCount = resolvedQuals?.season_episode_count || 30;
+        const ssDurMin = durMin || 120;
+        const ssDurMax = durMax || 180;
+        const isVD = isVerticalDrama;
+        if (isVD) {
+          seasonScriptScopeBlock = `## VERTICAL DRAMA SEASON SCRIPT — MANDATORY STRUCTURE
+
+You are generating a SEASON SCRIPT for a ${ssEpCount}-episode vertical drama series. This is NOT a project overview, treatment, or summary. It is a SCRIPTED document containing actual scene content for every episode.
+
+### WHAT THIS DOCUMENT MUST CONTAIN
+
+For EVERY episode (Episodes 1–${ssEpCount}), write the following:
+
+**EPISODE [N] — [EPISODE TITLE]**
+*Duration target: ${ssDurMin}–${ssDurMax} seconds*
+
+**COLD OPEN (0:00–0:15)**
+[Action line: what the viewer sees. No more than 3 lines. Must be a scroll-stopping hook.]
+
+**SCENE 1 — [SCENE HEADING]**
+[Action line]
+CHARACTER NAME
+(parenthetical if needed)
+Dialogue line.
+[Continue action / reaction]
+CHARACTER NAME
+Dialogue line.
+
+**SCENE 2 — [SCENE HEADING]**
+[Continue with 2–4 more scenes per episode]
+
+**CLIFFHANGER / EPISODE END**
+[Action line: final image + unresolved tension that drives to next episode]
+
+---
+
+### MANDATORY RULES
+1. Write EVERY episode — do not skip, summarise, or abbreviate any episode
+2. Use PROPER SCREENPLAY FORMAT: sluglines, action lines, character names, dialogue
+3. Each episode must have: COLD OPEN + minimum 3 scenes + CLIFFHANGER
+4. Dialogue must be character-specific and reveal personality — no generic lines
+5. Every episode must end on an unresolved micro-cliffhanger
+6. Total document target: ${ssEpCount * 2}–${ssEpCount * 4} pages of scripted content
+
+### WHAT THIS DOCUMENT MUST NOT CONTAIN
+- Project overview sections or loglines (belongs in Concept Brief)
+- Character descriptions or backstory summaries (belongs in Character Bible)
+- Technical format rules (belongs in Format Rules)
+- Beat structure templates or patterns (belongs in Episode Beats)
+- Completion status headers or deliverable metadata preambles
+
+### CRITICAL
+Begin DIRECTLY with "# [PROJECT TITLE] — SEASON SCRIPT" then "## EPISODE 1". 
+Do NOT include any preamble, status headers, or deliverable type declarations.
+The upstream documents (Episode Beats, Character Bible, Season Arc) contain all the story beats — use them to write ACTUAL scripted scenes.`;
+        } else {
+          seasonScriptScopeBlock = `## SEASON SCRIPT — MANDATORY STRUCTURE
+
+You are generating a SEASON SCRIPT. This is a SCRIPTED document with actual scene content, dialogue, and action lines — NOT a summary or project overview.
+
+Write proper screenplay format (sluglines, action lines, character names, dialogue) for all key scenes across the season. Prioritise the pilot episode as a full script, then provide scripted highlight scenes for each subsequent episode.`;
+        }
+      }
+
+      // ── FORMAT_RULES_SCOPE: scope definition for all format_rules documents ──
       let formatRulesScopeBlock = "";
       if (docType === "format_rules") {
         formatRulesScopeBlock = `
@@ -670,6 +738,7 @@ If you find yourself describing what happens in the story, which characters appe
         vdFormatRulesBlock,
         seasonArcScopeBlock,
         formatRulesScopeBlock,
+        seasonScriptScopeBlock,
         additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
         `If the upstream documents contain sections titled "Creative DNA Targets (From Trend Convergence)" or "Convergence Guidance (Audience Appetite Context)", treat them as strong recommendations for voice, tone, pacing, and world density while staying original.`,
         mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
