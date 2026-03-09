@@ -1433,6 +1433,7 @@ export default function ProjectDevelopmentEngine() {
                 projectTitle={(project as any)?.title || ''}
                 format={normalizedFormat}
                 onOpenPackage={() => setIntelligenceTab('package')}
+                projectId={projectId}
               />
 
               {/* Feature Script Pipeline — only for features */}
