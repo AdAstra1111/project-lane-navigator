@@ -294,6 +294,37 @@ export function DocumentSidebar({
         </Button>
       )}
 
+      {/* Reverse Engineer from Script */}
+      {scriptDoc && projectId && (
+        <>
+          {isReverseEngineering && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 flex items-center gap-2 animate-pulse">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
+              <span className="text-[10px] text-amber-400">Reverse engineering pipeline… ~90 seconds</span>
+            </div>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full text-xs gap-1.5 h-7 justify-start border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+            disabled={isReverseEngineering}
+            onClick={async () => {
+              const result = await reverseEngineerFromScript(projectId, scriptDoc.id);
+              if (result.success) {
+                toast.success(`Pipeline documents generated! ${result.documents_created || ''} docs created.`);
+                queryClient.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+                queryClient.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
+              } else {
+                toast.error(result.error || 'Could not reverse engineer script');
+              }
+            }}
+          >
+            <Zap className="h-3 w-3" />
+            Reverse Engineer
+          </Button>
+        </>
+      )}
+
       {/* Versions */}
       {selectedDocId && versions.length > 0 && (
         <Card>
