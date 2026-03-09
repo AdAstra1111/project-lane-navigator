@@ -155,7 +155,7 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
       // 1. Update spine JSON with any user edits
       const { error: projErr } = await supabase
         .from('projects')
-        .update({ narrative_spine_json: draft })
+        .update({ narrative_spine_json: draft } as any)
         .eq('id', projectId);
       if (projErr) throw projErr;
 
