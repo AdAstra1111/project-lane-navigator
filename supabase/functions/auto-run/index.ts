@@ -550,10 +550,11 @@ const CI_MIN_DELTA = 1;        // minimum CI improvement to count as progress
  */
 function resolveTargetCI(job: any): number {
   const ct = job?.converge_target_json;
-  if (ct && typeof ct === "object" && typeof ct.ci === "number" && ct.ci >= 0 && ct.ci <= 100) {
-    return ct.ci;
+  if (ct !== null && ct !== undefined && typeof ct === "object") {
+    const ci = Number(ct.ci); // coerce string "81" to number 81
+    if (!isNaN(ci) && ci >= 0 && ci <= 100) return ci;
   }
-  return 100;
+  return 90; // default 90, not 100 — requiring 100 is unrealistic and causes infinite loops
 }
 
 /**
@@ -3819,7 +3820,14 @@ Deno.serve(async (req) => {
         current_document: effectiveStartDoc,
         max_stage_loops: effectiveMaxLoops,
         max_total_steps: effectiveMaxSteps,
-        converge_target_json: body.converge_target_json || { ci: 100, gp: 100 },
+        converge_target_json: (() => {
+          const ct = body.converge_target_json;
+          if (ct && typeof ct === "object") {
+            const ci = Number(ct.ci); const gp = Number(ct.gp);
+            if (!isNaN(ci) && ci >= 0 && ci <= 100) return { ci, gp: !isNaN(gp) ? gp : 85 };
+          }
+          return { ci: 90, gp: 85 }; // sensible default, not {ci:100,gp:100}
+        })(),
         allow_defaults: body.allow_defaults === true,
         follow_latest: body.follow_latest === true ? true : false,
         pipeline_key: fmt,
