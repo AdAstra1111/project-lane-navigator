@@ -250,7 +250,11 @@ async function completionGate(
     }
 
     // Gate 3: Canon alignment for target document
-    if (currentVer.plaintext) {
+    // Skip if job has meta_json.skip_canon_alignment=true (escape hatch for manually-seeded canon)
+    const { data: _jobMeta } = await supabase.from("auto_run_jobs")
+      .select("meta_json").eq("project_id", projectId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const _skipCanon = _jobMeta?.meta_json?.skip_canon_alignment === true;
+    if (!_skipCanon && currentVer.plaintext) {
       const alignment = await runCanonAlignmentGate(supabase, projectId, currentVer.plaintext);
       if (alignment && !alignment.pass) {
         return {
