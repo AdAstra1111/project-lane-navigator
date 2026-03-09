@@ -6181,31 +6181,45 @@ Deno.serve(async (req) => {
           const isAutonomous = job.allow_defaults === true || job.meta_json?.auto_decide_all === true || job.full_autopilot === true;
           if (isAutonomous && gateResult.blockingIds.length > 0) {
             let autoApplied = 0;
+            const autoAppliedKeys: string[] = [];
             for (const d of enrichedDecisions) {
               const opts = Array.isArray(d.options) ? d.options : [];
               const recommended = opts.find((o: any) => o.is_recommended === true || o.value === d.recommended);
               const selected = recommended || opts[0];
               const selectedVal = selected?.value ?? "accept";
-              console.log(`[auto-run][IEL] decision_auto_applied { job_id: "${jobId}", decision_key: "${d.decision_key}", selected: "${selectedVal}", reason: "${recommended ? 'is_recommended' : 'first_option'}", action_type: "auto_decided_all" }`);
+              const selectionReason = recommended ? "is_recommended" : (opts.length > 0 ? "first_option_no_recommendation" : "fallback_accept");
+              if (!recommended) {
+                console.warn(`[auto-run][IEL] decision_auto_applied_no_recommendation { job_id: "${jobId}", decision_key: "${d.decision_key || d.id}", selected: "${selectedVal}", warning: "no recommended option found, using first" }`);
+              }
+              console.log(`[auto-run][IEL] decision_auto_applied { job_id: "${jobId}", decision_key: "${d.decision_key || d.id}", selected: "${selectedVal}", reason: "${selectionReason}", action_type: "auto_decided_all" }`);
               await supabase.from("decision_ledger").update({
                 status: "active",
                 decision_value: { ...(d.options ? { options: d.options } : {}), selected_option: selectedVal, resolved_by: "auto_run", resolved_at: new Date().toISOString() },
               }).eq("id", d.id).catch((e: any) => console.warn(`[auto-run][IEL] decision_auto_apply_failed: ${e?.message}`));
               autoApplied++;
+              autoAppliedKeys.push(d.decision_key || d.id);
             }
             await logStep(supabase, jobId, stepCount + 1, currentDoc, "decisions_auto_applied",
               `Auto-applied ${autoApplied} decision(s) (allow_defaults=ON). Continuing run.`,
-              {}, undefined, { auto_applied: autoApplied, decision_keys: enrichedDecisions.map((d: any) => d.decision_key) });
-            // Continue run — do not pause
+              {}, undefined, { auto_applied: autoApplied, decision_keys: autoAppliedKeys });
+            // ── FIX: Update job state to running and continue immediately ──
+            await updateJob(supabase, jobId, {
+              status: "running",
+              stop_reason: null,
+              pause_reason: null,
+              pending_decisions: null,
+            });
+            await releaseProcessingLock(supabase, jobId);
+            return respondWithJob(supabase, jobId, "run-next");
           } else {
-          await updateJob(supabase, jobId, {
-            status: "paused",
-            pause_reason: "pending_decisions",
-            stop_reason: gateResult.pauseReason,
-            pending_decisions: enrichedDecisions,
-          });
-          await releaseProcessingLock(supabase, jobId);
-          return respondWithJob(supabase, jobId, "approve-decision");
+            await updateJob(supabase, jobId, {
+              status: "paused",
+              pause_reason: "pending_decisions",
+              stop_reason: gateResult.pauseReason,
+              pending_decisions: enrichedDecisions,
+            });
+            await releaseProcessingLock(supabase, jobId);
+            return respondWithJob(supabase, jobId, "approve-decision");
           }
         }
         if (gateResult.deferrableIds.length > 0) {
