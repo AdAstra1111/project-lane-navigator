@@ -1,69 +1,66 @@
 
 
-## Script Canon: Lane-Based Primary Script Resolver
+## Plan: Script Version Convergence Tracking Panel + Build Error Fixes
 
-### Problem
-In `vertical_drama`, the UI labels and logic reference `episode_script` as the primary script, but the actual content is a full-season continuous script. This causes semantic confusion in labels, episode grid operations, and dev engine lookups.
+### Build Error Fixes (3 issues)
 
-### Approach
-1. Register `season_script` as a new canonical doc type across all registries (frontend + backend)
-2. Create a central resolver that maps `assigned_lane` to the correct primary script type
-3. Patch the `vertical_drama` doc flow to use `season_script` instead of `episode_script`
-4. Guard episode handoff to prevent accidental `episode_script` creation in vertical_drama
+1. **`CrossProjectIntelligence.tsx` L112** — `packaging_mode` doesn't exist on `Project` type. Fix: cast to `any` or use optional chaining `(p as any).packaging_mode`.
 
-No database migrations needed — `doc_type` is a text column; new values are additive.
+2. **`SpineConfirmationPanel.tsx` L158/173/179** — Type errors from `narrative_spine_json` not in DB types and `NarrativeSpine` not assignable to `Json`. Fix: cast through `as any` on the update/insert calls.
 
-### Changes by File
+3. **`supabase/functions/_shared/llm.ts`** — `Deno` not found. This is an edge function file; these TS errors are expected in the Vite build context but shouldn't block. Will add a `// @ts-nocheck` or a `declare const Deno` shim if it's actually imported by client code.
 
-**New file:**
-- `src/lib/scriptCanon.ts` — Two functions: `resolvePrimaryScriptDocType(lane)` and `primaryScriptLabel(lane)`
+### New Feature: Script Version Convergence Panel
 
-**Frontend registries (add `season_script` as known type):**
+**Location**: New component `src/components/project/ScriptVersionConvergence.tsx`, rendered inside the `ScriptsTab` in `ProjectAttachmentTabs.tsx`.
 
-| File | Change |
+**Data source**: Query `project_document_versions` by `document_id` (for script-type documents from `project_documents`), ordered by `version_number ASC`. Uses existing `supabase` client with `(supabase as any)` pattern already established in the codebase.
+
+**Component structure**:
+
+```text
+┌─ ScriptVersionConvergence ─────────────────────────┐
+│ [Select script document ▼]  [Upload New Version ↑]  │
+│                                                      │
+│ ── Convergence Progress ──────────────────────────── │
+│ [████████░░] 72% toward Tier A                       │
+│                                                      │
+│ ▾ Version History (collapsible)                      │
+│ ┌──────────────────────────────────────────────────┐ │
+│ │ v3 — "Polish Draft"  Mar 8, 2026                 │ │
+│ │ [Tier B] [CONSIDER] [Conf: 72%]                  │ │
+│ │ CI +5 ↑  GP +3 ↑  Notes: 2 new, 1 resolved      │ │
+│ ├──────────────────────────────────────────────────┤ │
+│ │ v2 — "Second Draft"  Mar 5, 2026                 │ │
+│ │ [Tier C] [DEVELOP] [Conf: 55%]                   │ │
+│ │ CI +12 ↑  Notes: 3 carried, 2 new                │ │
+│ ├──────────────────────────────────────────────────┤ │
+│ │ v1 — "First Draft"  Mar 1, 2026                  │ │
+│ │ [Tier D] [DEVELOP] [Conf: 40%]                   │ │
+│ │ Notes: 5 new                                     │ │
+│ └──────────────────────────────────────────────────┘ │
+│                                                      │
+│ [Upload placeholder: "Coverage analysis running..."] │
+└──────────────────────────────────────────────────────┘
+```
+
+**Key logic**:
+- Filter `project_documents` where `doc_type` contains `'script'`
+- For selected script doc, fetch all versions with `meta_json` fields
+- Extract from `meta_json`: `draft_label`, `verdict`, `tier`, `producer_confidence`, `ci` score, `gp` score, `notes` array
+- Score deltas: compare each version's CI/GP against previous version, show as `+N ↑` or `-N ↓` badges
+- Note breakdown: compare `notes` arrays by `title` field between consecutive versions → categorize as `resolved` (in prev not in current), `carried` (in both), `new` (in current not in prev)
+- Convergence progress bar: map tier to percentage (D=25%, C=50%, B=75%, A=100%)
+- Upload button: opens `<input type="file" accept=".pdf,.fdx,.fountain">`, on select shows "Coverage analysis running..." placeholder with spinner
+
+**Integration**: Add `<ScriptVersionConvergence projectId={projectId} />` below the existing scripts list in `ScriptsTab`.
+
+### Files to Create/Modify
+
+| File | Action |
 |------|--------|
-| `src/config/documentLadders.ts` | Add `season_script` to `BASE_DOC_TYPES`; replace `episode_script` with `season_script` in `vertical_drama` ladder |
-| `src/lib/docFlowMap.ts` | In `VERTICAL_DRAMA_CONFIG`: change `ep_script` tab label to "Season Script", docTypes to `['season_script']`; update `primaryFlow` and `series_writer` docTypes |
-| `src/lib/stages/registry.ts` | Add `season_script` to `StageDocType` union and `DOC_KEY_MAP` |
-| `src/lib/active-folder/normalizeDocTypeKey.ts` | Add `season_script` to type union, label map, and key map |
-| `src/lib/backfillLabels.ts` | Add `season_script: 'Season Script'` label; add to script items filter |
-| `src/lib/can-promote-to-script.ts` | Add `'season_script'` to `SCRIPT_TYPES` set and label map |
-| `src/lib/coverage/types.ts` | Add `season_script` to role union and label map |
-| `src/lib/coverage/bundles.ts` | For vertical_drama, use `season_script` instead of `episode_script` in bundle roles |
-
-**Frontend UI patches (labels + doc type references):**
-
-| File | Change |
-|------|--------|
-| `src/components/devengine/ActionToolbar.tsx` | Already includes `season_script` in script check — no change needed |
-| `src/components/devengine/SceneGraphPanel.tsx` | Add `season_script` to script doc search |
-| `src/components/devengine/StyleSourcesPanel.tsx` | Add `season_script` to `SCRIPT_DOC_TYPES` |
-| `src/components/notes/ContextCards.tsx` | Add `season_script: 'Season Script'` label |
-| `src/components/trailer/cinematic/CanonPackManager.tsx` | Add `season_script: 'Season Script'` label |
-| `src/pages/ProjectDetail.tsx` | Add `season_script` to script doc search fallback |
-| `src/hooks/useEpisodeHandoff.ts` | Add lane guard: if vertical_drama, use `season_script` as doc_type instead of `episode_script` |
-
-**Backend edge functions (register `season_script`):**
-
-| File | Change |
-|------|--------|
-| `supabase/functions/_shared/documentLadders.ts` | Add `season_script` to `BASE_DOC_TYPES` and `vertical_drama` ladder (mirror frontend) |
-| `supabase/functions/_shared/stage-ladders.ts` | Add `season_script` mapping |
-| `supabase/functions/auto-run/index.ts` | Add `season_script: 2000` to char thresholds; add to vertical_drama ladder references; add to `KEY_MAP_LOCAL` |
-| `supabase/functions/coverage-engine/index.ts` | Add `season_script` to role maps and bundle roles |
-| `supabase/functions/decisions-engine/index.ts` | Add `season_script` alongside `episode_script` in structural/pacing/hook targets |
-| `supabase/functions/export-package/index.ts` | Replace `episode_script` with `season_script` in vertical-drama export ladder |
-| `supabase/functions/visual-unit-engine/index.ts` | Add `season_script` to `DOC_TYPE_PRIORITY` |
-
-### What does NOT change
-- No database migrations
-- No CORS / auth / userId threading
-- No seed-pack flow changes
-- `series` lane behavior is completely untouched (still uses `episode_script`)
-- `feature_film` and other lanes continue using `feature_script`
-- Canon (continuity) system unchanged
-- No double `req.json()` introduced
-
-### Estimated scope
-~20 files modified, 1 new file created. All changes are additive type registrations + one conditional resolver.
+| `src/components/project/ScriptVersionConvergence.tsx` | **Create** — new panel component |
+| `src/components/project/ProjectAttachmentTabs.tsx` | **Edit** — import and render in ScriptsTab |
+| `src/components/dashboard/CrossProjectIntelligence.tsx` | **Edit** — fix `packaging_mode` type error |
+| `src/components/narrative/SpineConfirmationPanel.tsx` | **Edit** — fix type casting errors |
 
