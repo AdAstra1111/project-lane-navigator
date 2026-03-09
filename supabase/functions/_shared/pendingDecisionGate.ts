@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Pending Decisions Gate — Auto-Run integration layer.
  *

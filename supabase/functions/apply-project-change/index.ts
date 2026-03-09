@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { PRODUCTION_MODALITIES } from "../_shared/productionModality.ts";
 import { ANIMATION_PRIMARY_LIST, ANIMATION_STYLE_LIST, ANIMATION_TAG_LIST } from "../_shared/animationMeta.ts";

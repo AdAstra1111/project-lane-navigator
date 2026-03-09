@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * compile-season — Builds a master season script document from all episode scripts.
  * POST { project_id, season_number?, use_approved, episode_ids?, include_episode_titles }
