@@ -28,6 +28,20 @@ const DIM_LABELS: Record<InfluenceDimension, string> = {
   antagonism_model: 'Antagonism Model',
 };
 
+const COMP_TYPES = ['tone', 'structure', 'audience', 'anti'] as const;
+type CompType = typeof COMP_TYPES[number];
+
+const COMP_TYPE_CONFIG: Record<CompType, { label: string; description: string; color: string; bg: string; border: string }> = {
+  tone: { label: 'Tone', description: 'emotional register and style', color: 'text-amber-400', bg: 'bg-amber-400/10', border: 'border-amber-400/40' },
+  structure: { label: 'Structure', description: 'pacing and narrative shape', color: 'text-blue-400', bg: 'bg-blue-400/10', border: 'border-blue-400/40' },
+  audience: { label: 'Audience', description: 'who this is for', color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-400/40' },
+  anti: { label: 'Anti', description: 'what to avoid', color: 'text-red-400/70', bg: 'bg-red-400/10', border: 'border-red-400/30' },
+};
+
+function getCompType(item: { query?: any; extraction_meta?: any }): CompType {
+  return item?.query?.comp_type || item?.extraction_meta?.comp_type || 'tone';
+}
+
 interface Candidate {
   id: string;
   title: string;
