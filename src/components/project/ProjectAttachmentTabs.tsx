@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays, Sparkles, HelpCircle, RefreshCw, ChevronDown, ChevronUp, MessageSquare, Send } from 'lucide-react';
+import { ScriptVersionConvergence } from '@/components/project/ScriptVersionConvergence';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { SmartPackaging } from '@/components/SmartPackaging';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
