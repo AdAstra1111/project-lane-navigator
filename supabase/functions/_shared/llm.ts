@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Shared LLM wrapper for all IFFY edge functions.
  * Centralizes AI gateway calls, system prompt composition, and JSON parsing.

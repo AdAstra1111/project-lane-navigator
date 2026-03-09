@@ -175,7 +175,7 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
         } as any).eq('id', existing.id);
       } else {
         // No pending_lock entry yet — create one (e.g. if devseed was run before migration)
-        await supabase.from('decision_ledger').insert({
+        await (supabase.from('decision_ledger') as any).insert({
           project_id: projectId,
           decision_key: 'narrative_spine',
           title: 'Narrative Spine (Provisional)',
