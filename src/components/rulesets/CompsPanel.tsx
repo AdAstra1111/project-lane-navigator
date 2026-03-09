@@ -287,6 +287,26 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
     setPersistedComps(prev => prev.filter(c => c.id !== id));
   };
 
+  // Cycle comp_type for persisted comps (project_comparables)
+  const cyclePersistedCompType = async (comp: PersistedComp) => {
+    const current = getCompType(comp);
+    const idx = COMP_TYPES.indexOf(current);
+    const next = COMP_TYPES[(idx + 1) % COMP_TYPES.length];
+    const newMeta = { ...(comp.extraction_meta || {}), comp_type: next };
+    setPersistedComps(prev => prev.map(c => c.id === comp.id ? { ...c, extraction_meta: newMeta } : c));
+    await (supabase as any).from('project_comparables').update({ extraction_meta: newMeta }).eq('id', comp.id);
+  };
+
+  // Cycle comp_type for candidates (comparable_candidates)
+  const cycleCandidateCompType = async (candidate: Candidate) => {
+    const current = getCompType(candidate);
+    const idx = COMP_TYPES.indexOf(current);
+    const next = COMP_TYPES[(idx + 1) % COMP_TYPES.length];
+    const newQuery = { ...(candidate.query || {}), comp_type: next };
+    setCandidates(prev => prev.map(c => c.id === candidate.id ? { ...c, query: newQuery } : c));
+    await (supabase as any).from('comparable_candidates').update({ query: newQuery }).eq('id', candidate.id);
+  };
+
   const findCandidates = async () => {
     setLoading(true);
     setSeedSources([]);
