@@ -10,13 +10,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck, GripVertical, Package, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck, GripVertical, Package, ChevronRight, AlertTriangle, Zap } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { getDocFlowConfig } from '@/lib/docFlowMap';
 import { formatToLane } from '@/config/documentLadders';
 import { getLadderForFormat } from '@/lib/stages/registry';
+import { useReverseEngineer } from '@/hooks/useReverseEngineer';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 import { getDocTypeLabel, getDocDisplayName } from '@/lib/can-promote-to-script';
 
@@ -56,18 +59,28 @@ interface DocumentSidebarProps {
   format?: string | null;
   /** Callback to navigate to the Package tab */
   onOpenPackage?: () => void;
+  /** Project ID for reverse engineer */
+  projectId?: string;
 }
 
 export function DocumentSidebar({
   documents, docsLoading, selectedDocId, selectDocument, deleteDocument, deleteVersion,
   versions, selectedVersionId, setSelectedVersionId, createPaste, latestVersionMap = {},
-  approvedVersionMap = {}, projectTitle = '', format, onOpenPackage,
+  approvedVersionMap = {}, projectTitle = '', format, onOpenPackage, projectId,
 }: DocumentSidebarProps) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState('');
   const [pasteType, setPasteType] = useState('idea');
   const [pasteText, setPasteText] = useState('');
+  const { reverseEngineerFromScript, isRunning: isReverseEngineering } = useReverseEngineer();
+  const queryClient = useQueryClient();
 
+  // Find a script document for reverse engineering
+  const scriptDoc = useMemo(() => 
+    documents.find(d => 
+      (d.doc_type && (d.doc_type as string).includes('script')) || 
+      d.doc_role === 'source_script'
+    ), [documents]);
   // Resizable width
   const [width, setWidth] = useState(getStoredWidth);
   const dragging = useRef(false);
@@ -279,6 +292,37 @@ export function DocumentSidebar({
           <Package className="h-3 w-3 text-primary" />
           Project Package
         </Button>
+      )}
+
+      {/* Reverse Engineer from Script */}
+      {scriptDoc && projectId && (
+        <>
+          {isReverseEngineering && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 flex items-center gap-2 animate-pulse">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
+              <span className="text-[10px] text-amber-400">Reverse engineering pipeline… ~90 seconds</span>
+            </div>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full text-xs gap-1.5 h-7 justify-start border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+            disabled={isReverseEngineering}
+            onClick={async () => {
+              const result = await reverseEngineerFromScript(projectId, scriptDoc.id);
+              if (result.success) {
+                toast.success(`Pipeline documents generated! ${result.documents_created || ''} docs created.`);
+                queryClient.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+                queryClient.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
+              } else {
+                toast.error(result.error || 'Could not reverse engineer script');
+              }
+            }}
+          >
+            <Zap className="h-3 w-3" />
+            Reverse Engineer
+          </Button>
+        </>
       )}
 
       {/* Versions */}

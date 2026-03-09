@@ -70,6 +70,7 @@ import { ProjectSummaryBar } from '@/components/project/ProjectSummaryBar';
 import { SimpleProjectView } from '@/components/project/SimpleProjectView';
 import { AdvancedProjectView } from '@/components/project/AdvancedProjectView';
 import { AutoRunSetupPanel } from '@/components/project/AutoRunSetupPanel';
+import { ReverseEngineerCallout } from '@/components/project/ReverseEngineerCallout';
 
 
 export default function ProjectDetail() {
@@ -448,6 +449,9 @@ export default function ProjectDetail() {
 
           {/* Auto-Run Setup Panel */}
           <AutoRunSetupPanel project={project} />
+
+          {/* Reverse Engineer Callout */}
+          <ReverseEngineerCallout projectId={id!} documents={documents} />
 
           {/* Quick-access buttons */}
           <div className="flex items-center gap-3 mt-4 mb-6">
