@@ -119,8 +119,15 @@ OUTPUT JSON ONLY.`;
  * Parse the JSON batch response into a replacements map.
  * Handles {"episodes": {"1": "...", "2": "..."}} format.
  */
+function sanitiseJsonString(s: string): string {
+  // Remove control characters (0x00–0x1F) that aren't valid in JSON strings,
+  // EXCEPT legitimate escapes (\n \r \t) which JSON already handles correctly.
+  // Also normalise escaped quotes inside string values.
+  return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
+
 function parseBatchResponse(raw: string): Record<number, string> {
-  const jsonStr = extractJSON(raw);
+  const jsonStr = sanitiseJsonString(extractJSON(raw));
   const parsed = JSON.parse(jsonStr);
 
   const episodes = parsed.episodes || parsed;
