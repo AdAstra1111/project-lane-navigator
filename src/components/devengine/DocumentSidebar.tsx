@@ -75,12 +75,18 @@ export function DocumentSidebar({
   const { reverseEngineerFromScript, isRunning: isReverseEngineering } = useReverseEngineer();
   const queryClient = useQueryClient();
 
-  // Find a script document for reverse engineering
+  // Find a script document for reverse engineering — permissive detection
   const scriptDoc = useMemo(() => 
-    documents.find(d => 
-      (d.doc_type && (d.doc_type as string).includes('script')) || 
-      d.doc_role === 'source_script'
-    ), [documents]);
+    documents.find(d => {
+      const dt = (d.doc_type || '') as string;
+      const role = (d.doc_role || '') as string;
+      const title = (d.title || '') as string;
+      if (dt.includes('script')) return true;
+      if (dt === 'source_script') return true;
+      if (role === 'source_script') return true;
+      if (role === 'creative_primary' && title.toLowerCase().includes('script')) return true;
+      return false;
+    }), [documents]);
   // Resizable width
   const [width, setWidth] = useState(getStoredWidth);
   const dragging = useRef(false);
