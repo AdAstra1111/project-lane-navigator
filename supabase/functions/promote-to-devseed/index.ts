@@ -229,7 +229,6 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
                     },
                     required: ["market_hook", "serial_scalability_note", "comparable_analysis", "lane_justification", "buyer_positioning", "timing", "risk_summary"],
                   },
-                },
                   narrative_spine: {
                     type: "object",
                     description: "9-axis structural lock. Set each field to the best matching value from the allowed list, or null if genuinely uncertain. Do NOT guess — null is correct when unsure.",
