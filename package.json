@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prebuild": "node scripts/inject-env.js"
+    "prebuild": "node scripts/inject-env.cjs"
   },
   "dependencies": {
     "@e965/xlsx": "^0.20.3",
