@@ -505,6 +505,19 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
               >
                 {c.format}
               </Badge>
+              {(() => {
+                const ct = getCompType(c);
+                const cfg = COMP_TYPE_CONFIG[ct];
+                return (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); cycleCandidateCompType(c); }}
+                    className={`text-[8px] px-1.5 py-0 h-4 rounded-full border font-medium ${cfg.color} ${cfg.bg} ${cfg.border} hover:opacity-80 transition-opacity`}
+                    title={`Click to cycle type (${cfg.description})`}
+                  >
+                    {cfg.label}
+                  </button>
+                );
+              })()}
               {isUserValidated && (
                 <Badge variant="secondary" className="text-[8px] shrink-0">
                   <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />
