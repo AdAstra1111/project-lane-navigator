@@ -1,4 +1,8 @@
 const BUILD = "AUTORUN_BUILD_MARKER_2026_03_07_TRANSITION_LEDGER_V1";
+// CI is the primary quality signal — always weighted 2x over GP
+const CI_WEIGHT = 2;
+const GP_WEIGHT = 1;
+function compositeScore(ci: number, gp: number): number { return ci * CI_WEIGHT + gp * GP_WEIGHT; }
 import { emitTransition, TRANSITION_EVENTS } from "../_shared/transitionLedger.ts";
 import { spineToPromptBlock } from "../_shared/narrativeSpine.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -64,8 +68,8 @@ function parseVersionScores(metaJson: any): { ci: number | null; gp: number | nu
 function pickBestScoredVersion<T extends { ci: number; gp: number; version_number: number; blockerCount?: number }>(rows: T[]): T | null {
   if (!rows.length) return null;
   const sorted = [...rows].sort((a, b) => {
-    const aComposite = a.ci + a.gp;
-    const bComposite = b.ci + b.gp;
+    const aComposite = compositeScore(a.ci, a.gp);
+    const bComposite = compositeScore(b.ci, b.gp);
     if (bComposite !== aComposite) return bComposite - aComposite;
     if (b.ci !== a.ci) return b.ci - a.ci;
     if (b.gp !== a.gp) return b.gp - a.gp;
@@ -123,8 +127,8 @@ async function persistVersionScores(
   let downgradedBlocked = false;
 
   if (protectHigher && existingScores.ci !== null && existingScores.gp !== null) {
-    const existingComposite = existingScores.ci + existingScores.gp;
-    const incomingComposite = ci + gp;
+    const existingComposite = compositeScore(existingScores.ci, existingScores.gp);
+    const incomingComposite = compositeScore(ci, gp);
     if (existingComposite - incomingComposite > SCORE_DOWNGRADE_TOLERANCE) {
       downgradedBlocked = true;
       effectiveCi = existingScores.ci;
@@ -345,7 +349,7 @@ async function getStageBestFromDB(
   const scored = versions
     .map((v: any) => {
       const p = parseVersionScores(v.meta_json);
-      return { version_id: v.id, ci: p.ci ?? 0, gp: p.gp ?? 0, score: (p.ci ?? 0) + (p.gp ?? 0), approval_status: v.approval_status };
+      return { version_id: v.id, ci: p.ci ?? 0, gp: p.gp ?? 0, score: compositeScore(p.ci ?? 0, p.gp ?? 0), approval_status: v.approval_status };
     })
     .filter((v: any) => v.ci > 0 || v.gp > 0)
     .sort((a: any, b: any) => b.score - a.score);
