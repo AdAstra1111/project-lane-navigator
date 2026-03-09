@@ -26,8 +26,10 @@ import { toast } from '@/hooks/use-toast';
 import {
   Play, Pause, Square, RotateCcw, Zap, AlertTriangle, CheckCircle2, Loader2,
   Eye, FileText, Copy, Download, ChevronRight, Shield, Rocket, Settings2,
-  HelpCircle, ArrowUpRight, Radio, Film, Clock,
+  HelpCircle, ArrowUpRight, Radio, Film, Clock, BookOpen,
 } from 'lucide-react';
+import { toast as sonnerToast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 import type { AutoRunJob, AutoRunStep, PendingDecision } from '@/hooks/useAutoRun';
 import type { DocumentTextResult } from '@/hooks/useAutoRunMissionControl';
 import type { DeliverableType } from '@/lib/dev-os-config';
@@ -94,6 +96,7 @@ interface ProjectDocument {
 }
 
 interface ProjectData {
+  title?: string | null;
   format?: string | null;
   assigned_lane?: string | null;
   budget_range?: string | null;
@@ -418,6 +421,44 @@ export function AutoRunMissionControl({
   const [decisionSelections, setDecisionSelections] = useState<Record<string, string>>({});
   const [submittingDecisions, setSubmittingDecisions] = useState(false);
   const [showPreflight, setShowPreflight] = useState(false);
+  const [isBundling, setIsBundling] = useState(false);
+
+  const handleExportBundle = useCallback(async () => {
+    setIsBundling(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('bundle-project', {
+        body: { projectId, includeAllCurrent: true },
+      });
+      if (error || !data?.success) throw new Error(data?.error || 'Bundle failed');
+      const escaped = data.bundleText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const projTitle = project?.title || 'Project';
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${projTitle} — Project Bible</title>
+  <style>
+    body { font-family: Georgia, serif; font-size: 12pt; line-height: 1.6; margin: 2cm; color: #1a1a1a; max-width: 800px; }
+    pre { white-space: pre-wrap; font-family: inherit; }
+    @media print { body { margin: 1.5cm; } }
+  </style>
+</head>
+<body>
+  <pre>${escaped}</pre>
+  <script>window.onload = () => window.print();<\/script>
+</body>
+</html>`;
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      sonnerToast.success(`Project Bible ready — ${data.docCount} documents bundled`);
+    } catch (e: any) {
+      sonnerToast.error('Could not generate bundle');
+    } finally {
+      setIsBundling(false);
+    }
+  }, [projectId, project?.title]);
   const [preflightErrors, setPreflightErrors] = useState<string[]>([]);
   const [approvingSeedCore, setApprovingSeedCore] = useState(false);
   const regen = useRegenerateInsufficient(projectId);
@@ -1599,6 +1640,17 @@ export function AutoRunMissionControl({
                     </Button>
                   </>
                 )}
+                {/* Export Project Bible */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[10px] gap-1 border-amber-500/50 text-amber-500 hover:bg-amber-500/10"
+                  onClick={handleExportBundle}
+                  disabled={isBundling}
+                >
+                  {isBundling ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookOpen className="h-3 w-3" />}
+                  Export Bible
+                </Button>
               </div>
               {/* Follow Latest toggle */}
               <div className="flex items-center gap-2 mt-2">
