@@ -833,29 +833,65 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
               </div>
             )}
 
+            {/* Legend */}
+            {persistedComps.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap gap-3 text-[9px]">
+                  {COMP_TYPES.map(ct => {
+                    const cfg = COMP_TYPE_CONFIG[ct];
+                    return (
+                      <span key={ct} className={`flex items-center gap-1 ${cfg.color}`}>
+                        <span className={`inline-block w-2 h-2 rounded-full ${cfg.bg} border ${cfg.border}`} />
+                        <span className="font-medium">{cfg.label}</span>
+                        <span className="text-muted-foreground">— {cfg.description}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+                {/* Summary */}
+                <p className="text-[9px] text-muted-foreground">
+                  {COMP_TYPES.map(ct => {
+                    const count = persistedComps.filter(c => getCompType(c) === ct).length;
+                    return count > 0 ? `${count} ${COMP_TYPE_CONFIG[ct].label.toLowerCase()}` : null;
+                  }).filter(Boolean).join(' · ')}
+                </p>
+              </div>
+            )}
+
             {/* Comp chips */}
             {persistedComps.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                {persistedComps.map(c => (
-                  <div
-                    key={c.id}
-                    className="flex items-center gap-1 bg-primary/5 border border-primary/20 rounded-full px-2.5 py-1 text-[10px]"
-                  >
-                    <span className="font-medium text-foreground">{c.title}</span>
-                    {c.kind && (
-                      <Badge variant="outline" className="text-[8px] px-1 py-0 h-4">{c.kind}</Badge>
-                    )}
-                    <Badge variant="secondary" className="text-[7px] px-1 py-0 h-3.5">
-                      {c.source === 'project_docs' ? 'doc' : c.source}
-                    </Badge>
-                    <button
-                      onClick={() => removeComp(c.id)}
-                      className="text-muted-foreground hover:text-destructive ml-0.5"
+                {persistedComps.map(c => {
+                  const ct = getCompType(c);
+                  const cfg = COMP_TYPE_CONFIG[ct];
+                  return (
+                    <div
+                      key={c.id}
+                      className="flex items-center gap-1 bg-primary/5 border border-primary/20 rounded-full px-2.5 py-1 text-[10px]"
                     >
-                      <XCircle className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
+                      <span className="font-medium text-foreground">{c.title}</span>
+                      <button
+                        onClick={() => cyclePersistedCompType(c)}
+                        className={`text-[8px] px-1.5 py-0 h-4 rounded-full border font-medium ${cfg.color} ${cfg.bg} ${cfg.border} hover:opacity-80 transition-opacity`}
+                        title={`Click to cycle type (${cfg.description})`}
+                      >
+                        {cfg.label}
+                      </button>
+                      {c.kind && (
+                        <Badge variant="outline" className="text-[8px] px-1 py-0 h-4">{c.kind}</Badge>
+                      )}
+                      <Badge variant="secondary" className="text-[7px] px-1 py-0 h-3.5">
+                        {c.source === 'project_docs' ? 'doc' : c.source}
+                      </Badge>
+                      <button
+                        onClick={() => removeComp(c.id)}
+                        className="text-muted-foreground hover:text-destructive ml-0.5"
+                      >
+                        <XCircle className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
