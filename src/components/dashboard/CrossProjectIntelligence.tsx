@@ -95,12 +95,29 @@ export function CrossProjectIntelligence({ projects, projectScores }: CrossProje
     }
 
     // 6. Format diversity
-    const formats = new Set(projects.map(p => p.format));
+    const FORMAT_LABELS: Record<string, string> = {
+      'film': 'feature films',
+      'feature_film': 'feature films',
+      'tv-series': 'TV series',
+      'tv_series': 'TV series',
+      'limited-series': 'limited series',
+      'limited_series': 'limited series',
+      'vertical-drama': 'vertical dramas',
+      'vertical_drama': 'vertical dramas',
+      'documentary': 'documentaries',
+      'short-film': 'short films',
+      'short_film': 'short films',
+      'animation': 'animated projects',
+    };
+    const formats = new Set(projects.map(p => p.format || p.packaging_mode));
     if (formats.size === 1 && projects.length >= 3) {
+      const fmt = [...formats][0] || 'film';
+      const fmtLabel = FORMAT_LABELS[fmt] || fmt.replace(/_/g, ' ');
+      const suggestLabel = (fmt === 'film' || fmt === 'feature_film') ? 'TV or vertical drama' : 'film';
       result.push({
         type: 'gap',
         title: 'Single Format Slate',
-        detail: `All projects are ${formats.has('tv-series') ? 'TV series' : 'films'}. Consider adding ${formats.has('tv-series') ? 'film' : 'TV'} projects for buyer diversification.`,
+        detail: `All projects are ${fmtLabel}. Consider adding ${suggestLabel} projects for buyer diversification.`,
       });
     }
 
