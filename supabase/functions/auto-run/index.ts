@@ -8932,6 +8932,45 @@ Deno.serve(async (req) => {
             console.warn(`[auto-run][IEL] note_directions_failed: ${ndErr?.message}`);
           }
 
+          // ── EPISODE BEATS SEED: inject structural requirements for vertical_episode_beats stage ──
+          if (currentDoc === "vertical_episode_beats" || currentDoc === "episode_beats") {
+            try {
+              const { data: ebProj } = await supabase.from("projects")
+                .select("meta_json").eq("id", job.project_id).maybeSingle();
+              const epDurMin = ebProj?.meta_json?.episode_duration_min || 90;
+              const epDurMax = ebProj?.meta_json?.episode_duration_max || 150;
+              mergedDirections.push(`\n\nEPISODE BEATS REQUIREMENTS (mandatory — non-negotiable structural rules):
+
+HOOK-FIRST MANDATE (most common failure — fix this first):
+- Beat 1 of EVERY episode MUST be a new, forward-moving hook FOR THIS EPISODE.
+- Beat 1 MUST NOT resolve, re-explain, or recap the previous episode's cliffhanger.
+- The viewer carries the tension from the prior cliffhanger INTO this episode. Beat 1 exploits that tension with something NEW — a surprising action, a new arrival, an unexpected revelation — NOT by resolving what came before.
+- If Beat 1 begins with "Rin finally discovers...", "The mystery of..." or "picking up from..." — REWRITE IT.
+- CORRECT Beat 1 pattern: drop the viewer into a new high-tension moment that makes them need to keep watching.
+
+REQUIRED BEAT FORMAT PER EPISODE:
+BEAT 1 — TYPE: Hook | CHARACTER: [who acts] | ACTION: [what happens] | SHIFT: [emotional/status change]
+BEAT 2 — TYPE: Escalation | CHARACTER: | ACTION: | SHIFT:
+BEAT 3 — TYPE: [Reversal/Revelation/Complication] | CHARACTER: | ACTION: | SHIFT:
+BEAT 4+ — TYPE: [Escalation/Climax] | CHARACTER: | ACTION: | SHIFT:
+FINAL BEAT — TYPE: Cliffhanger | CHARACTER: | ACTION: | SHIFT: [creates urgency for next episode]
+
+EPISODE DURATION: ${epDurMin}–${epDurMax} seconds. Minimum 4 beats per episode. Target 1 beat per ~${Math.round((epDurMin + epDurMax) / 2 / 5)} seconds.
+
+CHARACTER ARC INTEGRITY:
+- Protagonist and romantic lead must remain emotionally recoverable throughout.
+- Actions like sustained gaslighting, forgery, or emotional manipulation without story consequence make characters irredeemable. These are blockers.
+- Character mistakes and flaws are VALID. Unaddressed, consequence-free moral violations are NOT.
+
+CONTINUITY:
+- Each episode must flow cleanly from the previous without jarring logic breaks.
+- If a continuity issue exists between specific episodes, RESOLVE it explicitly in the beats — do not ignore it.\n`);
+              console.log(`[auto-run][ep-beats-seed] episode_beats_seed_injected { job_id: "${jobId}", doc_type: "${currentDoc}" }`);
+            } catch (ebSeedErr: any) {
+              console.warn(`[auto-run][ep-beats-seed] episode_beats_seed_failed (non-fatal): ${ebSeedErr?.message}`);
+            }
+          }
+
           // ── EPISODE GRID SEED: inject structural requirements for episode_grid stage ──
           if (currentDoc === "episode_grid") {
             try {
