@@ -16,10 +16,16 @@ export function ReverseEngineerCallout({ projectId, documents }: ReverseEngineer
   const queryClient = useQueryClient();
 
   const scriptDoc = useMemo(() =>
-    documents.find(d =>
-      (d.doc_type && (d.doc_type as string).includes('script')) ||
-      d.doc_role === 'source_script'
-    ), [documents]);
+    documents.find(d => {
+      const dt = (d.doc_type || '') as string;
+      const role = (d.doc_role || '') as string;
+      const title = (d.title || '') as string;
+      if (dt.includes('script')) return true;
+      if (dt === 'source_script') return true;
+      if (role === 'source_script') return true;
+      if (role === 'creative_primary' && title.toLowerCase().includes('script')) return true;
+      return false;
+    }), [documents]);
 
   const hasConceptBrief = useMemo(() =>
     documents.some(d => d.doc_type === 'concept_brief'), [documents]);

@@ -252,8 +252,8 @@ export function DocumentSidebar({
               };
 
               const systemDocs = documents.filter(d => SYSTEM_DOC_TYPES.has(d.doc_type));
-              const allowedDocs = documents.filter(d => !SYSTEM_DOC_TYPES.has(d.doc_type) && isDocAllowed(d.doc_type));
-              const hiddenDocs = documents.filter(d => !SYSTEM_DOC_TYPES.has(d.doc_type) && !isDocAllowed(d.doc_type));
+              const allowedDocs = documents.filter(d => !SYSTEM_DOC_TYPES.has(d.doc_type) && isDocAllowed(d.doc_type, d));
+              const hiddenDocs = documents.filter(d => !SYSTEM_DOC_TYPES.has(d.doc_type) && !isDocAllowed(d.doc_type, d));
 
               return (
                 <>
