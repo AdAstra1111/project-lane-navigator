@@ -9905,8 +9905,17 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
             return respondWithJob(supabase, jobId, shouldHalt ? undefined : "run-next");
           } catch (e: any) {
             // ── CANON_MISMATCH RETRY GATE ──
-            // If CANON_MISMATCH, retry with canon entity injection instead of failing
+            // If CANON_MISMATCH, retry with canon entity injection instead of failing.
+            // EXCEPTION: when allow_defaults=true, canon is advisory only — skip retry loop,
+            // log as warning, and continue. Entity injection hurts quality more than it helps
+            // when the project canon is sparse or manually seeded.
             if (e.message?.includes("CANON_MISMATCH")) {
+              if (job.allow_defaults === true) {
+                await logStep(supabase, jobId, null, currentDoc, "canon_mismatch_advisory",
+                  `CANON_MISMATCH suppressed in autonomous mode (allow_defaults=true) — treating as advisory, not blocking`,
+                  { ci: baselineCI, gp: baselineGP });
+                return respondWithJob(supabase, jobId, "run-next");
+              }
               const MAX_CANON_LOCK_RETRIES = 4;
               const metaJson = (job as any).meta_json || {};
               const canonRetries = metaJson.canon_mismatch_retries || {};
