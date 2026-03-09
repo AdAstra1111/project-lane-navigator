@@ -37,6 +37,12 @@ export default defineConfig(({ mode }) => ({
           if (id.includes("node_modules/zod") || id.includes("node_modules/react-hook-form")) return "vendor-forms";
           if (id.includes("node_modules/date-fns") || id.includes("node_modules/dayjs")) return "vendor-dates";
 
+          // Core app modules — must stay in main bundle, never lazy-chunked
+          if (id.includes("src/integrations/supabase/client")) return undefined;
+          if (id.includes("src/hooks/useAuth")) return undefined;
+          if (id.includes("src/hooks/useTheme")) return undefined;
+          if (id.includes("src/hooks/useUIMode")) return undefined;
+
           // App-level route splits — break up the two oversized chunks
           if (id.includes("src/pages/ProjectDevelopmentEngine") || id.includes("src/components/devengine/")) return "app-devengine";
           if (id.includes("src/pages/ProjectDetail") || id.includes("src/components/project/")) return "app-project";
