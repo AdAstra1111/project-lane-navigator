@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { saveProjectLaneRulesetPrefs, type RulesetPrefs } from '@/lib/rulesets/uiState';
 import { buildPrefsDraft } from '@/lib/pitch/devseedHelpers';
+import { SpineConfirmationPanel } from '@/components/narrative/SpineConfirmationPanel';
 
 interface SeedDraft {
   logline?: string;
@@ -160,6 +161,13 @@ export function SeedAppliedBanner({
               </Badge>
             )}
           </div>
+
+          {/* ── Narrative Spine Confirmation Panel ── */}
+          <SpineConfirmationPanel
+            projectId={projectId}
+            userId={userId}
+            className="mt-3"
+          />
         </div>
       </div>
     </div>
