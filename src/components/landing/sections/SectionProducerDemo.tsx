@@ -116,11 +116,15 @@ export function SectionProducerDemo() {
     if (phase !== 4) return;
     setDocLines([]); let i = 0;
     const iv = setInterval(() => {
-      setDocLines(prev => [...prev, DOC_LINES[i]]);
+      setDocLines(prev => {
+        // dedupe guard — never add same line twice
+        if (prev.some(l => l === DOC_LINES[i])) return prev;
+        return [...prev, DOC_LINES[i]];
+      });
       setLiveCi(prev => Math.min(prev + 3, 91)); i++;
       if (i >= DOC_LINES.length) { clearInterval(iv); setTimeout(() => setPhase(5), 600); }
     }, 550);
-    return () => clearInterval(iv);
+    return () => { clearInterval(iv); setDocLines([]); };
   }, [phase]);
 
   // Phase 5 — notes

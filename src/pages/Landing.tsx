@@ -14,7 +14,12 @@ class TourErrorBoundary extends Component<{ children: ReactNode }, { error: bool
   render() {
     if (this.state.error) return (
       <div className="py-24 text-center text-muted-foreground/40 text-sm">
-        Tour unavailable — <a href="/auth" className="text-primary/60 hover:text-primary underline">sign in to explore IFFY</a>
+        <button
+          onClick={() => this.setState({ error: false })}
+          className="text-primary/60 hover:text-primary underline"
+        >
+          Load tour
+        </button>
       </div>
     );
     return this.props.children;
