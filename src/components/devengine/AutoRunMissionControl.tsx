@@ -1639,6 +1639,17 @@ export function AutoRunMissionControl({
                     </Button>
                   </>
                 )}
+                {/* Export Project Bible */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[10px] gap-1 border-amber-500/50 text-amber-500 hover:bg-amber-500/10"
+                  onClick={handleExportBundle}
+                  disabled={isBundling}
+                >
+                  {isBundling ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookOpen className="h-3 w-3" />}
+                  Export Bible
+                </Button>
               </div>
               {/* Follow Latest toggle */}
               <div className="flex items-center gap-2 mt-2">
