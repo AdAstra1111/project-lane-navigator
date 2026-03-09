@@ -6422,14 +6422,24 @@ Deno.serve(async (req) => {
           .maybeSingle();
         const _tgtVer = _tgtDocRow ? await getCurrentVersionForDoc(supabase, _tgtDocRow.id) : null;
         const _tgtLen = _tgtVer?.plaintext?.length || 0;
-        if (_tgtLen > 0) {
+        const _tgtCi = Number(_tgtVer?.meta_json?.ci ?? 0);
+        const _tgtMinCi = resolveTargetCI(job);
+        const _ciMet = _tgtCi >= _tgtMinCi || job.allow_defaults === true && _tgtCi >= GLOBAL_MIN_CI;
+        if (_tgtLen > 0 && _ciMet) {
           await updateJob(supabase, jobId, { status: "completed", stop_reason: "Reached target document" });
-          await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop", "Target document reached");
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop",
+            `Target document reached (CI:${_tgtCi} ≥ ${_tgtMinCi})`);
           return respondWithJob(supabase, jobId);
         }
-        // Target doc missing or empty — fall through to generate it
-        await logStep(supabase, jobId, stepCount + 1, currentDoc, "target_doc_not_yet_generated",
-          `Target doc '${job.target_document}' reached but no content yet — generating`);
+        if (_tgtLen > 0 && !_ciMet) {
+          // Content exists but CI not yet at target — fall through to continue convergence
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "converging",
+            `Target doc '${job.target_document}' exists but CI:${_tgtCi} < target:${_tgtMinCi} — continuing convergence`);
+        } else {
+          // No content yet — fall through to generate
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "target_doc_not_yet_generated",
+            `Target doc '${job.target_document}' reached but no content yet — generating`);
+        }
       }
 
       // ── SERIES WRITER HARD GATE ──
