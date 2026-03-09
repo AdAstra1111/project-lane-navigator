@@ -2721,6 +2721,60 @@ async function updateJob(supabase: any, jobId: string, fields: Record<string, an
   }
 }
 
+// ── Helper: buildFormatRulesSeedBlock — deterministic format constraints injected into Format Rules rewrite ──
+// Raises cold-start CI from ~20 to ~70+ by seeding known constraints before convergence loop runs.
+// Only fires for formats with known deterministic rules. Falls through silently for unknown formats.
+function buildFormatRulesSeedBlock(format: string, project: any): string {
+  const f = (format || "").toLowerCase().replace(/_/g, "-");
+
+  if (f === "vertical-drama") {
+    const title = project?.title || "this project";
+    const episodeCount = project?.meta_json?.episode_count || project?.episode_count || 30;
+    const episodeDurationMin = project?.meta_json?.episode_duration_min || 90;
+    const episodeDurationMax = project?.meta_json?.episode_duration_max || 150;
+    return `\n\nFORMAT RULES SEED — BASELINE CONSTRAINTS (deterministic — must be preserved in all rewrites):
+This is a Vertical Drama (mobile-first, portrait). The Format Rules document for "${title}" MUST include and correctly define all of the following:
+
+TECHNICAL SPECS:
+- Screen ratio: 9:16 (portrait, mobile-first)
+- Episode count: ${episodeCount} episodes per season
+- Episode duration: ${episodeDurationMin}–${episodeDurationMax} seconds per episode (~${Math.round((episodeDurationMin + episodeDurationMax) / 2 * 1.5)} words of combined action + dialogue)
+- Viewing context: single-hand mobile, vertical scroll, fragmented attention — optimise for immediate hook
+
+STRUCTURAL REQUIREMENTS (mandatory per episode):
+- Hook rule: audience must be captured within the FIRST 15 SECONDS — cold opens, mid-action, or high-tension dialogue only
+- Episode architecture: 3-beat cadence — HOOK / ESCALATION / CLIFFHANGER
+- Cliffhanger: mandatory on every episode end (emotional, physical, or revelatory)
+- Act breaks: no traditional 3-act structure per episode — use beat-driven micro-escalation
+
+PRODUCTION DISCIPLINE:
+- Location rule: 1–2 primary locations per episode (practicals preferred, no complex production moves)
+- Cast per episode: 2–4 speaking characters maximum unless justified by scale
+- Visual grammar: close-up driven, emotion-forward framing — faces, hands, eyes
+- Dialogue style: high emotional density, minimal exposition, subtext-first — no speeches
+- Pacing: no slow build — every scene must either escalate tension or deepen character
+
+CONTENT BOUNDARIES (what Format Rules MUST NOT contain):
+- No season arc or character backstory → belongs in Season Arc / Character Bible
+- No episode summaries or story content → belongs in Episode Grid
+- No casting notes or market data → belongs in Character Bible / Market Sheet
+All Format Rules content must be operational rules, not narrative content.\n`;
+  }
+
+  if (f === "film" || f === "feature") {
+    return `\n\nFORMAT RULES SEED — BASELINE CONSTRAINTS (deterministic):
+This is a Feature Film. Format Rules must define: target runtime (85–120 minutes), three-act structure with locked act-break page ranges, scene length guidelines, dialogue/action ratio, visual storytelling standards, and production grade (budget tier constraints).\n`;
+  }
+
+  if (f === "tv-series" || f === "limited-series" || f === "digital-series") {
+    const episodeCount = project?.meta_json?.episode_count || 10;
+    return `\n\nFORMAT RULES SEED — BASELINE CONSTRAINTS (deterministic):
+This is a TV/Series format. Format Rules must define: episode count (${episodeCount}), episode runtime (43–52 min drama / 22–30 min comedy), act structure with commercial break positions, cold open requirement, series spine vs episodic balance, and broadcast/streaming platform specs.\n`;
+  }
+
+  return ""; // unknown format — no seed, fall through to AI generation as before
+}
+
 // ── Helper: lockNarrativeSpine — fires when Concept Brief is approved ──
 // Transitions the pending_lock decision_ledger spine entry to locked=true, status='active'.
 // No-op if already locked or if no pending_lock entry exists (user hasn't confirmed yet — diagnostic only).
@@ -8876,6 +8930,21 @@ Deno.serve(async (req) => {
             }
           } catch (ndErr: any) {
             console.warn(`[auto-run][IEL] note_directions_failed: ${ndErr?.message}`);
+          }
+
+          // ── FORMAT RULES SEED: inject deterministic format constraints for format_rules stage ──
+          if (currentDoc === "format_rules") {
+            try {
+              const { data: fmtProj } = await supabase.from("projects")
+                .select("title, format, meta_json, episode_count").eq("id", job.project_id).maybeSingle();
+              const fmtSeedBlock = buildFormatRulesSeedBlock(format, fmtProj);
+              if (fmtSeedBlock) {
+                mergedDirections.push(fmtSeedBlock);
+                console.log(`[auto-run][fmt-seed] format_rules_seed_injected { job_id: "${jobId}", format: "${format}" }`);
+              }
+            } catch (fmtSeedErr: any) {
+              console.warn(`[auto-run][fmt-seed] format_rules_seed_failed (non-fatal): ${fmtSeedErr?.message}`);
+            }
           }
 
           // ── NARRATIVE SPINE: inject locked structural constraints into all stages after concept_brief ──
