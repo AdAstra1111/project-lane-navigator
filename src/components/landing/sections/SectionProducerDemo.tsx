@@ -255,7 +255,7 @@ export function SectionProducerDemo() {
               {phase >= 2 && phase <= 6 && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-col gap-3">
                   <div className="grid grid-cols-2 gap-3">
-                    {[{ label: 'Cinematic Index', value: ciScore, color: 'hsl(38,60%,52%)' }, { label: 'Green Potential', value: gpScore, color: 'hsl(150,55%,50%)' }].map(({ label, value, color }) => (
+                    {[{ label: 'Creative Integrity', value: ciScore, color: 'hsl(38,60%,52%)' }, { label: 'Green Potential', value: gpScore, color: 'hsl(150,55%,50%)' }].map(({ label, value, color }) => (
                       <div key={label} className="rounded-lg bg-[hsl(225,20%,8%)] border border-border/10 p-3">
                         <div className="flex justify-between mb-2">
                           <span className="text-[10px] font-mono text-muted-foreground/60">{label}</span>

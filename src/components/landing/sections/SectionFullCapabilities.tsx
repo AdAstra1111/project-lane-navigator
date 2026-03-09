@@ -43,7 +43,7 @@ const CATEGORIES: Category[] = [
       { icon: Zap, label: 'Coverage Lab', description: 'Industrial-speed coverage and script notes for development slates and festival submissions.' },
       { icon: BookOpen, label: 'Series Writer', description: 'Multi-episode writers room simulation with canon-locked episode development.' },
       { icon: FlaskConical, label: 'Calibration Lab', description: 'Classification matrix and outcome accuracy tracking — keeps the AI scoring system honest.' },
-      { icon: SlidersHorizontal, label: 'Convergence Engine', description: 'Cinematic Index and Green Potential scoring with live gap analysis and rewrite targeting.' },
+      { icon: SlidersHorizontal, label: 'Convergence Engine', description: 'Creative Integrity and Green Potential scoring with live gap analysis and rewrite targeting.' },
       { icon: CheckCircle2, label: 'Canon Lock', description: 'Approved documents are locked and versioned — all downstream work is canon-consistent.' },
       { icon: MessageSquare, label: 'Notes Inbox', description: 'Blocking issues, high priority and polish notes with resolution tracking across every document.' },
     ],
