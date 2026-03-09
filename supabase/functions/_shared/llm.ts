@@ -31,7 +31,7 @@ export const GATEWAY_URL = GATEWAY_URL_LOVABLE;
 
 export const MODELS = {
   PRO: "google/gemini-2.5-pro",
-  BALANCED: "google/gemini-3-flash-preview",
+  BALANCED: "google/gemini-2.5-flash",
   FAST: "google/gemini-2.5-flash",
   FAST_LITE: "google/gemini-2.5-flash-lite",
   FLASH_IMAGE: "google/gemini-2.5-flash-image",

@@ -376,7 +376,7 @@ function validateAnalysisV1(obj: any): string[] {
 function tierToModel(tier: ModelTier): string {
   switch (tier) {
     case "REASONING_PREMIUM": return "google/gemini-2.5-pro";
-    case "REASONING_STANDARD": return "google/gemini-3-flash-preview";
+    case "REASONING_STANDARD": return "google/gemini-2.5-flash";
     case "FAST": return "google/gemini-2.5-flash";
   }
 }

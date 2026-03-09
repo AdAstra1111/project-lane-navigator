@@ -474,7 +474,7 @@ const corsHeaders = {
 
 const PRO_MODEL = "google/gemini-2.5-pro";
 const FAST_MODEL = "google/gemini-2.5-flash";
-const BALANCED_MODEL = "google/gemini-3-flash-preview";
+const BALANCED_MODEL = "google/gemini-2.5-flash";
 
 const SCHEMA_VERSION = "v3";
 
@@ -2939,7 +2939,7 @@ GENERAL RULES:
       const notesNecBlock = await loadNECGuardrailBlock(supabase, projectId);
 
       const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}${notesCanonBlock}${notesNecBlock}\n\nMATERIAL (${version.plaintext.length} chars total):\n${version.plaintext}`;
-      const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, notesSystem, userPrompt, 0.25, 6000);
+      const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, notesSystem, userPrompt, 0.25, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       if (!parsed) {
         console.error("[dev-engine-v2] notes: parseAIJson returned null", raw.slice(0, 300));
@@ -3292,7 +3292,7 @@ NOTES REQUIRING DECISIONS:\n${JSON.stringify(notesForPrompt)}
 
 MATERIAL:\n${version.plaintext}`;
 
-      const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, optionsSystem, userPrompt, 0.3, 6000);
+      const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, optionsSystem, userPrompt, 0.3, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
 
       // Store as OPTIONS run

@@ -73,7 +73,7 @@ For each suggestion provide:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: "You are a film industry casting strategist who understands the relationship between talent, budget, genre, tone, and market value. You give realistic, actionable suggestions — not aspirational fantasy casting.\n" + guardrails.textBlock },
           { role: "user", content: prompt },

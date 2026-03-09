@@ -20,7 +20,7 @@ async function safeParse(text: string, apiKey: string): Promise<any> {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-3-flash-preview",
+      model: "google/gemini-2.5-flash",
       messages: [
         { role: "system", content: "Extract the JSON object from this text. Return ONLY the raw JSON, no markdown." },
         { role: "user", content: text.slice(0, 8000) },
