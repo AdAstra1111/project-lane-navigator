@@ -6409,10 +6409,23 @@ Deno.serve(async (req) => {
       }
 
       // ── Guard: already at target ──
+      // Only stop if the target document has actually been generated with content.
+      // Without this check, the pipeline stops BEFORE generating the final doc,
+      // causing TARGET_DELIVERABLE_MISSING on the completion gate.
       if (currentDoc === job.target_document && stageLoopCount > 0) {
-        await updateJob(supabase, jobId, { status: "completed", stop_reason: "Reached target document" });
-        await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop", "Target document reached");
-        return respondWithJob(supabase, jobId);
+        const { data: _tgtDocRow } = await supabase.from("project_documents")
+          .select("id").eq("project_id", job.project_id).eq("doc_type", job.target_document)
+          .maybeSingle();
+        const _tgtVer = _tgtDocRow ? await getCurrentVersionForDoc(supabase, _tgtDocRow.id) : null;
+        const _tgtLen = _tgtVer?.plaintext?.length || 0;
+        if (_tgtLen > 0) {
+          await updateJob(supabase, jobId, { status: "completed", stop_reason: "Reached target document" });
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop", "Target document reached");
+          return respondWithJob(supabase, jobId);
+        }
+        // Target doc missing or empty — fall through to generate it
+        await logStep(supabase, jobId, stepCount + 1, currentDoc, "target_doc_not_yet_generated",
+          `Target doc '${job.target_document}' reached but no content yet — generating`);
       }
 
       // ── SERIES WRITER HARD GATE ──
