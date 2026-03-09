@@ -1436,68 +1436,7 @@ export default function ProjectDevelopmentEngine() {
                 projectId={projectId}
               />
 
-              {/* Feature Script Pipeline — only for features */}
-              {isFeature && selectedDocId && selectedVersionId && (
-                <Card className="border-primary/20 mt-3">
-                  <CardHeader className="py-2 px-3">
-                    <CardTitle className="text-xs flex items-center gap-1.5">
-                      <Film className="h-3 w-3" /> Script Pipeline
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-3 pb-3 space-y-2">
-                    {pipeline.status === 'idle' ? (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <label className="text-[9px] text-muted-foreground whitespace-nowrap">Pages:</label>
-                          <Input type="number" min={80} max={130} value={targetPages}
-                            onChange={e => setTargetPages(Number(e.target.value))} className="h-7 text-xs w-16" />
-                        </div>
-                        <Button size="sm" className="w-full h-7 text-[10px] gap-1" disabled={isLoading}
-                          onClick={() => selectedDocId && selectedVersionId && pipeline.startPipeline(
-                            selectedDocId, selectedVersionId, targetPages, latestAnalysis?.protect || [])}>
-                          <Film className="h-3 w-3" /> Generate Script
-                        </Button>
-                      </>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Badge variant="outline" className="text-[9px]">
-                            {pipeline.status === 'planning' && 'Planning…'}
-                            {pipeline.status === 'writing' && `Batch ${pipeline.currentBatch + 1}/${pipeline.totalBatches}`}
-                            {pipeline.status === 'assembling' && 'Assembling…'}
-                            {pipeline.status === 'paused' && 'Paused'}
-                            {pipeline.status === 'complete' && '✓ Complete'}
-                            {pipeline.status === 'error' && 'Error'}
-                          </Badge>
-                          <div className="flex gap-0.5">
-                            {pipeline.status === 'writing' && (
-                              <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={pipeline.pause}><Pause className="h-3 w-3" /></Button>
-                            )}
-                            {pipeline.status === 'paused' && (
-                              <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={pipeline.resume}><Play className="h-3 w-3" /></Button>
-                            )}
-                            {['writing', 'paused'].includes(pipeline.status) && (
-                              <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={pipeline.abort}><Square className="h-3 w-3" /></Button>
-                            )}
-                            {['complete', 'error'].includes(pipeline.status) && (
-                              <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={pipeline.reset}><RotateCcw className="h-3 w-3" /></Button>
-                            )}
-                          </div>
-                        </div>
-                        {pipeline.totalBatches > 0 && (
-                          <Progress value={
-                            pipeline.status === 'planning' ? 5 :
-                            pipeline.status === 'assembling' ? 95 :
-                            pipeline.status === 'complete' ? 100 :
-                            Math.round((pipeline.currentBatch / pipeline.totalBatches) * 90) + 5
-                          } className="h-1.5" />
-                        )}
-                        {pipeline.error && <p className="text-[9px] text-destructive">{pipeline.error}</p>}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
+              {/* Script Pipeline removed — feature scripts are generated via Auto-Run */}
             </div>
 
             {/* ── CENTER: Workspace ── */}
