@@ -21,13 +21,13 @@ export default defineConfig(({ mode }) => ({
     dedupe: ["react", "react-dom"],
   },
   build: {
-    chunkSizeWarningLimit: 400,
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // Vendor splits — deterministic, library-level
+          // Only split node_modules — never split app src files (avoids circular deps)
           if (id.includes("node_modules/react/") || id.includes("node_modules/react-dom/") || id.includes("node_modules/react-router-dom/")) return "vendor-react";
-          if (id.includes("node_modules/@supabase/") || id.includes("src/integrations/supabase/client") || id.includes("src/hooks/useAuth")) return "vendor-supabase";
+          if (id.includes("node_modules/@supabase/")) return "vendor-supabase";
           if (id.includes("node_modules/recharts") || id.includes("node_modules/d3-") || id.includes("node_modules/victory-")) return "vendor-charts";
           if (id.includes("node_modules/framer-motion")) return "vendor-motion";
           if (id.includes("node_modules/@tanstack/")) return "vendor-query";
@@ -36,17 +36,7 @@ export default defineConfig(({ mode }) => ({
           if (id.includes("node_modules/@radix-ui/")) return "vendor-radix";
           if (id.includes("node_modules/zod") || id.includes("node_modules/react-hook-form")) return "vendor-forms";
           if (id.includes("node_modules/date-fns") || id.includes("node_modules/dayjs")) return "vendor-dates";
-
-          // App-level route splits — break up the two oversized chunks
-          if (id.includes("src/pages/ProjectDevelopmentEngine") || id.includes("src/components/devengine/")) return "app-devengine";
-          if (id.includes("src/pages/ProjectDetail") || id.includes("src/components/project/")) return "app-project";
-          if (id.includes("src/pages/Dashboard") || id.includes("src/components/dashboard/")) return "app-dashboard";
-          if (id.includes("src/components/landing/")) return "app-landing";
-          if (id.includes("src/components/trailer/") || id.includes("src/pages/Trailer")) return "app-trailer";
-          if (id.includes("src/components/narrative/") || id.includes("src/lib/narrative")) return "app-narrative";
-          if (id.includes("src/hooks/useAutoRunMissionControl")) return "app-autorun-hook";
-
-          // Everything else stays in the default chunk
+          // All app src code splits naturally via dynamic import() in App.tsx
         },
       },
     },
