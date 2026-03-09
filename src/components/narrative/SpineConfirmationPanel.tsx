@@ -155,7 +155,7 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
       // 1. Update spine JSON with any user edits
       const { error: projErr } = await supabase
         .from('projects')
-        .update({ narrative_spine_json: draft })
+        .update({ narrative_spine_json: draft } as any)
         .eq('id', projectId);
       if (projErr) throw projErr;
 
@@ -170,12 +170,12 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
 
       if (existing?.id) {
         await supabase.from('decision_ledger').update({
-          decision_value: draft,
+          decision_value: draft as any,
           meta: { confirmed_by: userId, confirmed_at: new Date().toISOString(), amends: null, amendment_severity: null, axes_set: axesSet },
-        }).eq('id', existing.id);
+        } as any).eq('id', existing.id);
       } else {
         // No pending_lock entry yet — create one (e.g. if devseed was run before migration)
-        await supabase.from('decision_ledger').insert({
+        await (supabase.from('decision_ledger') as any).insert({
           project_id: projectId,
           decision_key: 'narrative_spine',
           title: 'Narrative Spine (Provisional)',

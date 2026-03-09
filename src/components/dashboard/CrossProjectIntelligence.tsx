@@ -109,7 +109,7 @@ export function CrossProjectIntelligence({ projects, projectScores }: CrossProje
       'short_film': 'short films',
       'animation': 'animated projects',
     };
-    const formats = new Set(projects.map(p => p.format || p.packaging_mode));
+    const formats = new Set(projects.map(p => p.format || (p as any).packaging_mode));
     if (formats.size === 1 && projects.length >= 3) {
       const fmt = [...formats][0] || 'film';
       const fmtLabel = FORMAT_LABELS[fmt] || fmt.replace(/_/g, ' ');
