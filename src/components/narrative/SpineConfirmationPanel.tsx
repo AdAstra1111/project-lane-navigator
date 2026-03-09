@@ -170,9 +170,9 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
 
       if (existing?.id) {
         await supabase.from('decision_ledger').update({
-          decision_value: draft,
+          decision_value: draft as any,
           meta: { confirmed_by: userId, confirmed_at: new Date().toISOString(), amends: null, amendment_severity: null, axes_set: axesSet },
-        }).eq('id', existing.id);
+        } as any).eq('id', existing.id);
       } else {
         // No pending_lock entry yet — create one (e.g. if devseed was run before migration)
         await supabase.from('decision_ledger').insert({
