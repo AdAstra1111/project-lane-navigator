@@ -2536,30 +2536,70 @@ async function emitScoringTransition(
  * "Actionable" = status in (open, in_progress, reopened), not dismissed/applied/deferred.
  * Returns { hasActionable, count } to gate promotion until notes are exhausted.
  */
+/**
+ * Returns true if a note requires human intervention.
+ * Checks suggested_fixes.requires_human and detail text.
+ * Notes without this flag are auto-resolvable by the rewrite loop.
+ */
+function noteRequiresHuman(note: any): boolean {
+  const sf = note?.suggested_fixes;
+  const sfFlag =
+    (Array.isArray(sf) && sf.some((x: any) => x?.requires_human === true)) ||
+    (sf && typeof sf === "object" && !Array.isArray(sf) && (sf as any).requires_human === true);
+  const detailFlag =
+    typeof note?.detail === "string" &&
+    /requires_human\s*:\s*true|"requires_human"\s*:\s*true/i.test(note.detail);
+  return sfFlag || detailFlag;
+}
+
+/**
+ * Returns globalDirections strings for notes that can be auto-resolved.
+ * Used to inject note context into the next rewrite so notes are
+ * actually addressed in the content before being marked resolved.
+ */
+async function buildNoteDirectionsForRewrite(
+  supabase: any, projectId: string, docType: string,
+): Promise<string[]> {
+  try {
+    const { data: notes } = await supabase
+      .from("project_notes")
+      .select("id, title, summary, detail, suggested_fixes")
+      .eq("project_id", projectId)
+      .eq("doc_type", docType)
+      .in("status", ["open", "in_progress", "reopened"])
+      .limit(30);
+    if (!notes || notes.length === 0) return [];
+    return notes
+      .filter((n: any) => !noteRequiresHuman(n))
+      .map((n: any) => `AUTO-RESOLVE NOTE (${n.id}): ${n.summary || n.title || "untitled"}. Address this fully in the rewrite.`);
+  } catch {
+    return [];
+  }
+}
+
 async function checkActionableNoteExhaustion(
   supabase: any, projectId: string, docType: string, versionId: string | null,
 ): Promise<{ hasActionable: boolean; count: number }> {
   try {
-    // Query project_notes for unresolved notes targeting this doc_type
     const actionableStatuses = ["open", "in_progress", "reopened"];
-    let query = supabase
+    const { data: notes, error } = await supabase
       .from("project_notes")
-      .select("id", { count: "exact", head: true })
+      .select("id, title, suggested_fixes, detail")
       .eq("project_id", projectId)
       .eq("doc_type", docType)
-      .in("status", actionableStatuses);
-    
-    // If we have a version ID, also check version-scoped notes
-    // but don't exclude non-version-scoped notes (doc-level notes still count)
-    
-    const { count, error } = await query;
+      .in("status", actionableStatuses)
+      .limit(50);
+
     if (error) {
       console.warn(`[auto-run][IEL] actionable_note_check_failed { project_id: "${projectId}", doc_type: "${docType}", error: "${error.message}" }`);
-      return { hasActionable: false, count: 0 }; // fail open — don't block on query error
+      return { hasActionable: false, count: 0 }; // fail open
     }
-    const noteCount = count ?? 0;
-    console.log(`[auto-run][IEL] actionable_note_exhaustion_check { project_id: "${projectId}", doc_type: "${docType}", version_id: "${versionId}", actionable_count: ${noteCount} }`);
-    return { hasActionable: noteCount > 0, count: noteCount };
+
+    // Only HUMAN-REQUIRED notes block promotion — auto-resolvable notes are handled by rewrite loop
+    const humanNotes = (notes || []).filter(noteRequiresHuman);
+    const totalCount = (notes || []).length;
+    console.log(`[auto-run][IEL] actionable_note_exhaustion_check { project_id: "${projectId}", doc_type: "${docType}", version_id: "${versionId}", actionable_count: ${totalCount}, requires_human_count: ${humanNotes.length} }`);
+    return { hasActionable: humanNotes.length > 0, count: humanNotes.length };
   } catch (e: any) {
     console.warn(`[auto-run][IEL] actionable_note_check_exception { error: "${e?.message}" }`);
     return { hasActionable: false, count: 0 }; // fail open
@@ -2577,39 +2617,47 @@ async function checkActionableNoteExhaustion(
  */
 async function autoResolveActionableNotes(
   supabase: any, projectId: string, docType: string, versionId: string | null,
-  jobId: string, resolverLabel: string = "auto_run_rewrite",
+  jobId: string, resolverLabel: string = "auto_run",
 ): Promise<{ resolved: number; notes: Array<{ id: string; title: string }> }> {
   try {
-    const actionableStatuses = ["open", "in_progress", "reopened"];
-    let query = supabase
+    const { data: notes, error } = await supabase
       .from("project_notes")
-      .select("id, title, summary, severity")
+      .select("id, title, summary, severity, suggested_fixes, detail")
       .eq("project_id", projectId)
       .eq("doc_type", docType)
-      .in("status", actionableStatuses)
+      .in("status", ["open", "in_progress", "reopened"])
       .limit(50);
 
-    const { data: notes, error } = await query;
-    if (error || !notes || notes.length === 0) {
-      return { resolved: 0, notes: [] };
-    }
+    if (error || !notes || notes.length === 0) return { resolved: 0, notes: [] };
 
-    // Mark all actionable notes as resolved
-    const ids = notes.map((n: any) => n.id);
+    // Only resolve notes that do NOT require human intervention
+    const autoNotes = notes.filter((n: any) => !noteRequiresHuman(n));
+    if (autoNotes.length === 0) return { resolved: 0, notes: [] };
+
+    const ids = autoNotes.map((n: any) => n.id);
     await supabase
       .from("project_notes")
-      .update({
-        status: "resolved",
-        updated_by: resolverLabel,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ status: "resolved", updated_at: new Date().toISOString() })
       .in("id", ids);
 
-    console.log(`[auto-run][IEL] auto_resolved_notes { project_id: "${projectId}", doc_type: "${docType}", resolved_count: ${notes.length}, resolver: "${resolverLabel}", job_id: "${jobId}" }`);
+    // Audit via project_note_events
+    await supabase.from("project_note_events").insert(
+      autoNotes.map((n: any) => ({
+        project_id: projectId,
+        note_id: n.id,
+        event_type: "note_auto_resolved",
+        payload: { resolved_by: resolverLabel, job_id: jobId, doc_type: docType, version_id: versionId },
+        created_by: null,
+      }))
+    ).catch((e: any) => console.warn(`[auto-run][IEL] note_event_insert_failed: ${e?.message}`));
+
+    for (const n of autoNotes) {
+      console.log(`[auto-run][IEL] note_auto_resolved { note_id: "${n.id}", summary: "${(n.summary || n.title || "").slice(0, 100).replaceAll('"', '\\"')}", job_id: "${jobId}" }`);
+    }
 
     return {
-      resolved: notes.length,
-      notes: notes.map((n: any) => ({ id: n.id, title: n.title || n.summary?.slice(0, 80) || "untitled" })),
+      resolved: autoNotes.length,
+      notes: autoNotes.map((n: any) => ({ id: n.id, title: n.title || n.summary?.slice(0, 80) || "untitled" })),
     };
   } catch (e: any) {
     console.warn(`[auto-run][IEL] auto_resolve_notes_failed { error: "${e?.message}" }`);
@@ -8748,6 +8796,17 @@ Deno.serve(async (req) => {
           }
           // Merge decision directions with strategy directions
           const mergedDirections = [...decisionDirections, ...strategyDirections];
+
+          // ── AUTO-RESOLVE NOTES: inject non-human note summaries so rewrite addresses them ──
+          try {
+            const noteDirs = await buildNoteDirectionsForRewrite(supabase, job.project_id, currentDoc);
+            if (noteDirs.length > 0) {
+              mergedDirections.push(...noteDirs);
+              console.log(`[auto-run][IEL] note_directions_injected { job_id: "${jobId}", doc_type: "${currentDoc}", count: ${noteDirs.length} }`);
+            }
+          } catch (ndErr: any) {
+            console.warn(`[auto-run][IEL] note_directions_failed: ${ndErr?.message}`);
+          }
 
           // ── NARRATIVE SPINE: inject locked structural constraints into all stages after concept_brief ──
           const SPINE_ELIGIBLE_STAGES = ["character_bible", "season_arc", "episode_grid", "episode_beats", "season_scripts", "episode_script", "treatment", "story_outline", "beat_sheet", "feature_script", "production_draft"];
