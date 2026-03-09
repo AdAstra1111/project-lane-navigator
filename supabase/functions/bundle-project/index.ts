@@ -197,6 +197,14 @@ Deno.serve(async (req: Request) => {
     const toc = tocLines.join("\n");
     const bundleText = [titleBlock, toc, ...sections].join("\n\n");
 
+    // ── Resolve the user who owns this project (for user_id FK) ──
+    const { data: projectUser } = await supabase
+      .from("projects")
+      .select("user_id")
+      .eq("id", projectId)
+      .single();
+    const userId = projectUser?.user_id ?? null;
+
     // ── Store the bundle as a project_document ──
     // Upsert: find existing bundle doc or create one
     let bundleDocId: string;
@@ -216,11 +224,14 @@ Deno.serve(async (req: Request) => {
         .from("project_documents")
         .insert({
           project_id: projectId,
+          user_id: userId,
           doc_type: "project_bundle",
           title: `${project.title} — Project Bible`,
           doc_role: "derived_output",
           plaintext: bundleText,
           char_count: bundleText.length,
+          file_name: "project-bundle",
+          file_path: "",
         })
         .select("id")
         .single();
@@ -251,6 +262,8 @@ Deno.serve(async (req: Request) => {
         plaintext: bundleText,
         status: "draft",
         is_current: true,
+        approval_status: "draft",
+        created_by: userId,
         meta_json: {
           doc_count: sortedDocs.length,
           included_doc_types: sortedDocs.map((d: any) => d.doc_type),
