@@ -20,11 +20,6 @@ import { getLadderForFormat } from '@/lib/stages/registry';
 import { useReverseEngineer } from '@/hooks/useReverseEngineer';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { getDocFlowConfig } from '@/lib/docFlowMap';
-import { formatToLane } from '@/config/documentLadders';
-import { getLadderForFormat } from '@/lib/stages/registry';
 
 import { getDocTypeLabel, getDocDisplayName } from '@/lib/can-promote-to-script';
 
