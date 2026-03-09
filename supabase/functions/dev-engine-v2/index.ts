@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
+import { spineToReviewerAlignmentBlock } from "../_shared/narrativeSpine.ts";
 import { isCPMEnabled, CPM_EVAL_PROMPT_EXTENSION, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_EVAL_BLOCK } from "../_shared/ciBlockerGate.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
@@ -2357,13 +2358,34 @@ Format: ${rq.format}.${episodeLengthBlock}`;
       // ── NEC Guardrail injection for analyze (NEC-first) ──
       const analyzeNecBlock = await loadNECGuardrailBlock(supabase, projectId);
 
+      // ── NARRATIVE SPINE: Phase 2 advisory alignment check (non-blocking) ──
+      // Only injected when a locked spine exists. Findings tagged note_source='spine_alignment'.
+      let spineAlignmentBlock = "";
+      try {
+        const { data: spineProject } = await supabase
+          .from("projects")
+          .select("narrative_spine_json")
+          .eq("id", projectId)
+          .single();
+        const spine = spineProject?.narrative_spine_json;
+        if (spine) {
+          // Only use alignment block for narrative documents (not market/finance docs)
+          const NARRATIVE_DOC_TYPES = new Set(["idea","concept_brief","character_bible","season_arc","episode_grid","vertical_episode_beats","season_script","treatment","story_outline","beat_sheet","feature_script","episode_script","production_draft"]);
+          if (NARRATIVE_DOC_TYPES.has(docType)) {
+            spineAlignmentBlock = spineToReviewerAlignmentBlock(spine);
+          }
+        }
+      } catch (e) {
+        console.warn("[dev-engine-v2] spine alignment block load failed (non-fatal):", e);
+      }
+
       const userPrompt = `${analyzeNecBlock}
 PRODUCTION TYPE: ${effectiveProductionType}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 PROJECT: ${project?.title || "Unknown"}
 LANE: ${analyzeLane} | BUDGET: ${project?.budget_range || "Unknown"}
-${prevContext}${seasonContext}${qualBinding}${canonOSContext}${effectiveProfileContext}${signalContext}${lockedDecisionsContext}${teamVoiceBlock}${supportingContext}
+${prevContext}${seasonContext}${qualBinding}${canonOSContext}${effectiveProfileContext}${signalContext}${lockedDecisionsContext}${teamVoiceBlock}${supportingContext}${spineAlignmentBlock}
 
 MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, maxContextChars)}`;

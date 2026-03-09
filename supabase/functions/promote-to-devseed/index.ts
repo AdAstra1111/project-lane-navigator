@@ -530,6 +530,7 @@ Return the same JSON schema as before with the structural elements strengthened.
     console.log(`[promote-to-devseed][IEL] propulsion_gate_passed { pitch_idea_id: "${pitchIdeaId}", sources: ${JSON.stringify(propulsionResult.sources)}, repaired: ${devSeed._structural_repaired || false} }`);
 
     // ── NARRATIVE SPINE: extract and persist to projects table ──
+    // ── NARRATIVE SPINE: extract provisional spine (9 axes, no locked_at/locked_by — spine is provisional until CB approval) ──
     const rawSpine = devSeed.narrative_spine || {};
     const narrativeSpineJson = {
       story_engine:      rawSpine.story_engine      || null,
@@ -541,12 +542,11 @@ Return the same JSON schema as before with the structural elements strengthened.
       protagonist_arc:   rawSpine.protagonist_arc   || null,
       midpoint_reversal: rawSpine.midpoint_reversal || null,
       tonal_gravity:     rawSpine.tonal_gravity      || null,
-      locked_at:         new Date().toISOString(),
-      locked_by:         'promote-to-devseed',
+      // NOTE: locked_at/locked_by intentionally omitted — spine is PROVISIONAL here.
+      // Constitutional lock occurs when Concept Brief is approved.
     };
-    const spineAxesSet = Object.entries(narrativeSpineJson)
-      .filter(([k, v]) => !['locked_at','locked_by'].includes(k) && v !== null).length;
-    console.log(`[promote-to-devseed][spine] narrative_spine_extracted { pitch_idea_id: "${pitchIdeaId}", axes_set: ${spineAxesSet}, story_engine: "${narrativeSpineJson.story_engine}", pressure_system: "${narrativeSpineJson.pressure_system}", protagonist_arc: "${narrativeSpineJson.protagonist_arc}", tonal_gravity: "${narrativeSpineJson.tonal_gravity}" }`);
+    const spineAxesSet = Object.entries(narrativeSpineJson).filter(([, v]) => v !== null).length;
+    console.log(`[promote-to-devseed][spine] narrative_spine_extracted { pitch_idea_id: "${pitchIdeaId}", axes_set: ${spineAxesSet}/9, story_engine: "${narrativeSpineJson.story_engine}", pressure_system: "${narrativeSpineJson.pressure_system}", protagonist_arc: "${narrativeSpineJson.protagonist_arc}", tonal_gravity: "${narrativeSpineJson.tonal_gravity}", lifecycle_state: "provisional" }`);
 
     // Persist spine to projects table if project is linked
     const linkedProjectId: string | null = idea.project_id || null;
@@ -555,22 +555,41 @@ Return the same JSON schema as before with the structural elements strengthened.
         .from('projects')
         .update({ narrative_spine_json: narrativeSpineJson })
         .eq('id', linkedProjectId)
-        .is('narrative_spine_json', null); // only write if not already locked
+        .is('narrative_spine_json', null); // write-once guard: never overwrite existing spine
       if (spineErr) {
         console.warn(`[promote-to-devseed][spine] spine_persist_failed { project_id: "${linkedProjectId}", error: "${spineErr.message}" }`);
       } else {
-        console.log(`[promote-to-devseed][spine] spine_persisted { project_id: "${linkedProjectId}" }`);
-        // Write decision_ledger entry to lock the spine
-        await supabase.from('decision_ledger').insert({
-          project_id: linkedProjectId,
-          decision_key: 'narrative_spine',
-          decision_value: narrativeSpineJson,
-          status: 'active',
-          locked: true,
-          created_at: new Date().toISOString(),
-        }).select('id').single().catch((e: any) =>
-          console.warn(`[promote-to-devseed][spine] decision_ledger_insert_failed: ${e?.message}`)
-        );
+        console.log(`[promote-to-devseed][spine] spine_persisted { project_id: "${linkedProjectId}", state: "provisional" }`);
+
+        // ── Write decision_ledger entry: pending_lock (awaiting user confirmation + CB approval) ──
+        // LIFECYCLE: provisional → confirmed (user action) → locked (CB approval)
+        // status='pending_lock', locked=false — NOT locked yet. Locks at Concept Brief approval.
+        const { data: ledgerEntry, error: ledgerErr } = await supabase
+          .from('decision_ledger')
+          .insert({
+            project_id:    linkedProjectId,
+            decision_key:  'narrative_spine',
+            title:         'Narrative Spine (Provisional)',
+            decision_text: 'Narrative spine inferred from DevSeed generation — awaiting user confirmation and Concept Brief approval to lock.',
+            source:        'promote-to-devseed',
+            decision_value: narrativeSpineJson,
+            status:        'pending_lock',
+            locked:        false,
+            meta: {
+              confirmed_by:       null,
+              confirmed_at:       null,
+              amends:             null,
+              amendment_severity: null,
+              axes_set:           spineAxesSet,
+            },
+          })
+          .select('id')
+          .single();
+        if (ledgerErr) {
+          console.warn(`[promote-to-devseed][spine] decision_ledger_insert_failed { project_id: "${linkedProjectId}", error: "${ledgerErr.message}" }`);
+        } else {
+          console.log(`[promote-to-devseed][spine] decision_ledger_created { project_id: "${linkedProjectId}", entry_id: "${ledgerEntry?.id}", status: "pending_lock", locked: false }`);
+        }
       }
     }
 

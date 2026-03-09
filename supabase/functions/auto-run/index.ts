@@ -2721,6 +2721,42 @@ async function updateJob(supabase: any, jobId: string, fields: Record<string, an
   }
 }
 
+// ── Helper: lockNarrativeSpine — fires when Concept Brief is approved ──
+// Transitions the pending_lock decision_ledger spine entry to locked=true, status='active'.
+// No-op if already locked or if no pending_lock entry exists (user hasn't confirmed yet — diagnostic only).
+async function lockNarrativeSpine(supabase: any, projectId: string, docType: string): Promise<void> {
+  if (docType !== 'concept_brief') return; // only fires on CB approval
+  try {
+    const { data: entries } = await supabase
+      .from('decision_ledger')
+      .select('id, locked, status')
+      .eq('project_id', projectId)
+      .eq('decision_key', 'narrative_spine')
+      .in('status', ['pending_lock', 'active']);
+    if (!entries || entries.length === 0) {
+      console.log(`[auto-run][spine] spine_lock_skipped { project_id: "${projectId}", reason: "no_spine_entry" }`);
+      return;
+    }
+    const activeEntry = entries.find((e: any) => e.status === 'active' && e.locked === true);
+    if (activeEntry) {
+      console.log(`[auto-run][spine] spine_lock_skipped { project_id: "${projectId}", reason: "already_locked", entry_id: "${activeEntry.id}" }`);
+      return;
+    }
+    const pendingEntry = entries.find((e: any) => e.status === 'pending_lock');
+    if (!pendingEntry) {
+      console.log(`[auto-run][spine] spine_lock_skipped { project_id: "${projectId}", reason: "not_confirmed_by_user" }`);
+      return;
+    }
+    await supabase
+      .from('decision_ledger')
+      .update({ locked: true, status: 'active' })
+      .eq('id', pendingEntry.id);
+    console.log(`[auto-run][spine] spine_locked { project_id: "${projectId}", entry_id: "${pendingEntry.id}", trigger: "concept_brief_approved" }`);
+  } catch (e: any) {
+    console.warn(`[auto-run][spine] spine_lock_error { project_id: "${projectId}", error: "${e?.message}" }`);
+  }
+}
+
 // ── Helper: finalize-best — promote best_version_id on job end ──
 // INVARIANT: is_current only changes via set_current_version after promotion gate OR finalize.
 // STAGE-SCOPED: only promotes if best_document_id matches the explicit currentDocId (the doc being finalized).
@@ -2788,6 +2824,8 @@ async function finalizeBest(supabase: any, jobId: string, job: any, explicitCurr
     console.warn(`[auto-run][IEL] finalize_approval_stamp_failed { version_id: "${bestVersionId}", error: "${approvalErr.message}" }`);
   }
   console.log(`[auto-run][IEL] candidate_accepted_persisted { document_id: "${ver.document_id}", accepted_version_id: "${bestVersionId}", approval_status_set: "approved", ci: ${job.best_ci}, gp: ${job.best_gp}, job_id: "${jobId}", source: "finalize_best" }`);
+  // ── NARRATIVE SPINE: lock if this is Concept Brief approval ──
+  await lockNarrativeSpine(supabase, job.project_id, job.current_document || "");
 
   await logStep(supabase, jobId, null, job.current_document || "unknown", "finalize_promote_best",
     `Job ending — promoted best version ${bestVersionId} (CI=${job.best_ci}, GP=${job.best_gp}, score=${job.best_score})`,
@@ -2963,6 +3001,8 @@ async function tryPlateauForcePromote(
     approved_at: new Date().toISOString(),
     approved_by: job.user_id,
   }).eq("id", bestForDoc.versionId);
+  // ── NARRATIVE SPINE: lock if this is Concept Brief approval ──
+  await lockNarrativeSpine(supabase, job.project_id, currentDoc);
 
   await updateJob(supabase, jobId, {
     best_version_id: bestForDoc.versionId,
