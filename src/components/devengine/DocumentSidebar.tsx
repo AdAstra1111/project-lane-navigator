@@ -237,8 +237,11 @@ export function DocumentSidebar({
               const ladder = format ? getLadderForFormat(format) : null;
               const ladderSet = ladder ? new Set(ladder as string[]) : null;
 
-              const isDocAllowed = (docType: string) => {
+              const isDocAllowed = (docType: string, doc?: any) => {
                 if (SYSTEM_DOC_TYPES.has(docType)) return true;
+                // Always show source_script docs regardless of ladder
+                if (docType === 'source_script') return true;
+                if (doc?.doc_role === 'source_script') return true;
                 if (hiddenSet.has(docType)) return false;
                 // If we have a ladder, doc must be on it (or be a known non-ladder type like series_writer)
                 if (ladderSet && !ladderSet.has(docType) && docType !== 'series_writer' && docType !== 'topline_narrative') {
