@@ -450,6 +450,9 @@ export default function ProjectDetail() {
           {/* Auto-Run Setup Panel */}
           <AutoRunSetupPanel project={project} />
 
+          {/* Reverse Engineer Callout */}
+          <ReverseEngineerCallout projectId={id!} documents={documents} />
+
           {/* Quick-access buttons */}
           <div className="flex items-center gap-3 mt-4 mb-6">
             <Link to={`/projects/${id}/visual-dev`} className="flex-1">
