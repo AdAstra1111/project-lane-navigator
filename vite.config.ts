@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => ({
         manualChunks(id) {
           // Vendor splits — deterministic, library-level
           if (id.includes("node_modules/react/") || id.includes("node_modules/react-dom/") || id.includes("node_modules/react-router-dom/")) return "vendor-react";
-          if (id.includes("node_modules/@supabase/")) return "vendor-supabase";
+          if (id.includes("node_modules/@supabase/") || id.includes("src/integrations/supabase/client") || id.includes("src/hooks/useAuth")) return "vendor-supabase";
           if (id.includes("node_modules/recharts") || id.includes("node_modules/d3-") || id.includes("node_modules/victory-")) return "vendor-charts";
           if (id.includes("node_modules/framer-motion")) return "vendor-motion";
           if (id.includes("node_modules/@tanstack/")) return "vendor-query";
@@ -36,12 +36,6 @@ export default defineConfig(({ mode }) => ({
           if (id.includes("node_modules/@radix-ui/")) return "vendor-radix";
           if (id.includes("node_modules/zod") || id.includes("node_modules/react-hook-form")) return "vendor-forms";
           if (id.includes("node_modules/date-fns") || id.includes("node_modules/dayjs")) return "vendor-dates";
-
-          // Core app modules — must stay in main bundle, never lazy-chunked
-          if (id.includes("src/integrations/supabase/client")) return undefined;
-          if (id.includes("src/hooks/useAuth")) return undefined;
-          if (id.includes("src/hooks/useTheme")) return undefined;
-          if (id.includes("src/hooks/useUIMode")) return undefined;
 
           // App-level route splits — break up the two oversized chunks
           if (id.includes("src/pages/ProjectDevelopmentEngine") || id.includes("src/components/devengine/")) return "app-devengine";
