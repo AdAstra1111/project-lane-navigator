@@ -158,7 +158,19 @@ SECTIONS TO GENERATE:
    - Timing: market window, trend alignment
    - Risk Summary: top 3 risks with mitigations
 ${convergenceGuidanceBlock}
-Output as a JSON object with keys: bible_starter, nuance_contract, market_rationale. Each should be a well-structured object.`;
+4. NARRATIVE SPINE — Structural lock object (output as "narrative_spine" key):
+   - story_engine: the StoryEngine that best matches this story (pressure_cooker / two_hander / slow_burn_investigation / social_realism / moral_trap / character_spiral / rashomon / anti_plot)
+   - pressure_system: the CausalGrammar (accumulation / erosion / exchange / mirror / constraint / misalignment / contagion / revelation_without_facts)
+   - central_conflict: the ConflictMode (romance_misalignment / status_reputation / money_time_pressure / family_obligation / workplace_power / moral_trap / identity_shame / legal_procedural)
+   - inciting_incident: short phrase for the category of the inciting event
+   - resolution_type: how this story ends (open_ended / bittersweet / cathartic_resolution / tragic / pyrrhic / triumphant)
+   - stakes_class: scale of stakes (personal / relational / professional / societal / existential)
+   - protagonist_arc: transformation shape (redemption / corruption / revelation / survival / transcendence / sacrifice / coming_of_age / revenge)
+   - midpoint_reversal: structural midpoint type (false_victory / false_defeat / revelation / mirror_moment / point_of_no_return / betrayal)
+   - tonal_gravity: overall emotional register (tragedy / catharsis / triumph / ambiguity / irony / elegy / satire)
+   Use null for any axis you genuinely cannot determine from the pitch. Do NOT guess.
+
+Output as a JSON object with keys: bible_starter, nuance_contract, market_rationale, narrative_spine. Each should be a well-structured object.`;
 
     // Fetch with retry for transient gateway errors (502/503)
     let response: Response | null = null;
@@ -218,7 +230,23 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
                     required: ["market_hook", "serial_scalability_note", "comparable_analysis", "lane_justification", "buyer_positioning", "timing", "risk_summary"],
                   },
                 },
-                required: ["bible_starter", "nuance_contract", "market_rationale"],
+                  narrative_spine: {
+                    type: "object",
+                    description: "9-axis structural lock. Set each field to the best matching value from the allowed list, or null if genuinely uncertain. Do NOT guess — null is correct when unsure.",
+                    properties: {
+                      story_engine:      { type: ["string", "null"], description: "One of: pressure_cooker, two_hander, slow_burn_investigation, social_realism, moral_trap, character_spiral, rashomon, anti_plot" },
+                      pressure_system:   { type: ["string", "null"], description: "One of: accumulation, erosion, exchange, mirror, constraint, misalignment, contagion, revelation_without_facts" },
+                      central_conflict:  { type: ["string", "null"], description: "One of: romance_misalignment, status_reputation, money_time_pressure, family_obligation, workplace_power, moral_trap, identity_shame, legal_procedural" },
+                      inciting_incident: { type: ["string", "null"], description: "Short phrase describing the category of the inciting event (e.g. 'unexpected inheritance', 'death of a mentor')" },
+                      resolution_type:   { type: ["string", "null"], description: "How the story ends (e.g. 'open_ended', 'bittersweet', 'cathartic_resolution', 'tragic')" },
+                      stakes_class:      { type: ["string", "null"], description: "Stakes scale (e.g. 'personal', 'relational', 'professional', 'societal', 'existential')" },
+                      protagonist_arc:   { type: ["string", "null"], description: "One of: redemption, corruption, revelation, survival, transcendence, sacrifice, coming_of_age, revenge" },
+                      midpoint_reversal: { type: ["string", "null"], description: "One of: false_victory, false_defeat, revelation, mirror_moment, point_of_no_return, betrayal" },
+                      tonal_gravity:     { type: ["string", "null"], description: "One of: tragedy, catharsis, triumph, ambiguity, irony, elegy, satire" },
+                    },
+                    required: ["story_engine", "pressure_system", "central_conflict", "inciting_incident", "resolution_type", "stakes_class", "protagonist_arc", "midpoint_reversal", "tonal_gravity"],
+                  },
+                required: ["bible_starter", "nuance_contract", "market_rationale", "narrative_spine"],
                 additionalProperties: false,
               },
             },
@@ -430,7 +458,8 @@ Return the same JSON schema as before with the structural elements strengthened.
                     required: ["market_hook", "serial_scalability_note"],
                   },
                 },
-                required: ["bible_starter", "nuance_contract", "market_rationale"],
+                  narrative_spine: { type: "object" },
+                required: ["bible_starter", "nuance_contract", "market_rationale", "narrative_spine"],
               },
             },
           },
@@ -500,6 +529,51 @@ Return the same JSON schema as before with the structural elements strengthened.
 
     console.log(`[promote-to-devseed][IEL] propulsion_gate_passed { pitch_idea_id: "${pitchIdeaId}", sources: ${JSON.stringify(propulsionResult.sources)}, repaired: ${devSeed._structural_repaired || false} }`);
 
+    // ── NARRATIVE SPINE: extract and persist to projects table ──
+    const rawSpine = devSeed.narrative_spine || {};
+    const narrativeSpineJson = {
+      story_engine:      rawSpine.story_engine      || null,
+      pressure_system:   rawSpine.pressure_system   || null,
+      central_conflict:  rawSpine.central_conflict  || null,
+      inciting_incident: rawSpine.inciting_incident || null,
+      resolution_type:   rawSpine.resolution_type   || null,
+      stakes_class:      rawSpine.stakes_class       || null,
+      protagonist_arc:   rawSpine.protagonist_arc   || null,
+      midpoint_reversal: rawSpine.midpoint_reversal || null,
+      tonal_gravity:     rawSpine.tonal_gravity      || null,
+      locked_at:         new Date().toISOString(),
+      locked_by:         'promote-to-devseed',
+    };
+    const spineAxesSet = Object.entries(narrativeSpineJson)
+      .filter(([k, v]) => !['locked_at','locked_by'].includes(k) && v !== null).length;
+    console.log(`[promote-to-devseed][spine] narrative_spine_extracted { pitch_idea_id: "${pitchIdeaId}", axes_set: ${spineAxesSet}, story_engine: "${narrativeSpineJson.story_engine}", pressure_system: "${narrativeSpineJson.pressure_system}", protagonist_arc: "${narrativeSpineJson.protagonist_arc}", tonal_gravity: "${narrativeSpineJson.tonal_gravity}" }`);
+
+    // Persist spine to projects table if project is linked
+    const linkedProjectId: string | null = idea.project_id || null;
+    if (linkedProjectId) {
+      const { error: spineErr } = await supabase
+        .from('projects')
+        .update({ narrative_spine_json: narrativeSpineJson })
+        .eq('id', linkedProjectId)
+        .is('narrative_spine_json', null); // only write if not already locked
+      if (spineErr) {
+        console.warn(`[promote-to-devseed][spine] spine_persist_failed { project_id: "${linkedProjectId}", error: "${spineErr.message}" }`);
+      } else {
+        console.log(`[promote-to-devseed][spine] spine_persisted { project_id: "${linkedProjectId}" }`);
+        // Write decision_ledger entry to lock the spine
+        await supabase.from('decision_ledger').insert({
+          project_id: linkedProjectId,
+          decision_key: 'narrative_spine',
+          decision_value: narrativeSpineJson,
+          status: 'active',
+          locked: true,
+          created_at: new Date().toISOString(),
+        }).select('id').single().catch((e: any) =>
+          console.warn(`[promote-to-devseed][spine] decision_ledger_insert_failed: ${e?.message}`)
+        );
+      }
+    }
+
     const { data: expansion, error: expErr } = await supabase
       .from("concept_expansions")
       .insert({
@@ -511,7 +585,7 @@ Return the same JSON schema as before with the structural elements strengthened.
         tone_doc: devSeed.bible_starter?.tone_and_style || "",
         world_bible: devSeed.bible_starter?.story_engine || "",
         arc_map: JSON.stringify(devSeed.bible_starter?.themes || []),
-        raw_response: devSeed,
+        raw_response: { ...devSeed, _narrative_spine: narrativeSpineJson },
         version: 1,
       })
       .select("id")

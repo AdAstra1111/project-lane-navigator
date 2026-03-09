@@ -1,5 +1,6 @@
 const BUILD = "AUTORUN_BUILD_MARKER_2026_03_07_TRANSITION_LEDGER_V1";
 import { emitTransition, TRANSITION_EVENTS } from "../_shared/transitionLedger.ts";
+import { spineToPromptBlock } from "../_shared/narrativeSpine.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isCPMEnabled, buildCPRepairDirections, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
@@ -8747,6 +8748,22 @@ Deno.serve(async (req) => {
           }
           // Merge decision directions with strategy directions
           const mergedDirections = [...decisionDirections, ...strategyDirections];
+
+          // ── NARRATIVE SPINE: inject locked structural constraints into all stages after concept_brief ──
+          const SPINE_ELIGIBLE_STAGES = ["character_bible", "season_arc", "episode_grid", "episode_beats", "season_scripts", "episode_script", "treatment", "story_outline", "beat_sheet", "feature_script", "production_draft"];
+          if (SPINE_ELIGIBLE_STAGES.includes(currentDoc)) {
+            try {
+              const { data: spineProj } = await supabase.from("projects")
+                .select("narrative_spine_json").eq("id", job.project_id).maybeSingle();
+              const spineBlock = spineToPromptBlock(spineProj?.narrative_spine_json);
+              if (spineBlock) {
+                mergedDirections.push(spineBlock);
+                console.log(`[auto-run][spine] spine_injected { job_id: "${jobId}", doc_type: "${currentDoc}", project_id: "${job.project_id}" }`);
+              }
+            } catch (spineErr: any) {
+              console.warn(`[auto-run][spine] spine_read_failed { job_id: "${jobId}", error: "${spineErr?.message}" }`);
+            }
+          }
 
           // ── CPM_V1: inject Character Pressure Matrix repair targeting for episode_grid ──
           if (isCPMEnabled() && currentDoc === "episode_grid") {
