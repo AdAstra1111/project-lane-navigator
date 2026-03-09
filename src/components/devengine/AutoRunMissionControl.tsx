@@ -96,6 +96,7 @@ interface ProjectDocument {
 }
 
 interface ProjectData {
+  title?: string | null;
   format?: string | null;
   assigned_lane?: string | null;
   budget_range?: string | null;
