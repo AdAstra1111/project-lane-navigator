@@ -72,7 +72,15 @@ export function DocumentSidebar({
   const [pasteTitle, setPasteTitle] = useState('');
   const [pasteType, setPasteType] = useState('idea');
   const [pasteText, setPasteText] = useState('');
+  const { reverseEngineerFromScript, isRunning: isReverseEngineering } = useReverseEngineer();
+  const queryClient = useQueryClient();
 
+  // Find a script document for reverse engineering
+  const scriptDoc = useMemo(() => 
+    documents.find(d => 
+      (d.doc_type && (d.doc_type as string).includes('script')) || 
+      d.doc_role === 'source_script'
+    ), [documents]);
   // Resizable width
   const [width, setWidth] = useState(getStoredWidth);
   const dragging = useRef(false);
