@@ -6909,19 +6909,16 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId, "prewrite-setup-incomplete");
           }
 
-          // If any setup is missing with allowDefaults=true, pause with RECOVERY_FAILED
+          // If any setup is missing with allowDefaults=true:
+          // ── Cost fix: do NOT pause — that causes infinite auto-resume loops ──
+          // Log the failure and proceed. These are advisory/contextual inputs;
+          // generation can proceed without them (quality may be lower but won't loop).
           if (setupMissing.length > 0 && allowDefaults) {
             const failedItems = setupMissing.join(", ");
-            await logStep(supabase, jobId, stepCount, currentDoc, `${gateLabel.toLowerCase()}_recovery_failed`,
-              `RECOVERY_FAILED: setup incomplete for [${failedItems}] after auto-resolution attempt. Manual intervention required.`);
-            await updateJob(supabase, jobId, {
-              status: "paused",
-              stop_reason: `RECOVERY_FAILED_SETUP: ${failedItems}`,
-              awaiting_approval: true,
-              approval_type: "prewrite_setup",
-              last_ui_message: `Setup could not be auto-populated: ${failedItems}. Please configure them manually and resume.`,
-            });
-            return respondWithJob(supabase, jobId, "prewrite-setup-recovery-failed");
+            await logStep(supabase, jobId, stepCount, currentDoc, `${gateLabel.toLowerCase()}_setup_skipped`,
+              `SETUP_SKIPPED (allow_defaults=true): [${failedItems}] could not be auto-populated after ${MAX_SETUP_ATTEMPTS} attempts. Proceeding without — generation will use available context only.`);
+            console.warn(`[auto-run] setup skipped in autonomous mode`, { jobId, currentDoc, failedItems });
+            // Fall through to generation — do NOT pause or return
           }
 
           // Clear retry counters on success
