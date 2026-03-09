@@ -245,6 +245,7 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
                     },
                     required: ["story_engine", "pressure_system", "central_conflict", "inciting_incident", "resolution_type", "stakes_class", "protagonist_arc", "midpoint_reversal", "tonal_gravity"],
                   },
+                },
                 required: ["bible_starter", "nuance_contract", "market_rationale", "narrative_spine"],
                 additionalProperties: false,
               },
