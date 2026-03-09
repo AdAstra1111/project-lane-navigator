@@ -26,8 +26,10 @@ import { toast } from '@/hooks/use-toast';
 import {
   Play, Pause, Square, RotateCcw, Zap, AlertTriangle, CheckCircle2, Loader2,
   Eye, FileText, Copy, Download, ChevronRight, Shield, Rocket, Settings2,
-  HelpCircle, ArrowUpRight, Radio, Film, Clock,
+  HelpCircle, ArrowUpRight, Radio, Film, Clock, BookOpen,
 } from 'lucide-react';
+import { toast as sonnerToast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 import type { AutoRunJob, AutoRunStep, PendingDecision } from '@/hooks/useAutoRun';
 import type { DocumentTextResult } from '@/hooks/useAutoRunMissionControl';
 import type { DeliverableType } from '@/lib/dev-os-config';
