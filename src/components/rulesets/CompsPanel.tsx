@@ -28,6 +28,20 @@ const DIM_LABELS: Record<InfluenceDimension, string> = {
   antagonism_model: 'Antagonism Model',
 };
 
+const COMP_TYPES = ['tone', 'structure', 'audience', 'anti'] as const;
+type CompType = typeof COMP_TYPES[number];
+
+const COMP_TYPE_CONFIG: Record<CompType, { label: string; description: string; color: string; bg: string; border: string }> = {
+  tone: { label: 'Tone', description: 'emotional register and style', color: 'text-amber-400', bg: 'bg-amber-400/10', border: 'border-amber-400/40' },
+  structure: { label: 'Structure', description: 'pacing and narrative shape', color: 'text-blue-400', bg: 'bg-blue-400/10', border: 'border-blue-400/40' },
+  audience: { label: 'Audience', description: 'who this is for', color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-400/40' },
+  anti: { label: 'Anti', description: 'what to avoid', color: 'text-red-400/70', bg: 'bg-red-400/10', border: 'border-red-400/30' },
+};
+
+function getCompType(item: { query?: any; extraction_meta?: any }): CompType {
+  return item?.query?.comp_type || item?.extraction_meta?.comp_type || 'tone';
+}
+
 interface Candidate {
   id: string;
   title: string;
@@ -273,6 +287,26 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
     setPersistedComps(prev => prev.filter(c => c.id !== id));
   };
 
+  // Cycle comp_type for persisted comps (project_comparables)
+  const cyclePersistedCompType = async (comp: PersistedComp) => {
+    const current = getCompType(comp);
+    const idx = COMP_TYPES.indexOf(current);
+    const next = COMP_TYPES[(idx + 1) % COMP_TYPES.length];
+    const newMeta = { ...(comp.extraction_meta || {}), comp_type: next };
+    setPersistedComps(prev => prev.map(c => c.id === comp.id ? { ...c, extraction_meta: newMeta } : c));
+    await (supabase as any).from('project_comparables').update({ extraction_meta: newMeta }).eq('id', comp.id);
+  };
+
+  // Cycle comp_type for candidates (comparable_candidates)
+  const cycleCandidateCompType = async (candidate: Candidate) => {
+    const current = getCompType(candidate);
+    const idx = COMP_TYPES.indexOf(current);
+    const next = COMP_TYPES[(idx + 1) % COMP_TYPES.length];
+    const newQuery = { ...(candidate.query || {}), comp_type: next };
+    setCandidates(prev => prev.map(c => c.id === candidate.id ? { ...c, query: newQuery } : c));
+    await (supabase as any).from('comparable_candidates').update({ query: newQuery }).eq('id', candidate.id);
+  };
+
   const findCandidates = async () => {
     setLoading(true);
     setSeedSources([]);
@@ -471,6 +505,19 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
               >
                 {c.format}
               </Badge>
+              {(() => {
+                const ct = getCompType(c);
+                const cfg = COMP_TYPE_CONFIG[ct];
+                return (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); cycleCandidateCompType(c); }}
+                    className={`text-[8px] px-1.5 py-0 h-4 rounded-full border font-medium ${cfg.color} ${cfg.bg} ${cfg.border} hover:opacity-80 transition-opacity`}
+                    title={`Click to cycle type (${cfg.description})`}
+                  >
+                    {cfg.label}
+                  </button>
+                );
+              })()}
               {isUserValidated && (
                 <Badge variant="secondary" className="text-[8px] shrink-0">
                   <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />
@@ -786,29 +833,65 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
               </div>
             )}
 
+            {/* Legend */}
+            {persistedComps.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap gap-3 text-[9px]">
+                  {COMP_TYPES.map(ct => {
+                    const cfg = COMP_TYPE_CONFIG[ct];
+                    return (
+                      <span key={ct} className={`flex items-center gap-1 ${cfg.color}`}>
+                        <span className={`inline-block w-2 h-2 rounded-full ${cfg.bg} border ${cfg.border}`} />
+                        <span className="font-medium">{cfg.label}</span>
+                        <span className="text-muted-foreground">— {cfg.description}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+                {/* Summary */}
+                <p className="text-[9px] text-muted-foreground">
+                  {COMP_TYPES.map(ct => {
+                    const count = persistedComps.filter(c => getCompType(c) === ct).length;
+                    return count > 0 ? `${count} ${COMP_TYPE_CONFIG[ct].label.toLowerCase()}` : null;
+                  }).filter(Boolean).join(' · ')}
+                </p>
+              </div>
+            )}
+
             {/* Comp chips */}
             {persistedComps.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                {persistedComps.map(c => (
-                  <div
-                    key={c.id}
-                    className="flex items-center gap-1 bg-primary/5 border border-primary/20 rounded-full px-2.5 py-1 text-[10px]"
-                  >
-                    <span className="font-medium text-foreground">{c.title}</span>
-                    {c.kind && (
-                      <Badge variant="outline" className="text-[8px] px-1 py-0 h-4">{c.kind}</Badge>
-                    )}
-                    <Badge variant="secondary" className="text-[7px] px-1 py-0 h-3.5">
-                      {c.source === 'project_docs' ? 'doc' : c.source}
-                    </Badge>
-                    <button
-                      onClick={() => removeComp(c.id)}
-                      className="text-muted-foreground hover:text-destructive ml-0.5"
+                {persistedComps.map(c => {
+                  const ct = getCompType(c);
+                  const cfg = COMP_TYPE_CONFIG[ct];
+                  return (
+                    <div
+                      key={c.id}
+                      className="flex items-center gap-1 bg-primary/5 border border-primary/20 rounded-full px-2.5 py-1 text-[10px]"
                     >
-                      <XCircle className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
+                      <span className="font-medium text-foreground">{c.title}</span>
+                      <button
+                        onClick={() => cyclePersistedCompType(c)}
+                        className={`text-[8px] px-1.5 py-0 h-4 rounded-full border font-medium ${cfg.color} ${cfg.bg} ${cfg.border} hover:opacity-80 transition-opacity`}
+                        title={`Click to cycle type (${cfg.description})`}
+                      >
+                        {cfg.label}
+                      </button>
+                      {c.kind && (
+                        <Badge variant="outline" className="text-[8px] px-1 py-0 h-4">{c.kind}</Badge>
+                      )}
+                      <Badge variant="secondary" className="text-[7px] px-1 py-0 h-3.5">
+                        {c.source === 'project_docs' ? 'doc' : c.source}
+                      </Badge>
+                      <button
+                        onClick={() => removeComp(c.id)}
+                        className="text-muted-foreground hover:text-destructive ml-0.5"
+                      >
+                        <XCircle className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
