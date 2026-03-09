@@ -848,6 +848,9 @@ If you find yourself describing what happens in the story, which characters appe
         }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // episode_grid = structural overview (PREMISE/HOOK/CORE MOVE/CLIFFHANGER/ARC POSITION)
+      // vertical_episode_beats / episode_beats = full micro-beat breakdown (5-8 beats)
+      const epOutputMode = docType === 'episode_grid' ? 'grid' : 'beats';
       content = await generateEpisodeBeatsChunked({
         apiKey,
         episodeCount: finalEpisodeCount,
@@ -855,6 +858,7 @@ If you find yourself describing what happens in the story, which characters appe
         upstreamContent,
         projectTitle: project.title || "Untitled",
         requestId,
+        outputMode: epOutputMode,
       });
 
       // F) DIAG_OUTPUT_VALIDATION

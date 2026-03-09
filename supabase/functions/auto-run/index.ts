@@ -8932,6 +8932,44 @@ Deno.serve(async (req) => {
             console.warn(`[auto-run][IEL] note_directions_failed: ${ndErr?.message}`);
           }
 
+          // ── EPISODE GRID SEED: inject structural requirements for episode_grid stage ──
+          if (currentDoc === "episode_grid") {
+            try {
+              const { data: egProj } = await supabase.from("projects")
+                .select("title, meta_json").eq("id", job.project_id).maybeSingle();
+              const epCount = egProj?.meta_json?.episode_count || 30;
+              mergedDirections.push(`\n\nEPISODE GRID REQUIREMENTS (mandatory — apply to every rewrite):
+
+EPISODE COUNT: This grid MUST contain exactly ${epCount} episode entries — one for every episode from 1 to ${epCount}. Missing episodes are blockers.
+
+REQUIRED FORMAT PER EPISODE ENTRY:
+## EPISODE N: <Specific Episode Title>
+PREMISE: <one sentence — the specific events of THIS episode>
+HOOK: <what captures the viewer in the first 15 seconds>
+CORE MOVE: <the single most important story change or revelation>
+CHARACTER FOCUS: <whose arc or decision drives this episode>
+CLIFFHANGER: <exactly how this episode ends to pull to the next>
+ARC POSITION: <setup / escalation / midpoint / complication / pre-climax / climax / resolution>
+TONE: <emotional register of this episode>
+
+CRITICAL BLOCKERS (any of these will fail evaluation):
+1. Any episode number missing from the grid
+2. PREMISE that doesn't describe THIS episode's specific events (generic or "follows pattern")
+3. Range summaries ("Episodes 1-7 establish..." or "follows same structure")
+4. Entries that describe season structure instead of episode-specific events
+5. Missing required fields (PREMISE/HOOK/CORE MOVE/CHARACTER FOCUS/CLIFFHANGER/ARC POSITION/TONE)
+
+SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT include:
+- Sub-beats or micro-beats (→ belongs in Episode Beats)
+- Character backstory (→ belongs in Character Bible)
+- Season-wide arc text (→ belongs in Season Arc)
+- Dialogue or scripted content (→ belongs in Season Script)\n`);
+              console.log(`[auto-run][ep-grid-seed] episode_grid_seed_injected { job_id: "${jobId}", ep_count: ${epCount} }`);
+            } catch (egSeedErr: any) {
+              console.warn(`[auto-run][ep-grid-seed] episode_grid_seed_failed (non-fatal): ${egSeedErr?.message}`);
+            }
+          }
+
           // ── FORMAT RULES SEED: inject deterministic format constraints for format_rules stage ──
           if (currentDoc === "format_rules") {
             try {

@@ -28,6 +28,8 @@ export interface EpisodeBeatsOpts {
   apiKey: string;
   episodeCount: number;
   systemPrompt: string;
+  /** 'grid' = structural overview per episode; 'beats' = full micro-beat breakdown (default) */
+  outputMode?: 'grid' | 'beats';
   upstreamContent: string;
   projectTitle: string;
   requestId?: string;
@@ -35,7 +37,7 @@ export interface EpisodeBeatsOpts {
 
 // ─── JSON Batch Contract ───
 
-const BATCH_SYSTEM_PROMPT = `You output ONLY valid JSON. No markdown fences, no commentary, no preamble.
+const BATCH_SYSTEM_PROMPT_BEATS = `You output ONLY valid JSON. No markdown fences, no commentary, no preamble.
 
 JSON schema:
 {"episodes": {"1": "<FULL EPISODE 1 BLOCK>", "2": "<FULL EPISODE 2 BLOCK>", ...}}
@@ -55,13 +57,48 @@ Rules:
 - Each requested episode must be written fully as its own episode.
 - Every beat must describe THIS episode's unique events — no "same as above" or "continues the pattern".`;
 
+// Episode GRID mode: structural overview per episode (not full beat breakdown)
+const BATCH_SYSTEM_PROMPT_GRID = `You output ONLY valid JSON. No markdown fences, no commentary, no preamble.
+
+JSON schema:
+{"episodes": {"1": "<FULL EPISODE 1 GRID ENTRY>", "2": "<FULL EPISODE 2 GRID ENTRY>", ...}}
+
+EPISODE GRID — what each entry MUST contain (in this exact format):
+## EPISODE N: <SPECIFIC EPISODE TITLE>
+PREMISE: <one sentence — what specifically happens in THIS episode>
+HOOK: <what pulls the viewer in within the first 15 seconds>
+CORE MOVE: <the single most important story change or revelation in this episode>
+CHARACTER FOCUS: <whose arc or decision drives this episode>
+CLIFFHANGER: <how this episode ends to pull the viewer to the next>
+ARC POSITION: <which season arc function: setup / escalation / midpoint / complication / pre-climax / climax / resolution>
+TONE: <the emotional register of this episode: e.g. tense, tender, explosive, melancholy>
+
+Rules:
+- Only output the requested episode numbers.
+- Each episode value MUST start with "## EPISODE N: <title>"
+- Every field (PREMISE, HOOK, CORE MOVE, CHARACTER FOCUS, CLIFFHANGER, ARC POSITION, TONE) is MANDATORY.
+- PREMISE must describe THIS episode's specific events — not a template or generic placeholder.
+- NEVER collapse multiple episodes into one entry.
+- NEVER write ranges like "Eps 1–7" or "Episodes 2-5 follow same structure".
+- NEVER use placeholders, "template", "follow established structure", or abbreviations.
+- Do NOT include detailed beat breakdowns or sub-beats — those belong in Episode Beats, not the Grid.
+- Every requested episode MUST appear as its own key in the JSON object.`;
+
+// Backwards-compatible alias — defaults to beats mode
+const BATCH_SYSTEM_PROMPT = BATCH_SYSTEM_PROMPT_BEATS;
+
 function buildBatchUserPrompt(
   episodes: number[],
   totalEpisodes: number,
   projectTitle: string,
   upstreamContent: string,
   contextPrompt: string,
+  outputMode: 'grid' | 'beats' = 'beats',
 ): string {
+  const outputInstruction = outputMode === 'grid'
+    ? `You MUST output JSON with a key for EVERY episode listed above. Each value is the full episode grid entry using the EPISODE GRID format (PREMISE / HOOK / CORE MOVE / CHARACTER FOCUS / CLIFFHANGER / ARC POSITION / TONE).`
+    : `You MUST output JSON with a key for EVERY episode listed above. Each value is the full episode block text starting with "## EPISODE N:" heading and 5–8 numbered beats.`;
+
   return `${contextPrompt}
 
 PROJECT: "${projectTitle}" (${totalEpisodes} total episodes in season)
@@ -71,7 +108,7 @@ ${upstreamContent}
 
 REQUESTED EPISODES: ${episodes.join(', ')}
 
-You MUST output JSON with a key for EVERY episode listed above. Each value is the full episode block text starting with "## EPISODE N:" heading and 5–8 numbered beats.
+${outputInstruction}
 
 IMPORTANT: If you include ANY sentence referencing another episode range (e.g., "Eps 1–7…"), your response will be rejected and retried.
 
@@ -110,15 +147,17 @@ async function generateBatch(
   upstreamContent: string,
   contextPrompt: string,
   requestId: string,
+  outputMode: 'grid' | 'beats' = 'beats',
 ): Promise<Record<number, string>> {
+  const BASE_SYSTEM = outputMode === 'grid' ? BATCH_SYSTEM_PROMPT_GRID : BATCH_SYSTEM_PROMPT_BEATS;
   for (let attempt = 0; attempt < MAX_RETRIES_PER_BATCH; attempt++) {
     const userPrompt = buildBatchUserPrompt(
-      episodes, totalEpisodes, projectTitle, upstreamContent, contextPrompt,
+      episodes, totalEpisodes, projectTitle, upstreamContent, contextPrompt, outputMode,
     );
 
     const systemWithRetry = attempt > 0
-      ? BATCH_SYSTEM_PROMPT + `\n\nRETRY ATTEMPT ${attempt + 1}. Your previous response was invalid or incomplete. Return ONLY valid JSON with ALL requested episodes: ${episodes.join(', ')}.`
-      : BATCH_SYSTEM_PROMPT;
+      ? BASE_SYSTEM + `\n\nRETRY ATTEMPT ${attempt + 1}. Your previous response was invalid or incomplete. Return ONLY valid JSON with ALL requested episodes: ${episodes.join(', ')}.`
+      : BASE_SYSTEM;
 
     console.error(JSON.stringify({
       diag: "EPISODE_BATCH_CALL",
@@ -181,6 +220,7 @@ async function generateBatch(
  */
 export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promise<string> {
   const { apiKey, episodeCount, systemPrompt, upstreamContent, projectTitle } = opts;
+  const outputMode = opts.outputMode ?? 'beats';
   const requestId = opts.requestId || crypto.randomUUID();
 
   // Build numeric batches: [1..6], [7..12], etc.
@@ -207,7 +247,7 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
     const batch = batches[i];
 
     const replacements = await generateBatch(
-      apiKey, batch, episodeCount, projectTitle, upstreamContent, systemPrompt, requestId,
+      apiKey, batch, episodeCount, projectTitle, upstreamContent, systemPrompt, requestId, outputMode,
     );
 
     // Merge into master text — untouched episodes stay byte-identical
@@ -320,7 +360,7 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
       }));
 
       const replacements = await generateBatch(
-        apiKey, repairBatch, episodeCount, projectTitle, upstreamContent, systemPrompt, requestId,
+        apiKey, repairBatch, episodeCount, projectTitle, upstreamContent, systemPrompt, requestId, outputMode,
       );
 
       const mergeResult = mergeEpisodeBlocks(masterText, replacements);
