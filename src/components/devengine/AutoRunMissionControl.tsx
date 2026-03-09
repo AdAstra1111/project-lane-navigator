@@ -420,6 +420,44 @@ export function AutoRunMissionControl({
   const [decisionSelections, setDecisionSelections] = useState<Record<string, string>>({});
   const [submittingDecisions, setSubmittingDecisions] = useState(false);
   const [showPreflight, setShowPreflight] = useState(false);
+  const [isBundling, setIsBundling] = useState(false);
+
+  const handleExportBundle = useCallback(async () => {
+    setIsBundling(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('bundle-project', {
+        body: { projectId, includeAllCurrent: true },
+      });
+      if (error || !data?.success) throw new Error(data?.error || 'Bundle failed');
+      const escaped = data.bundleText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const projTitle = project?.title || 'Project';
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${projTitle} — Project Bible</title>
+  <style>
+    body { font-family: Georgia, serif; font-size: 12pt; line-height: 1.6; margin: 2cm; color: #1a1a1a; max-width: 800px; }
+    pre { white-space: pre-wrap; font-family: inherit; }
+    @media print { body { margin: 1.5cm; } }
+  </style>
+</head>
+<body>
+  <pre>${escaped}</pre>
+  <script>window.onload = () => window.print();<\/script>
+</body>
+</html>`;
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      sonnerToast.success(`Project Bible ready — ${data.docCount} documents bundled`);
+    } catch (e: any) {
+      sonnerToast.error('Could not generate bundle');
+    } finally {
+      setIsBundling(false);
+    }
+  }, [projectId, project?.title]);
   const [preflightErrors, setPreflightErrors] = useState<string[]>([]);
   const [approvingSeedCore, setApprovingSeedCore] = useState(false);
   const regen = useRegenerateInsufficient(projectId);
