@@ -16,15 +16,19 @@ jobs:
         with:
           version: latest
 
-      - name: Deploy edge functions
+      - name: Deploy core pipeline functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
+          # Core pipeline functions — always keep these up to date
           supabase functions deploy \
             auto-run \
             dev-engine-v2 \
             generate-document \
             promote-to-devseed \
             lara-db-proxy \
-            --project-ref mbwreoglhudppiwaxlsp \
+            generate-pitch \
+            idea-to-project \
+            decisions-engine \
+            --project-ref tzdxrhklarzccqamxbxw \
             --no-verify-jwt
