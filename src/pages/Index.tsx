@@ -14,7 +14,7 @@ const Index = () => {
     );
   }
 
-  if (user) return <Navigate to="/companies" replace />;
+  if (user) return <Navigate to="/dashboard" replace />;
 
   return <Landing />;
 };
