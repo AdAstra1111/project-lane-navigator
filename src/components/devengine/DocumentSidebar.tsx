@@ -59,12 +59,14 @@ interface DocumentSidebarProps {
   format?: string | null;
   /** Callback to navigate to the Package tab */
   onOpenPackage?: () => void;
+  /** Project ID for reverse engineer */
+  projectId?: string;
 }
 
 export function DocumentSidebar({
   documents, docsLoading, selectedDocId, selectDocument, deleteDocument, deleteVersion,
   versions, selectedVersionId, setSelectedVersionId, createPaste, latestVersionMap = {},
-  approvedVersionMap = {}, projectTitle = '', format, onOpenPackage,
+  approvedVersionMap = {}, projectTitle = '', format, onOpenPackage, projectId,
 }: DocumentSidebarProps) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState('');
