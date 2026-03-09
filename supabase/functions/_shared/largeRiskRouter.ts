@@ -50,6 +50,8 @@ const SECTIONED_DOC_TYPES = new Set([
   "screenplay_draft",
   "long_treatment",
   "treatment",
+  "story_outline",
+  "beat_sheet",
   "character_bible",
   "long_character_bible",
 ]);
@@ -115,6 +117,22 @@ const CHARACTER_BIBLE_SECTIONS = [
   "relationships_and_dynamics",
 ];
 
+// Feature story outline: 4 structural acts, each with 12-20 scenes (~50-80 total)
+const STORY_OUTLINE_SECTIONS = [
+  "act_1_setup",         // pp 1-25: world, protagonist, inciting incident
+  "act_2a_complication", // pp 26-55: rising action, lock-in, midpoint build
+  "act_2b_crisis",       // pp 56-85: complications, dark night of the soul
+  "act_3_resolution",    // pp 86-110: climax, resolution, denouement
+];
+
+// Feature beat sheet: 4 structural acts, each with 10-15 named beats (~40-60 total)
+const BEAT_SHEET_SECTIONS = [
+  "act_1_beats",   // Opening image → Break into Two
+  "act_2a_beats",  // B Story → Midpoint
+  "act_2b_beats",  // Bad Guys Close In → Dark Night of Soul
+  "act_3_beats",   // Break into Three → Final Image
+];
+
 /**
  * Build a deterministic chunk plan for a large-risk doc type.
  *
@@ -165,6 +183,10 @@ export function chunkPlanFor(
       sections = TREATMENT_SECTIONS;
     } else if (docType === "character_bible" || docType === "long_character_bible") {
       sections = CHARACTER_BIBLE_SECTIONS;
+    } else if (docType === "story_outline") {
+      sections = STORY_OUTLINE_SECTIONS;
+    } else if (docType === "beat_sheet") {
+      sections = BEAT_SHEET_SECTIONS;
     } else {
       // Scripts: act-based
       sections = SCRIPT_SECTIONS;

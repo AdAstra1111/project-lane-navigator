@@ -11,18 +11,23 @@ const JSON_HEADERS = { ...corsHeaders, "Content-Type": "application/json" };
 // ─── Doc Type Key Normalizer (server-side mirror) ───
 
 const KEY_MAP: Record<string, string> = {
+  idea: "idea",
   concept_brief: "concept_brief", concept: "concept_brief", concept_lock: "concept_brief",
   market_sheet: "market_sheet", market: "market_sheet", market_positioning: "market_sheet",
+  vertical_market_sheet: "market_sheet",
+  treatment: "treatment",
+  story_outline: "story_outline", outline: "story_outline", architecture: "story_outline",
   deck: "deck", pitch_deck: "deck", lookbook: "deck",
   blueprint: "blueprint", series_bible: "blueprint",
   beat_sheet: "beat_sheet",
   character_bible: "character_bible", character: "character_bible",
   episode_grid: "episode_grid", vertical_episode_beats: "episode_grid",
-  season_arc: "season_arc",
+  season_arc: "season_arc", season_script: "season_script", vertical_episode_beats_bundle: "season_script",
   documentary_outline: "documentary_outline", doc_outline: "documentary_outline",
   format_rules: "format_rules",
-  script: "feature_script", feature_script: "feature_script",
+  script: "feature_script", feature_script: "feature_script", feature: "feature_script",
   pilot_script: "episode_script", episode_script: "episode_script", episode_1_script: "episode_script",
+  source_script: "feature_script",
   production_draft: "production_draft",
 };
 
@@ -242,7 +247,7 @@ Deno.serve(async (req) => {
         await markVersionApproved(db, documentVersionId, userId);
       }
 
-      // ── TRANSITION LEDGER: version_approved (fail-closed) ──
+      // ── TRANSITION LEDGER: version_approved (fail-open — never block approval) ──
       await emitTransition(db, {
         projectId,
         eventType: TRANSITION_EVENTS.VERSION_APPROVED,
@@ -252,7 +257,7 @@ Deno.serve(async (req) => {
         sourceOfTruth: "project-folder-engine",
         createdBy: userId,
         resultingState: { approval_status: "approved", doc_type_key: docTypeKey },
-      });
+      }, { critical: false });
 
       // IEL: Also set as current version so ABVR picks it up as authoritative
       // This ensures Auto-Run rebinds to the user-approved version
@@ -266,7 +271,7 @@ Deno.serve(async (req) => {
         console.warn(`[project-folder-engine] set_current_version_failed { version_id: "${documentVersionId}", error: "${setCurrentErr?.message}" }`);
       }
 
-      // ── TRANSITION LEDGER: authoritative_version_resolved (fail-closed) ──
+      // ── TRANSITION LEDGER: authoritative_version_resolved (fail-open — never block approval) ──
       await emitTransition(db, {
         projectId,
         eventType: TRANSITION_EVENTS.AUTHORITATIVE_VERSION_RESOLVED,
@@ -276,7 +281,7 @@ Deno.serve(async (req) => {
         sourceOfTruth: "project-folder-engine",
         createdBy: userId,
         resultingState: { is_current: true, approval_status: "approved", doc_type_key: docTypeKey },
-      });
+      }, { critical: false });
 
       // Auto-set primary if this is a script authority doc type
       const SCRIPT_DOC_TYPES = ["season_script", "feature_script", "episode_script", "script", "pilot_script", "script_pdf"];

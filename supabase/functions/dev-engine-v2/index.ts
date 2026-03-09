@@ -45,22 +45,55 @@ async function loadConstraintPack(
       if (wr.trim()) sections.push(`## WORLD RULES (AUTHORITATIVE — DO NOT VIOLATE)\n- ${wr}`);
     }
 
-    // 2. Comparables
+    // 2. Comparables — load with comp_type taxonomy
     let comps: any[] = [];
     if (Array.isArray(cj.comparables) && cj.comparables.length > 0) {
-      comps = cj.comparables.slice(0, 8);
+      comps = cj.comparables.slice(0, 12).map((c: any) => ({ ...c, comp_type: c.comp_type || "tone" }));
     } else {
-      const { data: ccRows } = await supabaseClient
-        .from("comparable_candidates")
-        .select("title, format, rationale")
+      // Load from project_comparables first (user-curated, has comp_type in extraction_meta)
+      const { data: pcRows } = await supabaseClient
+        .from("project_comparables")
+        .select("title, kind, extraction_meta")
         .eq("project_id", projectId)
-        .order("confidence", { ascending: false })
-        .limit(8);
-      if (ccRows && ccRows.length > 0) comps = ccRows;
+        .limit(12);
+      if (pcRows && pcRows.length > 0) {
+        comps = pcRows.map((c: any) => ({
+          title: c.title,
+          rationale: c.extraction_meta?.rationale || "",
+          comp_type: c.extraction_meta?.comp_type || "tone",
+        }));
+      } else {
+        // Fall back to comparable_candidates (AI-generated, comp_type in query.comp_type)
+        const { data: ccRows } = await supabaseClient
+          .from("comparable_candidates")
+          .select("title, format, rationale, query")
+          .eq("project_id", projectId)
+          .order("confidence", { ascending: false })
+          .limit(12);
+        if (ccRows && ccRows.length > 0) {
+          comps = ccRows.map((c: any) => ({
+            title: c.title,
+            rationale: c.rationale || "",
+            comp_type: c.query?.comp_type || "tone",
+          }));
+        }
+      }
     }
     if (comps.length > 0) {
-      const compLines = comps.map((c: any) => `- ${c.title || c.name || "Unknown"}${c.rationale ? ` (${c.rationale})` : ""}`).join("\n");
-      sections.push(`## COMPARABLE REFERENCES (tone/style/market positioning guides)\n${compLines}`);
+      // Group by type for stage-aware injection
+      const byType: Record<string, string[]> = { tone: [], structure: [], audience: [], anti: [] };
+      for (const c of comps) {
+        const t = c.comp_type || "tone";
+        const label = `${c.title || c.name || "Unknown"}${c.rationale ? ` — ${c.rationale}` : ""}`;
+        (byType[t] = byType[t] || []).push(label);
+      }
+      const compBlock: string[] = ["## COMPARABLE REFERENCES — CREATIVE GUARDRAILS"];
+      if (byType.tone?.length)      compBlock.push(`TONE COMPS (match emotional register, atmosphere, stylistic quality):\n${byType.tone.map(t => `- ${t}`).join("\n")}`);
+      if (byType.structure?.length) compBlock.push(`STRUCTURE COMPS (match pacing, narrative architecture, act shape):\n${byType.structure.map(t => `- ${t}`).join("\n")}`);
+      if (byType.audience?.length)  compBlock.push(`AUDIENCE COMPS (write for fans of these works):\n${byType.audience.map(t => `- ${t}`).join("\n")}`);
+      if (byType.anti?.length)      compBlock.push(`ANTI-COMPS (avoid drifting toward the tone/commerciality of these):\n${byType.anti.map(t => `- ${t}`).join("\n")}`);
+      compBlock.push(`INSTRUCTION: Draw on the tone, quality bar, and emotional register of the tone/structure/audience comps. Never imitate their specific plots, characters or scenes. Actively avoid the sensibility of anti-comps.`);
+      sections.push(compBlock.join("\n\n"));
     }
 
     // 3. Writing Voice
@@ -1542,7 +1575,7 @@ Target format guidelines:
 - TOPLINE_NARRATIVE: A canonical narrative summary containing: # LOGLINE (1-2 sentences), # SHORT SYNOPSIS (150-300 words), # LONG SYNOPSIS (~1-2 pages), # STORY PILLARS (Theme, Protagonist, Goal, Stakes, Antagonistic force, Setting, Tone, Comps). For series, also include # SERIES ONLY with series promise/engine and season arc snapshot.
 - BLUEPRINT: High-level structural blueprint with act breaks, key beats, character arcs, tone anchors
 - ARCHITECTURE: Detailed scene-by-scene architecture with sluglines, beats, page estimates
-- TREATMENT: Prose narrative treatment (3-10 pages), vivid and readable
+- TREATMENT: Prose narrative treatment. This section = ONE ACT (4-7 pages, ~1,500-2,000 words). Vivid present-tense prose, full scenes, atmosphere, character interiority. Do NOT summarise.
 - ONE_PAGER: One-page pitch document: logline, synopsis, key talent notes, comparable titles, market positioning
 - OUTLINE: Beat-by-beat outline with numbered scenes
 - DRAFT_SCRIPT: Full screenplay draft in standard screenplay format (sluglines, action, dialogue). Write it as a real screenplay — do NOT include JSON, code, markdown, or any structural markup.
@@ -1562,8 +1595,10 @@ Preserve the creative DNA (protect items). Adapt structure and detail level to t
 Target format guidelines:
 - TOPLINE_NARRATIVE: A canonical narrative summary containing: # LOGLINE (1-2 sentences), # SHORT SYNOPSIS (150-300 words), # LONG SYNOPSIS (~1-2 pages), # STORY PILLARS (Theme, Protagonist, Goal, Stakes, Antagonistic force, Setting, Tone, Comps). For series, also include # SERIES ONLY with series promise/engine and season arc snapshot.
 - BLUEPRINT: High-level structural blueprint with act breaks, key beats, character arcs, tone anchors
-- ARCHITECTURE: Detailed scene-by-scene architecture with sluglines, beats, page estimates
-- TREATMENT: Prose narrative treatment (3-10 pages), vivid and readable
+- ARCHITECTURE / STORY_OUTLINE: Feature-length scene-by-scene outline. This section covers ONE ACT of a feature film. Write 12-20 scenes, each with: numbered scene heading (INT./EXT.), 3-5 sentence description of action and purpose, dramatic function note. This is ONE SECTION — write it fully at feature-film quality and length. Do NOT summarise. Do NOT truncate.
+- BEAT_SHEET: Feature-film beat sheet. This section covers ONE ACT. Write 10-15 named beats (e.g. "Opening Image", "Catalyst", "Midpoint Twist"), each with: beat name in bold, 4-6 sentence description of what happens, emotional/structural purpose. This is ONE SECTION — write every beat in full. Do NOT summarise.
+- TREATMENT: Prose narrative treatment. This section covers ONE ACT of a feature film. Write 4-7 pages of vivid, present-tense prose. Every scene described in full, with atmosphere, character interiority, tension. Aim for 1,500-2,000 words per section. Do NOT summarise.
+- CHARACTER_BIBLE: Character bible. This section covers ONE CHARACTER GROUP (protagonists/antagonists/supporting/relationships). Write each character profile in full: backstory, psychology, want/need/wound/flaw, arc across the story, relationship dynamics, sample dialogue voice, casting reference. Minimum 600 words per character.
 - ONE_PAGER: One-page pitch document: logline, synopsis, key talent notes, comparable titles, market positioning
 - OUTLINE: Beat-by-beat outline with numbered scenes
 
@@ -2385,13 +2420,31 @@ Format: ${rq.format}.${episodeLengthBlock}`;
         console.warn("[dev-engine-v2] spine alignment block load failed (non-fatal):", e);
       }
 
+      // ── Comp guardrail block for ANALYZE ──
+      let analyzeCompBlock = "";
+      try {
+        const { data: pcAnalyze } = await supabase.from("project_comparables")
+          .select("title, extraction_meta").eq("project_id", projectId).limit(8);
+        const { data: ccAnalyze } = !pcAnalyze?.length ? await supabase.from("comparable_candidates")
+          .select("title, query").eq("project_id", projectId).order("confidence", { ascending: false }).limit(8)
+          : { data: null };
+        const compRows = pcAnalyze?.length ? pcAnalyze.map((c: any) => ({ title: c.title, comp_type: c.extraction_meta?.comp_type || "tone" }))
+          : (ccAnalyze || []).map((c: any) => ({ title: c.title, comp_type: c.query?.comp_type || "tone" }));
+        if (compRows.length > 0) {
+          const toneComps = compRows.filter((c: any) => c.comp_type === "tone").map((c: any) => c.title);
+          const antiComps = compRows.filter((c: any) => c.comp_type === "anti").map((c: any) => c.title);
+          const allTitles = compRows.map((c: any) => c.title).join(", ");
+          analyzeCompBlock = `\n\nCOMP ALIGNMENT CHECK: This project's comparable titles are: ${allTitles}.${toneComps.length ? ` Primary tone comps: ${toneComps.join(", ")}.` : ""} When scoring Creative Integrity, explicitly ask: "Would a fan of these comparable works find this material satisfying? Does this earn its place in that company?" Penalise comp-drift — if the material is drifting toward generic or significantly below the quality bar set by these comps, reduce CI accordingly.${antiComps.length ? ` Flag as a HIGH_IMPACT note if the material is drifting toward the sensibility of anti-comps: ${antiComps.join(", ")}.` : ""}`;
+        }
+      } catch (e) { /* non-fatal */ }
+
       const userPrompt = `${analyzeNecBlock}
 PRODUCTION TYPE: ${effectiveProductionType}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 PROJECT: ${project?.title || "Unknown"}
 LANE: ${analyzeLane} | BUDGET: ${project?.budget_range || "Unknown"}
-${prevContext}${seasonContext}${qualBinding}${canonOSContext}${effectiveProfileContext}${signalContext}${lockedDecisionsContext}${teamVoiceBlock}${supportingContext}${spineAlignmentBlock}
+${prevContext}${seasonContext}${qualBinding}${canonOSContext}${effectiveProfileContext}${signalContext}${lockedDecisionsContext}${teamVoiceBlock}${supportingContext}${spineAlignmentBlock}${analyzeCompBlock}
 
 MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, maxContextChars)}`;

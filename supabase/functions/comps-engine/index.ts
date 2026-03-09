@@ -482,12 +482,16 @@ async function handleExtractFromDocs(supabase: any, body: any) {
   const allDropReasons: string[] = [];
   const docsSummary: any[] = [];
 
+  // Keys in JSON docs that may contain comparable title arrays
+  const COMP_JSON_KEYS = ["comparable_titles", "comparables", "comparable_shows", "comp_titles",
+    "reference_titles", "similar_titles", "comparable_films", "comparable_series"];
+  // Only scan plaintext in sections explicitly about comparables (not all bold/heading text)
+  const COMP_SECTION_PATTERN = /(?:comparable[s]?|similar (?:film|title|show|series|work)|reference title|comp title|like|meets)[^\n]*\n((?:[^\n]+\n?){1,20})/gi;
+
   for (const doc of allDocs) {
-    // Resolve text: plaintext > extracted_text > version plaintext
+    // Resolve version plaintext
     let text = (doc.plaintext || "").trim();
-    if (text.length < 50 && doc.extracted_text) {
-      text = (doc.extracted_text || "").trim();
-    }
+    if (text.length < 50 && doc.extracted_text) text = (doc.extracted_text || "").trim();
     if (text.length < 50) {
       const { data: vers } = await supabase
         .from("project_document_versions")
@@ -495,31 +499,73 @@ async function handleExtractFromDocs(supabase: any, body: any) {
         .eq("document_id", doc.id)
         .order("version_number", { ascending: false })
         .limit(1);
-      if (vers?.[0]?.plaintext?.trim().length > 0) {
-        text = vers[0].plaintext.trim();
-      }
+      if (vers?.[0]?.plaintext?.trim().length > 0) text = vers[0].plaintext.trim();
     }
     if (text.length < 20) continue;
 
-    const result = extractCompsFromText(text);
-    totalScanned += result.scanned_chars;
-    allDropReasons.push(...result.drop_reasons);
+    const docId = doc.id;
+    const docTitle = doc.title || doc.file_name || "Untitled";
+    let extracted = 0;
 
-    for (const c of result.candidates) {
-      allCandidates.push({
-        ...c,
-        source_doc_id: doc.id,
-        source_doc_title: doc.title || doc.file_name || "Untitled",
-      });
+    // ── STRATEGY 1: Parse JSON and extract comparable_titles arrays directly ──
+    // This is the cleanest source — structured docs store comps in known keys
+    let parsedJson: any = null;
+    try {
+      const jsonStart = text.indexOf("{");
+      if (jsonStart !== -1) parsedJson = JSON.parse(text.slice(jsonStart));
+    } catch { /* not JSON, fall through */ }
+
+    if (parsedJson) {
+      const flattenTitles = (obj: any, depth = 0): string[] => {
+        if (depth > 4) return [];
+        if (typeof obj === "string") return obj.length > 2 && obj.length < 120 ? [obj] : [];
+        if (Array.isArray(obj)) return obj.flatMap(i => flattenTitles(i, depth + 1));
+        if (typeof obj === "object" && obj !== null) {
+          return Object.entries(obj).flatMap(([k, v]) =>
+            COMP_JSON_KEYS.includes(k.toLowerCase()) ? flattenTitles(v, depth + 1) : []
+          );
+        }
+        return [];
+      };
+      const jsonTitles = flattenTitles(parsedJson);
+      for (const raw of jsonTitles) {
+        // Strip year suffix like "Title (2019) — reason"
+        const titleOnly = raw.replace(/\s*\([^)]*\).*$/, "").replace(/\s*—.*$/, "").trim();
+        if (titleOnly.length < 2 || titleOnly.length > 100) continue;
+        const normalized = normalizeTitle(titleOnly);
+        allCandidates.push({
+          raw_text: raw, title: titleOnly, normalized_title: normalized,
+          kind: "unknown", confidence: 0.9,
+          source_doc_id: docId, source_doc_title: docTitle,
+        });
+        extracted++;
+      }
+      totalScanned += text.length;
+      docsSummary.push({ doc_id: docId, title: docTitle, doc_type: doc.doc_type, chars: text.length, extracted, strategy: "json" });
+      continue; // skip text scanning for JSON docs
     }
 
-    docsSummary.push({
-      doc_id: doc.id,
-      title: doc.title || doc.file_name,
-      doc_type: doc.doc_type,
-      chars: text.length,
-      extracted: result.candidates.length,
-    });
+    // ── STRATEGY 2: Text scan — ONLY in comparable-labelled sections ──
+    // Never scan the whole doc (avoids picking up character names, section headers)
+    const compSections: string[] = [];
+    let m: RegExpExecArray | null;
+    COMP_SECTION_PATTERN.lastIndex = 0;
+    while ((m = COMP_SECTION_PATTERN.exec(text)) !== null) {
+      compSections.push(m[0]);
+    }
+
+    if (compSections.length > 0) {
+      const sectionText = compSections.join("\n");
+      const result = extractCompsFromText(sectionText);
+      totalScanned += result.scanned_chars;
+      allDropReasons.push(...result.drop_reasons);
+      for (const c of result.candidates) {
+        allCandidates.push({ ...c, source_doc_id: docId, source_doc_title: docTitle });
+        extracted++;
+      }
+    }
+
+    docsSummary.push({ doc_id: docId, title: docTitle, doc_type: doc.doc_type, chars: text.length, extracted, strategy: "section_scan" });
   }
 
   // De-dupe across docs

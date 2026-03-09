@@ -43,6 +43,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const STAGES = [
   "apply_seed_intel_pack",
   "regen_foundation",
+  "extract_comparables",
 ] as const;
 type StageName = typeof STAGES[number];
 
@@ -63,6 +64,7 @@ interface AutopilotState {
   options: {
     apply_seed_intel_pack: boolean;
     regen_foundation: boolean;
+    extract_comparables: boolean;
   };
   stages: Record<StageName, StageState>;
   last_error?: { message: string; stage: string; at: string } | null;
@@ -199,10 +201,12 @@ Deno.serve(async (req) => {
         options: {
           apply_seed_intel_pack: opts.apply_seed_intel_pack !== false,
           regen_foundation: opts.regen_foundation !== false,
+          extract_comparables: opts.extract_comparables !== false,
         },
         stages: existing?.stages || {
           apply_seed_intel_pack: makeStageState(),
           regen_foundation: makeStageState(),
+          extract_comparables: makeStageState(),
         },
         last_error: null,
         pitch_idea_id: pitchIdeaId || existing?.pitch_idea_id,
@@ -308,6 +312,8 @@ Deno.serve(async (req) => {
           await executeApplySeedIntelPack(sb, supabaseUrl, authHeader, projectId, autopilot, userId);
         } else if (nextStage === "regen_foundation") {
           await executeRegenFoundation(sb, supabaseUrl, authHeader, projectId, autopilot, userId);
+        } else if (nextStage === "extract_comparables") {
+          await executeExtractComparables(sb, supabaseUrl, authHeader, projectId, autopilot, userId);
         }
 
         // Mark stage done
@@ -597,3 +603,47 @@ async function executeRegenFoundation(
 
 // executeGeneratePrimaryScript removed — DevSeed no longer generates scripts.
 // Script generation is handled by the Auto-Run system.
+
+// ─── extract_comparables ────────────────────────────────────────────────────
+// Auto-extract comparables from project docs at the end of DevSeed so they
+// are available as guardrails before auto-run begins.
+async function executeExtractComparables(
+  sb: any, supabaseUrl: string, authHeader: string,
+  projectId: string, autopilot: AutopilotState, userId: string,
+) {
+  console.log("[devseed-autopilot] extract_comparables: starting");
+
+  // 1. Run extract_from_docs (JSON-first, comparable-section fallback)
+  const extractResp = await fetch(`${supabaseUrl}/functions/v1/comps-engine`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: authHeader },
+    body: JSON.stringify({ action: "extract_from_docs", project_id: projectId }),
+  });
+  const extractData = await extractResp.json();
+  const extractedCount = extractData?.extraction_summary?.attached || 0;
+  console.log(`[devseed-autopilot] extract_comparables: extracted ${extractedCount} from docs`);
+
+  // 2. Fetch project lane for AI candidate search
+  const { data: proj } = await sb.from("projects").select("assigned_lane, format").eq("id", projectId).single();
+  const lane = proj?.assigned_lane || "prestige-feature";
+
+  // 3. Run find_candidates to get AI-suggested comps (fills in if extraction was sparse)
+  const findResp = await fetch(`${supabaseUrl}/functions/v1/comps-engine`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: authHeader },
+    body: JSON.stringify({
+      action: "find_candidates",
+      project_id: projectId,
+      lane,
+      user_id: userId,
+      use_project_docs: true,
+      filters: {},
+    }),
+  });
+  const findData = await findResp.json();
+  const candidateCount = findData?.candidates?.length || 0;
+  console.log(`[devseed-autopilot] extract_comparables: found ${candidateCount} AI candidates`);
+
+  autopilot.stages.extract_comparables.notes = `extracted:${extractedCount} candidates:${candidateCount}`;
+  console.log("[devseed-autopilot] extract_comparables done");
+}
