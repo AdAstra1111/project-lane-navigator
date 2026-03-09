@@ -494,7 +494,7 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let response: Response;
     try {
-      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -9231,7 +9231,7 @@ Rules:
         let error: string | null = null;
 
         try {
-          const imgResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          const imgResp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${LOVABLE_API_KEY}`,
