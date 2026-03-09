@@ -286,8 +286,11 @@ HARD ENFORCEMENT: ${NEC_HARD_ENFORCEMENT}`;
 }
 
 // ── Supporting doc pack constants ──
-const SUPPORTING_TOTAL_BUDGET = 24000;
-const SUPPORTING_PER_DOC_BUDGET = 6000;
+// ── Cost optimisation: reduced context budgets ──
+// Upstream supporting docs are summaries for orientation, not full reads.
+// Pro ANALYZE on 24k supporting chars ≈ $0.03 extra per call — unnecessary.
+const SUPPORTING_TOTAL_BUDGET = 12000;
+const SUPPORTING_PER_DOC_BUDGET = 3000;
 
 function clampText(s: string, n: number): string {
   if (!s) return '';
@@ -2048,7 +2051,10 @@ serve(async (req) => {
     // ══════════════════════════════════════════════
     if (action === "analyze") {
       const { projectId, documentId, versionId, deliverableType, developmentBehavior, format: reqFormat, strategicPriority, developmentStage, analysisMode, previousVersionId, productionType, maxContextChars: reqMaxContext } = body;
-      const DEFAULT_CONTEXT_CHARS = 200000;
+      // ── Cost optimisation: cap context to 60k chars (≈15k tokens).
+      // 200k chars was overkill — a season_script ANALYZE was burning $0.25/call.
+      // 60k covers any document stage generously; caller can pass maxContextChars to override.
+      const DEFAULT_CONTEXT_CHARS = 60000;
       const maxContextChars = typeof reqMaxContext === "number" && reqMaxContext > 0 ? Math.min(reqMaxContext, 200000) : DEFAULT_CONTEXT_CHARS;
 
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
@@ -2390,14 +2396,30 @@ ${prevContext}${seasonContext}${qualBinding}${canonOSContext}${effectiveProfileC
 MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, maxContextChars)}`;
 
-      const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, systemPrompt, userPrompt, 0.2, 6000);
+      // ── Cost optimisation: tiered model selection for ANALYZE ──
+      // Pro is only needed when the document is close to target CI (≥80) — fine-grained
+      // scoring matters at that point. For early-stage docs (CI<80 or unknown), Flash is
+      // accurate enough for directional feedback and costs 8× less.
+      // Caller can pass `body.forceProModel = true` to override (used by manual re-review).
+      const previousCI: number | null = (() => {
+        try {
+          const prevCtx = prevContext || "";
+          const m = prevCtx.match(/CI=(\d+)/);
+          return m ? parseInt(m[1], 10) : null;
+        } catch { return null; }
+      })();
+      const useProForAnalyze = body.forceProModel === true || (previousCI !== null && previousCI >= 80);
+      const analyzeModel = useProForAnalyze ? PRO_MODEL : BALANCED_MODEL;
+      console.log("[dev-engine-v2] analyze model selected", { analyzeModel, previousCI, forceProModel: body.forceProModel });
+
+      const raw = await callAI(LOVABLE_API_KEY, analyzeModel, systemPrompt, userPrompt, 0.2, 6000);
       let parsed = await parseAIJson(LOVABLE_API_KEY, raw);
 
       // ── Strict JSON retry: one deterministic recovery attempt ──
       if (!parsed || !looksLikeAnalyzeShape(parsed)) {
         console.log("[dev-engine-v2] analyze json invalid -> strict retry", { projectId, documentId, versionId: version.id });
         try {
-          const raw2 = await callAI(LOVABLE_API_KEY, PRO_MODEL, `${STRICT_JSON_RULES}\n\n${systemPrompt}`, userPrompt, 0.1, 6000);
+          const raw2 = await callAI(LOVABLE_API_KEY, analyzeModel, `${STRICT_JSON_RULES}\n\n${systemPrompt}`, userPrompt, 0.1, 6000);
           const parsed2 = await parseAIJson(LOVABLE_API_KEY, raw2);
           if (parsed2 && looksLikeAnalyzeShape(parsed2)) {
             console.log("[dev-engine-v2] analyze strict retry succeeded", { projectId });

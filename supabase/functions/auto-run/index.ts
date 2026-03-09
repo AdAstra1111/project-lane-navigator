@@ -547,6 +547,11 @@ async function enforcePrereqGateBeforeAdvance(
 const GLOBAL_MIN_CI = 85; // default fallback when job has no converge_target_json.ci
 const CI_PLATEAU_WINDOW = 2;   // consecutive non-improving ticks before fail-close
 const CI_MIN_DELTA = 1;        // minimum CI improvement to count as progress
+// ── Cost optimisation: max iterations per stage ──
+// If a stage has been reviewed this many times without hitting target, force-promote
+// the best version rather than burning more Pro ANALYZE tokens. A stage that can't
+// converge in MAX_STAGE_ITERATIONS is structurally stuck, not iteratively improvable.
+const MAX_STAGE_ITERATIONS = 5;
 // NOTE: Promotion is blocked only by blocker + high severity notes. Polish notes do not block.
 
 /**
@@ -5892,7 +5897,53 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ── IEL: FRESH REVIEW GUARD — must review latest version before plateau evaluation ──
+      // ── Cost optimisation: MAX STAGE ITERATIONS GUARD ──
+      // Count actual review calls (LLM ANALYZE calls) for this stage in this job.
+      // If over MAX_STAGE_ITERATIONS and still below target, force-promote the best
+      // available version instead of burning more Pro tokens. This fires before the
+      // fresh review guard so we never start an extra ANALYZE call unnecessarily.
+      {
+        const targetCiForIterCap = resolveTargetCI(job);
+        const { count: reviewCallCount } = await supabase
+          .from("auto_run_steps")
+          .select("id", { count: "exact", head: true })
+          .eq("job_id", jobId)
+          .eq("document", currentDoc)
+          .eq("action", "review");
+
+        const iterCount = reviewCallCount ?? 0;
+        if (iterCount >= MAX_STAGE_ITERATIONS) {
+          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, targetCiForIterCap, job.project_id);
+          if (!ciGate.pass) {
+            // Over the iteration cap and still below target — force-promote best or pause
+            console.warn(`[auto-run] max_stage_iterations_reached { job_id: "${jobId}", doc_type: "${currentDoc}", iterations: ${iterCount}, best_ci: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap} }`);
+            if (job.allow_defaults && ciGate.bestCiSoFar >= GLOBAL_MIN_CI) {
+              const iterCapForcePromote = await tryPlateauForcePromote(supabase, {
+                jobId, job, currentDoc, format, stepCount,
+                targetCi: targetCiForIterCap,
+                detectedCi: ciGate.ci,
+                detectedBestCi: ciGate.bestCiSoFar,
+                plateauVersion: "v1",
+              });
+              if (iterCapForcePromote) return iterCapForcePromote;
+            } else if (!job.allow_defaults) {
+              await logStep(supabase, jobId, stepCount, currentDoc, "stop",
+                `MAX_STAGE_ITERATIONS (${MAX_STAGE_ITERATIONS}) reached for ${currentDoc}. Best CI: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap}. Pausing — manual review required.`
+              );
+              await updateJob(supabase, jobId, {
+                status: "paused", stop_reason: "MAX_ITERATIONS_REACHED",
+                pause_reason: "MAX_ITERATIONS_REACHED",
+                error: `Stage ${currentDoc} reached max ${MAX_STAGE_ITERATIONS} iterations at CI=${ciGate.bestCiSoFar} (target: ${targetCiForIterCap}).`,
+              });
+              await releaseProcessingLock(supabase, jobId);
+              return respondWithJob(supabase, jobId);
+            }
+          }
+          // If CI already passes target, fall through normally
+        }
+      }
+
+// ── IEL: FRESH REVIEW GUARD — must review latest version before plateau evaluation ──
       {
         const freshCheck = await needsFreshReview(supabase, jobId, job, currentDoc);
         if (freshCheck.needed) {
