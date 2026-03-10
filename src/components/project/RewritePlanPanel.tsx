@@ -30,6 +30,20 @@ interface SectionTarget {
 
 type DependencyPosition = 'root' | 'upstream' | 'propagated' | 'terminal';
 
+type SequenceBucket =
+  | 'root_fix'
+  | 'upstream_fix'
+  | 'propagated_followup'
+  | 'terminal_cleanup'
+  | 'isolated';
+
+interface RewriteSequenceItem {
+  axis: string;
+  sequence_rank: number;
+  sequence_bucket: SequenceBucket;
+  sequence_reason: string;
+}
+
 interface RewriteTarget {
   axis: string;
   unit_key: string;
@@ -42,6 +56,9 @@ interface RewriteTarget {
   confidence: number | null;
   section_targets?: SectionTarget[];
   dependency_position?: DependencyPosition;
+  sequence_bucket?: SequenceBucket;
+  sequence_rank?: number;
+  sequence_reason?: string;
 }
 
 interface PreserveTarget {
@@ -91,6 +108,7 @@ interface RewritePlan {
   coverage_breakdown?: CoverageBreakdown;
   likely_affected_areas?: string[] | null;
   propagated_risk?: PropagatedRisk[];
+  rewrite_sequence?: RewriteSequenceItem[];
 }
 
 /* ── Props ── */
@@ -137,6 +155,14 @@ const DEPENDENCY_ORDER: Record<DependencyPosition, number> = {
   upstream: 1,
   propagated: 2,
   terminal: 3,
+};
+
+const SEQUENCE_BUCKET_STYLES: Record<SequenceBucket, { className: string; label: string }> = {
+  root_fix: { className: 'border-purple-500/40 text-purple-400', label: 'Root fix' },
+  upstream_fix: { className: 'border-blue-500/40 text-blue-400', label: 'Upstream fix' },
+  propagated_followup: { className: 'border-amber-500/40 text-amber-400', label: 'Follow-up' },
+  terminal_cleanup: { className: 'border-border text-muted-foreground', label: 'Terminal cleanup' },
+  isolated: { className: 'border-border text-muted-foreground/60', label: 'Isolated' },
 };
 
 /* ── Component ── */
@@ -229,6 +255,9 @@ export function RewritePlanPanel({
 
             {/* B3. Propagation Impact */}
             <PropagatedRiskSection risks={plan.propagated_risk} />
+
+            {/* B4. Rewrite Sequence */}
+            <RewriteSequenceSection sequence={plan.rewrite_sequence} />
 
             {/* C. Rewrite Targets */}
             {sortedRewriteTargets.length > 0 && (
@@ -381,8 +410,16 @@ function RewriteTargetCard({ target }: { target: RewriteTarget }) {
   return (
     <div className="p-3 rounded-lg bg-card border border-border space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
+        {target.sequence_rank != null && (
+          <span className="text-[9px] font-mono text-muted-foreground/60 shrink-0">#{target.sequence_rank}</span>
+        )}
         <span className="text-xs font-medium text-foreground">{AXIS_LABELS[target.axis] || target.axis}</span>
         <DependencyPositionBadge position={target.dependency_position} />
+        {target.sequence_bucket && SEQUENCE_BUCKET_STYLES[target.sequence_bucket] && (
+          <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${SEQUENCE_BUCKET_STYLES[target.sequence_bucket].className}`}>
+            {SEQUENCE_BUCKET_STYLES[target.sequence_bucket].label}
+          </Badge>
+        )}
         <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${reasonStyle}`}>
           {target.reason}
         </Badge>
@@ -390,6 +427,10 @@ function RewriteTargetCard({ target }: { target: RewriteTarget }) {
           {target.priority}
         </Badge>
       </div>
+
+      {target.sequence_reason && (
+        <p className="text-[9px] text-muted-foreground/60 leading-snug">{target.sequence_reason}</p>
+      )}
 
       {target.target_spec && (
         <div>
@@ -577,6 +618,51 @@ function PropagatedRiskSection({ risks }: { risks?: PropagatedRisk[] }) {
             )}
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── Rewrite Sequence Section ── */
+
+function RewriteSequenceSection({ sequence }: { sequence?: RewriteSequenceItem[] }) {
+  if (!sequence || sequence.length === 0) return null;
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs font-medium text-foreground flex items-center gap-1.5">
+        <GitBranch className="w-3.5 h-3.5 text-blue-400" />
+        Rewrite Sequence
+        <Badge variant="outline" className="text-[9px] ml-1 border-blue-500/30 text-blue-400">
+          {sequence.length} steps
+        </Badge>
+      </h3>
+      <div className="space-y-1">
+        {sequence
+          .sort((a, b) => a.sequence_rank - b.sequence_rank)
+          .map((item) => {
+            const bucketStyle = SEQUENCE_BUCKET_STYLES[item.sequence_bucket];
+            return (
+              <div key={item.axis} className="flex items-start gap-2 py-1.5 px-2.5 rounded bg-muted/30 border border-border">
+                <span className="text-[10px] font-mono text-muted-foreground shrink-0 mt-0.5">
+                  {item.sequence_rank}.
+                </span>
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-medium text-foreground">
+                      {AXIS_LABELS[item.axis] || item.axis}
+                    </span>
+                    {bucketStyle && (
+                      <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${bucketStyle.className}`}>
+                        {bucketStyle.label}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-[9px] text-muted-foreground/60 leading-snug">{item.sequence_reason}</p>
+                </div>
+              </div>
+            );
+          })}
       </div>
     </section>
   );
