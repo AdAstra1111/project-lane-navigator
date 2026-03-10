@@ -243,7 +243,34 @@ serve(async (req: Request) => {
         });
       }
 
-      // 4. Compute revalidation scope for the response
+      // 4a. Phase 4 Stage 1 — Resolve stale Class A spine note for the amended axis only.
+      //     When a spine amendment is confirmed, the old Class A violation was against the
+      //     superseded constitutional spec and is no longer valid. We resolve only the exact
+      //     axis that was amended; other axes remain untouched.
+      const staleNoteKey = `class_a_spine_${axis}`;
+      let staleNotesResolved = 0;
+      try {
+        const { data: resolvedRows, error: resolveErr } = await supabase
+          .from("development_notes")
+          .update({ resolved: true })
+          .eq("project_id", projectId)
+          .eq("note_key", staleNoteKey)
+          .eq("resolved", false)
+          .select("id");
+
+        if (resolveErr) {
+          console.warn(`[spine-amendment] stale note resolution failed for ${staleNoteKey}:`, resolveErr.message);
+        } else {
+          staleNotesResolved = (resolvedRows || []).length;
+          if (staleNotesResolved > 0) {
+            console.log(`[spine-amendment] resolved ${staleNotesResolved} stale ${staleNoteKey} note(s)`);
+          }
+        }
+      } catch (resolveEx: any) {
+        console.warn(`[spine-amendment] stale note resolution error:`, resolveEx.message);
+      }
+
+      // 4b. Compute revalidation scope for the response
       const floorIdx = getRevalidationFloorIndex(axis as SpineAxis, ladder);
       const floorStageIdx = floorIdx === -1 ? 0 : floorIdx;
       const revalidationFloorStage = floorIdx === -1 ? "next_unapproved" : ladder[floorIdx] || ladder[0];
@@ -281,7 +308,9 @@ serve(async (req: Request) => {
         revalidation_floor_stage: revalidationFloorStage,
         affected_docs_requiring_revalidation: affectedDocs,
         superseded_entry_id: entryId || null,
-        message: `Spine amended: ${axis} changed from "${currentValue}" to "${proposed_value}". ${affectedDocs.length} document(s) flagged for revalidation.`,
+        stale_notes_resolved: staleNotesResolved,
+        stale_note_key: staleNotesResolved > 0 ? staleNoteKey : null,
+        message: `Spine amended: ${axis} changed from "${currentValue}" to "${proposed_value}". ${affectedDocs.length} document(s) flagged for revalidation.${staleNotesResolved > 0 ? ` ${staleNotesResolved} stale ${staleNoteKey} note(s) auto-resolved.` : ""}`,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

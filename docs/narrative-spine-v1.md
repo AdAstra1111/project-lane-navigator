@@ -194,8 +194,14 @@ Dedicated `Class A Spine Check` pass runs inside the `notes` action in `dev-engi
 *Runtime validated: contradiction detection, dedupe, aligned-case passthrough, guard (unlocked spine skips check).*
 *Implementation: `_shared/narrativeSpine.ts` (prompts, parser, types), `dev-engine-v2/index.ts` (invocation, note insertion, auto-resolution exclusion).*
 
-**Phase 4 — Optional hard gates**
-Projects with `meta_json.spine_hard_gates=true` get hard validation. `constitutional_drift` on a Class A axis blocks promotion. Explicit opt-in only — never system default.
+**Phase 4 Stage 1 — Amendment Consequence Engine (stale note closure) — STATUS: OPERATIONAL**
+When `confirm_amendment` succeeds in `spine-amendment/index.ts`, stale `class_a_spine_{amended_axis}` notes are auto-resolved for the amended axis only. This closes the governance loop: amending the constitutional spec invalidates violations raised against the superseded spec. Only the exact amended axis is resolved; other axes and unrelated notes are untouched. The response payload includes `stale_notes_resolved` count and `stale_note_key`. This is advisory closure only — no auto-reanalysis or broader change-impact logic is triggered.
+*Implementation: `spine-amendment/index.ts` step 4a, after ledger entry creation.*
+
+**Phase 4 Stage 2+ — Deferred**
+- Auto-reanalysis after amendment (trigger dev-engine-v2 rerun)
+- Broader change-impact logic (Class B validators, revalidation queue)
+- Hard gates: projects with `meta_json.spine_hard_gates=true` get hard validation; `constitutional_drift` on a Class A axis blocks promotion. Explicit opt-in only.
 *Prerequisite: spine acceptance rate ≥95% AND explicit user opt-in per project.*
 
 ---
