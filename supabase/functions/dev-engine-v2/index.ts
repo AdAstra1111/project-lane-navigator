@@ -3390,9 +3390,7 @@ GENERAL RULES:
                     unit_key: `${versionId}::${check.axis}`,
                     payload_json: {
                       evidence_excerpt: check.evidence || null,
-                      spine_value: check.axis === 'story_engine'
-                        ? (spine.story_engine || null)
-                        : (spine.protagonist_arc || null),
+                      spine_value: (spine as any)[check.axis] || null,
                       contradiction_note: check.status === 'contradicted' && check.suggested_note
                         ? `${check.suggested_note.title}. ${check.suggested_note.instruction}`
                         : null,
