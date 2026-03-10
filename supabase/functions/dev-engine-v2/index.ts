@@ -15928,6 +15928,13 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
       if (!deliverableType) throw new Error("deliverableType is required for spine_revalidate");
 
+      // ⚠ TIMEOUT NOTE: This action self-invokes dev-engine-v2 twice sequentially
+      // (analyze ~26s + notes ~21s ≈ 47s + overhead). Edge function timeout is ~60s.
+      // Acceptable for current targeted-revalidation use on smaller documents.
+      // Large scripts / production drafts may exceed the timeout budget.
+      // Intentionally reuses existing analyze + notes infrastructure to avoid a
+      // much larger refactor. Optimize (e.g. parallel invocation or merged action)
+      // only if production document sizes prove problematic.
       const selfUrl = `${supabaseUrl}/functions/v1/dev-engine-v2`;
       const authHeader = req.headers.get("authorization") || "";
 
