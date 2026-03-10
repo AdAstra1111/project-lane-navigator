@@ -156,6 +156,27 @@ serve(async (req: Request) => {
 
       const currentValue = spine ? (spine as any)[axis] : null;
 
+      // ── Atomic: query narrative_units at risk for the amended axis ──
+      // Returns only non-stale units (aligned / contradicted / active).
+      // Already-stale units are excluded — they are not newly at risk.
+      // Fail-safe: errors are swallowed; units_at_risk defaults to empty.
+      let unitsAtRisk: any[] = [];
+      try {
+        const { data: unitRows, error: unitErr } = await supabase
+          .from("narrative_units")
+          .select("unit_key, status, source_doc_type, source_doc_version_id, payload_json")
+          .eq("project_id", projectId)
+          .eq("unit_type", axis)
+          .in("status", ["aligned", "contradicted", "active"]);
+        if (unitErr) {
+          console.warn("[spine-amendment] narrative_units at-risk query failed (non-fatal):", unitErr.message);
+        } else {
+          unitsAtRisk = unitRows || [];
+        }
+      } catch (unitEx: any) {
+        console.warn("[spine-amendment] narrative_units at-risk query error (non-fatal):", unitEx.message);
+      }
+
       return new Response(JSON.stringify({
         axis,
         axis_label: axisMeta.description,
@@ -172,6 +193,14 @@ serve(async (req: Request) => {
         spine_state: state,
         can_amend: state === "locked" || state === "locked_amended" || state === "confirmed" || state === "provisional",
         amendment_count: state === "locked_amended" ? "≥1 prior amendment" : "none",
+        units_at_risk: unitsAtRisk.map((u: any) => ({
+          unit_key: u.unit_key,
+          status: u.status,
+          source_doc_type: u.source_doc_type,
+          source_doc_version_id: u.source_doc_version_id,
+          evidence_excerpt: u.payload_json?.evidence_excerpt || null,
+        })),
+        units_at_risk_count: unitsAtRisk.length,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
