@@ -36,6 +36,8 @@ import {
   findSectionDef,
   isSectionRepairSupported,
 } from "../_shared/deliverableSectionRegistry.ts";
+import { parseSections } from "../_shared/sectionRepairEngine.ts";
+import type { SectionBoundary } from "../_shared/sectionRepairEngine.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -223,27 +225,48 @@ const AXIS_DOC_SECTION_MAP: Record<string, Partial<Record<string, SectionTargetE
 
 const REGISTRY_TARGET_NOTE =
   'Registry-based targeting: this section is the structural home for this axis in this ' +
-  'document type. Section presence in the specific document has not been verified. ' +
-  'Re-run analysis for excerpt-verified targeting.';
+  'document type. Section presence in the specific document has not been verified.';
+
+const VERIFIED_TARGET_NOTE =
+  'Document-verified: section heading located in this document version at the reported ' +
+  'line range. Narrative unit evidence is associated via structural axis mapping, not ' +
+  'verbatim excerpt position.';
 
 /**
- * Compute section_targets for a given axis + doc_type using the registry map.
- * Returns null when: doc_type not in section registry, axis not in map, or doc_type not
- * registered for this axis. Fail-closed: null rather than empty array (explicit absence).
+ * Compute section_targets for a given axis + doc_type.
+ *
+ * Two-tier targeting:
+ *  1. document_verified (L4.3): sectionBoundaryMap provided → section heading confirmed
+ *     in this specific document. Returns start_line + end_line. confidence: "deterministic".
+ *  2. registry (L4.2 fallback): section not found in document, or no plaintext available.
+ *     confidence: "bounded". No line numbers.
+ *
+ * Fail-closed: returns null when doc_type not in registry, axis not mapped, or no entries
+ * for this doc_type. Null means "no targeting available" — never an empty array.
+ *
+ * NOTE ON EXCERPT MATCHING:
+ *   evidence_excerpt in narrative_units.payload_json is a synthetic LLM explanation
+ *   ("1-2 sentence explanation"), NOT a verbatim document quote. Substring matching it
+ *   against section content is not deterministically reliable. This function therefore
+ *   verifies section EXISTENCE by heading location, not excerpt position.
+ *   True excerpt-position verification requires L4.4 (verbatim_quote in payload_json).
  */
 function computeSectionTargets(
   axis: string,
   docType: string | null,
+  sectionBoundaryMap?: Map<string, SectionBoundary>,
 ): Array<{
   section_key: string;
   section_label: string;
   confidence: 'deterministic' | 'bounded';
   basis: string;
-  targeting_method: 'registry';
+  targeting_method: 'document_verified' | 'registry';
+  start_line?: number;
+  end_line?: number;
   note: string;
 }> | null {
   if (!docType) return null;
-  if (!isSectionRepairSupported(docType)) return null;  // not in registry → no targets
+  if (!isSectionRepairSupported(docType)) return null;
   const axisMap = AXIS_DOC_SECTION_MAP[axis];
   if (!axisMap) return null;
   const entries = axisMap[docType];
@@ -251,10 +274,32 @@ function computeSectionTargets(
 
   return entries.map(e => {
     const secDef = findSectionDef(docType, e.section_key);
+    const label = secDef?.label || e.section_key;
+
+    // L4.3: try document-verified targeting if section boundary map is available
+    if (sectionBoundaryMap) {
+      const boundary = sectionBoundaryMap.get(e.section_key);
+      if (boundary) {
+        return {
+          section_key:      e.section_key,
+          section_label:    label,
+          confidence:       'deterministic' as const,
+          basis:            `document_verified:heading_found_at_line_${boundary.start_line}`,
+          targeting_method: 'document_verified' as const,
+          start_line:       boundary.start_line,
+          end_line:         boundary.end_line,
+          note:             VERIFIED_TARGET_NOTE,
+        };
+      }
+      // Section not found in this document — fall through to registry entry
+      // (section is in registry but absent from this version; advisory only)
+    }
+
+    // L4.2 registry fallback
     return {
       section_key:      e.section_key,
-      section_label:    secDef?.label || e.section_key,
-      confidence:       e.confidence,
+      section_label:    label,
+      confidence:       'bounded' as const,
       basis:            e.basis,
       targeting_method: 'registry' as const,
       note:             REGISTRY_TARGET_NOTE,
@@ -360,6 +405,54 @@ serve(async (req: Request) => {
     // Derive document type from first unit (or null)
     const documentType = unitRows.length > 0 ? unitRows[0].source_doc_type : null;
 
+    // ── 4b. L4.3 — Load plaintext and build section boundary map ──
+    //
+    // If documentType is supported by the section registry, fetch the version plaintext
+    // and run parseSections() once. The resulting map (section_key → SectionBoundary) is
+    // passed into computeSectionTargets() to upgrade registry targets to document_verified
+    // targets with exact start_line / end_line values.
+    //
+    // Why this is safe:
+    //   - Single indexed DB fetch (project_document_versions.id = versionId)
+    //   - parseSections() is O(n_lines), deterministic, no LLM
+    //   - Fail-closed: any error falls back to registry targeting (sectionBoundaryMap stays null)
+    //   - Unsupported doc types skip this block entirely
+    //
+    // What "document_verified" means here:
+    //   Section heading was found in this specific document version at the reported lines.
+    //   Evidence excerpt is NOT positionally verified (it is a synthetic LLM explanation,
+    //   not a verbatim quote — see L4.4 for excerpt-position verification).
+    let sectionBoundaryMap: Map<string, SectionBoundary> | null = null;
+    if (documentType && isSectionRepairSupported(documentType)) {
+      try {
+        const { data: versionPlaintext } = await supabase
+          .from("project_document_versions")
+          .select("plaintext")
+          .eq("id", versionId)
+          .maybeSingle();
+
+        if (versionPlaintext?.plaintext) {
+          const boundaries = parseSections(versionPlaintext.plaintext, documentType);
+          if (boundaries.length > 0) {
+            sectionBoundaryMap = new Map<string, SectionBoundary>();
+            for (const b of boundaries) {
+              if (b.section_key !== '__preamble') {
+                sectionBoundaryMap.set(b.section_key, b);
+              }
+            }
+            console.log("[spine-rewrite-plan] L4.3 section parse", {
+              docType: documentType,
+              sections: sectionBoundaryMap.size,
+              versionId,
+            });
+          }
+        }
+      } catch (sectErr: any) {
+        console.warn("[spine-rewrite-plan] L4.3 section parse failed (non-fatal, fallback to registry):", sectErr?.message);
+        sectionBoundaryMap = null;
+      }
+    }
+
     // ── 5. Build the plan ──
     const rewriteTargets: any[] = [];
     const preserveTargets: any[] = [];
@@ -399,7 +492,7 @@ serve(async (req: Request) => {
           priority,
           axis_class: meta.class,
           confidence: unit.confidence ?? null,
-          section_targets: computeSectionTargets(axis, documentType),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined),
         });
 
       } else if (unit.status === 'contradicted') {
@@ -414,7 +507,7 @@ serve(async (req: Request) => {
           priority,
           axis_class: meta.class,
           confidence: unit.confidence ?? null,
-          section_targets: computeSectionTargets(axis, documentType),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined),
         });
 
       } else if (unit.status === 'aligned') {
@@ -427,7 +520,7 @@ serve(async (req: Request) => {
           spine_value: currentSpineValue,
           note: 'Aligned with current spine — preserve this in any rewrite.',
           axis_class: meta.class,
-          section_targets: computeSectionTargets(axis, documentType),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined),
         });
 
       } else if (unit.status === 'active') {
@@ -441,30 +534,36 @@ serve(async (req: Request) => {
           spine_value: currentSpineValue,
           note: 'Alignment unclear — included as provisional preserve target. Re-run analysis for definitive classification.',
           axis_class: meta.class,
-          section_targets: computeSectionTargets(axis, documentType),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined),
         });
       }
     }
 
     // ── 5b. Populate likely_affected_areas ──
+    // ── 5b. Populate likely_affected_areas ──
     // Deduplicated union of section_keys from all rewrite_targets.
-    // Gives producers a flat overview of which document sections need attention.
-    // Derived from registry-based section_targets — no document text required.
-    const affectedSectionKeys = new Set<string>();
+    // Prefers document_verified targets when available — those entries carry start_line/end_line.
+    // Falls back to registry targets when no verified entry exists for a section.
+    const affectedByKey = new Map<string, { section_key: string; section_label: string; targeting_method: string; start_line?: number; end_line?: number }>();
     for (const rt of rewriteTargets) {
       if (rt.section_targets) {
         for (const st of rt.section_targets) {
-          affectedSectionKeys.add(st.section_key);
+          const existing = affectedByKey.get(st.section_key);
+          // Prefer document_verified over registry when both exist
+          if (!existing || st.targeting_method === 'document_verified') {
+            const sd = findSectionDef(documentType || '', st.section_key);
+            affectedByKey.set(st.section_key, {
+              section_key:      st.section_key,
+              section_label:    sd?.label || st.section_key,
+              targeting_method: st.targeting_method,
+              ...(st.start_line !== undefined ? { start_line: st.start_line } : {}),
+              ...(st.end_line   !== undefined ? { end_line:   st.end_line   } : {}),
+            });
+          }
         }
       }
     }
-    const likelyAffectedAreas = affectedSectionKeys.size > 0
-      ? [...affectedSectionKeys].map(sk => ({
-          section_key: sk,
-          section_label: (() => { const sd = findSectionDef(documentType || '', sk); return sd?.label || sk; })(),
-          targeting_method: 'registry' as const,
-        }))
-      : null;
+    const likelyAffectedAreas = affectedByKey.size > 0 ? [...affectedByKey.values()] : null;
 
     // ── 6. Coverage accounting ──
     //
