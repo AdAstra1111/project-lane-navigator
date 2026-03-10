@@ -330,6 +330,7 @@ function NoteItem({ note, index, checked, onToggle, selectedOptionId, onSelectOp
             {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
             <TierPill tier={note.tier} />
             <SeenBadge timesSeen={note.times_seen} />
+            <SpineAlignmentBadge noteSource={note.note_source} />
             {isRecurring && <AlertTriangle className="h-2.5 w-2.5 text-orange-400" />}
             {hasDecisions && <Badge variant="outline" className="text-[7px] px-1 py-0 border-primary/30 text-primary bg-primary/5">{note.decisions.length + 1} options</Badge>}
           </div>
