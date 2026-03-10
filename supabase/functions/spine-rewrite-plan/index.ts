@@ -27,6 +27,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import {
   SPINE_AXES,
   AXIS_METADATA,
+  VALIDATOR_SUPPORTED_AXES,
+  VALIDATOR_DEFERRED_AXES,
   getSpineState,
   SpineAxis,
 } from "../_shared/narrativeSpine.ts";
@@ -230,23 +232,54 @@ serve(async (req: Request) => {
     }
 
     // ── 6. Coverage accounting ──
-    // plan_complete = true only when every relevant axis has a non-stale, non-active unit.
-    // Stale units are coverage gaps for planning purposes (they were evaluated against old spec).
+    //
+    // SEMANTIC CHANGE vs prior version (document for UI consumers):
+    // Previously: plan_complete = false whenever ANY relevant spine axis (including unsupported
+    //   ones like inciting_incident, midpoint_reversal) lacked unit coverage.
+    // Now: plan_complete is scoped to VALIDATOR_SUPPORTED_AXES only. Unsupported axes are
+    //   explicitly classified in coverage_breakdown.unsupported_axes — they don't make the
+    //   plan incomplete (the system doesn't cover them; it's a validator limitation, not a
+    //   document deficiency). UI should use coverage_breakdown to explain this distinction.
+    //
+    // axes_with_no_units is RETAINED unchanged for backward compatibility. It now represents
+    //   only the supported axes that lack coverage on this version (supported-but-missing).
+    //   The old behavior (all-axes gaps) is preserved in coverage_breakdown for full context.
+
     const staledAxes = relevantAxes.filter(ax => {
       const u = unitByAxis.get(ax);
       return u && u.status === 'stale';
     });
 
-    const planComplete =
-      axesWithNoUnits.length === 0 &&
-      staledAxes.length === 0 &&
-      !hasActiveUnits &&
-      rewriteTargets.length + preserveTargets.length === relevantAxes.length;
+    // Coverage breakdown — distinguishes three semantic categories of axes
+    const supportedAxes = VALIDATOR_SUPPORTED_AXES.filter(ax =>
+      relevantAxes.includes(ax as SpineAxis)
+    );
+    const unsupportedAxes = relevantAxes.filter(ax =>
+      !(VALIDATOR_SUPPORTED_AXES as readonly string[]).includes(ax)
+    );
+    const supportedButMissing = supportedAxes.filter(ax =>
+      !unitByAxis.has(ax) || unitByAxis.get(ax).status === 'stale'
+    );
+    const supportedAndEvaluated = supportedAxes.filter(ax =>
+      unitByAxis.has(ax) && unitByAxis.get(ax).status !== 'stale'
+    );
 
-    // Build coverage warning
+    // plan_complete: true only when all SUPPORTED axes have fresh non-stale, non-active coverage.
+    // Unsupported axes do not affect plan_complete — they are not a document deficiency.
+    const planComplete =
+      supportedButMissing.length === 0 &&
+      !hasActiveUnits &&
+      supportedAndEvaluated.length === supportedAxes.length;
+
+    // axes_with_no_units: backward-compatible; now only includes supported-but-missing axes.
+    // (Unsupported axes are in coverage_breakdown.unsupported_axes instead.)
+    const axesWithNoUnitsResolved = [...new Set([...axesWithNoUnits, ...supportedButMissing])]
+      .filter(ax => (VALIDATOR_SUPPORTED_AXES as readonly string[]).includes(ax));
+
+    // Build coverage warning — only fires for supported-axis gaps, not unsupported axes
     const warningParts: string[] = [];
-    if (axesWithNoUnits.length > 0) {
-      warningParts.push(`${axesWithNoUnits.length} spine axis(es) have no unit data for this version: ${axesWithNoUnits.join(', ')}`);
+    if (axesWithNoUnitsResolved.length > 0) {
+      warningParts.push(`${axesWithNoUnitsResolved.length} supported axis(es) have no unit data for this version: ${axesWithNoUnitsResolved.join(', ')}`);
     }
     if (staledAxes.length > 0) {
       warningParts.push(`${staledAxes.length} unit(s) evaluated against a superseded spine spec — re-run analysis to refresh`);
@@ -270,14 +303,25 @@ serve(async (req: Request) => {
         : null,
       rewrite_targets: rewriteTargets,
       preserve_targets: preserveTargets,
-      likely_affected_areas: null,    // deferred: requires section targeting (not deterministic yet)
-      axes_with_no_units: axesWithNoUnits,
-      staled_axes: staledAxes,        // informational: which axes are stale (spec changed since eval)
-      total_relevant_axes: relevantAxes.length,
-      axes_covered: relevantAxes.length - axesWithNoUnits.length,
+      likely_affected_areas: null,
+      // ── Backward-compatible fields (unchanged shape, updated semantics) ──
+      axes_with_no_units: axesWithNoUnitsResolved,  // supported-but-missing only (semantic change)
+      staled_axes: staledAxes,
+      total_relevant_axes: relevantAxes.length,     // all non-null spine axes (unchanged)
+      axes_covered: supportedAndEvaluated.length,   // supported + evaluated (narrowed)
       coverage_warning: coverageWarning,
       plan_complete: planComplete,
       generated_at: now,
+      // ── Additive: coverage_breakdown distinguishes unsupported vs supported-but-missing ──
+      coverage_breakdown: {
+        supported_axes: supportedAxes,
+        unsupported_axes: unsupportedAxes,
+        deferred_validator_axes: VALIDATOR_DEFERRED_AXES.filter(ax =>
+          relevantAxes.includes(ax as SpineAxis)
+        ),
+        supported_but_missing_on_version: supportedButMissing,
+        supported_and_evaluated_on_version: supportedAndEvaluated,
+      },
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err: any) {

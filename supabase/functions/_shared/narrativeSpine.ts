@@ -354,6 +354,30 @@ For each check above:
 All spine findings must include note_source: "spine_alignment" or "spine_drift". These are advisory in v1 — do not block promotion.\n`;
 }
 
+// ── Validator coverage registry ──
+// Canonical set of spine axes that have dedicated inference-pass coverage.
+// Used by the rewrite planner to classify gaps as:
+//   "supported but not evaluated on this version" vs "not yet covered by any validator."
+// Update this when new validator passes are added (e.g. Class S section targeting).
+export const VALIDATOR_SUPPORTED_AXES: ReadonlyArray<SpineAxis> = [
+  'story_engine',      // Class A — constitutional exact-match check
+  'protagonist_arc',   // Class A — constitutional exact-match check
+  'pressure_system',   // Class B — bounded modulation check
+  'central_conflict',  // Class B — bounded modulation check
+  'resolution_type',   // Class B — bounded modulation check
+  'stakes_class',      // Class B — bounded modulation check
+] as const;
+
+// Axes explicitly deferred from validator coverage with rationale:
+//   inciting_incident  (Class S) — section-specific; deferred until section targeting is available
+//   midpoint_reversal  (Class S) — bounded context window misses the document midpoint structurally
+//   tonal_gravity      (Class C) — expressive modulation expected; detection threshold too subjective at v1
+export const VALIDATOR_DEFERRED_AXES: ReadonlyArray<SpineAxis> = [
+  'inciting_incident',
+  'midpoint_reversal',
+  'tonal_gravity',
+] as const;
+
 // ── Class A Spine Check — dedicated comparison pass ──
 
 export const CLASS_A_SPINE_CHECK_DOC_TYPES = new Set([
