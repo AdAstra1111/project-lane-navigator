@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
-import { spineToReviewerAlignmentBlock } from "../_shared/narrativeSpine.ts";
+import { spineToReviewerAlignmentBlock, getSpineState, CLASS_A_SPINE_CHECK_DOC_TYPES, buildClassASpineCheckSystemPrompt, buildClassASpineCheckUserPrompt, parseClassASpineCheckOutput } from "../_shared/narrativeSpine.ts";
 import { isCPMEnabled, CPM_EVAL_PROMPT_EXTENSION, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_EVAL_BLOCK } from "../_shared/ciBlockerGate.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
@@ -3269,6 +3269,88 @@ GENERAL RULES:
       const polishCount = (parsed.polish_notes || []).length;
       parsed.stability_status = blockerCount === 0 && highCount <= 3 && polishCount <= 5
         ? "structurally_stable" : blockerCount === 0 ? "refinement_phase" : "in_progress";
+
+      // ── CLASS A SPINE CHECK — dedicated post-analyze comparison pass ──
+      // Runs only when: locked spine exists + allowed doc type + Class A axes present.
+      // Appends advisory blocker-style spine_drift notes. Fail-closed: errors are logged, not thrown.
+      let classASpineNotes: any[] = [];
+      try {
+        const docType = effectiveDeliverable || deliverableType || "";
+        if (CLASS_A_SPINE_CHECK_DOC_TYPES.has(docType)) {
+          const spineState = await getSpineState(supabase, projectId);
+          if ((spineState.state === 'locked' || spineState.state === 'locked_amended') && spineState.spine) {
+            const spine = spineState.spine;
+            // Only run if at least one Class A axis is non-null
+            if (spine.story_engine || spine.protagonist_arc) {
+              console.log("[dev-engine-v2] Class A spine check: running", { projectId, docType, state: spineState.state });
+              const classASystem = buildClassASpineCheckSystemPrompt();
+              const classAUser = buildClassASpineCheckUserPrompt(
+                spine, docType, version.plaintext,
+                project?.title, project?.assigned_lane
+              );
+              const classARaw = await callAI(LOVABLE_API_KEY, FAST_MODEL, classASystem, classAUser, 0.1, 2000);
+              const classAParsed = await parseAIJson(LOVABLE_API_KEY, classARaw);
+              const classAResult = parseClassASpineCheckOutput(classAParsed);
+
+              if (classAResult) {
+                // Collect contradicted notes for insertion
+                const existingNoteKeys = new Set(
+                  (allTieredNotes || []).map((n: any) => n.id).filter(Boolean)
+                );
+                for (const check of classAResult.checks) {
+                  if (check.status === 'contradicted' && check.suggested_note) {
+                    const noteKey = `class_a_spine_${check.axis}`;
+                    // Dedupe: skip if a note with same key already exists in this run
+                    if (existingNoteKeys.has(noteKey)) {
+                      console.log("[dev-engine-v2] Class A spine check: skipping duplicate", { noteKey });
+                      continue;
+                    }
+                    const spineNote = {
+                      project_id: projectId,
+                      document_id: documentId,
+                      document_version_id: versionId,
+                      note_key: noteKey,
+                      category: 'spine_drift',
+                      severity: 'blocker',
+                      description: `${check.suggested_note.title}. ${check.suggested_note.instruction}`,
+                      why_it_matters: check.evidence,
+                      note_source: 'spine_drift',
+                    };
+                    classASpineNotes.push(spineNote);
+                  }
+                }
+                if (classASpineNotes.length > 0) {
+                  await supabase.from("development_notes").insert(classASpineNotes);
+                  console.log("[dev-engine-v2] Class A spine check: inserted notes", { count: classASpineNotes.length });
+                  // Append to parsed output for UI visibility
+                  if (!parsed.blocking_issues) parsed.blocking_issues = [];
+                  for (const sn of classASpineNotes) {
+                    parsed.blocking_issues.push({
+                      id: sn.note_key,
+                      note_key: sn.note_key,
+                      category: sn.category,
+                      severity: sn.severity,
+                      description: sn.description,
+                      why_it_matters: sn.why_it_matters,
+                      note_source: sn.note_source,
+                      apply_timing: 'now',
+                      target_deliverable_type: null,
+                    });
+                  }
+                } else {
+                  console.log("[dev-engine-v2] Class A spine check: all axes aligned or unclear");
+                }
+                parsed.class_a_spine_check = classAResult;
+              } else {
+                console.warn("[dev-engine-v2] Class A spine check: output parse failed (non-fatal)");
+              }
+            }
+          }
+        }
+      } catch (classAErr: any) {
+        console.warn("[dev-engine-v2] Class A spine check failed (non-fatal):", classAErr?.message);
+        // Fail closed — do not corrupt main analyze result
+      }
 
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
         project_id: projectId,
