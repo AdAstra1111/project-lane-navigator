@@ -77,6 +77,7 @@ interface RewritePlan {
   generated_at: string;
   error?: string;
   coverage_breakdown?: CoverageBreakdown;
+  likely_affected_areas?: string[] | null;
 }
 
 /* ── Props ── */
