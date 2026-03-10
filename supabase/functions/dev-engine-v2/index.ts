@@ -1296,7 +1296,7 @@ const DOC_TYPE_REMAP: Record<string, Record<string, string>> = {
 };
 
 function remapDocType(docType: string, format: string): string | null {
-  const ladder = getLadderForFormat(format);
+  const ladder = getLadderForFormat(format) ?? getLadderForFormat("film") ?? [];
   if (ladder.includes(docType)) return docType;
   const remap = DOC_TYPE_REMAP[format];
   if (remap && remap[docType]) return remap[docType];
