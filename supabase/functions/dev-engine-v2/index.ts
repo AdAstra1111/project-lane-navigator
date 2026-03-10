@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
-import { spineToReviewerAlignmentBlock, getSpineState, CLASS_A_SPINE_CHECK_DOC_TYPES, buildClassASpineCheckSystemPrompt, buildClassASpineCheckUserPrompt, parseClassASpineCheckOutput } from "../_shared/narrativeSpine.ts";
+import { spineToReviewerAlignmentBlock, getSpineState, CLASS_A_SPINE_CHECK_DOC_TYPES, buildClassASpineCheckSystemPrompt, buildClassASpineCheckUserPrompt, parseClassASpineCheckOutput, CLASS_B_SPINE_CHECK_DOC_TYPES, CLASS_B_SPINE_CHECK_AXES, buildClassBSpineCheckSystemPrompt, buildClassBSpineCheckUserPrompt, parseClassBSpineCheckOutput } from "../_shared/narrativeSpine.ts";
 import { isCPMEnabled, CPM_EVAL_PROMPT_EXTENSION, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_EVAL_BLOCK } from "../_shared/ciBlockerGate.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
@@ -3427,6 +3427,137 @@ GENERAL RULES:
       } catch (classAErr: any) {
         console.warn("[dev-engine-v2] Class A spine check failed (non-fatal):", classAErr?.message);
         // Fail closed — do not corrupt main analyze result
+      }
+
+      // ── CLASS B SPINE CHECK (Phase 1 expansion) ──
+      // Bounded modulation pass for: pressure_system, central_conflict, resolution_type, stakes_class.
+      // Same architecture as Class A. Key differences:
+      //   - Softer threshold: structural REPLACEMENT is a violation; development/modulation is not.
+      //   - Violations emit high_impact notes (severity="high"), not blockers.
+      //   - note_source="spine_alignment" (advisory tier), not "spine_drift" (blocker tier).
+      //   - Deduplication, fail-closed, and unit upsert patterns are identical to Class A.
+      //
+      // Excluded axes: midpoint_reversal (context window misses midpoint), tonal_gravity (threshold
+      //   too subjective for v1), inciting_incident (deferred to Phase 2 with section targeting).
+      //
+      // Timing note: this is a sequential LLM call (~13s) after Class A. For spine_revalidate
+      //   (analyze+notes chained), total time approaches ~60s. A concurrent Promise.all refactor
+      //   is the recommended follow-up to halve Class A+B inference time.
+      try {
+        const classBDocType = deliverableType || "";
+        if (CLASS_B_SPINE_CHECK_DOC_TYPES.has(classBDocType)) {
+          const classBSpineState = await getSpineState(supabase, projectId);
+          if ((classBSpineState.state === 'locked' || classBSpineState.state === 'locked_amended') && classBSpineState.spine) {
+            const classBSpine = classBSpineState.spine;
+            // Only run if at least one Class B axis is non-null in the locked spine
+            const hasClassBAxes = CLASS_B_SPINE_CHECK_AXES.some((ax) => (classBSpine as any)[ax]);
+            if (hasClassBAxes) {
+              const classBUser = buildClassBSpineCheckUserPrompt(
+                classBSpine, classBDocType, version.plaintext,
+                notesProject?.title, notesProject?.assigned_lane
+              );
+              if (classBUser) {
+                console.log("[dev-engine-v2] Class B spine check: running", { projectId, classBDocType, state: classBSpineState.state });
+                const classBRaw = await callAI(LOVABLE_API_KEY, FAST_MODEL, buildClassBSpineCheckSystemPrompt(), classBUser, 0.1, 2000);
+                const classBParsed = await parseAIJson(LOVABLE_API_KEY, classBRaw);
+                const classBResult = parseClassBSpineCheckOutput(classBParsed);
+
+                if (classBResult) {
+                  // Insert high_impact notes for contradicted axes (with DB-level dedupe)
+                  for (const check of classBResult.checks) {
+                    if (check.status === 'contradicted' && check.suggested_note) {
+                      const bNoteKey = `class_b_spine_${check.axis}`;
+                      // DB-level dedupe — same pattern as Class A
+                      try {
+                        const { data: existingBNote } = await supabase
+                          .from("development_notes")
+                          .select("id")
+                          .eq("project_id", projectId)
+                          .eq("document_id", documentId)
+                          .eq("note_key", bNoteKey)
+                          .eq("resolved", false)
+                          .limit(1)
+                          .maybeSingle();
+                        if (existingBNote) {
+                          console.log("[dev-engine-v2] Class B spine check: skipping duplicate (DB)", { bNoteKey });
+                          continue;
+                        }
+                      } catch (_bDedupeErr: any) {
+                        // Proceed with insert — prefer false duplicate over missing note
+                      }
+                      const bNote = {
+                        project_id: projectId,
+                        document_id: documentId,
+                        document_version_id: versionId,
+                        note_key: bNoteKey,
+                        category: 'spine_drift',
+                        severity: 'high',
+                        description: `${check.suggested_note.title}. ${check.suggested_note.instruction}`,
+                        why_it_matters: check.evidence,
+                        note_source: 'spine_alignment',
+                      };
+                      await supabase.from("development_notes").insert(bNote);
+                      console.log("[dev-engine-v2] Class B spine check: inserted note", { bNoteKey });
+                      // Append to high_impact_notes for UI visibility
+                      if (!parsed.high_impact_notes) parsed.high_impact_notes = [];
+                      parsed.high_impact_notes.push({
+                        id: bNoteKey,
+                        note_key: bNoteKey,
+                        category: 'spine_drift',
+                        severity: 'high',
+                        description: bNote.description,
+                        why_it_matters: check.evidence,
+                        note_source: 'spine_alignment',
+                        apply_timing: 'now',
+                        target_deliverable_type: null,
+                      });
+                    }
+                  }
+
+                  // Upsert narrative_units for all Class B results (aligned/contradicted/unclear→active)
+                  const classBUnits = classBResult.checks.map((check) => ({
+                    project_id: projectId,
+                    unit_type: check.axis,
+                    unit_key: `${versionId}::${check.axis}`,
+                    payload_json: {
+                      evidence_excerpt: check.evidence || null,
+                      spine_value: (classBSpine as any)[check.axis] || null,
+                      contradiction_note: check.status === 'contradicted' && check.suggested_note
+                        ? `${check.suggested_note.title}. ${check.suggested_note.instruction}`
+                        : null,
+                    },
+                    source_doc_type: classBDocType,
+                    source_doc_version_id: versionId,
+                    confidence: check.confidence ?? 50,
+                    extraction_method: 'class_b_inference',
+                    status: check.status === 'contradicted' ? 'contradicted'
+                          : check.status === 'aligned' ? 'aligned'
+                          : 'active',
+                    stale_reason: null,
+                  }));
+
+                  if (classBUnits.length > 0) {
+                    const { error: bUnitErr } = await supabase
+                      .from('narrative_units')
+                      .upsert(classBUnits, { onConflict: 'project_id,unit_type,unit_key' });
+                    if (bUnitErr) {
+                      console.warn('[dev-engine-v2] Class B narrative_units upsert failed (non-fatal):', bUnitErr.message);
+                    } else {
+                      console.log('[dev-engine-v2] Class B narrative_units persisted', { count: classBUnits.length });
+                    }
+                  }
+
+                  parsed.class_b_spine_check = classBResult;
+                } else {
+                  console.warn("[dev-engine-v2] Class B spine check: output parse failed (non-fatal)");
+                }
+              }
+            }
+          }
+        }
+      } catch (classBErr: any) {
+        console.warn("[dev-engine-v2] Class B spine check failed (non-fatal):", classBErr?.message);
+        // Fail closed — do not corrupt main notes result
       }
 
       // FIX 2: Recompute stability_status after Class A notes may have been appended

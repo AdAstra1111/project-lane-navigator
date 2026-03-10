@@ -520,3 +520,202 @@ export function parseClassASpineCheckOutput(parsed: any): ClassASpineCheckOutput
   if (checks.length === 0) return null;
   return { checks };
 }
+
+// ── Class B Spine Check — bounded modulation pass ──
+// Covers pressure_system, central_conflict, resolution_type, stakes_class.
+// These axes allow bounded modulation — "developed" is not "contradicted".
+// Only structural replacement (fundamentally different mechanism) is a violation.
+//
+// Excluded axes and rationale:
+//   midpoint_reversal (Class S) — bounded context (first+last) systematically misses the midpoint;
+//     the middle section is explicitly omitted; confident evaluation is impossible.
+//   tonal_gravity (Class C) — expressive modulation is explicitly expected; the detection
+//     threshold would need to be so high (sustained drift only) that false positives
+//     outweigh signal value at Phase 1.
+//   inciting_incident (Class S) — deferred to Phase 2 once section-targeting is available;
+//     early-document context is captured in first 3K chars but axis value is a structural
+//     category that requires comparison against a specific narrative event, not prose description.
+
+/** Class B axes evaluated in the dedicated check pass */
+export const CLASS_B_SPINE_CHECK_AXES = [
+  'pressure_system',
+  'central_conflict',
+  'resolution_type',
+  'stakes_class',
+] as const satisfies ReadonlyArray<SpineAxis>;
+
+/** Doc types eligible for Class B check — same eligibility as Class A */
+export const CLASS_B_SPINE_CHECK_DOC_TYPES = CLASS_A_SPINE_CHECK_DOC_TYPES;
+
+export type ClassBAxis = typeof CLASS_B_SPINE_CHECK_AXES[number];
+
+export interface ClassBCheckResult {
+  axis: ClassBAxis;
+  status: 'aligned' | 'contradicted' | 'unclear';
+  confidence: number;
+  evidence: string;
+  suggested_note: {
+    category: string;
+    severity: string;
+    note_source: string;
+    title: string;
+    instruction: string;
+  } | null;
+}
+
+export interface ClassBSpineCheckOutput {
+  checks: ClassBCheckResult[];
+}
+
+/**
+ * Builds the system prompt for the Class B spine check pass.
+ * Key difference from Class A: development/modulation is acceptable;
+ * only structural REPLACEMENT is a violation.
+ */
+export function buildClassBSpineCheckSystemPrompt(): string {
+  return `You are a structural narrative compliance reviewer.
+
+Your ONLY task: compare a locked Narrative Spine's Class B axes against bounded document evidence and determine whether each axis has been REPLACED (structural violation) or remains WITHIN ACCEPTABLE BOUNDS.
+
+You are NOT reviewing quality, craft, pacing, or any other aspect.
+You are checking BOUNDED FIDELITY for up to four axes:
+1. pressure_system — the causal grammar driving conflict (how pressure is applied)
+2. central_conflict — the dominant conflict topology
+3. resolution_type — the constitutional end-state promise (how the story resolves)
+4. stakes_class — the emotional register of what is at risk
+
+CRITICAL DISTINCTION — Class B allows bounded modulation:
+- "aligned" — the document supports, develops, or modulates the locked axis value while preserving its structural core
+- "contradicted" — the document evidence shows a FUNDAMENTALLY DIFFERENT mechanism that REPLACES the locked value entirely
+- "unclear" — insufficient evidence in this document to determine alignment or contradiction
+
+KEY RULES:
+- DEVELOPMENT is not contradiction. A story that evolves its conflict in unexpected directions is aligned if the structural topology is preserved.
+- Only mark "contradicted" when the document has REPLACED the axis with a structurally different one — not when it has elaborated, deepened, or modulated it.
+- If a document type (e.g., character_bible) would not typically surface an axis (e.g., resolution_type), return "unclear" for that axis.
+- When in doubt, return "unclear" — never invent contradictions.
+- Only evaluate axes listed in the LOCKED SPINE VALUES section. Skip any axis not provided.
+- Do not evaluate more axes than those listed.
+
+Respond with ONLY valid JSON matching this exact schema:
+{
+  "checks": [
+    {
+      "axis": "pressure_system" | "central_conflict" | "resolution_type" | "stakes_class",
+      "status": "aligned" | "contradicted" | "unclear",
+      "confidence": <number 0-100>,
+      "evidence": "<1-2 sentence explanation citing document evidence>",
+      "suggested_note": null | {
+        "category": "spine_drift",
+        "severity": "high",
+        "note_source": "spine_alignment",
+        "title": "<concise title>",
+        "instruction": "<what must change to restore alignment>"
+      }
+    }
+  ]
+}
+
+Rules for suggested_note:
+- If status = "aligned" → suggested_note MUST be null
+- If status = "unclear" → suggested_note MUST be null
+- If status = "contradicted" → suggested_note MUST be present with category="spine_drift", severity="high", note_source="spine_alignment"`;
+}
+
+/**
+ * Builds the user prompt for the Class B spine check pass.
+ * Only includes non-null Class B spine axes.
+ * Returns empty string if no Class B axes are present (caller must check).
+ */
+export function buildClassBSpineCheckUserPrompt(
+  spine: NarrativeSpine,
+  docType: string,
+  documentText: string,
+  projectTitle?: string,
+  lane?: string,
+): string {
+  const spineLines: string[] = [];
+  if (spine.pressure_system)  spineLines.push(`- Pressure System: "${spine.pressure_system}"`);
+  if (spine.central_conflict) spineLines.push(`- Central Conflict: "${spine.central_conflict}"`);
+  if (spine.resolution_type)  spineLines.push(`- Resolution Type: "${spine.resolution_type}"`);
+  if (spine.stakes_class)     spineLines.push(`- Stakes Class: "${spine.stakes_class}"`);
+
+  if (spineLines.length === 0) return '';
+
+  // Same bounded context window as Class A (first 3K + last 5K chars)
+  const MAX_FRONT = 3000;
+  const MAX_BACK = 5000;
+  let boundedContext: string;
+  if (documentText.length <= MAX_FRONT + MAX_BACK + 500) {
+    boundedContext = documentText;
+  } else {
+    const front = documentText.slice(0, MAX_FRONT);
+    const back = documentText.slice(-MAX_BACK);
+    boundedContext = `${front}\n\n[... middle section omitted for brevity ...]\n\n${back}`;
+  }
+
+  return `LOCKED CLASS B SPINE VALUES (bounded — structural REPLACEMENT is a violation; development/modulation is acceptable):
+${spineLines.join('\n')}
+
+PROJECT: ${projectTitle || 'Unknown'}
+LANE: ${lane || 'Unknown'}
+DOCUMENT TYPE: ${docType}
+
+DOCUMENT EVIDENCE (bounded excerpt):
+${boundedContext}
+
+Compare the document evidence against EACH locked Class B axis value above.
+For each axis listed, determine: aligned (supported/developed/modulated), contradicted (structurally replaced), or unclear (insufficient evidence).
+Only return results for the axes listed above.`;
+}
+
+/**
+ * Validates and parses the Class B spine check output.
+ * Returns null if output is invalid or contains no valid checks.
+ */
+export function parseClassBSpineCheckOutput(parsed: any): ClassBSpineCheckOutput | null {
+  if (!parsed || !Array.isArray(parsed.checks)) return null;
+  const validAxes = new Set<string>(['pressure_system', 'central_conflict', 'resolution_type', 'stakes_class']);
+  const validStatuses = new Set(['aligned', 'contradicted', 'unclear']);
+
+  const checks: ClassBCheckResult[] = [];
+  for (const c of parsed.checks) {
+    if (!validAxes.has(c.axis) || !validStatuses.has(c.status)) continue;
+    const result: ClassBCheckResult = {
+      axis: c.axis as ClassBAxis,
+      status: c.status,
+      confidence: typeof c.confidence === 'number' ? c.confidence : 50,
+      evidence: typeof c.evidence === 'string' ? c.evidence : '',
+      suggested_note: null,
+    };
+    if (c.status === 'contradicted' && c.suggested_note) {
+      result.suggested_note = {
+        category: 'spine_drift',
+        severity: 'high',
+        note_source: 'spine_alignment',
+        title: typeof c.suggested_note.title === 'string'
+          ? c.suggested_note.title
+          : `Class B structural drift: ${c.axis}`,
+        instruction: typeof c.suggested_note.instruction === 'string'
+          ? c.suggested_note.instruction
+          : '',
+      };
+    } else if (c.status === 'contradicted' && !c.suggested_note) {
+      // Force a note for contradicted results even when model omits it
+      result.suggested_note = {
+        category: 'spine_drift',
+        severity: 'high',
+        note_source: 'spine_alignment',
+        title: `Class B structural drift: ${c.axis} contradicts locked spine`,
+        instruction: c.evidence || 'Realign document with the locked spine axis.',
+      };
+    }
+    // Enforce: no note for aligned/unclear
+    if (c.status !== 'contradicted') {
+      result.suggested_note = null;
+    }
+    checks.push(result);
+  }
+  if (checks.length === 0) return null;
+  return { checks };
+}
