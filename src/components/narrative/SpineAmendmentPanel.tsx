@@ -244,6 +244,47 @@ export function SpineAmendmentPanel({ projectId, spine, onAmendmentConfirmed }: 
               )}
             </div>
 
+            {/* Section C: Narrative Unit Impact */}
+            {(impact.units_at_risk_count ?? 0) > 0 && impact.units_at_risk && (
+              <div className="space-y-2">
+                <p className="text-xs text-white/60">
+                  <span className="text-amber-300/90 font-medium">{impact.units_at_risk_count}</span>{' '}
+                  narrative evaluation{impact.units_at_risk_count !== 1 ? 's' : ''} will be invalidated
+                </p>
+                <Collapsible>
+                  <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-white/40 hover:text-white/60 transition-colors group">
+                    <ChevronRight className="w-3 h-3 transition-transform group-data-[state=open]:rotate-90" />
+                    View affected narrative evaluations
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
+                      {impact.units_at_risk.map((u, i) => {
+                        const statusStyle =
+                          u.status === 'aligned'
+                            ? 'bg-amber-950 text-amber-300 border-amber-800'
+                            : u.status === 'contradicted'
+                            ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                            : 'bg-white/5 text-white/50 border-white/10';
+                        return (
+                          <div key={`${u.unit_key}-${i}`} className="p-2 rounded bg-white/[0.03] border border-white/5 space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-mono text-white/60">{u.source_doc_type}</span>
+                              <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${statusStyle}`}>
+                                {u.status}
+                              </Badge>
+                            </div>
+                            {u.evidence_excerpt && (
+                              <p className="text-[10px] text-white/40 italic leading-snug">"{u.evidence_excerpt}"</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="flex items-center gap-2 pt-1">
               <Button
