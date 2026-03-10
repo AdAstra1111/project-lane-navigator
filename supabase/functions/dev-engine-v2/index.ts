@@ -15918,6 +15918,94 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       });
     }
 
+    // ══════════════════════════════════════════════
+    // SPINE_REVALIDATE — Phase 4 Stage 3
+    // Targeted single-document revalidation against current spine.
+    // On full success (analyze + notes), clears only spine_amendment reconcile reasons.
+    // ══════════════════════════════════════════════
+    if (action === "spine_revalidate") {
+      const { projectId, documentId, versionId, deliverableType } = body;
+      if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
+      if (!deliverableType) throw new Error("deliverableType is required for spine_revalidate");
+
+      const selfUrl = `${supabaseUrl}/functions/v1/dev-engine-v2`;
+      const authHeader = req.headers.get("authorization") || "";
+
+      // Step 1: Run analyze
+      const analyzeResp = await fetch(selfUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": authHeader,
+        },
+        body: JSON.stringify({ action: "analyze", projectId, documentId, versionId, deliverableType }),
+      });
+      const analyzeResult = await analyzeResp.json();
+      if (!analyzeResp.ok || analyzeResult.error) {
+        return new Response(JSON.stringify({
+          success: false,
+          stage: "analyze",
+          error: analyzeResult.error || "Analyze failed",
+          spine_reasons_cleared: false,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Step 2: Run notes (pass analysis output)
+      const notesResp = await fetch(selfUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": authHeader,
+        },
+        body: JSON.stringify({ action: "notes", projectId, documentId, versionId, deliverableType, analysisJson: analyzeResult.analysis }),
+      });
+      const notesResult = await notesResp.json();
+      if (!notesResp.ok || notesResult.error) {
+        return new Response(JSON.stringify({
+          success: false,
+          stage: "notes",
+          error: notesResult.error || "Notes failed",
+          spine_reasons_cleared: false,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Step 3: Both succeeded — clear spine_amendment reconcile reasons for this document only
+      const { data: docRow } = await supabase
+        .from("project_documents")
+        .select("reconcile_reasons")
+        .eq("id", documentId)
+        .single();
+
+      const existing = Array.isArray(docRow?.reconcile_reasons) ? docRow.reconcile_reasons : [];
+      const remaining = existing.filter((r: any) =>
+        !(typeof r === "object" && r !== null && r.type === "spine_amendment")
+      );
+
+      const newNeedsReconcile = remaining.length > 0;
+      await supabase
+        .from("project_documents")
+        .update({
+          needs_reconcile: newNeedsReconcile,
+          reconcile_reasons: remaining.length > 0 ? remaining : null,
+        })
+        .eq("id", documentId);
+
+      return new Response(JSON.stringify({
+        success: true,
+        spine_reasons_cleared: true,
+        remaining_reconcile_reasons: remaining,
+        needs_reconcile: newNeedsReconcile,
+        analyze_summary: {
+          run_id: analyzeResult.run?.id,
+          score: analyzeResult.analysis?.score,
+        },
+        notes_summary: {
+          run_id: notesResult.run?.id,
+          notes_count: notesResult.notes?.notes?.length ?? 0,
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
