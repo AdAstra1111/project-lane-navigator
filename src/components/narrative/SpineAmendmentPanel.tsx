@@ -286,6 +286,23 @@ export function SpineAmendmentPanel({ projectId, spine, onAmendmentConfirmed }: 
               </div>
             )}
 
+            {/* Section D: Recommended Repair Order */}
+            {impact.recommended_repair_order && impact.recommended_repair_order.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-medium text-white/60">Recommended Repair Order</h4>
+                <ol className="list-decimal list-inside space-y-0.5">
+                  {impact.recommended_repair_order.map((axis, i) => (
+                    <li key={`${axis}-${i}`} className="text-[10px] text-white/70">
+                      {AXIS_META[axis]?.label || axis.replace(/_/g, ' ')}
+                    </li>
+                  ))}
+                </ol>
+                <p className="text-[9px] text-white/40 italic">
+                  Repair upstream narrative causes before downstream outcomes.
+                </p>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="flex items-center gap-2 pt-1">
               <Button
