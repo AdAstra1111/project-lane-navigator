@@ -623,6 +623,51 @@ function PropagatedRiskSection({ risks }: { risks?: PropagatedRisk[] }) {
   );
 }
 
+/* ── Rewrite Sequence Section ── */
+
+function RewriteSequenceSection({ sequence }: { sequence?: RewriteSequenceItem[] }) {
+  if (!sequence || sequence.length === 0) return null;
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs font-medium text-foreground flex items-center gap-1.5">
+        <GitBranch className="w-3.5 h-3.5 text-blue-400" />
+        Rewrite Sequence
+        <Badge variant="outline" className="text-[9px] ml-1 border-blue-500/30 text-blue-400">
+          {sequence.length} steps
+        </Badge>
+      </h3>
+      <div className="space-y-1">
+        {sequence
+          .sort((a, b) => a.sequence_rank - b.sequence_rank)
+          .map((item) => {
+            const bucketStyle = SEQUENCE_BUCKET_STYLES[item.sequence_bucket];
+            return (
+              <div key={item.axis} className="flex items-start gap-2 py-1.5 px-2.5 rounded bg-muted/30 border border-border">
+                <span className="text-[10px] font-mono text-muted-foreground shrink-0 mt-0.5">
+                  {item.sequence_rank}.
+                </span>
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-medium text-foreground">
+                      {AXIS_LABELS[item.axis] || item.axis}
+                    </span>
+                    {bucketStyle && (
+                      <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${bucketStyle.className}`}>
+                        {bucketStyle.label}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-[9px] text-muted-foreground/60 leading-snug">{item.sequence_reason}</p>
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </section>
+  );
+}
+
 /* ── Coverage Breakdown Section ── */
 
 function CoverageBreakdownSection({ breakdown }: { breakdown: CoverageBreakdown }) {

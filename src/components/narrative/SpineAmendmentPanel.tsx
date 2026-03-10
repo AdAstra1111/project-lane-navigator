@@ -54,6 +54,7 @@ interface ImpactResult {
   affectedDocs: string[];
   units_at_risk?: UnitAtRisk[];
   units_at_risk_count?: number;
+  recommended_repair_order?: string[];
 }
 
 interface SpineAmendmentPanelProps {
