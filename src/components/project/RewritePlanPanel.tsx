@@ -410,6 +410,7 @@ function RewriteTargetCard({ target }: { target: RewriteTarget }) {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-medium text-foreground">{AXIS_LABELS[target.axis] || target.axis}</span>
         <DependencyPositionBadge position={target.dependency_position} />
+        <RiskScoreBadge score={target.rewrite_priority_score} label="priority" />
         <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${reasonStyle}`}>
           {target.reason}
         </Badge>
