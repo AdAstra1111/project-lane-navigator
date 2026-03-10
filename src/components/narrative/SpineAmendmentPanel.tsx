@@ -39,11 +39,21 @@ const SORTED_AXES = Object.entries(AXIS_META).sort(
   ([, a], [, b]) => CLASS_ORDER.indexOf(a.class) - CLASS_ORDER.indexOf(b.class)
 );
 
+interface UnitAtRisk {
+  unit_key: string;
+  status: string;
+  source_doc_type: string;
+  source_doc_version_id: string;
+  evidence_excerpt: string | null;
+}
+
 interface ImpactResult {
   severity: string;
   warningText: string;
   floorStage: string;
   affectedDocs: string[];
+  units_at_risk?: UnitAtRisk[];
+  units_at_risk_count?: number;
 }
 
 interface SpineAmendmentPanelProps {
