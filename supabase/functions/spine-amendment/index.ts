@@ -359,11 +359,13 @@ serve(async (req: Request) => {
         severity,
         new_spine_state: (state === "locked" || state === "locked_amended") ? "locked_amended" : state,
         revalidation_floor_stage: revalidationFloorStage,
-        affected_docs_requiring_revalidation: affectedDocs,
+        affected_docs_requiring_revalidation: affectedDocTypes,
+        affected_doc_ids_flagged: affectedDocIds,
+        docs_flagged_for_revalidation: docsFlaged,
         superseded_entry_id: entryId || null,
         stale_notes_resolved: staleNotesResolved,
         stale_note_key: staleNotesResolved > 0 ? staleNoteKey : null,
-        message: `Spine amended: ${axis} changed from "${currentValue}" to "${proposed_value}". ${affectedDocs.length} document(s) flagged for revalidation.${staleNotesResolved > 0 ? ` ${staleNotesResolved} stale ${staleNoteKey} note(s) auto-resolved.` : ""}`,
+        message: `Spine amended: ${axis} changed from "${currentValue}" to "${proposed_value}". ${docsFlaged} document(s) flagged for revalidation.${staleNotesResolved > 0 ? ` ${staleNotesResolved} stale ${staleNoteKey} note(s) auto-resolved.` : ""}`,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
