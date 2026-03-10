@@ -393,6 +393,7 @@ export interface ClassACheckResult {
   status: 'aligned' | 'contradicted' | 'unclear';
   confidence: number;
   evidence: string;
+  verbatim_quote: string | null;  // L4.4: exact phrase copied verbatim from document
   suggested_note: {
     category: string;
     severity: string;
@@ -440,6 +441,7 @@ Respond with ONLY valid JSON matching this exact schema:
       "status": "aligned" | "contradicted" | "unclear",
       "confidence": <number 0-100>,
       "evidence": "<1-2 sentence explanation>",
+      "verbatim_quote": "<exact phrase or sentence copied verbatim from the document — no paraphrasing, no interpretation, punctuation preserved, ≤300 characters; null if status is unclear>",
       "suggested_note": null | {
         "category": "spine_drift",
         "severity": "blocker",
@@ -454,7 +456,14 @@ Respond with ONLY valid JSON matching this exact schema:
 Rules for suggested_note:
 - If status = "aligned" → suggested_note MUST be null
 - If status = "unclear" → suggested_note MUST be null
-- If status = "contradicted" → suggested_note MUST be present with category="spine_drift", severity="blocker", note_source="spine_drift"`;
+- If status = "contradicted" → suggested_note MUST be present with category="spine_drift", severity="blocker", note_source="spine_drift"
+
+Rules for verbatim_quote:
+- MUST be copied character-for-character from the document text above.
+- Do NOT paraphrase, summarise, or interpret.
+- Must be a phrase or sentence that appears verbatim in the DOCUMENT EVIDENCE section.
+- Maximum 300 characters.
+- If status is "unclear" (no clear evidence) → set to null.`;
 }
 
 /**
@@ -510,11 +519,18 @@ export function parseClassASpineCheckOutput(parsed: any): ClassASpineCheckOutput
   const checks: ClassACheckResult[] = [];
   for (const c of parsed.checks) {
     if (!validAxes.has(c.axis) || !validStatuses.has(c.status)) continue;
+    // L4.4: validate verbatim_quote — must be a non-empty string ≤300 chars, or null
+    const rawVQ = c.verbatim_quote;
+    const verbatimQuote: string | null = (
+      typeof rawVQ === 'string' && rawVQ.trim().length >= 5 && rawVQ.trim().length <= 300
+    ) ? rawVQ.trim() : null;
+
     const result: ClassACheckResult = {
       axis: c.axis,
       status: c.status,
       confidence: typeof c.confidence === 'number' ? c.confidence : 50,
       evidence: typeof c.evidence === 'string' ? c.evidence : '',
+      verbatim_quote: verbatimQuote,
       suggested_note: null,
     };
     if (c.status === 'contradicted' && c.suggested_note) {
@@ -578,6 +594,7 @@ export interface ClassBCheckResult {
   status: 'aligned' | 'contradicted' | 'unclear';
   confidence: number;
   evidence: string;
+  verbatim_quote: string | null;  // L4.4: exact phrase copied verbatim from document
   suggested_note: {
     category: string;
     severity: string;
@@ -629,6 +646,7 @@ Respond with ONLY valid JSON matching this exact schema:
       "status": "aligned" | "contradicted" | "unclear",
       "confidence": <number 0-100>,
       "evidence": "<1-2 sentence explanation citing document evidence>",
+      "verbatim_quote": "<exact phrase or sentence copied verbatim from the document — no paraphrasing, punctuation preserved, ≤300 characters; null if status is unclear>",
       "suggested_note": null | {
         "category": "spine_drift",
         "severity": "high",
@@ -643,7 +661,14 @@ Respond with ONLY valid JSON matching this exact schema:
 Rules for suggested_note:
 - If status = "aligned" → suggested_note MUST be null
 - If status = "unclear" → suggested_note MUST be null
-- If status = "contradicted" → suggested_note MUST be present with category="spine_drift", severity="high", note_source="spine_alignment"`;
+- If status = "contradicted" → suggested_note MUST be present with category="spine_drift", severity="high", note_source="spine_alignment"
+
+Rules for verbatim_quote:
+- MUST be copied character-for-character from the document text above.
+- Do NOT paraphrase, summarise, or interpret.
+- Must appear verbatim in the DOCUMENT EVIDENCE section.
+- Maximum 300 characters.
+- If status is "unclear" → set to null.`;
 }
 
 /**
@@ -705,11 +730,18 @@ export function parseClassBSpineCheckOutput(parsed: any): ClassBSpineCheckOutput
   const checks: ClassBCheckResult[] = [];
   for (const c of parsed.checks) {
     if (!validAxes.has(c.axis) || !validStatuses.has(c.status)) continue;
+    // L4.4: validate verbatim_quote — same rules as Class A
+    const rawBVQ = c.verbatim_quote;
+    const bVerbatimQuote: string | null = (
+      typeof rawBVQ === 'string' && rawBVQ.trim().length >= 5 && rawBVQ.trim().length <= 300
+    ) ? rawBVQ.trim() : null;
+
     const result: ClassBCheckResult = {
       axis: c.axis as ClassBAxis,
       status: c.status,
       confidence: typeof c.confidence === 'number' ? c.confidence : 50,
       evidence: typeof c.evidence === 'string' ? c.evidence : '',
+      verbatim_quote: bVerbatimQuote,
       suggested_note: null,
     };
     if (c.status === 'contradicted' && c.suggested_note) {

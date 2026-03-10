@@ -232,6 +232,68 @@ const VERIFIED_TARGET_NOTE =
   'line range. Narrative unit evidence is associated via structural axis mapping, not ' +
   'verbatim excerpt position.';
 
+const PASSAGE_VERIFIED_NOTE =
+  'Passage-verified: verbatim quote located inside this section at the reported line range.';
+
+/**
+ * L4.4 — Passage-level targeting.
+ *
+ * Deterministically locates a verbatim_quote inside a parsed section boundary.
+ * Returns passage_start_line + passage_end_line when found, null otherwise.
+ *
+ * Strategy:
+ *  1. Normalise whitespace in both quote and section content (LLMs may alter spacing)
+ *  2. Check section-level containment first (fast guard)
+ *  3. Scan lines for single-line match
+ *  4. Scan line windows (up to 4 lines) for multi-line matches
+ *
+ * Fail-closed: returns null on any doubt. Never fabricates a position.
+ *
+ * Complexity: O(section_lines × quote_len) — acceptable for typical section sizes.
+ */
+function findPassageLines(
+  boundary: SectionBoundary,
+  verbatimQuote: string,
+): { passage_start_line: number; passage_end_line: number } | null {
+  if (!verbatimQuote || verbatimQuote.length < 5) return null;
+
+  const normalise = (s: string) => s.replace(/\s+/g, ' ').trim();
+  const normQuote = normalise(verbatimQuote);
+
+  // Guard: check section-level containment with normalised whitespace
+  const normSection = normalise(boundary.content);
+  if (!normSection.includes(normQuote)) return null;
+
+  const sectionLines = boundary.content.split('\n');
+
+  // Single-line match
+  for (let i = 0; i < sectionLines.length; i++) {
+    if (normalise(sectionLines[i]).includes(normQuote)) {
+      return {
+        passage_start_line: boundary.start_line + i,
+        passage_end_line:   boundary.start_line + i,
+      };
+    }
+  }
+
+  // Multi-line match (quote spans up to 4 lines)
+  const WINDOW = 4;
+  const quotePrefix = normQuote.slice(0, Math.min(20, normQuote.length));
+  for (let i = 0; i < sectionLines.length; i++) {
+    if (!normalise(sectionLines[i]).includes(quotePrefix.slice(0, 10))) continue;
+    const windowEnd = Math.min(i + WINDOW, sectionLines.length);
+    const windowText = normalise(sectionLines.slice(i, windowEnd).join(' '));
+    if (windowText.includes(normQuote)) {
+      return {
+        passage_start_line: boundary.start_line + i,
+        passage_end_line:   boundary.start_line + windowEnd - 1,
+      };
+    }
+  }
+
+  return null;
+}
+
 /**
  * Compute section_targets for a given axis + doc_type.
  *
@@ -255,14 +317,17 @@ function computeSectionTargets(
   axis: string,
   docType: string | null,
   sectionBoundaryMap?: Map<string, SectionBoundary>,
+  verbatimQuote?: string | null,
 ): Array<{
   section_key: string;
   section_label: string;
   confidence: 'deterministic' | 'bounded';
   basis: string;
-  targeting_method: 'document_verified' | 'registry';
+  targeting_method: 'passage_verified' | 'document_verified' | 'registry';
   start_line?: number;
   end_line?: number;
+  passage_start_line?: number;
+  passage_end_line?: number;
   note: string;
 }> | null {
   if (!docType) return null;
@@ -276,10 +341,30 @@ function computeSectionTargets(
     const secDef = findSectionDef(docType, e.section_key);
     const label = secDef?.label || e.section_key;
 
-    // L4.3: try document-verified targeting if section boundary map is available
     if (sectionBoundaryMap) {
       const boundary = sectionBoundaryMap.get(e.section_key);
       if (boundary) {
+        // L4.4: try passage-verified targeting when verbatim_quote is available
+        if (verbatimQuote) {
+          const passage = findPassageLines(boundary, verbatimQuote);
+          if (passage) {
+            return {
+              section_key:          e.section_key,
+              section_label:        label,
+              confidence:           'deterministic' as const,
+              basis:                `passage_verified:quote_found_at_line_${passage.passage_start_line}`,
+              targeting_method:     'passage_verified' as const,
+              start_line:           boundary.start_line,
+              end_line:             boundary.end_line,
+              passage_start_line:   passage.passage_start_line,
+              passage_end_line:     passage.passage_end_line,
+              note:                 PASSAGE_VERIFIED_NOTE,
+            };
+          }
+          // Quote provided but not found in this section — fall through to document_verified
+        }
+
+        // L4.3: section heading confirmed in document
         return {
           section_key:      e.section_key,
           section_label:    label,
@@ -291,11 +376,10 @@ function computeSectionTargets(
           note:             VERIFIED_TARGET_NOTE,
         };
       }
-      // Section not found in this document — fall through to registry entry
-      // (section is in registry but absent from this version; advisory only)
+      // Section not found in this document — advisory registry fallback
     }
 
-    // L4.2 registry fallback
+    // L4.2: registry-only (no document plaintext loaded or section absent)
     return {
       section_key:      e.section_key,
       section_label:    label,
@@ -492,7 +576,7 @@ serve(async (req: Request) => {
           priority,
           axis_class: meta.class,
           confidence: unit.confidence ?? null,
-          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json?.verbatim_quote ?? null),
         });
 
       } else if (unit.status === 'contradicted') {
@@ -507,7 +591,7 @@ serve(async (req: Request) => {
           priority,
           axis_class: meta.class,
           confidence: unit.confidence ?? null,
-          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json?.verbatim_quote ?? null),
         });
 
       } else if (unit.status === 'aligned') {
@@ -520,7 +604,7 @@ serve(async (req: Request) => {
           spine_value: currentSpineValue,
           note: 'Aligned with current spine — preserve this in any rewrite.',
           axis_class: meta.class,
-          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json?.verbatim_quote ?? null),
         });
 
       } else if (unit.status === 'active') {
@@ -534,7 +618,7 @@ serve(async (req: Request) => {
           spine_value: currentSpineValue,
           note: 'Alignment unclear — included as provisional preserve target. Re-run analysis for definitive classification.',
           axis_class: meta.class,
-          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json?.verbatim_quote ?? null),
         });
       }
     }
@@ -544,20 +628,23 @@ serve(async (req: Request) => {
     // Deduplicated union of section_keys from all rewrite_targets.
     // Prefers document_verified targets when available — those entries carry start_line/end_line.
     // Falls back to registry targets when no verified entry exists for a section.
-    const affectedByKey = new Map<string, { section_key: string; section_label: string; targeting_method: string; start_line?: number; end_line?: number }>();
+    const METHOD_RANK: Record<string, number> = { passage_verified: 3, document_verified: 2, registry: 1 };
+    const affectedByKey = new Map<string, { section_key: string; section_label: string; targeting_method: string; start_line?: number; end_line?: number; passage_start_line?: number; passage_end_line?: number }>();
     for (const rt of rewriteTargets) {
       if (rt.section_targets) {
         for (const st of rt.section_targets) {
           const existing = affectedByKey.get(st.section_key);
-          // Prefer document_verified over registry when both exist
-          if (!existing || st.targeting_method === 'document_verified') {
+          // Prefer passage_verified > document_verified > registry
+          if (!existing || (METHOD_RANK[st.targeting_method] ?? 0) > (METHOD_RANK[existing.targeting_method] ?? 0)) {
             const sd = findSectionDef(documentType || '', st.section_key);
             affectedByKey.set(st.section_key, {
               section_key:      st.section_key,
               section_label:    sd?.label || st.section_key,
               targeting_method: st.targeting_method,
-              ...(st.start_line !== undefined ? { start_line: st.start_line } : {}),
-              ...(st.end_line   !== undefined ? { end_line:   st.end_line   } : {}),
+              ...(st.start_line           !== undefined ? { start_line:           st.start_line           } : {}),
+              ...(st.end_line             !== undefined ? { end_line:             st.end_line             } : {}),
+              ...(st.passage_start_line   !== undefined ? { passage_start_line:   st.passage_start_line   } : {}),
+              ...(st.passage_end_line     !== undefined ? { passage_end_line:     st.passage_end_line     } : {}),
             });
           }
         }
