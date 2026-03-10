@@ -587,6 +587,7 @@ function PropagatedRiskSection({ risks }: { risks?: PropagatedRisk[] }) {
               <span className="text-[10px] font-medium text-foreground">
                 {AXIS_LABELS[risk.source_axis] || risk.source_axis}
               </span>
+              <RiskScoreBadge score={risk.risk_score} label="risk" />
               <span className="text-[10px] text-muted-foreground">change may affect:</span>
             </div>
             <div className="flex flex-wrap gap-1.5 pl-2">
