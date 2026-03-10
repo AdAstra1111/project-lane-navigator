@@ -2850,7 +2850,7 @@ ${version.plaintext.slice(0, maxContextChars)}`;
     // NOTES — tiered structured notes with tracking
     // ══════════════════════════════════════════════
     if (action === "notes") {
-      const { projectId, documentId, versionId, analysisJson } = body;
+      const { projectId, documentId, versionId, analysisJson, deliverableType } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
 
       const { data: version } = await supabase.from("project_document_versions")
@@ -2859,7 +2859,7 @@ ${version.plaintext.slice(0, maxContextChars)}`;
 
       // Fetch project format so notes are format-aware (e.g. vertical drama ≠ feature film)
       const { data: notesProject } = await supabase.from("projects")
-        .select("format, development_behavior, assigned_lane, budget_range")
+        .select("format, development_behavior, assigned_lane, budget_range, title")
         .eq("id", projectId).single();
       const notesRawFormat = notesProject?.format || "film";
       const notesEffectiveFormat = resolveFormatAlias(notesRawFormat.toLowerCase().replace(/[_ ]+/g, "-"));
@@ -3284,7 +3284,7 @@ GENERAL RULES:
       // Appends advisory blocker-style spine_drift notes. Fail-closed: errors are logged, not thrown.
       let classASpineNotes: any[] = [];
       try {
-        const docType = effectiveDeliverable || deliverableType || "";
+        const docType = deliverableType || "";
         if (CLASS_A_SPINE_CHECK_DOC_TYPES.has(docType)) {
           const spineState = await getSpineState(supabase, projectId);
           if ((spineState.state === 'locked' || spineState.state === 'locked_amended') && spineState.spine) {
@@ -3295,7 +3295,7 @@ GENERAL RULES:
               const classASystem = buildClassASpineCheckSystemPrompt();
               const classAUser = buildClassASpineCheckUserPrompt(
                 spine, docType, version.plaintext,
-                project?.title, project?.assigned_lane
+                notesProject?.title, notesProject?.assigned_lane
               );
               const classARaw = await callAI(LOVABLE_API_KEY, FAST_MODEL, classASystem, classAUser, 0.1, 2000);
               const classAParsed = await parseAIJson(LOVABLE_API_KEY, classARaw);
