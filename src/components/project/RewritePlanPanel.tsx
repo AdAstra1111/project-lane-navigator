@@ -71,6 +71,7 @@ interface PropagatedRisk {
   downstream_axes: string[];
   dependency_chain?: string[];
   reason?: string;
+  risk_score?: number;
 }
 
 interface RewritePlan {
