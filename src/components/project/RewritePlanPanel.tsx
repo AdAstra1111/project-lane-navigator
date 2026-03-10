@@ -88,6 +88,28 @@ interface PropagatedRisk {
   reason?: string;
 }
 
+type PatchUrgency = 'critical' | 'high' | 'medium' | 'low';
+
+interface PatchLocation {
+  section_keys?: string[];
+  section_labels?: string[];
+  passage_lines?: { start_line: number; end_line: number }[];
+}
+
+interface PatchBlueprint {
+  axis: string;
+  sequence_rank?: number;
+  sequence_bucket?: string;
+  urgency?: PatchUrgency;
+  patch_goal: string;
+  patch_reason: string;
+  patch_location?: PatchLocation | null;
+  preserve_constraints?: string[];
+  upstream_dependencies?: string[];
+  downstream_risk_axes?: string[];
+  execution_note?: string;
+}
+
 interface RewritePlan {
   document_id: string | null;
   version_id: string;
@@ -109,6 +131,7 @@ interface RewritePlan {
   likely_affected_areas?: string[] | null;
   propagated_risk?: PropagatedRisk[];
   rewrite_sequence?: RewriteSequenceItem[];
+  patch_blueprints?: PatchBlueprint[];
 }
 
 /* ── Props ── */
