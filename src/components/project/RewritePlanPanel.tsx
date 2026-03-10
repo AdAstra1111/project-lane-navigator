@@ -256,6 +256,9 @@ export function RewritePlanPanel({
             {/* B3. Propagation Impact */}
             <PropagatedRiskSection risks={plan.propagated_risk} />
 
+            {/* B4. Rewrite Sequence */}
+            <RewriteSequenceSection sequence={plan.rewrite_sequence} />
+
             {/* C. Rewrite Targets */}
             {sortedRewriteTargets.length > 0 && (
               <section className="space-y-2">
