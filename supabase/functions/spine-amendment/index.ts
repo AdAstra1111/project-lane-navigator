@@ -270,12 +270,12 @@ serve(async (req: Request) => {
         console.warn(`[spine-amendment] stale note resolution error:`, resolveEx.message);
       }
 
-      // 4b. Compute revalidation scope for the response
+      // 4b. Compute revalidation scope and flag affected documents
       const floorIdx = getRevalidationFloorIndex(axis as SpineAxis, ladder);
       const floorStageIdx = floorIdx === -1 ? 0 : floorIdx;
       const revalidationFloorStage = floorIdx === -1 ? "next_unapproved" : ladder[floorIdx] || ladder[0];
 
-      const { data: approvedDocs } = await supabase
+      const { data: allDocs } = await supabase
         .from("project_documents")
         .select("id, doc_type")
         .eq("project_id", projectId);
@@ -284,18 +284,71 @@ serve(async (req: Request) => {
         .from("project_document_versions")
         .select("document_id")
         .eq("approval_status", "approved")
-        .in("document_id", (approvedDocs || []).map((d: any) => d.id));
+        .in("document_id", (allDocs || []).map((d: any) => d.id));
 
-      const approvedDocTypes = new Set(
-        (approvedVersions || []).map((v: any) => {
-          const doc = (approvedDocs || []).find((d: any) => d.id === v.document_id);
-          return doc?.doc_type;
-        }).filter(Boolean)
+      const approvedDocIds = new Set(
+        (approvedVersions || []).map((v: any) => v.document_id)
       );
 
-      const affectedDocs = ladder
+      // Build a map of doc_type → document IDs that have approved versions
+      const approvedDocsByType = new Map<string, string[]>();
+      for (const doc of (allDocs || [])) {
+        if (approvedDocIds.has(doc.id)) {
+          const existing = approvedDocsByType.get(doc.doc_type) || [];
+          existing.push(doc.id);
+          approvedDocsByType.set(doc.doc_type, existing);
+        }
+      }
+
+      const affectedDocTypes = ladder
         .slice(floorStageIdx)
-        .filter((stage) => approvedDocTypes.has(stage));
+        .filter((stage) => approvedDocsByType.has(stage));
+
+      // Collect actual document IDs that are affected
+      const affectedDocIds: string[] = [];
+      for (const docType of affectedDocTypes) {
+        const ids = approvedDocsByType.get(docType) || [];
+        affectedDocIds.push(...ids);
+      }
+
+      // 4c. Phase 4 Stage 2 — Flag affected documents as needing spine revalidation.
+      //     Uses the existing needs_reconcile + reconcile_reasons pattern on project_documents.
+      //     Sets needs_reconcile = true and appends a spine_amendment reason for each affected doc.
+      //     This does NOT trigger auto-reanalysis — it only persists the revalidation flag.
+      let docsFlaged = 0;
+      if (affectedDocIds.length > 0) {
+        try {
+          const reconcileReason = {
+            type: "spine_amendment",
+            axis,
+            previous_value: currentValue,
+            new_value: proposed_value,
+            severity,
+            amendment_entry_id: newEntry.id,
+            flagged_at: new Date().toISOString(),
+          };
+
+          const { data: flaggedRows, error: flagErr } = await supabase
+            .from("project_documents")
+            .update({
+              needs_reconcile: true,
+              reconcile_reasons: [reconcileReason],
+            })
+            .in("id", affectedDocIds)
+            .select("id");
+
+          if (flagErr) {
+            console.warn(`[spine-amendment] revalidation flag failed:`, flagErr.message);
+          } else {
+            docsFlaged = (flaggedRows || []).length;
+            if (docsFlaged > 0) {
+              console.log(`[spine-amendment] flagged ${docsFlaged} doc(s) for spine revalidation after ${axis} amendment`);
+            }
+          }
+        } catch (flagEx: any) {
+          console.warn(`[spine-amendment] revalidation flag error:`, flagEx.message);
+        }
+      }
 
       return new Response(JSON.stringify({
         success: true,
