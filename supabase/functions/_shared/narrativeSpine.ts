@@ -315,19 +315,41 @@ export function spineToPromptBlock(
 export function spineToReviewerAlignmentBlock(spine: NarrativeSpine | null | undefined): string {
   if (!spine) return '';
   const checks: string[] = [];
+
+  // Class A — Constitutional (highest priority drift risk)
+  if (spine.story_engine)
+    checks.push(`• [CONSTITUTIONAL] Does the story's core engine match "${spine.story_engine}"? Any deviation here is a structural violation — flag as spine_drift if not.`);
+  if (spine.protagonist_arc)
+    checks.push(`• [CONSTITUTIONAL] Does the protagonist's journey support the declared arc: "${spine.protagonist_arc}"? Flag as spine_drift if the arc has shifted.`);
+
+  // Class B — Bounded modulation
+  if (spine.pressure_system)
+    checks.push(`• Does the pressure system driving the story match "${spine.pressure_system}"? Bounded variation is acceptable; structural replacement is not.`);
+  if (spine.central_conflict)
+    checks.push(`• Is the central conflict recognizably "${spine.central_conflict}"? Flag spine_drift if the conflict has been replaced rather than developed.`);
+  if (spine.resolution_type)
+    checks.push(`• Does the resolution shape match the declared resolution type: "${spine.resolution_type}"?`);
+  if (spine.stakes_class)
+    checks.push(`• Are the stakes consistent with the declared stakes class: "${spine.stakes_class}"?`);
+
+  // Class S — Scope-specific
   if (spine.inciting_incident)
     checks.push(`• Does this document's inciting event align with the declared inciting category: "${spine.inciting_incident}"?`);
   if (spine.midpoint_reversal)
     checks.push(`• Does the structural midpoint function as a "${spine.midpoint_reversal}" reversal?`);
-  if (spine.resolution_type)
-    checks.push(`• Does the resolution shape match the declared resolution type: "${spine.resolution_type}"?`);
-  if (spine.protagonist_arc)
-    checks.push(`• Does the protagonist's journey support the declared arc: "${spine.protagonist_arc}"?`);
+
+  // Class C — Expressive modulation (flag drift only, variation is expected)
   if (spine.tonal_gravity)
-    checks.push(`• Does the document's emotional register align with the declared tonal gravity: "${spine.tonal_gravity}"?`);
-  if (spine.stakes_class)
-    checks.push(`• Are the stakes consistent with the declared stakes class: "${spine.stakes_class}"?`);
+    checks.push(`• Does the document's emotional register broadly align with "${spine.tonal_gravity}"? Expressive variation is acceptable but sustained tonal drift should be flagged.`);
+
   if (checks.length === 0) return '';
 
-  return `\n\nSPINE ALIGNMENT CHECK (advisory — tag findings as note_source: "spine_alignment"):\n${checks.join('\n')}\nReport any misalignment as a high_impact finding with note_source "spine_alignment". These are advisory — do not block promotion.\n`;
+  return `\n\nSPINE ALIGNMENT CHECK (advisory — Phase 2 enforcement):
+${checks.join('\n')}
+
+For each check above:
+- If aligned: no note needed.
+- If misaligned but variation is within class bounds: emit a "spine_alignment" high_impact note describing the drift.
+- If a Class A axis (story_engine or protagonist_arc) has been replaced: emit a "spine_drift" blocker note — this is a constitutional violation.
+All spine findings must include note_source: "spine_alignment" or "spine_drift". These are advisory in v1 — do not block promotion.\n`;
 }

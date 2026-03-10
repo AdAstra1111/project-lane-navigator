@@ -1412,13 +1412,13 @@ Return ONLY valid JSON matching this EXACT schema:
     "allowed_gap": number
   },
   "blocking_issues": [
-    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "blocker", "apply_timing": "now|next_doc|later", "target_deliverable_type": "one of the ladder types or null if now", "defer_reason": "why deferred, if later"}
+    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger|spine_alignment|spine_drift", "description": "...", "why_it_matters": "...", "severity": "blocker", "apply_timing": "now|next_doc|later", "target_deliverable_type": "one of the ladder types or null if now", "defer_reason": "why deferred, if later", "note_source": "null or spine_alignment or spine_drift"}
   ],
   "high_impact_notes": [
-    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "high", "apply_timing": "now|next_doc|later", "target_deliverable_type": "one of the ladder types or null if now", "defer_reason": "why deferred, if later"}
+    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger|spine_alignment|spine_drift", "description": "...", "why_it_matters": "...", "severity": "high", "apply_timing": "now|next_doc|later", "target_deliverable_type": "one of the ladder types or null if now", "defer_reason": "why deferred, if later", "note_source": "null or spine_alignment or spine_drift"}
   ],
   "polish_notes": [
-    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "polish", "apply_timing": "now|next_doc|later", "target_deliverable_type": "one of the ladder types or null if now", "defer_reason": "why deferred, if later"}
+    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger|spine_alignment|spine_drift", "description": "...", "why_it_matters": "...", "severity": "polish", "apply_timing": "now|next_doc|later", "target_deliverable_type": "one of the ladder types or null if now", "defer_reason": "why deferred, if later", "note_source": "null or spine_alignment or spine_drift"}
   ],
   "rewrite_plan": ["what will change in next rewrite — max 5 items"],
   "convergence": {
@@ -3082,6 +3082,7 @@ GENERAL RULES:
           severity: n.severity,
           description: n.description,
           why_it_matters: n.why_it_matters,
+          note_source: n.note_source || null,   // Phase 2: spine_alignment / spine_drift provenance
         }));
       if (noteInserts.length > 0) {
         await supabase.from("development_notes").insert(noteInserts);
