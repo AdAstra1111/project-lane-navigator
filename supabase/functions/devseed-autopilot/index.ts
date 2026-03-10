@@ -753,13 +753,21 @@ Which preset id best matches this project?`;
 // ─── extract_comparables ────────────────────────────────────────────────────
 // Auto-extract comparables from project docs at the end of DevSeed so they
 // are available as guardrails before auto-run begins.
+function normalizeTitle(t: string): string {
+  return t.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
 async function executeExtractComparables(
   sb: any, supabaseUrl: string, authHeader: string,
   projectId: string, autopilot: AutopilotState, userId: string,
 ) {
   console.log("[devseed-autopilot] extract_comparables: starting");
 
-  // 1. Run extract_from_docs (JSON-first, comparable-section fallback)
+  // 1. Get project lane/format
+  const { data: proj } = await sb.from("projects").select("assigned_lane, format").eq("id", projectId).maybeSingle();
+  const lane = proj?.assigned_lane || "independent-film";
+
+  // 2. Run extract_from_docs (JSON-first extraction from concept brief / market sheet)
   const extractResp = await fetch(`${supabaseUrl}/functions/v1/comps-engine`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: authHeader },
@@ -769,11 +777,7 @@ async function executeExtractComparables(
   const extractedCount = extractData?.extraction_summary?.attached || 0;
   console.log(`[devseed-autopilot] extract_comparables: extracted ${extractedCount} from docs`);
 
-  // 2. Fetch project lane for AI candidate search
-  const { data: proj } = await sb.from("projects").select("assigned_lane, format").eq("id", projectId).single();
-  const lane = proj?.assigned_lane || "prestige-feature";
-
-  // 3. Run find_candidates to get AI-suggested comps (fills in if extraction was sparse)
+  // 3. Run find_candidates — AI suggests comps based on concept brief
   const findResp = await fetch(`${supabaseUrl}/functions/v1/comps-engine`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: authHeader },
@@ -787,9 +791,43 @@ async function executeExtractComparables(
     }),
   });
   const findData = await findResp.json();
-  const candidateCount = findData?.candidates?.length || 0;
-  console.log(`[devseed-autopilot] extract_comparables: found ${candidateCount} AI candidates`);
+  const candidates: any[] = findData?.candidates || [];
+  console.log(`[devseed-autopilot] extract_comparables: found ${candidates.length} AI candidates`);
 
-  autopilot.stages.extract_comparables.notes = `extracted:${extractedCount} candidates:${candidateCount}`;
+  // 4. Auto-attach top 8 candidates straight into project_comparables
+  // Sort by confidence desc, take top 8, skip any already attached
+  const { data: existing } = await sb.from("project_comparables")
+    .select("normalized_title").eq("project_id", projectId);
+  const existingTitles = new Set((existing || []).map((r: any) => r.normalized_title));
+
+  const toAttach = candidates
+    .sort((a: any, b: any) => (b.confidence || 0) - (a.confidence || 0))
+    .slice(0, 8)
+    .filter((c: any) => c.title);
+
+  let attachedCount = 0;
+  for (const c of toAttach) {
+    const normalized = normalizeTitle(c.title);
+    if (existingTitles.has(normalized)) continue;
+    const { error } = await sb.from("project_comparables").upsert({
+      project_id: projectId,
+      title: c.title,
+      normalized_title: normalized,
+      kind: c.format || "film",
+      source: "devseed_ai",
+      extraction_meta: {
+        rationale: c.rationale || "",
+        confidence: c.confidence || 0,
+        comp_type: "tone", // default; user can reclassify
+        year: c.year || null,
+        genres: c.genres || [],
+        _auto_attached: true,
+      },
+    }, { onConflict: "project_id,normalized_title", ignoreDuplicates: true });
+    if (!error) { attachedCount++; existingTitles.add(normalized); }
+  }
+  console.log(`[devseed-autopilot] extract_comparables: auto-attached ${attachedCount} comps`);
+
+  autopilot.stages.extract_comparables.notes = `extracted:${extractedCount} ai_candidates:${candidates.length} attached:${attachedCount}`;
   console.log("[devseed-autopilot] extract_comparables done");
 }
