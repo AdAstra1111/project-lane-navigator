@@ -187,6 +187,9 @@ export function RewritePlanPanel({
               </div>
             )}
 
+            {/* B2. Likely Affected Areas summary */}
+            <LikelyAffectedAreas areas={plan.likely_affected_areas} />
+
             {/* C. Rewrite Targets */}
             {plan.rewrite_targets.length > 0 && (
               <section className="space-y-2">
