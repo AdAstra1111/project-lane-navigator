@@ -354,13 +354,9 @@ serve(async (req: Request) => {
             else console.warn(`[spine-amendment] flag failed for doc ${upd.id}:`, upErr.message);
           }
 
-          if (flagErr) {
-            console.warn(`[spine-amendment] revalidation flag failed:`, flagErr.message);
-          } else {
-            docsFlaged = (flaggedRows || []).length;
-            if (docsFlaged > 0) {
-              console.log(`[spine-amendment] flagged ${docsFlaged} doc(s) for spine revalidation after ${axis} amendment`);
-            }
+          docsFlaged = flagCount;
+          if (docsFlaged > 0) {
+            console.log(`[spine-amendment] flagged ${docsFlaged} doc(s) for spine revalidation after ${axis} amendment`);
           }
         } catch (flagEx: any) {
           console.warn(`[spine-amendment] revalidation flag error:`, flagEx.message);
