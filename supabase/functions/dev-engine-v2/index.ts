@@ -3352,7 +3352,7 @@ GENERAL RULES:
         // Fail closed — do not corrupt main analyze result
       }
 
-
+      const { data: run, error: runErr } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
         version_id: versionId,
