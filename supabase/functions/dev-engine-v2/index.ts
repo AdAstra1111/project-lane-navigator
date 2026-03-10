@@ -1312,7 +1312,7 @@ function buildAnalyzeSystem(deliverable: string, format: string, behavior: strin
   }
   const behaviorMod = BEHAVIOR_MODIFIERS[behavior] || BEHAVIOR_MODIFIERS.market;
   const formatExp = FORMAT_EXPECTATIONS[format] || FORMAT_EXPECTATIONS.film;
-  const ladder = getLadderForFormat(format);
+  const ladder = getLadderForFormat(format) ?? getLadderForFormat("film") ?? [];
 
   // ── IDEA-STAGE FORMAT-AWARE STRUCTURAL CONTEXT ──
   // Inject lane/format expectations into idea evaluation so premise-level checks are grounded
