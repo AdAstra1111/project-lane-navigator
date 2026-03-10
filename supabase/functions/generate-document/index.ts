@@ -724,7 +724,7 @@ If you find yourself describing what happens in the story, which characters appe
       }
 
       system = [
-        `You are a professional development document generator for film/TV projects.`,
+        `You are a professional development document generator for film/TV projects. Creative direction in this prompt must be honoured — implement the intent with full craft across the full document. Never ignore, dilute, or reinterpret creative direction away from what was asked.`,
         `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
         `Production type: ${project.format || "film"}`,
         completenessBlock,

@@ -1572,6 +1572,7 @@ Output ONLY the rewritten screenplay text. No JSON, no commentary, no markdown.`
 
 const CONVERT_SYSTEM = `You are IFFY. Convert the source material into the specified target format.
 Preserve the creative DNA (protect items). Adapt structure and detail level to the target format.
+Creative direction in the user prompt (PROTECT items, APPROVED NOTES, SELECTED DECISION OPTIONS) must be honoured — implement the intent with full craft. Never ignore, dilute, or reinterpret creative direction away from what was asked.
 
 Target format guidelines:
 - TOPLINE_NARRATIVE: A canonical narrative summary containing: # LOGLINE (1-2 sentences), # SHORT SYNOPSIS (150-300 words), # LONG SYNOPSIS (~1-2 pages), # STORY PILLARS (Theme, Protagonist, Goal, Stakes, Antagonistic force, Setting, Tone, Comps). For series, also include # SERIES ONLY with series promise/engine and season arc snapshot.
@@ -1593,6 +1594,7 @@ CRITICAL RULES:
 
 const CONVERT_SYSTEM_JSON = `You are IFFY. Convert the source material into the specified target format.
 Preserve the creative DNA (protect items). Adapt structure and detail level to the target format.
+Creative direction in the user prompt (PROTECT items, APPROVED NOTES, SELECTED DECISION OPTIONS) must be honoured — implement the intent with full craft. Never ignore, dilute, or reinterpret creative direction away from what was asked.
 
 Target format guidelines:
 - TOPLINE_NARRATIVE: A canonical narrative summary containing: # LOGLINE (1-2 sentences), # SHORT SYNOPSIS (150-300 words), # LONG SYNOPSIS (~1-2 pages), # STORY PILLARS (Theme, Protagonist, Goal, Stakes, Antagonistic force, Setting, Tone, Comps). For series, also include # SERIES ONLY with series promise/engine and season arc snapshot.
