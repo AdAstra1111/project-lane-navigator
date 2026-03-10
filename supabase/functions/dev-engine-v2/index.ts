@@ -3043,9 +3043,15 @@ GENERAL RULES:
       // Track notes in development_notes table
       const currentNoteKeys = new Set(allTieredNotes.map((n: any) => n.id).filter(Boolean));
 
-      // Mark previously unresolved notes that are no longer present as resolved
+      // Mark previously unresolved notes that are no longer present as resolved.
+      // IMPORTANT: class_a_spine_* notes are excluded from auto-resolution here because
+      // they are managed by the dedicated Class A Spine Check pass (Phase 3), not by
+      // LLM reviewer output presence/absence. The Class A pass has its own DB-level
+      // deduplication and only resolves these notes when the spine contradiction is
+      // actually fixed in the document. Auto-resolving them here would cause false
+      // clearances whenever the general reviewer simply omits the same note key.
       for (const prev of existingUnresolved) {
-        if (prev.note_key.startsWith('class_a_spine_')) continue; // managed by Class A check, not LLM pass
+        if (prev.note_key.startsWith('class_a_spine_')) continue;
         if (!currentNoteKeys.has(prev.note_key)) {
           await supabase.from("development_notes")
             .update({ resolved: true, resolved_in_version: versionId })
@@ -3280,9 +3286,20 @@ GENERAL RULES:
       parsed.stability_status = blockerCount === 0 && highCount <= 3 && polishCount <= 5
         ? "structurally_stable" : blockerCount === 0 ? "refinement_phase" : "in_progress";
 
-      // ── CLASS A SPINE CHECK — dedicated post-analyze comparison pass ──
+      // ── CLASS A SPINE CHECK (Phase 3) — OPERATIONAL ──
+      // This is the dedicated, spec-fidelity comparison pass for Class A axes
+      // (story_engine, protagonist_arc). It exists because the general LLM reviewer
+      // performs semantic-satisfaction reasoning and may rate a contradicting document
+      // as "satisfactory" if it is well-written. This pass uses a narrow, deterministic
+      // constitutional-compliance prompt that only checks whether the document contradicts
+      // the locked spine values — not whether the document is good.
+      //
+      // Advisory only in v1: contradictions append blocker-severity spine_drift notes
+      // into the normal note flow. They do not block promotion or gate any pipeline step.
+      // DB-level deduplication prevents duplicate unresolved notes across repeated runs.
+      //
       // Runs only when: locked spine exists + allowed doc type + Class A axes present.
-      // Appends advisory blocker-style spine_drift notes. Fail-closed: errors are logged, not thrown.
+      // Fail-closed: errors are logged, not thrown — never corrupts main analyze result.
       let classASpineNotes: any[] = [];
       try {
         const docType = deliverableType || "";
