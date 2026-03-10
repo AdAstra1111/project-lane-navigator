@@ -454,6 +454,96 @@ function buildCategoryMap(docType: string): Record<string, string> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// L4.5 — Verbatim passage search (extraction-time verification)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Result of an extraction-time verbatim-quote search.
+ * Persisted inside payload_json — zero schema migrations required.
+ */
+export interface PassageSearchResult {
+  verified: boolean;
+  section_key: string | null;
+  line_start: number | null;
+  line_end: number | null;
+  match_method: 'exact' | 'none';
+}
+
+/**
+ * Deterministically locate `verbatimQuote` inside a pre-parsed set of section
+ * boundaries (from parseSections).
+ *
+ * Normalise whitespace to tolerate minor LLM spacing variants.
+ * Scan: single-line, then multi-line window (≤4 lines).
+ * Fail-closed: returns verified=false on any doubt.
+ *
+ * Complexity: O(n_sections × n_lines × quote_len) — acceptable for typical docs.
+ */
+export function findVerbatimInSections(
+  sections: SectionBoundary[],
+  verbatimQuote: string,
+): PassageSearchResult {
+  const NONE: PassageSearchResult = { verified: false, section_key: null, line_start: null, line_end: null, match_method: 'none' };
+  if (!verbatimQuote || verbatimQuote.trim().length < 5) return NONE;
+
+  const normalise = (s: string) => s.replace(/\s+/g, ' ').trim();
+  const normQuote = normalise(verbatimQuote);
+
+  for (const boundary of sections) {
+    // Fast guard: check whole section first
+    const normSection = normalise(boundary.content);
+    if (!normSection.includes(normQuote)) continue;
+
+    const sectionLines = boundary.content.split('\n');
+
+    // Single-line match
+    for (let i = 0; i < sectionLines.length; i++) {
+      if (normalise(sectionLines[i]).includes(normQuote)) {
+        return {
+          verified:    true,
+          section_key: boundary.section_key,
+          line_start:  boundary.start_line + i,
+          line_end:    boundary.start_line + i,
+          match_method: 'exact',
+        };
+      }
+    }
+
+    // Multi-line window (quote spans up to 4 lines)
+    const WINDOW = 4;
+    const quotePrefix = normQuote.slice(0, Math.min(20, normQuote.length));
+    for (let i = 0; i < sectionLines.length; i++) {
+      if (!normalise(sectionLines[i]).includes(quotePrefix.slice(0, 10))) continue;
+      const windowEnd = Math.min(i + WINDOW, sectionLines.length);
+      const windowText = normalise(sectionLines.slice(i, windowEnd).join(' '));
+      if (windowText.includes(normQuote)) {
+        return {
+          verified:    true,
+          section_key: boundary.section_key,
+          line_start:  boundary.start_line + i,
+          line_end:    boundary.start_line + windowEnd - 1,
+          match_method: 'exact',
+        };
+      }
+    }
+
+    // Section contained the quote when normalised but line scan missed — still a hit.
+    // Emit section_key with line_start=boundary.start_line as conservative bound.
+    return {
+      verified:    true,
+      section_key: boundary.section_key,
+      line_start:  boundary.start_line,
+      line_end:    boundary.end_line,
+      match_method: 'exact',
+    };
+  }
+
+  return NONE;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Build keyword list for a section definition for fuzzy matching.
  */

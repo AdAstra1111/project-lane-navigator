@@ -295,29 +295,39 @@ function findPassageLines(
 }
 
 /**
+ * L4.5 stored passage metadata shape (subset of payload_json).
+ * Present on units written after L4.5 deployment; absent (undefined) on legacy units.
+ */
+interface StoredPassageMeta {
+  verbatim_quote?: string | null;
+  verbatim_quote_verified?: boolean;
+  verbatim_quote_match_section_key?: string | null;
+  verbatim_quote_match_line_start?: number | null;
+  verbatim_quote_match_line_end?: number | null;
+}
+
+/**
  * Compute section_targets for a given axis + doc_type.
  *
- * Two-tier targeting:
- *  1. document_verified (L4.3): sectionBoundaryMap provided → section heading confirmed
- *     in this specific document. Returns start_line + end_line. confidence: "deterministic".
- *  2. registry (L4.2 fallback): section not found in document, or no plaintext available.
+ * Three-tier targeting (L4.5):
+ *  0. passage_verified (L4.5): storedMeta.verbatim_quote_verified === true
+ *     → use stored section_key + line_start/end; skip live passage scan.
+ *  1. document_verified (L4.3): section heading confirmed in this document version.
+ *     Returns start_line + end_line. confidence: "deterministic".
+ *  2. registry (L4.2 fallback): section not found in document or not loaded.
  *     confidence: "bounded". No line numbers.
  *
- * Fail-closed: returns null when doc_type not in registry, axis not mapped, or no entries
- * for this doc_type. Null means "no targeting available" — never an empty array.
+ * Live passage scan (L4.4):
+ *  Runs only when storedMeta.verbatim_quote_verified is ABSENT (legacy units).
+ *  Skipped when verified=false (known failure from extraction time).
  *
- * NOTE ON EXCERPT MATCHING:
- *   evidence_excerpt in narrative_units.payload_json is a synthetic LLM explanation
- *   ("1-2 sentence explanation"), NOT a verbatim document quote. Substring matching it
- *   against section content is not deterministically reliable. This function therefore
- *   verifies section EXISTENCE by heading location, not excerpt position.
- *   True excerpt-position verification requires L4.4 (verbatim_quote in payload_json).
+ * Fail-closed: returns null when doc_type not in registry, axis not mapped, or no entries.
  */
 function computeSectionTargets(
   axis: string,
   docType: string | null,
   sectionBoundaryMap?: Map<string, SectionBoundary>,
-  verbatimQuote?: string | null,
+  storedMeta?: StoredPassageMeta | null,
 ): Array<{
   section_key: string;
   section_label: string;
@@ -337,6 +347,15 @@ function computeSectionTargets(
   const entries = axisMap[docType];
   if (!entries || entries.length === 0) return null;
 
+  // L4.5: Determine passage targeting strategy from stored metadata
+  const storedVerified = storedMeta?.verbatim_quote_verified;
+  // storedVerified === true  → trust stored coordinates
+  // storedVerified === false → skip live scan, fall through
+  // storedVerified === undefined → legacy unit, run live L4.4 scan
+  const liveVerbatimQuote = (storedVerified === undefined)
+    ? (storedMeta?.verbatim_quote ?? null)
+    : null;  // don't run live scan when verification status is known
+
   return entries.map(e => {
     const secDef = findSectionDef(docType, e.section_key);
     const label = secDef?.label || e.section_key;
@@ -344,9 +363,28 @@ function computeSectionTargets(
     if (sectionBoundaryMap) {
       const boundary = sectionBoundaryMap.get(e.section_key);
       if (boundary) {
-        // L4.4: try passage-verified targeting when verbatim_quote is available
-        if (verbatimQuote) {
-          const passage = findPassageLines(boundary, verbatimQuote);
+
+        // ── L4.5: stored passage_verified ──────────────────────────────
+        if (storedVerified === true &&
+            storedMeta?.verbatim_quote_match_section_key === e.section_key &&
+            storedMeta.verbatim_quote_match_line_start != null) {
+          return {
+            section_key:        e.section_key,
+            section_label:      label,
+            confidence:         'deterministic' as const,
+            basis:              `passage_verified:stored_at_line_${storedMeta.verbatim_quote_match_line_start}`,
+            targeting_method:   'passage_verified' as const,
+            start_line:         boundary.start_line,
+            end_line:           boundary.end_line,
+            passage_start_line: storedMeta.verbatim_quote_match_line_start,
+            passage_end_line:   storedMeta.verbatim_quote_match_line_end ?? storedMeta.verbatim_quote_match_line_start,
+            note:               PASSAGE_VERIFIED_NOTE,
+          };
+        }
+
+        // ── L4.4: live passage scan (legacy units only) ─────────────────
+        if (liveVerbatimQuote) {
+          const passage = findPassageLines(boundary, liveVerbatimQuote);
           if (passage) {
             return {
               section_key:          e.section_key,
@@ -361,10 +399,9 @@ function computeSectionTargets(
               note:                 PASSAGE_VERIFIED_NOTE,
             };
           }
-          // Quote provided but not found in this section — fall through to document_verified
         }
 
-        // L4.3: section heading confirmed in document
+        // ── L4.3: section heading confirmed in document ─────────────────
         return {
           section_key:      e.section_key,
           section_label:    label,
@@ -379,7 +416,7 @@ function computeSectionTargets(
       // Section not found in this document — advisory registry fallback
     }
 
-    // L4.2: registry-only (no document plaintext loaded or section absent)
+    // ── L4.2: registry-only ─────────────────────────────────────────────
     return {
       section_key:      e.section_key,
       section_label:    label,
@@ -576,7 +613,7 @@ serve(async (req: Request) => {
           priority,
           axis_class: meta.class,
           confidence: unit.confidence ?? null,
-          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json?.verbatim_quote ?? null),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json ?? null),
         });
 
       } else if (unit.status === 'contradicted') {
@@ -591,7 +628,7 @@ serve(async (req: Request) => {
           priority,
           axis_class: meta.class,
           confidence: unit.confidence ?? null,
-          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json?.verbatim_quote ?? null),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json ?? null),
         });
 
       } else if (unit.status === 'aligned') {
@@ -604,7 +641,7 @@ serve(async (req: Request) => {
           spine_value: currentSpineValue,
           note: 'Aligned with current spine — preserve this in any rewrite.',
           axis_class: meta.class,
-          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json?.verbatim_quote ?? null),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json ?? null),
         });
 
       } else if (unit.status === 'active') {
@@ -618,7 +655,7 @@ serve(async (req: Request) => {
           spine_value: currentSpineValue,
           note: 'Alignment unclear — included as provisional preserve target. Re-run analysis for definitive classification.',
           axis_class: meta.class,
-          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json?.verbatim_quote ?? null),
+          section_targets: computeSectionTargets(axis, documentType, sectionBoundaryMap ?? undefined, unit.payload_json ?? null),
         });
       }
     }

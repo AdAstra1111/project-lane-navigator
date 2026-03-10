@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
 import { spineToReviewerAlignmentBlock, getSpineState, CLASS_A_SPINE_CHECK_DOC_TYPES, buildClassASpineCheckSystemPrompt, buildClassASpineCheckUserPrompt, parseClassASpineCheckOutput, CLASS_B_SPINE_CHECK_DOC_TYPES, CLASS_B_SPINE_CHECK_AXES, buildClassBSpineCheckSystemPrompt, buildClassBSpineCheckUserPrompt, parseClassBSpineCheckOutput, VALIDATOR_SUPPORTED_AXES } from "../_shared/narrativeSpine.ts";
+import { parseSections, findVerbatimInSections } from "../_shared/sectionRepairEngine.ts";
+import { isSectionRepairSupported } from "../_shared/deliverableSectionRegistry.ts";
 import { isCPMEnabled, CPM_EVAL_PROMPT_EXTENSION, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_EVAL_BLOCK } from "../_shared/ciBlockerGate.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
@@ -3349,6 +3351,18 @@ GENERAL RULES:
               const classAResult = classAInference.status === 'fulfilled' ? classAInference.value : null;
               const classBResult = classBInference.status === 'fulfilled' ? classBInference.value : null;
 
+              // ── L4.5: Parse sections once — shared by Class A and Class B unit builds ──
+              // Declared here (outer scope) so both post-processing blocks can use it.
+              // Fail-closed: stays [] if doc type is unsupported.
+              let spineCheckSections: import("../_shared/sectionRepairEngine.ts").SectionBoundary[] = [];
+              try {
+                if (isSectionRepairSupported(spineCheckDocType)) {
+                  spineCheckSections = parseSections(version.plaintext, spineCheckDocType);
+                }
+              } catch (_sectionParseErr) {
+                // Non-fatal — verification falls back to verified=false for all units
+              }
+
               // ── Post-process Class A results (sequential DB writes) ──
               if (classAResult) {
                 for (const check of classAResult.checks) {
@@ -3404,24 +3418,46 @@ GENERAL RULES:
                 parsed.class_a_spine_check = classAResult;
                 // ── Atomic Stage 1: Persist Class A narrative_units ──
                 try {
-                  const classAUnits = classAResult.checks.map((check: any) => ({
-                    project_id: projectId,
-                    unit_type: check.axis,
-                    unit_key: `${versionId}::${check.axis}`,
-                    payload_json: {
-                      evidence_excerpt: check.evidence || null,
-                      verbatim_quote: check.verbatim_quote || null,  // L4.4: passage-level targeting
-                      spine_value: (spine as any)[check.axis] || null,
-                      contradiction_note: check.status === 'contradicted' && check.suggested_note
-                        ? `${check.suggested_note.title}. ${check.suggested_note.instruction}` : null,
-                    },
-                    source_doc_type: spineCheckDocType,
-                    source_doc_version_id: versionId,
-                    confidence: check.confidence ?? 50,
-                    extraction_method: 'class_a_inference',
-                    status: check.status === 'contradicted' ? 'contradicted' : check.status === 'aligned' ? 'aligned' : 'active',
-                    stale_reason: null,
-                  }));
+                  const classAUnits = classAResult.checks.map((check: any) => {
+                    // L4.5: extraction-time verbatim quote verification
+                    const vq = check.verbatim_quote || null;
+                    let vqVerified = false;
+                    let vqSectionKey: string | null = null;
+                    let vqLineStart: number | null = null;
+                    let vqLineEnd: number | null = null;
+                    let vqMatchMethod: 'exact' | 'none' = 'none';
+                    if (vq && spineCheckSections.length > 0) {
+                      const ps = findVerbatimInSections(spineCheckSections, vq);
+                      vqVerified    = ps.verified;
+                      vqSectionKey  = ps.section_key;
+                      vqLineStart   = ps.line_start;
+                      vqLineEnd     = ps.line_end;
+                      vqMatchMethod = ps.match_method;
+                    }
+                    return {
+                      project_id: projectId,
+                      unit_type: check.axis,
+                      unit_key: `${versionId}::${check.axis}`,
+                      payload_json: {
+                        evidence_excerpt: check.evidence || null,
+                        verbatim_quote: vq,
+                        verbatim_quote_verified: vqVerified,                // L4.5
+                        verbatim_quote_match_section_key: vqSectionKey,     // L4.5
+                        verbatim_quote_match_line_start: vqLineStart,       // L4.5
+                        verbatim_quote_match_line_end: vqLineEnd,           // L4.5
+                        verbatim_quote_match_method: vqMatchMethod,         // L4.5
+                        spine_value: (spine as any)[check.axis] || null,
+                        contradiction_note: check.status === 'contradicted' && check.suggested_note
+                          ? `${check.suggested_note.title}. ${check.suggested_note.instruction}` : null,
+                      },
+                      source_doc_type: spineCheckDocType,
+                      source_doc_version_id: versionId,
+                      confidence: check.confidence ?? 50,
+                      extraction_method: 'class_a_inference',
+                      status: check.status === 'contradicted' ? 'contradicted' : check.status === 'aligned' ? 'aligned' : 'active',
+                      stale_reason: null,
+                    };
+                  });
                   if (classAUnits.length > 0) {
                     const { error: nuErr } = await supabase
                       .from('narrative_units')
@@ -3474,24 +3510,47 @@ GENERAL RULES:
                   }
                 }
                 // Persist Class B narrative_units
-                const classBUnits = classBResult.checks.map((check) => ({
-                  project_id: projectId,
-                  unit_type: check.axis,
-                  unit_key: `${versionId}::${check.axis}`,
-                  payload_json: {
-                    evidence_excerpt: check.evidence || null,
-                    verbatim_quote: check.verbatim_quote || null,  // L4.4: passage-level targeting
-                    spine_value: (spine as any)[check.axis] || null,
-                    contradiction_note: check.status === 'contradicted' && check.suggested_note
-                      ? `${check.suggested_note.title}. ${check.suggested_note.instruction}` : null,
-                  },
-                  source_doc_type: spineCheckDocType,
-                  source_doc_version_id: versionId,
-                  confidence: check.confidence ?? 50,
-                  extraction_method: 'class_b_inference',
-                  status: check.status === 'contradicted' ? 'contradicted' : check.status === 'aligned' ? 'aligned' : 'active',
-                  stale_reason: null,
-                }));
+                // spineCheckSections already populated above (single parse, shared)
+                const classBUnits = classBResult.checks.map((check) => {
+                  // L4.5: extraction-time verbatim quote verification (reuses spineCheckSections)
+                  const bVq = check.verbatim_quote || null;
+                  let bVqVerified = false;
+                  let bVqSectionKey: string | null = null;
+                  let bVqLineStart: number | null = null;
+                  let bVqLineEnd: number | null = null;
+                  let bVqMatchMethod: 'exact' | 'none' = 'none';
+                  if (bVq && spineCheckSections.length > 0) {
+                    const bPs = findVerbatimInSections(spineCheckSections, bVq);
+                    bVqVerified    = bPs.verified;
+                    bVqSectionKey  = bPs.section_key;
+                    bVqLineStart   = bPs.line_start;
+                    bVqLineEnd     = bPs.line_end;
+                    bVqMatchMethod = bPs.match_method;
+                  }
+                  return {
+                    project_id: projectId,
+                    unit_type: check.axis,
+                    unit_key: `${versionId}::${check.axis}`,
+                    payload_json: {
+                      evidence_excerpt: check.evidence || null,
+                      verbatim_quote: bVq,
+                      verbatim_quote_verified: bVqVerified,                // L4.5
+                      verbatim_quote_match_section_key: bVqSectionKey,     // L4.5
+                      verbatim_quote_match_line_start: bVqLineStart,       // L4.5
+                      verbatim_quote_match_line_end: bVqLineEnd,           // L4.5
+                      verbatim_quote_match_method: bVqMatchMethod,         // L4.5
+                      spine_value: (spine as any)[check.axis] || null,
+                      contradiction_note: check.status === 'contradicted' && check.suggested_note
+                        ? `${check.suggested_note.title}. ${check.suggested_note.instruction}` : null,
+                    },
+                    source_doc_type: spineCheckDocType,
+                    source_doc_version_id: versionId,
+                    confidence: check.confidence ?? 50,
+                    extraction_method: 'class_b_inference',
+                    status: check.status === 'contradicted' ? 'contradicted' : check.status === 'aligned' ? 'aligned' : 'active',
+                    stale_reason: null,
+                  };
+                });
                 if (classBUnits.length > 0) {
                   const { error: bUnitErr } = await supabase
                     .from('narrative_units')
