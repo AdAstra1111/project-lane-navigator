@@ -339,7 +339,7 @@ serve(async (req: Request) => {
             return {
               id: doc.id,
               needs_reconcile: true,
-              reconcile_reasons: [...existing, reconcileReason],
+              reconcile_reasons: [...existing.filter((r: any) => !(r.type === "spine_amendment" && r.axis === axis)), reconcileReason],
             };
           });
 
