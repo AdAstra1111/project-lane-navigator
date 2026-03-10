@@ -308,7 +308,9 @@ serve(async (req: Request) => {
         revalidation_floor_stage: revalidationFloorStage,
         affected_docs_requiring_revalidation: affectedDocs,
         superseded_entry_id: entryId || null,
-        message: `Spine amended: ${axis} changed from "${currentValue}" to "${proposed_value}". ${affectedDocs.length} document(s) flagged for revalidation.`,
+        stale_notes_resolved: staleNotesResolved,
+        stale_note_key: staleNotesResolved > 0 ? staleNoteKey : null,
+        message: `Spine amended: ${axis} changed from "${currentValue}" to "${proposed_value}". ${affectedDocs.length} document(s) flagged for revalidation.${staleNotesResolved > 0 ? ` ${staleNotesResolved} stale ${staleNoteKey} note(s) auto-resolved.` : ""}`,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
