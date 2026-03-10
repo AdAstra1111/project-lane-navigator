@@ -212,24 +212,28 @@ export function RewritePlanPanel({
               </section>
             )}
 
-            {/* E. Coverage Gaps / Unsupported Axes */}
-            {plan.axes_with_no_units.length > 0 && (
-              <section className="space-y-2">
-                <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                  <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-                  Axes without evaluated unit coverage
-                </h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {plan.axes_with_no_units.map(ax => (
-                    <Badge key={ax} variant="outline" className="text-[10px] border-border text-muted-foreground">
-                      {AXIS_LABELS[ax] || ax}
-                    </Badge>
-                  ))}
-                </div>
-                <p className="text-[10px] text-muted-foreground/70">
-                  No unit data exists for these axes on this version. Run analysis to populate coverage.
-                </p>
-              </section>
+            {/* E. Coverage Gaps — split by coverage_breakdown when available */}
+            {plan.coverage_breakdown ? (
+              <CoverageBreakdownSection breakdown={plan.coverage_breakdown} />
+            ) : (
+              plan.axes_with_no_units.length > 0 && (
+                <section className="space-y-2">
+                  <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                    Axes without evaluated unit coverage
+                  </h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {plan.axes_with_no_units.map(ax => (
+                      <Badge key={ax} variant="outline" className="text-[10px] border-border text-muted-foreground">
+                        {AXIS_LABELS[ax] || ax}
+                      </Badge>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/70">
+                    No unit data exists for these axes on this version. Run analysis to populate coverage.
+                  </p>
+                </section>
+              )
             )}
 
             {/* Staled Axes info */}
