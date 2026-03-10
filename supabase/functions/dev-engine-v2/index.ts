@@ -14493,7 +14493,7 @@ No stubs, no placeholders, no TODO markers.`;
       const { data: proj } = await supabase.from("projects")
         .select("format, assigned_lane, title").eq("id", projectId).single();
       const fmt = resolveFormatAlias((proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
-      const ladder = getLadderForFormat(fmt);
+      const ladder = getLadderForFormat(fmt) ?? getLadderForFormat("film") ?? [];
 
       const SEED_CORE_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"] as const;
       const STUB_MARKERS = ["draft stub","generate full","generate from dev engine","from dev engine","todo","[insert","[1–2 sentences]","[1-2 sentences]","placeholder"];
