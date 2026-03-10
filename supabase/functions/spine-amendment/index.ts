@@ -363,6 +363,39 @@ serve(async (req: Request) => {
         }
       }
 
+      // 4d. Atomic Stage 2 — Mark all narrative_units for the amended axis as stale.
+      //     Overwrites stale_reason unconditionally (no status filter).
+      let staleUnitsMarked = 0;
+      try {
+        const { data: stalledRows, error: nuStaleErr } = await (supabase as any)
+          .from("narrative_units")
+          .update({
+            status: "stale",
+            stale_reason: {
+              type: "spine_amendment",
+              axis,
+              previous_value: currentValue,
+              new_value: proposed_value,
+              amendment_entry_id: newEntry.id,
+              flagged_at: new Date().toISOString(),
+            },
+          })
+          .eq("project_id", projectId)
+          .eq("unit_type", axis)
+          .select("id");
+
+        if (nuStaleErr) {
+          console.warn(`[spine-amendment] narrative_units stale mark failed for ${axis}:`, nuStaleErr.message);
+        } else {
+          staleUnitsMarked = (stalledRows || []).length;
+          if (staleUnitsMarked > 0) {
+            console.log(`[spine-amendment] marked ${staleUnitsMarked} unit(s) stale for axis ${axis}`);
+          }
+        }
+      } catch (nuEx: any) {
+        console.warn(`[spine-amendment] narrative_units stale mark error:`, nuEx.message);
+      }
+
       return new Response(JSON.stringify({
         success: true,
         amendment_entry_id: newEntry.id,
@@ -378,7 +411,8 @@ serve(async (req: Request) => {
         superseded_entry_id: entryId || null,
         stale_notes_resolved: staleNotesResolved,
         stale_note_key: staleNotesResolved > 0 ? staleNoteKey : null,
-        message: `Spine amended: ${axis} changed from "${currentValue}" to "${proposed_value}". ${docsFlaged} document(s) flagged for revalidation.${staleNotesResolved > 0 ? ` ${staleNotesResolved} stale ${staleNoteKey} note(s) auto-resolved.` : ""}`,
+        stale_units_marked: staleUnitsMarked,
+        message: `Spine amended: ${axis} changed from "${currentValue}" to "${proposed_value}". ${docsFlaged} document(s) flagged for revalidation.${staleNotesResolved > 0 ? ` ${staleNotesResolved} stale ${staleNoteKey} note(s) auto-resolved.` : ""}${staleUnitsMarked > 0 ? ` ${staleUnitsMarked} narrative unit(s) marked stale.` : ""}`,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
