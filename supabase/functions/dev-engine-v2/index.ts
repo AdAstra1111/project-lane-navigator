@@ -3045,6 +3045,7 @@ GENERAL RULES:
 
       // Mark previously unresolved notes that are no longer present as resolved
       for (const prev of existingUnresolved) {
+        if (prev.note_key.startsWith('class_a_spine_')) continue; // managed by Class A check, not LLM pass
         if (!currentNoteKeys.has(prev.note_key)) {
           await supabase.from("development_notes")
             .update({ resolved: true, resolved_in_version: versionId })
