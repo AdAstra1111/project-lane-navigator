@@ -30,6 +30,20 @@ interface SectionTarget {
 
 type DependencyPosition = 'root' | 'upstream' | 'propagated' | 'terminal';
 
+type SequenceBucket =
+  | 'root_fix'
+  | 'upstream_fix'
+  | 'propagated_followup'
+  | 'terminal_cleanup'
+  | 'isolated';
+
+interface RewriteSequenceItem {
+  axis: string;
+  sequence_rank: number;
+  sequence_bucket: SequenceBucket;
+  sequence_reason: string;
+}
+
 interface RewriteTarget {
   axis: string;
   unit_key: string;
@@ -42,6 +56,9 @@ interface RewriteTarget {
   confidence: number | null;
   section_targets?: SectionTarget[];
   dependency_position?: DependencyPosition;
+  sequence_bucket?: SequenceBucket;
+  sequence_rank?: number;
+  sequence_reason?: string;
 }
 
 interface PreserveTarget {
