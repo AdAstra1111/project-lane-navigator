@@ -32,6 +32,10 @@ import {
   getSpineState,
   SpineAxis,
 } from "../_shared/narrativeSpine.ts";
+import {
+  findSectionDef,
+  isSectionRepairSupported,
+} from "../_shared/deliverableSectionRegistry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,6 +50,217 @@ const SEVERITY_TO_PRIORITY: Record<string, string> = {
   moderate:        'moderate',
   light:           'advisory',
 };
+
+// ── Section Targeting — L4.2 ──
+//
+// Registry-driven static mapping: spine axis × doc_type → section_key(s)
+//
+// Architecture:
+//   - Purely deterministic — no document text loading, no LLM, no new DB fetch
+//   - Sources structural knowledge from deliverableSectionRegistry.ts (category maps +
+//     SectionDefinition ordering)
+//   - Confidence classes:
+//       "deterministic" — axis name directly corresponds to a dedicated section key
+//       "bounded"       — structurally justified; axis content appears in this range
+//                         but may span multiple sections or share space with others
+//   - Doc types NOT safely targetable (feature_script, production_draft):
+//       Not in section registry (screenplay format uses scene sluglines, not markdown
+//       heading structure). Returns no section_targets — explicit silence.
+//   - targeting_method: "registry" (future: "document_verified" when parseSections()
+//       is run against version.plaintext to confirm section presence + excerpt locality)
+//
+// Phase 2 follow-up: load version.plaintext + run parseSections() to upgrade
+//   "registry" targets to "document_verified" with actual line bounds.
+//   That pass also populates likely_affected_areas with section content excerpts.
+//
+// Note: Class S deferred axes (inciting_incident, midpoint_reversal) still get registry
+//   section targeting for stale/rewrite planning — section targeting is structural and
+//   independent of validator coverage.
+// Note: tonal_gravity is excluded — structurally diffuse, no primary section home.
+
+type SectionTargetEntry = {
+  section_key: string;
+  confidence: 'deterministic' | 'bounded';
+  basis: string;
+};
+
+const AXIS_DOC_SECTION_MAP: Record<string, Partial<Record<string, SectionTargetEntry[]>>> = {
+  story_engine: {
+    concept_brief:  [
+      { section_key: 'premise',       confidence: 'deterministic', basis: 'registry_rule:story_engine_defines_premise' },
+      { section_key: 'logline',       confidence: 'deterministic', basis: 'registry_rule:story_engine_drives_logline' },
+    ],
+    story_outline:  [{ section_key: 'setup',         confidence: 'bounded',       basis: 'registry_rule:story_engine_established_in_opening' }],
+    treatment:      [{ section_key: 'act_1_setup',   confidence: 'bounded',       basis: 'registry_rule:story_engine_established_in_act1' }],
+    long_treatment: [{ section_key: 'act_1_setup',   confidence: 'bounded',       basis: 'registry_rule:story_engine_established_in_act1' }],
+    season_arc:     [{ section_key: 'season_premise',confidence: 'deterministic', basis: 'registry_rule:story_engine_is_season_premise' }],
+  },
+
+  protagonist_arc: {
+    character_bible: [
+      { section_key: 'protagonists',   confidence: 'deterministic', basis: 'registry_rule:protagonist_arc_primary_home' },
+      { section_key: 'character_arcs', confidence: 'deterministic', basis: 'registry_rule:protagonist_arc_dedicated_section' },
+    ],
+    concept_brief:   [{ section_key: 'protagonist',  confidence: 'deterministic', basis: 'registry_rule:axis_name_matches_section_name' }],
+    story_outline:   [
+      { section_key: 'setup',      confidence: 'bounded', basis: 'registry_rule:arc_established_in_opening' },
+      { section_key: 'resolution', confidence: 'bounded', basis: 'registry_rule:arc_resolved_in_resolution' },
+    ],
+    beat_sheet:      [
+      { section_key: 'act_1_beats', confidence: 'bounded', basis: 'registry_rule:arc_established_in_act1' },
+      { section_key: 'act_3_beats', confidence: 'bounded', basis: 'registry_rule:arc_resolved_in_act3' },
+    ],
+    treatment:       [
+      { section_key: 'act_1_setup',             confidence: 'bounded', basis: 'registry_rule:arc_established_in_act1' },
+      { section_key: 'act_3_climax_resolution', confidence: 'bounded', basis: 'registry_rule:arc_resolved_in_act3' },
+    ],
+    long_treatment:  [
+      { section_key: 'act_1_setup',             confidence: 'bounded', basis: 'registry_rule:arc_established_in_act1' },
+      { section_key: 'act_3_climax_resolution', confidence: 'bounded', basis: 'registry_rule:arc_resolved_in_act3' },
+    ],
+    season_arc:      [{ section_key: 'character_season_arcs', confidence: 'deterministic', basis: 'registry_rule:protagonist_arc_in_season_arcs' }],
+  },
+
+  pressure_system: {
+    story_outline:  [
+      { section_key: 'rising_action', confidence: 'deterministic', basis: 'registry_rule:pressure_builds_in_rising_action' },
+      { section_key: 'midpoint',      confidence: 'bounded',       basis: 'registry_rule:pressure_peaks_at_midpoint' },
+    ],
+    beat_sheet:     [
+      { section_key: 'act_2a_beats', confidence: 'bounded', basis: 'registry_rule:pressure_rises_act2a' },
+      { section_key: 'act_2b_beats', confidence: 'bounded', basis: 'registry_rule:pressure_peaks_act2b' },
+    ],
+    treatment:      [
+      { section_key: 'act_2a_rising_action', confidence: 'deterministic', basis: 'registry_rule:pressure_in_rising_action' },
+      { section_key: 'act_2b_complications', confidence: 'bounded',       basis: 'registry_rule:pressure_drives_complications' },
+    ],
+    long_treatment: [
+      { section_key: 'act_2a_rising_action', confidence: 'deterministic', basis: 'registry_rule:pressure_in_rising_action' },
+      { section_key: 'act_2b_complications', confidence: 'bounded',       basis: 'registry_rule:pressure_drives_complications' },
+    ],
+    season_arc:     [
+      { section_key: 'arc_overview',   confidence: 'bounded', basis: 'registry_rule:pressure_system_shapes_arc' },
+      { section_key: 'turning_points', confidence: 'bounded', basis: 'registry_rule:pressure_peaks_at_turning_points' },
+    ],
+  },
+
+  central_conflict: {
+    concept_brief:   [{ section_key: 'central_conflict', confidence: 'deterministic', basis: 'registry_rule:axis_name_matches_section_name' }],
+    story_outline:   [
+      { section_key: 'inciting_incident', confidence: 'deterministic', basis: 'registry_rule:conflict_established_at_inciting_incident' },
+      { section_key: 'rising_action',     confidence: 'bounded',       basis: 'registry_rule:conflict_escalated_in_rising_action' },
+    ],
+    character_bible: [{ section_key: 'relationships', confidence: 'bounded', basis: 'registry_rule:central_conflict_expressed_in_relationships' }],
+    beat_sheet:      [
+      { section_key: 'act_1_beats',  confidence: 'bounded', basis: 'registry_rule:conflict_established_act1' },
+      { section_key: 'act_2a_beats', confidence: 'bounded', basis: 'registry_rule:conflict_escalated_act2a' },
+    ],
+    treatment:       [
+      { section_key: 'act_1_setup',          confidence: 'bounded', basis: 'registry_rule:conflict_established_act1' },
+      { section_key: 'act_2a_rising_action', confidence: 'bounded', basis: 'registry_rule:conflict_escalated_act2a' },
+    ],
+    long_treatment:  [
+      { section_key: 'act_1_setup',          confidence: 'bounded', basis: 'registry_rule:conflict_established_act1' },
+      { section_key: 'act_2a_rising_action', confidence: 'bounded', basis: 'registry_rule:conflict_escalated_act2a' },
+    ],
+    season_arc:      [
+      { section_key: 'arc_overview',   confidence: 'deterministic', basis: 'registry_rule:conflict_shapes_arc' },
+      { section_key: 'turning_points', confidence: 'bounded',       basis: 'registry_rule:conflict_escalated_at_turning_points' },
+    ],
+  },
+
+  resolution_type: {
+    story_outline:   [
+      { section_key: 'climax',     confidence: 'deterministic', basis: 'registry_rule:resolution_type_manifests_at_climax' },
+      { section_key: 'resolution', confidence: 'deterministic', basis: 'registry_rule:axis_name_matches_section_name' },
+    ],
+    beat_sheet:      [{ section_key: 'act_3_beats',             confidence: 'deterministic', basis: 'registry_rule:resolution_type_in_act3' }],
+    treatment:       [{ section_key: 'act_3_climax_resolution', confidence: 'deterministic', basis: 'registry_rule:resolution_type_in_act3' }],
+    long_treatment:  [{ section_key: 'act_3_climax_resolution', confidence: 'deterministic', basis: 'registry_rule:resolution_type_in_act3' }],
+    character_bible: [{ section_key: 'character_arcs',          confidence: 'bounded',       basis: 'registry_rule:resolution_type_visible_in_arcs' }],
+    season_arc:      [
+      { section_key: 'season_finale',        confidence: 'deterministic', basis: 'registry_rule:resolution_type_in_finale' },
+      { section_key: 'thematic_throughline', confidence: 'bounded',       basis: 'registry_rule:resolution_reflects_theme' },
+    ],
+  },
+
+  stakes_class: {
+    concept_brief:  [
+      { section_key: 'premise',     confidence: 'deterministic', basis: 'registry_rule:stakes_established_in_premise' },
+      { section_key: 'unique_hook', confidence: 'bounded',       basis: 'registry_rule:stakes_drive_unique_hook' },
+    ],
+    story_outline:  [
+      { section_key: 'setup',         confidence: 'bounded', basis: 'registry_rule:stakes_established_in_opening' },
+      { section_key: 'rising_action', confidence: 'bounded', basis: 'registry_rule:stakes_raised_in_rising_action' },
+    ],
+    beat_sheet:     [{ section_key: 'act_1_beats',  confidence: 'bounded', basis: 'registry_rule:stakes_established_act1' }],
+    treatment:      [{ section_key: 'act_1_setup',  confidence: 'bounded', basis: 'registry_rule:stakes_established_act1' }],
+    long_treatment: [{ section_key: 'act_1_setup',  confidence: 'bounded', basis: 'registry_rule:stakes_established_act1' }],
+    season_arc:     [{ section_key: 'arc_overview', confidence: 'bounded', basis: 'registry_rule:stakes_visible_in_arc_overview' }],
+  },
+
+  // Class S deferred axes still receive registry section targeting when they appear as
+  // rewrite/preserve targets (e.g. after spine amendment). Section targeting is structural
+  // and independent of validator coverage.
+  inciting_incident: {
+    story_outline:  [{ section_key: 'inciting_incident', confidence: 'deterministic', basis: 'registry_rule:axis_name_matches_section_name' }],
+    beat_sheet:     [{ section_key: 'act_1_beats',       confidence: 'bounded',       basis: 'registry_rule:inciting_incident_in_act1' }],
+    treatment:      [{ section_key: 'act_1_setup',       confidence: 'bounded',       basis: 'registry_rule:inciting_incident_in_act1_setup' }],
+    long_treatment: [{ section_key: 'act_1_setup',       confidence: 'bounded',       basis: 'registry_rule:inciting_incident_in_act1_setup' }],
+  },
+
+  midpoint_reversal: {
+    story_outline:  [{ section_key: 'midpoint',             confidence: 'deterministic', basis: 'registry_rule:axis_name_matches_section_name' }],
+    beat_sheet:     [{ section_key: 'act_2b_beats',         confidence: 'bounded',       basis: 'registry_rule:midpoint_reversal_in_act2b' }],
+    treatment:      [{ section_key: 'act_2b_complications', confidence: 'bounded',       basis: 'registry_rule:midpoint_reversal_in_complications' }],
+    long_treatment: [{ section_key: 'act_2b_complications', confidence: 'bounded',       basis: 'registry_rule:midpoint_reversal_in_complications' }],
+  },
+
+  // tonal_gravity: structurally diffuse — no primary section home.
+  // Tone is felt across all sections equally. Emitting a section target would be false precision.
+  // Explicitly absent from map; produces no section_targets.
+};
+
+const REGISTRY_TARGET_NOTE =
+  'Registry-based targeting: this section is the structural home for this axis in this ' +
+  'document type. Section presence in the specific document has not been verified. ' +
+  'Re-run analysis for excerpt-verified targeting.';
+
+/**
+ * Compute section_targets for a given axis + doc_type using the registry map.
+ * Returns null when: doc_type not in section registry, axis not in map, or doc_type not
+ * registered for this axis. Fail-closed: null rather than empty array (explicit absence).
+ */
+function computeSectionTargets(
+  axis: string,
+  docType: string | null,
+): Array<{
+  section_key: string;
+  section_label: string;
+  confidence: 'deterministic' | 'bounded';
+  basis: string;
+  targeting_method: 'registry';
+  note: string;
+}> | null {
+  if (!docType) return null;
+  if (!isSectionRepairSupported(docType)) return null;  // not in registry → no targets
+  const axisMap = AXIS_DOC_SECTION_MAP[axis];
+  if (!axisMap) return null;
+  const entries = axisMap[docType];
+  if (!entries || entries.length === 0) return null;
+
+  return entries.map(e => {
+    const secDef = findSectionDef(docType, e.section_key);
+    return {
+      section_key:      e.section_key,
+      section_label:    secDef?.label || e.section_key,
+      confidence:       e.confidence,
+      basis:            e.basis,
+      targeting_method: 'registry' as const,
+      note:             REGISTRY_TARGET_NOTE,
+    };
+  });
+}
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -165,7 +380,6 @@ serve(async (req: Request) => {
 
       if (unit.status === 'stale') {
         // Spine was amended; unit evaluated against superseded spec
-        // Derive amendment context from stale_reason (may be null on very old rows)
         let amendmentContext: string | null = null;
         if (unit.stale_reason && typeof unit.stale_reason === 'object') {
           const sr = unit.stale_reason;
@@ -185,21 +399,22 @@ serve(async (req: Request) => {
           priority,
           axis_class: meta.class,
           confidence: unit.confidence ?? null,
+          section_targets: computeSectionTargets(axis, documentType),
         });
 
       } else if (unit.status === 'contradicted') {
         // Spec unchanged but document actively contradicts current spine
-        // contradicted units have null stale_reason by design — do not read it
         rewriteTargets.push({
           axis,
           unit_key: unit.unit_key,
           reason: 'contradicted',
           current_evidence: unit.payload_json?.evidence_excerpt || null,
           target_spec: currentSpineValue,
-          amendment_context: null,   // stale_reason is null for contradicted (never amended)
+          amendment_context: null,
           priority,
           axis_class: meta.class,
           confidence: unit.confidence ?? null,
+          section_targets: computeSectionTargets(axis, documentType),
         });
 
       } else if (unit.status === 'aligned') {
@@ -212,12 +427,11 @@ serve(async (req: Request) => {
           spine_value: currentSpineValue,
           note: 'Aligned with current spine — preserve this in any rewrite.',
           axis_class: meta.class,
+          section_targets: computeSectionTargets(axis, documentType),
         });
 
       } else if (unit.status === 'active') {
-        // Alignment unclear (model returned "unclear" — insufficient evidence)
-        // Include as provisional preserve target to prevent accidental rewrite drift.
-        // Do NOT treat as a rewrite target — absence of contradiction ≠ contradiction.
+        // Alignment unclear — provisional preserve target
         hasActiveUnits = true;
         preserveTargets.push({
           axis,
@@ -227,9 +441,30 @@ serve(async (req: Request) => {
           spine_value: currentSpineValue,
           note: 'Alignment unclear — included as provisional preserve target. Re-run analysis for definitive classification.',
           axis_class: meta.class,
+          section_targets: computeSectionTargets(axis, documentType),
         });
       }
     }
+
+    // ── 5b. Populate likely_affected_areas ──
+    // Deduplicated union of section_keys from all rewrite_targets.
+    // Gives producers a flat overview of which document sections need attention.
+    // Derived from registry-based section_targets — no document text required.
+    const affectedSectionKeys = new Set<string>();
+    for (const rt of rewriteTargets) {
+      if (rt.section_targets) {
+        for (const st of rt.section_targets) {
+          affectedSectionKeys.add(st.section_key);
+        }
+      }
+    }
+    const likelyAffectedAreas = affectedSectionKeys.size > 0
+      ? [...affectedSectionKeys].map(sk => ({
+          section_key: sk,
+          section_label: (() => { const sd = findSectionDef(documentType || '', sk); return sd?.label || sk; })(),
+          targeting_method: 'registry' as const,
+        }))
+      : null;
 
     // ── 6. Coverage accounting ──
     //
@@ -303,7 +538,7 @@ serve(async (req: Request) => {
         : null,
       rewrite_targets: rewriteTargets,
       preserve_targets: preserveTargets,
-      likely_affected_areas: null,
+      likely_affected_areas: likelyAffectedAreas,
       // ── Backward-compatible fields (unchanged shape, updated semantics) ──
       axes_with_no_units: axesWithNoUnitsResolved,  // supported-but-missing only (semantic change)
       staled_axes: staledAxes,
