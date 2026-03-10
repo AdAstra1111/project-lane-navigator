@@ -3552,6 +3552,15 @@ MATERIAL TO REWRITE:\n${fullText}`;
         });
       }
       let rewrittenText = parsed.rewritten_text || "";
+      // Guard: if the model double-wrapped (rewritten_text is itself a JSON blob / code fence), unwrap it
+      if (rewrittenText.trim().startsWith("```") || rewrittenText.trim().startsWith("{")) {
+        try {
+          const inner = JSON.parse(extractJSON(rewrittenText));
+          if (inner?.rewritten_text) rewrittenText = inner.rewritten_text;
+          else if (inner?.converted_text) rewrittenText = inner.converted_text;
+          else if (inner?.text) rewrittenText = inner.text;
+        } catch { /* not JSON — leave as-is */ }
+      }
 
       // Post-processing safety guard for documentary/deck
       const safetyViolation = validateDocSafety(fullText, rewrittenText, effectiveDeliverable, effectiveFormat);
@@ -4313,7 +4322,13 @@ MATERIAL:\n${version.plaintext}`;
       const newVersion = await createVer(supabase, {
         documentId: slot.documentId,
         docType: resolvedDocType,
-        plaintext: parsed.converted_text || "",
+        plaintext: (() => {
+          let ct = parsed.converted_text || "";
+          if (ct.trim().startsWith("```") || ct.trim().startsWith("{")) {
+            try { const i = JSON.parse(extractJSON(ct)); ct = i?.converted_text || i?.rewritten_text || i?.text || ct; } catch { /* ok */ }
+          }
+          return ct;
+        })(),
         label: `Converted from ${srcDoc?.doc_type || "source"}`,
         createdBy: user.id,
         approvalStatus: "draft",
