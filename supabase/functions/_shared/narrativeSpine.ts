@@ -353,3 +353,171 @@ For each check above:
 - If a Class A axis (story_engine or protagonist_arc) has been replaced: emit a "spine_drift" blocker note — this is a constitutional violation.
 All spine findings must include note_source: "spine_alignment" or "spine_drift". These are advisory in v1 — do not block promotion.\n`;
 }
+
+// ── Class A Spine Check — dedicated comparison pass ──
+
+export const CLASS_A_SPINE_CHECK_DOC_TYPES = new Set([
+  'story_outline',
+  'character_bible',
+  'beat_sheet',
+  'feature_script',
+  'production_draft',
+]);
+
+export interface ClassACheckResult {
+  axis: 'story_engine' | 'protagonist_arc';
+  status: 'aligned' | 'contradicted' | 'unclear';
+  confidence: number;
+  evidence: string;
+  suggested_note: {
+    category: string;
+    severity: string;
+    note_source: string;
+    title: string;
+    instruction: string;
+  } | null;
+}
+
+export interface ClassASpineCheckOutput {
+  checks: ClassACheckResult[];
+}
+
+/**
+ * Builds the system prompt for the Class A spine check pass.
+ * This is a narrow, deterministic comparison — NOT a general review.
+ */
+export function buildClassASpineCheckSystemPrompt(): string {
+  return `You are a constitutional narrative compliance checker.
+
+Your ONLY task: compare a locked Narrative Spine's Class A axes against bounded document evidence and determine whether the document CONTRADICTS the locked spec.
+
+You are NOT reviewing quality, craft, pacing, or any other aspect.
+You are checking EXACT SPEC FIDELITY for two axes only:
+1. story_engine — the declared narrative mechanism driving the story
+2. protagonist_arc — the declared transformation arc of the protagonist
+
+For each axis, determine:
+- "aligned" — the document evidence clearly supports the locked axis value
+- "contradicted" — the document evidence shows a DIFFERENT mechanism/arc that replaces the locked value
+- "unclear" — insufficient evidence to determine alignment or contradiction
+
+CRITICAL RULES:
+- A document that DEVELOPS or DEEPENS the locked axis is "aligned", not contradicted.
+- A document that has not yet reached the arc's conclusion is "aligned" if trajectory is consistent.
+- Only mark "contradicted" when the document has REPLACED the axis with a fundamentally different one.
+- Do NOT confuse narrative complexity with contradiction.
+- When in doubt, return "unclear" — never invent contradictions.
+
+Respond with ONLY valid JSON matching this exact schema:
+{
+  "checks": [
+    {
+      "axis": "story_engine" | "protagonist_arc",
+      "status": "aligned" | "contradicted" | "unclear",
+      "confidence": <number 0-100>,
+      "evidence": "<1-2 sentence explanation>",
+      "suggested_note": null | {
+        "category": "spine_drift",
+        "severity": "blocker",
+        "note_source": "spine_drift",
+        "title": "<concise title>",
+        "instruction": "<what must change to restore alignment>"
+      }
+    }
+  ]
+}
+
+Rules for suggested_note:
+- If status = "aligned" → suggested_note MUST be null
+- If status = "unclear" → suggested_note MUST be null
+- If status = "contradicted" → suggested_note MUST be present with category="spine_drift", severity="blocker", note_source="spine_drift"`;
+}
+
+/**
+ * Builds the user prompt for the Class A spine check pass.
+ * Uses bounded context: last portion of document + protagonist-related sections.
+ */
+export function buildClassASpineCheckUserPrompt(
+  spine: NarrativeSpine,
+  docType: string,
+  documentText: string,
+  projectTitle?: string,
+  lane?: string,
+): string {
+  const storyEngine = spine.story_engine || '(not set)';
+  const protagonistArc = spine.protagonist_arc || '(not set)';
+
+  // Bounded context: take first 3000 chars + last 5000 chars (captures setup + climax/resolution)
+  const MAX_FRONT = 3000;
+  const MAX_BACK = 5000;
+  let boundedContext: string;
+  if (documentText.length <= MAX_FRONT + MAX_BACK + 500) {
+    boundedContext = documentText;
+  } else {
+    const front = documentText.slice(0, MAX_FRONT);
+    const back = documentText.slice(-MAX_BACK);
+    boundedContext = `${front}\n\n[... middle section omitted for brevity ...]\n\n${back}`;
+  }
+
+  return `LOCKED CLASS A SPINE VALUES (constitutional — these are the authoritative spec):
+- Story Engine: "${storyEngine}"
+- Protagonist Arc: "${protagonistArc}"
+
+PROJECT: ${projectTitle || 'Unknown'}
+LANE: ${lane || 'Unknown'}
+DOCUMENT TYPE: ${docType}
+
+DOCUMENT EVIDENCE (bounded excerpt):
+${boundedContext}
+
+Compare the document evidence against EACH locked Class A axis value above.
+For each axis, determine: aligned, contradicted, or unclear.`;
+}
+
+/**
+ * Validates and parses the Class A spine check output.
+ * Returns null if output is invalid.
+ */
+export function parseClassASpineCheckOutput(parsed: any): ClassASpineCheckOutput | null {
+  if (!parsed || !Array.isArray(parsed.checks)) return null;
+  const validAxes = new Set(['story_engine', 'protagonist_arc']);
+  const validStatuses = new Set(['aligned', 'contradicted', 'unclear']);
+
+  const checks: ClassACheckResult[] = [];
+  for (const c of parsed.checks) {
+    if (!validAxes.has(c.axis) || !validStatuses.has(c.status)) continue;
+    const result: ClassACheckResult = {
+      axis: c.axis,
+      status: c.status,
+      confidence: typeof c.confidence === 'number' ? c.confidence : 50,
+      evidence: typeof c.evidence === 'string' ? c.evidence : '',
+      suggested_note: null,
+    };
+    if (c.status === 'contradicted' && c.suggested_note) {
+      result.suggested_note = {
+        category: 'spine_drift',
+        severity: 'blocker',
+        note_source: 'spine_drift',
+        title: typeof c.suggested_note.title === 'string' ? c.suggested_note.title : `Class A violation: ${c.axis}`,
+        instruction: typeof c.suggested_note.instruction === 'string' ? c.suggested_note.instruction : '',
+      };
+    } else if (c.status === 'contradicted' && !c.suggested_note) {
+      // Force a note for contradicted results
+      result.suggested_note = {
+        category: 'spine_drift',
+        severity: 'blocker',
+        note_source: 'spine_drift',
+        title: `Class A violation: ${c.axis} contradicts locked spine`,
+        instruction: c.evidence || 'Realign document with locked spine axis.',
+      };
+    }
+    // Enforce: no note for aligned/unclear
+    if (c.status !== 'contradicted') {
+      result.suggested_note = null;
+    }
+    checks.push(result);
+  }
+  if (checks.length === 0) return null;
+  return { checks };
+}
+}
