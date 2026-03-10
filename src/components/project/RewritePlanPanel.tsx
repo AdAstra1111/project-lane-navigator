@@ -188,6 +188,13 @@ const SEQUENCE_BUCKET_STYLES: Record<SequenceBucket, { className: string; label:
   isolated: { className: 'border-border text-muted-foreground/60', label: 'Isolated' },
 };
 
+const PATCH_URGENCY_STYLES: Record<PatchUrgency, { className: string; label: string }> = {
+  critical: { className: 'border-red-500/40 text-red-400', label: 'Critical' },
+  high: { className: 'border-orange-500/40 text-orange-400', label: 'High' },
+  medium: { className: 'border-yellow-500/40 text-yellow-400', label: 'Medium' },
+  low: { className: 'border-border text-muted-foreground', label: 'Low' },
+};
+
 /* ── Component ── */
 
 export function RewritePlanPanel({
