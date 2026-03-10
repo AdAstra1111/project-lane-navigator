@@ -1,10 +1,13 @@
 /**
  * ReconcileBanner — Shows when project documents need reconciliation
- * after decisions have been applied.
+ * after decisions have been applied or spine amendments made.
+ *
+ * Phase 4 Stage 3: adds per-doc "Re-run analysis" for spine_amendment reasons.
  */
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Loader2, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
@@ -14,15 +17,24 @@ interface Props {
   projectId: string;
 }
 
+/** Check if a doc has at least one spine_amendment reconcile reason */
+function hasSpineAmendmentReason(reasons: any): boolean {
+  if (!Array.isArray(reasons)) return false;
+  return reasons.some(
+    (r: any) => typeof r === 'object' && r !== null && r.type === 'spine_amendment'
+  );
+}
+
 export function ReconcileBanner({ projectId }: Props) {
   const qc = useQueryClient();
+  const [revalidatingDocId, setRevalidatingDocId] = useState<string | null>(null);
 
   const { data: reconcileDocs = [] } = useQuery({
     queryKey: ['reconcile-docs', projectId],
     queryFn: async () => {
       const { data } = await supabase
         .from('project_documents')
-        .select('id, title, file_name, doc_type, reconcile_reasons')
+        .select('id, title, file_name, doc_type, reconcile_reasons, latest_version_id')
         .eq('project_id', projectId)
         .eq('needs_reconcile', true);
       return data || [];
@@ -39,6 +51,38 @@ export function ReconcileBanner({ projectId }: Props) {
     },
   });
 
+  const spineRevalidateMutation = useMutation({
+    mutationFn: async (doc: { id: string; doc_type: string; latest_version_id: string | null }) => {
+      if (!doc.latest_version_id) throw new Error('No version available for this document');
+      setRevalidatingDocId(doc.id);
+      const { data, error } = await supabase.functions.invoke('dev-engine-v2', {
+        body: {
+          action: 'spine_revalidate',
+          projectId,
+          documentId: doc.id,
+          versionId: doc.latest_version_id,
+          deliverableType: doc.doc_type,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      setRevalidatingDocId(null);
+      if (data?.spine_reasons_cleared) {
+        toast.success('Spine revalidation complete — reconcile reasons cleared');
+      } else {
+        toast.info('Revalidation complete');
+      }
+      qc.invalidateQueries({ queryKey: ['reconcile-docs', projectId] });
+    },
+    onError: (err: any) => {
+      setRevalidatingDocId(null);
+      toast.error(`Revalidation failed: ${err.message || 'Unknown error'}`);
+    },
+  });
+
   if (reconcileDocs.length === 0) return null;
 
   return (
@@ -50,18 +94,45 @@ export function ReconcileBanner({ projectId }: Props) {
             Documents need reconciliation
           </p>
           <p className="text-[10px] text-muted-foreground mb-2">
-            Recent decisions may affect these documents. Re-run analysis or rewrite to reconcile.
+            Recent decisions or spine amendments may affect these documents. Re-run analysis or rewrite to reconcile.
           </p>
-          <div className="flex flex-wrap gap-1 mb-2">
-            {reconcileDocs.map(doc => (
-              <Badge
-                key={doc.id}
-                variant="outline"
-                className="text-[9px] border-amber-500/30 text-amber-400"
-              >
-                {doc.title || doc.file_name || doc.doc_type}
-              </Badge>
-            ))}
+          <div className="flex flex-col gap-1.5 mb-2">
+            {reconcileDocs.map(doc => {
+              const isSpine = hasSpineAmendmentReason(doc.reconcile_reasons);
+              const isRevalidating = revalidatingDocId === doc.id;
+              return (
+                <div key={doc.id} className="flex items-center gap-1.5">
+                  <Badge
+                    variant="outline"
+                    className="text-[9px] border-amber-500/30 text-amber-400"
+                  >
+                    {doc.title || doc.file_name || doc.doc_type}
+                  </Badge>
+                  {isSpine && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-5 text-[9px] gap-0.5 px-1.5 text-violet-400 hover:text-violet-300"
+                      onClick={() =>
+                        spineRevalidateMutation.mutate({
+                          id: doc.id,
+                          doc_type: doc.doc_type,
+                          latest_version_id: doc.latest_version_id,
+                        })
+                      }
+                      disabled={isRevalidating || spineRevalidateMutation.isPending}
+                    >
+                      {isRevalidating ? (
+                        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                      ) : (
+                        <ShieldCheck className="h-2.5 w-2.5" />
+                      )}
+                      Re-run analysis
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <Button
             size="sm"
