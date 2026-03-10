@@ -38,6 +38,12 @@ import {
 } from "../_shared/deliverableSectionRegistry.ts";
 import { parseSections } from "../_shared/sectionRepairEngine.ts";
 import type { SectionBoundary } from "../_shared/sectionRepairEngine.ts";
+import {
+  getDownstreamAxes,
+  getUpstreamAxes,
+  computePropagatedRisk,
+  getDependencyPosition,
+} from "../_shared/narrativeDependencyGraph.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -689,6 +695,26 @@ serve(async (req: Request) => {
     }
     const likelyAffectedAreas = affectedByKey.size > 0 ? [...affectedByKey.values()] : null;
 
+    // ── NDG v1: Propagated risk + dependency position ──
+    // Additive enrichment — advisory only, read-only, no unit lifecycle changes.
+    // Computes which rewrite_target axes have structural downstream dependents,
+    // and adds a dependency_position hint to each rewrite/preserve target.
+
+    // All axes that need attention (contradicted or stale)
+    const rewriteAxisSet = new Set<SpineAxis>(rewriteTargets.map((rt: any) => rt.axis as SpineAxis));
+
+    // propagated_risk: for each rewrite target axis, list downstream axes at risk
+    const propagatedRisk = computePropagatedRisk([...rewriteAxisSet]);
+
+    // Enrich each rewrite_target with dependency_position hint
+    for (const rt of rewriteTargets) {
+      rt.dependency_position = getDependencyPosition(rt.axis as SpineAxis, rewriteAxisSet);
+    }
+    // Enrich preserve_targets too — useful for UI to show "safe but downstream of a rewrite target"
+    for (const pt of preserveTargets) {
+      pt.dependency_position = getDependencyPosition(pt.axis as SpineAxis, rewriteAxisSet);
+    }
+
     // ── 6. Coverage accounting ──
     //
     // SEMANTIC CHANGE vs prior version (document for UI consumers):
@@ -780,6 +806,10 @@ serve(async (req: Request) => {
         supported_but_missing_on_version: supportedButMissing,
         supported_and_evaluated_on_version: supportedAndEvaluated,
       },
+      // ── NDG v1: additive dependency intelligence — advisory only ──
+      // UI may safely ignore these fields. No unit statuses changed.
+      // rewrite_targets and preserve_targets now include dependency_position hints.
+      propagated_risk: propagatedRisk,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err: any) {

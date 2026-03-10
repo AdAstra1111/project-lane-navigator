@@ -15,6 +15,11 @@ import {
   NarrativeSpine,
   AXIS_METADATA,
 } from "../_shared/narrativeSpine.ts";
+import {
+  getDownstreamAxes,
+  computePropagatedRisk,
+  getDependencyPosition,
+} from "../_shared/narrativeDependencyGraph.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -177,6 +182,28 @@ serve(async (req: Request) => {
         console.warn("[spine-amendment] narrative_units at-risk query error (non-fatal):", unitEx.message);
       }
 
+      // ── NDG v1: downstream risk computation ──
+      // Additive only — does not affect existing fields or unit lifecycle.
+      // Computes which other axes are structurally downstream of the amended axis.
+      const ndgDownstreamAxes = getDownstreamAxes(axis as SpineAxis);
+      const ndgPropagatedRisk = computePropagatedRisk([axis as SpineAxis]);
+
+      // Query narrative_units for downstream axes (fail-closed, non-blocking)
+      let downstreamUnitsAtRisk: any[] = [];
+      if (ndgDownstreamAxes.length > 0) {
+        try {
+          const { data: downstreamRows } = await supabase
+            .from("narrative_units")
+            .select("unit_key, unit_type, status, source_doc_type, source_doc_version_id, payload_json")
+            .eq("project_id", projectId)
+            .in("unit_type", ndgDownstreamAxes)
+            .in("status", ["aligned", "contradicted", "active"]);
+          downstreamUnitsAtRisk = downstreamRows || [];
+        } catch (_ndgErr: any) {
+          // Non-fatal — NDG enrichment is advisory only
+        }
+      }
+
       return new Response(JSON.stringify({
         axis,
         axis_label: axisMeta.description,
@@ -201,6 +228,21 @@ serve(async (req: Request) => {
           evidence_excerpt: u.payload_json?.evidence_excerpt || null,
         })),
         units_at_risk_count: unitsAtRisk.length,
+        // ── NDG v1: additive downstream risk fields ──
+        // Advisory only. Does not mark any units stale. UI may ignore safely.
+        downstream_axes_at_risk: ndgDownstreamAxes,
+        downstream_axes_at_risk_count: ndgDownstreamAxes.length,
+        downstream_units_at_risk: downstreamUnitsAtRisk.map((u: any) => ({
+          unit_key: u.unit_key,
+          axis: u.unit_type,
+          status: u.status,
+          source_doc_type: u.source_doc_type,
+          source_doc_version_id: u.source_doc_version_id,
+          evidence_excerpt: u.payload_json?.evidence_excerpt || null,
+        })),
+        downstream_units_at_risk_count: downstreamUnitsAtRisk.length,
+        dependency_chains: ndgPropagatedRisk[0]?.dependency_chains ?? [],
+        propagated_risk: ndgPropagatedRisk,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
