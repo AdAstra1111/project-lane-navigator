@@ -1402,6 +1402,17 @@ const MIN_CHARS_BY_DOC_TYPE: Record<string, number> = {
 
 const DEFAULT_MIN_CHARS = 600;
 
+// ── Feature-length word count gates ──
+// feature_script and production_draft must meet a minimum runtime before being
+// treated as sufficient. Hard floor = 70 min × 220 wpm = 15,400 words.
+// This gate prevents auto-run from promoting a short script (e.g. 25 pages / 6k words)
+// that the Feature Length Guardrail would flag as "Below Floor".
+// Does NOT apply to episodic scripts (episode_script, season_script) — different runtime targets.
+const FEATURE_MIN_WORDS: Record<string, number> = {
+  feature_script: 15400,   // 70 min hard floor at 220 wpm
+  production_draft: 15400, // same — inherits from script
+};
+
 function isDownstreamDocSufficient(docType: string, plaintext: string | null | undefined, _approvalStatus?: string): boolean {
   if (!plaintext) return false;
   const text = plaintext.trim();
@@ -1410,6 +1421,17 @@ function isDownstreamDocSufficient(docType: string, plaintext: string | null | u
   const lower = text.toLowerCase();
   for (const marker of STUB_MARKERS) {
     if (lower.includes(marker)) return false;
+  }
+  // ── Feature-length gate ──
+  // For feature scripts and production drafts, enforce a word-count floor derived from
+  // the 70-minute hard runtime floor. A stub-free but short script (e.g. 6k words / 25 pages)
+  // must not be treated as sufficient — auto-run must keep iterating.
+  if (FEATURE_MIN_WORDS[docType]) {
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+    if (wordCount < FEATURE_MIN_WORDS[docType]) {
+      console.log(`[auto-run] isDownstreamDocSufficient: ${docType} BELOW feature-length floor — ${wordCount} words < ${FEATURE_MIN_WORDS[docType]} required`);
+      return false;
+    }
   }
   return true;
 }
