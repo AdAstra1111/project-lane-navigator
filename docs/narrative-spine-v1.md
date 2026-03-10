@@ -182,16 +182,17 @@ Constitutional severity and revalidation scope are always shown to the user as t
 
 ## 6. Enforcement Rollout Plan
 
-**Phase 1 — Prompt guidance (current)**
+**Phase 1 — Prompt guidance — STATUS: COMPLETE**
 Spine injected as constitutional instructions via `spineToPromptBlock()` in `mergedDirections`. No validation. No blocking. Spine influences generation implicitly.
 
-**Phase 2 — Advisory findings**
+**Phase 2 — Advisory findings — STATUS: COMPLETE**
 `dev-engine-v2` reviewer prompt explicitly checks alignment of each document against the locked spine: inciting alignment, midpoint type, resolution shape. Misalignments generate `high_impact` notes tagged with `note_source: 'spine_alignment'` in the note's `meta` field. This provenance tag allows telemetry to distinguish spine alignment findings from ordinary CI/GP findings throughout all reporting and dashboards. Notes enter the existing convergence loop. No new blocking paths.
 *Prerequisite: spine confirmation UI live and spine acceptance telemetry flowing.*
 
-**Phase 3 — Bounded validators**
-Dedicated `checkSpineAlignment()` function runs at ANALYZE step. Returns `aligned | partial_drift | constitutional_drift`. `constitutional_drift` on a Class A axis generates a blocker note (also tagged `note_source: 'spine_alignment'`). Drift enters the convergence loop as a structured note, not a separate gate.
-*Prerequisite: user spine acceptance rate ≥80% across observed projects.*
+**Phase 3 — Class A Spine Check — STATUS: OPERATIONAL (commit 3ce2008b)**
+Dedicated `Class A Spine Check` pass runs inside the `notes` action in `dev-engine-v2`, after the general LLM reviewer. It is a narrow, deterministic comparison — not a general review — that checks the two Class A axes (`story_engine`, `protagonist_arc`) against the locked spine. Contradictions generate blocker-severity `spine_drift` notes with `note_key = class_a_spine_{axis}`. DB-level deduplication prevents duplicate unresolved notes. The check is advisory only in v1: it appends notes to the normal note flow and does not block promotion. Fail-closed: any error in the Class A pass is logged and suppressed — it never corrupts the main analyze result. `class_a_spine_*` notes are excluded from the general auto-resolution loop because they are managed by this dedicated pass, not by LLM output presence/absence.
+*Runtime validated: contradiction detection, dedupe, aligned-case passthrough, guard (unlocked spine skips check).*
+*Implementation: `_shared/narrativeSpine.ts` (prompts, parser, types), `dev-engine-v2/index.ts` (invocation, note insertion, auto-resolution exclusion).*
 
 **Phase 4 — Optional hard gates**
 Projects with `meta_json.spine_hard_gates=true` get hard validation. `constitutional_drift` on a Class A axis blocks promotion. Explicit opt-in only — never system default.
