@@ -41,6 +41,14 @@ interface PreserveTarget {
   axis_class: string;
 }
 
+interface CoverageBreakdown {
+  supported_axes: string[];
+  unsupported_axes: string[];
+  deferred_validator_axes?: string[];
+  supported_but_missing_on_version: string[];
+  supported_and_evaluated_on_version: string[];
+}
+
 interface RewritePlan {
   document_id: string | null;
   version_id: string;
@@ -58,6 +66,7 @@ interface RewritePlan {
   plan_complete: boolean;
   generated_at: string;
   error?: string;
+  coverage_breakdown?: CoverageBreakdown;
 }
 
 /* ── Props ── */
@@ -203,24 +212,28 @@ export function RewritePlanPanel({
               </section>
             )}
 
-            {/* E. Coverage Gaps / Unsupported Axes */}
-            {plan.axes_with_no_units.length > 0 && (
-              <section className="space-y-2">
-                <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                  <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-                  Axes without evaluated unit coverage
-                </h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {plan.axes_with_no_units.map(ax => (
-                    <Badge key={ax} variant="outline" className="text-[10px] border-border text-muted-foreground">
-                      {AXIS_LABELS[ax] || ax}
-                    </Badge>
-                  ))}
-                </div>
-                <p className="text-[10px] text-muted-foreground/70">
-                  No unit data exists for these axes on this version. Run analysis to populate coverage.
-                </p>
-              </section>
+            {/* E. Coverage Gaps — split by coverage_breakdown when available */}
+            {plan.coverage_breakdown ? (
+              <CoverageBreakdownSection breakdown={plan.coverage_breakdown} />
+            ) : (
+              plan.axes_with_no_units.length > 0 && (
+                <section className="space-y-2">
+                  <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                    Axes without evaluated unit coverage
+                  </h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {plan.axes_with_no_units.map(ax => (
+                      <Badge key={ax} variant="outline" className="text-[10px] border-border text-muted-foreground">
+                        {AXIS_LABELS[ax] || ax}
+                      </Badge>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/70">
+                    No unit data exists for these axes on this version. Run analysis to populate coverage.
+                  </p>
+                </section>
+              )
             )}
 
             {/* Staled Axes info */}
@@ -237,7 +250,9 @@ export function RewritePlanPanel({
             {/* Footer: meta */}
             <div className="pt-2 border-t border-border">
               <p className="text-[9px] text-muted-foreground/50">
-                Coverage: {plan.axes_covered}/{plan.total_relevant_axes} axes
+                {plan.coverage_breakdown
+                  ? `Coverage: ${plan.coverage_breakdown.supported_and_evaluated_on_version.length}/${plan.coverage_breakdown.supported_axes.length} supported axes evaluated`
+                  : `Coverage: ${plan.axes_covered}/${plan.total_relevant_axes} axes`}
                 · Generated {new Date(plan.generated_at).toLocaleString()}
               </p>
             </div>
@@ -373,6 +388,63 @@ function PreserveTargetCard({ target }: { target: PreserveTarget }) {
       )}
 
       <p className="text-[9px] text-muted-foreground leading-snug">{target.note}</p>
+    </div>
+  );
+}
+
+function CoverageBreakdownSection({ breakdown }: { breakdown: CoverageBreakdown }) {
+  const hasUnsupported = breakdown.unsupported_axes.length > 0;
+  const hasMissing = breakdown.supported_but_missing_on_version.length > 0;
+  const hasDeferred = (breakdown.deferred_validator_axes || []).length > 0;
+
+  if (!hasUnsupported && !hasMissing) return null;
+
+  return (
+    <div className="space-y-3">
+      {/* Unsupported by IFFY */}
+      {hasUnsupported && (
+        <section className="space-y-2">
+          <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+            <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+            Not yet covered by IFFY
+          </h3>
+          <div className="flex flex-wrap gap-1.5">
+            {breakdown.unsupported_axes.map(ax => (
+              <Badge key={ax} variant="outline" className="text-[10px] border-border text-muted-foreground/60">
+                {AXIS_LABELS[ax] || ax}
+              </Badge>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground/70">
+            These axes are not yet supported by IFFY's current validator architecture for rewrite planning.
+          </p>
+          {hasDeferred && (
+            <p className="text-[10px] text-muted-foreground/50 italic">
+              {breakdown.deferred_validator_axes!.length} axis(es) deferred pending deeper validation support.
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* Supported but missing on this version */}
+      {hasMissing && (
+        <section className="space-y-2">
+          <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+            <Eye className="w-3.5 h-3.5 text-amber-400" />
+            Supported but not yet evaluated on this version
+          </h3>
+          <div className="flex flex-wrap gap-1.5">
+            {breakdown.supported_but_missing_on_version.map(ax => (
+              <Badge key={ax} variant="outline" className="text-[10px] border-amber-500/30 text-amber-400">
+                {AXIS_LABELS[ax] || ax}
+              </Badge>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground/70">
+            These axes are supported by IFFY, but no evaluated unit coverage exists yet for this document version. Run analysis to populate coverage.
+          </p>
+        </section>
+      )}
     </div>
   );
 }
