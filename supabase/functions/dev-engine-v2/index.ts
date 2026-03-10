@@ -3302,17 +3302,27 @@ GENERAL RULES:
               const classAResult = parseClassASpineCheckOutput(classAParsed);
 
               if (classAResult) {
-                // Collect contradicted notes for insertion
-                const existingNoteKeys = new Set(
-                  (allTieredNotes || []).map((n: any) => n.id).filter(Boolean)
-                );
                 for (const check of classAResult.checks) {
                   if (check.status === 'contradicted' && check.suggested_note) {
                     const noteKey = `class_a_spine_${check.axis}`;
-                    // Dedupe: skip if a note with same key already exists in this run
-                    if (existingNoteKeys.has(noteKey)) {
-                      console.log("[dev-engine-v2] Class A spine check: skipping duplicate", { noteKey });
-                      continue;
+                    // FIX 1: DB-level dedupe — check development_notes for existing unresolved row
+                    try {
+                      const { data: existingDbNote } = await supabase
+                        .from("development_notes")
+                        .select("id")
+                        .eq("project_id", projectId)
+                        .eq("document_id", documentId)
+                        .eq("note_key", noteKey)
+                        .eq("resolved", false)
+                        .limit(1)
+                        .maybeSingle();
+                      if (existingDbNote) {
+                        console.log("[dev-engine-v2] Class A spine check: skipping duplicate (DB)", { noteKey });
+                        continue;
+                      }
+                    } catch (dedupeErr: any) {
+                      console.warn("[dev-engine-v2] Class A dedupe check failed (non-fatal):", dedupeErr?.message);
+                      // Proceed with insert — prefer false duplicate over missing note
                     }
                     const spineNote = {
                       project_id: projectId,
@@ -3359,6 +3369,19 @@ GENERAL RULES:
       } catch (classAErr: any) {
         console.warn("[dev-engine-v2] Class A spine check failed (non-fatal):", classAErr?.message);
         // Fail closed — do not corrupt main analyze result
+      }
+
+      // FIX 2: Recompute stability_status after Class A notes may have been appended
+      {
+        const finalBlockerCount = (parsed.blocking_issues || []).length;
+        const finalHighCount = (parsed.high_impact_notes || []).length;
+        const finalPolishCount = (parsed.polish_notes || []).length;
+        parsed.stability_status = finalBlockerCount === 0 && finalHighCount <= 3 && finalPolishCount <= 5
+          ? "structurally_stable" : finalBlockerCount === 0 ? "refinement_phase" : "in_progress";
+        // Also update resolution_summary blocker count
+        if (parsed.resolution_summary) {
+          parsed.resolution_summary.blockers_remaining = finalBlockerCount;
+        }
       }
 
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
