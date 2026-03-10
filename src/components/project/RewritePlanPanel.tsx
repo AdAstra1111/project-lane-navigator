@@ -289,6 +289,9 @@ export function RewritePlanPanel({
             {/* B4. Rewrite Sequence */}
             <RewriteSequenceSection sequence={plan.rewrite_sequence} />
 
+            {/* B5. Patch Blueprint Manifest */}
+            <PatchBlueprintManifest blueprints={plan.patch_blueprints} />
+
             {/* C. Rewrite Targets */}
             {sortedRewriteTargets.length > 0 && (
               <section className="space-y-2">
