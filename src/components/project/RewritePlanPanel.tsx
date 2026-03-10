@@ -108,6 +108,7 @@ interface RewritePlan {
   coverage_breakdown?: CoverageBreakdown;
   likely_affected_areas?: string[] | null;
   propagated_risk?: PropagatedRisk[];
+  rewrite_sequence?: RewriteSequenceItem[];
 }
 
 /* ── Props ── */
