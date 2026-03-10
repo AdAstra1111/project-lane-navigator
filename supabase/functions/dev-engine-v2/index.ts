@@ -2507,7 +2507,7 @@ ${version.plaintext.slice(0, maxContextChars)}`;
       parsed.development_behavior = effectiveBehavior;
 
       // Validate next_best_document — must be a valid deliverable type key for THIS format's ladder
-      const formatLadder = getLadderForFormat(effectiveFormat);
+      const formatLadder = getLadderForFormat(effectiveFormat) ?? getLadderForFormat("film") ?? [];
       const VALID_DELIVERABLES = new Set(formatLadder);
       if (parsed.convergence?.next_best_document) {
         const raw_nbd = parsed.convergence.next_best_document;
