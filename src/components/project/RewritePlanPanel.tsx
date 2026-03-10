@@ -405,6 +405,74 @@ function PreserveTargetCard({ target }: { target: PreserveTarget }) {
       )}
 
       <p className="text-[9px] text-muted-foreground leading-snug">{target.note}</p>
+
+      {/* Section targets */}
+      <SectionTargetsDisplay targets={target.section_targets} />
+    </div>
+  );
+}
+
+/* ── Section Targets Display ── */
+
+function SectionTargetsDisplay({ targets }: { targets?: SectionTarget[] }) {
+  if (!targets || targets.length === 0) return null;
+
+  return (
+    <div className="space-y-1">
+      <p className="text-[9px] text-muted-foreground font-medium flex items-center gap-1">
+        <Crosshair className="w-2.5 h-2.5" />
+        Suggested sections
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {targets.map((st) => (
+          <div
+            key={st.section_key}
+            className="inline-flex items-center gap-1 rounded border border-border bg-muted/30 px-1.5 py-0.5"
+          >
+            <span className="text-[9px] text-foreground/80">{st.section_label}</span>
+            <Badge
+              variant="outline"
+              className={`text-[7px] px-1 py-0 ${
+                st.confidence === 'deterministic'
+                  ? 'border-emerald-500/40 text-emerald-400'
+                  : 'border-amber-500/40 text-amber-400'
+              }`}
+            >
+              {st.confidence === 'deterministic' ? 'exact' : 'bounded'}
+            </Badge>
+          </div>
+        ))}
+      </div>
+      {targets.some(st => st.targeting_method === 'registry') && (
+        <p className="text-[8px] text-muted-foreground/50 italic">
+          Section targeting is structural guidance based on document registry, not excerpt-verified.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ── Likely Affected Areas ── */
+
+function LikelyAffectedAreas({ areas }: { areas?: string[] | null }) {
+  if (!areas || areas.length === 0) return null;
+
+  return (
+    <div className="p-2.5 rounded-lg bg-muted/30 border border-border space-y-1.5">
+      <p className="text-[10px] font-medium text-muted-foreground flex items-center gap-1.5">
+        <Crosshair className="w-3 h-3 text-muted-foreground" />
+        Likely affected sections
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {areas.map((area) => (
+          <Badge key={area} variant="outline" className="text-[9px] border-border text-foreground/70">
+            {AXIS_LABELS[area] || area.replace(/_/g, ' ')}
+          </Badge>
+        ))}
+      </div>
+      <p className="text-[8px] text-muted-foreground/50">
+        Planning guidance — not exact edit instructions.
+      </p>
     </div>
   );
 }
