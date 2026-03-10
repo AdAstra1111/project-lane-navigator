@@ -365,6 +365,25 @@ function PlanStatusHeader({ plan }: { plan: RewritePlan }) {
   );
 }
 
+/* ── Risk Score Badge ── */
+
+function RiskScoreBadge({ score, label }: { score?: number; label?: string }) {
+  if (score == null || score <= 0) return null;
+  // Color intensity based on score magnitude
+  const style = score >= 10
+    ? 'border-red-500/50 text-red-400 bg-red-500/10'
+    : score >= 5
+      ? 'border-amber-500/50 text-amber-400 bg-amber-500/10'
+      : score >= 2
+        ? 'border-yellow-500/40 text-yellow-400 bg-yellow-500/5'
+        : 'border-border text-muted-foreground bg-muted/20';
+  return (
+    <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border font-mono ${style}`}>
+      {label ? `${label} ` : ''}{score.toFixed(1)}
+    </Badge>
+  );
+}
+
 /* ── Dependency Position Badge ── */
 
 function DependencyPositionBadge({ position }: { position?: DependencyPosition }) {
