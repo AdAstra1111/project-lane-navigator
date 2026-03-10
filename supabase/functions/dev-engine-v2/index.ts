@@ -2850,7 +2850,7 @@ ${version.plaintext.slice(0, maxContextChars)}`;
     // NOTES — tiered structured notes with tracking
     // ══════════════════════════════════════════════
     if (action === "notes") {
-      const { projectId, documentId, versionId, analysisJson } = body;
+      const { projectId, documentId, versionId, analysisJson, deliverableType } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
 
       const { data: version } = await supabase.from("project_document_versions")
