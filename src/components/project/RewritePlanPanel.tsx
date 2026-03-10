@@ -55,6 +55,7 @@ interface PreserveTarget {
   axis_class: string;
   section_targets?: SectionTarget[];
   dependency_position?: DependencyPosition;
+  rewrite_priority_score?: number;
 }
 
 interface CoverageBreakdown {
