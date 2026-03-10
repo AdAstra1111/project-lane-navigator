@@ -43,6 +43,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const STAGES = [
   "apply_seed_intel_pack",
   "regen_foundation",
+  "seed_writing_voice",
   "extract_comparables",
 ] as const;
 type StageName = typeof STAGES[number];
@@ -64,6 +65,7 @@ interface AutopilotState {
   options: {
     apply_seed_intel_pack: boolean;
     regen_foundation: boolean;
+    seed_writing_voice: boolean;
     extract_comparables: boolean;
   };
   stages: Record<StageName, StageState>;
@@ -201,11 +203,13 @@ Deno.serve(async (req) => {
         options: {
           apply_seed_intel_pack: opts.apply_seed_intel_pack !== false,
           regen_foundation: opts.regen_foundation !== false,
+          seed_writing_voice: opts.seed_writing_voice !== false,
           extract_comparables: opts.extract_comparables !== false,
         },
         stages: existing?.stages || {
           apply_seed_intel_pack: makeStageState(),
           regen_foundation: makeStageState(),
+          seed_writing_voice: makeStageState(),
           extract_comparables: makeStageState(),
         },
         last_error: null,
@@ -312,6 +316,8 @@ Deno.serve(async (req) => {
           await executeApplySeedIntelPack(sb, supabaseUrl, authHeader, projectId, autopilot, userId);
         } else if (nextStage === "regen_foundation") {
           await executeRegenFoundation(sb, supabaseUrl, authHeader, projectId, autopilot, userId);
+        } else if (nextStage === "seed_writing_voice") {
+          await executeSeedWritingVoice(sb, supabaseUrl, projectId, autopilot);
         } else if (nextStage === "extract_comparables") {
           await executeExtractComparables(sb, supabaseUrl, authHeader, projectId, autopilot, userId);
         }
@@ -599,6 +605,146 @@ async function executeRegenFoundation(
   const regenCount = items.filter((i: any) => i.status === "regenerated").length;
   autopilot.stages.regen_foundation.notes = `regenerated ${regenCount}/${total} docs`;
   console.log(`[devseed-autopilot] regen_foundation done: ${regenCount}/${total}`);
+}
+
+// ─── seed_writing_voice ────────────────────────────────────────────────────
+// Auto-select the best writing voice preset based on project concept brief + lane.
+// Saves to project_lane_prefs so the writing voice is set before auto-run starts.
+// Sebastian can always override manually; this just prevents the "blank dropdown" problem.
+
+const VOICE_PRESETS_CATALOG = [
+  // vertical
+  { id: "high_heat_addictive_vertical", label: "High-Heat Addictive", lane_group: "vertical", summary: "Rapid-fire cliffhangers, punchy dialogue, maximum scroll-lock energy." },
+  { id: "tender_kdrama_vertical", label: "Tender K-Drama Romance", lane_group: "vertical", summary: "Emotionally layered romance with longing glances and restrained dialogue." },
+  { id: "comedic_flirty_vertical", label: "Comedic & Flirty", lane_group: "vertical", summary: "Light, witty banter with situational comedy and rom-com energy." },
+  { id: "mystery_hook_machine_vertical", label: "Mystery Hook Machine", lane_group: "vertical", summary: "Relentless mystery pacing — every episode adds a question and half-answers another." },
+  { id: "dark_obsession_vertical", label: "Dark Obsession", lane_group: "vertical", summary: "Intense psychological tension, morally grey leads, obsessive relationships." },
+  // series
+  { id: "prestige_intimate_series", label: "Prestige Intimate", lane_group: "series", summary: "Character-driven prestige drama — measured pace, literary dialogue, thematic depth." },
+  { id: "propulsive_commercial_series", label: "Propulsive Commercial", lane_group: "series", summary: "High-octane broadcast drama — clear stakes, episode-end hooks, broad appeal." },
+  { id: "darkly_comic_series", label: "Darkly Comic", lane_group: "series", summary: "Tonal tightrope between absurd comedy and genuine darkness." },
+  { id: "procedural_crisp_series", label: "Procedural Crisp", lane_group: "series", summary: "Clean case-of-the-week structure with sharp investigative dialogue." },
+  { id: "ya_emotional_series", label: "YA Emotional", lane_group: "series", summary: "Emotionally authentic coming-of-age with high relatability and identity themes." },
+  // feature
+  { id: "cinematic_clean_feature", label: "Cinematic Clean", lane_group: "feature", summary: "Elegant, economical prose — every word earns its place, strong visual writing." },
+  { id: "crowdpleaser_highconcept_feature", label: "Crowd-Pleaser High-Concept", lane_group: "feature", summary: "Big idea, clear hook, broad emotional beats — studio four-quadrant energy." },
+  { id: "elevated_genre_feature", label: "Elevated Genre", lane_group: "feature", summary: "Genre thrills with prestige execution — A24/Neon territory." },
+  { id: "lyrical_arthouse_feature", label: "Lyrical Arthouse", lane_group: "feature", summary: "Poetic, image-driven storytelling — rhythm over plot, sensation over explanation." },
+  { id: "action_pulse_feature", label: "Action Pulse", lane_group: "feature", summary: "Muscular, kinetic writing — clear geography, visceral action, lean dialogue." },
+  // documentary
+  { id: "investigative_doc", label: "Investigative", lane_group: "documentary", summary: "Evidence-driven narrative with revelatory structure and journalistic rigor." },
+  { id: "human_intimate_doc", label: "Human Intimate", lane_group: "documentary", summary: "Character-centered vérité — empathy over argument, observation over narration." },
+  { id: "poetic_observational_doc", label: "Poetic Observational", lane_group: "documentary", summary: "Meditative, image-first documentary — atmosphere and texture over argument." },
+  { id: "pop_explainer_doc", label: "Pop Explainer", lane_group: "documentary", summary: "Energetic, accessible storytelling — graphics-friendly, clear narrative drive." },
+];
+
+// Map format → lane_group so we only offer relevant presets
+function laneGroupForFormat(format: string): string {
+  const f = (format || "").toLowerCase().replace(/[_ ]+/g, "-");
+  if (f.includes("vertical")) return "vertical";
+  if (f === "film" || f === "feature" || f.includes("feature")) return "feature";
+  if (f.includes("documentary")) return "documentary";
+  return "series"; // default for tv-series, limited-series, etc.
+}
+
+async function executeSeedWritingVoice(
+  sb: any, supabaseUrl: string, projectId: string, autopilot: AutopilotState,
+) {
+  console.log("[devseed-autopilot] seed_writing_voice: starting");
+
+  // 1. Check if voice already manually set — don't overwrite a human choice
+  const { data: existingPrefs } = await sb.from("project_lane_prefs")
+    .select("prefs").eq("project_id", projectId).maybeSingle();
+  if (existingPrefs?.prefs?.writing_voice?.id && existingPrefs?.prefs?.writing_voice?._source !== "devseed_auto") {
+    console.log("[devseed-autopilot] seed_writing_voice: voice already set manually, skipping");
+    autopilot.stages.seed_writing_voice.notes = `skipped:already_set:${existingPrefs.prefs.writing_voice.id}`;
+    return;
+  }
+
+  // 2. Load project metadata + concept brief
+  const { data: project } = await sb.from("projects")
+    .select("title, format, assigned_lane, genre, tone, target_audience, logline")
+    .eq("id", projectId).maybeSingle();
+
+  const { data: conceptDoc } = await sb.from("project_documents")
+    .select("plaintext").eq("project_id", projectId).eq("doc_type", "concept_brief").maybeSingle();
+
+  const format = project?.format || "film";
+  const laneGroup = laneGroupForFormat(format);
+  const relevantPresets = VOICE_PRESETS_CATALOG.filter(p => p.lane_group === laneGroup);
+
+  if (!relevantPresets.length) {
+    console.warn("[devseed-autopilot] seed_writing_voice: no presets for lane_group", laneGroup);
+    return;
+  }
+
+  const conceptText = (conceptDoc?.plaintext || "").slice(0, 2000);
+  const presetList = relevantPresets.map(p => `- ${p.id}: "${p.label}" — ${p.summary}`).join("\n");
+
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
+  const BALANCED_MODEL = "google/gemini-2.5-flash";
+
+  const systemPrompt = `You are a script development expert. Given a project's concept brief and a list of writing voice presets, select the single best matching preset. Respond with ONLY the preset id (e.g. "elevated_genre_feature"). No explanation.`;
+  const userPrompt = `PROJECT: ${project?.title || "Untitled"}
+FORMAT: ${format} | LANE: ${project?.assigned_lane || "unknown"}
+GENRE/TONE: ${[project?.genre, project?.tone].filter(Boolean).join(", ") || "unspecified"}
+LOGLINE: ${project?.logline || "none"}
+
+CONCEPT BRIEF (excerpt):
+${conceptText || "(no concept brief yet)"}
+
+AVAILABLE PRESETS for ${laneGroup}:
+${presetList}
+
+Which preset id best matches this project?`;
+
+  let chosenId: string | null = null;
+  try {
+    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
+      body: JSON.stringify({
+        model: BALANCED_MODEL,
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+        max_tokens: 50,
+        temperature: 0,
+      }),
+    });
+    const data = await resp.json();
+    const raw = data?.choices?.[0]?.message?.content?.trim() || "";
+    // Extract just the id — strip quotes, spaces, explanations
+    const match = raw.match(/[\w_]+_(?:vertical|series|feature|doc)/);
+    if (match) chosenId = match[0];
+  } catch (e: any) {
+    console.warn("[devseed-autopilot] seed_writing_voice: LLM call failed:", e?.message);
+  }
+
+  // 3. Validate chosen id exists in catalog, fall back to first relevant preset
+  const chosen = VOICE_PRESETS_CATALOG.find(p => p.id === chosenId) || relevantPresets[0];
+  console.log(`[devseed-autopilot] seed_writing_voice: selected ${chosen.id} (${chosen.label})`);
+
+  // 4. Save to project_lane_prefs (upsert — merge with existing prefs)
+  const currentPrefs = existingPrefs?.prefs || {};
+  const { data: projectLane } = await sb.from("projects").select("assigned_lane").eq("id", projectId).maybeSingle();
+  const lane = projectLane?.assigned_lane || "independent-film";
+
+  await sb.from("project_lane_prefs").upsert({
+    project_id: projectId,
+    lane,
+    prefs: {
+      ...currentPrefs,
+      writing_voice: {
+        id: chosen.id,
+        label: chosen.label,
+        summary: chosen.summary,
+        lane_group: chosen.lane_group,
+        _source: "devseed_auto",  // marks as auto-selected so manual override is detected
+      },
+    },
+  }, { onConflict: "project_id,lane" });
+
+  autopilot.stages.seed_writing_voice.notes = `selected:${chosen.id}`;
+  console.log(`[devseed-autopilot] seed_writing_voice done: ${chosen.id}`);
 }
 
 // executeGeneratePrimaryScript removed — DevSeed no longer generates scripts.
