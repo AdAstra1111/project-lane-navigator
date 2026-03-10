@@ -3311,9 +3311,35 @@ GENERAL RULES:
           if ((spineCheckState.state === 'locked' || spineCheckState.state === 'locked_amended') && spineCheckState.spine) {
             const spine = spineCheckState.spine;
 
+            // ── L4.7: Parse sections once (hoisted) — used for both context window shift and L4.5 write-time verification ──
+            // Fail-closed: stays [] if doc type is unsupported or parse throws.
+            let spineCheckSections: import("../_shared/sectionRepairEngine.ts").SectionBoundary[] = [];
+            try {
+              if (isSectionRepairSupported(spineCheckDocType)) {
+                spineCheckSections = parseSections(version.plaintext, spineCheckDocType);
+              }
+            } catch (_sectionParseErr) {
+              // Non-fatal — L4.5 verification falls back to verified=false for all units
+            }
+
+            // ── L4.7: Shift validator context window to first canonical narrative section ──
+            // Skips preamble (logline/premise/__preamble) so the model's 3K front window
+            // starts inside the narrative acts rather than the document header.
+            // If no canonical section is found, falls back to full plaintext (original behavior).
+            const SPINE_PREAMBLE_KEYS = new Set(['__preamble', 'logline', 'premise']);
+            const firstNarrativeSection = spineCheckSections
+              .filter(s => !SPINE_PREAMBLE_KEYS.has(s.section_key))
+              .sort((a, b) => a.start_line - b.start_line)[0] ?? null;
+            let spineValidatorText = version.plaintext;
+            if (firstNarrativeSection && firstNarrativeSection.start_line > 1) {
+              const docLines = version.plaintext.split('\n');
+              spineValidatorText = docLines.slice(firstNarrativeSection.start_line - 1).join('\n');
+              console.log(`[dev-engine-v2] L4.7: context window shifted — section="${firstNarrativeSection.section_key}" start_line=${firstNarrativeSection.start_line} trimmed=${version.plaintext.length - spineValidatorText.length} chars`);
+            }
+
             const hasClassAAxes = !!(spine.story_engine || spine.protagonist_arc);
             const classBUserPrompt = CLASS_B_SPINE_CHECK_AXES.some((ax) => (spine as any)[ax])
-              ? buildClassBSpineCheckUserPrompt(spine, spineCheckDocType, version.plaintext, notesProject?.title, notesProject?.assigned_lane)
+              ? buildClassBSpineCheckUserPrompt(spine, spineCheckDocType, spineValidatorText, notesProject?.title, notesProject?.assigned_lane)
               : null;
             const hasClassBAxes = !!classBUserPrompt;
 
@@ -3326,7 +3352,7 @@ GENERAL RULES:
               const [classAInference, classBInference] = await Promise.allSettled([
                 hasClassAAxes
                   ? (async () => {
-                      const classAUser = buildClassASpineCheckUserPrompt(spine, spineCheckDocType, version.plaintext, notesProject?.title, notesProject?.assigned_lane);
+                      const classAUser = buildClassASpineCheckUserPrompt(spine, spineCheckDocType, spineValidatorText, notesProject?.title, notesProject?.assigned_lane);
                       const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, buildClassASpineCheckSystemPrompt(), classAUser, 0.1, 2000);
                       const p = await parseAIJson(LOVABLE_API_KEY, raw);
                       return parseClassASpineCheckOutput(p);
@@ -3350,18 +3376,6 @@ GENERAL RULES:
 
               const classAResult = classAInference.status === 'fulfilled' ? classAInference.value : null;
               const classBResult = classBInference.status === 'fulfilled' ? classBInference.value : null;
-
-              // ── L4.5: Parse sections once — shared by Class A and Class B unit builds ──
-              // Declared here (outer scope) so both post-processing blocks can use it.
-              // Fail-closed: stays [] if doc type is unsupported.
-              let spineCheckSections: import("../_shared/sectionRepairEngine.ts").SectionBoundary[] = [];
-              try {
-                if (isSectionRepairSupported(spineCheckDocType)) {
-                  spineCheckSections = parseSections(version.plaintext, spineCheckDocType);
-                }
-              } catch (_sectionParseErr) {
-                // Non-fatal — verification falls back to verified=false for all units
-              }
 
               // ── Post-process Class A results (sequential DB writes) ──
               if (classAResult) {
