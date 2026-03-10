@@ -42,6 +42,7 @@ interface RewriteTarget {
   confidence: number | null;
   section_targets?: SectionTarget[];
   dependency_position?: DependencyPosition;
+  rewrite_priority_score?: number;
 }
 
 interface PreserveTarget {
