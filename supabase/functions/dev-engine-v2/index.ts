@@ -1296,7 +1296,7 @@ const DOC_TYPE_REMAP: Record<string, Record<string, string>> = {
 };
 
 function remapDocType(docType: string, format: string): string | null {
-  const ladder = getLadderForFormat(format);
+  const ladder = getLadderForFormat(format) ?? getLadderForFormat("film") ?? [];
   if (ladder.includes(docType)) return docType;
   const remap = DOC_TYPE_REMAP[format];
   if (remap && remap[docType]) return remap[docType];
@@ -1312,7 +1312,7 @@ function buildAnalyzeSystem(deliverable: string, format: string, behavior: strin
   }
   const behaviorMod = BEHAVIOR_MODIFIERS[behavior] || BEHAVIOR_MODIFIERS.market;
   const formatExp = FORMAT_EXPECTATIONS[format] || FORMAT_EXPECTATIONS.film;
-  const ladder = getLadderForFormat(format);
+  const ladder = getLadderForFormat(format) ?? getLadderForFormat("film") ?? [];
 
   // ── IDEA-STAGE FORMAT-AWARE STRUCTURAL CONTEXT ──
   // Inject lane/format expectations into idea evaluation so premise-level checks are grounded
@@ -2404,20 +2404,16 @@ Format: ${rq.format}.${episodeLengthBlock}`;
       const analyzeNecBlock = await loadNECGuardrailBlock(supabase, projectId);
 
       // ── NARRATIVE SPINE: Phase 2 advisory alignment check (non-blocking) ──
-      // Only injected when a locked spine exists. Findings tagged note_source='spine_alignment'.
+      // Only injected when a LOCKED spine exists. Findings tagged note_source='spine_alignment'.
+      // FIX 3: Restored lock-state guard — provisional/confirmed spines do NOT trigger this block.
       let spineAlignmentBlock = "";
       try {
-        const { data: spineProject } = await supabase
-          .from("projects")
-          .select("narrative_spine_json")
-          .eq("id", projectId)
-          .single();
-        const spine = spineProject?.narrative_spine_json;
-        if (spine) {
+        const spineStateForAdvisory = await getSpineState(supabase, projectId);
+        if ((spineStateForAdvisory.state === 'locked' || spineStateForAdvisory.state === 'locked_amended') && spineStateForAdvisory.spine) {
           // Only use alignment block for narrative documents (not market/finance docs)
           const NARRATIVE_DOC_TYPES = new Set(["idea","concept_brief","character_bible","season_arc","episode_grid","vertical_episode_beats","season_script","treatment","story_outline","beat_sheet","feature_script","episode_script","production_draft"]);
           if (NARRATIVE_DOC_TYPES.has(docType)) {
-            spineAlignmentBlock = spineToReviewerAlignmentBlock(spine);
+            spineAlignmentBlock = spineToReviewerAlignmentBlock(spineStateForAdvisory.spine);
           }
         }
       } catch (e) {
@@ -2511,7 +2507,7 @@ ${version.plaintext.slice(0, maxContextChars)}`;
       parsed.development_behavior = effectiveBehavior;
 
       // Validate next_best_document — must be a valid deliverable type key for THIS format's ladder
-      const formatLadder = getLadderForFormat(effectiveFormat);
+      const formatLadder = getLadderForFormat(effectiveFormat) ?? getLadderForFormat("film") ?? [];
       const VALID_DELIVERABLES = new Set(formatLadder);
       if (parsed.convergence?.next_best_document) {
         const raw_nbd = parsed.convergence.next_best_document;
@@ -2868,7 +2864,7 @@ ${version.plaintext.slice(0, maxContextChars)}`;
       const notesRawFormat = notesProject?.format || "film";
       const notesEffectiveFormat = resolveFormatAlias(notesRawFormat.toLowerCase().replace(/[_ ]+/g, "-"));
       const notesFormatExp = FORMAT_EXPECTATIONS[notesEffectiveFormat] || FORMAT_EXPECTATIONS["film"];
-      const notesLadder = getLadderForFormat(notesEffectiveFormat);
+      const notesLadder = getLadderForFormat(notesEffectiveFormat) ?? getLadderForFormat("film") ?? [];
       const notesLadderStr = notesLadder.join(", ");
       const notesProductionType = formatToProductionType[notesEffectiveFormat] || "narrative_feature";
 
@@ -3071,19 +3067,32 @@ GENERAL RULES:
       }
 
       // Insert new note records
+      // FIX 5: Normalize note_source — only valid spine provenance survives
+      const VALID_SPINE_SOURCES = new Set(["spine_alignment", "spine_drift"]);
+      const SPINE_COMPATIBLE_CATEGORIES = new Set(["spine_alignment", "spine_drift", "structural", "character"]);
       const noteInserts = allTieredNotes
         .filter((n: any) => n.id)
-        .map((n: any) => ({
-          project_id: projectId,
-          document_id: documentId,
-          document_version_id: versionId,
-          note_key: n.id,
-          category: n.category,
-          severity: n.severity,
-          description: n.description,
-          why_it_matters: n.why_it_matters,
-          note_source: n.note_source || null,   // Phase 2: spine_alignment / spine_drift provenance
-        }));
+        .map((n: any) => {
+          let noteSource = n.note_source || null;
+          // Strip invalid spine provenance
+          if (noteSource && VALID_SPINE_SOURCES.has(noteSource) && !SPINE_COMPATIBLE_CATEGORIES.has(n.category || "")) {
+            noteSource = null;
+          }
+          if (noteSource && !VALID_SPINE_SOURCES.has(noteSource)) {
+            noteSource = null;
+          }
+          return {
+            project_id: projectId,
+            document_id: documentId,
+            document_version_id: versionId,
+            note_key: n.id,
+            category: n.category,
+            severity: n.severity,
+            description: n.description,
+            why_it_matters: n.why_it_matters,
+            note_source: noteSource,
+          };
+        });
       if (noteInserts.length > 0) {
         await supabase.from("development_notes").insert(noteInserts);
       }
@@ -3293,17 +3302,27 @@ GENERAL RULES:
               const classAResult = parseClassASpineCheckOutput(classAParsed);
 
               if (classAResult) {
-                // Collect contradicted notes for insertion
-                const existingNoteKeys = new Set(
-                  (allTieredNotes || []).map((n: any) => n.id).filter(Boolean)
-                );
                 for (const check of classAResult.checks) {
                   if (check.status === 'contradicted' && check.suggested_note) {
                     const noteKey = `class_a_spine_${check.axis}`;
-                    // Dedupe: skip if a note with same key already exists in this run
-                    if (existingNoteKeys.has(noteKey)) {
-                      console.log("[dev-engine-v2] Class A spine check: skipping duplicate", { noteKey });
-                      continue;
+                    // FIX 1: DB-level dedupe — check development_notes for existing unresolved row
+                    try {
+                      const { data: existingDbNote } = await supabase
+                        .from("development_notes")
+                        .select("id")
+                        .eq("project_id", projectId)
+                        .eq("document_id", documentId)
+                        .eq("note_key", noteKey)
+                        .eq("resolved", false)
+                        .limit(1)
+                        .maybeSingle();
+                      if (existingDbNote) {
+                        console.log("[dev-engine-v2] Class A spine check: skipping duplicate (DB)", { noteKey });
+                        continue;
+                      }
+                    } catch (dedupeErr: any) {
+                      console.warn("[dev-engine-v2] Class A dedupe check failed (non-fatal):", dedupeErr?.message);
+                      // Proceed with insert — prefer false duplicate over missing note
                     }
                     const spineNote = {
                       project_id: projectId,
@@ -3350,6 +3369,19 @@ GENERAL RULES:
       } catch (classAErr: any) {
         console.warn("[dev-engine-v2] Class A spine check failed (non-fatal):", classAErr?.message);
         // Fail closed — do not corrupt main analyze result
+      }
+
+      // FIX 2: Recompute stability_status after Class A notes may have been appended
+      {
+        const finalBlockerCount = (parsed.blocking_issues || []).length;
+        const finalHighCount = (parsed.high_impact_notes || []).length;
+        const finalPolishCount = (parsed.polish_notes || []).length;
+        parsed.stability_status = finalBlockerCount === 0 && finalHighCount <= 3 && finalPolishCount <= 5
+          ? "structurally_stable" : finalBlockerCount === 0 ? "refinement_phase" : "in_progress";
+        // Also update resolution_summary blocker count
+        if (parsed.resolution_summary) {
+          parsed.resolution_summary.blockers_remaining = finalBlockerCount;
+        }
       }
 
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
@@ -4409,6 +4441,11 @@ MATERIAL:\n${version.plaintext}`;
         docType: resolvedDocType,
         plaintext: (() => {
           let ct = parsed.converted_text || "";
+          // FIX 6: Defensive coercion — prevent "[object Object]" from malformed AI output
+          if (typeof ct === 'object' && ct !== null) {
+            ct = (ct as any).converted_text || (ct as any).rewritten_text || (ct as any).text || JSON.stringify(ct);
+          }
+          ct = String(ct);
           if (ct.trim().startsWith("```") || ct.trim().startsWith("{")) {
             try { const i = JSON.parse(extractJSON(ct)); ct = i?.converted_text || i?.rewritten_text || i?.text || ct; } catch { /* ok */ }
           }
@@ -14124,7 +14161,7 @@ CRITICAL:
       const { data: proj } = await supabase.from("projects")
         .select("format, assigned_lane, title").eq("id", projectId).single();
       const fmt = resolveFormatAlias((proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
-      const ladder = getLadderForFormat(fmt);
+      const ladder = getLadderForFormat(fmt) ?? getLadderForFormat("film") ?? [];
 
       const SEED_CORE_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"] as const;
 
@@ -14456,7 +14493,7 @@ No stubs, no placeholders, no TODO markers.`;
       const { data: proj } = await supabase.from("projects")
         .select("format, assigned_lane, title").eq("id", projectId).single();
       const fmt = resolveFormatAlias((proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
-      const ladder = getLadderForFormat(fmt);
+      const ladder = getLadderForFormat(fmt) ?? getLadderForFormat("film") ?? [];
 
       const SEED_CORE_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"] as const;
       const STUB_MARKERS = ["draft stub","generate full","generate from dev engine","from dev engine","todo","[insert","[1–2 sentences]","[1-2 sentences]","placeholder"];
@@ -14669,7 +14706,7 @@ No stubs, no placeholders, no TODO markers.`;
       const { data: proj } = await supabase.from("projects")
         .select("format, assigned_lane, title").eq("id", projectId).single();
       const fmt = resolveFormatAlias((proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
-      const ladder = getLadderForFormat(fmt);
+      const ladder = getLadderForFormat(fmt) ?? getLadderForFormat("film") ?? [];
 
       const SEED_CORE_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"] as const;
       const STUB_MARKERS = ["draft stub","generate full","generate from dev engine","from dev engine","todo","[insert","[1–2 sentences]","[1-2 sentences]","placeholder"];
