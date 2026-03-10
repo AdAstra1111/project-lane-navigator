@@ -163,10 +163,15 @@ export function RewritePlanPanel({
     staleTime: 30_000,
   });
 
-  // Stable secondary sort by dependency position (primary order preserved)
+  // Sort by rewrite_priority_score desc (primary), then dependency position (secondary)
   const sortedRewriteTargets = useMemo(() => {
     if (!plan) return [];
     return [...plan.rewrite_targets].sort((a, b) => {
+      // Primary: score descending (higher risk first)
+      const sa = a.rewrite_priority_score ?? -1;
+      const sb = b.rewrite_priority_score ?? -1;
+      if (sa !== sb) return sb - sa;
+      // Secondary: dependency position
       const oa = a.dependency_position ? DEPENDENCY_ORDER[a.dependency_position] : 99;
       const ob = b.dependency_position ? DEPENDENCY_ORDER[b.dependency_position] : 99;
       return oa - ob;
