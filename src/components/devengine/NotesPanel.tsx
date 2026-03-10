@@ -148,6 +148,17 @@ function SeenBadge({ timesSeen }: { timesSeen?: number }) {
   );
 }
 
+// ── Spine alignment badge ──
+function SpineAlignmentBadge({ noteSource }: { noteSource?: string }) {
+  if (noteSource !== 'spine_alignment' && noteSource !== 'spine_drift') return null;
+  const isConstitutional = noteSource === 'spine_drift';
+  return (
+    <Badge variant="outline" className={`text-[7px] px-1 py-0 font-bold ${isConstitutional ? 'border-violet-500/60 text-violet-400 bg-violet-500/10' : 'border-indigo-500/40 text-indigo-400 bg-indigo-500/10'}`}>
+      {isConstitutional ? '⚖ Spine' : '◎ Spine'}
+    </Badge>
+  );
+}
+
 // ── Witness collapsible ──
 function WitnessSection({ witness }: { witness: any }) {
   const [open, setOpen] = useState(false);
