@@ -346,6 +346,9 @@ function RewriteTargetCard({ target }: { target: RewriteTarget }) {
         </div>
       )}
 
+      {/* Section targets */}
+      <SectionTargetsDisplay targets={target.section_targets} />
+
       {/* Evidence + amendment context in collapsible */}
       {(target.current_evidence || target.amendment_context) && (
         <Collapsible open={expanded} onOpenChange={setExpanded}>
