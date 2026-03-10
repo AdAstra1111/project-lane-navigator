@@ -3069,7 +3069,7 @@ GENERAL RULES:
       // Insert new note records
       // FIX 5: Normalize note_source — only valid spine provenance survives
       const VALID_SPINE_SOURCES = new Set(["spine_alignment", "spine_drift"]);
-      const SPINE_COMPATIBLE_CATEGORIES = new Set(["spine_alignment", "spine_drift", "structural", "character"]);
+      const SPINE_COMPATIBLE_CATEGORIES = new Set(["spine_alignment", "spine_drift"]);
       const noteInserts = allTieredNotes
         .filter((n: any) => n.id)
         .map((n: any) => {
