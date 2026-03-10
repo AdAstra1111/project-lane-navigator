@@ -410,8 +410,16 @@ function RewriteTargetCard({ target }: { target: RewriteTarget }) {
   return (
     <div className="p-3 rounded-lg bg-card border border-border space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
+        {target.sequence_rank != null && (
+          <span className="text-[9px] font-mono text-muted-foreground/60 shrink-0">#{target.sequence_rank}</span>
+        )}
         <span className="text-xs font-medium text-foreground">{AXIS_LABELS[target.axis] || target.axis}</span>
         <DependencyPositionBadge position={target.dependency_position} />
+        {target.sequence_bucket && SEQUENCE_BUCKET_STYLES[target.sequence_bucket] && (
+          <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${SEQUENCE_BUCKET_STYLES[target.sequence_bucket].className}`}>
+            {SEQUENCE_BUCKET_STYLES[target.sequence_bucket].label}
+          </Badge>
+        )}
         <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${reasonStyle}`}>
           {target.reason}
         </Badge>
@@ -419,6 +427,10 @@ function RewriteTargetCard({ target }: { target: RewriteTarget }) {
           {target.priority}
         </Badge>
       </div>
+
+      {target.sequence_reason && (
+        <p className="text-[9px] text-muted-foreground/60 leading-snug">{target.sequence_reason}</p>
+      )}
 
       {target.target_spec && (
         <div>
