@@ -157,6 +157,14 @@ const DEPENDENCY_ORDER: Record<DependencyPosition, number> = {
   terminal: 3,
 };
 
+const SEQUENCE_BUCKET_STYLES: Record<SequenceBucket, { className: string; label: string }> = {
+  root_fix: { className: 'border-purple-500/40 text-purple-400', label: 'Root fix' },
+  upstream_fix: { className: 'border-blue-500/40 text-blue-400', label: 'Upstream fix' },
+  propagated_followup: { className: 'border-amber-500/40 text-amber-400', label: 'Follow-up' },
+  terminal_cleanup: { className: 'border-border text-muted-foreground', label: 'Terminal cleanup' },
+  isolated: { className: 'border-border text-muted-foreground/60', label: 'Isolated' },
+};
+
 /* ── Component ── */
 
 export function RewritePlanPanel({
