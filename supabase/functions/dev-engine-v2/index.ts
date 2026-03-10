@@ -2404,20 +2404,16 @@ Format: ${rq.format}.${episodeLengthBlock}`;
       const analyzeNecBlock = await loadNECGuardrailBlock(supabase, projectId);
 
       // ── NARRATIVE SPINE: Phase 2 advisory alignment check (non-blocking) ──
-      // Only injected when a locked spine exists. Findings tagged note_source='spine_alignment'.
+      // Only injected when a LOCKED spine exists. Findings tagged note_source='spine_alignment'.
+      // FIX 3: Restored lock-state guard — provisional/confirmed spines do NOT trigger this block.
       let spineAlignmentBlock = "";
       try {
-        const { data: spineProject } = await supabase
-          .from("projects")
-          .select("narrative_spine_json")
-          .eq("id", projectId)
-          .single();
-        const spine = spineProject?.narrative_spine_json;
-        if (spine) {
+        const spineStateForAdvisory = await getSpineState(supabase, projectId);
+        if ((spineStateForAdvisory.state === 'locked' || spineStateForAdvisory.state === 'locked_amended') && spineStateForAdvisory.spine) {
           // Only use alignment block for narrative documents (not market/finance docs)
           const NARRATIVE_DOC_TYPES = new Set(["idea","concept_brief","character_bible","season_arc","episode_grid","vertical_episode_beats","season_script","treatment","story_outline","beat_sheet","feature_script","episode_script","production_draft"]);
           if (NARRATIVE_DOC_TYPES.has(docType)) {
-            spineAlignmentBlock = spineToReviewerAlignmentBlock(spine);
+            spineAlignmentBlock = spineToReviewerAlignmentBlock(spineStateForAdvisory.spine);
           }
         }
       } catch (e) {
