@@ -34,7 +34,7 @@
  *   Excluded:     tonal_gravity (class C / expressive — not structural)
  */
 
-import { type SpineAxis, type AmendmentSeverity, AXIS_METADATA } from "./narrativeSpine.ts";
+import { type SpineAxis, type AmendmentSeverity, AXIS_METADATA, SPINE_AXES } from "./narrativeSpine.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -482,4 +482,206 @@ export function computeRewritePriorityScore(axis: SpineAxis): number {
   const severityWeight   = SEVERITY_WEIGHTS[AXIS_METADATA[axis].severity] ?? 2;
   const downstreamCount  = getDownstreamAxes(axis).length;
   return Math.round(severityWeight * (1 + 0.5 * downstreamCount) * 100) / 100;
+}
+
+// ── NDG v3: Rewrite Sequencing ─────────────────────────────────────────────
+
+/**
+ * Sequence bucket — which repair phase this target belongs to.
+ *
+ *   root_fix           — foundational root axis (no upstream, has downstream)
+ *                        Must be fixed first; all other axes depend on it.
+ *   upstream_fix       — has downstream dependents but is itself downstream
+ *                        of another axis. Fix after roots.
+ *   propagated_followup— has upstream axes in the current rewrite set.
+ *                        Its contradiction/staleness may resolve once upstream
+ *                        is fixed. Repair after upstream causes confirmed.
+ *   terminal_cleanup   — no outgoing edges; pure outcome axis.
+ *                        Fix last after causal structure is confirmed.
+ *   isolated           — not represented in the NDG registry.
+ *                        Sequence independently (safe fallback).
+ */
+export type SequenceBucket =
+  | "root_fix"
+  | "upstream_fix"
+  | "propagated_followup"
+  | "terminal_cleanup"
+  | "isolated";
+
+/**
+ * Numeric rank for each sequence bucket — lower rank = fix earlier.
+ */
+export const SEQUENCE_BUCKET_RANK: Record<SequenceBucket, number> = {
+  root_fix:            1,
+  upstream_fix:        2,
+  propagated_followup: 3,
+  terminal_cleanup:    4,
+  isolated:            5,
+};
+
+/**
+ * Output shape for a single sequenced rewrite target.
+ */
+export interface RewriteSequenceEntry {
+  axis: SpineAxis;
+  sequence_rank: number;
+  sequence_bucket: SequenceBucket;
+  sequence_reason: string;
+}
+
+/**
+ * Minimal input shape required for sequencing.
+ * Matches the enriched rewrite_target shape from NDG v1+v2.
+ */
+export interface RewriteTargetForSequencing {
+  axis: SpineAxis;
+  reason: string;                   // 'contradicted' | 'stale'
+  dependency_position?: string;     // from getDependencyPosition
+  rewrite_priority_score?: number;  // from computeRewritePriorityScore
+}
+
+/**
+ * Maps a dependency_position to a SequenceBucket.
+ * Handles unknown/missing positions with 'isolated' fallback.
+ */
+export function getSequenceBucket(dependencyPosition?: string | null): SequenceBucket {
+  switch (dependencyPosition) {
+    case "root":       return "root_fix";
+    case "upstream":   return "upstream_fix";
+    case "propagated": return "propagated_followup";
+    case "terminal":   return "terminal_cleanup";
+    default:           return "isolated";
+  }
+}
+
+/**
+ * Generates a deterministic human-readable sequence rationale using
+ * templated strings only (no LLM). Explains why this axis is in this bucket.
+ *
+ * @param axis    The spine axis
+ * @param bucket  The sequence bucket assigned to this target
+ * @param reason  'contradicted' | 'stale'
+ */
+export function getSequenceReason(
+  axis: SpineAxis,
+  bucket: SequenceBucket,
+  reason: string,
+): string {
+  const label = AXIS_METADATA[axis]?.label || axis;
+  const isCont = reason === "contradicted";
+
+  switch (bucket) {
+    case "root_fix":
+      return isCont
+        ? `${label} is the constitutional root driver — resolve this contradiction before any downstream axes can be confirmed`
+        : `${label} is the constitutional root driver — clear this stale state before downstream revalidation proceeds`;
+    case "upstream_fix":
+      return isCont
+        ? `${label} has downstream dependents — resolve this contradiction first to prevent cascading rewrites`
+        : `${label} has downstream dependents — clear this stale state first to prevent follow-up confusion`;
+    case "propagated_followup":
+      return isCont
+        ? `${label} contradiction may resolve naturally once its upstream causes are addressed — rewrite after upstream fixes`
+        : `${label} is stale due to an upstream amendment — rewrite after root and upstream axes are confirmed`;
+    case "terminal_cleanup":
+      return isCont
+        ? `${label} is a terminal outcome — confirm the causal structure first, then repair this contradiction`
+        : `${label} is a terminal outcome — clean up after causal structure is resolved`;
+    case "isolated":
+      return `${label} is not in the dependency graph — sequence independently`;
+  }
+}
+
+/**
+ * Main sequencing function.
+ *
+ * Given an array of rewrite targets (already enriched with NDG v1+v2 metadata),
+ * returns a sorted RewriteSequenceEntry[] representing the safest repair order.
+ *
+ * Sort criteria (in priority order):
+ *   1. Sequence bucket rank (root → upstream → propagated → terminal → isolated)
+ *   2. Reason (contradicted=1 before stale=2 — active contradictions fix first)
+ *   3. rewrite_priority_score descending (higher-impact axes within same bucket first)
+ *   4. Canonical SPINE_AXES index ascending (stable deterministic fallback)
+ *
+ * Does NOT mutate the input array. Returns a new array.
+ * Fail-safe: missing metadata falls back to 'isolated' bucket and score=0.
+ */
+export function sequenceRewriteTargets(
+  targets: RewriteTargetForSequencing[],
+): RewriteSequenceEntry[] {
+  if (targets.length === 0) return [];
+
+  const REASON_RANK: Record<string, number> = { contradicted: 1, stale: 2 };
+  const SPINE_ORDER = new Map<SpineAxis, number>(
+    (SPINE_AXES as readonly SpineAxis[]).map((ax, i) => [ax, i])
+  );
+
+  const sorted = [...targets].sort((a, b) => {
+    const aBucket = getSequenceBucket(a.dependency_position);
+    const bBucket = getSequenceBucket(b.dependency_position);
+    const aBucketRank = SEQUENCE_BUCKET_RANK[aBucket];
+    const bBucketRank = SEQUENCE_BUCKET_RANK[bBucket];
+
+    // 1. Bucket rank
+    if (aBucketRank !== bBucketRank) return aBucketRank - bBucketRank;
+
+    // 2. Reason (contradicted before stale)
+    const aReasonRank = REASON_RANK[a.reason] ?? 3;
+    const bReasonRank = REASON_RANK[b.reason] ?? 3;
+    if (aReasonRank !== bReasonRank) return aReasonRank - bReasonRank;
+
+    // 3. rewrite_priority_score descending
+    const aRPS = a.rewrite_priority_score ?? 0;
+    const bRPS = b.rewrite_priority_score ?? 0;
+    if (bRPS !== aRPS) return bRPS - aRPS;
+
+    // 4. Canonical axis order (stable fallback)
+    return (SPINE_ORDER.get(a.axis) ?? 99) - (SPINE_ORDER.get(b.axis) ?? 99);
+  });
+
+  return sorted.map((t, i) => {
+    const bucket = getSequenceBucket(t.dependency_position);
+    return {
+      axis:            t.axis,
+      sequence_rank:   i + 1,
+      sequence_bucket: bucket,
+      sequence_reason: getSequenceReason(t.axis, bucket, t.reason),
+    };
+  });
+}
+
+/**
+ * Returns downstream axes in recommended repair order for compute_impact context.
+ * Uses BFS order from getDownstreamAxes (closer to source = earlier in repair)
+ * as the primary ordering, then sorts by rewrite_priority_score descending
+ * within axes at the same graph distance.
+ *
+ * This is a simplified variant of sequenceRewriteTargets — no 'reason' is
+ * available in compute_impact (axes are potential future targets, not confirmed).
+ */
+export function getRecommendedRepairOrder(
+  sourceAxis: SpineAxis,
+): Array<{ axis: SpineAxis; rewrite_priority_score: number; sequence_bucket: SequenceBucket }> {
+  // BFS order preserves graph distance ordering (nearer = earlier)
+  const downstream = getDownstreamAxes(sourceAxis);
+
+  // Within same BFS level, sort by priority score descending
+  // We can't know exact BFS levels without recomputing, so use chain length as proxy
+  return downstream
+    .map(ax => ({
+      axis:                  ax,
+      rewrite_priority_score: computeRewritePriorityScore(ax),
+      sequence_bucket:       "upstream_fix" as SequenceBucket, // all downstream of an amendment are upstream-fix relative to terminals
+      chain_length:          (getDependencyChain(sourceAxis, ax)?.length ?? 1) - 1,
+    }))
+    .sort((a, b) => {
+      // Shorter chain first (fix closer axes before distal ones)
+      if (a.chain_length !== b.chain_length) return a.chain_length - b.chain_length;
+      // Then higher priority score (more impactful axes first)
+      return b.rewrite_priority_score - a.rewrite_priority_score;
+    })
+    .map(({ axis, rewrite_priority_score, sequence_bucket }) => ({
+      axis, rewrite_priority_score, sequence_bucket,
+    }));
 }

@@ -45,6 +45,7 @@ import {
   getDependencyPosition,
   computeDependencyRisk,
   computeRewritePriorityScore,
+  sequenceRewriteTargets,
   type UnitConfidenceMeta,
 } from "../_shared/narrativeDependencyGraph.ts";
 
@@ -748,6 +749,23 @@ serve(async (req: Request) => {
       pt.rewrite_priority_score = computeRewritePriorityScore(pt.axis as SpineAxis);
     }
 
+    // ── NDG v3: Rewrite sequencing ──
+    // Additive — advisory only, read-only, no lifecycle changes.
+    // Computes the safest repair order for rewrite targets using:
+    //   bucket rank → reason priority → rewrite_priority_score → canonical axis order
+    const rewriteSequence = sequenceRewriteTargets(rewriteTargets);
+
+    // Backfill sequence metadata into each rewrite_target (additive — keeps original target shape)
+    const sequenceByAxis = new Map(rewriteSequence.map(s => [s.axis, s]));
+    for (const rt of rewriteTargets) {
+      const seq = sequenceByAxis.get(rt.axis as SpineAxis);
+      if (seq) {
+        rt.sequence_bucket = seq.sequence_bucket;
+        rt.sequence_rank   = seq.sequence_rank;
+        rt.sequence_reason = seq.sequence_reason;
+      }
+    }
+
     // ── 6. Coverage accounting ──
     //
     // SEMANTIC CHANGE vs prior version (document for UI consumers):
@@ -843,6 +861,10 @@ serve(async (req: Request) => {
       // UI may safely ignore these fields. No unit statuses changed.
       // rewrite_targets and preserve_targets now include dependency_position hints.
       propagated_risk: propagatedRisk,
+      // ── NDG v3: rewrite sequencing — advisory safe repair order ──
+      // rewrite_targets include sequence_bucket, sequence_rank, sequence_reason.
+      // rewrite_sequence is a deduplicated sorted summary (same data, top-level for UI convenience).
+      rewrite_sequence: rewriteSequence,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err: any) {

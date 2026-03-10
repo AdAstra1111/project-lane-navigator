@@ -20,6 +20,7 @@ import {
   computePropagatedRisk,
   getDependencyPosition,
   computeDownstreamRiskScores,
+  getRecommendedRepairOrder,
   type UnitConfidenceMeta,
 } from "../_shared/narrativeDependencyGraph.ts";
 
@@ -260,6 +261,10 @@ serve(async (req: Request) => {
         downstream_units_at_risk_count: downstreamUnitsAtRisk.length,
         dependency_chains: ndgPropagatedRisk[0]?.dependency_chains ?? [],
         propagated_risk: ndgPropagatedRisk,
+        // ── NDG v3: recommended repair order ──
+        // BFS-ordered downstream axes sorted by chain length then priority score.
+        // Advisory only. Tells the producer which downstream axes to address first.
+        recommended_repair_order: getRecommendedRepairOrder(axis as SpineAxis),
         // ── NDG v2: risk scores ──
         // Deterministic. Advisory. No lifecycle mutation.
         downstream_risk_scores: downstreamRiskScores.map(s => ({
