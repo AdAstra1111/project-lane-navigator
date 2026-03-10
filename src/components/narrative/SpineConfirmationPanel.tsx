@@ -9,8 +9,10 @@ import { useState, useEffect } from 'react';
 import { ChevronDown, ChevronUp, Lock, Pencil, Check, Sparkles, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { SpineAmendmentPanel } from './SpineAmendmentPanel';
 
 // ── Types (mirrors _shared/narrativeSpine.ts) ──
 
@@ -58,13 +60,24 @@ const CLASS_LEGEND: Record<InheritanceClass, { label: string; color: string; too
   C: { label: 'Expressive',     color: 'text-emerald-400', tooltip: 'Expressive modulation — varies freely, monitored for cumulative drift.' },
 };
 
+// ── Amendment history entry ──
+interface AmendmentEntry {
+  id: string;
+  axis: string;
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
+}
+
 // ── Hook ──
 
 function useNarrativeSpine(projectId: string | undefined) {
   const [spine, setSpine] = useState<NarrativeSpine | null>(null);
   const [state, setState] = useState<SpineLifecycleState>('none');
   const [entryId, setEntryId] = useState<string | null>(null);
+  const [amendments, setAmendments] = useState<AmendmentEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!projectId) return;
@@ -76,7 +89,7 @@ function useNarrativeSpine(projectId: string | undefined) {
         const [{ data: project }, { data: decisions }] = await Promise.all([
           supabase.from('projects').select('narrative_spine_json').eq('id', projectId).single(),
           supabase.from('decision_ledger')
-            .select('id, locked, status, meta, created_at')
+            .select('id, locked, status, meta, decision_value, created_at')
             .eq('project_id', projectId)
             .eq('decision_key', 'narrative_spine')
             .order('created_at', { ascending: false }),
@@ -87,7 +100,7 @@ function useNarrativeSpine(projectId: string | undefined) {
         const s: NarrativeSpine | null = (project as any)?.narrative_spine_json ?? null;
         setSpine(s);
 
-        if (!s) { setState('none'); setEntryId(null); setLoading(false); return; }
+        if (!s) { setState('none'); setEntryId(null); setAmendments([]); setLoading(false); return; }
 
         const entries = (decisions as any[]) ?? [];
         const activeEntry = entries.find(d => d.status === 'active' && d.locked === true);
@@ -100,6 +113,19 @@ function useNarrativeSpine(projectId: string | undefined) {
         else if (activeEntry) { setState('locked'); setEntryId(activeEntry.id); }
         else { setState('provisional'); setEntryId(null); }
 
+        // Build amendment history from superseded entries
+        const amendmentHistory: AmendmentEntry[] = superseded.map((d: any) => {
+          const amends = d.meta?.amends;
+          return {
+            id: d.id,
+            axis: amends?.axis || 'unknown',
+            old_value: amends?.old_value ?? null,
+            new_value: amends?.new_value ?? null,
+            created_at: d.created_at,
+          };
+        }).filter((a: AmendmentEntry) => a.axis !== 'unknown');
+        setAmendments(amendmentHistory);
+
       } catch (e) {
         console.warn('[SpineConfirmationPanel] load error:', e);
       } finally {
@@ -109,9 +135,9 @@ function useNarrativeSpine(projectId: string | undefined) {
 
     load();
     return () => { cancelled = true; };
-  }, [projectId]);
+  }, [projectId, reloadKey]);
 
-  return { spine, state, entryId, loading, reload: () => {} };
+  return { spine, state, entryId, amendments, loading, reload: () => setReloadKey(k => k + 1) };
 }
 
 // ── Component ──
@@ -123,12 +149,14 @@ interface Props {
 }
 
 export function SpineConfirmationPanel({ projectId, userId, className = '' }: Props) {
-  const { spine, state, loading, reload } = useNarrativeSpine(projectId);
+  const { spine, state, amendments, loading, reload } = useNarrativeSpine(projectId);
   const [expanded, setExpanded] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [draft, setDraft] = useState<NarrativeSpine | null>(null);
   const [saving, setSaving] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [showAmendment, setShowAmendment] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const lsKey = `spine_panel_dismissed:${projectId}`;
 
@@ -141,7 +169,6 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
   }, [spine]);
 
   if (loading || !spine || dismissed) return null;
-  // Only show for provisional/confirmed states — locked is shown in a compact read-only badge
   if (state === 'none') return null;
 
   const axesSet = SPINE_AXES.filter(a => spine[a]).length;
@@ -152,14 +179,12 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
     if (!draft || !projectId || !userId) return;
     setSaving(true);
     try {
-      // 1. Update spine JSON with any user edits
       const { error: projErr } = await supabase
         .from('projects')
         .update({ narrative_spine_json: draft } as any)
         .eq('id', projectId);
       if (projErr) throw projErr;
 
-      // 2. Update existing pending_lock entry meta, or create one if missing
       const { data: existing } = await supabase
         .from('decision_ledger')
         .select('id')
@@ -174,7 +199,6 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
           meta: { confirmed_by: userId, confirmed_at: new Date().toISOString(), amends: null, amendment_severity: null, axes_set: axesSet },
         } as any).eq('id', existing.id);
       } else {
-        // No pending_lock entry yet — create one (e.g. if devseed was run before migration)
         await (supabase.from('decision_ledger') as any).insert({
           project_id: projectId,
           decision_key: 'narrative_spine',
@@ -190,7 +214,6 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
 
       setEditMode(false);
       toast.success('Narrative Spine confirmed — will lock when Concept Brief is approved.');
-      // Reload state
       setTimeout(reload, 500);
     } catch (e: any) {
       toast.error(`Failed to confirm spine: ${e?.message}`);
@@ -216,7 +239,7 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
     provisional: 'bg-amber-400',
     confirmed: 'bg-blue-400',
     locked: 'bg-emerald-400',
-    locked_amended: 'bg-emerald-400',
+    locked_amended: 'bg-violet-400',
     none: 'bg-gray-500',
   }[state];
 
@@ -235,7 +258,18 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
           )}
           <span className="text-sm font-medium text-white/90">Narrative Spine</span>
           <span className={`w-1.5 h-1.5 rounded-full ${stateDot}`} />
-          <span className="text-xs text-white/50">{stateLabel}</span>
+          {isLocked && (
+            state === 'locked_amended' ? (
+              <Badge variant="outline" className="text-[10px] border-violet-500/50 text-violet-400 bg-violet-500/10">
+                ⚖ Amended
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] border-amber-600 text-amber-400 bg-amber-950/40">
+                🔒 Locked
+              </Badge>
+            )
+          )}
+          {!isLocked && <span className="text-xs text-white/50">{stateLabel}</span>}
           <span className="text-xs text-white/30">({axesSet}/9 axes)</span>
         </div>
         <div className="flex items-center gap-2">
@@ -251,7 +285,12 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
       {/* Body */}
       {expanded && (
         <div className="px-4 pb-4 space-y-4 border-t border-white/5 pt-3">
-          {/* Description */}
+          {/* Locked subtitle */}
+          {isLocked && (
+            <p className="text-xs text-white/40">Constitutionally active — all documents generated within this spine</p>
+          )}
+
+          {/* Description for provisional */}
           {state === 'provisional' && (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-950/30 border border-amber-800/40">
               <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
@@ -274,7 +313,7 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
           <div className="space-y-2">
             {SPINE_AXES.map((axis) => {
               const meta = AXIS_META[axis];
-              const value = editMode ? (draft?.[axis] ?? '') : (spine[axis] ?? '');
+              const value = editMode && !isLocked ? (draft?.[axis] ?? '') : (spine[axis] ?? '');
               return (
                 <div key={axis} className="flex items-start gap-3 group">
                   <div className="flex-1 min-w-0">
@@ -287,7 +326,7 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
                         {meta.classLabel}
                       </Badge>
                     </div>
-                    <p className="text-[10px] text-white/35 mb-1">{meta.description}</p>
+                    {!isLocked && <p className="text-[10px] text-white/35 mb-1">{meta.description}</p>}
                     {editMode && !isLocked ? (
                       <input
                         type="text"
@@ -298,7 +337,7 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
                       />
                     ) : (
                       <span className={`text-xs font-mono ${value ? 'text-amber-300/90' : 'text-white/20 italic'}`}>
-                        {value || 'not set'}
+                        {value || '—'}
                       </span>
                     )}
                   </div>
@@ -307,7 +346,7 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
             })}
           </div>
 
-          {/* Actions */}
+          {/* Actions: provisional/confirmed */}
           {!isLocked && (
             <div className="flex items-center gap-2 pt-1">
               {isConfirmable && !editMode && (
@@ -361,12 +400,60 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
             </div>
           )}
 
+          {/* Locked state actions */}
           {isLocked && (
-            <div className="flex items-center gap-2 pt-1">
-              <Lock className="w-3 h-3 text-emerald-400" />
-              <span className="text-xs text-emerald-400/70">
-                Constitutionally locked — changes require amendment flow
-              </span>
+            <div className="space-y-3 pt-1">
+              {/* Amendment history (locked_amended only) */}
+              {state === 'locked_amended' && amendments.length > 0 && (
+                <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+                  <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 transition-colors">
+                    <ChevronDown className={`w-3 h-3 transition-transform ${historyOpen ? '' : '-rotate-90'}`} />
+                    Amendment History ({amendments.length})
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pt-2 space-y-2">
+                    {amendments.map((a) => (
+                      <div key={a.id} className="rounded border border-white/10 bg-white/5 p-2 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-white/70">
+                            {AXIS_META[a.axis as keyof NarrativeSpine]?.label || a.axis}
+                          </span>
+                          <span className="text-[10px] text-white/30">
+                            {new Date(a.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-white/50">
+                          <span className="text-red-400/70 line-through">{a.old_value || '—'}</span>
+                          <span className="mx-1.5 text-white/30">→</span>
+                          <span className="text-emerald-400/80">{a.new_value || '—'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+
+              {/* Propose amendment button */}
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs h-7 border-amber-600/40 text-amber-400 hover:bg-amber-950/40"
+                onClick={() => setShowAmendment(!showAmendment)}
+              >
+                <Pencil className="w-3 h-3 mr-1" />
+                {showAmendment ? 'Hide Amendment' : 'Propose Amendment'}
+              </Button>
+
+              {/* Inline amendment panel */}
+              {showAmendment && (
+                <SpineAmendmentPanel
+                  projectId={projectId}
+                  spine={spine as unknown as Record<string, string | null>}
+                  onAmendmentConfirmed={() => {
+                    setShowAmendment(false);
+                    reload();
+                  }}
+                />
+              )}
             </div>
           )}
 

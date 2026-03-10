@@ -148,6 +148,17 @@ function SeenBadge({ timesSeen }: { timesSeen?: number }) {
   );
 }
 
+// ── Spine alignment badge ──
+function SpineAlignmentBadge({ noteSource }: { noteSource?: string }) {
+  if (noteSource !== 'spine_alignment' && noteSource !== 'spine_drift') return null;
+  const isConstitutional = noteSource === 'spine_drift';
+  return (
+    <Badge variant="outline" className={`text-[7px] px-1 py-0 font-bold ${isConstitutional ? 'border-violet-500/60 text-violet-400 bg-violet-500/10' : 'border-indigo-500/40 text-indigo-400 bg-indigo-500/10'}`}>
+      {isConstitutional ? '⚖ Spine' : '◎ Spine'}
+    </Badge>
+  );
+}
+
 // ── Witness collapsible ──
 function WitnessSection({ witness }: { witness: any }) {
   const [open, setOpen] = useState(false);
@@ -319,6 +330,7 @@ function NoteItem({ note, index, checked, onToggle, selectedOptionId, onSelectOp
             {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
             <TierPill tier={note.tier} />
             <SeenBadge timesSeen={note.times_seen} />
+            <SpineAlignmentBadge noteSource={note.note_source} />
             {isRecurring && <AlertTriangle className="h-2.5 w-2.5 text-orange-400" />}
             {hasDecisions && <Badge variant="outline" className="text-[7px] px-1 py-0 border-primary/30 text-primary bg-primary/5">{note.decisions.length + 1} options</Badge>}
           </div>
@@ -1161,6 +1173,7 @@ export function NotesPanel({
                           {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
                           <TierPill tier={note.tier} />
                           <SeenBadge timesSeen={note.times_seen} />
+                          <SpineAlignmentBadge noteSource={note.note_source} />
                           {note.severity && (
                             <Badge variant="outline" className={`text-[8px] px-1 py-0 ${note.severity === 'blocker' ? 'text-destructive border-destructive/30' : note.severity === 'high' ? 'text-amber-400 border-amber-500/30' : 'text-muted-foreground'}`}>
                               {note.severity}
