@@ -2859,7 +2859,7 @@ ${version.plaintext.slice(0, maxContextChars)}`;
 
       // Fetch project format so notes are format-aware (e.g. vertical drama ≠ feature film)
       const { data: notesProject } = await supabase.from("projects")
-        .select("format, development_behavior, assigned_lane, budget_range")
+        .select("format, development_behavior, assigned_lane, budget_range, title")
         .eq("id", projectId).single();
       const notesRawFormat = notesProject?.format || "film";
       const notesEffectiveFormat = resolveFormatAlias(notesRawFormat.toLowerCase().replace(/[_ ]+/g, "-"));
