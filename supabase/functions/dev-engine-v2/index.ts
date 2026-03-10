@@ -4342,6 +4342,29 @@ MATERIAL:\n${version.plaintext}`;
         output_json: { ...parsed, source_document_id: documentId, source_version_id: versionId },
       });
 
+      // ── Stamp writing voice into version meta_json at creation time ──
+      // This creates a permanent audit record of which voice produced this version.
+      try {
+        const { data: lanePrefsRow } = await supabase.from("project_lane_prefs")
+          .select("prefs").eq("project_id", projectId).maybeSingle();
+        const wv = lanePrefsRow?.prefs?.writing_voice;
+        if (wv?.id && newVersion?.id) {
+          const { data: existingVer } = await supabase.from("project_document_versions")
+            .select("meta_json").eq("id", newVersion.id).maybeSingle();
+          const existingMeta = (existingVer?.meta_json && typeof existingVer.meta_json === "object") ? existingVer.meta_json : {};
+          await supabase.from("project_document_versions").update({
+            meta_json: {
+              ...existingMeta,
+              writing_voice_id: wv.id,
+              writing_voice_label: wv.label || wv.id,
+              writing_voice_stamped_at: new Date().toISOString(),
+            },
+          }).eq("id", newVersion.id);
+        }
+      } catch (voiceStampErr: any) {
+        console.warn("[dev-engine-v2] voice stamp failed (non-fatal):", voiceStampErr?.message);
+      }
+
       return new Response(JSON.stringify({ newDoc, newVersion, convert: parsed }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

@@ -19,6 +19,7 @@ import { TeamVoiceManager } from './TeamVoiceManager';
 import { useProjectRuleset } from '@/hooks/useProjectRuleset';
 import { useTeamVoices, type TeamVoice } from '@/hooks/useTeamVoices';
 import type { WritingVoicePreset } from '@/lib/writingVoices/types';
+import { toast } from 'sonner';
 
 interface Props {
   projectId: string;
@@ -85,11 +86,19 @@ export function WorldRulesAccordion({ projectId, lane, userId, className }: Prop
     savePrefs.mutate(
       { writing_voice: voice as any },
       {
-        onSettled: () => {
-          // Only clear saving if this was the last requested save
+        onSuccess: () => {
           if (latestVoiceRef.current === id) {
-            setVoiceSaving(false);
+            toast.success(`Writing voice locked: ${voice.label}`, {
+              description: voice.summary,
+              duration: 3000,
+            });
           }
+        },
+        onError: () => {
+          toast.error('Failed to save writing voice');
+        },
+        onSettled: () => {
+          if (latestVoiceRef.current === id) setVoiceSaving(false);
         },
       },
     );
