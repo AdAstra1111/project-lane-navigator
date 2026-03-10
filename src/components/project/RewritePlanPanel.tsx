@@ -250,7 +250,9 @@ export function RewritePlanPanel({
             {/* Footer: meta */}
             <div className="pt-2 border-t border-border">
               <p className="text-[9px] text-muted-foreground/50">
-                Coverage: {plan.axes_covered}/{plan.total_relevant_axes} axes
+                {plan.coverage_breakdown
+                  ? `Coverage: ${plan.coverage_breakdown.supported_and_evaluated_on_version.length}/${plan.coverage_breakdown.supported_axes.length} supported axes evaluated`
+                  : `Coverage: ${plan.axes_covered}/${plan.total_relevant_axes} axes`}
                 · Generated {new Date(plan.generated_at).toLocaleString()}
               </p>
             </div>
