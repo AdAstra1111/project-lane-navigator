@@ -221,7 +221,6 @@ Projects with `meta_json.spine_hard_gates=true` get hard validation. `constituti
 - Stacked spines (season_spine_json, episode_spine_json tables and lifecycle)
 - Class S deep validation logic (scope coherence and pattern-of-values drift)
 - Cumulative drift rolling window (requires instrumented document validation history)
-- Phase 3 bounded validators (gated on acceptance rate telemetry)
 - Phase 4 hard gates (gated on acceptance rate threshold + explicit opt-in)
 - `conflict_topology` / `conflict_expression` axis split (revisit after telemetry)
 - Spine coherence compatibility matrix (valid/risky/disallowed axis pairings)
