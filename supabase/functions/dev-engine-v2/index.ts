@@ -14527,7 +14527,17 @@ ${upstreamText}`;
 
           const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, CONVERT_SYSTEM_JSON, userPrompt, 0.35, 10000);
           let parsed = await parseAIJson(LOVABLE_API_KEY, raw);
-          let convertedText = (parsed?.converted_text || "").trim();
+          let convertedText = (() => {
+            const ct = parsed?.converted_text;
+            if (typeof ct === "string") return ct.trim();
+            if (Array.isArray(ct)) return ct.join("\n").trim();
+            if (ct && typeof ct === "object") {
+              // LLM returned nested object — try known text fields before stringifying
+              const inner = ct.text ?? ct.content ?? ct.document ?? ct.body ?? ct.output ?? null;
+              if (typeof inner === "string") return inner.trim();
+            }
+            return "";  // unrecoverable — will trigger retry
+          })();
           let retryUsed = false;
 
           let outputReason = validateOutput(stage, convertedText);
@@ -14540,7 +14550,16 @@ Produce the FULL document now with rich section-level substance.
 No stubs, no placeholders, no TODO markers.`;
             const raw2 = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, CONVERT_SYSTEM_JSON, retryPrompt, 0.35, 10000);
             const parsed2 = await parseAIJson(LOVABLE_API_KEY, raw2);
-            const retryText = (parsed2?.converted_text || "").trim();
+            const retryText = (() => {
+              const ct2 = parsed2?.converted_text;
+              if (typeof ct2 === "string") return ct2.trim();
+              if (Array.isArray(ct2)) return ct2.join("\n").trim();
+              if (ct2 && typeof ct2 === "object") {
+                const inner2 = ct2.text ?? ct2.content ?? ct2.document ?? ct2.body ?? ct2.output ?? null;
+                if (typeof inner2 === "string") return inner2.trim();
+              }
+              return "";
+            })();
             if (retryText.length > convertedText.length) {
               convertedText = retryText;
             }
@@ -15034,7 +15053,17 @@ ${upstreamText}`;
 
           const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, CONVERT_SYSTEM_JSON, userPrompt, 0.35, 10000);
           let parsed = await parseAIJson(LOVABLE_API_KEY, raw);
-          let convertedText = (parsed?.converted_text || "").trim();
+          let convertedText = (() => {
+            const ct = parsed?.converted_text;
+            if (typeof ct === "string") return ct.trim();
+            if (Array.isArray(ct)) return ct.join("\n").trim();
+            if (ct && typeof ct === "object") {
+              // LLM returned nested object — try known text fields before stringifying
+              const inner = ct.text ?? ct.content ?? ct.document ?? ct.body ?? ct.output ?? null;
+              if (typeof inner === "string") return inner.trim();
+            }
+            return "";  // unrecoverable — will trigger retry
+          })();
           let retryUsed = false;
 
           let outputReason = validateOutput(stage, convertedText) || validateEpisodeCoverage(stage, convertedText);
@@ -15043,7 +15072,16 @@ ${upstreamText}`;
             const retryPrompt = `${userPrompt}\n\nRETRY INSTRUCTION: Previous output was insufficient (${outputReason}). Produce the FULL document now with complete episode coverage.`;
             const raw2 = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, CONVERT_SYSTEM_JSON, retryPrompt, 0.35, 10000);
             const parsed2 = await parseAIJson(LOVABLE_API_KEY, raw2);
-            const retryText = (parsed2?.converted_text || "").trim();
+            const retryText = (() => {
+              const ct2 = parsed2?.converted_text;
+              if (typeof ct2 === "string") return ct2.trim();
+              if (Array.isArray(ct2)) return ct2.join("\n").trim();
+              if (ct2 && typeof ct2 === "object") {
+                const inner2 = ct2.text ?? ct2.content ?? ct2.document ?? ct2.body ?? ct2.output ?? null;
+                if (typeof inner2 === "string") return inner2.trim();
+              }
+              return "";
+            })();
             if (retryText.length > convertedText.length || isEpisodeCountDoc) convertedText = retryText;
             outputReason = validateOutput(stage, convertedText) || validateEpisodeCoverage(stage, convertedText);
           }
