@@ -47,6 +47,14 @@ interface UnitAtRisk {
   evidence_excerpt: string | null;
 }
 
+interface PropagatedRiskItem {
+  source_axis: string;
+  downstream_axes: string[];
+  dependency_chain?: string[];
+  reason?: string;
+  risk_score?: number;
+}
+
 interface ImpactResult {
   severity: string;
   warningText: string;
@@ -54,6 +62,7 @@ interface ImpactResult {
   affectedDocs: string[];
   units_at_risk?: UnitAtRisk[];
   units_at_risk_count?: number;
+  propagated_risk?: PropagatedRiskItem[];
 }
 
 interface SpineAmendmentPanelProps {

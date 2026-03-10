@@ -477,6 +477,7 @@ function PreserveTargetCard({ target }: { target: PreserveTarget }) {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-medium text-foreground">{AXIS_LABELS[target.axis] || target.axis}</span>
         <DependencyPositionBadge position={target.dependency_position} />
+        <RiskScoreBadge score={target.rewrite_priority_score} label="importance" />
         {isProvisional ? (
           <Badge variant="outline" className="text-[8px] px-1.5 py-0 border-dashed border-amber-500/30 text-amber-400">
             provisional
