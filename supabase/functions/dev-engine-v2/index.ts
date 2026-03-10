@@ -3410,7 +3410,7 @@ GENERAL RULES:
                   if (classAUnits.length > 0) {
                     const { error: nuErr } = await (supabase as any)
                       .from('narrative_units')
-                      .upsert(classAUnits, { onConflict: 'project_id,unit_key' });
+                      .upsert(classAUnits, { onConflict: 'project_id,unit_type,unit_key' });
                     if (nuErr) {
                       console.warn('[dev-engine-v2] Class A narrative_units upsert failed (non-fatal):', nuErr.message);
                     } else {
