@@ -4441,6 +4441,11 @@ MATERIAL:\n${version.plaintext}`;
         docType: resolvedDocType,
         plaintext: (() => {
           let ct = parsed.converted_text || "";
+          // FIX 6: Defensive coercion — prevent "[object Object]" from malformed AI output
+          if (typeof ct === 'object' && ct !== null) {
+            ct = (ct as any).converted_text || (ct as any).rewritten_text || (ct as any).text || JSON.stringify(ct);
+          }
+          ct = String(ct);
           if (ct.trim().startsWith("```") || ct.trim().startsWith("{")) {
             try { const i = JSON.parse(extractJSON(ct)); ct = i?.converted_text || i?.rewritten_text || i?.text || ct; } catch { /* ok */ }
           }
