@@ -41,6 +41,14 @@ interface PreserveTarget {
   axis_class: string;
 }
 
+interface CoverageBreakdown {
+  supported_axes: string[];
+  unsupported_axes: string[];
+  deferred_validator_axes?: string[];
+  supported_but_missing_on_version: string[];
+  supported_and_evaluated_on_version: string[];
+}
+
 interface RewritePlan {
   document_id: string | null;
   version_id: string;
@@ -58,6 +66,7 @@ interface RewritePlan {
   plan_complete: boolean;
   generated_at: string;
   error?: string;
+  coverage_breakdown?: CoverageBreakdown;
 }
 
 /* ── Props ── */
