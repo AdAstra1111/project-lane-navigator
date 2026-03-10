@@ -520,4 +520,3 @@ export function parseClassASpineCheckOutput(parsed: any): ClassASpineCheckOutput
   if (checks.length === 0) return null;
   return { checks };
 }
-}
