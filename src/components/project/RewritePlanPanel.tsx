@@ -15,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   AlertTriangle, ChevronRight, ShieldCheck, ShieldAlert,
-  FileWarning, Eye, Info, Crosshair, GitBranch,
+  FileWarning, Eye, Info, Crosshair, GitBranch, Wrench,
 } from 'lucide-react';
 
 /* ── Types matching backend contract ── */
@@ -88,6 +88,28 @@ interface PropagatedRisk {
   reason?: string;
 }
 
+type PatchUrgency = 'critical' | 'high' | 'medium' | 'low';
+
+interface PatchLocation {
+  section_keys?: string[];
+  section_labels?: string[];
+  passage_lines?: { start_line: number; end_line: number }[];
+}
+
+interface PatchBlueprint {
+  axis: string;
+  sequence_rank?: number;
+  sequence_bucket?: string;
+  urgency?: PatchUrgency;
+  patch_goal: string;
+  patch_reason: string;
+  patch_location?: PatchLocation | null;
+  preserve_constraints?: string[];
+  upstream_dependencies?: string[];
+  downstream_risk_axes?: string[];
+  execution_note?: string;
+}
+
 interface RewritePlan {
   document_id: string | null;
   version_id: string;
@@ -109,6 +131,7 @@ interface RewritePlan {
   likely_affected_areas?: string[] | null;
   propagated_risk?: PropagatedRisk[];
   rewrite_sequence?: RewriteSequenceItem[];
+  patch_blueprints?: PatchBlueprint[];
 }
 
 /* ── Props ── */
@@ -163,6 +186,13 @@ const SEQUENCE_BUCKET_STYLES: Record<SequenceBucket, { className: string; label:
   propagated_followup: { className: 'border-amber-500/40 text-amber-400', label: 'Follow-up' },
   terminal_cleanup: { className: 'border-border text-muted-foreground', label: 'Terminal cleanup' },
   isolated: { className: 'border-border text-muted-foreground/60', label: 'Isolated' },
+};
+
+const PATCH_URGENCY_STYLES: Record<PatchUrgency, { className: string; label: string }> = {
+  critical: { className: 'border-red-500/40 text-red-400', label: 'Critical' },
+  high: { className: 'border-orange-500/40 text-orange-400', label: 'High' },
+  medium: { className: 'border-yellow-500/40 text-yellow-400', label: 'Medium' },
+  low: { className: 'border-border text-muted-foreground', label: 'Low' },
 };
 
 /* ── Component ── */
@@ -258,6 +288,9 @@ export function RewritePlanPanel({
 
             {/* B4. Rewrite Sequence */}
             <RewriteSequenceSection sequence={plan.rewrite_sequence} />
+
+            {/* B5. Patch Blueprint Manifest */}
+            <PatchBlueprintManifest blueprints={plan.patch_blueprints} />
 
             {/* C. Rewrite Targets */}
             {sortedRewriteTargets.length > 0 && (
@@ -720,6 +753,162 @@ function CoverageBreakdownSection({ breakdown }: { breakdown: CoverageBreakdown 
             These axes are supported by IFFY, but no evaluated unit coverage exists yet for this document version. Run analysis to populate coverage.
           </p>
         </section>
+      )}
+    </div>
+  );
+}
+
+/* ── Patch Blueprint Manifest ── */
+
+function PatchBlueprintManifest({ blueprints }: { blueprints?: PatchBlueprint[] }) {
+  if (!blueprints || blueprints.length === 0) return null;
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs font-medium text-foreground flex items-center gap-1.5">
+        <Wrench className="w-3.5 h-3.5 text-violet-400" />
+        Patch Blueprint Manifest
+        <Badge variant="outline" className="text-[9px] ml-1 border-violet-500/30 text-violet-400">
+          {blueprints.length} {blueprints.length === 1 ? 'patch' : 'patches'}
+        </Badge>
+      </h3>
+      <div className="space-y-2">
+        {blueprints.map((bp, i) => (
+          <PatchBlueprintCard key={`${bp.axis}-${i}`} blueprint={bp} index={i} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PatchBlueprintCard({ blueprint: bp, index }: { blueprint: PatchBlueprint; index: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const urgencyStyle = bp.urgency ? PATCH_URGENCY_STYLES[bp.urgency] : null;
+  const bucketStyle = bp.sequence_bucket ? SEQUENCE_BUCKET_STYLES[bp.sequence_bucket as SequenceBucket] : null;
+
+  return (
+    <div className="p-3 rounded-lg bg-card border border-border space-y-2">
+      {/* Header row */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] font-mono text-muted-foreground/60 shrink-0">
+          {bp.sequence_rank != null ? `#${bp.sequence_rank}` : `${index + 1}.`}
+        </span>
+        <span className="text-xs font-medium text-foreground">
+          {AXIS_LABELS[bp.axis] || bp.axis}
+        </span>
+        {urgencyStyle && (
+          <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${urgencyStyle.className}`}>
+            {urgencyStyle.label}
+          </Badge>
+        )}
+        {bucketStyle && (
+          <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${bucketStyle.className}`}>
+            {bucketStyle.label}
+          </Badge>
+        )}
+      </div>
+
+      {/* Goal as headline */}
+      <p className="text-[10px] font-medium text-foreground/90 leading-snug">{bp.patch_goal}</p>
+
+      {/* Reason */}
+      <p className="text-[9px] text-muted-foreground/70 leading-snug">{bp.patch_reason}</p>
+
+      {/* Execution note callout */}
+      {bp.execution_note && (
+        <div className="p-2 rounded bg-violet-500/[0.06] border border-violet-500/15">
+          <p className="text-[9px] text-violet-300/80 leading-snug">{bp.execution_note}</p>
+        </div>
+      )}
+
+      {/* Patch location */}
+      <PatchLocationDisplay location={bp.patch_location} />
+
+      {/* Guardrails */}
+      {bp.preserve_constraints && bp.preserve_constraints.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[9px] text-muted-foreground font-medium">Guardrails</p>
+          <div className="flex flex-wrap gap-1.5">
+            {bp.preserve_constraints.map((c, ci) => (
+              <Badge key={ci} variant="outline" className="text-[9px] border-border text-foreground/60">
+                {c}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Dependencies + downstream risk (collapsible if both present) */}
+      {((bp.upstream_dependencies && bp.upstream_dependencies.length > 0) ||
+        (bp.downstream_risk_axes && bp.downstream_risk_axes.length > 0)) && (
+        <Collapsible open={expanded} onOpenChange={setExpanded}>
+          <CollapsibleTrigger className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground/60 transition-colors group">
+            <ChevronRight className="w-2.5 h-2.5 transition-transform group-data-[state=open]:rotate-90" />
+            Dependencies &amp; risk
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-1.5 space-y-1.5">
+            {bp.upstream_dependencies && bp.upstream_dependencies.length > 0 && (
+              <div className="space-y-0.5">
+                <p className="text-[9px] text-muted-foreground font-medium">Depends on</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {bp.upstream_dependencies.map((dep) => (
+                    <Badge key={dep} variant="outline" className="text-[9px] border-blue-500/30 text-blue-400">
+                      {AXIS_LABELS[dep] || dep}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            {bp.downstream_risk_axes && bp.downstream_risk_axes.length > 0 && (
+              <div className="space-y-0.5">
+                <p className="text-[9px] text-muted-foreground font-medium">May affect</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {bp.downstream_risk_axes.map((ax) => (
+                    <Badge key={ax} variant="outline" className="text-[9px] border-amber-500/30 text-amber-400">
+                      {AXIS_LABELS[ax] || ax}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+    </div>
+  );
+}
+
+function PatchLocationDisplay({ location }: { location?: PatchLocation | null }) {
+  if (!location) return null;
+  const hasLabels = location.section_labels && location.section_labels.length > 0;
+  const hasKeys = !hasLabels && location.section_keys && location.section_keys.length > 0;
+  const hasLines = location.passage_lines && location.passage_lines.length > 0;
+
+  if (!hasLabels && !hasKeys && !hasLines) return null;
+
+  return (
+    <div className="space-y-1">
+      <p className="text-[9px] text-muted-foreground font-medium flex items-center gap-1">
+        <Crosshair className="w-2.5 h-2.5" />
+        Patch location
+      </p>
+      {(hasLabels || hasKeys) && (
+        <div className="flex flex-wrap gap-1.5">
+          {(location.section_labels || location.section_keys || []).map((s, si) => (
+            <Badge key={si} variant="outline" className="text-[9px] border-border text-foreground/70">
+              {s}
+            </Badge>
+          ))}
+        </div>
+      )}
+      {hasLines && (
+        <div className="flex flex-wrap gap-1.5">
+          {location.passage_lines!.map((pl, pi) => (
+            <Badge key={pi} variant="outline" className="text-[8px] font-mono border-border text-muted-foreground">
+              L{pl.start_line}–{pl.end_line}
+            </Badge>
+          ))}
+        </div>
       )}
     </div>
   );
