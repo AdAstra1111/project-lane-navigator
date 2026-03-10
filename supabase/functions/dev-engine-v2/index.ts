@@ -14161,7 +14161,7 @@ CRITICAL:
       const { data: proj } = await supabase.from("projects")
         .select("format, assigned_lane, title").eq("id", projectId).single();
       const fmt = resolveFormatAlias((proj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
-      const ladder = getLadderForFormat(fmt);
+      const ladder = getLadderForFormat(fmt) ?? getLadderForFormat("film") ?? [];
 
       const SEED_CORE_TYPES = ["project_overview", "creative_brief", "market_positioning", "canon", "nec"] as const;
 
