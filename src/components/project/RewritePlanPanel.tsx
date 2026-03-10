@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   AlertTriangle, ChevronRight, ShieldCheck, ShieldAlert,
-  FileWarning, Eye, Info,
+  FileWarning, Eye, Info, Crosshair,
 } from 'lucide-react';
 
 /* ── Types matching backend contract ── */
