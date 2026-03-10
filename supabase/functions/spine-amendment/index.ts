@@ -19,6 +19,8 @@ import {
   getDownstreamAxes,
   computePropagatedRisk,
   getDependencyPosition,
+  computeDownstreamRiskScores,
+  type UnitConfidenceMeta,
 } from "../_shared/narrativeDependencyGraph.ts";
 
 const corsHeaders = {
@@ -204,6 +206,21 @@ serve(async (req: Request) => {
         }
       }
 
+      // ── NDG v2: Risk scoring ──
+      // Build a confidence meta map from queried downstream units.
+      // Axes with no unit row default to confidence_factor=0.50 (fail-safe).
+      const downstreamMetaMap = new Map<SpineAxis, UnitConfidenceMeta | null>();
+      for (const row of downstreamUnitsAtRisk) {
+        downstreamMetaMap.set(row.unit_type as SpineAxis, row.payload_json ?? null);
+      }
+      const downstreamRiskScores = computeDownstreamRiskScores(axis as SpineAxis, downstreamMetaMap);
+      const maxRiskScore = downstreamRiskScores.length > 0
+        ? downstreamRiskScores[0].risk_score  // already sorted desc
+        : 0;
+      const avgRiskScore = downstreamRiskScores.length > 0
+        ? Math.round(downstreamRiskScores.reduce((s, r) => s + r.risk_score, 0) / downstreamRiskScores.length * 100) / 100
+        : 0;
+
       return new Response(JSON.stringify({
         axis,
         axis_label: axisMeta.description,
@@ -243,6 +260,19 @@ serve(async (req: Request) => {
         downstream_units_at_risk_count: downstreamUnitsAtRisk.length,
         dependency_chains: ndgPropagatedRisk[0]?.dependency_chains ?? [],
         propagated_risk: ndgPropagatedRisk,
+        // ── NDG v2: risk scores ──
+        // Deterministic. Advisory. No lifecycle mutation.
+        downstream_risk_scores: downstreamRiskScores.map(s => ({
+          target_axis:       s.target_axis,
+          dependency_chain:  s.dependency_chain,
+          severity_weight:   s.severity_weight,
+          distance:          s.distance,
+          distance_weight:   s.distance_weight,
+          confidence_factor: s.confidence_factor,
+          risk_score:        s.risk_score,
+        })),
+        max_risk_score:     maxRiskScore,
+        average_risk_score: avgRiskScore,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

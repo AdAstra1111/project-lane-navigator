@@ -34,7 +34,7 @@
  *   Excluded:     tonal_gravity (class C / expressive — not structural)
  */
 
-import type { SpineAxis } from "./narrativeSpine.ts";
+import { type SpineAxis, type AmendmentSeverity, AXIS_METADATA } from "./narrativeSpine.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -51,6 +51,53 @@ export interface NarrativeDependencyEdge {
   confidence: "canonical";
   /** Human-readable rationale for this edge */
   note: string;
+}
+
+// ── NDG v2: Risk Scoring ──────────────────────────────────────────────────
+
+/**
+ * Numeric severity weights for risk score calculation.
+ * Maps IFFY's 5-tier AmendmentSeverity scale to integer weights.
+ * Matches the canonical class hierarchy: Class A axes score higher than Class B.
+ *
+ *   constitutional (Class A) → 5
+ *   severe         (Class B) → 4
+ *   severe_moderate (Class B)→ 3
+ *   moderate       (Class B/S)→ 2
+ *   light          (Class C) → 1
+ */
+export const SEVERITY_WEIGHTS: Record<AmendmentSeverity, number> = {
+  constitutional:  5,
+  severe:          4,
+  severe_moderate: 3,
+  moderate:        2,
+  light:           1,
+};
+
+/**
+ * Unit confidence metadata subset used for risk scoring.
+ * Derived from narrative_units.payload_json — all fields optional/nullable.
+ */
+export interface UnitConfidenceMeta {
+  verbatim_quote?: string | null;
+  verbatim_quote_verified?: boolean | null;
+  verbatim_quote_match_section_key?: string | null;
+  evidence_excerpt?: string | null;
+}
+
+/**
+ * Risk score for a single source→target dependency edge.
+ * Deterministic and reproducible given the same inputs.
+ */
+export interface AxisRiskScore {
+  source_axis: SpineAxis;
+  target_axis: SpineAxis;
+  dependency_chain: SpineAxis[];
+  severity_weight: number;
+  distance: number;
+  distance_weight: number;
+  confidence_factor: number;
+  risk_score: number;
 }
 
 export interface DownstreamRisk {
@@ -325,4 +372,114 @@ export function getDependencyPosition(
   if (hasUpstreamChanged) return "propagated";
   if (hasDownstream) return "upstream";
   return "terminal";
+}
+
+// ── NDG v2: Risk Scoring Helpers ──────────────────────────────────────────
+
+/**
+ * Derives a deterministic confidence factor from unit payload_json metadata.
+ * Confidence represents how well the unit's evidence anchors the claim.
+ *
+ * Tiers:
+ *   1.00 — verbatim_quote_verified=true AND section_key is canonical (≠__preamble)
+ *           → passage_verified: quote anchored to a known narrative section
+ *   0.90 — verbatim_quote_verified=true, any section (incl. __preamble)
+ *           → quote exists and was found, but may be in preamble
+ *   0.75 — verbatim_quote present but verbatim_quote_verified=false
+ *           → model produced a quote but it was not located in the document
+ *   0.50 — evidence_excerpt only, or no evidence at all (active/unclear)
+ *           → LLM assertion without anchored proof
+ *
+ * Returns 0.50 when unitMeta is null (fail-safe default).
+ */
+export function getConfidenceFactor(unitMeta?: UnitConfidenceMeta | null): number {
+  if (!unitMeta) return 0.50;
+
+  const vqv = unitMeta.verbatim_quote_verified;
+  const sk  = unitMeta.verbatim_quote_match_section_key;
+  const vq  = unitMeta.verbatim_quote;
+
+  if (vqv === true && sk && sk !== "__preamble") return 1.00; // canonical passage
+  if (vqv === true)                               return 0.90; // verified, any section
+  if (vq)                                         return 0.75; // quote present, unverified
+  return 0.50;                                                  // assertion / no evidence
+}
+
+/**
+ * Computes a deterministic risk score for a single source→target edge.
+ *
+ * Formula: risk_score = severity_weight × (1 / distance) × confidence_factor
+ *
+ * Returns null if no dependency path exists from source to target.
+ *
+ * @param sourceAxis   The axis being amended (root of the change)
+ * @param targetAxis   The downstream axis being assessed for risk
+ * @param unitMeta     payload_json metadata for the TARGET unit (confidence signal)
+ */
+export function computeDependencyRisk(
+  sourceAxis: SpineAxis,
+  targetAxis: SpineAxis,
+  unitMeta?: UnitConfidenceMeta | null,
+): AxisRiskScore | null {
+  const chain = getDependencyChain(sourceAxis, targetAxis);
+  if (!chain || chain.length < 2) return null; // no path or trivial
+
+  const distance        = chain.length - 1;
+  const distanceWeight  = Math.round((1 / distance) * 1000) / 1000; // 3dp
+  const severityWeight  = SEVERITY_WEIGHTS[AXIS_METADATA[sourceAxis].severity] ?? 2;
+  const confidenceFactor = getConfidenceFactor(unitMeta);
+  const riskScore       = Math.round(severityWeight * distanceWeight * confidenceFactor * 100) / 100;
+
+  return {
+    source_axis:       sourceAxis,
+    target_axis:       targetAxis,
+    dependency_chain:  chain,
+    severity_weight:   severityWeight,
+    distance,
+    distance_weight:   distanceWeight,
+    confidence_factor: confidenceFactor,
+    risk_score:        riskScore,
+  };
+}
+
+/**
+ * Computes risk scores for all downstream axes of a given source axis.
+ * Returns results sorted descending by risk_score (highest risk first).
+ *
+ * @param sourceAxis         The amended axis
+ * @param downstreamUnitMeta Map of SpineAxis → payload_json metadata for confidence lookup
+ */
+export function computeDownstreamRiskScores(
+  sourceAxis: SpineAxis,
+  downstreamUnitMeta: Map<SpineAxis, UnitConfidenceMeta | null>,
+): AxisRiskScore[] {
+  const downstream = getDownstreamAxes(sourceAxis);
+  const scores: AxisRiskScore[] = [];
+
+  for (const target of downstream) {
+    const meta  = downstreamUnitMeta.get(target) ?? null;
+    const score = computeDependencyRisk(sourceAxis, target, meta);
+    if (score) scores.push(score);
+  }
+
+  return scores.sort((a, b) => b.risk_score - a.risk_score);
+}
+
+/**
+ * Computes a rewrite priority score for a rewrite target axis.
+ * Represents "how urgently should this axis be addressed in the rewrite?"
+ *
+ * Formula: severity_weight × (1 + 0.5 × downstream_count)
+ * Axes with high severity AND many downstream dependents score highest.
+ *
+ * Examples:
+ *   story_engine   (severity=5, 7 downstream): 5 × (1 + 3.5) = 22.5
+ *   protagonist_arc (severity=5, 2 downstream): 5 × (1 + 1.0) = 10.0
+ *   central_conflict (severity=3, 3 downstream): 3 × (1 + 1.5) = 7.5
+ *   resolution_type (severity=2, 0 downstream): 2 × (1 + 0.0) = 2.0
+ */
+export function computeRewritePriorityScore(axis: SpineAxis): number {
+  const severityWeight   = SEVERITY_WEIGHTS[AXIS_METADATA[axis].severity] ?? 2;
+  const downstreamCount  = getDownstreamAxes(axis).length;
+  return Math.round(severityWeight * (1 + 0.5 * downstreamCount) * 100) / 100;
 }

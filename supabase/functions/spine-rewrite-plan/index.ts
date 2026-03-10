@@ -43,6 +43,9 @@ import {
   getUpstreamAxes,
   computePropagatedRisk,
   getDependencyPosition,
+  computeDependencyRisk,
+  computeRewritePriorityScore,
+  type UnitConfidenceMeta,
 } from "../_shared/narrativeDependencyGraph.ts";
 
 const corsHeaders = {
@@ -695,24 +698,54 @@ serve(async (req: Request) => {
     }
     const likelyAffectedAreas = affectedByKey.size > 0 ? [...affectedByKey.values()] : null;
 
-    // ── NDG v1: Propagated risk + dependency position ──
+    // ── NDG v1+v2: Propagated risk + dependency position + risk scoring ──
     // Additive enrichment — advisory only, read-only, no unit lifecycle changes.
     // Computes which rewrite_target axes have structural downstream dependents,
-    // and adds a dependency_position hint to each rewrite/preserve target.
+    // adds dependency_position hints, and scores propagated impact (NDG v2).
 
     // All axes that need attention (contradicted or stale)
     const rewriteAxisSet = new Set<SpineAxis>(rewriteTargets.map((rt: any) => rt.axis as SpineAxis));
 
-    // propagated_risk: for each rewrite target axis, list downstream axes at risk
-    const propagatedRisk = computePropagatedRisk([...rewriteAxisSet]);
-
-    // Enrich each rewrite_target with dependency_position hint
-    for (const rt of rewriteTargets) {
-      rt.dependency_position = getDependencyPosition(rt.axis as SpineAxis, rewriteAxisSet);
+    // Build confidence meta map from all units already loaded (no extra DB query)
+    const unitConfidenceMap = new Map<SpineAxis, UnitConfidenceMeta | null>();
+    for (const [ax, unit] of unitByAxis.entries()) {
+      if (unit?.payload_json) {
+        unitConfidenceMap.set(ax, unit.payload_json as UnitConfidenceMeta);
+      }
     }
-    // Enrich preserve_targets too — useful for UI to show "safe but downstream of a rewrite target"
+
+    // propagated_risk: for each rewrite target axis, list downstream axes + risk scores
+    const propagatedRiskBase = computePropagatedRisk([...rewriteAxisSet]);
+    // NDG v2: add risk_score to each propagated_risk entry
+    const propagatedRisk = propagatedRiskBase.map(pr => {
+      // Compute per-downstream risk scores using loaded unit confidence data
+      const perAxisScores = pr.downstream_axes.map(targetAxis => {
+        const meta = unitConfidenceMap.get(targetAxis) ?? null;
+        const rs = computeDependencyRisk(pr.source_axis, targetAxis, meta);
+        return rs ? rs.risk_score : null;
+      }).filter((s): s is number => s !== null);
+
+      const maxScore = perAxisScores.length > 0 ? Math.max(...perAxisScores) : 0;
+      const avgScore = perAxisScores.length > 0
+        ? Math.round(perAxisScores.reduce((a, b) => a + b, 0) / perAxisScores.length * 100) / 100
+        : 0;
+
+      return {
+        ...pr,
+        risk_score:         maxScore,   // representative score for this propagation path
+        average_risk_score: avgScore,
+      };
+    });
+
+    // Enrich each rewrite_target with dependency_position + rewrite_priority_score (NDG v2)
+    for (const rt of rewriteTargets) {
+      rt.dependency_position     = getDependencyPosition(rt.axis as SpineAxis, rewriteAxisSet);
+      rt.rewrite_priority_score  = computeRewritePriorityScore(rt.axis as SpineAxis);
+    }
+    // Enrich preserve_targets — dep_pos + rewrite_priority_score (structural importance, always useful)
     for (const pt of preserveTargets) {
-      pt.dependency_position = getDependencyPosition(pt.axis as SpineAxis, rewriteAxisSet);
+      pt.dependency_position    = getDependencyPosition(pt.axis as SpineAxis, rewriteAxisSet);
+      pt.rewrite_priority_score = computeRewritePriorityScore(pt.axis as SpineAxis);
     }
 
     // ── 6. Coverage accounting ──
