@@ -1,9 +1,10 @@
 /**
  * RewritePlanPanel — Sheet-based UI for the deterministic spine-rewrite-plan output.
- * Renders rewrite targets, preserve targets, coverage gaps, and plan status.
+ * Renders rewrite targets, preserve targets, coverage gaps, plan status,
+ * dependency position badges, and propagated risk visualization.
  * Read-only planning surface — no auto-rewrite execution.
  */
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -14,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   AlertTriangle, ChevronRight, ShieldCheck, ShieldAlert,
-  FileWarning, Eye, Info, Crosshair,
+  FileWarning, Eye, Info, Crosshair, GitBranch,
 } from 'lucide-react';
 
 /* ── Types matching backend contract ── */
@@ -27,6 +28,8 @@ interface SectionTarget {
   note?: string | null;
 }
 
+type DependencyPosition = 'root' | 'upstream' | 'propagated' | 'terminal';
+
 interface RewriteTarget {
   axis: string;
   unit_key: string;
@@ -38,6 +41,7 @@ interface RewriteTarget {
   axis_class: string;
   confidence: number | null;
   section_targets?: SectionTarget[];
+  dependency_position?: DependencyPosition;
 }
 
 interface PreserveTarget {
@@ -49,6 +53,7 @@ interface PreserveTarget {
   note: string;
   axis_class: string;
   section_targets?: SectionTarget[];
+  dependency_position?: DependencyPosition;
 }
 
 interface CoverageBreakdown {
@@ -57,6 +62,13 @@ interface CoverageBreakdown {
   deferred_validator_axes?: string[];
   supported_but_missing_on_version: string[];
   supported_and_evaluated_on_version: string[];
+}
+
+interface PropagatedRisk {
+  source_axis: string;
+  downstream_axes: string[];
+  dependency_chain?: string[];
+  reason?: string;
 }
 
 interface RewritePlan {
@@ -78,6 +90,7 @@ interface RewritePlan {
   error?: string;
   coverage_breakdown?: CoverageBreakdown;
   likely_affected_areas?: string[] | null;
+  propagated_risk?: PropagatedRisk[];
 }
 
 /* ── Props ── */
@@ -112,6 +125,20 @@ const PRIORITY_STYLES: Record<string, string> = {
   advisory: 'bg-blue-950 text-blue-300 border-blue-800',
 };
 
+const DEPENDENCY_POSITION_STYLES: Record<DependencyPosition, { className: string; label: string }> = {
+  root: { className: 'border-purple-500/40 text-purple-400', label: 'root cause' },
+  upstream: { className: 'border-blue-500/40 text-blue-400', label: 'upstream dependency' },
+  propagated: { className: 'border-amber-500/40 text-amber-400', label: 'propagated risk' },
+  terminal: { className: 'border-border text-muted-foreground', label: 'terminal axis' },
+};
+
+const DEPENDENCY_ORDER: Record<DependencyPosition, number> = {
+  root: 0,
+  upstream: 1,
+  propagated: 2,
+  terminal: 3,
+};
+
 /* ── Component ── */
 
 export function RewritePlanPanel({
@@ -132,6 +159,16 @@ export function RewritePlanPanel({
     enabled: open && !!versionId,
     staleTime: 30_000,
   });
+
+  // Stable secondary sort by dependency position (primary order preserved)
+  const sortedRewriteTargets = useMemo(() => {
+    if (!plan) return [];
+    return [...plan.rewrite_targets].sort((a, b) => {
+      const oa = a.dependency_position ? DEPENDENCY_ORDER[a.dependency_position] : 99;
+      const ob = b.dependency_position ? DEPENDENCY_ORDER[b.dependency_position] : 99;
+      return oa - ob;
+    });
+  }, [plan]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -190,18 +227,21 @@ export function RewritePlanPanel({
             {/* B2. Likely Affected Areas summary */}
             <LikelyAffectedAreas areas={plan.likely_affected_areas} />
 
+            {/* B3. Propagation Impact */}
+            <PropagatedRiskSection risks={plan.propagated_risk} />
+
             {/* C. Rewrite Targets */}
-            {plan.rewrite_targets.length > 0 && (
+            {sortedRewriteTargets.length > 0 && (
               <section className="space-y-2">
                 <h3 className="text-xs font-medium text-foreground flex items-center gap-1.5">
                   <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
                   Targets to change
                   <Badge variant="outline" className="text-[9px] ml-1 border-amber-500/30 text-amber-400">
-                    {plan.rewrite_targets.length}
+                    {sortedRewriteTargets.length}
                   </Badge>
                 </h3>
                 <div className="space-y-2">
-                  {plan.rewrite_targets.map((t, i) => (
+                  {sortedRewriteTargets.map((t, i) => (
                     <RewriteTargetCard key={`${t.axis}-${i}`} target={t} />
                   ))}
                 </div>
@@ -285,7 +325,6 @@ function PlanStatusHeader({ plan }: { plan: RewritePlan }) {
 
   return (
     <div className="space-y-2">
-      {/* Plan completeness */}
       {isComplete ? (
         <div className="flex items-start gap-2 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
           <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
@@ -306,7 +345,6 @@ function PlanStatusHeader({ plan }: { plan: RewritePlan }) {
         </div>
       )}
 
-      {/* Latest version warning */}
       {isLatest === false && (
         <div className="flex items-start gap-2 p-2.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
           <Info className="w-3.5 h-3.5 text-violet-400 shrink-0 mt-0.5" />
@@ -319,6 +357,20 @@ function PlanStatusHeader({ plan }: { plan: RewritePlan }) {
   );
 }
 
+/* ── Dependency Position Badge ── */
+
+function DependencyPositionBadge({ position }: { position?: DependencyPosition }) {
+  if (!position) return null;
+  const style = DEPENDENCY_POSITION_STYLES[position];
+  return (
+    <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${style.className}`}>
+      {style.label}
+    </Badge>
+  );
+}
+
+/* ── Rewrite Target Card ── */
+
 function RewriteTargetCard({ target }: { target: RewriteTarget }) {
   const [expanded, setExpanded] = useState(false);
   const priorityStyle = PRIORITY_STYLES[target.priority] || PRIORITY_STYLES.moderate;
@@ -330,6 +382,7 @@ function RewriteTargetCard({ target }: { target: RewriteTarget }) {
     <div className="p-3 rounded-lg bg-card border border-border space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-medium text-foreground">{AXIS_LABELS[target.axis] || target.axis}</span>
+        <DependencyPositionBadge position={target.dependency_position} />
         <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${reasonStyle}`}>
           {target.reason}
         </Badge>
@@ -338,7 +391,6 @@ function RewriteTargetCard({ target }: { target: RewriteTarget }) {
         </Badge>
       </div>
 
-      {/* Target spec */}
       {target.target_spec && (
         <div>
           <p className="text-[9px] text-muted-foreground font-medium mb-0.5">Target spec</p>
@@ -346,10 +398,8 @@ function RewriteTargetCard({ target }: { target: RewriteTarget }) {
         </div>
       )}
 
-      {/* Section targets */}
       <SectionTargetsDisplay targets={target.section_targets} />
 
-      {/* Evidence + amendment context in collapsible */}
       {(target.current_evidence || target.amendment_context) && (
         <Collapsible open={expanded} onOpenChange={setExpanded}>
           <CollapsibleTrigger className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground/60 transition-colors group">
@@ -376,6 +426,8 @@ function RewriteTargetCard({ target }: { target: RewriteTarget }) {
   );
 }
 
+/* ── Preserve Target Card ── */
+
 function PreserveTargetCard({ target }: { target: PreserveTarget }) {
   const isProvisional = target.status === 'active';
   const borderClass = isProvisional
@@ -385,10 +437,18 @@ function PreserveTargetCard({ target }: { target: PreserveTarget }) {
     ? 'bg-amber-500/[0.03]'
     : 'bg-emerald-500/[0.03]';
 
+  // Dependency context hints
+  const depHint = target.dependency_position === 'upstream'
+    ? 'This axis supports downstream narrative structure.'
+    : target.dependency_position === 'terminal'
+      ? 'This axis represents a narrative outcome.'
+      : null;
+
   return (
     <div className={`p-3 rounded-lg ${bgClass} border ${borderClass} space-y-1.5`}>
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-medium text-foreground">{AXIS_LABELS[target.axis] || target.axis}</span>
+        <DependencyPositionBadge position={target.dependency_position} />
         {isProvisional ? (
           <Badge variant="outline" className="text-[8px] px-1.5 py-0 border-dashed border-amber-500/30 text-amber-400">
             provisional
@@ -406,7 +466,10 @@ function PreserveTargetCard({ target }: { target: PreserveTarget }) {
 
       <p className="text-[9px] text-muted-foreground leading-snug">{target.note}</p>
 
-      {/* Section targets */}
+      {depHint && (
+        <p className="text-[8px] text-muted-foreground/50 italic">{depHint}</p>
+      )}
+
       <SectionTargetsDisplay targets={target.section_targets} />
     </div>
   );
@@ -477,6 +540,50 @@ function LikelyAffectedAreas({ areas }: { areas?: string[] | null }) {
   );
 }
 
+/* ── Propagated Risk Section ── */
+
+function PropagatedRiskSection({ risks }: { risks?: PropagatedRisk[] }) {
+  if (!risks || risks.length === 0) return null;
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs font-medium text-foreground flex items-center gap-1.5">
+        <GitBranch className="w-3.5 h-3.5 text-purple-400" />
+        Propagation Impact
+      </h3>
+      <div className="space-y-2">
+        {risks.map((risk, i) => (
+          <div key={`${risk.source_axis}-${i}`} className="p-2.5 rounded-lg bg-purple-500/[0.04] border border-purple-500/15 space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-medium text-foreground">
+                {AXIS_LABELS[risk.source_axis] || risk.source_axis}
+              </span>
+              <span className="text-[10px] text-muted-foreground">change may affect:</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 pl-2">
+              {risk.downstream_axes.map(ax => (
+                <Badge key={ax} variant="outline" className="text-[9px] border-purple-500/30 text-purple-400">
+                  {AXIS_LABELS[ax] || ax}
+                </Badge>
+              ))}
+            </div>
+            {risk.reason && (
+              <p className="text-[9px] text-muted-foreground/70 pl-2">{risk.reason}</p>
+            )}
+            {risk.dependency_chain && risk.dependency_chain.length > 1 && (
+              <p className="text-[8px] text-muted-foreground/40 pl-2 font-mono">
+                {risk.dependency_chain.map(ax => AXIS_LABELS[ax] || ax).join(' → ')}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── Coverage Breakdown Section ── */
+
 function CoverageBreakdownSection({ breakdown }: { breakdown: CoverageBreakdown }) {
   const hasUnsupported = breakdown.unsupported_axes.length > 0;
   const hasMissing = breakdown.supported_but_missing_on_version.length > 0;
@@ -486,7 +593,6 @@ function CoverageBreakdownSection({ breakdown }: { breakdown: CoverageBreakdown 
 
   return (
     <div className="space-y-3">
-      {/* Unsupported by IFFY */}
       {hasUnsupported && (
         <section className="space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
@@ -511,7 +617,6 @@ function CoverageBreakdownSection({ breakdown }: { breakdown: CoverageBreakdown 
         </section>
       )}
 
-      {/* Supported but missing on this version */}
       {hasMissing && (
         <section className="space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
