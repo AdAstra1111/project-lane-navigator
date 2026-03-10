@@ -328,22 +328,35 @@ serve(async (req: Request) => {
             flagged_at: new Date().toISOString(),
           };
 
-          const { data: flaggedRows, error: flagErr } = await supabase
+          // Fetch existing reconcile_reasons to merge, not overwrite
+          const { data: existingDocs } = await supabase
             .from("project_documents")
-            .update({
-              needs_reconcile: true,
-              reconcile_reasons: [reconcileReason],
-            })
-            .in("id", affectedDocIds)
-            .select("id");
+            .select("id, reconcile_reasons")
+            .in("id", affectedDocIds);
 
-          if (flagErr) {
-            console.warn(`[spine-amendment] revalidation flag failed:`, flagErr.message);
-          } else {
-            docsFlaged = (flaggedRows || []).length;
-            if (docsFlaged > 0) {
-              console.log(`[spine-amendment] flagged ${docsFlaged} doc(s) for spine revalidation after ${axis} amendment`);
-            }
+          const updates = (existingDocs || []).map((doc: any) => {
+            const existing = Array.isArray(doc.reconcile_reasons) ? doc.reconcile_reasons : [];
+            return {
+              id: doc.id,
+              needs_reconcile: true,
+              reconcile_reasons: [...existing, reconcileReason],
+            };
+          });
+
+          // Update each doc individually to preserve per-doc existing reasons
+          let flagCount = 0;
+          for (const upd of updates) {
+            const { error: upErr } = await supabase
+              .from("project_documents")
+              .update({ needs_reconcile: upd.needs_reconcile, reconcile_reasons: upd.reconcile_reasons })
+              .eq("id", upd.id);
+            if (!upErr) flagCount++;
+            else console.warn(`[spine-amendment] flag failed for doc ${upd.id}:`, upErr.message);
+          }
+
+          docsFlaged = flagCount;
+          if (docsFlaged > 0) {
+            console.log(`[spine-amendment] flagged ${docsFlaged} doc(s) for spine revalidation after ${axis} amendment`);
           }
         } catch (flagEx: any) {
           console.warn(`[spine-amendment] revalidation flag error:`, flagEx.message);
