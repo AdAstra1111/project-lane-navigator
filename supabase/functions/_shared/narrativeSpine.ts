@@ -463,7 +463,13 @@ Rules for verbatim_quote:
 - Do NOT paraphrase, summarise, or interpret.
 - Must be a phrase or sentence that appears verbatim in the DOCUMENT EVIDENCE section.
 - Maximum 300 characters.
-- If status is "unclear" (no clear evidence) → set to null.`;
+- If status is "unclear" (no clear evidence) → set to null.
+
+QUOTE SELECTION PRIORITY (L4.6):
+- PREFER quotes from narrative act sections: Setup, Act 1, Inciting Incident, Rising Action, Act 2, Midpoint, Climax, Act 3, Resolution, Character Arc descriptions, Conflict scenes.
+- AVOID quoting from preamble material: logline, premise, synopsis, tagline, summary, or any introductory paragraph before the narrative acts begin.
+- Reason: quotes from narrative sections enable precise document targeting; preamble quotes do not.
+- If ONLY preamble text supports the finding, use it — but prefer act-level evidence when both exist.`;
 }
 
 /**
@@ -504,7 +510,12 @@ DOCUMENT EVIDENCE (bounded excerpt):
 ${boundedContext}
 
 Compare the document evidence against EACH locked Class A axis value above.
-For each axis, determine: aligned, contradicted, or unclear.`;
+For each axis, determine: aligned, contradicted, or unclear.
+
+IMPORTANT — verbatim_quote selection:
+When selecting your verbatim_quote, search for supporting evidence inside the NARRATIVE ACT SECTIONS of the document (Setup, Rising Action, Midpoint, Climax, Resolution) — NOT from the logline, premise, synopsis, or preamble.
+Act-level quotes anchor targeting to the actual narrative, not the summary header.
+Only fall back to preamble text if no act-level evidence exists.`;
 }
 
 /**
@@ -668,7 +679,13 @@ Rules for verbatim_quote:
 - Do NOT paraphrase, summarise, or interpret.
 - Must appear verbatim in the DOCUMENT EVIDENCE section.
 - Maximum 300 characters.
-- If status is "unclear" → set to null.`;
+- If status is "unclear" → set to null.
+
+QUOTE SELECTION PRIORITY (L4.6):
+- PREFER quotes from narrative act sections: Setup, Act 1, Inciting Incident, Rising Action, Act 2, Midpoint, Climax, Act 3, Resolution, Character Arc descriptions, Conflict scenes, Turning Points.
+- AVOID quoting from preamble material: logline, premise, synopsis, tagline, summary, or any introductory paragraph before the narrative acts begin.
+- Reason: quotes from narrative sections enable precise document targeting; preamble quotes do not.
+- If ONLY preamble text supports the finding, use it — but prefer act-level evidence when both exist.`;
 }
 
 /**
@@ -715,7 +732,12 @@ ${boundedContext}
 
 Compare the document evidence against EACH locked Class B axis value above.
 For each axis listed, determine: aligned (supported/developed/modulated), contradicted (structurally replaced), or unclear (insufficient evidence).
-Only return results for the axes listed above.`;
+Only return results for the axes listed above.
+
+IMPORTANT — verbatim_quote selection:
+When selecting your verbatim_quote, search for supporting evidence inside the NARRATIVE ACT SECTIONS of the document (Setup, Rising Action, Midpoint, Climax, Resolution, Character Arc sections, Turning Points) — NOT from the logline, premise, synopsis, or preamble.
+Act-level quotes anchor targeting to the actual narrative, not the summary header.
+Only fall back to preamble text if no act-level evidence exists.`;
 }
 
 /**
