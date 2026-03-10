@@ -1,0 +1,378 @@
+/**
+ * RewritePlanPanel — Sheet-based UI for the deterministic spine-rewrite-plan output.
+ * Renders rewrite targets, preserve targets, coverage gaps, and plan status.
+ * Read-only planning surface — no auto-rewrite execution.
+ */
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from '@/components/ui/sheet';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  AlertTriangle, ChevronRight, ShieldCheck, ShieldAlert,
+  FileWarning, Eye, Info,
+} from 'lucide-react';
+
+/* ── Types matching backend contract ── */
+
+interface RewriteTarget {
+  axis: string;
+  unit_key: string;
+  reason: 'stale' | 'contradicted';
+  current_evidence: string | null;
+  target_spec: string | null;
+  amendment_context: string | null;
+  priority: string;
+  axis_class: string;
+  confidence: number | null;
+}
+
+interface PreserveTarget {
+  axis: string;
+  unit_key: string;
+  status: 'aligned' | 'active';
+  evidence: string | null;
+  spine_value: string | null;
+  note: string;
+  axis_class: string;
+}
+
+interface RewritePlan {
+  document_id: string | null;
+  version_id: string;
+  document_type: string | null;
+  spine_state: string;
+  is_latest_version: boolean | null;
+  is_latest_version_note: string | null;
+  rewrite_targets: RewriteTarget[];
+  preserve_targets: PreserveTarget[];
+  axes_with_no_units: string[];
+  staled_axes: string[];
+  total_relevant_axes: number;
+  axes_covered: number;
+  coverage_warning: string | null;
+  plan_complete: boolean;
+  generated_at: string;
+  error?: string;
+}
+
+/* ── Props ── */
+
+interface RewritePlanPanelProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projectId: string;
+  documentId: string;
+  versionId: string | null;
+  docType: string;
+}
+
+/* ── Axis display helpers ── */
+
+const AXIS_LABELS: Record<string, string> = {
+  story_engine: 'Story Engine',
+  protagonist_arc: 'Protagonist Arc',
+  pressure_system: 'Pressure System',
+  central_conflict: 'Central Conflict',
+  resolution_type: 'Resolution Type',
+  stakes_class: 'Stakes Class',
+  inciting_incident: 'Inciting Incident',
+  midpoint_reversal: 'Midpoint Reversal',
+  tonal_gravity: 'Tonal Gravity',
+};
+
+const PRIORITY_STYLES: Record<string, string> = {
+  constitutional: 'bg-red-950 text-red-300 border-red-800',
+  high: 'bg-orange-950 text-orange-300 border-orange-800',
+  moderate: 'bg-amber-950 text-amber-300 border-amber-800',
+  advisory: 'bg-blue-950 text-blue-300 border-blue-800',
+};
+
+/* ── Component ── */
+
+export function RewritePlanPanel({
+  open, onOpenChange, projectId, documentId, versionId, docType,
+}: RewritePlanPanelProps) {
+
+  const { data: plan, isLoading, error } = useQuery<RewritePlan>({
+    queryKey: ['rewrite-plan', projectId, documentId, versionId],
+    queryFn: async () => {
+      if (!versionId) throw new Error('No version available');
+      const { data, error } = await supabase.functions.invoke('spine-rewrite-plan', {
+        body: { projectId, documentId, versionId },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as RewritePlan;
+    },
+    enabled: open && !!versionId,
+    staleTime: 30_000,
+  });
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto bg-background border-border">
+        <SheetHeader className="pb-3">
+          <SheetTitle className="text-sm">Rewrite Plan</SheetTitle>
+          <SheetDescription className="text-xs">
+            Deterministic guidance for {docType || 'this document'} based on current spine state and unit evaluations.
+          </SheetDescription>
+        </SheetHeader>
+
+        {/* Loading */}
+        {isLoading && (
+          <div className="space-y-3 pt-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-6 w-3/4" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </div>
+        )}
+
+        {/* Error */}
+        {error && !isLoading && (
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 mt-2">
+            <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-medium text-destructive">Plan generation failed</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{(error as Error).message}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Empty: no version */}
+        {!isLoading && !error && !versionId && (
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 border border-border mt-2">
+            <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground">No analyzed version available for this document.</p>
+          </div>
+        )}
+
+        {/* Plan result */}
+        {plan && !isLoading && (
+          <div className="space-y-5 pt-2">
+
+            {/* A. Plan Status / Safety Header */}
+            <PlanStatusHeader plan={plan} />
+
+            {/* B. Coverage Warning */}
+            {plan.coverage_warning && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <FileWarning className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-300/90">{plan.coverage_warning}</p>
+              </div>
+            )}
+
+            {/* C. Rewrite Targets */}
+            {plan.rewrite_targets.length > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                  Targets to change
+                  <Badge variant="outline" className="text-[9px] ml-1 border-amber-500/30 text-amber-400">
+                    {plan.rewrite_targets.length}
+                  </Badge>
+                </h3>
+                <div className="space-y-2">
+                  {plan.rewrite_targets.map((t, i) => (
+                    <RewriteTargetCard key={`${t.axis}-${i}`} target={t} />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* D. Preserve Targets */}
+            {plan.preserve_targets.length > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  Targets to preserve
+                  <Badge variant="outline" className="text-[9px] ml-1 border-emerald-500/30 text-emerald-400">
+                    {plan.preserve_targets.length}
+                  </Badge>
+                </h3>
+                <div className="space-y-2">
+                  {plan.preserve_targets.map((t, i) => (
+                    <PreserveTargetCard key={`${t.axis}-${i}`} target={t} />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* E. Coverage Gaps / Unsupported Axes */}
+            {plan.axes_with_no_units.length > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                  Axes without evaluated unit coverage
+                </h3>
+                <div className="flex flex-wrap gap-1.5">
+                  {plan.axes_with_no_units.map(ax => (
+                    <Badge key={ax} variant="outline" className="text-[10px] border-border text-muted-foreground">
+                      {AXIS_LABELS[ax] || ax}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground/70">
+                  No unit data exists for these axes on this version. Run analysis to populate coverage.
+                </p>
+              </section>
+            )}
+
+            {/* Staled Axes info */}
+            {plan.staled_axes.length > 0 && (
+              <section className="space-y-1.5">
+                <h3 className="text-xs font-medium text-muted-foreground">Stale axes</h3>
+                <p className="text-[10px] text-muted-foreground/70">
+                  {plan.staled_axes.length} axis unit(s) were evaluated against a superseded spine spec.
+                  These appear as rewrite targets above.
+                </p>
+              </section>
+            )}
+
+            {/* Footer: meta */}
+            <div className="pt-2 border-t border-border">
+              <p className="text-[9px] text-muted-foreground/50">
+                Coverage: {plan.axes_covered}/{plan.total_relevant_axes} axes
+                · Generated {new Date(plan.generated_at).toLocaleString()}
+              </p>
+            </div>
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/* ── Sub-components ── */
+
+function PlanStatusHeader({ plan }: { plan: RewritePlan }) {
+  const isComplete = plan.plan_complete;
+  const isLatest = plan.is_latest_version;
+
+  return (
+    <div className="space-y-2">
+      {/* Plan completeness */}
+      {isComplete ? (
+        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+          <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-medium text-emerald-300">Plan complete</p>
+            <p className="text-[10px] text-emerald-300/60">All relevant spine axes have unit coverage for this version.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-medium text-amber-300">Partial guidance only</p>
+            <p className="text-[10px] text-amber-300/60">
+              Not all spine axes have evaluated unit coverage. This plan provides partial guidance — missing axes may require additional analysis.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Latest version warning */}
+      {isLatest === false && (
+        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+          <Info className="w-3.5 h-3.5 text-violet-400 shrink-0 mt-0.5" />
+          <p className="text-[10px] text-violet-300/80">
+            {plan.is_latest_version_note || 'This plan is based on an older analyzed version, not the latest.'}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RewriteTargetCard({ target }: { target: RewriteTarget }) {
+  const [expanded, setExpanded] = useState(false);
+  const priorityStyle = PRIORITY_STYLES[target.priority] || PRIORITY_STYLES.moderate;
+  const reasonStyle = target.reason === 'stale'
+    ? 'bg-amber-950 text-amber-300 border-amber-800'
+    : 'bg-red-950 text-red-300 border-red-800';
+
+  return (
+    <div className="p-3 rounded-lg bg-card border border-border space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-medium text-foreground">{AXIS_LABELS[target.axis] || target.axis}</span>
+        <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${reasonStyle}`}>
+          {target.reason}
+        </Badge>
+        <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${priorityStyle}`}>
+          {target.priority}
+        </Badge>
+      </div>
+
+      {/* Target spec */}
+      {target.target_spec && (
+        <div>
+          <p className="text-[9px] text-muted-foreground font-medium mb-0.5">Target spec</p>
+          <p className="text-[10px] text-foreground/80 leading-snug">{target.target_spec}</p>
+        </div>
+      )}
+
+      {/* Evidence + amendment context in collapsible */}
+      {(target.current_evidence || target.amendment_context) && (
+        <Collapsible open={expanded} onOpenChange={setExpanded}>
+          <CollapsibleTrigger className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground/60 transition-colors group">
+            <ChevronRight className="w-2.5 h-2.5 transition-transform group-data-[state=open]:rotate-90" />
+            Details
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-1.5 space-y-1.5">
+            {target.current_evidence && (
+              <div>
+                <p className="text-[9px] text-muted-foreground font-medium">Current evidence</p>
+                <p className="text-[10px] text-foreground/60 italic leading-snug">"{target.current_evidence}"</p>
+              </div>
+            )}
+            {target.amendment_context && (
+              <div>
+                <p className="text-[9px] text-muted-foreground font-medium">Amendment context</p>
+                <p className="text-[10px] text-foreground/60 leading-snug">{target.amendment_context}</p>
+              </div>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+    </div>
+  );
+}
+
+function PreserveTargetCard({ target }: { target: PreserveTarget }) {
+  const isProvisional = target.status === 'active';
+  const borderClass = isProvisional
+    ? 'border-dashed border-amber-500/20'
+    : 'border-emerald-500/20';
+  const bgClass = isProvisional
+    ? 'bg-amber-500/[0.03]'
+    : 'bg-emerald-500/[0.03]';
+
+  return (
+    <div className={`p-3 rounded-lg ${bgClass} border ${borderClass} space-y-1.5`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-medium text-foreground">{AXIS_LABELS[target.axis] || target.axis}</span>
+        {isProvisional ? (
+          <Badge variant="outline" className="text-[8px] px-1.5 py-0 border-dashed border-amber-500/30 text-amber-400">
+            provisional
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-[8px] px-1.5 py-0 border-emerald-500/30 text-emerald-400">
+            aligned
+          </Badge>
+        )}
+      </div>
+
+      {target.evidence && (
+        <p className="text-[10px] text-foreground/60 italic leading-snug">"{target.evidence}"</p>
+      )}
+
+      <p className="text-[9px] text-muted-foreground leading-snug">{target.note}</p>
+    </div>
+  );
+}
