@@ -42,7 +42,6 @@ interface RewriteTarget {
   confidence: number | null;
   section_targets?: SectionTarget[];
   dependency_position?: DependencyPosition;
-  rewrite_priority_score?: number;
 }
 
 interface PreserveTarget {
@@ -55,7 +54,6 @@ interface PreserveTarget {
   axis_class: string;
   section_targets?: SectionTarget[];
   dependency_position?: DependencyPosition;
-  rewrite_priority_score?: number;
 }
 
 interface CoverageBreakdown {
@@ -71,7 +69,6 @@ interface PropagatedRisk {
   downstream_axes: string[];
   dependency_chain?: string[];
   reason?: string;
-  risk_score?: number;
 }
 
 interface RewritePlan {
@@ -163,15 +160,10 @@ export function RewritePlanPanel({
     staleTime: 30_000,
   });
 
-  // Sort by rewrite_priority_score desc (primary), then dependency position (secondary)
+  // Stable secondary sort by dependency position (primary order preserved)
   const sortedRewriteTargets = useMemo(() => {
     if (!plan) return [];
     return [...plan.rewrite_targets].sort((a, b) => {
-      // Primary: score descending (higher risk first)
-      const sa = a.rewrite_priority_score ?? -1;
-      const sb = b.rewrite_priority_score ?? -1;
-      if (sa !== sb) return sb - sa;
-      // Secondary: dependency position
       const oa = a.dependency_position ? DEPENDENCY_ORDER[a.dependency_position] : 99;
       const ob = b.dependency_position ? DEPENDENCY_ORDER[b.dependency_position] : 99;
       return oa - ob;
@@ -365,25 +357,6 @@ function PlanStatusHeader({ plan }: { plan: RewritePlan }) {
   );
 }
 
-/* ── Risk Score Badge ── */
-
-function RiskScoreBadge({ score, label }: { score?: number; label?: string }) {
-  if (score == null || score <= 0) return null;
-  // Color intensity based on score magnitude
-  const style = score >= 10
-    ? 'border-red-500/50 text-red-400 bg-red-500/10'
-    : score >= 5
-      ? 'border-amber-500/50 text-amber-400 bg-amber-500/10'
-      : score >= 2
-        ? 'border-yellow-500/40 text-yellow-400 bg-yellow-500/5'
-        : 'border-border text-muted-foreground bg-muted/20';
-  return (
-    <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border font-mono ${style}`}>
-      {label ? `${label} ` : ''}{score.toFixed(1)}
-    </Badge>
-  );
-}
-
 /* ── Dependency Position Badge ── */
 
 function DependencyPositionBadge({ position }: { position?: DependencyPosition }) {
@@ -410,7 +383,6 @@ function RewriteTargetCard({ target }: { target: RewriteTarget }) {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-medium text-foreground">{AXIS_LABELS[target.axis] || target.axis}</span>
         <DependencyPositionBadge position={target.dependency_position} />
-        <RiskScoreBadge score={target.rewrite_priority_score} label="priority" />
         <Badge variant="outline" className={`text-[8px] px-1.5 py-0 border ${reasonStyle}`}>
           {target.reason}
         </Badge>
@@ -477,7 +449,6 @@ function PreserveTargetCard({ target }: { target: PreserveTarget }) {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-medium text-foreground">{AXIS_LABELS[target.axis] || target.axis}</span>
         <DependencyPositionBadge position={target.dependency_position} />
-        <RiskScoreBadge score={target.rewrite_priority_score} label="importance" />
         {isProvisional ? (
           <Badge variant="outline" className="text-[8px] px-1.5 py-0 border-dashed border-amber-500/30 text-amber-400">
             provisional
@@ -587,7 +558,6 @@ function PropagatedRiskSection({ risks }: { risks?: PropagatedRisk[] }) {
               <span className="text-[10px] font-medium text-foreground">
                 {AXIS_LABELS[risk.source_axis] || risk.source_axis}
               </span>
-              <RiskScoreBadge score={risk.risk_score} label="risk" />
               <span className="text-[10px] text-muted-foreground">change may affect:</span>
             </div>
             <div className="flex flex-wrap gap-1.5 pl-2">

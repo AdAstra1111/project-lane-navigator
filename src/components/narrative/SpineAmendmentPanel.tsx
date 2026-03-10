@@ -47,14 +47,6 @@ interface UnitAtRisk {
   evidence_excerpt: string | null;
 }
 
-interface PropagatedRiskItem {
-  source_axis: string;
-  downstream_axes: string[];
-  dependency_chain?: string[];
-  reason?: string;
-  risk_score?: number;
-}
-
 interface ImpactResult {
   severity: string;
   warningText: string;
@@ -62,7 +54,6 @@ interface ImpactResult {
   affectedDocs: string[];
   units_at_risk?: UnitAtRisk[];
   units_at_risk_count?: number;
-  propagated_risk?: PropagatedRiskItem[];
 }
 
 interface SpineAmendmentPanelProps {
@@ -291,54 +282,6 @@ export function SpineAmendmentPanel({ projectId, spine, onAmendmentConfirmed }: 
                     </div>
                   </CollapsibleContent>
                 </Collapsible>
-              </div>
-            )}
-
-            {/* Section D: Propagated Risk */}
-            {impact.propagated_risk && impact.propagated_risk.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-xs font-medium text-white/60 flex items-center gap-1.5">
-                  Propagation Risk
-                </h4>
-                <div className="space-y-1.5">
-                  {[...impact.propagated_risk]
-                    .sort((a, b) => (b.risk_score ?? 0) - (a.risk_score ?? 0))
-                    .map((pr, i) => {
-                      const scoreStyle = (pr.risk_score ?? 0) >= 10
-                        ? 'text-red-300 border-red-700 bg-red-950/50'
-                        : (pr.risk_score ?? 0) >= 5
-                          ? 'text-amber-300 border-amber-700 bg-amber-950/50'
-                          : (pr.risk_score ?? 0) >= 2
-                            ? 'text-yellow-300 border-yellow-700 bg-yellow-950/50'
-                            : 'text-white/50 border-white/10 bg-white/5';
-                      return (
-                        <div key={`${pr.source_axis}-${i}`} className={`p-2 rounded border ${scoreStyle} space-y-1`}>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-medium">
-                              {AXIS_META[pr.source_axis]?.label || pr.source_axis}
-                            </span>
-                            {pr.risk_score != null && pr.risk_score > 0 && (
-                              <span className="text-[9px] font-mono opacity-80">
-                                risk {pr.risk_score.toFixed(1)}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap gap-1 pl-1">
-                            {pr.downstream_axes.map(ax => (
-                              <Badge key={ax} variant="outline" className="text-[8px] px-1.5 py-0 border-white/20 text-white/50">
-                                {AXIS_META[ax]?.label || ax}
-                              </Badge>
-                            ))}
-                          </div>
-                          {pr.dependency_chain && pr.dependency_chain.length > 1 && (
-                            <p className="text-[8px] text-white/30 font-mono pl-1">
-                              {pr.dependency_chain.map(ax => AXIS_META[ax]?.label || ax).join(' → ')}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
               </div>
             )}
 
