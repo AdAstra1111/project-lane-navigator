@@ -447,7 +447,7 @@ export function SpineConfirmationPanel({ projectId, userId, className = '' }: Pr
               {showAmendment && (
                 <SpineAmendmentPanel
                   projectId={projectId}
-                  spine={spine as Record<string, string | null>}
+                  spine={spine as unknown as Record<string, string | null>}
                   onAmendmentConfirmed={() => {
                     setShowAmendment(false);
                     reload();
