@@ -48,6 +48,7 @@ import {
   sequenceRewriteTargets,
   type UnitConfidenceMeta,
 } from "../_shared/narrativeDependencyGraph.ts";
+import { buildPatchBlueprints } from "../_shared/patchBlueprintEngine.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -865,6 +866,11 @@ serve(async (req: Request) => {
       // rewrite_targets include sequence_bucket, sequence_rank, sequence_reason.
       // rewrite_sequence is a deduplicated sorted summary (same data, top-level for UI convenience).
       rewrite_sequence: rewriteSequence,
+      // ── L5: Patch blueprints — deterministic repair instructions ──
+      // Advisory only. No patch execution. No document mutation. No LLM.
+      // Each blueprint answers: what to fix, where to fix it, why, and how urgent.
+      // Ordered by sequence_rank (safest repair order). Empty when no rewrite targets.
+      patch_blueprints: buildPatchBlueprints(rewriteTargets, preserveTargets, propagatedRisk),
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err: any) {
