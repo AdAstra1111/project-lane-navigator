@@ -352,7 +352,7 @@ export function useDevEngineV2(projectId: string | undefined) {
   });
 
   const rewrite = useMutation({
-    mutationFn: async (params: { approvedNotes: any[]; protectItems?: string[]; targetDocType?: string; deliverableType?: string; developmentBehavior?: string; format?: string }) => {
+    mutationFn: async (params: { approvedNotes: any[]; protectItems?: string[]; targetDocType?: string; deliverableType?: string; developmentBehavior?: string; format?: string; selectedOptions?: any[]; globalDirections?: any[] }) => {
       const vid = await resolveVersionId();
       return callEngineV2('rewrite', { projectId, documentId: selectedDocId, versionId: vid, ...params });
     },
