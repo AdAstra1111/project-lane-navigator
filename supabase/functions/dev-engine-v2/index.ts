@@ -3043,9 +3043,15 @@ GENERAL RULES:
       // Track notes in development_notes table
       const currentNoteKeys = new Set(allTieredNotes.map((n: any) => n.id).filter(Boolean));
 
-      // Mark previously unresolved notes that are no longer present as resolved
+      // Mark previously unresolved notes that are no longer present as resolved.
+      // IMPORTANT: class_a_spine_* notes are excluded from auto-resolution here because
+      // they are managed by the dedicated Class A Spine Check pass (Phase 3), not by
+      // LLM reviewer output presence/absence. The Class A pass has its own DB-level
+      // deduplication and only resolves these notes when the spine contradiction is
+      // actually fixed in the document. Auto-resolving them here would cause false
+      // clearances whenever the general reviewer simply omits the same note key.
       for (const prev of existingUnresolved) {
-        if (prev.note_key.startsWith('class_a_spine_')) continue; // managed by Class A check, not LLM pass
+        if (prev.note_key.startsWith('class_a_spine_')) continue;
         if (!currentNoteKeys.has(prev.note_key)) {
           await supabase.from("development_notes")
             .update({ resolved: true, resolved_in_version: versionId })
