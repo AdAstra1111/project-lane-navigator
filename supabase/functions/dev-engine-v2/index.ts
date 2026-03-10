@@ -3378,6 +3378,48 @@ GENERAL RULES:
                   console.log("[dev-engine-v2] Class A spine check: all axes aligned or unclear");
                 }
                 parsed.class_a_spine_check = classAResult;
+
+                // ── Atomic Stage 1: Persist Class A checks as narrative_units ──
+                // Upserts one unit per axis (story_engine, protagonist_arc) with
+                // alignment status derived from the Class A check result.
+                // No new LLM call — reuses classAResult already computed above.
+                try {
+                  const classAUnits = classAResult.checks.map((check: any) => ({
+                    project_id: projectId,
+                    unit_type: check.axis,
+                    unit_key: `${versionId}::${check.axis}`,
+                    payload_json: {
+                      evidence_excerpt: check.evidence || null,
+                      spine_value: check.axis === 'story_engine'
+                        ? (spine.story_engine || null)
+                        : (spine.protagonist_arc || null),
+                      contradiction_note: check.status === 'contradicted' && check.suggested_note
+                        ? `${check.suggested_note.title}. ${check.suggested_note.instruction}`
+                        : null,
+                    },
+                    source_doc_type: docType,
+                    source_doc_version_id: versionId,
+                    confidence: check.confidence ?? 50,
+                    extraction_method: 'class_a_inference',
+                    status: check.status === 'contradicted' ? 'contradicted'
+                          : check.status === 'aligned' ? 'aligned'
+                          : 'active',
+                    stale_reason: null,
+                  }));
+
+                  if (classAUnits.length > 0) {
+                    const { error: nuErr } = await (supabase as any)
+                      .from('narrative_units')
+                      .upsert(classAUnits, { onConflict: 'project_id,unit_key' });
+                    if (nuErr) {
+                      console.warn('[dev-engine-v2] Class A narrative_units upsert failed (non-fatal):', nuErr.message);
+                    } else {
+                      console.log('[dev-engine-v2] Class A narrative_units persisted', { count: classAUnits.length });
+                    }
+                  }
+                } catch (nuError: any) {
+                  console.warn('[dev-engine-v2] Class A narrative_units persistence failed (non-fatal):', nuError?.message);
+                }
               } else {
                 console.warn("[dev-engine-v2] Class A spine check: output parse failed (non-fatal)");
               }
