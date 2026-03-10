@@ -391,3 +391,60 @@ function PreserveTargetCard({ target }: { target: PreserveTarget }) {
     </div>
   );
 }
+
+function CoverageBreakdownSection({ breakdown }: { breakdown: CoverageBreakdown }) {
+  const hasUnsupported = breakdown.unsupported_axes.length > 0;
+  const hasMissing = breakdown.supported_but_missing_on_version.length > 0;
+  const hasDeferred = (breakdown.deferred_validator_axes || []).length > 0;
+
+  if (!hasUnsupported && !hasMissing) return null;
+
+  return (
+    <div className="space-y-3">
+      {/* Unsupported by IFFY */}
+      {hasUnsupported && (
+        <section className="space-y-2">
+          <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+            <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+            Not yet covered by IFFY
+          </h3>
+          <div className="flex flex-wrap gap-1.5">
+            {breakdown.unsupported_axes.map(ax => (
+              <Badge key={ax} variant="outline" className="text-[10px] border-border text-muted-foreground/60">
+                {AXIS_LABELS[ax] || ax}
+              </Badge>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground/70">
+            These axes are not yet supported by IFFY's current validator architecture for rewrite planning.
+          </p>
+          {hasDeferred && (
+            <p className="text-[10px] text-muted-foreground/50 italic">
+              {breakdown.deferred_validator_axes!.length} axis(es) deferred pending deeper validation support.
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* Supported but missing on this version */}
+      {hasMissing && (
+        <section className="space-y-2">
+          <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+            <Eye className="w-3.5 h-3.5 text-amber-400" />
+            Supported but not yet evaluated on this version
+          </h3>
+          <div className="flex flex-wrap gap-1.5">
+            {breakdown.supported_but_missing_on_version.map(ax => (
+              <Badge key={ax} variant="outline" className="text-[10px] border-amber-500/30 text-amber-400">
+                {AXIS_LABELS[ax] || ax}
+              </Badge>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground/70">
+            These axes are supported by IFFY, but no evaluated unit coverage exists yet for this document version. Run analysis to populate coverage.
+          </p>
+        </section>
+      )}
+    </div>
+  );
+}
