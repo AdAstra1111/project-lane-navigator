@@ -948,12 +948,26 @@ export default function ProjectDevelopmentEngine() {
       }
       afterRewrite();
     } else {
+      // Build selectedOptions for the edge function so it gets crisp decision directives
+      // (especially custom "Other" directions — these go into SELECTED DECISION OPTIONS block)
+      const selectedOptionsForRewrite = decisions
+        ? Object.entries(decisions)
+            .filter(([, v]) => !!v)
+            .map(([noteId, optionId]) => ({
+              note_id: noteId,
+              option_id: optionId,
+              custom_direction: notesCustomDirections[noteId] || undefined,
+            }))
+        : undefined;
+
       rewrite.mutate({
         approvedNotes: enrichedNotes,
         protectItems,
         deliverableType: selectedDeliverableType,
         developmentBehavior: projectBehavior,
         format: projectFormat,
+        selectedOptions: selectedOptionsForRewrite,
+        globalDirections: globalDirections || [],
       }, {
         onSuccess: afterRewrite,
         onError: (err: any) => {

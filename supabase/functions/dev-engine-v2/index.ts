@@ -1508,6 +1508,8 @@ BEHAVIOR: ${behavior}
 
 Rules:
 - Preserve all PROTECT items absolutely.
+- SELECTED DECISION OPTIONS (in the user prompt) are HIGHEST PRIORITY — implement them exactly as described. If a note has option_id "__other__" with a Custom direction, that is a direct user instruction: implement it precisely, verbatim, without softening or reinterpreting.
+- Notes with category "user_direction" or severity "blocker" in APPROVED NOTES are also high priority — look for the "note" or "resolution_directive" field and implement what it says.
 - Do not flatten voice for minor commercial gain.
 - Strengthen escalation and improve packaging magnetism organically.
 - Match the target deliverable type format expectations.
@@ -3469,10 +3471,13 @@ MATERIAL:\n${version.plaintext}`;
       let decisionDirectives = "";
       if (selectedOptions && Array.isArray(selectedOptions) && selectedOptions.length > 0) {
         const directives = selectedOptions.map((so: any) => {
-          const custom = so.custom_direction ? ` Custom: ${so.custom_direction}` : "";
+          if (so.option_id === "__other__" && so.custom_direction) {
+            return `- [USER DIRECTION — implement exactly as written] "${so.custom_direction}"`;
+          }
+          const custom = so.custom_direction ? ` Additional direction: ${so.custom_direction}` : "";
           return `- Note "${so.note_id}": Apply option "${so.option_id}".${custom}`;
         }).join("\n");
-        decisionDirectives = `\n\nSELECTED DECISION OPTIONS (apply these specific fixes):\n${directives}`;
+        decisionDirectives = `\n\nSELECTED DECISION OPTIONS — HIGHEST PRIORITY (implement these exactly):\n${directives}`;
       }
 
       // Build global directions context
