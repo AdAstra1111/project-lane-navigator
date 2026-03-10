@@ -19,6 +19,14 @@ import {
 
 /* ── Types matching backend contract ── */
 
+interface SectionTarget {
+  section_key: string;
+  section_label: string;
+  confidence: 'deterministic' | 'bounded';
+  targeting_method: 'registry' | 'document_verified';
+  note?: string | null;
+}
+
 interface RewriteTarget {
   axis: string;
   unit_key: string;
@@ -29,6 +37,7 @@ interface RewriteTarget {
   priority: string;
   axis_class: string;
   confidence: number | null;
+  section_targets?: SectionTarget[];
 }
 
 interface PreserveTarget {
@@ -39,6 +48,7 @@ interface PreserveTarget {
   spine_value: string | null;
   note: string;
   axis_class: string;
+  section_targets?: SectionTarget[];
 }
 
 interface CoverageBreakdown {
