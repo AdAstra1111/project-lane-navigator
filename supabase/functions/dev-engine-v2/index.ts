@@ -2864,7 +2864,7 @@ ${version.plaintext.slice(0, maxContextChars)}`;
       const notesRawFormat = notesProject?.format || "film";
       const notesEffectiveFormat = resolveFormatAlias(notesRawFormat.toLowerCase().replace(/[_ ]+/g, "-"));
       const notesFormatExp = FORMAT_EXPECTATIONS[notesEffectiveFormat] || FORMAT_EXPECTATIONS["film"];
-      const notesLadder = getLadderForFormat(notesEffectiveFormat);
+      const notesLadder = getLadderForFormat(notesEffectiveFormat) ?? getLadderForFormat("film") ?? [];
       const notesLadderStr = notesLadder.join(", ");
       const notesProductionType = formatToProductionType[notesEffectiveFormat] || "narrative_feature";
 
