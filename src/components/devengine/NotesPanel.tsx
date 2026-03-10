@@ -1173,6 +1173,7 @@ export function NotesPanel({
                           {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
                           <TierPill tier={note.tier} />
                           <SeenBadge timesSeen={note.times_seen} />
+                          <SpineAlignmentBadge noteSource={note.note_source} />
                           {note.severity && (
                             <Badge variant="outline" className={`text-[8px] px-1 py-0 ${note.severity === 'blocker' ? 'text-destructive border-destructive/30' : note.severity === 'high' ? 'text-amber-400 border-amber-500/30' : 'text-muted-foreground'}`}>
                               {note.severity}
