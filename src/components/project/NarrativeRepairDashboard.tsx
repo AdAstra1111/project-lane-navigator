@@ -84,10 +84,11 @@ function sceneLabelFromImpacted(scene: ImpactedScene, slugMap: SluglineMap): str
 /* ── Main Dashboard ── */
 
 export function NarrativeRepairDashboard({ projectId }: Props) {
-  const { data: plan, isLoading: planLoading } = useSelectiveRegenerationPlan(projectId);
+  const { data: plan, isLoading: planLoading, refetch: refetchPlan } = useSelectiveRegenerationPlan(projectId);
   const { execute, isExecuting, result, error, reset } = useExecuteSelectiveRegeneration(projectId);
   const { data: sluglines } = useSceneSluglines(projectId);
-  const { data: runHistory, isLoading: historyLoading } = useRegenerationRunHistory(projectId);
+  const { data: runHistory, isLoading: historyLoading, refetch: refetchHistory } = useRegenerationRunHistory(projectId);
+  const { data: autopilotData, isLoading: autopilotLoading, refresh: refreshAutopilot } = useAutopilotRepairDetection(projectId);
   const diffHook = useSceneVersionDiff(projectId);
   const slugMap = sluglines ?? new Map<string, string>();
 
