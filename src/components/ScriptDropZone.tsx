@@ -35,7 +35,7 @@ function StageRow({ stage }: { stage: DropStage }) {
     pending:  <div className="h-3 w-3 rounded-full border border-muted-foreground/40" />,
     running:  <Loader2 className="h-3.5 w-3.5 text-primary animate-spin" />,
     done:     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />,
-    error:    <AlertCircle className="h-3.5 w-3.5 text-destructive" />,
+    failed:   <AlertCircle className="h-3.5 w-3.5 text-destructive" />,
     skipped:  <SkipForward className="h-3.5 w-3.5 text-muted-foreground" />,
   };
   return (
