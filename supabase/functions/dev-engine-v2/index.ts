@@ -8430,7 +8430,7 @@ Return ONLY valid JSON:
     //
     // No writes. Fail-closed: missing project or no scene graph → diagnostic.
     if (action === "ndg_project_graph") {
-      const { projectId } = body;
+      const { projectId, summaryOnly = false } = body;
       if (!projectId) throw new Error("projectId required");
 
       // ── 1. Load all raw graph data in parallel ──────────────────────────
@@ -8521,12 +8521,37 @@ Return ONLY valid JSON:
       const summary = summariseNDGGraph(graph);
 
       console.log("[dev-engine-v2] ndg_project_graph complete", {
-        project_id:  projectId,
-        node_count:  graph.meta.node_count,
-        edge_count:  graph.meta.edge_count,
-        at_risk:     graph.meta.at_risk_scene_count,
+        project_id:   projectId,
+        node_count:   graph.meta.node_count,
+        edge_count:   graph.meta.edge_count,
+        at_risk:      graph.meta.at_risk_scene_count,
+        summary_only: summaryOnly,
       });
 
+      // ── summaryOnly mode: same graph built, full nodes/edges omitted ────
+      // Used by dashboard summaries, project overview cards, health indicators.
+      // summaryOnly: true must be explicitly passed — default is false (full mode).
+      // Parity guarantee: summary, counts, and at_risk fields are derived from the
+      // same buildNDGProjectGraph call as full mode.
+      if (summaryOnly) {
+        return new Response(JSON.stringify({
+          project_id:          projectId,
+          action:              "ndg_project_graph",
+          ok:                  true,
+          summary_only:        true,
+          node_count:          graph.meta.node_count,
+          edge_count:          graph.meta.edge_count,
+          node_counts_by_type: graph.meta.node_counts_by_type,
+          edge_counts_by_type: graph.meta.edge_counts_by_type,
+          at_risk_scene_count: graph.meta.at_risk_scene_count,
+          at_risk_axes:        graph.meta.at_risk_axes,
+          at_risk_scenes:      graph.meta.at_risk_scenes,
+          // summary is a convenience alias for consumers expecting the full summary shape
+          summary,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Full mode (default) — response unchanged ────────────────────────
       return new Response(JSON.stringify({
         project_id:   projectId,
         action:       "ndg_project_graph",

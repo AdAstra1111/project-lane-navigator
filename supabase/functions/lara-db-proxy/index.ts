@@ -992,13 +992,14 @@ Deno.serve(async (req) => {
       case "call_ndg_project_graph": {
         // Calls dev-engine-v2 ndg_project_graph action with service role auth.
         // Read-only. Returns the assembled NDG v1 graph for the project.
-        const { project_id: ndgCallPid } = params;
+        // Optional: summary_only: true → omits graph.nodes/edges, returns counts + at_risk fields only.
+        const { project_id: ndgCallPid, summary_only: ndgSummaryOnly = false } = params;
         if (!ndgCallPid) throw new Error("project_id required");
         const devEngineUrl = `${supabaseUrl}/functions/v1/dev-engine-v2`;
         const ndgResp = await fetch(devEngineUrl, {
           method:  "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-          body:    JSON.stringify({ action: "ndg_project_graph", projectId: ndgCallPid }),
+          body:    JSON.stringify({ action: "ndg_project_graph", projectId: ndgCallPid, summaryOnly: ndgSummaryOnly }),
         });
         if (!ndgResp.ok) {
           const errText = await ndgResp.text();
