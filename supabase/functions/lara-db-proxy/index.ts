@@ -605,6 +605,37 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "get_policy_predicates": {
+        // Read-only: returns full USING and WITH CHECK expressions for all RLS policies
+        // on the specified tables. Used for auditing and policy pattern replication.
+        const { tables: policyTables } = params;
+        if (!policyTables) throw new Error("tables array required");
+        const dbUrlP = Deno.env.get("SUPABASE_DB_URL");
+        if (!dbUrlP) throw new Error("SUPABASE_DB_URL not available");
+        const sqlP = postgres(dbUrlP, { max: 1 });
+        try {
+          const rows = await sqlP`
+            SELECT
+              schemaname,
+              tablename,
+              policyname,
+              permissive,
+              roles,
+              cmd,
+              qual       AS using_expr,
+              with_check AS check_expr
+            FROM pg_policies
+            WHERE schemaname = 'public'
+              AND tablename = ANY(${policyTables})
+            ORDER BY tablename, policyname
+          `;
+          result = rows;
+        } finally {
+          await sqlP.end();
+        }
+        break;
+      }
+
       case "audit_null_scene_keys": {
         // Read-only: count and sample NULL scene_key rows across all projects.
         // Pre-flight check before applying NOT NULL constraint.
