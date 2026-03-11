@@ -71,6 +71,7 @@ import { SimpleProjectView } from '@/components/project/SimpleProjectView';
 import { AdvancedProjectView } from '@/components/project/AdvancedProjectView';
 import { AutoRunSetupPanel } from '@/components/project/AutoRunSetupPanel';
 import { ReverseEngineerCallout } from '@/components/project/ReverseEngineerCallout';
+import { ImportStatusPanel } from '@/components/project/ImportStatusPanel';
 
 
 export default function ProjectDetail() {
