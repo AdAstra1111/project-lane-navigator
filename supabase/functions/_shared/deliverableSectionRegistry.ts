@@ -98,10 +98,26 @@ const SEASON_ARC_SECTIONS: SectionDefinition[] = [
 ];
 
 const TREATMENT_SECTIONS: SectionDefinition[] = [
-  { section_key: "act_1_setup", label: "Act 1 – Setup", match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(1|one|i)\\b|^#+\\s*setup", allows_partial_rewrite: true, repair_mode: "replace_section", order: 0 },
-  { section_key: "act_2a_rising_action", label: "Act 2A – Rising Action", match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(2a|two\\s*a|ii\\s*a)\\b|^#+\\s*rising\\s*action", allows_partial_rewrite: true, repair_mode: "replace_section", order: 1 },
-  { section_key: "act_2b_complications", label: "Act 2B – Complications", match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(2b|two\\s*b|ii\\s*b)\\b|^#+\\s*complications?|^#+\\s*midpoint", allows_partial_rewrite: true, repair_mode: "replace_section", order: 2 },
-  { section_key: "act_3_climax_resolution", label: "Act 3 – Climax & Resolution", match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(3|three|iii)\\b|^#+\\s*climax|^#+\\s*resolution", allows_partial_rewrite: true, repair_mode: "replace_section", order: 3 },
+  // ── Act-structure headings (original) ──
+  // Used when the treatment is written as a narrative with explicit act breaks.
+  { section_key: "act_1_setup",           label: "Act 1 – Setup",              match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(1|one|i)\\b|^#+\\s*setup",                                                      allows_partial_rewrite: true, repair_mode: "replace_section", order: 0 },
+  { section_key: "act_2a_rising_action",  label: "Act 2A – Rising Action",     match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(2a|two\\s*a|ii\\s*a)\\b|^#+\\s*rising\\s*action",                                allows_partial_rewrite: true, repair_mode: "replace_section", order: 1 },
+  { section_key: "act_2b_complications",  label: "Act 2B – Complications",     match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(2b|two\\s*b|ii\\s*b)\\b|^#+\\s*complications?|^#+\\s*midpoint",                  allows_partial_rewrite: true, repair_mode: "replace_section", order: 2 },
+  { section_key: "act_3_climax_resolution", label: "Act 3 – Climax & Resolution", match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(3|three|iii)\\b|^#+\\s*climax|^#+\\s*resolution",                            allows_partial_rewrite: true, repair_mode: "replace_section", order: 3 },
+
+  // ── NIT v2.3: Concept-style headings (additive) ──
+  // Used when the treatment is written as a concept document with pitch-style headings.
+  // Example: ## Logline / ## Premise / ## World & Setting / ## Story Engine / ## Characters / ## Themes
+  // These do not remove or override the act-structure patterns above.
+  // parseSections matches whichever set is present; if neither matches, returns [].
+  { section_key: "logline",             label: "Logline",               match_mode: "heading_regex", match_pattern: "^#+\\s*logline",                                                                                        allows_partial_rewrite: true, repair_mode: "replace_section", order: 10 },
+  { section_key: "premise",             label: "Premise",               match_mode: "heading_regex", match_pattern: "^#+\\s*premise",                                                                                        allows_partial_rewrite: true, repair_mode: "replace_section", order: 11 },
+  { section_key: "world_setting",       label: "World & Setting",       match_mode: "heading_regex", match_pattern: "^#+\\s*world\\s*(?:&|and)?\\s*setting",                                                                 allows_partial_rewrite: true, repair_mode: "replace_section", order: 12 },
+  { section_key: "tone_style",          label: "Tone & Style",          match_mode: "heading_regex", match_pattern: "^#+\\s*tone\\b(?:\\s*(?:&|and)\\s*style)?",                                                             allows_partial_rewrite: true, repair_mode: "replace_section", order: 13 },
+  { section_key: "story_engine",        label: "Story Engine",          match_mode: "heading_regex", match_pattern: "^#+\\s*story\\s*engine",                                                                                allows_partial_rewrite: true, repair_mode: "replace_section", order: 14 },
+  // End-anchored ($) to prevent matching "## Character Arcs" or "## Character Development"
+  { section_key: "characters_overview", label: "Characters Overview",   match_mode: "heading_regex", match_pattern: "^#+\\s*characters?$",                                                                                   allows_partial_rewrite: true, repair_mode: "replace_section", order: 15 },
+  { section_key: "themes",              label: "Themes",                match_mode: "heading_regex", match_pattern: "^#+\\s*themes?",                                                                                         allows_partial_rewrite: true, repair_mode: "replace_section", order: 16 },
 ];
 
 const STORY_OUTLINE_SECTIONS: SectionDefinition[] = [
