@@ -2268,6 +2268,7 @@ async function computeSelectiveRegenerationPlanHelper(
   projectId: string,
   unitKeys?: string[] | null,
   repairStrategy?: string | null,
+  simulationMode?: boolean,
 ): Promise<{
   ok: true;
   source_units: any[];
@@ -2289,20 +2290,28 @@ async function computeSelectiveRegenerationPlanHelper(
   const hasSpecificKeys = Array.isArray(unitKeys) && unitKeys.length > 0;
 
   // 1. Load at-risk narrative units
+  //
+  // simulationMode bypasses the stale/contradicted filter so callers can simulate
+  // impact of changing any unit regardless of its current status.
+  // In simulation mode unitKeys MUST be provided (the action layer enforces this).
   let unitQuery = (supabase as any)
     .from("narrative_units")
     .select("id,unit_key,unit_type,status,payload_json,confidence")
     .eq("project_id", projectId);
   unitQuery = hasSpecificKeys
     ? unitQuery.in("unit_key", unitKeys as string[])
-    : unitQuery.in("status", ["contradicted", "stale"]);
+    : (simulationMode ? unitQuery : unitQuery.in("status", ["contradicted", "stale"]));
 
   const { data: rawUnits, error: unitErr } = await unitQuery;
   if (unitErr) throw unitErr;
 
-  const atRiskUnits = ((rawUnits || []) as any[]).filter(
-    (u: any) => u.status === "contradicted" || u.status === "stale"
-  );
+  // In simulation mode: treat ALL loaded units as at-risk (caller specifies targets).
+  // In repair mode: only stale/contradicted units drive the plan.
+  const atRiskUnits = simulationMode
+    ? ((rawUnits || []) as any[])
+    : ((rawUnits || []) as any[]).filter(
+        (u: any) => u.status === "contradicted" || u.status === "stale"
+      );
 
   if (atRiskUnits.length === 0) {
     return {
@@ -2319,9 +2328,11 @@ async function computeSelectiveRegenerationPlanHelper(
       entity_propagated_scenes: [],
       entity_propagated_scene_count: 0,
       recommended_scope: "no_risk",
-      rationale: hasSpecificKeys
-        ? "Requested unit keys found but none are stale or contradicted — no regeneration needed"
-        : "No stale or contradicted narrative units — project is narratively aligned",
+      rationale: simulationMode
+        ? "Simulation targets not found — verify unit_keys or axis_keys exist for this project"
+        : hasSpecificKeys
+          ? "Requested unit keys found but none are stale or contradicted — no regeneration needed"
+          : "No stale or contradicted narrative units — project is narratively aligned",
       repair_strategy: strategy,
     };
   }
@@ -2854,6 +2865,7 @@ serve(async (req) => {
       "regen-insufficient-status",
       "detect_autopilot_repair",
       "get_autopilot_monitor_status",
+      "simulate_narrative_impact",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -9506,6 +9518,226 @@ Return ONLY valid JSON:
         last_run_at:             status.last_run_at,
         last_run_confidence_band: status.last_run_confidence_band,
         last_run_scope:          status.last_run_scope,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── NDG Simulation Engine (Installment 48A): simulate_narrative_impact ─────
+    //
+    // Read-only. Deterministic. Never mutates project state.
+    //
+    // Answers: "What narrative impact would result if this unit/axis changed?"
+    //
+    // Reuses computeSelectiveRegenerationPlanHelper in simulationMode=true, which
+    // bypasses the stale/contradicted filter so any unit can be the simulation target.
+    //
+    // Input contract:
+    //   projectId     — required
+    //   unit_keys     — specific narrative_unit keys (e.g. "obsidian_mirror::protagonist_arc")
+    //   axis_keys     — spine axis names (e.g. ["protagonist_arc", "central_conflict"])
+    //                   resolved to unit_keys via DB lookup; ambiguous if multiple units
+    //                   share an axis — all are included
+    //   repair_strategy — optional (validated); influences category filtering
+    //   At least one of unit_keys or axis_keys must be provided.
+    //
+    // entity_propagation in result is advisory-only (invariant preserved).
+    //
+    if (action === "simulate_narrative_impact") {
+      const {
+        projectId,
+        unit_keys:      rawUnitKeys,
+        axis_keys:      rawAxisKeys,
+        repair_strategy: rawSimStrategy,
+      } = body;
+
+      if (!projectId) {
+        return new Response(JSON.stringify({
+          ok: false, error: "projectId required",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Validate: require at least one input ──────────────────────────────
+      const hasUnitKeys = Array.isArray(rawUnitKeys) && rawUnitKeys.length > 0;
+      const hasAxisKeys = Array.isArray(rawAxisKeys) && rawAxisKeys.length > 0;
+      if (!hasUnitKeys && !hasAxisKeys) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: "At least one of unit_keys or axis_keys is required for simulation",
+          simulation_state: "invalid_input",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Validate strategy ─────────────────────────────────────────────────
+      const simStrategy = rawSimStrategy ?? DEFAULT_REPAIR_STRATEGY;
+      if (!REPAIR_STRATEGIES.has(simStrategy)) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: `Invalid repair_strategy '${simStrategy}'. Allowed: ${[...REPAIR_STRATEGIES].join(", ")}`,
+          simulation_state: "invalid_input",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Validate axis_keys against SPINE_AXES (closed set) ───────────────
+      const VALID_SPINE_AXES = new Set([
+        "story_engine", "pressure_system", "central_conflict", "inciting_incident",
+        "resolution_type", "stakes_class", "protagonist_arc", "midpoint_reversal", "tonal_gravity",
+      ]);
+      if (hasAxisKeys) {
+        const invalidAxes = (rawAxisKeys as string[]).filter(ax => !VALID_SPINE_AXES.has(ax));
+        if (invalidAxes.length > 0) {
+          return new Response(JSON.stringify({
+            ok: false,
+            error: `Invalid axis_keys: [${invalidAxes.join(", ")}]. Valid axes: ${[...VALID_SPINE_AXES].join(", ")}`,
+            simulation_state: "invalid_input",
+          }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      const evaluatedAt    = new Date().toISOString();
+      let   simulationBasis: "unit_keys" | "axis_keys" | "mixed" =
+              hasUnitKeys && hasAxisKeys ? "mixed" : hasUnitKeys ? "unit_keys" : "axis_keys";
+      let   resolvedUnitKeys: string[] = hasUnitKeys ? [...rawUnitKeys] : [];
+      let   structuralUncertainty = false;
+
+      // ── Resolve axis_keys → unit_keys via DB ─────────────────────────────
+      // Load all units for this project (max ~20), filter by axis suffix.
+      if (hasAxisKeys) {
+        const { data: allUnitsForProject, error: axisLookupErr } = await (supabase as any)
+          .from("narrative_units")
+          .select("unit_key")
+          .eq("project_id", projectId);
+
+        if (axisLookupErr) {
+          return new Response(JSON.stringify({
+            ok: false,
+            error: "Failed to resolve axis_keys: " + axisLookupErr.message,
+            simulation_state: "unavailable",
+            structural_uncertainty: true,
+          }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        const allKeys = ((allUnitsForProject || []) as any[]).map((u: any) => u.unit_key as string);
+        const matched = allKeys.filter((key: string) => {
+          const parts = key.split("::");
+          const axisHalf = parts.length >= 2 ? parts[parts.length - 1] : null;
+          return axisHalf && (rawAxisKeys as string[]).includes(axisHalf);
+        });
+
+        if (matched.length === 0) {
+          return new Response(JSON.stringify({
+            ok: false,
+            error: `axis_keys [${(rawAxisKeys as string[]).join(", ")}] did not resolve to any narrative_units for this project`,
+            simulation_state: "invalid_input",
+            structural_uncertainty: false,
+          }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        // Merge with any explicitly provided unit_keys (dedup)
+        const mergedSet = new Set([...resolvedUnitKeys, ...matched]);
+        resolvedUnitKeys = [...mergedSet];
+      }
+
+      // ── Run simulation via planner helper in simulationMode ───────────────
+      let plan: Awaited<ReturnType<typeof computeSelectiveRegenerationPlanHelper>> | null = null;
+      try {
+        plan = await computeSelectiveRegenerationPlanHelper(
+          supabase, projectId, resolvedUnitKeys, simStrategy, true /* simulationMode */
+        );
+      } catch (simErr: any) {
+        console.warn("[simulate_narrative_impact] planner failed:", simErr?.message);
+        structuralUncertainty = true;
+      }
+
+      if (!plan) {
+        return new Response(JSON.stringify({
+          ok: false,
+          project_id:             projectId,
+          action:                 "simulate_narrative_impact",
+          simulation_state:       "unavailable",
+          structural_uncertainty: true,
+          derived_live:           true,
+          evaluated_at:           evaluatedAt,
+          error:                  "Simulation engine failed — structural inputs incomplete",
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Determine simulation_state ────────────────────────────────────────
+      const simulationState =
+        plan.recommended_scope === "no_risk"        ? "no_impact" :
+        plan.recommended_scope === "no_scene_links" ? "unavailable" :
+        plan.impacted_scene_count > 0 || plan.entity_impacted_scene_count > 0
+          ? "impact_found" : "no_impact";
+
+      // Surface structural uncertainty if scene spine links missing
+      if (plan.recommended_scope === "no_scene_links") {
+        structuralUncertainty = true;
+      }
+
+      // ── Derive strategy_effect description (deterministic, no extra DB call) ─
+      const STRATEGY_EFFECT_DESC: Record<string, string> = {
+        precision:      "Narrows to direct scenes only (propagated included only for broad_impact scope). Entity link scenes excluded. Batch cap: 4.",
+        balanced:       "Includes direct + propagated + entity link scenes. Adaptive batch policy applies.",
+        stabilization:  "Includes direct + propagated + entity link scenes at full batch ceiling. Maximises coverage.",
+      };
+      const strategyEffect = {
+        strategy:     simStrategy,
+        description:  STRATEGY_EFFECT_DESC[simStrategy],
+        scope:        plan.recommended_scope,
+        direct_count: plan.direct_scene_count,
+        propagated_count: plan.propagated_scene_count,
+        entity_link_count: plan.entity_impacted_scene_count,
+        entity_propagation_count: plan.entity_propagated_scene_count,
+        note: "entity_propagation is advisory only and never executes regardless of strategy",
+      };
+
+      console.log("[dev-engine-v2] simulate_narrative_impact complete", {
+        project_id:       projectId,
+        simulation_basis: simulationBasis,
+        simulation_state: simulationState,
+        strategy:         simStrategy,
+        scope:            plan.recommended_scope,
+        direct:           plan.direct_scene_count,
+        propagated:       plan.propagated_scene_count,
+        entity_link:      plan.entity_impacted_scene_count,
+        entity_prop:      plan.entity_propagated_scene_count,
+      });
+
+      return new Response(JSON.stringify({
+        project_id:              projectId,
+        action:                  "simulate_narrative_impact",
+        ok:                      true,
+        // ── Simulation metadata ────────────────────────────────────────────
+        simulation_state:        simulationState,
+        simulation_basis:        simulationBasis,
+        derived_live:            true,
+        evaluated_at:            evaluatedAt,
+        structural_uncertainty:  structuralUncertainty,
+        // ── Source context ─────────────────────────────────────────────────
+        source_units:            plan.source_units,
+        source_axes:             plan.direct_axes,
+        propagated_axes:         plan.propagated_axes,
+        // ── Impact breakdown ───────────────────────────────────────────────
+        impacted_scene_count:          plan.impacted_scene_count + plan.entity_impacted_scene_count,
+        direct_scene_count:            plan.direct_scene_count,
+        propagated_scene_count:        plan.propagated_scene_count,
+        entity_link_scene_count:       plan.entity_impacted_scene_count,
+        entity_propagation_scene_count: plan.entity_propagated_scene_count,
+        recommended_scope:             plan.recommended_scope,
+        rationale:                     plan.rationale,
+        // ── Scenes by category ─────────────────────────────────────────────
+        direct_scenes:            plan.impacted_scenes.filter((s: any) => s.risk_source === "direct"),
+        propagated_scenes:        plan.impacted_scenes.filter((s: any) => s.risk_source === "propagated"),
+        entity_link_scenes:       plan.entity_impacted_scenes,
+        entity_propagation_scenes: plan.entity_propagated_scenes,  // advisory only
+        // ── Strategy analysis ──────────────────────────────────────────────
+        strategy_effect:           strategyEffect,
+        // ── Advisory notes ─────────────────────────────────────────────────
+        advisory: [
+          "entity_propagation scenes are advisory only — they will never be selected for execution",
+          "simulation does not modify project state",
+          simulationBasis === "axis_keys"
+            ? `axis_keys resolved to ${resolvedUnitKeys.length} unit(s): [${resolvedUnitKeys.join(", ")}]`
+            : null,
+        ].filter(Boolean),
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
