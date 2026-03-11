@@ -6,7 +6,7 @@
  */
 
 import { useState, useMemo, useCallback } from 'react';
-import { useSelectiveRegenerationPlan, type RecommendedScope, type SourceUnit, type ImpactedScene } from '@/hooks/useSelectiveRegenerationPlan';
+import { useSelectiveRegenerationPlan, type RepairStrategy, type RecommendedScope, type SourceUnit, type ImpactedScene } from '@/hooks/useSelectiveRegenerationPlan';
 import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/hooks/useExecuteSelectiveRegeneration';
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
 import { useSceneVersionDiff } from '@/hooks/useSceneVersionDiff';
