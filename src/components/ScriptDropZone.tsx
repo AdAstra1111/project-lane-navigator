@@ -48,7 +48,7 @@ function StageRow({ stage }: { stage: DropStage }) {
         'flex-1',
         stage.status === 'running'  && 'text-primary font-medium',
         stage.status === 'done'     && 'text-foreground',
-        stage.status === 'error'    && 'text-destructive',
+        stage.status === 'failed'   && 'text-destructive',
         stage.status === 'skipped'  && 'text-muted-foreground',
         stage.status === 'pending'  && 'text-muted-foreground',
       )}>
