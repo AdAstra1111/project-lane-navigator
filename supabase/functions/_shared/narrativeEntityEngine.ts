@@ -1244,7 +1244,7 @@ export async function syncDialogueCharactersForProject(
 
   if (entErr || !entities || (entities as any[]).length === 0) {
     console.log("[NIT:Phase2] no active character entities — no-op");
-    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+    return { scenes_processed: 0, links_upserted: 0, characters_written: 0, per_scene: [] };
   }
 
   // 2. Build heading → entity_id lookup map
