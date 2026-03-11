@@ -172,6 +172,17 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Autopilot Status */}
+          <AutopilotRepairPanel
+            data={autopilotData}
+            isLoading={autopilotLoading}
+            onRefresh={refreshAutopilot}
+            onPreviewPlan={() => refetchPlan()}
+            onDryRun={handleDryRun}
+            onExecuteRepair={() => setConfirmOpen(true)}
+            isExecuting={isExecuting}
+          />
+
           <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-3">
             <ShieldCheck className="h-4 w-4 text-emerald-500" />
             <span className="text-sm text-muted-foreground">
