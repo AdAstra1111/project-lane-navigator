@@ -406,6 +406,7 @@ function SceneKeyList({
   showAll,
   onToggle,
   variant,
+  onViewChanges,
 }: {
   title: string;
   keys: string[];
@@ -414,6 +415,7 @@ function SceneKeyList({
   showAll: boolean;
   onToggle: () => void;
   variant: 'success' | 'destructive';
+  onViewChanges?: (sceneKey: string) => void;
 }) {
   return (
     <div className="space-y-1.5">
@@ -422,7 +424,16 @@ function SceneKeyList({
         {keys.map((k) => (
           <div key={k} className="flex items-center rounded-md border border-border/30 bg-muted/20 px-2.5 py-1.5 text-xs">
             <span className={`h-1.5 w-1.5 rounded-full shrink-0 mr-2 ${variant === 'success' ? 'bg-emerald-500' : 'bg-destructive'}`} />
-            <span className="text-foreground truncate">{sceneLabel(k, slugMap)}</span>
+            <span className="text-foreground truncate flex-1">{sceneLabel(k, slugMap)}</span>
+            {onViewChanges && variant === 'success' && (
+              <button
+                onClick={() => onViewChanges(k)}
+                className="flex items-center gap-1 text-[10px] text-primary hover:underline shrink-0 ml-2"
+              >
+                <GitCompare className="h-3 w-3" />
+                View Changes
+              </button>
+            )}
           </div>
         ))}
       </div>
