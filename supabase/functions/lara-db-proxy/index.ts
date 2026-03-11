@@ -339,6 +339,74 @@ Deno.serve(async (req) => {
             CREATE INDEX IF NOT EXISTS idx_sbb_scene   ON public.scene_blueprint_bindings (project_id, scene_id);
             CREATE INDEX IF NOT EXISTS idx_sbb_axis    ON public.scene_blueprint_bindings (project_id, source_axis);
           `,
+
+          "create_screenplay_intake_runs": `
+            CREATE TABLE IF NOT EXISTS public.screenplay_intake_runs (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+              user_id uuid NOT NULL,
+              source_doc_id uuid NULL REFERENCES public.project_documents(id) ON DELETE SET NULL,
+              script_version_id uuid NULL REFERENCES public.project_document_versions(id) ON DELETE SET NULL,
+              status text NOT NULL DEFAULT 'running'
+                CHECK (status IN ('running','done','partial','failed')),
+              initiated_at timestamptz NOT NULL DEFAULT now(),
+              completed_at timestamptz NULL,
+              error text NULL,
+              metadata jsonb NOT NULL DEFAULT '{}'::jsonb
+            );
+            CREATE INDEX IF NOT EXISTS idx_intake_runs_project
+              ON public.screenplay_intake_runs (project_id, initiated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_intake_runs_status
+              ON public.screenplay_intake_runs (project_id, status);
+            ALTER TABLE public.screenplay_intake_runs ENABLE ROW LEVEL SECURITY;
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='screenplay_intake_runs' AND policyname='intake_runs_select') THEN
+                CREATE POLICY intake_runs_select ON public.screenplay_intake_runs FOR SELECT USING (auth.uid() = user_id);
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='screenplay_intake_runs' AND policyname='intake_runs_insert') THEN
+                CREATE POLICY intake_runs_insert ON public.screenplay_intake_runs FOR INSERT WITH CHECK (auth.uid() = user_id);
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='screenplay_intake_runs' AND policyname='intake_runs_update') THEN
+                CREATE POLICY intake_runs_update ON public.screenplay_intake_runs FOR UPDATE USING (auth.uid() = user_id);
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='screenplay_intake_runs' AND policyname='intake_runs_service') THEN
+                CREATE POLICY intake_runs_service ON public.screenplay_intake_runs FOR ALL TO service_role USING (true) WITH CHECK (true);
+              END IF;
+            END $$;
+            CREATE TABLE IF NOT EXISTS public.screenplay_intake_stage_runs (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              run_id uuid NOT NULL REFERENCES public.screenplay_intake_runs(id) ON DELETE CASCADE,
+              stage_key text NOT NULL,
+              stage_order int NOT NULL,
+              status text NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending','running','done','failed','skipped')),
+              started_at timestamptz NULL,
+              completed_at timestamptz NULL,
+              error text NULL,
+              output_summary jsonb NULL,
+              function_name text NULL,
+              action_name text NULL,
+              retryable boolean NOT NULL DEFAULT true,
+              UNIQUE (run_id, stage_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_intake_stage_runs_run
+              ON public.screenplay_intake_stage_runs (run_id, stage_order);
+            ALTER TABLE public.screenplay_intake_stage_runs ENABLE ROW LEVEL SECURITY;
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='screenplay_intake_stage_runs' AND policyname='intake_stage_runs_service') THEN
+                CREATE POLICY intake_stage_runs_service ON public.screenplay_intake_stage_runs FOR ALL TO service_role USING (true) WITH CHECK (true);
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='screenplay_intake_stage_runs' AND policyname='intake_stage_runs_select') THEN
+                CREATE POLICY intake_stage_runs_select ON public.screenplay_intake_stage_runs FOR SELECT USING (EXISTS (SELECT 1 FROM public.screenplay_intake_runs r WHERE r.id=run_id AND r.user_id=auth.uid()));
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='screenplay_intake_stage_runs' AND policyname='intake_stage_runs_insert') THEN
+                CREATE POLICY intake_stage_runs_insert ON public.screenplay_intake_stage_runs FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.screenplay_intake_runs r WHERE r.id=run_id AND r.user_id=auth.uid()));
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='screenplay_intake_stage_runs' AND policyname='intake_stage_runs_update') THEN
+                CREATE POLICY intake_stage_runs_update ON public.screenplay_intake_stage_runs FOR UPDATE USING (EXISTS (SELECT 1 FROM public.screenplay_intake_runs r WHERE r.id=run_id AND r.user_id=auth.uid()));
+              END IF;
+            END $$;
+          `,
         };
         if (!migration_key || !APPROVED_MIGRATIONS[migration_key]) {
           throw new Error(`run_migration: unknown migration_key '${migration_key}'`);
