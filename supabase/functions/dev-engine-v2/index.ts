@@ -2635,6 +2635,7 @@ serve(async (req) => {
       "regen-insufficient-start",
       "regen-insufficient-tick",
       "regen-insufficient-status",
+      "detect_autopilot_repair",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -9199,6 +9200,132 @@ Return ONLY valid JSON:
         edge_count:   graph.meta.edge_count,
         summary,
         graph,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Autopilot Narrative Repair v1: detect_autopilot_repair ─────────────────
+    //
+    // Read-only. Evaluates project state and returns a structured repair
+    // recommendation when any trigger condition is met.
+    //
+    // Trigger conditions (evaluated in priority order):
+    //   1. stale_units          — any stale narrative_units (stale_unit_count ≥ 1)
+    //   2. ndg_risk             — ndg_at_risk_count ≥ 3
+    //   3. failed_repair        — latest run repair_confidence_band == "low"
+    //   4. propagation_drift    — entity_propagated_scene_count ≥ 5
+    //   stable                  — no conditions met
+    //
+    // Internally calls computeSelectiveRegenerationPlanHelper for the repair preview.
+    // NEVER executes repairs. Returns execution_allowed = true as a signal to UI.
+    //
+    if (action === "detect_autopilot_repair") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // ── 1. Count stale narrative units ─────────────────────────────────────
+      const { count: staleUnitCount } = await (supabase as any)
+        .from("narrative_units")
+        .select("id", { count: "exact", head: true })
+        .eq("project_id", projectId)
+        .in("status", ["stale", "contradicted"]);
+      const staleCount = staleUnitCount ?? 0;
+
+      // ── 2. Latest run: repair_confidence_band + ndg_pre_at_risk_count ──────
+      let latestBand: string | null = null;
+      let latestNdgPreAtRisk = 0;
+      const { data: latestRun } = await (supabase as any)
+        .from("regeneration_runs")
+        .select("meta_json, ndg_pre_at_risk_count")
+        .eq("project_id", projectId)
+        .eq("status", "completed")
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestRun) {
+        latestNdgPreAtRisk = latestRun.ndg_pre_at_risk_count ?? 0;
+        const mj = typeof latestRun.meta_json === "string"
+          ? JSON.parse(latestRun.meta_json)
+          : (latestRun.meta_json ?? {});
+        latestBand = mj?.repair_confidence_band ?? null;
+      }
+
+      // ── 3. Run planner for repair preview (non-fatal) ──────────────────────
+      let plan: Awaited<ReturnType<typeof computeSelectiveRegenerationPlanHelper>> | null = null;
+      try {
+        plan = await computeSelectiveRegenerationPlanHelper(supabase, projectId, null);
+      } catch (planErr: any) {
+        console.warn("[detect_autopilot_repair] planner failed (non-fatal):", planErr?.message);
+      }
+
+      // ndg_at_risk_count: use planner's impacted scene count (direct + propagated)
+      // when available; fall back to latest run's pre-count from history.
+      const ndgAtRiskCount = plan
+        ? (plan.direct_scene_count + plan.propagated_scene_count)
+        : latestNdgPreAtRisk;
+
+      // ── 4. Evaluate trigger conditions (priority order) ────────────────────
+      //   1. stale_units          — any stale units present right now
+      //   2. ndg_risk             — ≥3 scenes structurally at risk
+      //   3. failed_repair        — most recent completed run has "low" confidence
+      //   4. propagation_drift    — entity propagation spread is wide (≥5 scenes)
+      let autopilotState: "stable" | "triggered" | "unknown" = "stable";
+      let triggerReason: string | null = null;
+
+      if (plan === null) {
+        // Planner failed — still evaluate non-planner conditions if possible
+        if (staleCount >= 1) {
+          autopilotState = "triggered";
+          triggerReason = "stale_units";
+        } else if (latestNdgPreAtRisk >= 3) {
+          autopilotState = "triggered";
+          triggerReason = "ndg_risk";
+        } else if (latestBand === "low") {
+          autopilotState = "triggered";
+          triggerReason = "failed_repair";
+        } else {
+          autopilotState = "unknown";
+        }
+      } else {
+        if (staleCount >= 1) {
+          autopilotState = "triggered";
+          triggerReason = "stale_units";
+        } else if (ndgAtRiskCount >= 3) {
+          autopilotState = "triggered";
+          triggerReason = "ndg_risk";
+        } else if (latestBand === "low") {
+          autopilotState = "triggered";
+          triggerReason = "failed_repair";
+        } else if ((plan.entity_propagated_scene_count ?? 0) >= 5) {
+          autopilotState = "triggered";
+          triggerReason = "propagation_drift";
+        }
+        // else: stable — all conditions clear
+      }
+
+      // ── 5. Assemble response ───────────────────────────────────────────────
+      const repairPreview = plan ? {
+        direct:             plan.direct_scene_count,
+        propagated:         plan.propagated_scene_count,
+        entity_link:        plan.entity_impacted_scene_count,
+        entity_propagation: plan.entity_propagated_scene_count,
+      } : null;
+
+      const estimatedSceneCount = plan
+        ? plan.direct_scene_count + plan.propagated_scene_count
+        : 0;
+
+      return new Response(JSON.stringify({
+        project_id:            projectId,
+        action:                "detect_autopilot_repair",
+        ok:                    true,
+        autopilot_state:       autopilotState,
+        trigger_reason:        triggerReason,
+        stale_unit_count:      staleCount,
+        ndg_at_risk_count:     ndgAtRiskCount,
+        recommended_scope:     plan?.recommended_scope ?? null,
+        estimated_scene_count: estimatedSceneCount,
+        repair_preview:        repairPreview,
+        execution_allowed:     true,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
