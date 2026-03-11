@@ -76,6 +76,7 @@ import { ScreenplayIntakeBanner } from '@/components/project/ScreenplayIntakeBan
 import { SceneIntelligencePanel } from '@/components/project/SceneIntelligencePanel';
 import { NDGSummaryPanel } from '@/components/project/NDGSummaryPanel';
 import { RewritePreviewPanel } from '@/components/project/RewritePreviewPanel';
+import { RewriteExecutionPanel } from '@/components/project/RewriteExecutionPanel';
 
 
 export default function ProjectDetail() {
