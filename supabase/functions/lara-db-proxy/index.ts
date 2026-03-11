@@ -498,6 +498,44 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "audit_null_scene_keys": {
+        // Read-only: count and sample NULL scene_key rows across all projects.
+        // Pre-flight check before applying NOT NULL constraint.
+        const dbUrlA = Deno.env.get("SUPABASE_DB_URL");
+        if (!dbUrlA) throw new Error("SUPABASE_DB_URL not available");
+        const sqlA = postgres(dbUrlA, { max: 1 });
+        try {
+          const totalNull = await sqlA`
+            SELECT COUNT(*)::int AS null_count
+            FROM public.scene_graph_scenes
+            WHERE scene_key IS NULL
+          `;
+          const byProject = await sqlA`
+            SELECT project_id::text, COUNT(*)::int AS null_count
+            FROM public.scene_graph_scenes
+            WHERE scene_key IS NULL
+            GROUP BY project_id
+            ORDER BY null_count DESC
+            LIMIT 20
+          `;
+          const sample = await sqlA`
+            SELECT id::text, project_id::text, scene_kind, created_at, deprecated_at
+            FROM public.scene_graph_scenes
+            WHERE scene_key IS NULL
+            ORDER BY created_at DESC
+            LIMIT 10
+          `;
+          result = {
+            total_null_rows: totalNull[0].null_count,
+            by_project: byProject,
+            sample_rows: sample,
+          };
+        } finally {
+          await sqlA.end();
+        }
+        break;
+      }
+
       case "inspect_scene_key_column": {
         // Read-only: confirms scene_key column definition and existing indexes/constraints.
         const dbUrl2 = Deno.env.get("SUPABASE_DB_URL");
