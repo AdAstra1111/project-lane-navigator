@@ -1009,6 +1009,32 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "call_selective_regeneration_plan": {
+        // Calls dev-engine-v2 selective_regeneration_plan action with service role auth.
+        // Read-only. Returns recommended scope + impacted scenes for stale/contradicted units.
+        // Optional: unit_keys[] — scope to specific unit keys; defaults to all stale/contradicted.
+        const { project_id: srpPid, unit_keys: srpUnitKeys } = params;
+        if (!srpPid) throw new Error("project_id required");
+        const devEngineUrl = `${supabaseUrl}/functions/v1/dev-engine-v2`;
+        const srpBody: Record<string, unknown> = {
+          action: "selective_regeneration_plan", projectId: srpPid,
+        };
+        if (Array.isArray(srpUnitKeys) && srpUnitKeys.length > 0) {
+          srpBody.unitKeys = srpUnitKeys;
+        }
+        const srpResp = await fetch(devEngineUrl, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+          body:    JSON.stringify(srpBody),
+        });
+        if (!srpResp.ok) {
+          const errText = await srpResp.text();
+          throw new Error(`dev-engine-v2 selective_regeneration_plan failed (${srpResp.status}): ${errText.slice(0, 200)}`);
+        }
+        result = await srpResp.json();
+        break;
+      }
+
       case "get_ndg_project_data": {
         // Returns all raw data needed to assemble the NDG v1 project graph.
         // Read-only. Fail-closed: missing data returns empty arrays.
