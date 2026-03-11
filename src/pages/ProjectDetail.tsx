@@ -75,6 +75,7 @@ import { ImportStatusPanel } from '@/components/project/ImportStatusPanel';
 import { ScreenplayIntakeBanner } from '@/components/project/ScreenplayIntakeBanner';
 import { SceneIntelligencePanel } from '@/components/project/SceneIntelligencePanel';
 import { NDGSummaryPanel } from '@/components/project/NDGSummaryPanel';
+import { RewritePreviewPanel } from '@/components/project/RewritePreviewPanel';
 
 
 export default function ProjectDetail() {
@@ -462,6 +463,9 @@ export default function ProjectDetail() {
 
           {/* NDG Summary — lightweight graph overview */}
           <NDGSummaryPanel projectId={id} />
+
+          {/* Rewrite Preview — selective regeneration plan */}
+          <RewritePreviewPanel projectId={id} />
 
           {/* Scene Intelligence — NDG v1 read-only graph panel */}
           <SceneIntelligencePanel projectId={id} />
