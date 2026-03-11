@@ -533,6 +533,28 @@ Deno.serve(async (req) => {
             ALTER TABLE public.scene_graph_scenes
               ADD COLUMN IF NOT EXISTS provenance jsonb NOT NULL DEFAULT '{}'::jsonb;
           `,
+          "inject_running_regen_row_obsidian_mirror": `
+            -- VALIDATION-ONLY: insert a fake 'running' row for concurrency guard testing.
+            -- Paired with cleanup_test_running_regen_row for teardown.
+            INSERT INTO public.regeneration_runs
+              (project_id, source_unit_keys, source_axes, recommended_scope, status, meta_json)
+            VALUES (
+              '37e830b8-0143-4d01-9207-b460ff441e8c',
+              ARRAY['ebc4b926-dc59-4762-a338-e30f37ba90e2::protagonist_arc'],
+              ARRAY['protagonist_arc'],
+              'targeted_scenes',
+              'running',
+              '{"dry_run":false,"test_injection":true}'::jsonb
+            );
+          `,
+          "cleanup_test_running_regen_row": `
+            -- VALIDATION-ONLY: remove injected test 'running' rows.
+            DELETE FROM public.regeneration_runs
+              WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c'
+                AND status = 'running'
+                AND meta_json->>'test_injection' = 'true';
+          `,
+
           "validation_set_protagonist_arc_stale": `
             -- VALIDATION-ONLY: set protagonist_arc to stale for dry-run testing.
             -- Paired with validation_restore_protagonist_arc_aligned for cleanup.
@@ -1073,6 +1095,20 @@ Deno.serve(async (req) => {
           throw new Error(`dev-engine-v2 ndg_project_graph failed (${ndgResp.status}): ${errText.slice(0, 200)}`);
         }
         result = await ndgResp.json();
+        break;
+      }
+
+      case "get_regeneration_run": {
+        // Read a regeneration_runs row by id. Validation and audit use only.
+        const { run_id: grRunId } = params;
+        if (!grRunId) throw new Error("run_id required");
+        const { data: grData, error: grErr } = await supabase
+          .from("regeneration_runs")
+          .select("id,project_id,status,recommended_scope,target_scene_count,ndg_pre_at_risk_count,meta_json,started_at")
+          .eq("id", grRunId)
+          .single();
+        if (grErr) throw grErr;
+        result = grData;
         break;
       }
 
