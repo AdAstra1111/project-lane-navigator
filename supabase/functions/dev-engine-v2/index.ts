@@ -7979,7 +7979,13 @@ Return ONLY valid JSON:
       // 5. Classify roles
       const classifications = classifySceneRoles(classifyInput);
 
-      // 6. Write classified roles via next_scene_version RPC (concurrency-safe)
+      // 6. Write classified roles directly to scene_graph_versions.scene_roles.
+      //
+      // Implementation note: next_scene_version RPC predates the scene_roles column
+      // (added in migration 20260222103752) and therefore drops the field silently.
+      // Direct UPDATE on the latest version row is the correct approach for
+      // classification metadata — it enriches in-place without creating a new version.
+      // Idempotent: re-running updates the same row with the same values.
       const perScene: any[] = [];
       let classified = 0;
 
@@ -7996,28 +8002,26 @@ Return ONLY valid JSON:
         const ver = latestVer.get(result.scene_id);
         if (!ver) { continue; }
 
-        const { error: rpcErr } = await supabase.rpc("next_scene_version", {
-          p_scene_id:   result.scene_id,
-          p_project_id: projectId,
-          p_patch:      { scene_roles: result.scene_roles },
-          p_propose:    false,
-          p_created_by: user?.id ?? null,
-        });
+        // Direct UPDATE on the current latest version row (by primary key id)
+        const { error: updErr } = await supabase
+          .from("scene_graph_versions")
+          .update({ scene_roles: result.scene_roles })
+          .eq("id", ver.id);
 
-        if (rpcErr) {
-          console.warn("[classify_roles_heuristic] RPC error for scene", result.scene_id, rpcErr.message);
+        if (updErr) {
+          console.warn("[classify_roles_heuristic] UPDATE error for scene", result.scene_id, updErr.message);
           perScene.push({
             scene_id:  result.scene_id,
             scene_key: sceneKeyMap.get(result.scene_id) ?? null,
-            skipped:   `rpc_error:${rpcErr.message}`,
+            skipped:   `update_error:${updErr.message}`,
           });
           continue;
         }
 
         classified++;
         perScene.push({
-          scene_id:   result.scene_id,
-          scene_key:  sceneKeyMap.get(result.scene_id) ?? null,
+          scene_id:    result.scene_id,
+          scene_key:   sceneKeyMap.get(result.scene_id) ?? null,
           scene_roles: result.scene_roles,
         });
       }
