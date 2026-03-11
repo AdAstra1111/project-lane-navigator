@@ -468,6 +468,23 @@ Deno.serve(async (req) => {
               ADD CONSTRAINT scene_spine_links_scene_id_fkey
               FOREIGN KEY (scene_id) REFERENCES public.scene_graph_scenes(id) ON DELETE CASCADE;
           `,
+          "codify_enrichment_columns_v1": `
+            ALTER TABLE public.scene_graph_versions
+              ADD COLUMN IF NOT EXISTS characters_present jsonb NOT NULL DEFAULT '[]'::jsonb,
+              ADD COLUMN IF NOT EXISTS scene_roles jsonb NOT NULL DEFAULT '[]'::jsonb,
+              ADD COLUMN IF NOT EXISTS beats jsonb NOT NULL DEFAULT '[]'::jsonb,
+              ADD COLUMN IF NOT EXISTS thread_links jsonb NOT NULL DEFAULT '[]'::jsonb,
+              ADD COLUMN IF NOT EXISTS continuity_facts_emitted jsonb NOT NULL DEFAULT '[]'::jsonb,
+              ADD COLUMN IF NOT EXISTS continuity_facts_required jsonb NOT NULL DEFAULT '[]'::jsonb,
+              ADD COLUMN IF NOT EXISTS setup_payoff_emitted jsonb NOT NULL DEFAULT '[]'::jsonb,
+              ADD COLUMN IF NOT EXISTS setup_payoff_required jsonb NOT NULL DEFAULT '[]'::jsonb,
+              ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+              ADD COLUMN IF NOT EXISTS purpose text NULL,
+              ADD COLUMN IF NOT EXISTS tension_delta integer NULL,
+              ADD COLUMN IF NOT EXISTS pacing_seconds integer NULL;
+            ALTER TABLE public.scene_graph_scenes
+              ADD COLUMN IF NOT EXISTS provenance jsonb NOT NULL DEFAULT '{}'::jsonb;
+          `,
           "narrative_entity_rls_v1": `
             -- narrative_entities: full CRUD (manual source_kind supports user writes)
             CREATE POLICY "ne_select" ON public.narrative_entities
