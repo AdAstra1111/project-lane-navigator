@@ -96,6 +96,14 @@ interface PatchLocation {
   passage_lines?: { start_line: number; end_line: number }[];
 }
 
+interface PatchBlueprintEntityRef {
+  entity_key: string;
+  entity_type: 'character' | 'arc' | 'conflict';
+  canonical_name: string;
+  relation_to_patch: 'primary' | 'affected' | 'preserve';
+  rationale?: string;
+}
+
 interface PatchBlueprint {
   axis: string;
   sequence_rank?: number;
@@ -108,6 +116,9 @@ interface PatchBlueprint {
   upstream_dependencies?: string[];
   downstream_risk_axes?: string[];
   execution_note?: string;
+  primary_entity?: PatchBlueprintEntityRef | null;
+  affected_entities?: PatchBlueprintEntityRef[];
+  preserve_entities?: PatchBlueprintEntityRef[];
 }
 
 interface RewritePlan {
