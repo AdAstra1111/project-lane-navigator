@@ -35,7 +35,7 @@ function StageRow({ stage }: { stage: DropStage }) {
     pending:  <div className="h-3 w-3 rounded-full border border-muted-foreground/40" />,
     running:  <Loader2 className="h-3.5 w-3.5 text-primary animate-spin" />,
     done:     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />,
-    error:    <AlertCircle className="h-3.5 w-3.5 text-destructive" />,
+    failed:   <AlertCircle className="h-3.5 w-3.5 text-destructive" />,
     skipped:  <SkipForward className="h-3.5 w-3.5 text-muted-foreground" />,
   };
   return (
@@ -48,13 +48,13 @@ function StageRow({ stage }: { stage: DropStage }) {
         'flex-1',
         stage.status === 'running'  && 'text-primary font-medium',
         stage.status === 'done'     && 'text-foreground',
-        stage.status === 'error'    && 'text-destructive',
+        stage.status === 'failed'   && 'text-destructive',
         stage.status === 'skipped'  && 'text-muted-foreground',
         stage.status === 'pending'  && 'text-muted-foreground',
       )}>
         {stage.label}
       </span>
-      {stage.detail && stage.status === 'error' && (
+      {stage.detail && stage.status === 'failed' && (
         <span className="text-[10px] text-destructive/70 max-w-[120px] truncate">{stage.detail}</span>
       )}
     </div>
@@ -98,7 +98,7 @@ export function ScriptDropZone() {
 
   const anyRunning = isRunning;
   const allDone    = stages.every(s => s.status === 'done' || s.status === 'skipped');
-  const hasError   = stages.some(s => s.status === 'error');
+  const hasError   = stages.some(s => s.status === 'failed');
   const activeStage = stages.find(s => s.status === 'running');
 
   return (
