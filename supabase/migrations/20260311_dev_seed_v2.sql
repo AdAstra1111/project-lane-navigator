@@ -230,3 +230,12 @@ ALTER TABLE public.dev_seed_v2_projects
 ALTER TABLE public.dev_seed_v2_projects
   ADD COLUMN IF NOT EXISTS promoted_at        TIMESTAMPTZ DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS promotion_summary  JSONB       DEFAULT NULL;
+
+-- ── DS2B: Extend narrative_entities.source_kind for dev_seed_v2 ───────────────
+-- Additive change — preserves all existing source_kind values.
+-- Justified: dev_seed_v2 is a distinct, auditable origin source.
+ALTER TABLE public.narrative_entities DROP CONSTRAINT IF EXISTS narrative_entities_source_kind_check;
+ALTER TABLE public.narrative_entities ADD CONSTRAINT narrative_entities_source_kind_check
+  CHECK (source_kind = ANY (ARRAY[
+    'project_canon'::text, 'spine_axis'::text, 'manual'::text, 'dev_seed_v2'::text
+  ]));
