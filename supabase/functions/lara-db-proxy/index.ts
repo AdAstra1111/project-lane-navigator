@@ -423,6 +423,70 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "classify_scene_graph": {
+        // Returns scene graph state classification for a project.
+        // Calls dev-engine-v2: scene_graph_classify_state internally.
+        // Read-only. Advisory. Does not change retry/rebuild policy.
+        const { project_id } = params;
+        if (!project_id) throw new Error("project_id required");
+
+        // Run classification queries directly (avoids another HTTP round-trip)
+        const { data: scenes, error: scErr } = await supabase
+          .from("scene_graph_scenes")
+          .select("id, scene_key")
+          .eq("project_id", project_id)
+          .is("deprecated_at", null);
+        if (scErr) throw scErr;
+
+        const sceneCount = (scenes ?? []).length;
+        if (sceneCount === 0) {
+          result = { state: "EMPTY_GRAPH", scene_count: 0, orphan_count: 0, missing_order_count: 0, key_gap_count: 0, first_key: null, last_key: null, signals: ["scene_count=0"] };
+          break;
+        }
+
+        const allIds = (scenes as any[]).map((s: any) => s.id);
+
+        const [{ data: vRows, error: vErr }, { data: oRows, error: oErr }] = await Promise.all([
+          supabase.from("scene_graph_versions").select("scene_id").eq("project_id", project_id).in("scene_id", allIds),
+          supabase.from("scene_graph_order").select("scene_id").eq("project_id", project_id).eq("is_active", true).in("scene_id", allIds),
+        ]);
+        if (vErr) throw vErr;
+        if (oErr) throw oErr;
+
+        const vSet = new Set<string>((vRows ?? []).map((r: any) => r.scene_id));
+        const oSet = new Set<string>((oRows ?? []).map((r: any) => r.scene_id));
+        const orphanCount = allIds.filter((id: string) => !vSet.has(id)).length;
+        const missingOrderCount = allIds.filter((id: string) => !oSet.has(id)).length;
+
+        // Key gaps
+        const nums = (scenes as any[])
+          .map((s: any) => { const m = /^SCENE_(\d+)$/.exec(s.scene_key ?? ''); return m ? parseInt(m[1]) : null; })
+          .filter(Boolean).sort((a: any, b: any) => a - b) as number[];
+        let keyGapCount = 0;
+        if (nums.length > 1) {
+          const ns = new Set(nums);
+          for (let n = nums[0]; n <= nums[nums.length-1]; n++) { if (!ns.has(n)) keyGapCount++; }
+        }
+
+        const sortedKeys = (scenes as any[]).map((s: any) => s.scene_key).filter(Boolean).sort();
+        const signals: string[] = [];
+        if (orphanCount > 0)       signals.push(`orphan_scenes=${orphanCount}`);
+        if (missingOrderCount > 0) signals.push(`missing_order=${missingOrderCount}`);
+        if (keyGapCount > 0)       signals.push(`key_gaps=${keyGapCount}`);
+
+        result = {
+          state:               signals.length > 0 ? "PARTIAL_GRAPH" : "POPULATED_GRAPH",
+          scene_count:         sceneCount,
+          orphan_count:        orphanCount,
+          missing_order_count: missingOrderCount,
+          key_gap_count:       keyGapCount,
+          first_key:           sortedKeys[0] ?? null,
+          last_key:            sortedKeys[sortedKeys.length-1] ?? null,
+          signals:             signals.length > 0 ? signals : ["all_signals_clean"],
+        };
+        break;
+      }
+
       case "clean_ghost_spine_axes": {
         // Removes pre-fix ghost axis rows from scene_spine_links.
         // Ghost axes: midpoint_shift, structural_turn, narrative_bridge, pacing_relief

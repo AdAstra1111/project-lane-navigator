@@ -26,6 +26,7 @@ import { computeDefaultResolverHash, createVersion } from "../_shared/doc-os.ts"
 import { syncAllEntities, syncSceneEntityLinksForProject, syncDialogueCharactersForProject } from "../_shared/narrativeEntityEngine.ts";
 import { computePropagatedRisk } from "../_shared/narrativeDependencyGraph.ts";
 import { classifySceneRoles, type SceneForClassification } from "../_shared/sceneRoleClassifier.ts";
+import { classifySceneGraphState } from "../_shared/sceneGraphClassifier.ts";
 import type { SpineAxis } from "../_shared/narrativeSpine.ts";
 
 // ── Constraint Pack: unified loader for all generation prompts ──
@@ -7935,6 +7936,21 @@ Return ONLY valid JSON:
     //
     // After this action succeeds, run scene_graph_sync_spine_links to map roles → axes.
     //
+    // ── scene_graph_classify_state ───────────────────────────────────────────
+    // Returns deterministic scene graph state classification:
+    //   EMPTY_GRAPH | PARTIAL_GRAPH | POPULATED_GRAPH
+    //
+    // Read-only. Advisory. Does NOT change retry policy or rebuild behaviour.
+    // For project diagnostics, intake banner, and rebuild recommendations.
+    if (action === "scene_graph_classify_state") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+      const classification = await classifySceneGraphState(supabase, projectId);
+      return new Response(JSON.stringify(classification), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // No LLM. No external calls. Fail-closed.
     // Writes via next_scene_version RPC (concurrency-safe).
     if (action === "scene_graph_classify_roles_heuristic") {
