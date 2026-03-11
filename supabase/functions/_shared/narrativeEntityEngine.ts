@@ -1276,7 +1276,7 @@ export async function syncDialogueCharactersForProject(
 
   if (verErr || !versions) {
     console.warn("[NIT:Phase2] version fetch error:", verErr?.message);
-    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+    return { scenes_processed: 0, links_upserted: 0, characters_written: 0, per_scene: [] };
   }
 
   // Dedupe: latest version per scene
