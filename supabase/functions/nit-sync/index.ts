@@ -15,6 +15,8 @@ import { serve }        from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import {
   syncAllEntities,
+  extractEntityMentionsForVersion,
+  extractEntityMentionsForProject,
 } from "../_shared/narrativeEntityEngine.ts";
 
 const corsHeaders = {
@@ -43,6 +45,38 @@ serve(async (req) => {
       });
     }
 
+    // ── action = 'sync_mentions' — extract entity mentions for a project / specific version ──
+    if (action === "sync_mentions") {
+      const { documentId, versionId, docType } = body;
+
+      // Single-version mode: documentId + versionId + docType all provided
+      if (documentId && versionId && docType) {
+        const result = await extractEntityMentionsForVersion(
+          supabase, projectId, documentId, versionId, docType,
+        );
+        return new Response(JSON.stringify({
+          project_id:        projectId,
+          action:            "sync_mentions",
+          mode:              "single_version",
+          version_id:        versionId,
+          doc_type:          docType,
+          mentions_upserted: result.mentions_upserted,
+          skipped_reason:    result.skipped_reason ?? null,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Project-wide mode: scan all current supported versions
+      const result = await extractEntityMentionsForProject(supabase, projectId);
+      return new Response(JSON.stringify({
+        project_id:         projectId,
+        action:             "sync_mentions",
+        mode:               "project_wide",
+        versions_processed: result.versions_processed,
+        total_mentions:     result.total_mentions,
+        per_version:        result.per_version,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (action === "list") {
       // Return current entity registry without syncing
       const { data: entities, error: listErr } = await supabase
@@ -58,11 +92,18 @@ serve(async (req) => {
         });
       }
 
+      const { data: mentions } = await supabase
+        .from("narrative_entity_mentions")
+        .select("entity_id, document_id, version_id, section_key, start_line, end_line, mention_text, match_method, confidence")
+        .eq("project_id", projectId);
+
       return new Response(JSON.stringify({
         project_id:       projectId,
         action:           "list",
         entity_count:     (entities || []).length,
+        mention_count:    (mentions || []).length,
         entities:         entities || [],
+        mentions:         mentions || [],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

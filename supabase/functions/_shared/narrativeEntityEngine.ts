@@ -18,6 +18,8 @@
  */
 
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { parseSections }  from "./sectionRepairEngine.ts";
+import { isSectionRepairSupported } from "./deliverableSectionRegistry.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -580,4 +582,240 @@ export async function markEntitiesStaleOnAmendment(
   }
 
   return { marked };
+}
+
+// ── NIT v2: Entity Mention Extraction ─────────────────────────────────────
+
+/**
+ * Escapes special regex characters in a string for safe use in RegExp constructor.
+ */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export interface MentionExtractResult {
+  mentions_upserted: number;
+  skipped_reason?:   string;
+}
+
+export interface ProjectMentionSyncResult {
+  versions_processed: number;
+  total_mentions:     number;
+  per_version:        Array<{ version_id: string; doc_type: string; mentions: number; skipped?: string }>;
+}
+
+/**
+ * Extracts and upserts entity mentions for a single document version.
+ *
+ * Rules:
+ *   - Characters only (entity_type='character'). Arc/conflict canonical names
+ *     ('Protagonist Arc', 'Primary Conflict') are slot labels, not narrative text.
+ *   - Exact canonical_name case-insensitive substring match within each section.
+ *   - One row per (entity, version, section_key, start_line) — first occurrence in section.
+ *   - match_method = 'exact_name', confidence = 1.0.
+ *   - Aliases not used in v2 (all aliases[] are empty in current canon).
+ *
+ * Fail-closed:
+ *   - Unsupported doc type     → { mentions_upserted: 0, skipped_reason: 'unsupported_doc_type:...' }
+ *   - No/empty plaintext       → { mentions_upserted: 0, skipped_reason: 'no_plaintext' }
+ *   - parseSections yields []  → { mentions_upserted: 0, skipped_reason: 'no_sections_parsed' }
+ *   - No active char entities  → { mentions_upserted: 0, skipped_reason: 'no_active_character_entities' }
+ *   - No exact matches found   → { mentions_upserted: 0, skipped_reason: 'no_exact_matches_found' }
+ *
+ * Idempotent: ON CONFLICT ignoreDuplicates=true on (entity_id,version_id,section_key,start_line,match_method).
+ */
+export async function extractEntityMentionsForVersion(
+  supabase:   SupabaseClient,
+  projectId:  string,
+  documentId: string,
+  versionId:  string,
+  docType:    string,
+): Promise<MentionExtractResult> {
+
+  // ── 1. Fail-closed: unsupported doc type ──
+  if (!isSectionRepairSupported(docType)) {
+    return { mentions_upserted: 0, skipped_reason: `unsupported_doc_type:${docType}` };
+  }
+
+  // ── 2. Load plaintext ──
+  const { data: ver, error: vErr } = await supabase
+    .from("project_document_versions")
+    .select("plaintext")
+    .eq("id", versionId)
+    .maybeSingle();
+
+  if (vErr) {
+    console.warn("[NIT:v2] version fetch error:", vErr.message);
+    return { mentions_upserted: 0, skipped_reason: "version_fetch_error" };
+  }
+  if (!ver?.plaintext || ver.plaintext.trim().length === 0) {
+    return { mentions_upserted: 0, skipped_reason: "no_plaintext" };
+  }
+
+  // ── 3. Parse sections (one pass for all entities) ──
+  const sections = parseSections(ver.plaintext, docType);
+  if (sections.length === 0) {
+    return { mentions_upserted: 0, skipped_reason: "no_sections_parsed" };
+  }
+
+  // ── 4. Load active character entities only ──
+  // Arc/conflict canonical names are slot labels ("Protagonist Arc", "Primary Conflict")
+  // that do not appear literally in narrative documents. Skip them in v2.
+  const { data: entities, error: eErr } = await supabase
+    .from("narrative_entities")
+    .select("id, entity_key, canonical_name")
+    .eq("project_id", projectId)
+    .eq("entity_type", "character")
+    .eq("status", "active");
+
+  if (eErr) {
+    console.warn("[NIT:v2] entities fetch error:", eErr.message);
+    return { mentions_upserted: 0, skipped_reason: "entities_fetch_error" };
+  }
+  if (!entities || entities.length === 0) {
+    return { mentions_upserted: 0, skipped_reason: "no_active_character_entities" };
+  }
+
+  // ── 5. Split plaintext into lines (0-indexed, matches SectionBoundary.start_line) ──
+  const lines = ver.plaintext.split("\n");
+
+  // Pre-compile regex per entity (case-insensitive exact name)
+  const entityPatterns = entities.map(e => ({
+    id:      e.id,
+    name:    e.canonical_name,
+    regex:   new RegExp(escapeRegex(e.canonical_name), "i"),
+  }));
+
+  // ── 6. Scan: one mention row per (entity × section) — first occurrence only ──
+  type MentionRow = {
+    project_id:   string;
+    entity_id:    string;
+    document_id:  string;
+    version_id:   string;
+    section_key:  string | null;
+    start_line:   number | null;
+    end_line:     number | null;
+    mention_text: string;
+    match_method: string;
+    confidence:   number;
+  };
+
+  const mentions: MentionRow[] = [];
+
+  for (const section of sections) {
+    const secStart = section.start_line;
+    const secEnd   = section.end_line ?? lines.length - 1;
+    // Safe guard against inverted or out-of-range boundaries
+    if (secStart > secEnd || secStart < 0 || secStart >= lines.length) continue;
+
+    const sectionLines = lines.slice(secStart, secEnd + 1);
+
+    for (const ep of entityPatterns) {
+      // Find first line within this section that contains the canonical name
+      let matchLine: number | null = null;
+      for (let i = 0; i < sectionLines.length; i++) {
+        if (ep.regex.test(sectionLines[i])) {
+          matchLine = secStart + i;  // absolute 0-indexed line number
+          break;
+        }
+      }
+      if (matchLine === null) continue;
+
+      mentions.push({
+        project_id:   projectId,
+        entity_id:    ep.id,
+        document_id:  documentId,
+        version_id:   versionId,
+        section_key:  section.section_key,
+        start_line:   matchLine,
+        end_line:     matchLine,
+        mention_text: ep.name,
+        match_method: "exact_name",
+        confidence:   1.0,
+      });
+    }
+  }
+
+  if (mentions.length === 0) {
+    return { mentions_upserted: 0, skipped_reason: "no_exact_matches_found" };
+  }
+
+  // ── 7. Upsert idempotently ──
+  const { error: uErr } = await supabase
+    .from("narrative_entity_mentions")
+    .upsert(mentions, {
+      onConflict:       "entity_id,version_id,section_key,start_line,match_method",
+      ignoreDuplicates: true,
+    });
+
+  if (uErr) {
+    console.warn("[NIT:v2] upsert mentions error:", uErr.message);
+    return { mentions_upserted: 0, skipped_reason: uErr.message };
+  }
+
+  console.log(`[NIT:v2] upserted ${mentions.length} mention(s) for version ${versionId} (${docType})`);
+  return { mentions_upserted: mentions.length };
+}
+
+/**
+ * Extracts entity mentions across all current supported document versions for a project.
+ *
+ * Finds all project_document_versions where:
+ *   - is_current = true
+ *   - deliverable_type is in the supported section-repair doc types
+ *   - plaintext is non-empty
+ *
+ * Runs extractEntityMentionsForVersion for each. Idempotent.
+ */
+export async function extractEntityMentionsForProject(
+  supabase:  SupabaseClient,
+  projectId: string,
+): Promise<ProjectMentionSyncResult> {
+
+  // Load all current versions with non-empty plaintext for this project
+  const { data: versions, error: vErr } = await supabase
+    .from("project_document_versions")
+    .select("id, document_id, deliverable_type")
+    .eq("is_current", true)
+    .filter("plaintext", "not.is", null)
+    .in(
+      "document_id",
+      // sub-select: all document IDs for this project
+      (await supabase
+        .from("project_documents")
+        .select("id")
+        .eq("project_id", projectId)
+        .then(r => (r.data ?? []).map((d: any) => d.id)))
+    );
+
+  if (vErr || !versions) {
+    console.warn("[NIT:v2] project version fetch error:", vErr?.message);
+    return { versions_processed: 0, total_mentions: 0, per_version: [] };
+  }
+
+  const per_version: ProjectMentionSyncResult["per_version"] = [];
+  let total = 0;
+
+  for (const v of versions) {
+    const docType = v.deliverable_type as string;
+    // Skip unsupported doc types deterministically (isSectionRepairSupported is the gate)
+    if (!isSectionRepairSupported(docType)) continue;
+
+    const result = await extractEntityMentionsForVersion(
+      supabase, projectId, v.document_id, v.id, docType,
+    );
+    total += result.mentions_upserted;
+    per_version.push({
+      version_id: v.id,
+      doc_type:   docType,
+      mentions:   result.mentions_upserted,
+      skipped:    result.skipped_reason,
+    });
+  }
+
+  return {
+    versions_processed: per_version.filter(v => !v.skipped).length,
+    total_mentions:     total,
+    per_version,
+  };
 }
