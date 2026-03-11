@@ -295,6 +295,7 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
         onOpenChange={setConfirmOpen}
         onConfirm={handleExecute}
         plan={plan}
+        repairStrategy={repairStrategy}
       />
 
       {/* Diff Viewer */}
