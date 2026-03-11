@@ -219,3 +219,9 @@ CREATE POLICY dsv2_intent_select ON public.dev_seed_v2_generation_intent FOR SEL
 CREATE POLICY dsv2_intent_insert ON public.dev_seed_v2_generation_intent FOR INSERT WITH CHECK (true);
 CREATE POLICY dsv2_intent_update ON public.dev_seed_v2_generation_intent FOR UPDATE USING (has_project_access(auth.uid(), project_id));
 CREATE POLICY dsv2_intent_delete ON public.dev_seed_v2_generation_intent FOR DELETE USING (has_project_access(auth.uid(), project_id));
+
+-- ── Singleton enforcement (DS2A architectural audit) ──────────────────────────
+-- One active seed per project. Matches project_canon singleton pattern.
+-- If versioning is needed in future, add dev_seed_v2_history (append-only).
+ALTER TABLE public.dev_seed_v2_projects
+  ADD CONSTRAINT dev_seed_v2_projects_project_id_unique UNIQUE (project_id);
