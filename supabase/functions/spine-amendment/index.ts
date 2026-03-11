@@ -23,6 +23,10 @@ import {
   getRecommendedRepairOrder,
   type UnitConfidenceMeta,
 } from "../_shared/narrativeDependencyGraph.ts";
+import {
+  syncSpineEntities,
+  markEntitiesStaleOnAmendment,
+} from "../_shared/narrativeEntityEngine.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -502,6 +506,30 @@ serve(async (req: Request) => {
         console.warn(`[spine-amendment] narrative_units stale mark error:`, nuEx.message);
       }
 
+      // ── NIT v1: T2/T3 + T4 — sync spine entities then mark stale on amendment ──
+      // Additive. Fail-safe (errors logged, never thrown). No lifecycle mutation to
+      // narrative_units, NDG, or planner. dormant canon_units tables are NOT used.
+      let nitEntitiesSynced = 0;
+      let nitEntitiesStaled = 0;
+      try {
+        // T2/T3: Upsert ARC_PROTAGONIST and CONFLICT_PRIMARY with updated spine values.
+        //        Sets status='active' with new spine_value in meta_json.
+        //        Slot keys (ARC_PROTAGONIST, CONFLICT_PRIMARY) never rotate.
+        const t2t3 = await syncSpineEntities(supabase, projectId, updatedSpine);
+        nitEntitiesSynced = t2t3.synced;
+
+        // T4: Mark entities for the amended axis as stale.
+        //     Runs AFTER T2/T3 so entity has updated spine_value before receiving stale flag.
+        //     Only fires for protagonist_arc and central_conflict amendments.
+        const t4 = await markEntitiesStaleOnAmendment(
+          supabase, projectId, axis,
+          currentValue, proposed_value, newEntry.id,
+        );
+        nitEntitiesStaled = t4.marked;
+      } catch (nitEx: any) {
+        console.warn(`[spine-amendment] NIT entity sync error:`, nitEx.message);
+      }
+
       return new Response(JSON.stringify({
         success: true,
         amendment_entry_id: newEntry.id,
@@ -518,7 +546,10 @@ serve(async (req: Request) => {
         stale_notes_resolved: staleNotesResolved,
         stale_note_key: staleNotesResolved > 0 ? staleNoteKey : null,
         stale_units_marked: staleUnitsMarked,
-        message: `Spine amended: ${axis} changed from "${currentValue}" to "${proposed_value}". ${docsFlaged} document(s) flagged for revalidation.${staleNotesResolved > 0 ? ` ${staleNotesResolved} stale ${staleNoteKey} note(s) auto-resolved.` : ""}${staleUnitsMarked > 0 ? ` ${staleUnitsMarked} narrative unit(s) marked stale.` : ""}`,
+        // ── NIT v1 additive fields ──
+        nit_entities_synced: nitEntitiesSynced,
+        nit_entities_staled: nitEntitiesStaled,
+        message: `Spine amended: ${axis} changed from "${currentValue}" to "${proposed_value}". ${docsFlaged} document(s) flagged for revalidation.${staleNotesResolved > 0 ? ` ${staleNotesResolved} stale ${staleNoteKey} note(s) auto-resolved.` : ""}${staleUnitsMarked > 0 ? ` ${staleUnitsMarked} narrative unit(s) marked stale.` : ""}${nitEntitiesStaled > 0 ? ` ${nitEntitiesStaled} NIT entity/entities marked stale.` : ""}`,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
