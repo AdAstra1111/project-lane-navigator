@@ -16063,12 +16063,19 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     if (action === "pitch-idea-set-devseed-canon") {
       const { pitchIdeaId, seasonEpisodeCount, format, assignedLane, episodeLengthTarget } = body;
       if (!pitchIdeaId) throw new Error("pitchIdeaId required");
-      if (typeof seasonEpisodeCount !== "number" || seasonEpisodeCount < 1 || seasonEpisodeCount > 200) {
-        throw new Error("seasonEpisodeCount must be integer 1..200");
+
+      // Resolve format alias so "feature-film", "feature", etc. all normalise to "film"
+      const resolvedFmt = resolveFormatAlias((format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
+      const SERIES_FORMATS = new Set(["tv-series","limited-series","vertical-drama","digital-series","anim-series","documentary-series","reality","miniseries","anthology","vertical"]);
+      const isSeries = SERIES_FORMATS.has(resolvedFmt);
+
+      // Episode count is only required for series formats
+      if (isSeries && (typeof seasonEpisodeCount !== "number" || seasonEpisodeCount < 1 || seasonEpisodeCount > 200)) {
+        throw new Error("seasonEpisodeCount must be integer 1..200 for series formats");
       }
 
       const canonJson = {
-        season_episode_count: seasonEpisodeCount,
+        season_episode_count: isSeries ? seasonEpisodeCount : null,
         format: format || null,
         assigned_lane: assignedLane || null,
         episode_length_target: episodeLengthTarget || null,

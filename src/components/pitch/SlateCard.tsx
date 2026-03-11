@@ -202,8 +202,12 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete, projec
               <span>Saturation: <span className="font-medium text-foreground">{Number(idea.score_saturation_risk).toFixed(0)}</span></span>
             </div>
 
-            {/* DesSeed Canon — Episode Count Setter */}
-            <EpisodeCountSetter idea={idea} />
+            {/* DevSeed Canon — Episode Count Setter (series formats only) */}
+            {(() => {
+              const fmt = (idea.production_type || '').toLowerCase().replace(/_/g, '-');
+              const SERIES_FORMATS = new Set(['tv-series','limited-series','vertical-drama','digital-series','anim-series','documentary-series','reality','miniseries','anthology','vertical']);
+              return SERIES_FORMATS.has(fmt) ? <EpisodeCountSetter idea={idea} /> : null;
+            })()}
 
             {/* Animation Meta Editor — only for animation/hybrid projects */}
             {isAnim && idea.project_id && (
