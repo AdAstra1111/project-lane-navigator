@@ -30,5 +30,7 @@ jobs:
             generate-pitch \
             idea-to-project \
             decisions-engine \
+            nit-sync \
+            spine-rewrite-plan \
             --project-ref tzdxrhklarzccqamxbxw \
             --no-verify-jwt
