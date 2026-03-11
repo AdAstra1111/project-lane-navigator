@@ -2190,6 +2190,10 @@ async function computeSelectiveRegenerationPlanHelper(
       : (propagatedAxesMap.get(s.axis_key) ?? "propagated risk"),
   }));
 
+  // Capture axis-path counts before entity expansion mutates impactedScenes
+  const axisPathSceneCount       = impactedScenes.length;
+  const propagatedOnlySceneCount = axisPathSceneCount - directScenes.length;
+
   // ── Step 5b: Entity-aware impact expansion ───────────────────────────────
   //
   // Secondary path: for each at-risk axis that has a deterministic entity grounding
@@ -2399,7 +2403,7 @@ async function computeSelectiveRegenerationPlanHelper(
     impacted_scenes: impactedScenes,
     impacted_scene_count: impactedScenes.length,
     direct_scene_count: directCount,
-    propagated_scene_count: impactedScenes.length - directCount,
+    propagated_scene_count: propagatedOnlySceneCount,
     entity_impacted_scenes: entityImpactedScenes,
     entity_impacted_scene_count: entityImpactedScenes.length,
     recommended_scope: recommendedScope,
