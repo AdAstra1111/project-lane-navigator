@@ -123,6 +123,25 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
     diffHook.loadDiff(sceneKey);
   };
 
+  const refreshAfterExecution = useCallback(() => {
+    refreshAutopilot();
+    refetchPlan();
+    refetchHistory();
+  }, [refreshAutopilot, refetchPlan, refetchHistory]);
+
+  const handleDryRun = useCallback(async () => {
+    reset();
+    await execute(true);
+    refreshAfterExecution();
+  }, [reset, execute, refreshAfterExecution]);
+
+  const handleExecute = useCallback(async () => {
+    setConfirmOpen(false);
+    reset();
+    await execute(false);
+    refreshAfterExecution();
+  }, [reset, execute, refreshAfterExecution]);
+
   if (planLoading) {
     return (
       <Card className="border-border/50">
