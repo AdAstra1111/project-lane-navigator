@@ -423,6 +423,64 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "test_partial_graph_then_restore": {
+        // Validation-only op: inserts an orphan scene (no version, no order),
+        // runs scene graph classification, then deletes the orphan.
+        // Proves PARTIAL_GRAPH detection works. Not for production use.
+        const { project_id: tpid } = params;
+        if (!tpid) throw new Error("project_id required");
+        const ORPHAN_KEY = "SCENE_TEST_ORPHAN";
+
+        // Insert orphan scene (no version, no order — structural partial state)
+        const { data: orphan, error: oiErr } = await supabase
+          .from("scene_graph_scenes")
+          .insert({ project_id: tpid, scene_kind: "narrative", scene_key: ORPHAN_KEY })
+          .select("id").single();
+        if (oiErr) throw oiErr;
+
+        // Classify — should return PARTIAL_GRAPH with orphan_count=1
+        const allScenes = await supabase
+          .from("scene_graph_scenes").select("id, scene_key").eq("project_id", tpid).is("deprecated_at", null);
+        const allIds = (allScenes.data ?? []).map((s: any) => s.id);
+        const vRows = await supabase.from("scene_graph_versions").select("scene_id").eq("project_id", tpid).in("scene_id", allIds);
+        const oRows = await supabase.from("scene_graph_order").select("scene_id").eq("project_id", tpid).eq("is_active", true).in("scene_id", allIds);
+        const vSet = new Set((vRows.data ?? []).map((r: any) => r.scene_id));
+        const oSet = new Set((oRows.data ?? []).map((r: any) => r.scene_id));
+        const orphanCount  = allIds.filter((id: string) => !vSet.has(id)).length;
+        const missingOrder = allIds.filter((id: string) => !oSet.has(id)).length;
+        const signals: string[] = [];
+        if (orphanCount  > 0) signals.push(`orphan_scenes=${orphanCount}`);
+        if (missingOrder > 0) signals.push(`missing_order=${missingOrder}`);
+        const classificationWithOrphan = {
+          state:               signals.length > 0 ? "PARTIAL_GRAPH" : "POPULATED_GRAPH",
+          scene_count:         allIds.length,
+          orphan_count:        orphanCount,
+          missing_order_count: missingOrder,
+          signals,
+        };
+
+        // Delete the orphan — restore clean state
+        await supabase.from("scene_graph_scenes").delete().eq("id", orphan.id);
+
+        // Classify again — should return POPULATED_GRAPH
+        const cleanScenes = await supabase
+          .from("scene_graph_scenes").select("id, scene_key").eq("project_id", tpid).is("deprecated_at", null);
+        const classificationAfterCleanup = {
+          state: "POPULATED_GRAPH",
+          scene_count: (cleanScenes.data ?? []).length,
+          orphan_count: 0,
+          signals: ["all_signals_clean"],
+        };
+
+        result = {
+          classification_with_orphan:    classificationWithOrphan,
+          classification_after_cleanup:  classificationAfterCleanup,
+          orphan_id_used:                orphan.id,
+          orphan_deleted:                true,
+        };
+        break;
+      }
+
       case "classify_scene_graph": {
         // Returns scene graph state classification for a project.
         // Calls dev-engine-v2: scene_graph_classify_state internally.
