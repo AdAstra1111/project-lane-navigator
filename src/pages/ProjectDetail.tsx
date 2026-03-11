@@ -74,6 +74,7 @@ import { ReverseEngineerCallout } from '@/components/project/ReverseEngineerCall
 import { ImportStatusPanel } from '@/components/project/ImportStatusPanel';
 import { ScreenplayIntakeBanner } from '@/components/project/ScreenplayIntakeBanner';
 import { SceneIntelligencePanel } from '@/components/project/SceneIntelligencePanel';
+import { NDGSummaryPanel } from '@/components/project/NDGSummaryPanel';
 
 
 export default function ProjectDetail() {
@@ -458,6 +459,9 @@ export default function ProjectDetail() {
 
           {/* Import Pipeline Status — downstream materialisation readiness */}
           <ImportStatusPanel projectId={id} />
+
+          {/* NDG Summary — lightweight graph overview */}
+          <NDGSummaryPanel projectId={id} />
 
           {/* Scene Intelligence — NDG v1 read-only graph panel */}
           <SceneIntelligencePanel projectId={id} />
