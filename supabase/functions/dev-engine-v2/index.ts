@@ -1988,6 +1988,230 @@ function compareSnapshots(a: CriteriaSnapshot | null, b: CriteriaSnapshot | null
 }
 
 // ═══════════════════════════════════════════════════════════════
+// SELECTIVE REGENERATION PLANNER — shared helper
+//
+// Extracted from the selective_regeneration_plan action so it can be
+// reused by execute_selective_regeneration without code duplication.
+// Takes a supabase service-role client; returns a unified plan result.
+// Always returns ok:true — callers interpret recommended_scope to decide
+// whether to abort (execute) or return as-is (plan action).
+// ═══════════════════════════════════════════════════════════════
+
+async function computeSelectiveRegenerationPlanHelper(
+  supabase: ReturnType<typeof createClient>,
+  projectId: string,
+  unitKeys?: string[] | null,
+): Promise<{
+  ok: true;
+  source_units: any[];
+  direct_axes: string[];
+  propagated_axes: string[];
+  impacted_scenes: any[];
+  impacted_scene_count: number;
+  direct_scene_count: number;
+  propagated_scene_count: number;
+  recommended_scope: string;
+  rationale: string;
+}> {
+  const hasSpecificKeys = Array.isArray(unitKeys) && unitKeys.length > 0;
+
+  // 1. Load at-risk narrative units
+  let unitQuery = (supabase as any)
+    .from("narrative_units")
+    .select("id,unit_key,unit_type,status,payload_json,confidence")
+    .eq("project_id", projectId);
+  unitQuery = hasSpecificKeys
+    ? unitQuery.in("unit_key", unitKeys as string[])
+    : unitQuery.in("status", ["contradicted", "stale"]);
+
+  const { data: rawUnits, error: unitErr } = await unitQuery;
+  if (unitErr) throw unitErr;
+
+  const atRiskUnits = ((rawUnits || []) as any[]).filter(
+    (u: any) => u.status === "contradicted" || u.status === "stale"
+  );
+
+  if (atRiskUnits.length === 0) {
+    return {
+      ok: true,
+      source_units: [],
+      direct_axes: [],
+      propagated_axes: [],
+      impacted_scenes: [],
+      impacted_scene_count: 0,
+      direct_scene_count: 0,
+      propagated_scene_count: 0,
+      recommended_scope: "no_risk",
+      rationale: hasSpecificKeys
+        ? "Requested unit keys found but none are stale or contradicted — no regeneration needed"
+        : "No stale or contradicted narrative units — project is narratively aligned",
+    };
+  }
+
+  // 2. Map units → axes + reason labels
+  const directRiskAxes = new Map<string, string>();
+  const sourceUnitRaw: Array<{ unit_key: string; axis: string; status: string; reason: string }> = [];
+
+  for (const unit of atRiskUnits) {
+    const parts = (unit.unit_key as string).split("::");
+    const axis = parts.length >= 2 ? parts[parts.length - 1] : null;
+    if (!axis) continue;
+    const payload = (unit.payload_json as any) ?? {};
+    const reason = unit.status === "contradicted"
+      ? (payload.contradiction_note || "contradiction detected")
+      : "stale — needs revalidation";
+    if (!directRiskAxes.has(axis)) directRiskAxes.set(axis, reason);
+    sourceUnitRaw.push({ unit_key: unit.unit_key, axis, status: unit.status, reason });
+  }
+
+  // 3. Enrich source units with NDG metadata + sequencing
+  const directAxesArray = [...directRiskAxes.keys()] as SpineAxis[];
+  const rewriteAxisSet  = new Set<SpineAxis>(directAxesArray);
+
+  const targetsForSeq: RewriteTargetForSequencing[] = sourceUnitRaw.map(u => ({
+    axis:                   u.axis as SpineAxis,
+    reason:                 u.status,
+    dependency_position:    getDependencyPosition(u.axis as SpineAxis, rewriteAxisSet),
+    rewrite_priority_score: computeRewritePriorityScore(u.axis as SpineAxis),
+  }));
+
+  const sequenced    = sequenceRewriteTargets(targetsForSeq);
+  const seqByAxis    = new Map(sequenced.map(s => [s.axis, s]));
+
+  const sourceUnits = sourceUnitRaw.map(u => {
+    const depPos = getDependencyPosition(u.axis as SpineAxis, rewriteAxisSet);
+    const rps    = computeRewritePriorityScore(u.axis as SpineAxis);
+    const seq    = seqByAxis.get(u.axis as SpineAxis);
+    return {
+      unit_key:               u.unit_key,
+      axis:                   u.axis,
+      status:                 u.status,
+      reason:                 u.reason,
+      dependency_position:    depPos,
+      rewrite_priority_score: rps,
+      sequence_bucket:        seq?.sequence_bucket ?? "isolated",
+      sequence_rank:          seq?.sequence_rank   ?? 0,
+      sequence_reason:        seq?.sequence_reason ?? "",
+    };
+  }).sort((a, b) => a.sequence_rank - b.sequence_rank);
+
+  // 4. NDG propagation → propagated axes
+  const propagated = computePropagatedRisk(directAxesArray);
+  const propagatedAxesMap = new Map<string, string>();
+  for (const pr of propagated) {
+    for (const downAx of pr.downstream_axes) {
+      if (!directRiskAxes.has(downAx)) {
+        propagatedAxesMap.set(
+          downAx,
+          `downstream of ${pr.source_axis} (${directRiskAxes.get(pr.source_axis) || "risk"})`
+        );
+      }
+    }
+  }
+
+  const allAffectedAxes = [...directRiskAxes.keys(), ...propagatedAxesMap.keys()];
+
+  // 5. Load scene_spine_links + build scene impact index
+  const { data: spineLinkRows } = await (supabase as any)
+    .from("scene_spine_links")
+    .select("scene_id,axis_key")
+    .eq("project_id", projectId)
+    .not("axis_key", "is", null);
+
+  if (!spineLinkRows || spineLinkRows.length === 0) {
+    return {
+      ok: true,
+      source_units: sourceUnits,
+      direct_axes: directAxesArray,
+      propagated_axes: [...propagatedAxesMap.keys()],
+      impacted_scenes: [],
+      impacted_scene_count: 0,
+      direct_scene_count: 0,
+      propagated_scene_count: 0,
+      recommended_scope: "no_scene_links",
+      rationale: "At-risk units identified but no scene_spine_links exist — run scene enrichment first",
+    };
+  }
+
+  const spineSceneIds = [...new Set(
+    (spineLinkRows as any[]).map((r: any) => r.scene_id as string)
+  )];
+
+  const [sceneRes, verRes] = await Promise.all([
+    (supabase as any).from("scene_graph_scenes").select("id,scene_key").in("id", spineSceneIds),
+    (supabase as any)
+      .from("scene_graph_versions")
+      .select("scene_id,slugline,version_number")
+      .in("scene_id", spineSceneIds)
+      .order("version_number", { ascending: false }),
+  ]);
+
+  const sluglineMap = new Map<string, string | null>();
+  for (const v of ((verRes.data || []) as any[])) {
+    if (!sluglineMap.has(v.scene_id)) sluglineMap.set(v.scene_id, v.slugline ?? null);
+  }
+
+  const sceneKeyMap = new Map<string, { scene_key: string; slugline: string | null }>(
+    ((sceneRes.data || []) as any[]).map((s: any) => [
+      s.id,
+      { scene_key: s.scene_key, slugline: sluglineMap.get(s.id) ?? null },
+    ])
+  );
+
+  const sceneIndex    = buildSceneImpactIndex(spineLinkRows as any[], sceneKeyMap);
+  const directScenes  = getAffectedScenesForAxes([...directRiskAxes.keys()], sceneIndex);
+  const allScenes     = getAffectedScenesForAxes(allAffectedAxes, sceneIndex);
+  const directSceneIds = new Set(directScenes.map(s => s.scene_id));
+
+  const impactedScenes = allScenes.map(s => ({
+    scene_key:   s.scene_key,
+    scene_id:    s.scene_id,
+    axis_key:    s.axis_key,
+    slugline:    s.slugline,
+    risk_source: directSceneIds.has(s.scene_id) ? "direct" : "propagated",
+    risk_reason: directSceneIds.has(s.scene_id)
+      ? (directRiskAxes.get(s.axis_key) ?? "risk detected")
+      : (propagatedAxesMap.get(s.axis_key) ?? "propagated risk"),
+  }));
+
+  // 6. Classify recommended_scope
+  const ROOT_AXES  = new Set<SpineAxis>(["story_engine", "pressure_system"]);
+  const hasRootAxis = directAxesArray.some(ax => ROOT_AXES.has(ax));
+  const directCount = directScenes.length;
+
+  let recommendedScope: string;
+  let rationale: string;
+
+  if (directCount > 0 && hasRootAxis) {
+    const rootHits = directAxesArray.filter(ax => ROOT_AXES.has(ax));
+    recommendedScope = "broad_impact";
+    rationale = `Root axis [${rootHits.join(", ")}] is directly affected — all downstream axes are structurally at risk. ${directCount} scene(s) directly linked; ${impactedScenes.length - directCount} additional scene(s) via NDG propagation.`;
+  } else if (directCount > 0) {
+    recommendedScope = "targeted_scenes";
+    rationale = `${directCount} scene(s) directly linked to affected axes [${[...directRiskAxes.keys()].join(", ")}]. Regenerate these scenes to resolve the narrative inconsistency. ${impactedScenes.length - directCount > 0 ? `${impactedScenes.length - directCount} additional scene(s) may be indirectly affected via propagation.` : ""}`.trim();
+  } else if (allScenes.length > 0) {
+    recommendedScope = "propagated_only";
+    rationale = `Source axes [${[...directRiskAxes.keys()].join(", ")}] have no direct scene links, but ${allScenes.length} scene(s) are indirectly affected via NDG propagation.`;
+  } else {
+    recommendedScope = "no_scene_impact";
+    rationale = `At-risk units found for axes [${[...directRiskAxes.keys()].join(", ")}] but no scenes are mapped to any affected axes.`;
+  }
+
+  return {
+    ok: true,
+    source_units: sourceUnits,
+    direct_axes: directAxesArray,
+    propagated_axes: [...propagatedAxesMap.keys()],
+    impacted_scenes: impactedScenes,
+    impacted_scene_count: impactedScenes.length,
+    direct_scene_count: directCount,
+    propagated_scene_count: impactedScenes.length - directCount,
+    recommended_scope: recommendedScope,
+    rationale,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════════════
 
@@ -8589,226 +8813,232 @@ Return ONLY valid JSON:
     // recommended_scope: no_risk | no_scene_links | propagated_only |
     //                    targeted_scenes | broad_impact
     if (action === "selective_regeneration_plan") {
+      // Slim action block — delegates all plan logic to the shared helper.
+      // Helper is defined at module level above serve() to allow reuse by
+      // execute_selective_regeneration without duplication.
       const { projectId, unitKeys } = body;
       if (!projectId) throw new Error("projectId required");
 
-      // ── 1. Load at-risk narrative units ────────────────────────────────────
-      const hasSpecificKeys = Array.isArray(unitKeys) && unitKeys.length > 0;
-      let unitQuery = supabase
-        .from("narrative_units")
-        .select("id,unit_key,unit_type,status,payload_json,confidence")
-        .eq("project_id", projectId);
-      if (!hasSpecificKeys) {
-        unitQuery = unitQuery.in("status", ["contradicted", "stale"]);
-      } else {
-        // Specific keys requested — still only plan around stale/contradicted
-        unitQuery = unitQuery.in("unit_key", unitKeys as string[]);
-      }
-      const { data: rawUnits, error: unitErr } = await unitQuery;
-      if (unitErr) throw unitErr;
-
-      const atRiskUnits = ((rawUnits || []) as any[]).filter(
-        (u: any) => u.status === "contradicted" || u.status === "stale"
-      );
-
-      if (atRiskUnits.length === 0) {
-        return new Response(JSON.stringify({
-          project_id:          projectId,
-          action:              "selective_regeneration_plan",
-          ok:                  true,
-          recommended_scope:   "no_risk",
-          rationale:           hasSpecificKeys
-            ? "Requested unit keys found but none are stale or contradicted — no regeneration needed"
-            : "No stale or contradicted narrative units — project is narratively aligned",
-          source_units:        [],
-          direct_axes:         [],
-          propagated_axes:     [],
-          impacted_scenes:     [],
-          impacted_scene_count: 0,
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // ── 2. Map units → axes + reason labels ────────────────────────────────
-      // unit_key format: "{versionId}::{axis}" — axis is the last segment
-      const directRiskAxes = new Map<string, string>(); // axis → reason
-      const sourceUnitRaw: Array<{
-        unit_key: string; axis: string; status: string; reason: string;
-      }> = [];
-
-      for (const unit of atRiskUnits) {
-        const parts = (unit.unit_key as string).split("::");
-        const axis = parts.length >= 2 ? parts[parts.length - 1] : null;
-        if (!axis) continue;
-        const payload = (unit.payload_json as any) ?? {};
-        const reason = unit.status === "contradicted"
-          ? (payload.contradiction_note || "contradiction detected")
-          : "stale — needs revalidation";
-        if (!directRiskAxes.has(axis)) directRiskAxes.set(axis, reason);
-        sourceUnitRaw.push({ unit_key: unit.unit_key, axis, status: unit.status, reason });
-      }
-
-      // ── 3. Enrich source units with NDG metadata ────────────────────────────
-      const directAxesArray = [...directRiskAxes.keys()] as SpineAxis[];
-      const rewriteAxisSet  = new Set<SpineAxis>(directAxesArray);
-
-      const targetsForSeq: RewriteTargetForSequencing[] = sourceUnitRaw.map(u => ({
-        axis:                   u.axis as SpineAxis,
-        reason:                 u.status,  // "contradicted" | "stale"
-        dependency_position:    getDependencyPosition(u.axis as SpineAxis, rewriteAxisSet),
-        rewrite_priority_score: computeRewritePriorityScore(u.axis as SpineAxis),
-      }));
-
-      const sequenced = sequenceRewriteTargets(targetsForSeq);
-      const seqByAxis = new Map(sequenced.map(s => [s.axis, s]));
-
-      const sourceUnits = sourceUnitRaw.map(u => {
-        const depPos = getDependencyPosition(u.axis as SpineAxis, rewriteAxisSet);
-        const rps    = computeRewritePriorityScore(u.axis as SpineAxis);
-        const seq    = seqByAxis.get(u.axis as SpineAxis);
-        return {
-          unit_key:               u.unit_key,
-          axis:                   u.axis,
-          status:                 u.status,
-          reason:                 u.reason,
-          dependency_position:    depPos,
-          rewrite_priority_score: rps,
-          sequence_bucket:        seq?.sequence_bucket ?? "isolated",
-          sequence_rank:          seq?.sequence_rank   ?? 0,
-          sequence_reason:        seq?.sequence_reason ?? "",
-        };
-      }).sort((a, b) => a.sequence_rank - b.sequence_rank);
-
-      // ── 4. NDG propagation → propagated axes ───────────────────────────────
-      const propagated = computePropagatedRisk(directAxesArray);
-      const propagatedAxesMap = new Map<string, string>(); // axis → reason
-      for (const pr of propagated) {
-        for (const downAx of pr.downstream_axes) {
-          if (!directRiskAxes.has(downAx)) {
-            propagatedAxesMap.set(
-              downAx,
-              `downstream of ${pr.source_axis} (${directRiskAxes.get(pr.source_axis) || "risk"})`
-            );
-          }
-        }
-      }
-
-      const allAffectedAxes = [...directRiskAxes.keys(), ...propagatedAxesMap.keys()];
-
-      // ── 5. Load scene_spine_links + build scene impact index ───────────────
-      const { data: spineLinkRows } = await supabase
-        .from("scene_spine_links")
-        .select("scene_id,axis_key")
-        .eq("project_id", projectId)
-        .not("axis_key", "is", null);
-
-      if (!spineLinkRows || spineLinkRows.length === 0) {
-        return new Response(JSON.stringify({
-          project_id:           projectId,
-          action:               "selective_regeneration_plan",
-          ok:                   true,
-          recommended_scope:    "no_scene_links",
-          rationale:            "At-risk units identified but no scene_spine_links exist for this project — run scene enrichment (scene_graph_sync_spine_links) to enable scene-level planning",
-          source_units:         sourceUnits,
-          direct_axes:          directAxesArray,
-          propagated_axes:      [...propagatedAxesMap.keys()],
-          impacted_scenes:      [],
-          impacted_scene_count: 0,
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // Load scene identity + sluglines for all scenes in spine links
-      const spineSceneIds = [...new Set(
-        (spineLinkRows as any[]).map((r: any) => r.scene_id as string)
-      )];
-
-      const [sceneRes, verRes] = await Promise.all([
-        supabase
-          .from("scene_graph_scenes")
-          .select("id,scene_key")
-          .in("id", spineSceneIds),
-        supabase
-          .from("scene_graph_versions")
-          .select("scene_id,slugline,version_number")
-          .in("scene_id", spineSceneIds)
-          .order("version_number", { ascending: false }),
-      ]);
-
-      const sluglineMap = new Map<string, string | null>();
-      for (const v of ((verRes.data || []) as any[])) {
-        if (!sluglineMap.has(v.scene_id)) sluglineMap.set(v.scene_id, v.slugline ?? null);
-      }
-
-      const sceneKeyMap = new Map<string, { scene_key: string; slugline: string | null }>(
-        ((sceneRes.data || []) as any[]).map((s: any) => [
-          s.id,
-          { scene_key: s.scene_key, slugline: sluglineMap.get(s.id) ?? null },
-        ])
-      );
-
-      // Build axis → SceneImpactEntry[] index
-      const sceneIndex = buildSceneImpactIndex(spineLinkRows as any[], sceneKeyMap);
-
-      // ── 6. Map axes to impacted scenes ─────────────────────────────────────
-      const directScenes   = getAffectedScenesForAxes([...directRiskAxes.keys()], sceneIndex);
-      const allScenes      = getAffectedScenesForAxes(allAffectedAxes, sceneIndex);
-      const directSceneIds = new Set(directScenes.map(s => s.scene_id));
-
-      const impactedScenes = allScenes.map(s => ({
-        scene_key:   s.scene_key,
-        scene_id:    s.scene_id,
-        axis_key:    s.axis_key,
-        slugline:    s.slugline,
-        risk_source: directSceneIds.has(s.scene_id) ? "direct" : "propagated",
-        risk_reason: directSceneIds.has(s.scene_id)
-          ? (directRiskAxes.get(s.axis_key) ?? "risk detected")
-          : (propagatedAxesMap.get(s.axis_key) ?? "propagated risk"),
-      }));
-
-      // ── 7. Classify recommended_scope ──────────────────────────────────────
-      const ROOT_AXES = new Set<SpineAxis>(["story_engine", "pressure_system"]);
-      const hasRootAxis = directAxesArray.some(ax => ROOT_AXES.has(ax));
-      const directCount = directScenes.length;
-
-      let recommendedScope: string;
-      let rationale: string;
-
-      if (directCount > 0 && hasRootAxis) {
-        const rootHits = directAxesArray.filter(ax => ROOT_AXES.has(ax));
-        recommendedScope = "broad_impact";
-        rationale = `Root axis [${rootHits.join(", ")}] is directly affected — all downstream axes are structurally at risk. ${directCount} scene(s) directly linked; ${impactedScenes.length - directCount} additional scene(s) via NDG propagation. Full scene review recommended before targeted regeneration.`;
-      } else if (directCount > 0) {
-        recommendedScope = "targeted_scenes";
-        rationale = `${directCount} scene(s) directly linked to affected axes [${[...directRiskAxes.keys()].join(", ")}]. Regenerate these scenes to resolve the narrative inconsistency. ${impactedScenes.length - directCount > 0 ? `${impactedScenes.length - directCount} additional scene(s) may be indirectly affected via propagation.` : ""}`.trim();
-      } else if (allScenes.length > 0) {
-        recommendedScope = "propagated_only";
-        rationale = `Source axes [${[...directRiskAxes.keys()].join(", ")}] have no direct scene links, but ${allScenes.length} scene(s) are indirectly affected via NDG propagation. Inspect these scenes for consistency — propagated risk may not require regeneration.`;
-      } else {
-        recommendedScope = "no_scene_impact";
-        rationale = `At-risk units found for axes [${[...directRiskAxes.keys()].join(", ")}] but no scenes are mapped to any affected axes. Populate scene_spine_links to enable scene-level planning.`;
-      }
+      const plan = await computeSelectiveRegenerationPlanHelper(supabase, projectId, unitKeys ?? null);
 
       console.log("[dev-engine-v2] selective_regeneration_plan complete", {
         project_id:         projectId,
-        source_unit_count:  sourceUnits.length,
-        direct_axes:        directAxesArray,
-        propagated_axes:    [...propagatedAxesMap.keys()],
-        impacted_scenes:    impactedScenes.length,
-        recommended_scope:  recommendedScope,
+        source_unit_count:  plan.source_units.length,
+        recommended_scope:  plan.recommended_scope,
+        impacted_scenes:    plan.impacted_scene_count,
       });
 
       return new Response(JSON.stringify({
-        project_id:           projectId,
-        action:               "selective_regeneration_plan",
-        ok:                   true,
-        recommended_scope:    recommendedScope,
-        rationale,
-        source_units:         sourceUnits,
-        direct_axes:          directAxesArray,
-        propagated_axes:      [...propagatedAxesMap.keys()],
-        impacted_scenes:      impactedScenes,
-        impacted_scene_count: impactedScenes.length,
-        direct_scene_count:   directCount,
-        propagated_scene_count: impactedScenes.length - directCount,
+        project_id:             projectId,
+        action:                 "selective_regeneration_plan",
+        ok:                     true,
+        recommended_scope:      plan.recommended_scope,
+        rationale:              plan.rationale,
+        source_units:           plan.source_units,
+        direct_axes:            plan.direct_axes,
+        propagated_axes:        plan.propagated_axes,
+        impacted_scenes:        plan.impacted_scenes,
+        impacted_scene_count:   plan.impacted_scene_count,
+        direct_scene_count:     plan.direct_scene_count,
+        propagated_scene_count: plan.propagated_scene_count,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // ── execute_selective_regeneration — Stage 1: Dry-Run ────────────────────────
+    //
+    // STAGE 1 (current): dry-run only.
+    //   • Recomputes the regeneration plan server-side (never trusts client plan)
+    //   • Runs NDG baseline (at_risk_scene_count before any writes)
+    //   • Validates scope — aborts for no_risk / propagated_only / no_scenes
+    //   • Sequences target scenes deterministically via axis sequence ranks
+    //   • Inserts regeneration_runs row (status='pending', meta_json.dry_run=true)
+    //   • Returns dry-run payload — NO LLM calls, NO scene_graph_versions writes
+    //
+    // Stage 2 will add: status='running', LLM generation loop, version inserts,
+    //   NDG post-validation, status terminal transitions.
+    if (action === "execute_selective_regeneration") {
+      const { projectId, unitKeys, dryRun = true } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // ── Step 1: Auth check — reject if no userId ─────────────────────────
+      // userId is extracted by the auth block above serve() before this point.
+      // For service-role callers (lara-db-proxy) userId may be null — allowed.
+      // For authenticated users, userId must be present.
+      if (!userId && actor !== "service_role") {
+        return new Response(JSON.stringify({
+          project_id:   projectId,
+          action:       "execute_selective_regeneration",
+          ok:           false,
+          abort:        true,
+          abort_reason: "unauthorized",
+          note:         "Authentication required to execute regeneration",
+        }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 2: Concurrency guard ─────────────────────────────────────────
+      // Abort if another run is currently 'running' for this project.
+      const { data: activeRuns } = await supabase
+        .from("regeneration_runs")
+        .select("id,status")
+        .eq("project_id", projectId)
+        .eq("status", "running")
+        .limit(1);
+
+      if (activeRuns && activeRuns.length > 0) {
+        return new Response(JSON.stringify({
+          project_id:   projectId,
+          action:       "execute_selective_regeneration",
+          ok:           false,
+          abort:        true,
+          abort_reason: "already_running",
+          note:         `A regeneration run is already in progress for this project (run_id: ${activeRuns[0].id})`,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 3: NDG baseline ──────────────────────────────────────────────
+      // Stage 1: derive ndg_pre_at_risk_count from narrative_units directly.
+      // (Full ndg_project_graph load added in Stage 2 when it matters for validation.)
+      // Count scenes in scene_spine_links whose axis_key maps to a stale/contradicted unit.
+      const { data: staleUnitsRaw } = await supabase
+        .from("narrative_units")
+        .select("unit_key,unit_type,status")
+        .eq("project_id", projectId)
+        .in("status", ["contradicted", "stale"]);
+
+      const staleAxes: string[] = ((staleUnitsRaw || []) as any[]).map((u: any) => {
+        const parts = (u.unit_key as string).split("::");
+        return parts.length >= 2 ? parts[parts.length - 1] : null;
+      }).filter(Boolean) as string[];
+
+      const propagatedForBaseline = computePropagatedRisk(staleAxes as SpineAxis[]);
+      const allBaselineAxes = new Set([
+        ...staleAxes,
+        ...propagatedForBaseline.flatMap(pr => pr.downstream_axes),
+      ]);
+
+      let ndgPreAtRiskCount = 0;
+      if (allBaselineAxes.size > 0) {
+        const { data: baselineLinks } = await supabase
+          .from("scene_spine_links")
+          .select("scene_id")
+          .eq("project_id", projectId)
+          .in("axis_key", [...allBaselineAxes]);
+        ndgPreAtRiskCount = new Set(((baselineLinks || []) as any[]).map((r: any) => r.scene_id)).size;
+      }
+
+      // ── Step 4: Recompute regeneration plan (server-side, never trusted from client) ─
+      const plan = await computeSelectiveRegenerationPlanHelper(
+        supabase, projectId, unitKeys ?? null
+      );
+
+      // ── Step 5: Scope validation ──────────────────────────────────────────
+      const ABORT_SCOPES = new Set(["no_risk", "no_scene_links", "propagated_only", "no_scene_impact"]);
+      if (ABORT_SCOPES.has(plan.recommended_scope)) {
+        const ABORT_REASON_MAP: Record<string, string> = {
+          no_risk:        "no_risk",
+          no_scene_links: "no_scene_links",
+          propagated_only: "propagated_only",
+          no_scene_impact: "no_scenes",
+        };
+        return new Response(JSON.stringify({
+          project_id:   projectId,
+          action:       "execute_selective_regeneration",
+          ok:           false,
+          abort:        true,
+          abort_reason: ABORT_REASON_MAP[plan.recommended_scope] ?? "no_risk",
+          note:         plan.rationale,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      if (plan.impacted_scene_count === 0) {
+        return new Response(JSON.stringify({
+          project_id:   projectId,
+          action:       "execute_selective_regeneration",
+          ok:           false,
+          abort:        true,
+          abort_reason: "no_scenes",
+          note:         "No impacted scenes identified — nothing to regenerate",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 6: Derive rewrite targets (direct risk only for Stage 1) ─────
+      const directOnlyScenes = plan.impacted_scenes.filter(
+        (s: any) => s.risk_source === "direct"
+      );
+
+      // ── Step 7: Sequence scenes deterministically ─────────────────────────
+      // Sequence axes via sequenceRewriteTargets, then sort scenes by
+      // (axis_sequence_rank ASC, scene_key ASC) for deterministic order.
+      const axisRankMap = new Map<string, number>(
+        (plan.source_units || []).map((u: any) => [u.axis, u.sequence_rank as number])
+      );
+
+      const targetScenes = directOnlyScenes
+        .map((s: any) => ({
+          scene_id:      s.scene_id   as string,
+          scene_key:     s.scene_key  as string,
+          slugline:      s.slugline   as string | null,
+          axis_key:      s.axis_key   as string,
+          risk_reason:   s.risk_reason as string,
+          _axis_rank:    axisRankMap.get(s.axis_key) ?? 99,
+        }))
+        .sort((a: any, b: any) => {
+          if (a._axis_rank !== b._axis_rank) return a._axis_rank - b._axis_rank;
+          return a.scene_key.localeCompare(b.scene_key);
+        })
+        .map((s: any, i: number) => {
+          const { _axis_rank: _, ...rest } = s;
+          return { ...rest, order: i + 1 };
+        });
+
+      // ── Step 8: Create regeneration_runs record ───────────────────────────
+      const { data: runRow, error: runInsertErr } = await supabase
+        .from("regeneration_runs")
+        .insert({
+          project_id:            projectId,
+          triggered_by:          userId ?? null,
+          source_unit_keys:      (plan.source_units || []).map((u: any) => u.unit_key),
+          source_axes:           plan.direct_axes,
+          recommended_scope:     plan.recommended_scope,
+          target_scene_ids:      targetScenes.map((s: any) => s.scene_id),
+          target_scene_count:    targetScenes.length,
+          status:                "pending",
+          ndg_pre_at_risk_count: ndgPreAtRiskCount,
+          meta_json:             { dry_run: dryRun, stage: 1 },
+        })
+        .select("id")
+        .single();
+
+      if (runInsertErr || !runRow) {
+        console.error("[dev-engine-v2] execute_selective_regeneration: failed to create run record", runInsertErr?.message);
+        throw new Error(`Failed to create regeneration_runs record: ${runInsertErr?.message ?? "unknown"}`);
+      }
+
+      const runId = runRow.id as string;
+
+      console.log("[dev-engine-v2] execute_selective_regeneration dry-run complete", {
+        project_id:         projectId,
+        run_id:             runId,
+        recommended_scope:  plan.recommended_scope,
+        target_scene_count: targetScenes.length,
+        ndg_pre_at_risk:    ndgPreAtRiskCount,
+        dry_run:            dryRun,
+      });
+
+      // ── Step 9: Return dry-run payload ────────────────────────────────────
+      // No scene_graph_versions writes. No LLM calls. No NDG post-validation.
+      return new Response(JSON.stringify({
+        project_id:             projectId,
+        action:                 "execute_selective_regeneration",
+        ok:                     true,
+        dry_run:                dryRun,
+        run_id:                 runId,
+        recommended_scope:      plan.recommended_scope,
+        rationale:              plan.rationale,
+        source_units:           plan.source_units,
+        direct_axes:            plan.direct_axes,
+        target_scene_count:     targetScenes.length,
+        target_scenes:          targetScenes,
+        ndg_pre_at_risk_count:  ndgPreAtRiskCount,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

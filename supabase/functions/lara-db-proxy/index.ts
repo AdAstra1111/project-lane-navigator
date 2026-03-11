@@ -1009,6 +1009,36 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "call_execute_selective_regeneration": {
+        // Calls dev-engine-v2 execute_selective_regeneration action with service role auth.
+        // Stage 1: dry-run only (dryRun defaults to true).
+        // Returns run_id + target_scenes + ndg_pre_at_risk_count. No scene writes.
+        // Optional: unit_keys[] — scope to specific unit keys.
+        // Optional: dry_run: false — Stage 2 execution (not yet implemented).
+        const { project_id: esrPid, unit_keys: esrUnitKeys, dry_run: esrDryRun = true } = params;
+        if (!esrPid) throw new Error("project_id required");
+        const devEngineUrl = `${supabaseUrl}/functions/v1/dev-engine-v2`;
+        const esrBody: Record<string, unknown> = {
+          action: "execute_selective_regeneration",
+          projectId: esrPid,
+          dryRun: esrDryRun,
+        };
+        if (Array.isArray(esrUnitKeys) && esrUnitKeys.length > 0) {
+          esrBody.unitKeys = esrUnitKeys;
+        }
+        const esrResp = await fetch(devEngineUrl, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+          body:    JSON.stringify(esrBody),
+        });
+        if (!esrResp.ok) {
+          const errText = await esrResp.text();
+          throw new Error(`dev-engine-v2 execute_selective_regeneration failed (${esrResp.status}): ${errText.slice(0, 200)}`);
+        }
+        result = await esrResp.json();
+        break;
+      }
+
       case "call_selective_regeneration_plan": {
         // Calls dev-engine-v2 selective_regeneration_plan action with service role auth.
         // Read-only. Returns recommended scope + impacted scenes for stale/contradicted units.
