@@ -504,6 +504,99 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "schema_drift_audit": {
+        // Comprehensive production schema snapshot for drift audit.
+        // Returns tables, columns, indexes, constraints, functions, RLS, triggers, views.
+        const dbUrlS = Deno.env.get("SUPABASE_DB_URL");
+        if (!dbUrlS) throw new Error("SUPABASE_DB_URL not available");
+        const sqlS = postgres(dbUrlS, { max: 1 });
+        try {
+          // 1. All tables in public schema
+          const tables = await sqlS`
+            SELECT tablename, tableowner,
+              (SELECT COUNT(*)::int FROM information_schema.columns c
+               WHERE c.table_schema='public' AND c.table_name=t.tablename) AS col_count
+            FROM pg_tables t WHERE schemaname='public' ORDER BY tablename`;
+
+          // 2. Columns for priority tables
+          const cols = await sqlS`
+            SELECT table_name, column_name, data_type, is_nullable,
+                   column_default, character_maximum_length,
+                   is_generated, identity_generation
+            FROM information_schema.columns
+            WHERE table_schema='public'
+              AND table_name IN (
+                'projects','project_documents','project_document_versions',
+                'screenplay_intake_runs','screenplay_intake_stage_runs',
+                'scene_graph_scenes','scene_graph_versions','scene_graph_order',
+                'scene_graph_snapshots','scene_spine_links','script_unit_links',
+                'narrative_units','scene_blueprint_bindings',
+                'scene_graph_actions','scene_graph_patch_queue',
+                'narrative_scene_entity_links','scene_roles_overrides',
+                'narrative_entities'
+              )
+            ORDER BY table_name, ordinal_position`;
+
+          // 3. Indexes and constraints
+          const indexes = await sqlS`
+            SELECT schemaname, tablename, indexname, indexdef
+            FROM pg_indexes WHERE schemaname='public'
+            ORDER BY tablename, indexname`;
+
+          const constraints = await sqlS`
+            SELECT tc.table_name, tc.constraint_name, tc.constraint_type,
+                   pg_get_constraintdef(pgc.oid) AS condef
+            FROM information_schema.table_constraints tc
+            JOIN pg_constraint pgc ON pgc.conname=tc.constraint_name
+            WHERE tc.table_schema='public'
+              AND tc.constraint_type IN ('UNIQUE','CHECK','FOREIGN KEY','PRIMARY KEY')
+            ORDER BY tc.table_name, tc.constraint_type, tc.constraint_name`;
+
+          // 4. RLS enabled tables
+          const rls = await sqlS`
+            SELECT relname AS table_name, relrowsecurity AS rls_enabled, relforcerowsecurity AS rls_forced
+            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='public' AND c.relkind='r'
+            ORDER BY relname`;
+
+          const policies = await sqlS`
+            SELECT tablename, policyname, permissive, roles, cmd, qual IS NOT NULL AS has_using, with_check IS NOT NULL AS has_check
+            FROM pg_policies WHERE schemaname='public'
+            ORDER BY tablename, policyname`;
+
+          // 5. Functions/RPCs in public schema
+          const funcs = await sqlS`
+            SELECT p.proname AS func_name,
+                   pg_get_function_arguments(p.oid) AS args,
+                   t.typname AS return_type,
+                   p.prosecdef AS security_definer,
+                   LEFT(p.prosrc, 80) AS body_snippet
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid=p.pronamespace
+            JOIN pg_type t ON t.oid=p.prorettype
+            WHERE n.nspname='public'
+            ORDER BY p.proname`;
+
+          // 6. Views
+          const views = await sqlS`
+            SELECT viewname, definition
+            FROM pg_views WHERE schemaname='public' ORDER BY viewname`;
+
+          // 7. Triggers
+          const triggers = await sqlS`
+            SELECT trigger_name, event_object_table, event_manipulation,
+                   action_timing, action_statement
+            FROM information_schema.triggers
+            WHERE trigger_schema='public'
+            ORDER BY event_object_table, trigger_name`;
+
+          result = { tables, cols, indexes, constraints, rls, policies, funcs, views, triggers };
+        } finally {
+          await sqlS.end();
+        }
+        break;
+      }
+
       case "audit_null_scene_keys": {
         // Read-only: count and sample NULL scene_key rows across all projects.
         // Pre-flight check before applying NOT NULL constraint.
