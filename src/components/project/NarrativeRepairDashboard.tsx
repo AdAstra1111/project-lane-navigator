@@ -89,7 +89,7 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
   const { execute, isExecuting, result, error, reset } = useExecuteSelectiveRegeneration(projectId);
   const { data: sluglines } = useSceneSluglines(projectId);
   const { data: runHistory, isLoading: historyLoading, refetch: refetchHistory } = useRegenerationRunHistory(projectId);
-  const { data: autopilotData, isLoading: autopilotLoading, refresh: refreshAutopilot } = useAutopilotRepairDetection(projectId);
+  const { data: monitorData, isLoading: monitorLoading, refresh: refreshMonitor } = useNarrativeMonitor(projectId);
   const diffHook = useSceneVersionDiff(projectId);
   const slugMap = sluglines ?? new Map<string, string>();
 
