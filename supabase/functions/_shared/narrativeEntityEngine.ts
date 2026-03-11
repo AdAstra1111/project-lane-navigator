@@ -266,6 +266,255 @@ export async function syncSpineEntities(
  *
  * Fail-safe: no matching active entities → no-op, returns { marked: 0 }.
  */
+// ── NIT v1.1: Protagonist linkage + relations ─────────────────────────────
+
+/**
+ * Derives the single protagonist character entity for a project.
+ *
+ * Returns the entity_key and id of the character where is_protagonist=true.
+ * If zero or multiple protagonists found → returns null (fail-safe — do not guess).
+ * Deterministic: result is always canon-derived, never inferred.
+ */
+export async function deriveProtagonistCharacter(
+  supabase: SupabaseClient,
+  projectId: string,
+): Promise<{ entity_key: string; id: string } | null> {
+  const { data: chars, error } = await supabase
+    .from("narrative_entities")
+    .select("id, entity_key, meta_json")
+    .eq("project_id", projectId)
+    .eq("entity_type", "character")
+    .eq("status", "active");
+
+  if (error || !chars) {
+    console.warn("[NIT:v1.1] deriveProtagonistCharacter fetch error:", error?.message);
+    return null;
+  }
+
+  const protagonists = chars.filter(c => c.meta_json?.is_protagonist === true);
+  if (protagonists.length !== 1) {
+    // Zero or multiple — fail-safe: do not guess
+    if (protagonists.length > 1) {
+      console.warn(`[NIT:v1.1] ${protagonists.length} protagonists found — skipping linkage`);
+    }
+    return null;
+  }
+
+  return { entity_key: protagonists[0].entity_key, id: protagonists[0].id };
+}
+
+/**
+ * Derives the single antagonist character entity for a project.
+ *
+ * Returns entity where role contains 'antagonist' (case-insensitive).
+ * If zero or multiple → returns null (fail-safe).
+ */
+async function deriveAntagonistCharacter(
+  supabase: SupabaseClient,
+  projectId: string,
+): Promise<{ entity_key: string; id: string } | null> {
+  const { data: chars, error } = await supabase
+    .from("narrative_entities")
+    .select("id, entity_key, meta_json")
+    .eq("project_id", projectId)
+    .eq("entity_type", "character")
+    .eq("status", "active");
+
+  if (error || !chars) return null;
+
+  const antagonists = chars.filter(c =>
+    /antagonist/i.test(c.meta_json?.canon_role ?? "")
+  );
+  if (antagonists.length !== 1) return null;
+
+  return { entity_key: antagonists[0].entity_key, id: antagonists[0].id };
+}
+
+/**
+ * Links ARC_PROTAGONIST to the protagonist character by updating
+ * meta_json.linked_character_key.
+ *
+ * Idempotent: calling multiple times with the same protagonist has no effect.
+ * Fail-safe: if protagonist is null → no-op.
+ */
+export async function linkProtagonistArc(
+  supabase: SupabaseClient,
+  projectId: string,
+): Promise<{ linked: boolean; character_key?: string }> {
+  const protagonist = await deriveProtagonistCharacter(supabase, projectId);
+  if (!protagonist) return { linked: false };
+
+  // Fetch ARC_PROTAGONIST to get current meta_json
+  const { data: arc, error: arcErr } = await supabase
+    .from("narrative_entities")
+    .select("id, meta_json")
+    .eq("project_id", projectId)
+    .eq("entity_key", ARC_PROTAGONIST_KEY)
+    .maybeSingle();
+
+  if (arcErr || !arc) {
+    console.warn("[NIT:v1.1] linkProtagonistArc: ARC_PROTAGONIST not found");
+    return { linked: false };
+  }
+
+  // Already linked to same key — idempotent, no write needed
+  if (arc.meta_json?.linked_character_key === protagonist.entity_key) {
+    return { linked: true, character_key: protagonist.entity_key };
+  }
+
+  const { error: upErr } = await supabase
+    .from("narrative_entities")
+    .update({
+      meta_json: { ...arc.meta_json, linked_character_key: protagonist.entity_key },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", arc.id);
+
+  if (upErr) {
+    console.warn("[NIT:v1.1] linkProtagonistArc update error:", upErr.message);
+    return { linked: false };
+  }
+
+  console.log(`[NIT:v1.1] ARC_PROTAGONIST linked → ${protagonist.entity_key}`);
+  return { linked: true, character_key: protagonist.entity_key };
+}
+
+/**
+ * Upserts a single relation between two entities.
+ * Idempotent: ON CONFLICT (source_entity_id, target_entity_id, relation_type) DO NOTHING.
+ */
+async function upsertRelation(
+  supabase: SupabaseClient,
+  projectId: string,
+  sourceId: string,
+  targetId: string,
+  relationType: "drives_arc" | "subject_of_conflict" | "opposes",
+): Promise<boolean> {
+  const { error } = await supabase
+    .from("narrative_entity_relations")
+    .upsert(
+      {
+        project_id:       projectId,
+        source_entity_id: sourceId,
+        target_entity_id: targetId,
+        relation_type:    relationType,
+        source_kind:      "canon_sync",
+        confidence:       1.0,
+        updated_at:       new Date().toISOString(),
+      },
+      { onConflict: "source_entity_id,target_entity_id,relation_type", ignoreDuplicates: true },
+    );
+
+  if (error) {
+    console.warn(`[NIT:v1.1] upsertRelation ${relationType} error:`, error.message);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Derives and upserts the minimal deterministic entity relations.
+ *
+ * Relations derived from canon only:
+ *   drives_arc          protagonist CHAR → ARC_PROTAGONIST
+ *   subject_of_conflict protagonist CHAR → CONFLICT_PRIMARY
+ *   opposes             antagonist CHAR  → protagonist CHAR
+ *
+ * All relations: source_kind='canon_sync', confidence=1.0.
+ *
+ * Fail-safes:
+ *   - protagonist missing → skip all three relations
+ *   - antagonist missing  → skip 'opposes' only
+ *   - ARC_PROTAGONIST missing → skip drives_arc
+ *   - CONFLICT_PRIMARY missing → skip subject_of_conflict
+ */
+export async function deriveEntityRelations(
+  supabase: SupabaseClient,
+  projectId: string,
+): Promise<{ relations_created: number; skipped_reason?: string }> {
+  const protagonist = await deriveProtagonistCharacter(supabase, projectId);
+  if (!protagonist) {
+    return { relations_created: 0, skipped_reason: "no_unambiguous_protagonist" };
+  }
+
+  // Fetch ARC and CONFLICT entity ids
+  const { data: structural, error: structErr } = await supabase
+    .from("narrative_entities")
+    .select("id, entity_key")
+    .eq("project_id", projectId)
+    .in("entity_key", [ARC_PROTAGONIST_KEY, CONFLICT_PRIMARY_KEY]);
+
+  if (structErr) {
+    console.warn("[NIT:v1.1] deriveEntityRelations fetch structural error:", structErr.message);
+    return { relations_created: 0, skipped_reason: "fetch_error" };
+  }
+
+  const arcEntity      = structural?.find(e => e.entity_key === ARC_PROTAGONIST_KEY);
+  const conflictEntity = structural?.find(e => e.entity_key === CONFLICT_PRIMARY_KEY);
+  const antagonist     = await deriveAntagonistCharacter(supabase, projectId);
+
+  let created = 0;
+
+  // drives_arc: protagonist → ARC_PROTAGONIST
+  if (arcEntity) {
+    const ok = await upsertRelation(supabase, projectId, protagonist.id, arcEntity.id, "drives_arc");
+    if (ok) created++;
+  }
+
+  // subject_of_conflict: protagonist → CONFLICT_PRIMARY
+  if (conflictEntity) {
+    const ok = await upsertRelation(supabase, projectId, protagonist.id, conflictEntity.id, "subject_of_conflict");
+    if (ok) created++;
+  }
+
+  // opposes: antagonist → protagonist
+  if (antagonist) {
+    const ok = await upsertRelation(supabase, projectId, antagonist.id, protagonist.id, "opposes");
+    if (ok) created++;
+  }
+
+  if (created > 0) {
+    console.log(`[NIT:v1.1] derived ${created} relation(s) for project ${projectId}`);
+  }
+
+  return { relations_created: created };
+}
+
+// ── T1 with v1.1 enrichment ───────────────────────────────────────────────
+
+/**
+ * Full NIT sync: T1 (characters) + T2/T3 (spine) + protagonist linkage + relations.
+ * Convenience wrapper for call sites that want the complete sync in one call.
+ * Idempotent. Fail-safe throughout.
+ */
+export async function syncAllEntities(
+  supabase: SupabaseClient,
+  projectId: string,
+  canonJson: Record<string, any> | null | undefined,
+  spineJson: Record<string, any> | null | undefined,
+): Promise<{
+  characters_synced: number;
+  arc_conflict_synced: number;
+  protagonist_linked: boolean;
+  protagonist_character_key: string | null;
+  relations_created: number;
+}> {
+  const t1   = await syncCanonEntities(supabase, projectId, canonJson);
+  const t2t3 = await syncSpineEntities(supabase, projectId, spineJson);
+  const link = await linkProtagonistArc(supabase, projectId);
+  const rels = await deriveEntityRelations(supabase, projectId);
+
+  return {
+    characters_synced:         t1.synced,
+    arc_conflict_synced:       t2t3.synced,
+    protagonist_linked:        link.linked,
+    protagonist_character_key: link.character_key ?? null,
+    relations_created:         rels.relations_created,
+  };
+}
+
+// ── T4 ────────────────────────────────────────────────────────────────────
+
 export async function markEntitiesStaleOnAmendment(
   supabase: SupabaseClient,
   projectId: string,

@@ -14,8 +14,7 @@
 import { serve }        from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import {
-  syncCanonEntities,
-  syncSpineEntities,
+  syncAllEntities,
 } from "../_shared/narrativeEntityEngine.ts";
 
 const corsHeaders = {
@@ -87,15 +86,10 @@ serve(async (req) => {
 
     const spineJson = projectRow?.narrative_spine_json ?? null;
 
-    // 3. T1 — sync character entities from canon
-    const t1 = await syncCanonEntities(supabase, projectId, canonJson);
+    // 3. Full sync: T1 (characters) + T2/T3 (spine) + protagonist linkage + relations
+    const syncResult = await syncAllEntities(supabase, projectId, canonJson, spineJson);
 
-    // 4. T2+T3 — sync arc + conflict entities from spine
-    const t2t3 = await syncSpineEntities(supabase, projectId, spineJson);
-
-    const totalSynced = t1.synced + t2t3.synced;
-
-    // 5. Return full entity list post-sync
+    // 4. Return full entity list + relations post-sync
     const { data: entities } = await supabase
       .from("narrative_entities")
       .select("*")
@@ -103,18 +97,26 @@ serve(async (req) => {
       .order("entity_type")
       .order("entity_key");
 
+    const { data: relations } = await supabase
+      .from("narrative_entity_relations")
+      .select("source_entity_id, target_entity_id, relation_type, source_kind, confidence")
+      .eq("project_id", projectId);
+
     return new Response(JSON.stringify({
-      project_id:              projectId,
-      action:                  "sync",
-      characters_synced:       t1.synced,
-      arc_conflict_synced:     t2t3.synced,
-      total_synced:            totalSynced,
-      entity_count:            (entities || []).length,
-      entities:                entities || [],
-      canon_json_present:      !!canonJson,
-      spine_json_present:      !!spineJson,
-      t1_error:                t1.error ?? null,
-      t2t3_error:              t2t3.error ?? null,
+      project_id:                projectId,
+      action:                    "sync",
+      characters_synced:         syncResult.characters_synced,
+      arc_conflict_synced:       syncResult.arc_conflict_synced,
+      total_synced:              syncResult.characters_synced + syncResult.arc_conflict_synced,
+      protagonist_linked:        syncResult.protagonist_linked,
+      protagonist_character_key: syncResult.protagonist_character_key,
+      relations_created:         syncResult.relations_created,
+      entity_count:              (entities || []).length,
+      relation_count:            (relations || []).length,
+      entities:                  entities || [],
+      relations:                 relations || [],
+      canon_json_present:        !!canonJson,
+      spine_json_present:        !!spineJson,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err: any) {

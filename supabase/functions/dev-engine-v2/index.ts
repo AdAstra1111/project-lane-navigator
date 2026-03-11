@@ -23,6 +23,7 @@ import {
 } from "../_shared/styleDeviation.ts";
 import { buildEffectiveProfileContextBlock } from "../_shared/effective-profile-context.ts";
 import { computeDefaultResolverHash, createVersion } from "../_shared/doc-os.ts";
+import { syncAllEntities } from "../_shared/narrativeEntityEngine.ts";
 
 // ── Constraint Pack: unified loader for all generation prompts ──
 const CONSTRAINT_PACK_BUDGET = 6000;
@@ -12724,6 +12725,12 @@ ${scenesForPrompt}`;
       await supabase.from("project_canon")
         .upsert({ project_id: projectId, canon_json: canonData, updated_by: user.id }, { onConflict: "project_id" });
 
+      // NIT v1.1: T1 auto-sync after canon_os_initialize write (fail-safe, non-blocking)
+      try {
+        const { data: spineRow } = await supabase.from("projects").select("narrative_spine_json").eq("id", projectId).maybeSingle();
+        await syncAllEntities(supabase, projectId, canonData, spineRow?.narrative_spine_json ?? null);
+      } catch (nitErr: any) { console.warn("[dev-engine-v2] NIT sync error (canon_os_initialize):", nitErr.message); }
+
       // Fetch the version that was auto-created by trigger
       const { data: version } = await supabase.from("project_canon_versions")
         .select("*").eq("project_id", projectId)
@@ -12760,6 +12767,12 @@ ${scenesForPrompt}`;
       await supabase.from("project_canon")
         .update({ canon_json: merged, updated_by: user.id })
         .eq("project_id", projectId);
+
+      // NIT v1.1: T1 auto-sync after canon_os_update write (fail-safe, non-blocking)
+      try {
+        const { data: spineRow } = await supabase.from("projects").select("narrative_spine_json").eq("id", projectId).maybeSingle();
+        await syncAllEntities(supabase, projectId, merged, spineRow?.narrative_spine_json ?? null);
+      } catch (nitErr: any) { console.warn("[dev-engine-v2] NIT sync error (canon_os_update):", nitErr.message); }
 
       // Get new version and update pointer
       const { data: version } = await supabase.from("project_canon_versions")
@@ -12892,6 +12905,12 @@ Only output the missing fields. Do not include fields that are not in the MISSIN
       await supabase.from("project_canon")
         .update({ canon_json: merged, updated_by: user.id })
         .eq("project_id", projectId);
+
+      // NIT v1.1: T1 auto-sync after canon_os_extract_from_seed_docs write (fail-safe, non-blocking)
+      try {
+        const { data: spineRow } = await supabase.from("projects").select("narrative_spine_json").eq("id", projectId).maybeSingle();
+        await syncAllEntities(supabase, projectId, merged, spineRow?.narrative_spine_json ?? null);
+      } catch (nitErr: any) { console.warn("[dev-engine-v2] NIT sync error (canon_os_extract_from_seed_docs):", nitErr.message); }
 
       const { data: version } = await supabase.from("project_canon_versions")
         .select("*").eq("project_id", projectId)
