@@ -25,6 +25,7 @@ import { buildEffectiveProfileContextBlock } from "../_shared/effective-profile-
 import { computeDefaultResolverHash, createVersion } from "../_shared/doc-os.ts";
 import { syncAllEntities, syncSceneEntityLinksForProject, syncDialogueCharactersForProject } from "../_shared/narrativeEntityEngine.ts";
 import { computePropagatedRisk } from "../_shared/narrativeDependencyGraph.ts";
+import { buildNDGProjectGraph, summariseNDGGraph, type NDGInputData } from "../_shared/ndgProjectGraph.ts";
 import { classifySceneRoles, type SceneForClassification } from "../_shared/sceneRoleClassifier.ts";
 import { classifySceneGraphState } from "../_shared/sceneGraphClassifier.ts";
 import type { SpineAxis } from "../_shared/narrativeSpine.ts";
@@ -8414,6 +8415,126 @@ Return ONLY valid JSON:
         scene_risks: sceneRisks,
         direct_risk_axes:     [...directRiskAxes.keys()],
         propagated_risk_axes: [...allRiskAxes.keys()].filter(a => !directRiskAxes.has(a)),
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── NDG v1: ndg_project_graph ─────────────────────────────────────────────
+    //
+    // Read-only graph projection over all narrative dependency surfaces.
+    //
+    // Node types: spine_axis (registry), narrative_unit, narrative_entity, scene
+    // Edge types: axis_downstream_of_axis (canonical registry),
+    //             unit_covers_axis, entity_relates_to_entity,
+    //             scene_linked_to_axis, scene_contains_entity,
+    //             unit_impacts_scene (stale/contradicted units only)
+    //
+    // No writes. Fail-closed: missing project or no scene graph → diagnostic.
+    if (action === "ndg_project_graph") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // ── 1. Load all raw graph data in parallel ──────────────────────────
+      const [unitRes, entityRes, sceneRes] = await Promise.all([
+        supabase
+          .from("narrative_units")
+          .select("id,unit_key,unit_type,status,payload_json,source_doc_type,source_doc_version_id,confidence")
+          .eq("project_id", projectId),
+        supabase
+          .from("narrative_entities")
+          .select("id,entity_key,canonical_name,entity_type,source_kind,status")
+          .eq("project_id", projectId),
+        supabase
+          .from("scene_graph_scenes")
+          .select("id,scene_key,deprecated_at")
+          .eq("project_id", projectId),
+      ]);
+
+      if (unitRes.error)   throw unitRes.error;
+      if (entityRes.error) throw entityRes.error;
+      if (sceneRes.error)  throw sceneRes.error;
+
+      const entityIds = ((entityRes.data || []) as any[]).map((e: any) => e.id as string);
+      const sceneIds  = ((sceneRes.data  || []) as any[])
+        .filter((s: any) => !s.deprecated_at)
+        .map((s: any) => s.id as string);
+
+      // ── 2. Load relational data (entity IDs + scene IDs known) ──────────
+      const [relRes, spineLinkRes, entityLinkRes] = await Promise.all([
+        entityIds.length > 0
+          ? supabase
+              .from("narrative_entity_relations")
+              .select("id,source_entity_id,target_entity_id,relation_type,source_kind")
+              .in("source_entity_id", entityIds)
+          : Promise.resolve({ data: [], error: null }),
+        supabase
+          .from("scene_spine_links")
+          .select("scene_id,axis_key")
+          .eq("project_id", projectId)
+          .not("axis_key", "is", null),
+        sceneIds.length > 0
+          ? supabase
+              .from("narrative_scene_entity_links")
+              .select("scene_id,entity_id,relation_type,confidence")
+              .eq("project_id", projectId)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+
+      // Non-fatal if relational loads partially fail — NDG emits fewer edges
+      if (relRes.error)        console.warn("[dev-engine-v2] ndg: entity_relations load failed:", relRes.error.message);
+      if (spineLinkRes.error)  console.warn("[dev-engine-v2] ndg: spine_links load failed:", spineLinkRes.error.message);
+      if (entityLinkRes.error) console.warn("[dev-engine-v2] ndg: entity_links load failed:", entityLinkRes.error.message);
+
+      // Enrich scene_spine_links with scene_key from scenes data
+      const sceneKeyById = new Map<string, string>();
+      for (const s of (sceneRes.data || []) as any[]) {
+        if (!s.deprecated_at) sceneKeyById.set(s.id, s.scene_key);
+      }
+      const enrichedSpineLinks = ((spineLinkRes.data || []) as any[]).map((r: any) => ({
+        scene_id:  r.scene_id as string,
+        axis_key:  r.axis_key as string,
+        scene_key: sceneKeyById.get(r.scene_id) ?? null,
+      })).filter((r: any) => sceneKeyById.has(r.scene_id)); // only active scenes
+
+      // ── 3. Prerequisite check ───────────────────────────────────────────
+      const scenesActive = (sceneRes.data || []).filter((s: any) => !s.deprecated_at);
+      if (scenesActive.length === 0) {
+        return new Response(JSON.stringify({
+          project_id: projectId,
+          action:     "ndg_project_graph",
+          ok:         false,
+          diagnostic: "no_active_scenes",
+          note:       "No active scene graph found — run screenplay intake first",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── 4. Build graph via shared pure function ─────────────────────────
+      const ndgInput: NDGInputData = {
+        narrative_units:    (unitRes.data    || []) as any[],
+        narrative_entities: (entityRes.data  || []) as any[],
+        entity_relations:   (relRes.data     || []) as any[],
+        scene_spine_links:  enrichedSpineLinks,
+        scene_entity_links: (entityLinkRes.data || []) as any[],
+        scenes:             (sceneRes.data   || []) as any[],
+      };
+
+      const graph   = buildNDGProjectGraph(ndgInput);
+      const summary = summariseNDGGraph(graph);
+
+      console.log("[dev-engine-v2] ndg_project_graph complete", {
+        project_id:  projectId,
+        node_count:  graph.meta.node_count,
+        edge_count:  graph.meta.edge_count,
+        at_risk:     graph.meta.at_risk_scene_count,
+      });
+
+      return new Response(JSON.stringify({
+        project_id:   projectId,
+        action:       "ndg_project_graph",
+        ok:           true,
+        node_count:   graph.meta.node_count,
+        edge_count:   graph.meta.edge_count,
+        summary,
+        graph,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
