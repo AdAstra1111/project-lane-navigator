@@ -1244,14 +1244,14 @@ export async function syncDialogueCharactersForProject(
 
   if (entErr || !entities || (entities as any[]).length === 0) {
     console.log("[NIT:Phase2] no active character entities — no-op");
-    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+    return { scenes_processed: 0, links_upserted: 0, characters_written: 0, per_scene: [] };
   }
 
   // 2. Build heading → entity_id lookup map
   const headingMap = buildDialogueHeadingMap(entities as any[]);
   if (headingMap.size === 0) {
     console.log("[NIT:Phase2] heading map empty (no derivable shorthand forms) — no-op");
-    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+    return { scenes_processed: 0, links_upserted: 0, characters_written: 0, per_scene: [] };
   }
 
   // 3. Load active scenes
@@ -1263,7 +1263,7 @@ export async function syncDialogueCharactersForProject(
 
   if (sceneErr || !scenes || (scenes as any[]).length === 0) {
     console.log("[NIT:Phase2] no active scenes — no-op");
-    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+    return { scenes_processed: 0, links_upserted: 0, characters_written: 0, per_scene: [] };
   }
 
   // 4. Load latest version per scene
@@ -1276,7 +1276,7 @@ export async function syncDialogueCharactersForProject(
 
   if (verErr || !versions) {
     console.warn("[NIT:Phase2] version fetch error:", verErr?.message);
-    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+    return { scenes_processed: 0, links_upserted: 0, characters_written: 0, per_scene: [] };
   }
 
   // Dedupe: latest version per scene

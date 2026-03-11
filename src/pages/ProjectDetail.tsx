@@ -71,6 +71,7 @@ import { SimpleProjectView } from '@/components/project/SimpleProjectView';
 import { AdvancedProjectView } from '@/components/project/AdvancedProjectView';
 import { AutoRunSetupPanel } from '@/components/project/AutoRunSetupPanel';
 import { ReverseEngineerCallout } from '@/components/project/ReverseEngineerCallout';
+import { ImportStatusPanel } from '@/components/project/ImportStatusPanel';
 
 
 export default function ProjectDetail() {
@@ -449,6 +450,9 @@ export default function ProjectDetail() {
 
           {/* Auto-Run Setup Panel */}
           <AutoRunSetupPanel project={project} />
+
+          {/* Import Pipeline Status — only renders for script-dropped projects */}
+          <ImportStatusPanel projectId={id} />
 
           {/* Reverse Engineer Callout */}
           <ReverseEngineerCallout projectId={id!} documents={documents} />
