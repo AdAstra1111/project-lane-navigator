@@ -505,6 +505,32 @@ export async function createVersion(
     });
   }
 
+  // ── NIT v2.1: Auto entity mention extraction (fail-closed) ──
+  // Fires for every successfully created version. Character mentions are extracted
+  // deterministically using parseSections + exact canonical_name matching.
+  // Unsupported doc types skip silently. Never throws — version write is never blocked.
+  if (transitionProjectId && newVersion?.id && opts.plaintext) {
+    try {
+      const { extractEntityMentionsForVersion } = await import("./narrativeEntityEngine.ts");
+      const mentionResult = await extractEntityMentionsForVersion(
+        supabase,
+        transitionProjectId,
+        opts.documentId,
+        newVersion.id,
+        key,           // resolved canonical doc type
+        opts.plaintext, // pass directly — skip extra DB round-trip
+      );
+      if (mentionResult.skipped_reason) {
+        console.log(`[doc-os] NIT v2.1 mention sync skipped version=${newVersion.id} doc_type=${key} reason=${mentionResult.skipped_reason}`);
+      } else {
+        console.log(`[doc-os] NIT v2.1 mention sync ok version=${newVersion.id} doc_type=${key} mentions=${mentionResult.mentions_upserted}`);
+      }
+    } catch (nitErr: any) {
+      // Non-fatal: mention extraction failure must never block the pipeline
+      console.warn(`[doc-os] NIT v2.1 mention sync non-fatal error version=${newVersion?.id}: ${nitErr?.message}`);
+    }
+  }
+
   return newVersion;
 }
 

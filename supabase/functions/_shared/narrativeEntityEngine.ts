@@ -625,11 +625,13 @@ export interface ProjectMentionSyncResult {
  * Idempotent: ON CONFLICT ignoreDuplicates=true on (entity_id,version_id,section_key,start_line,match_method).
  */
 export async function extractEntityMentionsForVersion(
-  supabase:   SupabaseClient,
-  projectId:  string,
-  documentId: string,
-  versionId:  string,
-  docType:    string,
+  supabase:          SupabaseClient,
+  projectId:         string,
+  documentId:        string,
+  versionId:         string,
+  docType:           string,
+  /** Optional: pass plaintext directly to skip an extra DB round-trip (used by doc-os hook). */
+  plaintextOverride?: string | null,
 ): Promise<MentionExtractResult> {
 
   // ── 1. Fail-closed: unsupported doc type ──
@@ -637,23 +639,28 @@ export async function extractEntityMentionsForVersion(
     return { mentions_upserted: 0, skipped_reason: `unsupported_doc_type:${docType}` };
   }
 
-  // ── 2. Load plaintext ──
-  const { data: ver, error: vErr } = await supabase
-    .from("project_document_versions")
-    .select("plaintext")
-    .eq("id", versionId)
-    .maybeSingle();
+  // ── 2. Load plaintext (skip DB fetch if caller already has it) ──
+  let plaintext: string | null = plaintextOverride ?? null;
+  if (!plaintext) {
+    const { data: ver, error: vErr } = await supabase
+      .from("project_document_versions")
+      .select("plaintext")
+      .eq("id", versionId)
+      .maybeSingle();
 
-  if (vErr) {
-    console.warn("[NIT:v2] version fetch error:", vErr.message);
-    return { mentions_upserted: 0, skipped_reason: "version_fetch_error" };
+    if (vErr) {
+      console.warn("[NIT:v2] version fetch error:", vErr.message);
+      return { mentions_upserted: 0, skipped_reason: "version_fetch_error" };
+    }
+    plaintext = ver?.plaintext ?? null;
   }
-  if (!ver?.plaintext || ver.plaintext.trim().length === 0) {
+
+  if (!plaintext || plaintext.trim().length === 0) {
     return { mentions_upserted: 0, skipped_reason: "no_plaintext" };
   }
 
   // ── 3. Parse sections (one pass for all entities) ──
-  const sections = parseSections(ver.plaintext, docType);
+  const sections = parseSections(plaintext, docType);
   if (sections.length === 0) {
     return { mentions_upserted: 0, skipped_reason: "no_sections_parsed" };
   }
@@ -677,7 +684,7 @@ export async function extractEntityMentionsForVersion(
   }
 
   // ── 5. Split plaintext into lines (0-indexed, matches SectionBoundary.start_line) ──
-  const lines = ver.plaintext.split("\n");
+  const lines = plaintext.split("\n");
 
   // Pre-compile regex per entity (case-insensitive exact name)
   const entityPatterns = entities.map(e => ({
