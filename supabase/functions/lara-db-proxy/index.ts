@@ -989,6 +989,61 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "get_ndg_project_data": {
+        // Returns all raw data needed to assemble the NDG v1 project graph.
+        // Read-only. Fail-closed: missing data returns empty arrays.
+        const { project_id: ndgPid } = params;
+        if (!ndgPid) throw new Error("project_id required");
+
+        const [nuRes, neRes, nerRes, sslRes, selRes, scRes] = await Promise.all([
+          // narrative_units
+          supabase.from("narrative_units")
+            .select("id,unit_key,unit_type,status,payload_json,source_doc_type,source_doc_version_id,confidence")
+            .eq("project_id", ndgPid),
+          // narrative_entities
+          supabase.from("narrative_entities")
+            .select("id,entity_key,canonical_name,entity_type,source_kind,status")
+            .eq("project_id", ndgPid),
+          // narrative_entity_relations
+          supabase.from("narrative_entity_relations")
+            .select("id,source_entity_id,target_entity_id,relation_type,source_kind")
+            .in("source_entity_id",
+              (await supabase.from("narrative_entities").select("id").eq("project_id", ndgPid)).data?.map((e: any) => e.id) ?? []
+            ),
+          // scene_spine_links (with scene_key via join)
+          supabase.from("scene_spine_links")
+            .select("scene_id,axis_key,scene_graph_scenes!inner(scene_key,deprecated_at)")
+            .eq("project_id", ndgPid)
+            .not("axis_key", "is", null),
+          // narrative_scene_entity_links
+          supabase.from("narrative_scene_entity_links")
+            .select("scene_id,entity_id,relation_type,confidence")
+            .eq("project_id", ndgPid),
+          // scene_graph_scenes
+          supabase.from("scene_graph_scenes")
+            .select("id,scene_key,deprecated_at")
+            .eq("project_id", ndgPid),
+        ]);
+
+        // Flatten scene_spine_links join
+        const spineLinks = ((sslRes.data || []) as any[]).map((r: any) => ({
+          scene_id: r.scene_id,
+          axis_key: r.axis_key,
+          scene_key: r.scene_graph_scenes?.scene_key ?? null,
+          deprecated_at: r.scene_graph_scenes?.deprecated_at ?? null,
+        })).filter((r: any) => !r.deprecated_at);
+
+        result = {
+          narrative_units:    nuRes.data  ?? [],
+          narrative_entities: neRes.data  ?? [],
+          entity_relations:   nerRes.data ?? [],
+          scene_spine_links:  spineLinks,
+          scene_entity_links: selRes.data ?? [],
+          scenes:             scRes.data  ?? [],
+        };
+        break;
+      }
+
       case "get_narrative_units": {
         // Returns narrative_units rows for a project, with optional status filter
         const { project_id, status: statusFilter, limit: nuLim = 50 } = params;
