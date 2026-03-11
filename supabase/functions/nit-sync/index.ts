@@ -17,6 +17,7 @@ import {
   syncAllEntities,
   extractEntityMentionsForVersion,
   extractEntityMentionsForProject,
+  syncSceneEntityLinksForProject,
 } from "../_shared/narrativeEntityEngine.ts";
 
 const corsHeaders = {
@@ -43,6 +44,21 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "projectId is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ── action = 'sync_scene_entity_links' — Scene Identity v1.1 ──
+    // Scans latest scene version content for exact NIT character entity names.
+    // Upserts narrative_scene_entity_links (relation_type='character_present').
+    // Fail-closed: empty scene graph or no NIT entities → no-op, no crash.
+    if (action === "sync_scene_entity_links") {
+      const result = await syncSceneEntityLinksForProject(supabase, projectId);
+      return new Response(JSON.stringify({
+        project_id:       projectId,
+        action:           "sync_scene_entity_links",
+        scenes_processed: result.scenes_processed,
+        links_upserted:   result.links_upserted,
+        per_scene:        result.per_scene,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── action = 'sync_mentions' — extract entity mentions for a project / specific version ──

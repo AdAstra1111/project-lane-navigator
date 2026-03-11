@@ -841,3 +841,160 @@ export async function extractEntityMentionsForProject(
     per_version,
   };
 }
+
+// ── Scene Identity v1.1 ────────────────────────────────────────────────────
+
+export interface SceneEntityLinkResult {
+  scenes_processed: number;
+  links_upserted:   number;
+  per_scene: Array<{
+    scene_id:   string;
+    scene_key:  string | null;
+    slugline:   string | null;
+    links:      number;
+    skipped?:   string;
+  }>;
+}
+
+/**
+ * Scene Identity v1.1 — Deterministic character presence sync.
+ *
+ * For each latest active scene version, scans scene content for exact NIT
+ * character entity names and upserts narrative_scene_entity_links rows.
+ *
+ * Source of truth: scene_graph_versions.content
+ * Matching: exact canonical_name search, case-insensitive, whole-string scan
+ *
+ * WHY content not characters_present:
+ *   characters_present is always [] on initially extracted scenes —
+ *   scene_graph_extract does not populate it. Content is the only reliable
+ *   deterministic source for v1.1. This matches the NIT v2 section-mention
+ *   exact-name extraction pattern.
+ *
+ * relation_type: 'character_present'
+ * confidence: 'deterministic'
+ * entity_type filter: 'character' only (no arc/conflict in v1.1)
+ */
+export async function syncSceneEntityLinksForProject(
+  supabase: any,
+  projectId: string,
+): Promise<SceneEntityLinkResult> {
+  const per_scene: SceneEntityLinkResult["per_scene"] = [];
+  let totalLinks = 0;
+
+  // 1. Load active character entities for this project
+  const { data: entities, error: entErr } = await supabase
+    .from("narrative_entities")
+    .select("id, entity_key, canonical_name, entity_type, status")
+    .eq("project_id", projectId)
+    .eq("entity_type", "character")
+    .eq("status", "active");
+
+  if (entErr || !entities || entities.length === 0) {
+    console.log("[NIT:scene-v1.1] no active character entities for project — no-op");
+    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+  }
+
+  // 2. Check for scenes
+  const { data: scenes, error: sceneErr } = await supabase
+    .from("scene_graph_scenes")
+    .select("id, scene_key")
+    .eq("project_id", projectId)
+    .is("deprecated_at", null);
+
+  if (sceneErr || !scenes || scenes.length === 0) {
+    console.log("[NIT:scene-v1.1] no active scenes for project — no-op");
+    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+  }
+
+  // 3. Load all scene versions — dedupe to latest per scene_id in TypeScript
+  //    (version_number DESC, take first per scene_id)
+  const sceneIds = (scenes as any[]).map((s: any) => s.id);
+  const { data: versions, error: verErr } = await supabase
+    .from("scene_graph_versions")
+    .select("id, scene_id, content, slugline, version_number")
+    .in("scene_id", sceneIds)
+    .order("version_number", { ascending: false });
+
+  if (verErr || !versions) {
+    console.warn("[NIT:scene-v1.1] scene version fetch error:", verErr?.message);
+    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+  }
+
+  // Dedupe: keep only latest version per scene_id
+  const latestByScene = new Map<string, any>();
+  for (const v of (versions as any[])) {
+    if (!latestByScene.has(v.scene_id)) {
+      latestByScene.set(v.scene_id, v);
+    }
+  }
+
+  // Build scene_id → scene_key map
+  const sceneKeyMap = new Map<string, string | null>(
+    (scenes as any[]).map((s: any) => [s.id, s.scene_key])
+  );
+
+  // 4. Process each scene
+  for (const scene of (scenes as any[])) {
+    const ver = latestByScene.get(scene.id);
+    if (!ver) {
+      per_scene.push({ scene_id: scene.id, scene_key: scene.scene_key, slugline: null, links: 0, skipped: "no_version" });
+      continue;
+    }
+
+    const content = (ver.content as string | null) || "";
+    if (!content.trim()) {
+      per_scene.push({ scene_id: scene.id, scene_key: scene.scene_key, slugline: ver.slugline, links: 0, skipped: "empty_content" });
+      continue;
+    }
+
+    // 5. Exact-name scan: for each character entity, check if canonical_name appears in content
+    const linkRows: Array<{
+      project_id:        string;
+      scene_id:          string;
+      entity_id:         string;
+      relation_type:     string;
+      confidence:        string;
+      source_version_id: string;
+    }> = [];
+
+    for (const entity of (entities as any[])) {
+      const name = (entity.canonical_name as string) || "";
+      if (!name) continue;
+      // Case-insensitive exact-string search (no word boundary — handles "Dr. Eleanor Ramsay" etc.)
+      if (content.toLowerCase().includes(name.toLowerCase())) {
+        linkRows.push({
+          project_id:        projectId,
+          scene_id:          scene.id,
+          entity_id:         entity.id,
+          relation_type:     "character_present",
+          confidence:        "deterministic",
+          source_version_id: ver.id,
+        });
+      }
+    }
+
+    if (linkRows.length > 0) {
+      const { error: upsErr } = await supabase
+        .from("narrative_scene_entity_links")
+        .upsert(linkRows, { onConflict: "scene_id,entity_id,relation_type", ignoreDuplicates: true });
+      if (upsErr) {
+        console.warn("[NIT:scene-v1.1] upsert error for scene", scene.id, upsErr.message);
+      }
+    }
+
+    totalLinks += linkRows.length;
+    per_scene.push({
+      scene_id:  scene.id,
+      scene_key: scene.scene_key,
+      slugline:  ver.slugline,
+      links:     linkRows.length,
+    });
+  }
+
+  return {
+    scenes_processed: per_scene.filter(s => !s.skipped).length,
+    links_upserted:   totalLinks,
+    per_scene,
+  };
+}

@@ -23,7 +23,7 @@ import {
 } from "../_shared/styleDeviation.ts";
 import { buildEffectiveProfileContextBlock } from "../_shared/effective-profile-context.ts";
 import { computeDefaultResolverHash, createVersion } from "../_shared/doc-os.ts";
-import { syncAllEntities } from "../_shared/narrativeEntityEngine.ts";
+import { syncAllEntities, syncSceneEntityLinksForProject } from "../_shared/narrativeEntityEngine.ts";
 
 // ── Constraint Pack: unified loader for all generation prompts ──
 const CONSTRAINT_PACK_BUDGET = 6000;
@@ -7730,6 +7730,18 @@ Return ONLY valid JSON:
         status: 'draft',
       }).select().single();
       if (snErr) throw snErr;
+
+      // Scene Identity v1.1: auto-sync character presence links after extraction.
+      // Fail-safe: error here must not block the extraction response.
+      try {
+        const linkResult = await syncSceneEntityLinksForProject(supabase, projectId);
+        console.log("[scene_graph_extract] Scene Identity v1.1 link sync:", {
+          scenes_processed: linkResult.scenes_processed,
+          links_upserted:   linkResult.links_upserted,
+        });
+      } catch (linkErr: any) {
+        console.warn("[scene_graph_extract] Scene Identity v1.1 link sync non-fatal:", linkErr?.message);
+      }
 
       return new Response(JSON.stringify({
         scenes,
