@@ -10266,10 +10266,11 @@ Return ONLY valid JSON:
             spine_value:       u.unit_statement ?? null,
             success_state:     u.success_state  ?? null,
             failure_mode:      u.failure_mode   ?? null,
-            seed_unit_key:     u.unit_key,          // provenance back to seed
+            seed_unit_key:     u.unit_key,     // provenance back to seed unit
+            seed_id:           seedId,         // FK-safe provenance (not source_doc_version_id)
           },
           source_doc_type:         "dev_seed_v2",
-          source_doc_version_id:   seedId,          // seed_id is a UUID
+          source_doc_version_id:   null,        // FK to project_document_versions — null for seed origin
           confidence:              1.0,
           extraction_method:       "dev_seed_v2_promotion",
           status:                  u.initial_alignment_status ?? "aligned",
