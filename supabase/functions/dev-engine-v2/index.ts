@@ -7337,6 +7337,46 @@ Return ONLY valid JSON:
       return Array.from({ length: count }, (_, i) => ((i + 1) * step).toString(BASE).padStart(LEN, '0'));
     }
 
+    /**
+     * Scene Identity v1 — stable scene_key assignment
+     *
+     * Returns `batchSize` sequential scene_key strings starting from the next
+     * available number for this project.
+     *
+     * Format: SCENE_NNN (3 digits, expanding to 4+ if project exceeds 999 scenes)
+     *
+     * Rules:
+     *   - Keys are frozen at creation time; never recomputed from order position
+     *   - UUID (scene_graph_scenes.id) remains the canonical FK everywhere
+     *   - scene_key is cosmetic/display only — for blueprints, logs, UI labels
+     *   - Keys are monotonic and sequential across all scene creation paths
+     *   - Null scene_key rows (legacy) are not counted or affected
+     */
+    async function sgNextSceneKeys(
+      _supabase: any,
+      projectId: string,
+      batchSize: number,
+    ): Promise<string[]> {
+      // Find the current highest numeric suffix for this project
+      const { data } = await _supabase
+        .from("scene_graph_scenes")
+        .select("scene_key")
+        .eq("project_id", projectId)
+        .not("scene_key", "is", null);
+
+      const maxNum = ((data ?? []) as Array<{ scene_key: string | null }>)
+        .reduce((max, row) => {
+          const m = row.scene_key?.match(/^SCENE_(\d+)$/);
+          return m ? Math.max(max, parseInt(m[1], 10)) : max;
+        }, 0);
+
+      return Array.from({ length: batchSize }, (_, i) => {
+        const n = maxNum + i + 1;
+        // 3-digit padding up to 999; 4-digit beyond
+        return `SCENE_${String(n).padStart(n > 999 ? 4 : 3, "0")}`;
+      });
+    }
+
     // --- Impact Report Helper (Phase 2 enhanced) ---
     async function sgBuildImpactReport(
       _supabase: any, projectId: string, actionDesc: string, affectedSceneIds: string[]
@@ -7611,17 +7651,22 @@ Return ONLY valid JSON:
       const scenes: any[] = [];
       const orderKeys = sgGenerateEvenKeys(sceneBreaks.length);
 
+      // Scene Identity v1: assign stable scene_keys for this batch before the loop
+      // (one query to find current max, then generate N monotonic keys offline)
+      const batchSceneKeys = await sgNextSceneKeys(supabase, projectId, sceneBreaks.length);
+
       for (let i = 0; i < sceneBreaks.length; i++) {
         const start = sceneBreaks[i].startLine;
         const end = i + 1 < sceneBreaks.length ? sceneBreaks[i + 1].startLine : lines.length;
         const sceneContent = lines.slice(start, end).join('\n').trim();
         const parsed = sgParseSlugline(sceneBreaks[i].headingLine);
 
-        // Create scene
+        // Create scene — scene_key assigned once at creation, never recomputed from order
         const { data: scene, error: sErr } = await supabase.from("scene_graph_scenes").insert({
           project_id: projectId,
           scene_kind: 'narrative',
           created_by: user.id,
+          scene_key: batchSceneKeys[i],
         }).select().single();
         if (sErr) throw sErr;
 
@@ -7652,6 +7697,7 @@ Return ONLY valid JSON:
 
         scenes.push({
           scene_id: scene.id,
+          scene_key: scene.scene_key,  // Scene Identity v1: expose stable key in response
           display_number: i + 1,
           order_key: orderKeys[i],
           act: null,
@@ -7772,8 +7818,11 @@ Return ONLY valid JSON:
 
       const newKey = sgKeyBetween(prevKey, nextKey);
 
+      // Scene Identity v1: assign stable scene_key at creation
+      const [insertSceneKey] = await sgNextSceneKeys(supabase, projectId, 1);
       const { data: scene, error: sErr } = await supabase.from("scene_graph_scenes").insert({
         project_id: projectId, scene_kind: 'narrative', created_by: user.id,
+        scene_key: insertSceneKey,
       }).select().single();
       if (sErr) throw sErr;
 
@@ -7926,9 +7975,15 @@ Return ONLY valid JSON:
       const trueKeyA = sgKeyBetween(sgKeyBetween(null, oldKey), oldKey);
       const trueKeyB = sgKeyBetween(oldKey, sgKeyBetween(oldKey, null));
 
+      // Scene Identity v1: pre-generate 2 scene_keys for the split pair (one query, two keys)
+      const splitSceneKeys = await sgNextSceneKeys(supabase, projectId, 2);
+      let splitKeyIndex = 0;
+
       const createSplitScene = async (content: string, key: string, provenance: any) => {
+        // Scene Identity v1: assign stable scene_key at creation; frozen here, never recomputed
         const { data: sc } = await supabase.from("scene_graph_scenes").insert({
           project_id: projectId, scene_kind: 'narrative', created_by: user.id, provenance,
+          scene_key: splitSceneKeys[splitKeyIndex++],
         }).select().single();
         if (!sc) throw new Error("Failed to create split scene");
         const parsed = sgParseSlugline(content.split('\n')[0] || '');
@@ -7996,9 +8051,12 @@ Return ONLY valid JSON:
       const mergedSlugline = mergedDraft?.slugline || null;
       const earliestKey = orders[0].order_key;
 
+      // Scene Identity v1: assign stable scene_key for the merged result
+      const [mergeSceneKey] = await sgNextSceneKeys(supabase, projectId, 1);
       const { data: newScene } = await supabase.from("scene_graph_scenes").insert({
         project_id: projectId, scene_kind: 'narrative', created_by: user.id,
         provenance: { merged_from_scene_ids: sceneIds },
+        scene_key: mergeSceneKey,
       }).select().single();
       if (!newScene) throw new Error("Failed to create merged scene");
 
@@ -10917,10 +10975,12 @@ SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 15000)}`;
             const draft = op.payload?.sceneDraft || {};
             const intent = op.payload?.intent || { type: 'change_set', notes: cs.title };
 
-            // Create scene
+            // Create scene — Scene Identity v1: assign stable scene_key at creation
+            const [changeSetSceneKey] = await sgNextSceneKeys(supabase, projectId, 1);
             const { data: scene } = await supabase.from("scene_graph_scenes").insert({
               project_id: projectId, scene_kind: 'narrative', created_by: user.id,
               provenance: { source: 'change_set', change_set_id: changeSetId },
+              scene_key: changeSetSceneKey,
             }).select().single();
 
             // Compute order key
