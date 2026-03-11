@@ -9275,6 +9275,7 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
 
       // ── Step 6: Final run status classification ───────────────────────────
       const batchN            = batchScenes.length;
+      // (Step 6b — NUE revalidation — follows Step 6 below)
       const completedCount    = completedSceneIds.length;
       const failedCount       = failedSceneIds.length;
       const batchCompletedAt  = new Date().toISOString();
@@ -9288,7 +9289,158 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
         finalStatus = "failed";
       }
 
+      // ── Step 6b: NUE Revalidation ─────────────────────────────────────────
+      //
+      // Runs only when ≥1 scene was successfully regenerated.
+      // Re-evaluates targeted source units against the project's canonical
+      // story_outline document using the existing Class A + Class B spine check
+      // functions (same code path used by the notes action).
+      //
+      // Alignment rules:
+      //   - spine check returns "aligned"  → transition stale/contradicted → aligned
+      //   - spine check returns "unclear"  → leave unit status unchanged
+      //   - spine check returns "contradicted" → leave unit status unchanged
+      //   - failure / missing context → non-fatal, leave unit status unchanged
+      //
+      // This step runs BEFORE NDG post-validation so the at_risk_count reflects
+      // real unit-state improvement.
+      let revalidatedUnitKeys: string[] = [];
+      let alignedUnitCount   = 0;
+      let nueRevalidated     = false;
+
+      if (completedCount > 0) {
+        try {
+          // Derive targeted axes from the server-side source_unit_keys
+          const targetUnitKeys = sourceUnitKeysForProvenance;
+          const axesToCheck = targetUnitKeys.map((k: string) => {
+            const parts = k.split("::");
+            return parts.length >= 2 ? parts[parts.length - 1] as SpineAxis : null;
+          }).filter(Boolean) as SpineAxis[];
+
+          const CLASS_A_AXES_SET = new Set(["story_engine", "protagonist_arc"]);
+          const CLASS_B_AXES_SET = new Set(["pressure_system", "central_conflict", "resolution_type", "stakes_class"]);
+          const targetClassA = axesToCheck.filter(a => CLASS_A_AXES_SET.has(a));
+          const targetClassB = axesToCheck.filter(a => CLASS_B_AXES_SET.has(a));
+
+          // Load spine state
+          const spineState = await getSpineState(supabase, projectId);
+          const spine = (spineState as any)?.spine ?? spineState;
+          if (!spine) throw new Error("Spine state not found for project");
+
+          // Find canonical story_outline document + current version
+          const { data: docRow } = await supabase
+            .from("project_documents")
+            .select("id")
+            .eq("project_id", projectId)
+            .eq("doc_type", "story_outline")
+            .limit(1)
+            .maybeSingle();
+          if (!docRow) throw new Error("No story_outline document found — NUE revalidation skipped");
+
+          const { data: verRow } = await supabase
+            .from("project_document_versions")
+            .select("content")
+            .eq("document_id", docRow.id)
+            .eq("is_current", true)
+            .limit(1)
+            .maybeSingle();
+          if (!verRow?.content) throw new Error("No current story_outline version content — NUE revalidation skipped");
+
+          const docText = verRow.content as string;
+
+          // Load project title for prompt context
+          const { data: projectRow } = await supabase
+            .from("projects")
+            .select("title, assigned_lane")
+            .eq("id", projectId)
+            .single();
+
+          const alignedAxes = new Set<string>();
+
+          // Run Class A check (story_engine, protagonist_arc) in parallel with Class B
+          const [classAInf, classBInf] = await Promise.allSettled([
+            targetClassA.length > 0
+              ? (async () => {
+                  const classAUser = buildClassASpineCheckUserPrompt(
+                    spine, "story_outline", docText, projectRow?.title, projectRow?.assigned_lane
+                  );
+                  const rawA = await callAI(LOVABLE_API_KEY, FAST_MODEL, buildClassASpineCheckSystemPrompt(), classAUser, 0.1, 2000);
+                  const pA = await parseAIJson(LOVABLE_API_KEY, rawA);
+                  return parseClassASpineCheckOutput(pA);
+                })()
+              : Promise.resolve(null),
+            targetClassB.length > 0
+              ? (async () => {
+                  const classBUser = buildClassBSpineCheckUserPrompt(
+                    spine, "story_outline", docText, projectRow?.title, projectRow?.assigned_lane
+                  );
+                  if (!classBUser) return null;
+                  const rawB = await callAI(LOVABLE_API_KEY, FAST_MODEL, buildClassBSpineCheckSystemPrompt(), classBUser, 0.1, 2000);
+                  const pB = await parseAIJson(LOVABLE_API_KEY, rawB);
+                  return parseClassBSpineCheckOutput(pB);
+                })()
+              : Promise.resolve(null),
+          ]);
+
+          // Collect axes that checked as aligned
+          if (classAInf.status === "fulfilled" && classAInf.value) {
+            for (const check of classAInf.value.checks) {
+              if (targetClassA.includes(check.axis as SpineAxis) && check.status === "aligned") {
+                alignedAxes.add(check.axis);
+              }
+            }
+          } else if (classAInf.status === "rejected") {
+            console.warn("[NUE] Class A check failed (non-fatal):", (classAInf as any).reason?.message);
+          }
+
+          if (classBInf.status === "fulfilled" && classBInf.value) {
+            for (const check of classBInf.value.checks) {
+              if (targetClassB.includes(check.axis as SpineAxis) && check.status === "aligned") {
+                alignedAxes.add(check.axis);
+              }
+            }
+          } else if (classBInf.status === "rejected") {
+            console.warn("[NUE] Class B check failed (non-fatal):", (classBInf as any).reason?.message);
+          }
+
+          // Transition aligned unit_keys: stale/contradicted → aligned
+          const nueTs = new Date().toISOString();
+          for (const unitKey of targetUnitKeys) {
+            const parts = (unitKey as string).split("::");
+            const axis = parts.length >= 2 ? parts[parts.length - 1] : null;
+            if (!axis || !alignedAxes.has(axis)) continue;
+
+            const { error: nuErr } = await supabase
+              .from("narrative_units")
+              .update({ status: "aligned", stale_reason: null, updated_at: nueTs })
+              .eq("unit_key", unitKey)
+              .eq("project_id", projectId)
+              .in("status", ["stale", "contradicted"]); // guard — only transition if still at-risk
+
+            if (!nuErr) {
+              revalidatedUnitKeys.push(unitKey as string);
+              alignedUnitCount++;
+              console.log(`[NUE] Unit ${unitKey}: stale/contradicted → aligned`);
+            } else {
+              console.warn(`[NUE] Unit ${unitKey}: update failed (non-fatal):`, nuErr.message);
+            }
+          }
+
+          nueRevalidated = true;
+          console.log("[dev-engine-v2] NUE revalidation complete", {
+            project_id: projectId, checked_axes: [...axesToCheck],
+            aligned_axes: [...alignedAxes], aligned_count: alignedUnitCount,
+          });
+
+        } catch (nueErr: any) {
+          console.warn("[dev-engine-v2] NUE revalidation failed (non-fatal):", nueErr?.message);
+          nueRevalidated = false;
+        }
+      }
+
       // ── Step 7: NDG post-validation ───────────────────────────────────────
+      // Runs AFTER NUE revalidation — so ndg_post_at_risk_count reflects
+      // real unit alignment improvements, not just scene write counts.
       let ndgPostAtRiskCount: number = ndgPreAtRiskCount;
       let ndgValidationStatus: string = "not_run";
 
@@ -9332,6 +9484,16 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
       }
 
       // ── Step 8: Finalise run record ───────────────────────────────────────
+      // NUE revalidation metadata stored in meta_json alongside batch config.
+      const finalMetaJson = {
+        dry_run:                false,
+        stage:                  4,
+        batch_size:             batchN,
+        nue_revalidated:        nueRevalidated,
+        revalidated_unit_keys:  revalidatedUnitKeys,
+        units_aligned_count:    alignedUnitCount,
+      };
+
       await supabase
         .from("regeneration_runs")
         .update({
@@ -9341,19 +9503,22 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
           completed_at:           batchCompletedAt,
           ndg_post_at_risk_count: ndgPostAtRiskCount,
           ndg_validation_status:  ndgValidationStatus,
+          meta_json:              finalMetaJson,
         })
         .eq("id", execRunId);
 
-      console.log("[dev-engine-v2] execute_selective_regeneration Stage 3 complete", {
-        project_id:      projectId,
-        run_id:          execRunId,
-        batch_size:      batchN,
-        completed:       completedCount,
-        failed:          failedCount,
-        status:          finalStatus,
-        ndg_pre:         ndgPreAtRiskCount,
-        ndg_post:        ndgPostAtRiskCount,
-        ndg_status:      ndgValidationStatus,
+      console.log("[dev-engine-v2] execute_selective_regeneration Stage 4 complete", {
+        project_id:       projectId,
+        run_id:           execRunId,
+        batch_size:       batchN,
+        completed:        completedCount,
+        failed:           failedCount,
+        status:           finalStatus,
+        nue_revalidated:  nueRevalidated,
+        aligned_count:    alignedUnitCount,
+        ndg_pre:          ndgPreAtRiskCount,
+        ndg_post:         ndgPostAtRiskCount,
+        ndg_status:       ndgValidationStatus,
       });
 
       const batchOk = finalStatus === "completed" || finalStatus === "partial_failure";
@@ -9375,6 +9540,9 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
         ndg_pre_at_risk_count:   ndgPreAtRiskCount,
         ndg_post_at_risk_count:  ndgPostAtRiskCount,
         ndg_validation_status:   ndgValidationStatus,
+        nue_revalidated:         nueRevalidated,
+        revalidated_unit_keys:   revalidatedUnitKeys,
+        aligned_unit_count:      alignedUnitCount,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
