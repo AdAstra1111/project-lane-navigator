@@ -642,6 +642,46 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "get_table_schema": {
+        // Returns full column + constraint + index + policy snapshot for specified tables.
+        const { tables: schemaTables } = params;
+        if (!schemaTables?.length) throw new Error("tables array required");
+        const dbUrlT = Deno.env.get("SUPABASE_DB_URL");
+        if (!dbUrlT) throw new Error("SUPABASE_DB_URL not available");
+        const sqlT = postgres(dbUrlT, { max: 1 });
+        try {
+          const cols = await sqlT`
+            SELECT table_name, column_name, data_type, is_nullable,
+                   column_default, character_maximum_length
+            FROM information_schema.columns
+            WHERE table_schema='public' AND table_name = ANY(${schemaTables})
+            ORDER BY table_name, ordinal_position`;
+          const cons = await sqlT`
+            SELECT tc.table_name, tc.constraint_name, tc.constraint_type,
+                   pg_get_constraintdef(pgc.oid) AS condef
+            FROM information_schema.table_constraints tc
+            JOIN pg_constraint pgc ON pgc.conname=tc.constraint_name
+            WHERE tc.table_schema='public' AND tc.table_name = ANY(${schemaTables})
+            ORDER BY tc.table_name, tc.constraint_type, tc.constraint_name`;
+          const idxs = await sqlT`
+            SELECT tablename, indexname, indexdef
+            FROM pg_indexes WHERE schemaname='public' AND tablename = ANY(${schemaTables})
+            ORDER BY tablename, indexname`;
+          const pols = await sqlT`
+            SELECT tablename, policyname, permissive, roles, cmd, qual AS using_expr, with_check AS check_expr
+            FROM pg_policies WHERE schemaname='public' AND tablename = ANY(${schemaTables})
+            ORDER BY tablename, policyname`;
+          const rls = await sqlT`
+            SELECT relname AS table_name, relrowsecurity AS rls_enabled
+            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='public' AND c.relkind='r' AND c.relname = ANY(${schemaTables})`;
+          result = { cols, cons, idxs, pols, rls };
+        } finally {
+          await sqlT.end();
+        }
+        break;
+      }
+
       case "get_policy_predicates": {
         // Read-only: returns full USING and WITH CHECK expressions for all RLS policies
         // on the specified tables. Used for auditing and policy pattern replication.
