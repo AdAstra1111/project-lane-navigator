@@ -2877,6 +2877,7 @@ serve(async (req) => {
       "get_dev_seed_v2",
       "sync_dev_seed_v2_to_canon",
       "update_dev_seed_v2",
+      "delete_dev_seed_v2",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -10139,7 +10140,7 @@ Return ONLY valid JSON:
     //   dev_seed_v2_projects.promoted_at + promotion_summary updated.
     //
     if (action === "sync_dev_seed_v2_to_canon") {
-      const { projectId, seedId: reqSeedId } = body;
+      const { projectId, seedId: reqSeedId, force_resync: forceResync = false } = body;
       if (!projectId) {
         return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -10161,7 +10162,22 @@ Return ONLY valid JSON:
           action: "sync_dev_seed_v2_to_canon",
         }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-      const seedId = rootRow.id as string;
+      const seedId      = rootRow.id as string;
+      const promotedAt  = rootRow.promoted_at as string | null;
+
+      // ── Already-promoted guard (TypeScript layer — fast path) ─────────────
+      // If seed was previously promoted and force_resync is false → 409.
+      // The PL/pgSQL function has the same check as defence-in-depth.
+      if (promotedAt && !forceResync) {
+        return new Response(JSON.stringify({
+          ok:          false,
+          action:      "sync_dev_seed_v2_to_canon",
+          project_id:  projectId,
+          seed_id:     seedId,
+          promoted_at: promotedAt,
+          error:       "Seed already promoted. Call update_dev_seed_v2 first (resets promoted_at), or pass force_resync=true to override.",
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
 
       const [axRes, unitRes, entRes, relRes] = await Promise.all([
         (supabase as any).from("dev_seed_v2_axes").select("*").eq("seed_id", seedId),
@@ -10221,19 +10237,21 @@ Return ONLY valid JSON:
       // PostgreSQL rolls back the entire function — no partial canon state possible.
       const { data: syncResult, error: syncErr } = await (supabase as any)
         .rpc("ds2_sync_seed_to_canon", {
-          p_seed_id:    seedId,
-          p_project_id: projectId,
+          p_seed_id:      seedId,
+          p_project_id:   projectId,
+          p_force_resync: !!forceResync,
         });
 
       if (syncErr) {
         console.error("[dev-engine-v2] sync_dev_seed_v2_to_canon rpc failed:", syncErr.message);
+        const isAlreadyPromoted = syncErr.message?.includes("already_promoted");
         return new Response(JSON.stringify({
           project_id: projectId,
           action:     "sync_dev_seed_v2_to_canon",
           ok:         false,
           seed_id:    seedId,
           error:      syncErr.message,
-        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }), { status: isAlreadyPromoted ? 409 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       const promotions = syncResult?.promotions ?? {};
@@ -10263,6 +10281,7 @@ Return ONLY valid JSON:
           "layer_7_beat_seeds",
           "layer_8_generation_intent",
         ],
+        force_resync:     !!forceResync,
         notes: [
           "Layer 3 → spine only if narrative_spine_json is NULL (write-once guard)",
           "Layer 4 units: unit_key format is {seed_id}::{unit_type}",
@@ -10270,7 +10289,83 @@ Return ONLY valid JSON:
           "Layer 5 relations: ON CONFLICT DO NOTHING (idempotent)",
           "Layers 2, 6, 7, 8 remain seed-scoped — no canonical target yet",
           "DS2E: all writes atomic via ds2_sync_seed_to_canon() PL/pgSQL function",
+          "DS2F: normal sync rejected if already promoted — use force_resync=true to override",
         ],
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Dev Seed v2: delete_dev_seed_v2 ──────────────────────────────────────────
+    //
+    // Explicitly deletes a Dev Seed v2 root and all layers via CASCADE.
+    // Atomic: calls ds2_delete_seed() PL/pgSQL function in one transaction.
+    //
+    // Does NOT delete any promoted canonical records (narrative_units, entities,
+    // relations). Canonical state is managed independently once promoted.
+    //
+    if (action === "delete_dev_seed_v2") {
+      const { projectId, seedId: reqSeedId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Validate seed exists ───────────────────────────────────────────
+      let rootQuery = (supabase as any)
+        .from("dev_seed_v2_projects")
+        .select("id, title, promoted_at")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (reqSeedId) rootQuery = rootQuery.eq("id", reqSeedId);
+      const { data: rootRow, error: rootErr } = await rootQuery.maybeSingle();
+      if (rootErr) throw rootErr;
+      if (!rootRow) {
+        return new Response(JSON.stringify({
+          ok:         false,
+          action:     "delete_dev_seed_v2",
+          project_id: projectId,
+          error:      "No Dev Seed v2 found for this project",
+        }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const seedId      = rootRow.id as string;
+      const wasPromoted = !!rootRow.promoted_at;
+
+      // ── Atomic delete via PL/pgSQL ─────────────────────────────────────
+      const { data: delResult, error: delErr } = await (supabase as any)
+        .rpc("ds2_delete_seed", {
+          p_seed_id:    seedId,
+          p_project_id: projectId,
+        });
+
+      if (delErr || !delResult?.ok) {
+        const msg = delErr?.message ?? delResult?.error ?? "Unknown delete error";
+        console.error("[dev-engine-v2] delete_dev_seed_v2 rpc failed:", msg);
+        return new Response(JSON.stringify({
+          project_id: projectId,
+          action:     "delete_dev_seed_v2",
+          ok:         false,
+          seed_id:    seedId,
+          error:      msg,
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      console.log("[dev-engine-v2] delete_dev_seed_v2 complete", {
+        project_id:  projectId,
+        seed_id:     seedId,
+        was_promoted: wasPromoted,
+      });
+
+      return new Response(JSON.stringify({
+        project_id:      projectId,
+        action:          "delete_dev_seed_v2",
+        ok:              true,
+        deleted_seed_id: seedId,
+        was_promoted:    wasPromoted,
+        deleted_layers:  delResult.deleted_layers,
+        layer_counts:    delResult.layer_counts,
+        notes: wasPromoted
+          ? ["Seed was previously promoted. Canonical records (narrative_units, entities, relations) are NOT deleted — they exist independently in runtime systems."]
+          : [],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
