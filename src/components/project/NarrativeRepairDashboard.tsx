@@ -182,6 +182,8 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
             onDryRun={handleDryRun}
             onExecuteRepair={() => setConfirmOpen(true)}
             isExecuting={isExecuting}
+            repairStrategy={repairStrategy}
+            onStrategyChange={setRepairStrategy}
           />
 
           <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-3">
