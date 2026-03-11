@@ -989,6 +989,25 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "call_ndg_project_graph": {
+        // Calls dev-engine-v2 ndg_project_graph action with service role auth.
+        // Read-only. Returns the assembled NDG v1 graph for the project.
+        const { project_id: ndgCallPid } = params;
+        if (!ndgCallPid) throw new Error("project_id required");
+        const devEngineUrl = `${supabaseUrl}/functions/v1/dev-engine-v2`;
+        const ndgResp = await fetch(devEngineUrl, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+          body:    JSON.stringify({ action: "ndg_project_graph", projectId: ndgCallPid }),
+        });
+        if (!ndgResp.ok) {
+          const errText = await ndgResp.text();
+          throw new Error(`dev-engine-v2 ndg_project_graph failed (${ndgResp.status}): ${errText.slice(0, 200)}`);
+        }
+        result = await ndgResp.json();
+        break;
+      }
+
       case "get_ndg_project_data": {
         // Returns all raw data needed to assemble the NDG v1 project graph.
         // Read-only. Fail-closed: missing data returns empty arrays.
