@@ -468,6 +468,16 @@ Deno.serve(async (req) => {
               ADD CONSTRAINT scene_spine_links_scene_id_fkey
               FOREIGN KEY (scene_id) REFERENCES public.scene_graph_scenes(id) ON DELETE CASCADE;
           `,
+          "scene_spine_links_rls_tighten_v1": `
+            DROP POLICY IF EXISTS "Users can manage scene spine links for own projects"
+              ON public.scene_spine_links;
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='scene_spine_links' AND policyname='ssl_select') THEN
+                CREATE POLICY "ssl_select" ON public.scene_spine_links
+                  FOR SELECT TO authenticated USING (has_project_access(auth.uid(), project_id));
+              END IF;
+            END $$;
+          `,
           "scene_blueprint_bindings_rls_v1": `
             CREATE POLICY "sbb_select" ON public.scene_blueprint_bindings
               FOR SELECT TO authenticated USING (has_project_access(auth.uid(), project_id));
