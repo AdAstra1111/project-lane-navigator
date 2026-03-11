@@ -2876,6 +2876,7 @@ serve(async (req) => {
       "create_dev_seed_v2",
       "get_dev_seed_v2",
       "sync_dev_seed_v2_to_canon",
+      "update_dev_seed_v2",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -10424,6 +10425,376 @@ Return ONLY valid JSON:
           "Layers 2, 6, 7, 8 remain seed-scoped — no canonical target yet",
         ],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Dev Seed v2: update_dev_seed_v2 ──────────────────────────────────────────
+    //
+    // Patch a Dev Seed v2 seed by replacing individual layers in-place.
+    // Only layers present in `seed_patch` are modified; others are left untouched.
+    //
+    // Architecture:
+    //   - Layer 1 (root row): updated in-place (no delete)
+    //   - Layers 2–8 (child rows): DELETE all rows for this seed_id, then INSERT new rows
+    //   - All layers in patch are validated BEFORE any write (fail-closed)
+    //   - On success: `promoted_at` is set to null (seed marked dirty for re-sync)
+    //   - Runtime canonical state (narrative_units, entities, relations) is NOT modified
+    //     automatically. Caller must run sync_dev_seed_v2_to_canon after updating.
+    //
+    // Allowed patch keys:
+    //   layer_1: title, lane, format, target_audience, genre_stack, tone_contract,
+    //            market_hook, runtime_pattern, episode_pattern, comparable_mode
+    //   layer_2: premise (object)
+    //   layer_3: axes (array)
+    //   layer_4: units (array)
+    //   layer_5: entities (array)
+    //   layer_5b: entity_relations (array)
+    //   layer_6: canon_rules (array)
+    //   layer_7: beats (array)
+    //   layer_8: generation_intent (object)
+    //
+    if (action === "update_dev_seed_v2") {
+      const { projectId, seed_patch: seedPatch } = body;
+
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!seedPatch || typeof seedPatch !== "object" || Array.isArray(seedPatch)) {
+        return new Response(JSON.stringify({ ok: false, error: "seed_patch (object) required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 1: Load seed root ─────────────────────────────────────────
+      const { data: seedRow, error: seedFetchErr } = await (supabase as any)
+        .from("dev_seed_v2_projects")
+        .select("id, promoted_at")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (seedFetchErr) {
+        return new Response(JSON.stringify({ ok: false, error: "Seed fetch failed: " + seedFetchErr.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!seedRow) {
+        return new Response(JSON.stringify({ ok: false, error: "No Dev Seed v2 found for this project" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const seedId: string = seedRow.id;
+      const wasPromoted = !!seedRow.promoted_at;
+
+      // ── Step 2: Validate all layers in patch before any write ──────────
+
+      const validationErrors: string[] = [];
+
+      // Layer 1 — no structural validation needed (freeform text fields)
+
+      // Layer 3: axis_key must all be in VALID_SPINE_AXES
+      if (Array.isArray(seedPatch.axes)) {
+        const badAxes = (seedPatch.axes as any[])
+          .map((ax: any) => ax.axis_key)
+          .filter((k: string) => !VALID_SPINE_AXES.has(k));
+        if (badAxes.length > 0) {
+          validationErrors.push(`Invalid axis_keys in patch: [${badAxes.join(", ")}]. Valid: ${[...VALID_SPINE_AXES].join(", ")}`);
+        }
+      }
+
+      // Layer 4: unit_type must be a valid spine axis
+      if (Array.isArray(seedPatch.units)) {
+        const badUnitTypes = (seedPatch.units as any[])
+          .filter((u: any) => u.unit_type && !VALID_SPINE_AXES.has(u.unit_type))
+          .map((u: any) => u.unit_type);
+        if (badUnitTypes.length > 0) {
+          validationErrors.push(`Invalid unit_type in patch units: [${badUnitTypes.join(", ")}]`);
+        }
+      }
+
+      // Layer 5: entity_type must be one of the allowed values
+      const VALID_ENTITY_TYPES = new Set(["character", "arc", "conflict"]);
+      if (Array.isArray(seedPatch.entities)) {
+        const badEntityTypes = (seedPatch.entities as any[])
+          .filter((e: any) => e.entity_type && !VALID_ENTITY_TYPES.has(e.entity_type))
+          .map((e: any) => `${e.entity_key}:${e.entity_type}`);
+        if (badEntityTypes.length > 0) {
+          validationErrors.push(`Invalid entity_type in patch: [${badEntityTypes.join(", ")}]. Valid: character, arc, conflict`);
+        }
+        const missingKeys = (seedPatch.entities as any[]).filter((e: any) => !e.entity_key);
+        if (missingKeys.length > 0) {
+          validationErrors.push(`entity_key required for all entities in patch`);
+        }
+      }
+
+      // Layer 5b: relation endpoints must both exist in the seed entity graph
+      // Either the patch provides entities, or we load existing seed entities
+      if (Array.isArray(seedPatch.entity_relations) && seedPatch.entity_relations.length > 0) {
+        // Determine the entity key universe: patch entities (if provided) + existing seed entities
+        let entityKeyUniverse: Set<string>;
+        if (Array.isArray(seedPatch.entities)) {
+          entityKeyUniverse = new Set((seedPatch.entities as any[]).map((e: any) => e.entity_key));
+        } else {
+          // Load existing entities from DB
+          const { data: existingEnts } = await (supabase as any)
+            .from("dev_seed_v2_entities")
+            .select("entity_key")
+            .eq("seed_id", seedId);
+          entityKeyUniverse = new Set(((existingEnts ?? []) as any[]).map((e: any) => e.entity_key));
+        }
+
+        const VALID_RELATION_TYPES = new Set([
+          "drives_arc", "subject_of_conflict", "opposes",
+          "conflicts_with", "allied_with", "mentor_of", "family_of",
+        ]);
+        for (const r of (seedPatch.entity_relations as any[])) {
+          const srcKey = r.source_entity_key ?? r.source_entity;
+          const tgtKey = r.target_entity_key ?? r.target_entity;
+          if (!entityKeyUniverse.has(srcKey)) {
+            validationErrors.push(`Relation source_entity_key "${srcKey}" not in seed entity graph`);
+          }
+          if (!entityKeyUniverse.has(tgtKey)) {
+            validationErrors.push(`Relation target_entity_key "${tgtKey}" not in seed entity graph`);
+          }
+          if (r.relation_type && !VALID_RELATION_TYPES.has(r.relation_type)) {
+            validationErrors.push(`Invalid relation_type "${r.relation_type}"`);
+          }
+        }
+      }
+
+      if (validationErrors.length > 0) {
+        return new Response(JSON.stringify({
+          ok:               false,
+          error:            "Seed patch validation failed — no writes occurred",
+          validation_errors: validationErrors,
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 3: Apply patch — writes only after full validation ────────
+      const now = new Date().toISOString();
+      const updatedLayers: string[] = [];
+
+      try {
+        // Layer 1 — UPDATE root row fields (never delete root)
+        const L1_FIELDS = ["title","lane","format","target_audience","genre_stack",
+                           "tone_contract","market_hook","runtime_pattern","episode_pattern","comparable_mode"];
+        const layer1Patch: Record<string, any> = {};
+        for (const f of L1_FIELDS) {
+          if (f in seedPatch) layer1Patch[f] = (seedPatch as any)[f];
+        }
+        if (Object.keys(layer1Patch).length > 0) {
+          layer1Patch.updated_at = now;
+          // Mark seed as dirty (requires re-sync if it was previously promoted)
+          layer1Patch.promoted_at = null;
+          const { error: l1Err } = await (supabase as any)
+            .from("dev_seed_v2_projects")
+            .update(layer1Patch)
+            .eq("id", seedId);
+          if (l1Err) throw new Error("Layer 1 update failed: " + l1Err.message);
+          updatedLayers.push("layer_1_project_identity");
+        }
+
+        // Mark seed dirty if any layer is being replaced (even if L1 not patched)
+        // Done once here to avoid multiple root updates
+        if (!layer1Patch.promoted_at && (
+          seedPatch.premise || seedPatch.axes || seedPatch.units ||
+          seedPatch.entities || seedPatch.entity_relations ||
+          seedPatch.canon_rules || seedPatch.beats || seedPatch.generation_intent
+        )) {
+          await (supabase as any)
+            .from("dev_seed_v2_projects")
+            .update({ updated_at: now, promoted_at: null })
+            .eq("id", seedId);
+        }
+
+        // Layer 2 — Premise Kernel
+        if (seedPatch.premise && typeof seedPatch.premise === "object") {
+          await (supabase as any).from("dev_seed_v2_premise").delete().eq("seed_id", seedId);
+          const { error: l2Err } = await (supabase as any)
+            .from("dev_seed_v2_premise")
+            .insert({
+              seed_id:           seedId,
+              project_id:        projectId,
+              premise:           seedPatch.premise.premise           ?? null,
+              dramatic_question: seedPatch.premise.dramatic_question ?? null,
+              central_irony:     seedPatch.premise.central_irony     ?? null,
+              emotional_promise: seedPatch.premise.emotional_promise ?? null,
+              audience_fantasy:  seedPatch.premise.audience_fantasy  ?? null,
+              audience_fear:     seedPatch.premise.audience_fear     ?? null,
+              theme_vector:      seedPatch.premise.theme_vector      ?? null,
+            });
+          if (l2Err) throw new Error("Layer 2 update failed: " + l2Err.message);
+          updatedLayers.push("layer_2_premise");
+        }
+
+        // Layer 3 — Narrative Axes
+        if (Array.isArray(seedPatch.axes)) {
+          await (supabase as any).from("dev_seed_v2_axes").delete().eq("seed_id", seedId);
+          if (seedPatch.axes.length > 0) {
+            const axRows = (seedPatch.axes as any[]).map((ax: any) => ({
+              seed_id:         seedId,
+              project_id:      projectId,
+              axis_key:        ax.axis_key,
+              axis_statement:  ax.axis_statement  ?? null,
+              axis_role:       ax.axis_role       ?? null,
+              axis_priority:   ax.axis_priority   ?? 0,
+              axis_confidence: ax.axis_confidence ?? 1.0,
+            }));
+            const { error: l3Err } = await (supabase as any).from("dev_seed_v2_axes").insert(axRows);
+            if (l3Err) throw new Error("Layer 3 update failed: " + l3Err.message);
+          }
+          updatedLayers.push("layer_3_axes");
+        }
+
+        // Layer 4 — Narrative Units
+        if (Array.isArray(seedPatch.units)) {
+          await (supabase as any).from("dev_seed_v2_units").delete().eq("seed_id", seedId);
+          if (seedPatch.units.length > 0) {
+            const uRows = (seedPatch.units as any[]).map((u: any) => ({
+              seed_id:                  seedId,
+              project_id:               projectId,
+              unit_key:                 u.unit_key,
+              unit_type:                u.unit_type,
+              axis_source:              u.axis_source              ?? null,
+              unit_statement:           u.unit_statement           ?? null,
+              success_state:            u.success_state            ?? null,
+              failure_mode:             u.failure_mode             ?? null,
+              dependency_position:      u.dependency_position      ?? null,
+              initial_alignment_status: u.initial_alignment_status ?? "aligned",
+            }));
+            const { error: l4Err } = await (supabase as any).from("dev_seed_v2_units").insert(uRows);
+            if (l4Err) throw new Error("Layer 4 update failed: " + l4Err.message);
+          }
+          updatedLayers.push("layer_4_units");
+        }
+
+        // Layer 5 — Entities (replace all, then 5b relations depend on new set)
+        if (Array.isArray(seedPatch.entities)) {
+          await (supabase as any).from("dev_seed_v2_entity_relations").delete().eq("seed_id", seedId);
+          await (supabase as any).from("dev_seed_v2_entities").delete().eq("seed_id", seedId);
+          if (seedPatch.entities.length > 0) {
+            const eRows = (seedPatch.entities as any[]).map((e: any) => ({
+              seed_id:             seedId,
+              project_id:          projectId,
+              entity_key:          e.entity_key,
+              entity_name:         e.entity_name         ?? e.entity_key,
+              entity_type:         e.entity_type,
+              narrative_role:      e.narrative_role      ?? null,
+              description:         e.description         ?? null,
+              aliases:             e.aliases             ?? [],
+              story_critical_flag: e.story_critical_flag ?? false,
+            }));
+            const { error: l5Err } = await (supabase as any).from("dev_seed_v2_entities").insert(eRows);
+            if (l5Err) throw new Error("Layer 5 entities update failed: " + l5Err.message);
+          }
+          updatedLayers.push("layer_5_entities");
+        }
+
+        // Layer 5b — Entity Relations (replace if provided)
+        if (Array.isArray(seedPatch.entity_relations)) {
+          // Only delete if entities layer wasn't already replaced above (avoid double-delete)
+          if (!Array.isArray(seedPatch.entities)) {
+            await (supabase as any).from("dev_seed_v2_entity_relations").delete().eq("seed_id", seedId);
+          }
+          if (seedPatch.entity_relations.length > 0) {
+            const rRows = (seedPatch.entity_relations as any[]).map((r: any) => ({
+              seed_id:           seedId,
+              project_id:        projectId,
+              source_entity_key: r.source_entity_key ?? r.source_entity,
+              relation_type:     r.relation_type,
+              target_entity_key: r.target_entity_key ?? r.target_entity,
+            }));
+            const { error: l5bErr } = await (supabase as any).from("dev_seed_v2_entity_relations").insert(rRows);
+            if (l5bErr) throw new Error("Layer 5b relations update failed: " + l5bErr.message);
+          }
+          updatedLayers.push("layer_5_entity_relations");
+        }
+
+        // Layer 6 — Canon Rules
+        if (Array.isArray(seedPatch.canon_rules)) {
+          await (supabase as any).from("dev_seed_v2_canon_rules").delete().eq("seed_id", seedId);
+          if (seedPatch.canon_rules.length > 0) {
+            const crRows = (seedPatch.canon_rules as any[]).map((r: any) => ({
+              seed_id:          seedId,
+              project_id:       projectId,
+              rule_key:         r.rule_key,
+              rule_description: r.rule_description,
+              rule_scope:       r.rule_scope ?? null,
+              severity:         r.severity   ?? "moderate",
+            }));
+            const { error: l6Err } = await (supabase as any).from("dev_seed_v2_canon_rules").insert(crRows);
+            if (l6Err) throw new Error("Layer 6 update failed: " + l6Err.message);
+          }
+          updatedLayers.push("layer_6_canon_rules");
+        }
+
+        // Layer 7 — Beat Seeds
+        if (Array.isArray(seedPatch.beats)) {
+          await (supabase as any).from("dev_seed_v2_beats").delete().eq("seed_id", seedId);
+          if (seedPatch.beats.length > 0) {
+            const bRows = (seedPatch.beats as any[]).map((b: any) => ({
+              seed_id:                  seedId,
+              project_id:               projectId,
+              beat_key:                 b.beat_key,
+              beat_description:         b.beat_description         ?? null,
+              narrative_axis_reference: b.narrative_axis_reference ?? null,
+              expected_turn:            b.expected_turn            ?? null,
+            }));
+            const { error: l7Err } = await (supabase as any).from("dev_seed_v2_beats").insert(bRows);
+            if (l7Err) throw new Error("Layer 7 update failed: " + l7Err.message);
+          }
+          updatedLayers.push("layer_7_beats");
+        }
+
+        // Layer 8 — Generation Intent
+        if (seedPatch.generation_intent && typeof seedPatch.generation_intent === "object") {
+          await (supabase as any).from("dev_seed_v2_generation_intent").delete().eq("seed_id", seedId);
+          const gi = seedPatch.generation_intent as any;
+          const { error: l8Err } = await (supabase as any)
+            .from("dev_seed_v2_generation_intent")
+            .insert({
+              seed_id:                    seedId,
+              project_id:                 projectId,
+              projection_targets:         gi.projection_targets         ?? [],
+              pacing_bias:                gi.pacing_bias                ?? null,
+              dialogue_density:           gi.dialogue_density           ?? null,
+              mystery_opacity:            gi.mystery_opacity            ?? null,
+              commercial_vs_auteur_scale: gi.commercial_vs_auteur_scale ?? null,
+              tone_intensity:             gi.tone_intensity             ?? null,
+            });
+          if (l8Err) throw new Error("Layer 8 update failed: " + l8Err.message);
+          updatedLayers.push("layer_8_generation_intent");
+        }
+
+        console.log("[dev-engine-v2] update_dev_seed_v2 complete", {
+          project_id: projectId,
+          seed_id:    seedId,
+          was_promoted: wasPromoted,
+          updated_layers: updatedLayers,
+        });
+
+        return new Response(JSON.stringify({
+          project_id:      projectId,
+          action:          "update_dev_seed_v2",
+          ok:              true,
+          seed_id:         seedId,
+          updated_at:      now,
+          updated_layers:  updatedLayers,
+          was_promoted:    wasPromoted,
+          runtime_dirty:   wasPromoted,
+          notes: wasPromoted
+            ? ["Seed was previously promoted. Run sync_dev_seed_v2_to_canon again to update canonical runtime state."]
+            : [],
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      } catch (updateErr: any) {
+        console.error("[dev-engine-v2] update_dev_seed_v2 failed mid-write:", updateErr?.message);
+        return new Response(JSON.stringify({
+          project_id: projectId,
+          action:     "update_dev_seed_v2",
+          ok:         false,
+          seed_id:    seedId,
+          error:      updateErr?.message ?? "Unknown update error",
+          note:       "Partial writes may have occurred for layers processed before this error. Use get_dev_seed_v2 to inspect current state.",
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     // ── Selective Regeneration Planner v1: selective_regeneration_plan ──────────
