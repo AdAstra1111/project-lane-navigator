@@ -11,7 +11,7 @@ import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/ho
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
 import { useSceneVersionDiff } from '@/hooks/useSceneVersionDiff';
 import { useRegenerationRunHistory, type RegenerationRun } from '@/hooks/useRegenerationRunHistory';
-import { useAutopilotRepairDetection } from '@/hooks/useAutopilotRepairDetection';
+import { useNarrativeMonitor } from '@/hooks/useNarrativeMonitor';
 import { SceneRewriteDiffViewer } from '@/components/project/SceneRewriteDiffViewer';
 import { NDGImpactHeatmap } from '@/components/project/NDGImpactHeatmap';
 import { AutopilotRepairPanel } from '@/components/project/AutopilotRepairPanel';
