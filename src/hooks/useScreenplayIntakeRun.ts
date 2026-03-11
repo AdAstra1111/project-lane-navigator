@@ -29,6 +29,17 @@ import { STAGE_DEFINITIONS } from './useScriptDropProject';
 
 const FUNC_BASE = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
+export type SceneGraphHealthState = 'EMPTY_GRAPH' | 'PARTIAL_GRAPH' | 'POPULATED_GRAPH';
+
+export interface SceneGraphHealth {
+  state:               SceneGraphHealthState;
+  scene_count:         number;
+  orphan_count:        number;
+  missing_order_count: number;
+  key_gap_count:       number;
+  signals:             string[];
+}
+
 export interface IntakeStageRecord {
   id:              string;
   stage_key:       string;
