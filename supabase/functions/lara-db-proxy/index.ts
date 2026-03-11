@@ -473,56 +473,59 @@ Deno.serve(async (req) => {
       case "check_scene_key_duplicates": {
         // Read-only: finds duplicate (project_id, scene_key) pairs on active scenes.
         // Used for pre-constraint duplicate audit before adding UNIQUE index.
-        const dupSql = await sql`
-          SELECT
-            project_id,
-            scene_key,
-            COUNT(*) AS dup_count,
-            ARRAY_AGG(id ORDER BY created_at) AS scene_ids
-          FROM public.scene_graph_scenes
-          WHERE deprecated_at IS NULL
-            AND scene_key IS NOT NULL
-          GROUP BY project_id, scene_key
-          HAVING COUNT(*) > 1
-          ORDER BY dup_count DESC, project_id, scene_key
-          LIMIT 100
-        `;
-        result = { duplicate_groups: dupSql.length, rows: dupSql };
+        const dbUrl1 = Deno.env.get("SUPABASE_DB_URL");
+        if (!dbUrl1) throw new Error("SUPABASE_DB_URL not available");
+        const sql1 = postgres(dbUrl1, { max: 1 });
+        try {
+          const dupRows = await sql1`
+            SELECT
+              project_id::text,
+              scene_key,
+              COUNT(*) AS dup_count,
+              ARRAY_AGG(id::text ORDER BY created_at) AS scene_ids
+            FROM public.scene_graph_scenes
+            WHERE deprecated_at IS NULL
+              AND scene_key IS NOT NULL
+            GROUP BY project_id, scene_key
+            HAVING COUNT(*) > 1
+            ORDER BY dup_count DESC, project_id, scene_key
+            LIMIT 100
+          `;
+          result = { duplicate_groups: dupRows.length, rows: dupRows };
+        } finally {
+          await sql1.end();
+        }
         break;
       }
 
       case "inspect_scene_key_column": {
         // Read-only: confirms scene_key column definition and existing indexes/constraints.
-        const colSql = await sql`
-          SELECT
-            c.column_name,
-            c.data_type,
-            c.is_nullable,
-            c.column_default
-          FROM information_schema.columns c
-          WHERE c.table_schema = 'public'
-            AND c.table_name = 'scene_graph_scenes'
-          ORDER BY c.ordinal_position
-        `;
-        const idxSql = await sql`
-          SELECT
-            indexname,
-            indexdef
-          FROM pg_indexes
-          WHERE schemaname = 'public'
-            AND tablename = 'scene_graph_scenes'
-          ORDER BY indexname
-        `;
-        const conSql = await sql`
-          SELECT
-            conname,
-            contype,
-            pg_get_constraintdef(oid) AS condef
-          FROM pg_constraint
-          WHERE conrelid = 'public.scene_graph_scenes'::regclass
-          ORDER BY conname
-        `;
-        result = { columns: colSql, indexes: idxSql, constraints: conSql };
+        const dbUrl2 = Deno.env.get("SUPABASE_DB_URL");
+        if (!dbUrl2) throw new Error("SUPABASE_DB_URL not available");
+        const sql2 = postgres(dbUrl2, { max: 1 });
+        try {
+          const colRows = await sql2`
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'scene_graph_scenes'
+            ORDER BY ordinal_position
+          `;
+          const idxRows = await sql2`
+            SELECT indexname, indexdef
+            FROM pg_indexes
+            WHERE schemaname = 'public' AND tablename = 'scene_graph_scenes'
+            ORDER BY indexname
+          `;
+          const conRows = await sql2`
+            SELECT conname, contype, pg_get_constraintdef(oid) AS condef
+            FROM pg_constraint
+            WHERE conrelid = 'public.scene_graph_scenes'::regclass
+            ORDER BY conname
+          `;
+          result = { columns: colRows, indexes: idxRows, constraints: conRows };
+        } finally {
+          await sql2.end();
+        }
         break;
       }
 
