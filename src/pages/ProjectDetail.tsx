@@ -451,6 +451,9 @@ export default function ProjectDetail() {
           {/* Auto-Run Setup Panel */}
           <AutoRunSetupPanel project={project} />
 
+          {/* Import Pipeline Status — only renders for script-dropped projects */}
+          <ImportStatusPanel projectId={id} />
+
           {/* Reverse Engineer Callout */}
           <ReverseEngineerCallout projectId={id!} documents={documents} />
 
