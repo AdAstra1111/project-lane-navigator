@@ -358,6 +358,27 @@ export function useScreenplayIntakeRun(projectId: string | undefined) {
     ? (sceneExtractStage?.output_summary as any)?.existing_scene_count ?? null
     : null;
 
+  // Scene graph health classification (advisory, read-only)
+  const { data: graphHealth } = useQuery<SceneGraphHealth | null>({
+    queryKey: ['scene-graph-health', projectId],
+    enabled: !!projectId && !!data?.run,
+    queryFn: async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token ?? '';
+        const result = await callFunction('lara-db-proxy', {
+          action: 'classify_scene_graph',
+          params: { project_id: projectId },
+        }, token);
+        if (result?.state) return result as SceneGraphHealth;
+        return null;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 30_000,
+  });
+
   return {
     latestRun:     data?.run ?? null,
     stages:        data?.stages ?? [],
@@ -371,6 +392,7 @@ export function useScreenplayIntakeRun(projectId: string | undefined) {
     rebuildRequired,
     rebuildSceneCount,
     rebuildSceneGraph,
+    graphHealth:   graphHealth ?? null,
     refetch,
   };
 }
