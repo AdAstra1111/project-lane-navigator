@@ -459,6 +459,9 @@ export default function ProjectDetail() {
           {/* Import Pipeline Status — downstream materialisation readiness */}
           <ImportStatusPanel projectId={id} />
 
+          {/* Scene Intelligence — NDG v1 read-only graph panel */}
+          <SceneIntelligencePanel projectId={id} />
+
           {/* Reverse Engineer Callout */}
           <ReverseEngineerCallout projectId={id!} documents={documents} />
 
