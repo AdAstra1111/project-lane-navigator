@@ -4,11 +4,13 @@
  * All state derived from persisted screenplay_intake_runs / stage_runs.
  */
 
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { CheckCircle2, AlertCircle, Loader2, RotateCcw, Clock, FileText, XCircle, MinusCircle } from 'lucide-react';
+import { CheckCircle2, Loader2, RotateCcw, Clock, FileText, XCircle, MinusCircle, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useScreenplayIntakeRun, type IntakeStageRecord } from '@/hooks/useScreenplayIntakeRun';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -37,12 +39,21 @@ function StageStatusIcon({ status }: { status: string }) {
       return <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />;
     case 'skipped':
       return <MinusCircle className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />;
+    case 'rebuild_required':
+      return <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />;
     default: // pending
       return <div className="h-3.5 w-3.5 rounded-full border border-muted-foreground/30 shrink-0" />;
   }
 }
 
-function RunStatusBadge({ status }: { status: string }) {
+function RunStatusBadge({ status, rebuildRequired }: { status: string; rebuildRequired: boolean }) {
+  if (rebuildRequired) {
+    return (
+      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-amber-500/40 text-amber-400">
+        Rebuild Required
+      </Badge>
+    );
+  }
   const config: Record<string, { label: string; style: string }> = {
     running: { label: 'In Progress', style: 'border-primary/40 text-primary' },
     done:    { label: 'Complete',    style: 'border-emerald-500/40 text-emerald-400' },
@@ -61,30 +72,45 @@ function StageRow({
   stage,
   retryingStage,
   onRetry,
+  isRebuildTarget,
+  rebuilding,
+  onRebuild,
+  rebuildSceneCount,
 }: {
   stage: IntakeStageRecord;
   retryingStage: string | null;
   onRetry: (key: string) => void;
+  isRebuildTarget: boolean;
+  rebuilding: boolean;
+  onRebuild: () => void;
+  rebuildSceneCount: number | null;
 }) {
   const label = STAGE_LABELS[stage.stage_key] ?? stage.label;
   const isRetrying = retryingStage === stage.stage_key;
-  const showRetry = stage.status === 'failed' && stage.retryable && !isRetrying;
+  const displayStatus = isRebuildTarget ? 'rebuild_required' : (isRetrying ? 'running' : stage.status);
+  const showRetry = stage.status === 'failed' && stage.retryable && !isRetrying && !isRebuildTarget;
 
   return (
     <div className="flex items-center gap-2 text-xs py-1">
-      <StageStatusIcon status={isRetrying ? 'running' : stage.status} />
+      <StageStatusIcon status={displayStatus} />
       <span className={cn(
         'flex-1',
         stage.status === 'done' && 'text-muted-foreground',
         stage.status === 'running' && 'text-foreground font-medium',
         stage.status === 'failed' && 'text-destructive font-medium',
         stage.status === 'pending' && 'text-muted-foreground/50',
-        stage.status === 'skipped' && 'text-muted-foreground/50',
+        stage.status === 'skipped' && !isRebuildTarget && 'text-muted-foreground/50',
+        isRebuildTarget && 'text-amber-400 font-medium',
       )}>
         {label}
+        {isRebuildTarget && rebuildSceneCount != null && (
+          <span className="text-[10px] text-amber-400/70 ml-1">
+            ({rebuildSceneCount} existing scenes)
+          </span>
+        )}
       </span>
 
-      {stage.status === 'failed' && stage.error && (
+      {stage.status === 'failed' && stage.error && !isRebuildTarget && (
         <span className="text-[10px] text-destructive/70 max-w-[180px] truncate" title={stage.error}>
           {stage.error}
         </span>
@@ -107,6 +133,31 @@ function StageRow({
           <Loader2 className="h-3 w-3 animate-spin" /> retrying…
         </span>
       )}
+
+      {isRebuildTarget && !rebuilding && (
+        <ConfirmDialog
+          title="Rebuild Scene Graph"
+          description="This will delete the current scene graph and regenerate scenes from the screenplay. Downstream structures will be recalculated automatically. This action cannot be undone."
+          confirmLabel="Rebuild Scene Graph"
+          variant="destructive"
+          onConfirm={onRebuild}
+        >
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 px-1.5 text-[10px] gap-1 text-amber-400 hover:text-amber-300"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Rebuild
+          </Button>
+        </ConfirmDialog>
+      )}
+
+      {isRebuildTarget && rebuilding && (
+        <span className="text-[10px] text-primary flex items-center gap-1">
+          <Loader2 className="h-3 w-3 animate-spin" /> rebuilding…
+        </span>
+      )}
     </div>
   );
 }
@@ -118,6 +169,10 @@ export function ScreenplayIntakeBanner({ projectId }: ScreenplayIntakeBannerProp
     isLoading,
     retryingStage,
     retryStage,
+    rebuilding,
+    rebuildRequired,
+    rebuildSceneCount,
+    rebuildSceneGraph,
   } = useScreenplayIntakeRun(projectId);
 
   // Fail closed
@@ -142,7 +197,7 @@ export function ScreenplayIntakeBanner({ projectId }: ScreenplayIntakeBannerProp
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-primary" />
           <span className="text-sm font-semibold text-foreground">Screenplay Import</span>
-          <RunStatusBadge status={latestRun.status} />
+          <RunStatusBadge status={latestRun.status} rebuildRequired={rebuildRequired} />
         </div>
         <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
           {initiatedAgo && (
@@ -157,12 +212,24 @@ export function ScreenplayIntakeBanner({ projectId }: ScreenplayIntakeBannerProp
         </div>
       </div>
 
+      {/* Rebuild required message */}
+      {rebuildRequired && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+          <div className="text-[11px] text-amber-400/90 space-y-0.5">
+            <p className="font-medium">Scene extraction cannot be retried because a scene graph already exists.</p>
+            <p className="text-amber-400/70">Use rebuild to regenerate the scene graph from the screenplay.</p>
+          </div>
+        </div>
+      )}
+
       {/* Progress bar */}
       <div className="w-full h-1.5 rounded-full overflow-hidden bg-muted">
         <motion.div
           className={cn(
             'h-full rounded-full transition-all duration-500 ease-out',
             latestRun.status === 'done' ? 'bg-emerald-500' :
+            rebuildRequired ? 'bg-amber-500' :
             latestRun.status === 'failed' ? 'bg-destructive' : 'bg-primary',
           )}
           initial={{ width: 0 }}
@@ -179,12 +246,16 @@ export function ScreenplayIntakeBanner({ projectId }: ScreenplayIntakeBannerProp
             stage={stage}
             retryingStage={retryingStage}
             onRetry={retryStage}
+            isRebuildTarget={rebuildRequired && stage.stage_key === 'scene_extract'}
+            rebuilding={rebuilding}
+            onRebuild={rebuildSceneGraph}
+            rebuildSceneCount={rebuildSceneCount}
           />
         ))}
       </div>
 
       {/* Footer warning for incomplete runs */}
-      {latestRun.status !== 'done' && (
+      {latestRun.status !== 'done' && !rebuildRequired && (
         <p className="text-[10px] text-amber-400/80 border-t border-border/40 pt-2">
           Import is not fully complete — some downstream features may be unavailable.
         </p>

@@ -283,11 +283,69 @@ export function useScreenplayIntakeRun(projectId: string | undefined) {
     }
   }, [projectId, data, qc]);
 
+  const [rebuilding, setRebuilding] = useState(false);
+
+  const rebuildSceneGraph = useCallback(async () => {
+    if (!projectId || !data?.run) return;
+    setRebuilding(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? '';
+
+      // Mark stage as running
+      await (supabase as any)
+        .from('screenplay_intake_stage_runs')
+        .update({ status: 'running', started_at: new Date().toISOString(), error: null, completed_at: null })
+        .eq('run_id', data.run.id)
+        .eq('stage_key', 'scene_extract')
+        .catch(() => {});
+
+      const result = await callFunction('dev-engine-v2', {
+        action:           'scene_graph_extract',
+        projectId,
+        sourceDocumentId: data.run.source_doc_id,
+        sourceVersionId:  data.run.script_version_id,
+        force:            true,
+      }, token);
+
+      // Mark done
+      await (supabase as any)
+        .from('screenplay_intake_stage_runs')
+        .update({ status: 'done', completed_at: new Date().toISOString(), output_summary: result ?? {} })
+        .eq('run_id', data.run.id)
+        .eq('stage_key', 'scene_extract')
+        .catch(() => {});
+
+      toast.success('Scene graph rebuilt successfully');
+      qc.invalidateQueries({ queryKey: ['screenplay-intake-run', projectId] });
+    } catch (err: any) {
+      await (supabase as any)
+        .from('screenplay_intake_stage_runs')
+        .update({ status: 'failed', completed_at: new Date().toISOString(), error: err.message?.slice(0, 500) })
+        .eq('run_id', data!.run.id)
+        .eq('stage_key', 'scene_extract')
+        .catch(() => {});
+      toast.error(`Rebuild failed: ${err.message}`);
+      qc.invalidateQueries({ queryKey: ['screenplay-intake-run', projectId] });
+    } finally {
+      setRebuilding(false);
+    }
+  }, [projectId, data, qc]);
+
   const refetch = () => qc.invalidateQueries({ queryKey: ['screenplay-intake-run', projectId] });
 
   const failedRetryableStages = (data?.stages ?? []).filter(
     s => s.status === 'failed' && s.retryable,
   );
+
+  // Detect rebuild-required state for scene_extract
+  const sceneExtractStage = (data?.stages ?? []).find(s => s.stage_key === 'scene_extract');
+  const rebuildRequired = sceneExtractStage?.status === 'skipped'
+    && typeof sceneExtractStage?.error === 'string'
+    && sceneExtractStage.error.startsWith('retry_blocked:scene_graph_not_empty');
+  const rebuildSceneCount = rebuildRequired
+    ? (sceneExtractStage?.output_summary as any)?.existing_scene_count ?? null
+    : null;
 
   return {
     latestRun:     data?.run ?? null,
@@ -298,6 +356,10 @@ export function useScreenplayIntakeRun(projectId: string | undefined) {
     failedStages:  failedRetryableStages,
     retryingStage,
     retryStage,
+    rebuilding,
+    rebuildRequired,
+    rebuildSceneCount,
+    rebuildSceneGraph,
     refetch,
   };
 }
