@@ -468,6 +468,9 @@ export default function ProjectDetail() {
           {/* Rewrite Preview — selective regeneration plan */}
           <RewritePreviewPanel projectId={id} />
 
+          {/* Rewrite Execution — selective regeneration controls + results */}
+          <RewriteExecutionPanel projectId={id} />
+
           {/* Scene Intelligence — NDG v1 read-only graph panel */}
           <SceneIntelligencePanel projectId={id} />
 
