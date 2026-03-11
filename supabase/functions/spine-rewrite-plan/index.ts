@@ -48,7 +48,7 @@ import {
   sequenceRewriteTargets,
   type UnitConfidenceMeta,
 } from "../_shared/narrativeDependencyGraph.ts";
-import { buildPatchBlueprints } from "../_shared/patchBlueprintEngine.ts";
+import { buildPatchBlueprints, type EntityContext } from "../_shared/patchBlueprintEngine.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -827,7 +827,70 @@ serve(async (req: Request) => {
       ? `Coverage incomplete: ${warningParts.join('; ')}.`
       : null;
 
-    // ── 7. Return plan ──
+    // ── 7. L5.1: Entity context for blueprint enrichment ──
+    // Load narrative_entities + relations once. Fail-safe: if absent/errored, blueprints
+    // remain structure-only (backward compatible). Only runs when rewrite targets exist
+    // and include axes that have deterministic entity mappings.
+    const ENTITY_MAPPED_AXES = new Set(["protagonist_arc", "central_conflict"]);
+    const needsEntityContext =
+      rewriteTargets.length > 0 &&
+      rewriteTargets.some((rt: any) => ENTITY_MAPPED_AXES.has(rt.axis));
+
+    let entityContext: EntityContext | null = null;
+    if (needsEntityContext) {
+      try {
+        // Load active entities for this project (small table — 6 rows for a typical project)
+        const { data: entData } = await supabase
+          .from("narrative_entities")
+          .select("id, entity_key, entity_type, canonical_name, status, meta_json")
+          .eq("project_id", projectId)
+          .eq("status", "active");
+
+        if (entData && entData.length > 0) {
+          // Build id→key map so relations (which use entity IDs) can be resolved to keys
+          const idToKey = new Map<string, string>(
+            (entData as any[]).map(e => [e.id as string, e.entity_key as string])
+          );
+          const entityIds = (entData as any[]).map(e => e.id as string);
+
+          // Load relations where source is one of this project's entities
+          const { data: relData } = await supabase
+            .from("narrative_entity_relations")
+            .select("source_entity_id, target_entity_id, relation_type")
+            .in("source_entity_id", entityIds);
+
+          const relations = ((relData ?? []) as any[])
+            .map(r => ({
+              source_key:    idToKey.get(r.source_entity_id as string) ?? "",
+              target_key:    idToKey.get(r.target_entity_id as string) ?? "",
+              relation_type: r.relation_type as string,
+            }))
+            .filter(r => r.source_key && r.target_key);
+
+          entityContext = {
+            entities: (entData as any[]).map(e => ({
+              entity_key:     e.entity_key  as string,
+              entity_type:    e.entity_type as string,
+              canonical_name: e.canonical_name as string,
+              status:         e.status      as string,
+              meta_json:      (e.meta_json  as Record<string, any>) ?? {},
+            })),
+            relations,
+          };
+
+          console.log("[spine-rewrite-plan] L5.1 entity context loaded:", {
+            entities:  entityContext.entities.length,
+            relations: entityContext.relations.length,
+          });
+        }
+      } catch (nitErr: any) {
+        // Fail-safe: entity load error must never block blueprint generation
+        console.warn("[spine-rewrite-plan] L5.1 entity load failed (non-fatal):", nitErr?.message);
+        entityContext = null;
+      }
+    }
+
+    // ── 8. Return plan ──
     return new Response(JSON.stringify({
       document_id: effectiveDocumentId,
       version_id: versionId,
@@ -870,7 +933,8 @@ serve(async (req: Request) => {
       // Advisory only. No patch execution. No document mutation. No LLM.
       // Each blueprint answers: what to fix, where to fix it, why, and how urgent.
       // Ordered by sequence_rank (safest repair order). Empty when no rewrite targets.
-      patch_blueprints: buildPatchBlueprints(rewriteTargets, preserveTargets, propagatedRisk),
+      // L5.1: pass entityContext for entity-aware blueprint enrichment (null = structure-only)
+      patch_blueprints: buildPatchBlueprints(rewriteTargets, preserveTargets, propagatedRisk, entityContext),
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err: any) {

@@ -5,12 +5,18 @@
  * repair instructions that tell a producer (or future execution engine) exactly what
  * kind of repair should be made, without performing it.
  *
+ * L5.1: Entity-aware patch blueprints.
+ * Blueprints are now enriched with NIT entity data (primary_entity, affected_entities,
+ * preserve_entities) where deterministic mappings exist. Structure-only blueprints are
+ * unchanged. All entity enrichment is optional and additive.
+ *
  * Constraints:
  *   - No LLM calls. No text generation. No speculative inference.
  *   - No document mutation. No lifecycle state changes.
- *   - No extra DB queries. Uses only already-available planner metadata.
+ *   - No extra DB queries inside this module — entity context passed in by caller.
  *   - All wording is templated and deterministic.
  *   - Fail-safe: missing fields are omitted or given safe fallback values.
+ *   - If entityContext is absent: blueprints are structure-only (backward compatible).
  */
 
 import { type SpineAxis, AXIS_METADATA } from "./narrativeSpine.ts";
@@ -19,6 +25,50 @@ import { getUpstreamAxes, type PropagatedRisk } from "./narrativeDependencyGraph
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type PatchUrgency = "critical" | "high" | "medium" | "low";
+
+// ── L5.1: Entity context types ─────────────────────────────────────────────
+
+/**
+ * Lightweight entity record passed into blueprint assembly from the caller.
+ * Caller loads narrative_entities + relations; engine consumes them deterministically.
+ */
+export interface NarrativeEntityRecord {
+  entity_key:     string;
+  entity_type:    string;   // 'character' | 'arc' | 'conflict'
+  canonical_name: string;
+  status:         string;
+  meta_json:      Record<string, any>;
+}
+
+export interface NarrativeRelationRecord {
+  source_key:    string;    // entity_key of source
+  target_key:    string;    // entity_key of target
+  relation_type: string;    // 'drives_arc' | 'subject_of_conflict' | 'opposes'
+}
+
+/**
+ * Bundled entity context passed into buildPatchBlueprints by the caller.
+ * If null/absent: all entity fields on blueprints will be null/[].
+ */
+export interface EntityContext {
+  entities:  NarrativeEntityRecord[];
+  relations: NarrativeRelationRecord[];
+}
+
+/**
+ * A reference to a narrative entity in a patch blueprint.
+ * relation_to_patch describes the entity's role relative to the repair:
+ *   'primary'  — the structural carrier of the axis being repaired
+ *   'affected' — deterministically involved in the repair (will be touched)
+ *   'preserve' — must not drift during the repair
+ */
+export interface PatchBlueprintEntityRef {
+  entity_key:       string;
+  entity_type:      "character" | "arc" | "conflict";
+  canonical_name:   string;
+  relation_to_patch: "primary" | "affected" | "preserve";
+  rationale?:       string;
+}
 
 /**
  * Best-available patch location derived from section_targets.
@@ -82,6 +132,27 @@ export interface PatchBlueprint {
   downstream_risk_axes: SpineAxis[];
   /** Advisory note for the producer or future execution engine */
   execution_note: string;
+
+  // ── L5.1: Entity identity fields — additive, optional ──
+
+  /**
+   * The primary narrative entity that structurally carries this axis.
+   * null when no deterministic entity mapping exists for this axis.
+   * Currently mapped: protagonist_arc (ARC_PROTAGONIST), central_conflict (CONFLICT_PRIMARY).
+   */
+  primary_entity: PatchBlueprintEntityRef | null;
+
+  /**
+   * Entities deterministically involved in this repair (will be touched by the patch).
+   * Empty when no deterministic affected-entity mapping exists.
+   */
+  affected_entities: PatchBlueprintEntityRef[];
+
+  /**
+   * Entities that must not drift during this repair.
+   * Empty when no deterministic preserve-entity mapping exists.
+   */
+  preserve_entities: PatchBlueprintEntityRef[];
 }
 
 // ── Internal helpers ───────────────────────────────────────────────────────
@@ -221,6 +292,137 @@ function buildExecutionNote(
   }
 }
 
+// ── L5.1: Deterministic axis → entity mapping ──────────────────────────────
+
+interface AxisEntityResult {
+  primary:  PatchBlueprintEntityRef | null;
+  affected: PatchBlueprintEntityRef[];
+  preserve: PatchBlueprintEntityRef[];
+}
+
+const EMPTY_ENTITY_RESULT: AxisEntityResult = { primary: null, affected: [], preserve: [] };
+
+/**
+ * Maps a spine axis to its narrative entities using the EntityContext.
+ *
+ * Deterministic only — no inference, no fuzzy matching.
+ * Returns EMPTY_ENTITY_RESULT for axes with no clean deterministic mapping.
+ *
+ * Mapped axes:
+ *   protagonist_arc  → ARC_PROTAGONIST (primary); linked protagonist character (affected + preserve)
+ *   central_conflict → CONFLICT_PRIMARY (primary); subject character + antagonist (affected)
+ *
+ * All other axes: structure-only (empty result).
+ */
+function mapAxisToEntities(axis: SpineAxis, ctx: EntityContext): AxisEntityResult {
+  if (axis === "protagonist_arc") {
+    const arc = ctx.entities.find(
+      e => e.entity_key === "ARC_PROTAGONIST" && e.status === "active"
+    );
+    if (!arc) return EMPTY_ENTITY_RESULT;
+
+    const primary: PatchBlueprintEntityRef = {
+      entity_key:        arc.entity_key,
+      entity_type:       "arc",
+      canonical_name:    arc.canonical_name,
+      relation_to_patch: "primary",
+      rationale:         "ARC_PROTAGONIST is the structural registry carrier of the protagonist_arc axis",
+    };
+
+    const affected: PatchBlueprintEntityRef[] = [];
+    const preserve: PatchBlueprintEntityRef[] = [];
+
+    // linked_character_key in ARC_PROTAGONIST.meta_json — set by NIT v1.1 linkProtagonistArc()
+    const linkedCharKey = arc.meta_json?.linked_character_key as string | undefined;
+    if (linkedCharKey) {
+      const char = ctx.entities.find(
+        e => e.entity_key === linkedCharKey && e.status === "active"
+      );
+      if (char) {
+        affected.push({
+          entity_key:        char.entity_key,
+          entity_type:       "character",
+          canonical_name:    char.canonical_name,
+          relation_to_patch: "affected",
+          rationale:         "Protagonist character is the arc carrier; arc repair must maintain character identity consistency",
+        });
+        // Protagonist character identity must not drift during arc repair
+        preserve.push({
+          entity_key:        char.entity_key,
+          entity_type:       "character",
+          canonical_name:    char.canonical_name,
+          relation_to_patch: "preserve",
+          rationale:         "Protagonist character identity must remain stable during arc repair",
+        });
+      }
+    }
+
+    return { primary, affected, preserve };
+  }
+
+  if (axis === "central_conflict") {
+    const conflict = ctx.entities.find(
+      e => e.entity_key === "CONFLICT_PRIMARY" && e.status === "active"
+    );
+    if (!conflict) return EMPTY_ENTITY_RESULT;
+
+    const primary: PatchBlueprintEntityRef = {
+      entity_key:        conflict.entity_key,
+      entity_type:       "conflict",
+      canonical_name:    conflict.canonical_name,
+      relation_to_patch: "primary",
+      rationale:         "CONFLICT_PRIMARY is the structural registry carrier of the central_conflict axis",
+    };
+
+    const affected: PatchBlueprintEntityRef[] = [];
+
+    // subject_of_conflict: character whose relation points TO this conflict
+    const subjectRel = ctx.relations.find(
+      r => r.target_key === conflict.entity_key && r.relation_type === "subject_of_conflict"
+    );
+    if (subjectRel) {
+      const subject = ctx.entities.find(
+        e => e.entity_key === subjectRel.source_key && e.status === "active"
+      );
+      if (subject) {
+        affected.push({
+          entity_key:        subject.entity_key,
+          entity_type:       "character",
+          canonical_name:    subject.canonical_name,
+          relation_to_patch: "affected",
+          rationale:         "Protagonist is subject_of_conflict; central_conflict repair directly involves this character",
+        });
+
+        // Check for antagonist: opposes → subject character
+        const opposesRel = ctx.relations.find(
+          r => r.target_key === subject.entity_key && r.relation_type === "opposes"
+        );
+        if (opposesRel) {
+          const antagonist = ctx.entities.find(
+            e => e.entity_key === opposesRel.source_key && e.status === "active"
+          );
+          if (antagonist) {
+            affected.push({
+              entity_key:        antagonist.entity_key,
+              entity_type:       "character",
+              canonical_name:    antagonist.canonical_name,
+              relation_to_patch: "affected",
+              rationale:         "Antagonist opposes conflict subject; conflict repair affects the antagonistic dynamic",
+            });
+          }
+        }
+      }
+    }
+
+    // preserve_entities for central_conflict: empty — the conflict is being repaired, not preserved.
+    // Protagonist arc carrier (if present in aligned preserve_targets) is handled at structural level.
+    return { primary, affected, preserve: [] };
+  }
+
+  // All other axes: structure-only
+  return EMPTY_ENTITY_RESULT;
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────
 
 /**
@@ -230,12 +432,15 @@ function buildExecutionNote(
  * @param preserveTargets All preserve_targets from the current plan (for constraints)
  * @param propagatedRisk  Propagated risk array from NDG planner (for downstream axes)
  * @param rewriteAxisSet  Set of all axes in the current rewrite target list (for upstream filtering)
+ * @param entityContext   Optional NIT entity context for L5.1 entity enrichment.
+ *                        If null/absent, entity fields will be null/[] (backward compatible).
  */
 export function buildPatchBlueprint(
   rt: any,
   preserveTargets: any[],
   propagatedRisk: PropagatedRisk[],
   rewriteAxisSet: Set<SpineAxis>,
+  entityContext?: EntityContext | null,
 ): PatchBlueprint {
   const axis = rt.axis as SpineAxis;
   const meta = AXIS_METADATA[axis];
@@ -273,6 +478,12 @@ export function buildPatchBlueprint(
   // Execution note — templated from sequence bucket
   const executionNote = buildExecutionNote(rt.sequence_bucket, rt.sequence_rank);
 
+  // L5.1: Entity enrichment — deterministic, fail-safe
+  // mapAxisToEntities returns EMPTY_ENTITY_RESULT when no mapping exists or entityContext absent.
+  const entityResult = entityContext
+    ? mapAxisToEntities(axis, entityContext)
+    : EMPTY_ENTITY_RESULT;
+
   return {
     axis,
     axis_label:             axisLabel,
@@ -286,6 +497,10 @@ export function buildPatchBlueprint(
     upstream_dependencies:  upstreamDependencies,
     downstream_risk_axes:   downstreamRiskAxes,
     execution_note:         executionNote,
+    // L5.1 entity fields — null/[] when no deterministic mapping (structure-only axes)
+    primary_entity:    entityResult.primary,
+    affected_entities: entityResult.affected,
+    preserve_entities: entityResult.preserve,
   };
 }
 
@@ -301,11 +516,14 @@ export function buildPatchBlueprint(
  * @param rewriteTargets  Enriched, NDG v3-sequenced rewrite targets
  * @param preserveTargets All preserve_targets (for constraints)
  * @param propagatedRisk  Propagated risk from NDG planner
+ * @param entityContext   Optional NIT entity context for L5.1 entity enrichment.
+ *                        If null/absent, entity fields will be null/[] on all blueprints.
  */
 export function buildPatchBlueprints(
   rewriteTargets: any[],
   preserveTargets: any[],
   propagatedRisk: PropagatedRisk[],
+  entityContext?: EntityContext | null,
 ): PatchBlueprint[] {
   if (!rewriteTargets || rewriteTargets.length === 0) return [];
 
@@ -320,6 +538,6 @@ export function buildPatchBlueprints(
   });
 
   return ordered.map(rt =>
-    buildPatchBlueprint(rt, preserveTargets, propagatedRisk, rewriteAxisSet)
+    buildPatchBlueprint(rt, preserveTargets, propagatedRisk, rewriteAxisSet, entityContext)
   );
 }
