@@ -2002,6 +2002,26 @@ function compareSnapshots(a: CriteriaSnapshot | null, b: CriteriaSnapshot | null
 // Grounding is via existing narrative_entity_relations — no invented semantic model.
 // protagonist_arc → arc entities (e.g. ARC_PROTAGONIST) → characters that drives_arc them
 // central_conflict → conflict entities (e.g. CONFLICT_PRIMARY) → characters subject_of_conflict
+// ── Repair Strategy Engine (Installment 46A) ─────────────────────────────────
+//
+// Three deterministic strategies govern which scene categories the planner
+// includes in its output. The executor remains unchanged.
+//
+// precision      — direct only; propagated included only when NDG risk is high
+//                  (broad_impact scope). entity_link excluded. Batch cap: 4.
+//
+// balanced       — direct + propagated + entity_link. Default strategy.
+//                  Adaptive batch policy applies.
+//
+// stabilization  — direct + propagated + entity_link with expanded propagated
+//                  coverage (no propagated cap). Batch cap: 8.
+//
+const REPAIR_STRATEGIES = new Set(["precision", "balanced", "stabilization"]);
+const DEFAULT_REPAIR_STRATEGY = "balanced";
+
+// NDG_HIGH_RISK_THRESHOLD: scope at which 'precision' allows propagated scenes
+const PRECISION_PROPAGATED_SCOPE = new Set(["broad_impact"]);
+
 // ── Rewrite Confidence Scoring (Installment 42) ──────────────────────────────
 //
 // Deterministic confidence score (0–100) derived strictly from post-execution
@@ -2068,8 +2088,22 @@ function computeRepairConfidence(params: {
 function computeAdaptiveBatchSize(plan: {
   recommended_scope:    string;
   impacted_scene_count: number;
+  repair_strategy?:     string;
 }): number {
-  const { recommended_scope, impacted_scene_count } = plan;
+  const { recommended_scope, impacted_scene_count, repair_strategy } = plan;
+
+  // Strategy hard caps override scope-based sizing:
+  //   precision     → max 4 (minimal blast radius)
+  //   stabilization → max 8 (full ceiling)
+  //   balanced      → scope-based policy (default)
+  if (repair_strategy === "precision") {
+    return Math.max(1, Math.min(4, impacted_scene_count));
+  }
+  if (repair_strategy === "stabilization") {
+    return Math.max(1, Math.min(8, impacted_scene_count));
+  }
+
+  // balanced (default): scope-based adaptive policy
   let base: number;
   switch (recommended_scope) {
     case "targeted_scenes":  base = Math.min(6, impacted_scene_count); break;
@@ -2102,6 +2136,7 @@ async function computeSelectiveRegenerationPlanHelper(
   supabase: ReturnType<typeof createClient>,
   projectId: string,
   unitKeys?: string[] | null,
+  repairStrategy?: string | null,
 ): Promise<{
   ok: true;
   source_units: any[];
@@ -2117,7 +2152,9 @@ async function computeSelectiveRegenerationPlanHelper(
   entity_propagated_scene_count: number;
   recommended_scope: string;
   rationale: string;
+  repair_strategy: string;
 }> {
+  const strategy = repairStrategy ?? DEFAULT_REPAIR_STRATEGY;
   const hasSpecificKeys = Array.isArray(unitKeys) && unitKeys.length > 0;
 
   // 1. Load at-risk narrative units
@@ -2154,6 +2191,7 @@ async function computeSelectiveRegenerationPlanHelper(
       rationale: hasSpecificKeys
         ? "Requested unit keys found but none are stale or contradicted — no regeneration needed"
         : "No stale or contradicted narrative units — project is narratively aligned",
+      repair_strategy: strategy,
     };
   }
 
@@ -2243,6 +2281,7 @@ async function computeSelectiveRegenerationPlanHelper(
       entity_propagated_scene_count: 0,
       recommended_scope: "no_scene_links",
       rationale: "At-risk units identified but no scene_spine_links exist — run scene enrichment first",
+      repair_strategy: strategy,
     };
   }
 
@@ -2600,21 +2639,68 @@ async function computeSelectiveRegenerationPlanHelper(
     rationale = `At-risk units found for axes [${[...directRiskAxes.keys()].join(", ")}] but no scenes are mapped to any affected axes.`;
   }
 
+  // ── Step 7: Apply repair strategy filtering ───────────────────────────────
+  //
+  // Strategy filters which scene categories survive into the final plan output.
+  // entity_propagation is always excluded regardless of strategy (advisory-only).
+  //
+  // precision:
+  //   - direct always included
+  //   - propagated included ONLY if NDG risk is high (broad_impact scope)
+  //   - entity_link excluded
+  //   - batch cap 4 signals to executor (via impacted_scenes filtering)
+  //
+  // balanced (default):
+  //   - direct + propagated + entity_link
+  //   - adaptive batch policy applies
+  //
+  // stabilization:
+  //   - direct + propagated + entity_link (entity_link included regardless of scope)
+  //   - no propagated filtering beyond what planner naturally produces
+  //   - batch cap 8 (full ceiling)
+
+  let filteredImpactedScenes = impactedScenes;
+  let filteredEntityImpactedScenes = entityImpactedScenes;
+  let filteredDirectCount = directCount;
+  let filteredPropagatedCount = propagatedOnlySceneCount;
+
+  if (strategy === "precision") {
+    // Precision: direct always; propagated only for broad_impact scope
+    const allowPropagated = PRECISION_PROPAGATED_SCOPE.has(recommendedScope);
+    filteredImpactedScenes = impactedScenes.filter((s: any) =>
+      s.risk_source === "direct" || (allowPropagated && s.risk_source === "propagated")
+    );
+    filteredEntityImpactedScenes = []; // entity_link excluded
+    filteredDirectCount = filteredImpactedScenes.filter((s: any) => s.risk_source === "direct").length;
+    filteredPropagatedCount = filteredImpactedScenes.filter((s: any) => s.risk_source === "propagated").length;
+  } else if (strategy === "balanced" || strategy === "stabilization") {
+    // Both include direct + propagated + entity_link (entity_propagation always excluded)
+    // stabilization keeps full propagated list; balanced uses adaptive batch later
+    filteredImpactedScenes = impactedScenes; // direct + propagated (entity_link in separate array)
+    filteredEntityImpactedScenes = entityImpactedScenes;
+    filteredDirectCount = directCount;
+    filteredPropagatedCount = propagatedOnlySceneCount;
+  }
+
+  // entity_propagation is ALWAYS excluded from execution regardless of strategy
+  // (it remains in entity_propagated_scenes for advisory display only)
+
   return {
     ok: true,
     source_units: sourceUnits,
     direct_axes: directAxesArray,
     propagated_axes: [...propagatedAxesMap.keys()],
-    impacted_scenes: impactedScenes,
-    impacted_scene_count: impactedScenes.length,
-    direct_scene_count: directCount,
-    propagated_scene_count: propagatedOnlySceneCount,
-    entity_impacted_scenes: entityImpactedScenes,
-    entity_impacted_scene_count: entityImpactedScenes.length,
-    entity_propagated_scenes: entityPropagatedScenes,
+    impacted_scenes: filteredImpactedScenes,
+    impacted_scene_count: filteredImpactedScenes.length,
+    direct_scene_count: filteredDirectCount,
+    propagated_scene_count: filteredPropagatedCount,
+    entity_impacted_scenes: filteredEntityImpactedScenes,
+    entity_impacted_scene_count: filteredEntityImpactedScenes.length,
+    entity_propagated_scenes: entityPropagatedScenes,   // advisory only — never executed
     entity_propagated_scene_count: entityPropagatedScenes.length,
     recommended_scope: recommendedScope,
     rationale,
+    repair_strategy: strategy,
   };
 }
 
@@ -9350,13 +9436,22 @@ Return ONLY valid JSON:
       // Slim action block — delegates all plan logic to the shared helper.
       // Helper is defined at module level above serve() to allow reuse by
       // execute_selective_regeneration without duplication.
-      const { projectId, unitKeys } = body;
+      const { projectId, unitKeys, repair_strategy: rawStrategy } = body;
       if (!projectId) throw new Error("projectId required");
 
-      const plan = await computeSelectiveRegenerationPlanHelper(supabase, projectId, unitKeys ?? null);
+      // Validate strategy (fail-closed)
+      const strategy = rawStrategy ?? DEFAULT_REPAIR_STRATEGY;
+      if (!REPAIR_STRATEGIES.has(strategy)) {
+        return new Response(JSON.stringify({
+          ok: false, error: `Invalid repair_strategy '${strategy}'. Allowed: ${[...REPAIR_STRATEGIES].join(", ")}`,
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const plan = await computeSelectiveRegenerationPlanHelper(supabase, projectId, unitKeys ?? null, strategy);
 
       console.log("[dev-engine-v2] selective_regeneration_plan complete", {
         project_id:                    projectId,
+        repair_strategy:               plan.repair_strategy,
         source_unit_count:             plan.source_units.length,
         recommended_scope:             plan.recommended_scope,
         impacted_scenes:               plan.impacted_scene_count,
@@ -9368,6 +9463,7 @@ Return ONLY valid JSON:
         project_id:                    projectId,
         action:                        "selective_regeneration_plan",
         ok:                            true,
+        repair_strategy:               plan.repair_strategy,
         recommended_scope:             plan.recommended_scope,
         rationale:                     plan.rationale,
         source_units:                  plan.source_units,
@@ -9389,7 +9485,13 @@ Return ONLY valid JSON:
     // STAGE 2 (dryRun: false): generates exactly one scene, inserts new version row,
     //   writes provenance metadata, updates run to completed/failed, runs NDG post-check.
     if (action === "execute_selective_regeneration") {
-      const { projectId, unitKeys, dryRun = true } = body;
+      const { projectId, unitKeys, dryRun = true, repair_strategy: rawExecStrategy } = body;
+      const execStrategy = rawExecStrategy ?? DEFAULT_REPAIR_STRATEGY;
+      if (!REPAIR_STRATEGIES.has(execStrategy)) {
+        return new Response(JSON.stringify({
+          ok: false, error: `Invalid repair_strategy '${execStrategy}'. Allowed: ${[...REPAIR_STRATEGIES].join(", ")}`,
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       if (!projectId) throw new Error("projectId required");
 
       // ── Step 1: Auth check — reject if no userId ─────────────────────────
@@ -9459,8 +9561,9 @@ Return ONLY valid JSON:
       }
 
       // ── Step 4: Recompute regeneration plan (server-side, never trusted from client) ─
+      // Strategy is forwarded from caller; planner applies category filtering.
       const plan = await computeSelectiveRegenerationPlanHelper(
-        supabase, projectId, unitKeys ?? null
+        supabase, projectId, unitKeys ?? null, execStrategy
       );
 
       // ── Step 5: Scope validation ──────────────────────────────────────────
