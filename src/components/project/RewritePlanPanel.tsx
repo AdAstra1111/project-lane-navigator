@@ -96,6 +96,14 @@ interface PatchLocation {
   passage_lines?: { start_line: number; end_line: number }[];
 }
 
+interface PatchBlueprintEntityRef {
+  entity_key: string;
+  entity_type: 'character' | 'arc' | 'conflict';
+  canonical_name: string;
+  relation_to_patch: 'primary' | 'affected' | 'preserve';
+  rationale?: string;
+}
+
 interface PatchBlueprint {
   axis: string;
   sequence_rank?: number;
@@ -108,6 +116,9 @@ interface PatchBlueprint {
   upstream_dependencies?: string[];
   downstream_risk_axes?: string[];
   execution_note?: string;
+  primary_entity?: PatchBlueprintEntityRef | null;
+  affected_entities?: PatchBlueprintEntityRef[];
+  preserve_entities?: PatchBlueprintEntityRef[];
 }
 
 interface RewritePlan {
@@ -808,6 +819,16 @@ function PatchBlueprintCard({ blueprint: bp, index }: { blueprint: PatchBlueprin
         )}
       </div>
 
+      {/* Primary entity */}
+      {bp.primary_entity && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] text-muted-foreground font-medium">Primary entity</span>
+          <Badge variant="outline" className="text-[9px] border-violet-500/30 text-violet-400">
+            {bp.primary_entity.canonical_name}
+          </Badge>
+        </div>
+      )}
+
       {/* Goal as headline */}
       <p className="text-[10px] font-medium text-foreground/90 leading-snug">{bp.patch_goal}</p>
 
@@ -832,6 +853,34 @@ function PatchBlueprintCard({ blueprint: bp, index }: { blueprint: PatchBlueprin
             {bp.preserve_constraints.map((c, ci) => (
               <Badge key={ci} variant="outline" className="text-[9px] border-border text-foreground/60">
                 {c}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Preserve entities */}
+      {bp.preserve_entities && bp.preserve_entities.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[9px] text-muted-foreground font-medium">Preserve entities</p>
+          <div className="flex flex-wrap gap-1.5">
+            {bp.preserve_entities.map((e) => (
+              <Badge key={e.entity_key} variant="outline" className="text-[9px] border-emerald-500/30 text-emerald-400">
+                {e.canonical_name}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Affected entities */}
+      {bp.affected_entities && bp.affected_entities.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[9px] text-muted-foreground font-medium">Affected entities</p>
+          <div className="flex flex-wrap gap-1.5">
+            {bp.affected_entities.map((e) => (
+              <Badge key={e.entity_key} variant="outline" className="text-[9px] border-amber-500/30 text-amber-400">
+                {e.canonical_name}
               </Badge>
             ))}
           </div>
