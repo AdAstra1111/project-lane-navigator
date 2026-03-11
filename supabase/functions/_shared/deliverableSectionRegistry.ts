@@ -131,7 +131,10 @@ const STORY_OUTLINE_SECTIONS: SectionDefinition[] = [
 
 const BEAT_SHEET_SECTIONS: SectionDefinition[] = [
   { section_key: "act_1_beats", label: "Act 1 Beats", match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(1|one|i)\\b", allows_partial_rewrite: true, repair_mode: "replace_section", order: 0 },
-  { section_key: "act_2a_beats", label: "Act 2A Beats", match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(2a|two\\s*a|ii\\s*a)\\b", allows_partial_rewrite: true, repair_mode: "replace_section", order: 1 },
+  // NIT v2.4: added plain Act II fallback (^#+\s*act\s*(2|two|ii)\b) so that headings like
+  // "## Act II: The Spiral of Two Realities" are captured when no 'a'/'b' suffix is present.
+  // Original 2a/2b patterns preserved — more-specific patterns take priority via first-match order.
+  { section_key: "act_2a_beats", label: "Act 2A Beats", match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(2a|two\\s*a|ii\\s*a)\\b|^#+\\s*act\\s*(2|two|ii)\\b", allows_partial_rewrite: true, repair_mode: "replace_section", order: 1 },
   { section_key: "act_2b_beats", label: "Act 2B Beats", match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(2b|two\\s*b|ii\\s*b)\\b", allows_partial_rewrite: true, repair_mode: "replace_section", order: 2 },
   { section_key: "act_3_beats", label: "Act 3 Beats", match_mode: "heading_regex", match_pattern: "^#+\\s*act\\s*(3|three|iii)\\b", allows_partial_rewrite: true, repair_mode: "replace_section", order: 3 },
 ];
@@ -148,7 +151,9 @@ const SECTION_REGISTRY: Record<string, DocTypeSectionConfig> = {
   },
   format_rules: {
     doc_type: "format_rules",
-    section_repair_supported: true,
+    // NIT v2.4: format_rules documents are stored as raw JSON (not markdown).
+    // parseSections() returns [] for all real versions. Set false to reflect actual capability.
+    section_repair_supported: false,
     sections: FORMAT_RULES_SECTIONS,
     fallback_mode: "full_doc_rewrite",
     min_sections_required: 2,
@@ -162,7 +167,9 @@ const SECTION_REGISTRY: Record<string, DocTypeSectionConfig> = {
   },
   season_arc: {
     doc_type: "season_arc",
-    section_repair_supported: true,
+    // NIT v2.4: season_arc documents are stored as raw JSON ({"SEASON_ARC": {...}}).
+    // parseSections() returns [] for all 9 real versions. Set false to reflect actual capability.
+    section_repair_supported: false,
     sections: SEASON_ARC_SECTIONS,
     fallback_mode: "full_doc_rewrite",
     min_sections_required: 2,
