@@ -310,6 +310,43 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "clean_ghost_spine_axes": {
+        // Removes pre-fix ghost axis rows from scene_spine_links.
+        // Ghost axes: midpoint_shift, structural_turn, narrative_bridge, pacing_relief
+        // These were written by the old ROLE_AXIS_MAP before the Phase 4 fix.
+        // Safe to delete: scene_graph_sync_spine_links will repopulate with correct axes.
+        const GHOST_AXES = ["midpoint_shift", "structural_turn", "narrative_bridge", "pacing_relief"];
+        const { data: deleted, error: delErr } = await supabase
+          .from("scene_spine_links")
+          .delete()
+          .in("axis_key", GHOST_AXES)
+          .select("id,axis_key");
+        if (delErr) throw delErr;
+        result = {
+          deleted_count: (deleted || []).length,
+          deleted_axes:  [...new Set((deleted || []).map((r: any) => r.axis_key))],
+        };
+        break;
+      }
+
+      case "check_table_exists": {
+        // Checks whether a given table exists in the public schema
+        const { table_name } = params;
+        const { data, error: chkErr } = await supabase
+          .from("scene_blueprint_bindings")
+          .select("id")
+          .limit(0);
+        // If table doesn't exist, error.code = "42P01"
+        if (chkErr?.code === "42P01") {
+          result = { exists: false, table: table_name, message: chkErr.message };
+        } else if (chkErr) {
+          result = { exists: null, table: table_name, error: chkErr.message };
+        } else {
+          result = { exists: true, table: table_name };
+        }
+        break;
+      }
+
       default:
         return new Response(JSON.stringify({ error: `Unknown op: ${op}` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
