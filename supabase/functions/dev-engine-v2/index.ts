@@ -2866,6 +2866,8 @@ serve(async (req) => {
       "detect_autopilot_repair",
       "get_autopilot_monitor_status",
       "simulate_narrative_impact",
+      "create_dev_seed_v2",
+      "get_dev_seed_v2",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -9738,6 +9740,349 @@ Return ONLY valid JSON:
             ? `axis_keys resolved to ${resolvedUnitKeys.length} unit(s): [${resolvedUnitKeys.join(", ")}]`
             : null,
         ].filter(Boolean),
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Dev Seed v2: create_dev_seed_v2 ──────────────────────────────────────────
+    //
+    // Inserts all 8 layers of a Dev Seed v2 record transactionally.
+    //
+    // Transaction model: insert the root projects row first to obtain seed_id.
+    // All child layers reference seed_id via FK with ON DELETE CASCADE.
+    // On any insert failure: DELETE the seed row — cascade wipes all child rows.
+    // This gives effective rollback without requiring a PL/pgSQL stored procedure.
+    //
+    // Required: projectId, layer1 (project identity fields).
+    // Optional: layers 2–8 (arrays). Absent layers are simply skipped.
+    // Layers 3–8 may be empty arrays — zero rows inserted, no error.
+    //
+    // Returns: seed_id + per-layer row counts.
+    //
+    if (action === "create_dev_seed_v2") {
+      const {
+        projectId,
+        // Layer 1 — Project Identity (required)
+        title,
+        lane,
+        format,
+        target_audience,
+        genre_stack,
+        tone_contract,
+        market_hook,
+        runtime_pattern,
+        episode_pattern,
+        comparable_mode,
+        // Layer 2 — Premise Kernel
+        premise,
+        // Layer 3 — Narrative Axes (array)
+        axes,
+        // Layer 4 — Narrative Units (array)
+        units,
+        // Layer 5 — Entity Graph
+        entities,
+        entity_relations,
+        // Layer 6 — Canon Rules (array)
+        canon_rules,
+        // Layer 7 — Structural Beat Seeds (array)
+        beats,
+        // Layer 8 — Generation Intent
+        generation_intent,
+      } = body;
+
+      if (!projectId) {
+        return new Response(JSON.stringify({
+          ok: false, error: "projectId required",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!title) {
+        return new Response(JSON.stringify({
+          ok: false, error: "title required (Layer 1 — Project Identity)",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      let seedId: string | null = null;
+
+      try {
+        // ── Layer 1: Insert root projects row ─────────────────────────────
+        const { data: seedRow, error: seedErr } = await (supabase as any)
+          .from("dev_seed_v2_projects")
+          .insert({
+            project_id:     projectId,
+            created_by:     userId ?? null,
+            title,
+            lane:           lane ?? null,
+            format:         format ?? null,
+            target_audience: target_audience ?? null,
+            genre_stack:    genre_stack ?? [],
+            tone_contract:  tone_contract ?? null,
+            market_hook:    market_hook ?? null,
+            runtime_pattern: runtime_pattern ?? null,
+            episode_pattern: episode_pattern ?? null,
+            comparable_mode: comparable_mode ?? null,
+          })
+          .select("id")
+          .single();
+        if (seedErr) throw new Error("Layer 1 insert failed: " + seedErr.message);
+        seedId = seedRow.id as string;
+
+        // ── Layer 2: Premise Kernel ───────────────────────────────────────
+        let premiseCount = 0;
+        if (premise && typeof premise === "object") {
+          const { error: premErr } = await (supabase as any)
+            .from("dev_seed_v2_premise")
+            .insert({
+              seed_id:          seedId,
+              project_id:       projectId,
+              premise:          premise.premise          ?? null,
+              dramatic_question: premise.dramatic_question ?? null,
+              central_irony:    premise.central_irony    ?? null,
+              emotional_promise: premise.emotional_promise ?? null,
+              audience_fantasy: premise.audience_fantasy ?? null,
+              audience_fear:    premise.audience_fear    ?? null,
+              theme_vector:     premise.theme_vector     ?? null,
+            });
+          if (premErr) throw new Error("Layer 2 insert failed: " + premErr.message);
+          premiseCount = 1;
+        }
+
+        // ── Layer 3: Narrative Axes ───────────────────────────────────────
+        let axesCount = 0;
+        if (Array.isArray(axes) && axes.length > 0) {
+          const axesRows = axes.map((ax: any) => ({
+            seed_id:        seedId,
+            project_id:     projectId,
+            axis_key:       ax.axis_key,
+            axis_statement: ax.axis_statement ?? null,
+            axis_role:      ax.axis_role      ?? null,
+            axis_priority:  ax.axis_priority  ?? 0,
+            axis_confidence: ax.axis_confidence ?? 1.0,
+          }));
+          const { error: axErr } = await (supabase as any)
+            .from("dev_seed_v2_axes")
+            .insert(axesRows);
+          if (axErr) throw new Error("Layer 3 insert failed: " + axErr.message);
+          axesCount = axesRows.length;
+        }
+
+        // ── Layer 4: Narrative Units ──────────────────────────────────────
+        let unitsCount = 0;
+        if (Array.isArray(units) && units.length > 0) {
+          const unitRows = units.map((u: any) => ({
+            seed_id:                  seedId,
+            project_id:               projectId,
+            unit_key:                 u.unit_key,
+            unit_type:                u.unit_type,
+            axis_source:              u.axis_source              ?? null,
+            unit_statement:           u.unit_statement           ?? null,
+            success_state:            u.success_state            ?? null,
+            failure_mode:             u.failure_mode             ?? null,
+            dependency_position:      u.dependency_position      ?? null,
+            initial_alignment_status: u.initial_alignment_status ?? "aligned",
+          }));
+          const { error: unitErr } = await (supabase as any)
+            .from("dev_seed_v2_units")
+            .insert(unitRows);
+          if (unitErr) throw new Error("Layer 4 insert failed: " + unitErr.message);
+          unitsCount = unitRows.length;
+        }
+
+        // ── Layer 5a: Entities ────────────────────────────────────────────
+        let entitiesCount = 0;
+        if (Array.isArray(entities) && entities.length > 0) {
+          const entityRows = entities.map((e: any) => ({
+            seed_id:            seedId,
+            project_id:         projectId,
+            entity_key:         e.entity_key,
+            entity_name:        e.entity_name        ?? e.entity_key,
+            entity_type:        e.entity_type,
+            narrative_role:     e.narrative_role     ?? null,
+            description:        e.description        ?? null,
+            aliases:            e.aliases            ?? [],
+            story_critical_flag: e.story_critical_flag ?? false,
+          }));
+          const { error: entErr } = await (supabase as any)
+            .from("dev_seed_v2_entities")
+            .insert(entityRows);
+          if (entErr) throw new Error("Layer 5 entities insert failed: " + entErr.message);
+          entitiesCount = entityRows.length;
+        }
+
+        // ── Layer 5b: Entity Relations ────────────────────────────────────
+        let relationsCount = 0;
+        if (Array.isArray(entity_relations) && entity_relations.length > 0) {
+          const relRows = entity_relations.map((r: any) => ({
+            seed_id:           seedId,
+            project_id:        projectId,
+            source_entity_key: r.source_entity_key ?? r.source_entity,
+            relation_type:     r.relation_type,
+            target_entity_key: r.target_entity_key ?? r.target_entity,
+          }));
+          const { error: relErr } = await (supabase as any)
+            .from("dev_seed_v2_entity_relations")
+            .insert(relRows);
+          if (relErr) throw new Error("Layer 5 relations insert failed: " + relErr.message);
+          relationsCount = relRows.length;
+        }
+
+        // ── Layer 6: Canon Rules ──────────────────────────────────────────
+        let rulesCount = 0;
+        if (Array.isArray(canon_rules) && canon_rules.length > 0) {
+          const ruleRows = canon_rules.map((r: any) => ({
+            seed_id:          seedId,
+            project_id:       projectId,
+            rule_key:         r.rule_key,
+            rule_description: r.rule_description,
+            rule_scope:       r.rule_scope  ?? null,
+            severity:         r.severity    ?? "moderate",
+          }));
+          const { error: ruleErr } = await (supabase as any)
+            .from("dev_seed_v2_canon_rules")
+            .insert(ruleRows);
+          if (ruleErr) throw new Error("Layer 6 insert failed: " + ruleErr.message);
+          rulesCount = ruleRows.length;
+        }
+
+        // ── Layer 7: Structural Beat Seeds ────────────────────────────────
+        let beatsCount = 0;
+        if (Array.isArray(beats) && beats.length > 0) {
+          const beatRows = beats.map((b: any) => ({
+            seed_id:                  seedId,
+            project_id:               projectId,
+            beat_key:                 b.beat_key,
+            beat_description:         b.beat_description         ?? null,
+            narrative_axis_reference: b.narrative_axis_reference ?? null,
+            expected_turn:            b.expected_turn            ?? null,
+          }));
+          const { error: beatErr } = await (supabase as any)
+            .from("dev_seed_v2_beats")
+            .insert(beatRows);
+          if (beatErr) throw new Error("Layer 7 insert failed: " + beatErr.message);
+          beatsCount = beatRows.length;
+        }
+
+        // ── Layer 8: Generation Intent ────────────────────────────────────
+        let intentCount = 0;
+        if (generation_intent && typeof generation_intent === "object") {
+          const { error: intentErr } = await (supabase as any)
+            .from("dev_seed_v2_generation_intent")
+            .insert({
+              seed_id:                    seedId,
+              project_id:                 projectId,
+              projection_targets:         generation_intent.projection_targets         ?? [],
+              pacing_bias:                generation_intent.pacing_bias                ?? null,
+              dialogue_density:           generation_intent.dialogue_density           ?? null,
+              mystery_opacity:            generation_intent.mystery_opacity            ?? null,
+              commercial_vs_auteur_scale: generation_intent.commercial_vs_auteur_scale ?? null,
+              tone_intensity:             generation_intent.tone_intensity             ?? null,
+            });
+          if (intentErr) throw new Error("Layer 8 insert failed: " + intentErr.message);
+          intentCount = 1;
+        }
+
+        console.log("[dev-engine-v2] create_dev_seed_v2 complete", {
+          project_id: projectId,
+          seed_id:    seedId,
+          axes:       axesCount,
+          units:      unitsCount,
+          entities:   entitiesCount,
+          relations:  relationsCount,
+          rules:      rulesCount,
+          beats:      beatsCount,
+        });
+
+        return new Response(JSON.stringify({
+          project_id:       projectId,
+          action:           "create_dev_seed_v2",
+          ok:               true,
+          seed_id:          seedId,
+          layers_persisted: {
+            layer_1_project:          1,
+            layer_2_premise:          premiseCount,
+            layer_3_axes:             axesCount,
+            layer_4_units:            unitsCount,
+            layer_5_entities:         entitiesCount,
+            layer_5_entity_relations: relationsCount,
+            layer_6_canon_rules:      rulesCount,
+            layer_7_beats:            beatsCount,
+            layer_8_generation_intent: intentCount,
+          },
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      } catch (seedInsertErr: any) {
+        // Rollback: delete the root row — ON DELETE CASCADE cleans all child layers
+        if (seedId) {
+          await (supabase as any)
+            .from("dev_seed_v2_projects")
+            .delete()
+            .eq("id", seedId);
+        }
+        console.error("[dev-engine-v2] create_dev_seed_v2 failed, rolled back:", seedInsertErr?.message);
+        return new Response(JSON.stringify({
+          project_id: projectId,
+          action:     "create_dev_seed_v2",
+          ok:         false,
+          seed_id:    null,
+          error:      seedInsertErr?.message ?? "Unknown insert error",
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
+    // ── Dev Seed v2: get_dev_seed_v2 ─────────────────────────────────────────────
+    //
+    // Read-only. Returns the full seed for a project (most recent if multiple exist).
+    // Returns all 8 layers.
+    //
+    if (action === "get_dev_seed_v2") {
+      const { projectId, seedId: reqSeedId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Load root (most recent, or by explicit seed_id)
+      let rootQuery = (supabase as any)
+        .from("dev_seed_v2_projects")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (reqSeedId) rootQuery = rootQuery.eq("id", reqSeedId);
+      const { data: rootRow, error: rootErr } = await rootQuery.maybeSingle();
+      if (rootErr) throw rootErr;
+      if (!rootRow) {
+        return new Response(JSON.stringify({
+          project_id: projectId, action: "get_dev_seed_v2", ok: false,
+          error: "No Dev Seed v2 found for this project",
+        }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const sid = rootRow.id as string;
+      const [premRes, axRes, unitRes, entRes, relRes, ruleRes, beatRes, intentRes] =
+        await Promise.all([
+          (supabase as any).from("dev_seed_v2_premise").select("*").eq("seed_id", sid).maybeSingle(),
+          (supabase as any).from("dev_seed_v2_axes").select("*").eq("seed_id", sid).order("axis_priority"),
+          (supabase as any).from("dev_seed_v2_units").select("*").eq("seed_id", sid).order("unit_key"),
+          (supabase as any).from("dev_seed_v2_entities").select("*").eq("seed_id", sid).order("entity_key"),
+          (supabase as any).from("dev_seed_v2_entity_relations").select("*").eq("seed_id", sid),
+          (supabase as any).from("dev_seed_v2_canon_rules").select("*").eq("seed_id", sid).order("rule_key"),
+          (supabase as any).from("dev_seed_v2_beats").select("*").eq("seed_id", sid).order("beat_key"),
+          (supabase as any).from("dev_seed_v2_generation_intent").select("*").eq("seed_id", sid).maybeSingle(),
+        ]);
+
+      return new Response(JSON.stringify({
+        project_id: projectId,
+        action:     "get_dev_seed_v2",
+        ok:         true,
+        seed_id:    sid,
+        layer_1_project:          rootRow,
+        layer_2_premise:          premRes.data ?? null,
+        layer_3_axes:             axRes.data  ?? [],
+        layer_4_units:            unitRes.data ?? [],
+        layer_5_entities:         entRes.data ?? [],
+        layer_5_entity_relations: relRes.data ?? [],
+        layer_6_canon_rules:      ruleRes.data ?? [],
+        layer_7_beats:            beatRes.data ?? [],
+        layer_8_generation_intent: intentRes.data ?? null,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
