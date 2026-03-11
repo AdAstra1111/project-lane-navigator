@@ -2878,6 +2878,7 @@ serve(async (req) => {
       "sync_dev_seed_v2_to_canon",
       "update_dev_seed_v2",
       "delete_dev_seed_v2",
+      "create_derived_dev_seed_v2",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -10051,6 +10052,362 @@ Return ONLY valid JSON:
           ok:         false,
           seed_id:    null,
           error:      seedInsertErr?.message ?? "Unknown insert error",
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
+    // ── Dev Seed v2: create_derived_dev_seed_v2 ──────────────────────────────────
+    //
+    // Derives a Dev Seed v2 narrative genome from existing project artifacts.
+    // Reads: projects, narrative_spine_json, narrative_units, canon_units,
+    //        narrative_entities, narrative_entity_relations, project_canon.canon_json,
+    //        project_documents
+    //
+    // Does NOT auto-promote. promoted_at stays null until explicit sync call.
+    // Does NOT overwrite any authored (derived=false) seed.
+    // Multiple derived seeds per project are allowed (each call creates a new one).
+    //
+    // source_mode: "auto" (default) | "canon" | "documents" | "ndg"
+    //   auto   — uses all available sources, richest wins
+    //   canon  — prefers project_canon + narrative_units
+    //   documents — prefers project_documents plaintext
+    //   ndg    — prefers narrative_units (NDG-derived state)
+    //
+    if (action === "create_derived_dev_seed_v2") {
+      const { projectId, source_mode: sourceMode = "auto" } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 1: Load all source data in parallel ───────────────────────
+      const [
+        projRes,
+        canonRes,
+        spineUnitsRes,
+        canonUnitsRes,
+        entitiesRes,
+        relationsRes,
+        docsRes,
+      ] = await Promise.all([
+        (supabase as any).from("projects")
+          .select("title,format,tone,assigned_lane,genres,target_audience,comparable_titles,narrative_spine_json")
+          .eq("id", projectId).maybeSingle(),
+        (supabase as any).from("project_canon")
+          .select("canon_json").eq("project_id", projectId).maybeSingle(),
+        // narrative_units: NDG-derived, exclude dev_seed_v2 to avoid circular derivation
+        (supabase as any).from("narrative_units")
+          .select("unit_type,status,payload_json")
+          .eq("project_id", projectId)
+          .neq("source_doc_type", "dev_seed_v2")
+          .order("unit_type"),
+        // canon_units: canonical structural units (may be empty)
+        (supabase as any).from("canon_units")
+          .select("unit_type,label,attributes,confidence")
+          .eq("project_id", projectId)
+          .eq("is_active", true),
+        (supabase as any).from("narrative_entities")
+          .select("entity_key,canonical_name,entity_type,source_kind,meta_json")
+          .eq("project_id", projectId)
+          .neq("source_kind", "dev_seed_v2"),  // exclude previously promoted seed entities
+        (supabase as any).from("narrative_entity_relations")
+          .select("relation_type,source_kind")
+          .eq("project_id", projectId)
+          .neq("source_kind", "dev_seed_v2"),
+        // project_documents: concept_brief, story_outline, treatment for Layer 2
+        (supabase as any).from("project_documents")
+          .select("doc_type,plaintext,title,updated_at")
+          .eq("project_id", projectId)
+          .in("doc_type", ["concept_brief", "story_outline", "treatment", "series_bible", "beat_sheet"])
+          .not("plaintext", "is", null)
+          .order("updated_at", { ascending: false }),
+      ]);
+
+      const proj       = projRes.data;
+      const canonJson  = canonRes.data?.canon_json ?? null;
+      const spineUnits = (spineUnitsRes.data || []) as any[];
+      const canonUnits = (canonUnitsRes.data || []) as any[];
+      const entities   = (entitiesRes.data || []) as any[];
+      const docs       = (docsRes.data || []) as any[];
+      const spineJson  = proj?.narrative_spine_json ?? null;
+
+      // ── Step 2: Assess source richness and determine derivation_source ─
+      const hasSeed    = !!canonJson;
+      const hasSpine   = !!spineJson && Object.keys(spineJson).length > 0;
+      const hasUnits   = spineUnits.length > 0 || canonUnits.length > 0;
+      const hasEntities = entities.length > 0;
+      const hasDocs    = docs.length > 0;
+
+      if (!proj) {
+        return new Response(JSON.stringify({ ok: false, error: "Project not found" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Fail closed: must have at least ONE usable structural source
+      if (!hasSpine && !hasUnits && !hasEntities && !hasSeed) {
+        return new Response(JSON.stringify({
+          ok:    false,
+          action: "create_derived_dev_seed_v2",
+          error: "No usable sources — project has no spine, no canonical units, no entities, and no canon_json",
+          sources_checked: { spine: hasSpine, units: hasUnits, entities: hasEntities, canon: hasSeed, documents: hasDocs },
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Determine derivation_source label
+      const usedSources: string[] = [];
+      if (hasSeed || hasSpine) usedSources.push("canon");
+      if (hasUnits) usedSources.push("ndg");
+      if (hasDocs) usedSources.push("documents");
+      const derivationSource = usedSources.length > 1 ? "mixed"
+        : usedSources[0] ?? "canon";
+
+      // ── Step 3: Build Layer 1 — Project Identity ───────────────────────
+      const layer1 = {
+        title:           proj.title        ?? "Untitled",
+        lane:            proj.assigned_lane ?? null,
+        format:          proj.format        ?? null,
+        target_audience: proj.target_audience ?? null,
+        genre_stack:     Array.isArray(proj.genres) ? proj.genres : [],
+        tone_contract:   proj.tone          ?? null,
+        market_hook:     proj.comparable_titles ?? null,
+      };
+
+      // ── Step 4: Build Layer 2 — Premise Kernel ─────────────────────────
+      // Source priority: project_canon.canon_json.premise → concept_brief doc
+      let layer2: any | null = null;
+      const premiseText = (canonJson && typeof canonJson.premise === "string")
+        ? canonJson.premise
+        : docs.find((d: any) => d.doc_type === "concept_brief")?.plaintext?.slice(0, 1500) ?? null;
+
+      if (premiseText) {
+        layer2 = {
+          premise:           premiseText,
+          dramatic_question: null,    // requires LLM extraction — not available here
+          central_irony:     null,
+          emotional_promise: null,
+          audience_fantasy:  null,
+          audience_fear:     null,
+          theme_vector:      (canonJson && typeof canonJson.tone_style === "string")
+                               ? canonJson.tone_style : null,
+        };
+      }
+
+      // ── Step 5: Build Layer 3 — Narrative Axes ─────────────────────────
+      // Source: narrative_spine_json (direct mapping, axis_statement = spine value)
+      const SPINE_AXIS_PRIORITY: Record<string, number> = {
+        story_engine: 1, pressure_system: 2, central_conflict: 3,
+        inciting_incident: 4, resolution_type: 5, stakes_class: 6,
+        protagonist_arc: 7, midpoint_reversal: 8, tonal_gravity: 9,
+      };
+      let axes: any[] = [];
+      if (hasSpine) {
+        axes = Object.entries(spineJson as Record<string, string>)
+          .filter(([k]) => VALID_SPINE_AXES.has(k))
+          .map(([k, v]) => ({
+            axis_key:       k,
+            axis_statement: v ?? null,
+            axis_role:      null,
+            axis_priority:  SPINE_AXIS_PRIORITY[k] ?? 9,
+            axis_confidence: 1.0,
+          }));
+      }
+
+      // ── Step 6: Build Layer 4 — Narrative Units ────────────────────────
+      // Priority: canon_units.label > narrative_units.payload_json.spine_value
+      let units: any[] = [];
+      if (canonUnits.length > 0) {
+        units = canonUnits.map((u: any) => ({
+          unit_key:                 `derived::${u.unit_type}`,  // temp key; overwritten post-insert
+          unit_type:                u.unit_type,
+          axis_source:              "canon_units",
+          unit_statement:           u.label ?? null,
+          success_state:            u.attributes?.success_state ?? null,
+          failure_mode:             u.attributes?.failure_mode  ?? null,
+          initial_alignment_status: "aligned",
+        }));
+      } else if (spineUnits.length > 0) {
+        units = spineUnits.map((u: any) => ({
+          unit_key:                 `derived::${u.unit_type}`,  // temp key
+          unit_type:                u.unit_type,
+          axis_source:              "narrative_units",
+          unit_statement:           u.payload_json?.spine_value ?? u.payload_json?.unit_statement ?? null,
+          success_state:            u.payload_json?.success_state ?? null,
+          failure_mode:             u.payload_json?.failure_mode  ?? null,
+          initial_alignment_status: u.status ?? "aligned",
+        }));
+      }
+
+      // ── Step 7: Build Layer 5 — Entities + Relations ───────────────────
+      const entityList = entities.map((e: any) => ({
+        entity_key:          e.entity_key,
+        entity_name:         e.canonical_name ?? e.entity_key,
+        entity_type:         e.entity_type,
+        narrative_role:      e.meta_json?.narrative_role ?? null,
+        description:         e.meta_json?.description    ?? null,
+        aliases:             e.meta_json?.aliases        ?? [],
+        story_critical_flag: e.meta_json?.story_critical_flag ?? false,
+      }));
+
+      // Resolve entity relations using entity_key strings
+      // narrative_entity_relations stores IDs, not keys — need to re-join
+      // Use entities map to reverse-lookup UUIDs we already loaded
+      let relationList: any[] = [];
+      if (entities.length > 0) {
+        const entIdRes = await (supabase as any)
+          .from("narrative_entity_relations")
+          .select("relation_type, source_kind, source_entity_id, target_entity_id")
+          .eq("project_id", projectId)
+          .neq("source_kind", "dev_seed_v2");
+
+        const entRelRows = (entIdRes.data || []) as any[];
+        if (entRelRows.length > 0) {
+          // Load all entity ID→key mappings
+          const entIdMapRes = await (supabase as any)
+            .from("narrative_entities")
+            .select("id,entity_key")
+            .eq("project_id", projectId)
+            .neq("source_kind", "dev_seed_v2");
+
+          const idToKey = new Map<string, string>();
+          for (const row of (entIdMapRes.data || []) as any[]) {
+            idToKey.set(row.id as string, row.entity_key as string);
+          }
+
+          for (const r of entRelRows) {
+            const srcKey = idToKey.get(r.source_entity_id);
+            const tgtKey = idToKey.get(r.target_entity_id);
+            if (srcKey && tgtKey) {
+              relationList.push({
+                source_entity_key: srcKey,
+                relation_type:     r.relation_type,
+                target_entity_key: tgtKey,
+              });
+            }
+          }
+        }
+      }
+
+      // ── Step 8: Build Layer 6 — Canon Rules ────────────────────────────
+      // Source: project_canon.canon_json.world_rules (array of rule strings)
+      let canonRules: any[] = [];
+      if (canonJson && Array.isArray(canonJson.world_rules)) {
+        canonRules = (canonJson.world_rules as string[]).map((rule, i) => ({
+          rule_key:         `WORLD_RULE_${String(i + 1).padStart(2, "0")}`,
+          rule_description: rule,
+          rule_scope:       "world",
+          severity:         "moderate",
+        }));
+      }
+
+      // ── Step 9: Build Layer 8 — Generation Intent ──────────────────────
+      // Derive projection_targets from project format
+      const FORMAT_PROJECTION_TARGETS: Record<string, string[]> = {
+        film:              ["concept_brief", "character_bible", "treatment", "feature_outline"],
+        feature_film:      ["concept_brief", "character_bible", "treatment", "feature_outline"],
+        series:            ["series_bible", "season_grid", "character_bible"],
+        limited_series:    ["series_bible", "season_grid", "character_bible"],
+        short:             ["concept_brief", "treatment"],
+        documentary:       ["concept_brief", "treatment", "series_bible"],
+      };
+      const projectionTargets = FORMAT_PROJECTION_TARGETS[proj.format?.toLowerCase() ?? ""] ?? ["concept_brief"];
+      const genIntent = { projection_targets: projectionTargets, pacing_bias: null, dialogue_density: null };
+
+      // ── Step 10: INSERT root row with derived=true ─────────────────────
+      let seedId: string | null = null;
+      try {
+        const { data: seedRow, error: seedErr } = await (supabase as any)
+          .from("dev_seed_v2_projects")
+          .insert({
+            project_id:        projectId,
+            created_by:        userId ?? null,
+            title:             layer1.title,
+            lane:              layer1.lane,
+            format:            layer1.format,
+            target_audience:   layer1.target_audience,
+            genre_stack:       layer1.genre_stack,
+            tone_contract:     layer1.tone_contract,
+            market_hook:       layer1.market_hook,
+            derived:           true,
+            derivation_source: derivationSource,
+          })
+          .select("id").single();
+        if (seedErr) throw new Error("Root row insert failed: " + seedErr.message);
+        seedId = seedRow.id as string;
+
+        // ── Step 11: Atomic layer writes via ds2_update_seed ─────────────
+        // Reuse keys with the real seed_id now that we have it
+        const fixedUnits = units.map((u: any) => ({
+          ...u, unit_key: `${seedId}::${u.unit_type}`,
+        }));
+
+        const fullPatch: Record<string, any> = {
+          ...layer1,
+          ...(layer2 ? { premise: layer2 } : {}),
+          axes,
+          units:           fixedUnits,
+          entities:        entityList,
+          entity_relations: relationList,
+          canon_rules:     canonRules,
+          generation_intent: genIntent,
+        };
+
+        const { error: rpcErr } = await (supabase as any)
+          .rpc("ds2_update_seed", {
+            p_seed_id:    seedId,
+            p_project_id: projectId,
+            p_patch:      fullPatch,
+          });
+        if (rpcErr) throw new Error("Layer writes failed: " + rpcErr.message);
+
+        console.log("[dev-engine-v2] create_derived_dev_seed_v2 complete", {
+          project_id:        projectId,
+          seed_id:           seedId,
+          derivation_source: derivationSource,
+          axes_count:        axes.length,
+          units_count:       fixedUnits.length,
+          entities_count:    entityList.length,
+          relations_count:   relationList.length,
+          rules_count:       canonRules.length,
+        });
+
+        return new Response(JSON.stringify({
+          project_id:        projectId,
+          action:            "create_derived_dev_seed_v2",
+          ok:                true,
+          seed_id:           seedId,
+          derived:           true,
+          derivation_source: derivationSource,
+          sources_used: {
+            canon:     hasSeed,
+            spine:     hasSpine,
+            ndg_units: hasUnits,
+            entities:  hasEntities,
+            documents: hasDocs,
+          },
+          layers_derived: {
+            layer_1_project_identity:   1,
+            layer_2_premise:            layer2 ? 1 : 0,
+            layer_3_axes:               axes.length,
+            layer_4_units:              fixedUnits.length,
+            layer_5_entities:           entityList.length,
+            layer_5_entity_relations:   relationList.length,
+            layer_6_canon_rules:        canonRules.length,
+            layer_7_beats:              0,  // requires LLM — not derived mechanically
+            layer_8_generation_intent:  1,
+          },
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      } catch (derivErr: any) {
+        // Rollback: delete root row — CASCADE removes any partially-written layers
+        if (seedId) {
+          await (supabase as any).from("dev_seed_v2_projects").delete().eq("id", seedId);
+        }
+        console.error("[dev-engine-v2] create_derived_dev_seed_v2 failed, rolled back:", derivErr?.message);
+        return new Response(JSON.stringify({
+          project_id: projectId,
+          action:     "create_derived_dev_seed_v2",
+          ok:         false,
+          error:      derivErr?.message ?? "Unknown derivation error",
         }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
