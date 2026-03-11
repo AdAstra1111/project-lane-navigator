@@ -46,9 +46,11 @@ export interface SelectiveRegenerationPlanResponse {
 
 const FUNC_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`;
 
-export function useSelectiveRegenerationPlan(projectId: string | undefined) {
+export type RepairStrategy = 'precision' | 'balanced' | 'stabilization';
+
+export function useSelectiveRegenerationPlan(projectId: string | undefined, repairStrategy: RepairStrategy = 'balanced') {
   return useQuery<SelectiveRegenerationPlanResponse | null>({
-    queryKey: ['selective-regeneration-plan', projectId],
+    queryKey: ['selective-regeneration-plan', projectId, repairStrategy],
     queryFn: async () => {
       if (!projectId) return null;
 
@@ -64,6 +66,7 @@ export function useSelectiveRegenerationPlan(projectId: string | undefined) {
         body: JSON.stringify({
           action: 'selective_regeneration_plan',
           projectId,
+          repair_strategy: repairStrategy,
         }),
       });
 

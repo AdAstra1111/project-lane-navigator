@@ -35,7 +35,7 @@ export function useExecuteSelectiveRegeneration(projectId: string | undefined) {
   const [result, setResult] = useState<RegenExecutionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const execute = useCallback(async (dryRun: boolean) => {
+  const execute = useCallback(async (dryRun: boolean, repairStrategy: 'precision' | 'balanced' | 'stabilization' = 'balanced') => {
     if (!projectId) return null;
 
     setIsExecuting(true);
@@ -59,6 +59,7 @@ export function useExecuteSelectiveRegeneration(projectId: string | undefined) {
           action: 'execute_selective_regeneration',
           projectId,
           dryRun,
+          repair_strategy: repairStrategy,
         }),
       });
 

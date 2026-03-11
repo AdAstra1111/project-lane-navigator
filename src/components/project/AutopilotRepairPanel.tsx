@@ -2,7 +2,7 @@
  * AutopilotRepairPanel — Displays autopilot narrative repair state.
  *
  * Shows health status (stable/triggered/unknown), trigger reason,
- * repair preview counts, and action buttons for plan/dry-run/execute.
+ * repair preview counts, strategy selector, and action buttons.
  *
  * All data from detect_autopilot_repair engine action.
  * Never fabricates state or executes repairs automatically.
@@ -11,6 +11,8 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 import {
   ShieldCheck,
   AlertTriangle,
@@ -22,6 +24,7 @@ import {
   Search,
 } from 'lucide-react';
 import type { AutopilotRepairDetection } from '@/hooks/useAutopilotRepairDetection';
+import type { RepairStrategy } from '@/hooks/useSelectiveRegenerationPlan';
 
 interface Props {
   data: AutopilotRepairDetection | null | undefined;
@@ -31,6 +34,8 @@ interface Props {
   onDryRun: () => void;
   onExecuteRepair: () => void;
   isExecuting: boolean;
+  repairStrategy: RepairStrategy;
+  onStrategyChange: (strategy: RepairStrategy) => void;
 }
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -47,6 +52,24 @@ const SCOPE_LABELS: Record<string, string> = {
   broad_impact: 'Broad Impact',
 };
 
+const STRATEGY_OPTIONS: { value: RepairStrategy; label: string; description: string }[] = [
+  {
+    value: 'precision',
+    label: 'Precision Repair',
+    description: 'Minimal blast radius. Focuses on direct scenes only unless backend expands under strict rules.',
+  },
+  {
+    value: 'balanced',
+    label: 'Balanced Repair',
+    description: 'Recommended default. Includes direct, propagated, and entity-linked scenes within current safeguards.',
+  },
+  {
+    value: 'stabilization',
+    label: 'Stabilization Repair',
+    description: 'Broader stabilization pass for systemic narrative drift.',
+  },
+];
+
 export function AutopilotRepairPanel({
   data,
   isLoading,
@@ -55,6 +78,8 @@ export function AutopilotRepairPanel({
   onDryRun,
   onExecuteRepair,
   isExecuting,
+  repairStrategy,
+  onStrategyChange,
 }: Props) {
   if (isLoading) {
     return (
@@ -178,6 +203,9 @@ export function AutopilotRepairPanel({
             </div>
           )}
 
+          {/* Strategy Selector */}
+          <StrategySelector value={repairStrategy} onChange={onStrategyChange} disabled={isExecuting} />
+
           {/* Action buttons */}
           <div className="flex items-center gap-2 flex-wrap">
             <Button variant="outline" size="sm" disabled={!actionsEnabled} onClick={onPreviewPlan}>
@@ -198,6 +226,40 @@ export function AutopilotRepairPanel({
     </div>
   );
 }
+
+/* ── Strategy Selector ── */
+
+function StrategySelector({ value, onChange, disabled }: {
+  value: RepairStrategy;
+  onChange: (v: RepairStrategy) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="rounded-md border border-border/30 bg-muted/20 px-3 py-2.5 space-y-2">
+      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Repair Strategy
+      </h4>
+      <RadioGroup
+        value={value}
+        onValueChange={(v) => onChange(v as RepairStrategy)}
+        disabled={disabled}
+        className="gap-1.5"
+      >
+        {STRATEGY_OPTIONS.map((opt) => (
+          <div key={opt.value} className="flex items-start gap-2.5">
+            <RadioGroupItem value={opt.value} id={`strategy-${opt.value}`} className="mt-0.5" />
+            <Label htmlFor={`strategy-${opt.value}`} className="cursor-pointer space-y-0.5 text-xs leading-snug">
+              <span className="font-medium text-foreground">{opt.label}</span>
+              <p className="text-[11px] text-muted-foreground leading-tight">{opt.description}</p>
+            </Label>
+          </div>
+        ))}
+      </RadioGroup>
+    </div>
+  );
+}
+
+/* ── Preview Count ── */
 
 function PreviewCount({ label, value, className = '', advisory = false }: {
   label: string;

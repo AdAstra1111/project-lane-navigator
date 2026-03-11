@@ -6,7 +6,7 @@
  */
 
 import { useState, useMemo, useCallback } from 'react';
-import { useSelectiveRegenerationPlan, type RecommendedScope, type SourceUnit, type ImpactedScene } from '@/hooks/useSelectiveRegenerationPlan';
+import { useSelectiveRegenerationPlan, type RepairStrategy, type RecommendedScope, type SourceUnit, type ImpactedScene } from '@/hooks/useSelectiveRegenerationPlan';
 import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/hooks/useExecuteSelectiveRegeneration';
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
 import { useSceneVersionDiff } from '@/hooks/useSceneVersionDiff';
@@ -84,7 +84,8 @@ function sceneLabelFromImpacted(scene: ImpactedScene, slugMap: SluglineMap): str
 /* ── Main Dashboard ── */
 
 export function NarrativeRepairDashboard({ projectId }: Props) {
-  const { data: plan, isLoading: planLoading, refetch: refetchPlan } = useSelectiveRegenerationPlan(projectId);
+  const [repairStrategy, setRepairStrategy] = useState<RepairStrategy>('balanced');
+  const { data: plan, isLoading: planLoading, refetch: refetchPlan } = useSelectiveRegenerationPlan(projectId, repairStrategy);
   const { execute, isExecuting, result, error, reset } = useExecuteSelectiveRegeneration(projectId);
   const { data: sluglines } = useSceneSluglines(projectId);
   const { data: runHistory, isLoading: historyLoading, refetch: refetchHistory } = useRegenerationRunHistory(projectId);
@@ -131,16 +132,16 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
 
   const handleDryRun = useCallback(async () => {
     reset();
-    await execute(true);
+    await execute(true, repairStrategy);
     refreshAfterExecution();
-  }, [reset, execute, refreshAfterExecution]);
+  }, [reset, execute, refreshAfterExecution, repairStrategy]);
 
   const handleExecute = useCallback(async () => {
     setConfirmOpen(false);
     reset();
-    await execute(false);
+    await execute(false, repairStrategy);
     refreshAfterExecution();
-  }, [reset, execute, refreshAfterExecution]);
+  }, [reset, execute, refreshAfterExecution, repairStrategy]);
 
   if (planLoading) {
     return (
@@ -181,6 +182,8 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
             onDryRun={handleDryRun}
             onExecuteRepair={() => setConfirmOpen(true)}
             isExecuting={isExecuting}
+            repairStrategy={repairStrategy}
+            onStrategyChange={setRepairStrategy}
           />
 
           <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-3">
@@ -228,6 +231,8 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
           onDryRun={handleDryRun}
           onExecuteRepair={() => setConfirmOpen(true)}
           isExecuting={isExecuting}
+          repairStrategy={repairStrategy}
+          onStrategyChange={setRepairStrategy}
         />
         {/* ═══ SECTION 1: REPAIR STATUS ═══ */}
         <RepairStatusSection
@@ -290,6 +295,7 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
         onOpenChange={setConfirmOpen}
         onConfirm={handleExecute}
         plan={plan}
+        repairStrategy={repairStrategy}
       />
 
       {/* Diff Viewer */}
@@ -803,22 +809,29 @@ function SceneKeyList({ title, keys, total, slugMap, showAll, onToggle, variant,
 
 /* ── Confirmation Dialog ── */
 
-function ConfirmExecutionDialog({ open, onOpenChange, onConfirm, plan }: {
+function ConfirmExecutionDialog({ open, onOpenChange, onConfirm, plan, repairStrategy }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onConfirm: () => void;
   plan: NonNullable<ReturnType<typeof useSelectiveRegenerationPlan>['data']>;
+  repairStrategy: RepairStrategy;
 }) {
+  const strategyLabel = repairStrategy === 'precision' ? 'Precision' : repairStrategy === 'stabilization' ? 'Stabilization' : 'Balanced';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Confirm Selective Regeneration</DialogTitle>
+          <DialogTitle>Execute {strategyLabel} Repair?</DialogTitle>
           <DialogDescription>
-            This will regenerate impacted scenes. Review the scope below before proceeding.
+            This will regenerate impacted scenes using the {strategyLabel.toLowerCase()} strategy. Review the scope below before proceeding.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Strategy</span>
+            <Badge variant="outline" className="text-xs">{strategyLabel}</Badge>
+          </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Scope</span>
             <Badge variant="outline" className="text-xs">{plan.recommended_scope}</Badge>
@@ -845,7 +858,7 @@ function ConfirmExecutionDialog({ open, onOpenChange, onConfirm, plan }: {
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={onConfirm}>
             <Play className="h-3.5 w-3.5" />
-            Execute
+            Execute {strategyLabel} Repair
           </Button>
         </DialogFooter>
       </DialogContent>
