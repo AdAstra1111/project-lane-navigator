@@ -269,6 +269,9 @@ export function ScreenplayIntakeBanner({ projectId }: ScreenplayIntakeBannerProp
         </div>
       )}
 
+      {/* Scene graph health advisory */}
+      <GraphHealthAdvisory health={graphHealth} />
+
       {/* Progress bar */}
       <div className="w-full h-1.5 rounded-full overflow-hidden bg-muted">
         <motion.div
