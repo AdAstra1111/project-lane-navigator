@@ -73,6 +73,7 @@ import { AutoRunSetupPanel } from '@/components/project/AutoRunSetupPanel';
 import { ReverseEngineerCallout } from '@/components/project/ReverseEngineerCallout';
 import { ImportStatusPanel } from '@/components/project/ImportStatusPanel';
 import { ScreenplayIntakeBanner } from '@/components/project/ScreenplayIntakeBanner';
+import { SceneIntelligencePanel } from '@/components/project/SceneIntelligencePanel';
 
 
 export default function ProjectDetail() {
