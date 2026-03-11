@@ -360,6 +360,7 @@ function ExecutionResultView({
           showAll={showAllCompleted}
           onToggle={() => setShowAllCompleted(!showAllCompleted)}
           variant="success"
+          onViewChanges={onViewChanges}
         />
       )}
 
