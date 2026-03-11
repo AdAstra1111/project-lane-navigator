@@ -19,7 +19,7 @@ export interface SourceUnit {
 
 export interface ImpactedScene {
   scene_key: string;
-  risk_source: 'direct' | 'propagated';
+  risk_source: 'direct' | 'propagated' | 'entity_link';
   axes?: string[];
 }
 
@@ -38,6 +38,8 @@ export interface SelectiveRegenerationPlanResponse {
   propagated_axes: string[];
   impacted_scenes: ImpactedScene[];
   impacted_scene_count: number;
+  entity_impacted_scenes?: ImpactedScene[];
+  entity_impacted_scene_count?: number;
   rationale: string;
   diagnostics?: string;
 }
