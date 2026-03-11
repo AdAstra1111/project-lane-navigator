@@ -28,12 +28,22 @@ export function ImportStatusPanel({ projectId }: ImportStatusPanelProps) {
 
   const pct = Math.round((pipeline.completedCount / pipeline.totalStages) * 100);
 
+  const readinessLabel =
+    pipeline.isFullyReady ? 'Ready' :
+    pipeline.completedCount >= Math.ceil(pipeline.totalStages / 2) ? 'Partial' :
+    'Incomplete';
+
+  const readinessStyle =
+    readinessLabel === 'Ready' ? 'border-emerald-500/40 text-emerald-400' :
+    readinessLabel === 'Partial' ? 'border-amber-500/40 text-amber-400' :
+    'border-destructive/40 text-destructive';
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="rounded-xl border border-border/50 bg-card p-4 space-y-3 mb-4"
+      className="rounded-xl border border-border/50 bg-card p-4 space-y-3 mt-6"
     >
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -42,18 +52,13 @@ export function ImportStatusPanel({ projectId }: ImportStatusPanelProps) {
           <span className="text-sm font-semibold text-foreground">Import Pipeline</span>
           <Badge
             variant="outline"
-            className={cn(
-              'text-[10px] px-1.5 py-0 h-4',
-              pipeline.isFullyReady
-                ? 'border-emerald-500/40 text-emerald-400'
-                : 'border-amber-500/40 text-amber-400'
-            )}
+            className={cn('text-[10px] px-1.5 py-0 h-4', readinessStyle)}
           >
-            {pipeline.isFullyReady ? 'Ready' : `${pct}%`}
+            {readinessLabel}
           </Badge>
         </div>
         <span className="text-[10px] text-muted-foreground tabular-nums">
-          {pipeline.completedCount}/{pipeline.totalStages} stages
+          {pipeline.completedCount} / {pipeline.totalStages} stages
         </span>
       </div>
 
@@ -89,10 +94,10 @@ export function ImportStatusPanel({ projectId }: ImportStatusPanelProps) {
         ))}
       </div>
 
-      {/* Summary message */}
+      {/* Warning for incomplete stages */}
       {!pipeline.isFullyReady && (
-        <p className="text-[10px] text-muted-foreground border-t border-border/40 pt-2">
-          Some enrichment stages did not complete. Missing stages may affect downstream analysis and development features.
+        <p className="text-[10px] text-amber-400/80 border-t border-border/40 pt-2">
+          Some enrichment stages are incomplete — downstream analysis may be limited.
         </p>
       )}
     </motion.div>

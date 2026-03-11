@@ -95,13 +95,12 @@ export function useImportPipelineStatus(projectId: string | undefined): ImportPi
       const ingested = dropDoc.extraction_status === 'done' || dropDoc.extraction_status === 'ready';
 
       const stages: PipelineStageInfo[] = [
-        { key: 'uploaded', label: 'Script uploaded', status: 'done' }, // always true if dropDoc exists
+        { key: 'uploaded', label: 'Script uploaded', status: 'done' },
         { key: 'ingested', label: 'Text extracted', status: ingested ? 'done' : 'missing' },
-        { key: 'project', label: 'Project created', status: 'done' }, // always true if we're on the project page
         { key: 'scenes', label: 'Scenes extracted', status: sceneCount > 0 ? 'done' : 'missing', count: sceneCount },
-        { key: 'entity_sync', label: 'Entity links synced', status: unitLinkCount > 0 ? 'done' : 'missing', count: unitLinkCount },
+        { key: 'entity_sync', label: 'Entity links created', status: unitLinkCount > 0 ? 'done' : 'missing', count: unitLinkCount },
         { key: 'roles', label: 'Scene roles classified', status: rolesCount > 0 ? 'done' : 'missing', count: rolesCount },
-        { key: 'spine', label: 'Spine links synced', status: spineCount > 0 ? 'done' : 'missing', count: spineCount },
+        { key: 'spine', label: 'Spine links mapped', status: spineCount > 0 ? 'done' : 'missing', count: spineCount },
       ];
 
       const completedCount = stages.filter(s => s.status === 'done').length;
