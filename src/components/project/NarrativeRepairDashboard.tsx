@@ -288,7 +288,7 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
       <ConfirmExecutionDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        onConfirm={async () => { setConfirmOpen(false); reset(); await execute(false); }}
+        onConfirm={handleExecute}
         plan={plan}
       />
 
