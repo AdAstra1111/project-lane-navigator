@@ -809,22 +809,29 @@ function SceneKeyList({ title, keys, total, slugMap, showAll, onToggle, variant,
 
 /* ── Confirmation Dialog ── */
 
-function ConfirmExecutionDialog({ open, onOpenChange, onConfirm, plan }: {
+function ConfirmExecutionDialog({ open, onOpenChange, onConfirm, plan, repairStrategy }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onConfirm: () => void;
   plan: NonNullable<ReturnType<typeof useSelectiveRegenerationPlan>['data']>;
+  repairStrategy: RepairStrategy;
 }) {
+  const strategyLabel = repairStrategy === 'precision' ? 'Precision' : repairStrategy === 'stabilization' ? 'Stabilization' : 'Balanced';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Confirm Selective Regeneration</DialogTitle>
+          <DialogTitle>Execute {strategyLabel} Repair?</DialogTitle>
           <DialogDescription>
-            This will regenerate impacted scenes. Review the scope below before proceeding.
+            This will regenerate impacted scenes using the {strategyLabel.toLowerCase()} strategy. Review the scope below before proceeding.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Strategy</span>
+            <Badge variant="outline" className="text-xs">{strategyLabel}</Badge>
+          </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Scope</span>
             <Badge variant="outline" className="text-xs">{plan.recommended_scope}</Badge>
@@ -851,7 +858,7 @@ function ConfirmExecutionDialog({ open, onOpenChange, onConfirm, plan }: {
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={onConfirm}>
             <Play className="h-3.5 w-3.5" />
-            Execute
+            Execute {strategyLabel} Repair
           </Button>
         </DialogFooter>
       </DialogContent>
