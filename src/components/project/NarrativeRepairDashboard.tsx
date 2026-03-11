@@ -12,6 +12,7 @@ import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
 import { useSceneVersionDiff } from '@/hooks/useSceneVersionDiff';
 import { useRegenerationRunHistory, type RegenerationRun } from '@/hooks/useRegenerationRunHistory';
 import { SceneRewriteDiffViewer } from '@/components/project/SceneRewriteDiffViewer';
+import { NDGImpactHeatmap } from '@/components/project/NDGImpactHeatmap';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
