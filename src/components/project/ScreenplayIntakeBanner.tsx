@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { useScreenplayIntakeRun, type IntakeStageRecord } from '@/hooks/useScreenplayIntakeRun';
+import { useScreenplayIntakeRun, type IntakeStageRecord, type SceneGraphHealth } from '@/hooks/useScreenplayIntakeRun';
 import { formatDistanceToNow } from 'date-fns';
 
 interface ScreenplayIntakeBannerProps {
