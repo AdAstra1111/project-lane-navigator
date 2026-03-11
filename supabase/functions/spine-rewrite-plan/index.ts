@@ -46,9 +46,12 @@ import {
   computeDependencyRisk,
   computeRewritePriorityScore,
   sequenceRewriteTargets,
+  buildSceneImpactIndex,
+  getAffectedScenesForAxes,
   type UnitConfidenceMeta,
+  type SceneImpactEntry,
 } from "../_shared/narrativeDependencyGraph.ts";
-import { buildPatchBlueprints, type EntityContext } from "../_shared/patchBlueprintEngine.ts";
+import { buildPatchBlueprints, type EntityContext, type SceneContext } from "../_shared/patchBlueprintEngine.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -890,6 +893,80 @@ serve(async (req: Request) => {
       }
     }
 
+    // ── 7b. Phase 4+5: Scene context for blueprint affected_scenes + NDG scene impact ──
+    // Load scene_spine_links (with axis_key) + scene_graph_scenes (for scene_key).
+    // Fail-safe: missing/empty scene data → sceneContext = null → affected_scenes = [] on blueprints.
+    // Only loads when rewrite targets exist (no need if nothing to plan).
+    let sceneContext: SceneContext | null = null;
+    let sceneImpactIndex: Map<string, SceneImpactEntry[]> = new Map();
+    if (rewriteTargets.length > 0) {
+      try {
+        // Load scene_spine_links with axis_key (may be empty if no roles assigned yet)
+        const { data: spineLinks } = await supabase
+          .from("scene_spine_links")
+          .select("scene_id, axis_key")
+          .eq("project_id", projectId)
+          .not("axis_key", "is", null);
+
+        if (spineLinks && spineLinks.length > 0) {
+          // Load scene_key + slugline (latest version per scene)
+          const spineLinkSceneIds = [...new Set((spineLinks as any[]).map((l: any) => l.scene_id as string))];
+
+          const { data: sceneRows } = await supabase
+            .from("scene_graph_scenes")
+            .select("id, scene_key")
+            .in("id", spineLinkSceneIds)
+            .is("deprecated_at", null);
+
+          const { data: verRows } = await supabase
+            .from("scene_graph_versions")
+            .select("scene_id, slugline, version_number")
+            .in("scene_id", spineLinkSceneIds)
+            .order("version_number", { ascending: false });
+
+          // Dedupe: latest slugline per scene
+          const sluglineMap = new Map<string, string | null>();
+          for (const v of (verRows || []) as any[]) {
+            if (!sluglineMap.has(v.scene_id)) sluglineMap.set(v.scene_id, v.slugline ?? null);
+          }
+
+          // Build sceneKeyMap: scene_id → { scene_key, slugline }
+          const sceneKeyMap = new Map<string, { scene_key: string; slugline: string | null }>();
+          for (const s of (sceneRows || []) as any[]) {
+            sceneKeyMap.set(s.id, { scene_key: s.scene_key, slugline: sluglineMap.get(s.id) ?? null });
+          }
+
+          sceneImpactIndex = buildSceneImpactIndex(
+            (spineLinks as any[]).map((l: any) => ({ scene_id: l.scene_id, axis_key: l.axis_key })),
+            sceneKeyMap,
+          );
+
+          // Build SceneContext for blueprint enrichment (same data, map format for blueprints)
+          const blueprintSceneMap = new Map<string, Array<{ scene_key: string; scene_id: string; slugline: string | null }>>();
+          for (const [axisKey, entries] of sceneImpactIndex.entries()) {
+            blueprintSceneMap.set(axisKey, entries.map(e => ({ scene_key: e.scene_key, scene_id: e.scene_id, slugline: e.slugline })));
+          }
+          sceneContext = { sceneIndex: blueprintSceneMap };
+
+          console.log("[spine-rewrite-plan] Phase 4+5 scene context loaded:", {
+            spine_link_rows: spineLinks.length,
+            axes_indexed:    sceneImpactIndex.size,
+          });
+        }
+      } catch (sceneErr: any) {
+        console.warn("[spine-rewrite-plan] Phase 4+5 scene load failed (non-fatal):", sceneErr?.message);
+        sceneContext = null;
+        sceneImpactIndex = new Map();
+      }
+    }
+
+    // Phase 4: Compute affected_scenes per propagated_risk entry
+    const propagatedRiskWithScenes = propagatedRisk.map((pr: any) => {
+      const allDownstream: string[] = pr.downstream_axes || [];
+      const affectedScenes = getAffectedScenesForAxes(allDownstream, sceneImpactIndex);
+      return { ...pr, affected_scenes: affectedScenes };
+    });
+
     // ── 8. Return plan ──
     return new Response(JSON.stringify({
       document_id: effectiveDocumentId,
@@ -924,7 +1001,8 @@ serve(async (req: Request) => {
       // ── NDG v1: additive dependency intelligence — advisory only ──
       // UI may safely ignore these fields. No unit statuses changed.
       // rewrite_targets and preserve_targets now include dependency_position hints.
-      propagated_risk: propagatedRisk,
+      // Phase 4: propagated_risk entries now include affected_scenes ([] when no scene_spine_links).
+      propagated_risk: propagatedRiskWithScenes,
       // ── NDG v3: rewrite sequencing — advisory safe repair order ──
       // rewrite_targets include sequence_bucket, sequence_rank, sequence_reason.
       // rewrite_sequence is a deduplicated sorted summary (same data, top-level for UI convenience).
@@ -934,7 +1012,8 @@ serve(async (req: Request) => {
       // Each blueprint answers: what to fix, where to fix it, why, and how urgent.
       // Ordered by sequence_rank (safest repair order). Empty when no rewrite targets.
       // L5.1: pass entityContext for entity-aware blueprint enrichment (null = structure-only)
-      patch_blueprints: buildPatchBlueprints(rewriteTargets, preserveTargets, propagatedRisk, entityContext),
+      // Phase 5: pass sceneContext for affected_scenes per blueprint (null = [] on all blueprints)
+      patch_blueprints: buildPatchBlueprints(rewriteTargets, preserveTargets, propagatedRiskWithScenes, entityContext, sceneContext),
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err: any) {

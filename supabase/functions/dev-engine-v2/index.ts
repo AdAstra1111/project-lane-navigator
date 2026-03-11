@@ -24,6 +24,8 @@ import {
 import { buildEffectiveProfileContextBlock } from "../_shared/effective-profile-context.ts";
 import { computeDefaultResolverHash, createVersion } from "../_shared/doc-os.ts";
 import { syncAllEntities, syncSceneEntityLinksForProject } from "../_shared/narrativeEntityEngine.ts";
+import { computePropagatedRisk } from "../_shared/narrativeDependencyGraph.ts";
+import type { SpineAxis } from "../_shared/narrativeSpine.ts";
 
 // ── Constraint Pack: unified loader for all generation prompts ──
 const CONSTRAINT_PACK_BUDGET = 6000;
@@ -7806,6 +7808,377 @@ Return ONLY valid JSON:
       return new Response(JSON.stringify({ scenes }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ── Phase 2: scene_graph_entity_summary ─────────────────────────────────
+    // Read-only diagnostics: returns per-scene character_present entity links.
+    // Reads: scene_graph_scenes, scene_graph_versions (latest), narrative_scene_entity_links, narrative_entities.
+    // No schema changes. Fail-closed: empty scene graph → empty summary.
+    if (action === "scene_graph_entity_summary") {
+      const { projectId, sceneKey } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // Load active scenes (optionally filtered to a single scene_key)
+      let sceneQuery = supabase
+        .from("scene_graph_scenes")
+        .select("id, scene_key")
+        .eq("project_id", projectId)
+        .is("deprecated_at", null)
+        .order("scene_key");
+      if (sceneKey) sceneQuery = sceneQuery.eq("scene_key", sceneKey);
+      const { data: sceneRows, error: scErr } = await sceneQuery;
+      if (scErr) throw scErr;
+      if (!sceneRows || sceneRows.length === 0) {
+        return new Response(JSON.stringify({
+          project_id: projectId, scene_count: 0, scenes: [],
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const sceneIds = (sceneRows as any[]).map((s: any) => s.id);
+
+      // Load latest version per scene (highest version_number)
+      const { data: allVersions } = await supabase
+        .from("scene_graph_versions")
+        .select("id, scene_id, slugline, characters_present, version_number")
+        .in("scene_id", sceneIds)
+        .order("version_number", { ascending: false });
+      const latestVer = new Map<string, any>();
+      for (const v of (allVersions || []) as any[]) {
+        if (!latestVer.has(v.scene_id)) latestVer.set(v.scene_id, v);
+      }
+
+      // Load entity links for these scenes
+      const { data: linkRows } = await supabase
+        .from("narrative_scene_entity_links")
+        .select("scene_id, entity_id, relation_type, confidence")
+        .eq("project_id", projectId)
+        .in("scene_id", sceneIds)
+        .eq("relation_type", "character_present");
+
+      // Load entity details
+      const entityIds = [...new Set(((linkRows || []) as any[]).map((l: any) => l.entity_id))];
+      const { data: entityRows } = entityIds.length > 0
+        ? await supabase.from("narrative_entities").select("id, entity_key, canonical_name, entity_type").in("id", entityIds)
+        : { data: [] };
+      const entityMap = new Map<string, any>(((entityRows || []) as any[]).map((e: any) => [e.id, e]));
+
+      // Build lookup: scene_id → link rows
+      const linksByScene = new Map<string, any[]>();
+      for (const link of (linkRows || []) as any[]) {
+        if (!linksByScene.has(link.scene_id)) linksByScene.set(link.scene_id, []);
+        linksByScene.get(link.scene_id)!.push(link);
+      }
+
+      // Assemble per-scene summary
+      const summary = (sceneRows as any[]).map((scene: any) => {
+        const ver = latestVer.get(scene.id);
+        const links = linksByScene.get(scene.id) || [];
+        const charactersPresent: string[] = (ver?.characters_present || []) as string[];
+        const entitiesLinked = links.map((l: any) => {
+          const ent = entityMap.get(l.entity_id);
+          return ent ? { entity_key: ent.entity_key, canonical_name: ent.canonical_name } : { entity_key: l.entity_id, canonical_name: null };
+        });
+        return {
+          scene_key:          scene.scene_key,
+          scene_id:           scene.id,
+          slugline:           ver?.slugline ?? null,
+          characters_present: charactersPresent,
+          entities_linked:    entitiesLinked,
+          entity_count:       entitiesLinked.length,
+        };
+      });
+
+      return new Response(JSON.stringify({
+        project_id:   projectId,
+        scene_count:  summary.length,
+        linked_count: summary.filter((s: any) => s.entity_count > 0).length,
+        scenes:       summary,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Phase 3: scene_graph_sync_spine_links ────────────────────────────────
+    // Maps scene_roles → spine axes and populates scene_spine_links.axis_key.
+    // scene_roles is a jsonb array of role_key strings (from scene_role_taxonomy).
+    // UNIQUE (project_id, scene_id) → one row per scene = one primary axis_key.
+    //
+    // Role → axis mapping (spec-defined). Priority order determines primary axis
+    // when a scene has multiple roles (climax > reversal > reveal > escalation >
+    // setup > denouement > breather > transition > payoff).
+    //
+    // Source: scene_graph_versions.scene_roles (latest version per scene).
+    // Fail-closed: empty scene graph, empty scene_roles → no-op.
+    //
+    // Note: scene_roles is populated by downstream LLM scene processing (not by
+    // scene_graph_extract). Until that step runs, sync produces 0 rows.
+    if (action === "scene_graph_sync_spine_links") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // Role → axis mapping (spec-defined)
+      const ROLE_AXIS_MAP: Record<string, string> = {
+        setup:       "story_engine",
+        escalation:  "pressure_system",
+        reveal:      "midpoint_shift",
+        reversal:    "structural_turn",
+        climax:      "protagonist_arc",
+        denouement:  "resolution_type",
+        transition:  "narrative_bridge",
+        breather:    "pacing_relief",
+        // payoff: not in spec mapping — no axis assigned
+      };
+
+      // Priority order for primary axis selection (most structurally significant first)
+      const ROLE_PRIORITY = ["climax","reversal","reveal","escalation","setup","denouement","breather","transition"];
+
+      // Load active scenes
+      const { data: sceneRows, error: scEr } = await supabase
+        .from("scene_graph_scenes")
+        .select("id, scene_key")
+        .eq("project_id", projectId)
+        .is("deprecated_at", null);
+      if (scEr) throw scEr;
+      if (!sceneRows || sceneRows.length === 0) {
+        return new Response(JSON.stringify({
+          project_id: projectId, action: "scene_graph_sync_spine_links",
+          scenes_processed: 0, links_upserted: 0, no_roles_count: 0, per_scene: [],
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const sceneIds = (sceneRows as any[]).map((s: any) => s.id);
+
+      // Load latest versions (dedupe by highest version_number)
+      const { data: allVers } = await supabase
+        .from("scene_graph_versions")
+        .select("scene_id, scene_roles, version_number")
+        .in("scene_id", sceneIds)
+        .order("version_number", { ascending: false });
+      const latestVer = new Map<string, any>();
+      for (const v of (allVers || []) as any[]) {
+        if (!latestVer.has(v.scene_id)) latestVer.set(v.scene_id, v);
+      }
+
+      // Load scene_graph_order for order_key (required NOT NULL in scene_spine_links)
+      const { data: orderRows } = await supabase
+        .from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId)
+        .eq("is_active", true);
+      const orderMap = new Map<string, any>(
+        ((orderRows || []) as any[]).map((o: any) => [o.scene_id, o])
+      );
+
+      const perScene: any[] = [];
+      let upserted = 0;
+      let noRolesCount = 0;
+
+      for (const scene of sceneRows as any[]) {
+        const ver = latestVer.get(scene.id);
+        const sceneRoles: string[] = (ver?.scene_roles || []) as string[];
+
+        if (sceneRoles.length === 0) {
+          noRolesCount++;
+          perScene.push({ scene_key: scene.scene_key, scene_id: scene.id, skipped: "no_roles" });
+          continue;
+        }
+
+        // Select primary axis by priority order
+        let primaryAxis: string | null = null;
+        for (const role of ROLE_PRIORITY) {
+          if (sceneRoles.includes(role) && ROLE_AXIS_MAP[role]) {
+            primaryAxis = ROLE_AXIS_MAP[role];
+            break;
+          }
+        }
+        if (!primaryAxis) {
+          perScene.push({ scene_key: scene.scene_key, scene_id: scene.id, skipped: "no_mapped_axis", roles: sceneRoles });
+          continue;
+        }
+
+        const order = orderMap.get(scene.id);
+        if (!order) {
+          perScene.push({ scene_key: scene.scene_key, scene_id: scene.id, skipped: "no_order_row", axis_key: primaryAxis });
+          continue;
+        }
+
+        const { error: upsErr } = await supabase
+          .from("scene_spine_links")
+          .upsert({
+            project_id: projectId,
+            scene_id:   scene.id,
+            order_key:  order.order_key,
+            act:        order.act ?? null,
+            sequence:   order.sequence ?? null,
+            axis_key:   primaryAxis,
+            roles:      sceneRoles,
+            threads:    [],
+            arc_steps:  [],
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "project_id,scene_id" });
+
+        if (upsErr) {
+          console.warn("[scene_graph_sync_spine_links] upsert error:", upsErr.message);
+          perScene.push({ scene_key: scene.scene_key, scene_id: scene.id, error: upsErr.message });
+        } else {
+          upserted++;
+          perScene.push({ scene_key: scene.scene_key, scene_id: scene.id, axis_key: primaryAxis, roles: sceneRoles });
+        }
+      }
+
+      return new Response(JSON.stringify({
+        project_id:       projectId,
+        action:           "scene_graph_sync_spine_links",
+        scenes_processed: sceneRows.length,
+        links_upserted:   upserted,
+        no_roles_count:   noRolesCount,
+        per_scene:        perScene,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Phase 6: rewrite_plan_scene_risk ────────────────────────────────────
+    // Read-only diagnostic layer: identifies scenes at risk from NDG propagation.
+    //
+    // Algorithm:
+    //   1. Load narrative_units for project — find contradicted/stale axes
+    //   2. Run NDG propagation to get all affected downstream axes
+    //   3. Find scenes in scene_spine_links where axis_key ∈ affected_axes
+    //   4. Return per-scene risk entries (scene_key, axis, reason)
+    //
+    // No schema changes. Fail-closed: no units or no scene_spine_links → empty report.
+    // "reason" is derived from unit contradiction_note or status label.
+    if (action === "rewrite_plan_scene_risk") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // 1. Load narrative_units — find axes that are contradicted or stale
+      const { data: unitRows, error: unitErr } = await supabase
+        .from("narrative_units")
+        .select("unit_key, unit_type, status, payload_json")
+        .eq("project_id", projectId)
+        .in("status", ["contradicted", "stale"]);
+
+      if (unitErr) throw unitErr;
+
+      if (!unitRows || unitRows.length === 0) {
+        return new Response(JSON.stringify({
+          project_id: projectId,
+          action:     "rewrite_plan_scene_risk",
+          risk_count: 0,
+          scene_risks: [],
+          note:       "No contradicted or stale units — no scene risk detected",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Extract direct risk axes and reason labels
+      const directRiskAxes = new Map<string, string>(); // axis → reason
+      for (const unit of unitRows as any[]) {
+        // unit_key format: "versionId::axis"
+        const parts = (unit.unit_key as string).split("::");
+        const axis = parts.length >= 2 ? parts[parts.length - 1] : null;
+        if (!axis) continue;
+        const payload = (unit.payload_json as any) ?? {};
+        const reason = (unit.status === "contradicted")
+          ? (payload.contradiction_note || "contradiction detected")
+          : "stale — needs revalidation";
+        if (!directRiskAxes.has(axis)) directRiskAxes.set(axis, reason);
+      }
+
+      // 2. NDG propagation: get all affected downstream axes
+      const directAxes = [...directRiskAxes.keys()] as SpineAxis[];
+      const propagated = computePropagatedRisk(directAxes);
+      const allRiskAxes = new Map<string, string>(directRiskAxes); // includes downstream
+      for (const pr of propagated) {
+        for (const downAx of pr.downstream_axes) {
+          if (!allRiskAxes.has(downAx)) {
+            allRiskAxes.set(downAx, `downstream of ${pr.source_axis} (${directRiskAxes.get(pr.source_axis) || "risk"})`);
+          }
+        }
+      }
+
+      // 3. Load scene_spine_links with axis_key
+      const { data: spineLinkRows } = await supabase
+        .from("scene_spine_links")
+        .select("scene_id, axis_key")
+        .eq("project_id", projectId)
+        .not("axis_key", "is", null);
+
+      if (!spineLinkRows || spineLinkRows.length === 0) {
+        return new Response(JSON.stringify({
+          project_id:  projectId,
+          action:      "rewrite_plan_scene_risk",
+          risk_count:  0,
+          scene_risks: [],
+          direct_risk_axes:     [...directRiskAxes.keys()],
+          propagated_risk_axes: [...allRiskAxes.keys()].filter(a => !directRiskAxes.has(a)),
+          note:        "Scene spine links not yet populated — run scene_graph_sync_spine_links first",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Build scene_id → axis_key map
+      const sceneAxisMap = new Map<string, string>();
+      for (const row of spineLinkRows as any[]) {
+        sceneAxisMap.set(row.scene_id, row.axis_key);
+      }
+
+      // 4. Find at-risk scenes
+      const atRiskSceneIds = (spineLinkRows as any[])
+        .filter((r: any) => allRiskAxes.has(r.axis_key))
+        .map((r: any) => r.scene_id as string);
+
+      if (atRiskSceneIds.length === 0) {
+        return new Response(JSON.stringify({
+          project_id:  projectId,
+          action:      "rewrite_plan_scene_risk",
+          risk_count:  0,
+          scene_risks: [],
+          direct_risk_axes:     [...directRiskAxes.keys()],
+          propagated_risk_axes: [...allRiskAxes.keys()].filter(a => !directRiskAxes.has(a)),
+          note:        "No scenes are mapped to at-risk axes",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Load scene_key from scene_graph_scenes
+      const { data: sceneRows } = await supabase
+        .from("scene_graph_scenes")
+        .select("id, scene_key")
+        .in("id", atRiskSceneIds);
+      const sceneKeyMap = new Map<string, string>(
+        ((sceneRows || []) as any[]).map((s: any) => [s.id, s.scene_key])
+      );
+
+      // Load latest slugline per at-risk scene
+      const { data: verRows } = await supabase
+        .from("scene_graph_versions")
+        .select("scene_id, slugline, version_number")
+        .in("scene_id", atRiskSceneIds)
+        .order("version_number", { ascending: false });
+      const sluglineMap = new Map<string, string | null>();
+      for (const v of (verRows || []) as any[]) {
+        if (!sluglineMap.has(v.scene_id)) sluglineMap.set(v.scene_id, v.slugline ?? null);
+      }
+
+      // Assemble risk report
+      const sceneRisks = atRiskSceneIds
+        .map((sceneId: string) => {
+          const axisKey = sceneAxisMap.get(sceneId) ?? "";
+          return {
+            scene_key:   sceneKeyMap.get(sceneId) ?? sceneId,
+            scene_id:    sceneId,
+            slugline:    sluglineMap.get(sceneId) ?? null,
+            axis:        axisKey,
+            reason:      allRiskAxes.get(axisKey) ?? "risk detected",
+            risk_source: directRiskAxes.has(axisKey) ? "direct" : "propagated",
+          };
+        })
+        .sort((a: any, b: any) => a.scene_key.localeCompare(b.scene_key));
+
+      return new Response(JSON.stringify({
+        project_id:  projectId,
+        action:      "rewrite_plan_scene_risk",
+        risk_count:  sceneRisks.length,
+        scene_risks: sceneRisks,
+        direct_risk_axes:     [...directRiskAxes.keys()],
+        propagated_risk_axes: [...allRiskAxes.keys()].filter(a => !directRiskAxes.has(a)),
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "scene_graph_insert_scene") {

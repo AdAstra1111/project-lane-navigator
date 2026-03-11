@@ -685,3 +685,77 @@ export function getRecommendedRepairOrder(
       axis, rewrite_priority_score, sequence_bucket,
     }));
 }
+
+// ── Phase 4: Scene Impact ─────────────────────────────────────────────────
+
+/**
+ * A scene entry returned in NDG/blueprint scene-impact outputs.
+ */
+export interface SceneImpactEntry {
+  scene_key:   string;
+  scene_id:    string;
+  axis_key:    string;
+  /** Slugline from latest scene version — populated when slugline context is loaded */
+  slugline:    string | null;
+}
+
+/**
+ * Given a set of affected axes and a pre-loaded scene index, returns all
+ * scenes whose scene_spine_links.axis_key matches any of the affected axes.
+ *
+ * @param affectedAxes  Set of axis strings (NDG downstream/propagated axes)
+ * @param sceneIndex    Pre-loaded map of axis_key → SceneImpactEntry[]
+ *                      (built from scene_spine_links + scene_graph_scenes in caller)
+ */
+export function getAffectedScenesForAxes(
+  affectedAxes: string[],
+  sceneIndex: Map<string, SceneImpactEntry[]>,
+): SceneImpactEntry[] {
+  if (!affectedAxes.length || sceneIndex.size === 0) return [];
+
+  const results: SceneImpactEntry[] = [];
+  const seen = new Set<string>(); // dedupe by scene_id
+
+  for (const axis of affectedAxes) {
+    const scenes = sceneIndex.get(axis) || [];
+    for (const s of scenes) {
+      if (!seen.has(s.scene_id)) {
+        seen.add(s.scene_id);
+        results.push(s);
+      }
+    }
+  }
+
+  return results.sort((a, b) => a.scene_key.localeCompare(b.scene_key));
+}
+
+/**
+ * Builds the scene index (axis_key → SceneImpactEntry[]) from pre-loaded rows.
+ * Call this in spine-rewrite-plan/index.ts after loading scene_spine_links data.
+ *
+ * @param spineLinkRows  scene_spine_links rows with axis_key + scene_id
+ * @param sceneKeyMap    Map<scene_id, { scene_key, slugline }> — from scene_graph_scenes join
+ */
+export function buildSceneImpactIndex(
+  spineLinkRows: Array<{ scene_id: string; axis_key: string | null }>,
+  sceneKeyMap: Map<string, { scene_key: string; slugline: string | null }>,
+): Map<string, SceneImpactEntry[]> {
+  const index = new Map<string, SceneImpactEntry[]>();
+
+  for (const row of spineLinkRows) {
+    if (!row.axis_key) continue;
+    const sceneInfo = sceneKeyMap.get(row.scene_id);
+    if (!sceneInfo) continue;
+
+    const entry: SceneImpactEntry = {
+      scene_key: sceneInfo.scene_key,
+      scene_id:  row.scene_id,
+      axis_key:  row.axis_key,
+      slugline:  sceneInfo.slugline ?? null,
+    };
+    if (!index.has(row.axis_key)) index.set(row.axis_key, []);
+    index.get(row.axis_key)!.push(entry);
+  }
+
+  return index;
+}

@@ -50,6 +50,15 @@ export interface NarrativeRelationRecord {
  * Bundled entity context passed into buildPatchBlueprints by the caller.
  * If null/absent: all entity fields on blueprints will be null/[].
  */
+/**
+ * Phase 5: Scene context pre-loaded in spine-rewrite-plan and passed into blueprint building.
+ * Keeps patchBlueprintEngine zero-DB.
+ * sceneIndex: axis_key → Array<{ scene_key, scene_id, slugline }>
+ */
+export interface SceneContext {
+  sceneIndex: Map<string, Array<{ scene_key: string; scene_id: string; slugline: string | null }>>;
+}
+
 export interface EntityContext {
   entities:  NarrativeEntityRecord[];
   relations: NarrativeRelationRecord[];
@@ -153,6 +162,20 @@ export interface PatchBlueprint {
    * Empty when no deterministic preserve-entity mapping exists.
    */
   preserve_entities: PatchBlueprintEntityRef[];
+
+  // ── Phase 5: Scene-level context — additive, optional ──
+
+  /**
+   * Scenes whose spine role maps to this blueprint's axis.
+   * Populated from scene_spine_links.axis_key matching this axis.
+   * Empty when no scene_spine_links rows exist for this axis.
+   * scene_label is the slugline from the latest scene version.
+   */
+  affected_scenes: Array<{
+    scene_key:   string;
+    scene_id:    string;
+    scene_label: string | null;
+  }>;
 }
 
 // ── Internal helpers ───────────────────────────────────────────────────────
@@ -441,6 +464,7 @@ export function buildPatchBlueprint(
   propagatedRisk: PropagatedRisk[],
   rewriteAxisSet: Set<SpineAxis>,
   entityContext?: EntityContext | null,
+  sceneContext?: SceneContext | null,
 ): PatchBlueprint {
   const axis = rt.axis as SpineAxis;
   const meta = AXIS_METADATA[axis];
@@ -484,6 +508,16 @@ export function buildPatchBlueprint(
     ? mapAxisToEntities(axis, entityContext)
     : EMPTY_ENTITY_RESULT;
 
+  // Phase 5: Scene context — look up scenes by axis_key matching this blueprint's axis
+  // affected_scenes is [] when no scene_spine_links rows exist (fail-closed)
+  const affectedScenes: Array<{ scene_key: string; scene_id: string; scene_label: string | null }> = [];
+  if (sceneContext && sceneContext.sceneIndex.size > 0) {
+    const scenesForAxis = sceneContext.sceneIndex.get(axis) || [];
+    for (const s of scenesForAxis) {
+      affectedScenes.push({ scene_key: s.scene_key, scene_id: s.scene_id, scene_label: s.slugline ?? null });
+    }
+  }
+
   return {
     axis,
     axis_label:             axisLabel,
@@ -501,6 +535,8 @@ export function buildPatchBlueprint(
     primary_entity:    entityResult.primary,
     affected_entities: entityResult.affected,
     preserve_entities: entityResult.preserve,
+    // Phase 5: affected_scenes — [] when no scene_spine_links rows for this axis
+    affected_scenes: affectedScenes,
   };
 }
 
@@ -518,12 +554,15 @@ export function buildPatchBlueprint(
  * @param propagatedRisk  Propagated risk from NDG planner
  * @param entityContext   Optional NIT entity context for L5.1 entity enrichment.
  *                        If null/absent, entity fields will be null/[] on all blueprints.
+ * @param sceneContext    Optional scene context for Phase 5 affected_scenes enrichment.
+ *                        If null/absent, affected_scenes will be [] on all blueprints.
  */
 export function buildPatchBlueprints(
   rewriteTargets: any[],
   preserveTargets: any[],
   propagatedRisk: PropagatedRisk[],
   entityContext?: EntityContext | null,
+  sceneContext?: SceneContext | null,
 ): PatchBlueprint[] {
   if (!rewriteTargets || rewriteTargets.length === 0) return [];
 
@@ -538,6 +577,6 @@ export function buildPatchBlueprints(
   });
 
   return ordered.map(rt =>
-    buildPatchBlueprint(rt, preserveTargets, propagatedRisk, rewriteAxisSet, entityContext)
+    buildPatchBlueprint(rt, preserveTargets, propagatedRisk, rewriteAxisSet, entityContext, sceneContext)
   );
 }
