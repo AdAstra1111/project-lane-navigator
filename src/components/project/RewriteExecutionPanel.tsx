@@ -164,7 +164,7 @@ export function RewriteExecutionPanel({ projectId }: Props) {
         )}
 
         {/* ── Execution Result ── */}
-        {result && <ExecutionResultView result={result} slugMap={slugMap} showAllCompleted={showAllCompleted} setShowAllCompleted={setShowAllCompleted} showAllFailed={showAllFailed} setShowAllFailed={setShowAllFailed} />}
+        {result && <ExecutionResultView result={result} slugMap={slugMap} showAllCompleted={showAllCompleted} setShowAllCompleted={setShowAllCompleted} showAllFailed={showAllFailed} setShowAllFailed={setShowAllFailed} onViewChanges={handleViewChanges} />}
 
         {/* ── Confirmation Dialog ── */}
         <ConfirmExecutionDialog
@@ -172,6 +172,18 @@ export function RewriteExecutionPanel({ projectId }: Props) {
           onOpenChange={setConfirmOpen}
           onConfirm={handleConfirmExecute}
           plan={plan}
+        />
+
+        {/* ── Scene Rewrite Diff Viewer ── */}
+        <SceneRewriteDiffViewer
+          open={diffOpen}
+          onOpenChange={(v) => { setDiffOpen(v); if (!v) diffHook.clear(); }}
+          data={diffHook.data}
+          loading={diffHook.loading}
+          error={diffHook.error}
+          sceneKeys={completedKeysForDiff}
+          currentIndex={diffSceneIndex}
+          onNavigate={handleDiffNavigate}
         />
       </CardContent>
     </Card>
