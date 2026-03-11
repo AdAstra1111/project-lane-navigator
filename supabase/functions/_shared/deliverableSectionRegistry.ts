@@ -75,9 +75,15 @@ const FORMAT_RULES_SECTIONS: SectionDefinition[] = [
 ];
 
 const CHARACTER_BIBLE_SECTIONS: SectionDefinition[] = [
-  { section_key: "protagonists", label: "Protagonists", match_mode: "heading_regex", match_pattern: "^#+\\s*protagonists?", allows_partial_rewrite: true, repair_mode: "replace_section", order: 0 },
-  { section_key: "antagonists", label: "Antagonists", match_mode: "heading_regex", match_pattern: "^#+\\s*antagonists?", allows_partial_rewrite: true, repair_mode: "replace_section", order: 1 },
-  { section_key: "supporting_cast", label: "Supporting Cast", match_mode: "heading_regex", match_pattern: "^#+\\s*supporting\\s*cast|^#+\\s*supporting\\s*characters", allows_partial_rewrite: true, repair_mode: "replace_section", order: 2 },
+  // NIT v2.2: added `^#+\s*character\s*group[:\s]+protagonists?` to match generated
+  //   format "# CHARACTER GROUP: Protagonists" alongside bare "## Protagonists".
+  { section_key: "protagonists", label: "Protagonists", match_mode: "heading_regex", match_pattern: "^#+\\s*protagonists?|^#+\\s*character\\s*group[:\\s]+protagonists?", allows_partial_rewrite: true, repair_mode: "replace_section", order: 0 },
+  // NIT v2.2: added `^#+\s*character\s*group[:\s]+antagonists?` to match generated
+  //   format "# CHARACTER GROUP: Antagonists".
+  { section_key: "antagonists", label: "Antagonists", match_mode: "heading_regex", match_pattern: "^#+\\s*antagonists?|^#+\\s*character\\s*group[:\\s]+antagonists?", allows_partial_rewrite: true, repair_mode: "replace_section", order: 1 },
+  // NIT v2.2: added `^#+\s*character\s*group[:\s]+supporting` to match generated
+  //   format "# CHARACTER GROUP: Supporting Characters" (not "Supporting Cast").
+  { section_key: "supporting_cast", label: "Supporting Cast", match_mode: "heading_regex", match_pattern: "^#+\\s*supporting\\s*cast|^#+\\s*supporting\\s*characters|^#+\\s*character\\s*group[:\\s]+supporting", allows_partial_rewrite: true, repair_mode: "replace_section", order: 2 },
   { section_key: "relationships", label: "Relationships & Dynamics", match_mode: "heading_regex", match_pattern: "^#+\\s*relationships|^#+\\s*dynamics|^#+\\s*relationships\\s*(&|and)\\s*dynamics", allows_partial_rewrite: true, repair_mode: "replace_section", order: 3 },
   { section_key: "character_arcs", label: "Character Arcs", match_mode: "heading_regex", match_pattern: "^#+\\s*character\\s*arcs?|^#+\\s*arcs?", allows_partial_rewrite: true, repair_mode: "replace_section", order: 4 },
 ];
