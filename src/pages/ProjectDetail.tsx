@@ -460,6 +460,9 @@ export default function ProjectDetail() {
           {/* Import Pipeline Status — downstream materialisation readiness */}
           <ImportStatusPanel projectId={id} />
 
+          {/* NDG Summary — lightweight graph overview */}
+          <NDGSummaryPanel projectId={id} />
+
           {/* Scene Intelligence — NDG v1 read-only graph panel */}
           <SceneIntelligencePanel projectId={id} />
 

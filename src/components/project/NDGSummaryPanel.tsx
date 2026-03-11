@@ -36,11 +36,11 @@ export function NDGSummaryPanel({ projectId }: Props) {
 
   if (!data) return null;
 
-  const byType = data.node_counts_by_type || {};
-  const scenes = byType.scene ?? 0;
-  const axes = byType.spine_axis ?? 0;
-  const entities = byType.narrative_entity ?? 0;
-  const units = byType.narrative_unit ?? 0;
+  const byType = (data.node_counts_by_type || {}) as Record<string, number>;
+  const scenes = byType['scene'] ?? 0;
+  const axes = byType['spine_axis'] ?? 0;
+  const entities = byType['narrative_entity'] ?? 0;
+  const units = byType['narrative_unit'] ?? 0;
   const atRiskCount = data.at_risk_scene_count ?? 0;
   const atRiskAxes = data.at_risk_axes ?? [];
 
