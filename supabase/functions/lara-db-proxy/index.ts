@@ -460,6 +460,14 @@ Deno.serve(async (req) => {
               'Canonical scene identity key (SCENE_NNN). Assigned at creation, never reused. '
               'Unique per project (partial unique index). NOT NULL enforced at DB layer.';
           `,
+          "add_missing_scene_fks": `
+            ALTER TABLE public.scene_blueprint_bindings
+              ADD CONSTRAINT scene_blueprint_bindings_scene_id_fkey
+              FOREIGN KEY (scene_id) REFERENCES public.scene_graph_scenes(id) ON DELETE CASCADE;
+            ALTER TABLE public.scene_spine_links
+              ADD CONSTRAINT scene_spine_links_scene_id_fkey
+              FOREIGN KEY (scene_id) REFERENCES public.scene_graph_scenes(id) ON DELETE CASCADE;
+          `,
         };
         if (!migration_key || !APPROVED_MIGRATIONS[migration_key]) {
           throw new Error(`run_migration: unknown migration_key '${migration_key}'`);
