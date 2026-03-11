@@ -168,33 +168,127 @@ Generate ${epRange} now. Full content for each episode.`;
   } else if (plan.strategy === "sectioned") {
     const sectionLabel = chunk.label;
 
-    // ── Per-act length targets for feature-length screenplay doc types ──────
-    // Without explicit targets the model defaults to a short "complete" act
-    // (~1,800 words), producing a 7,500-word total instead of the required
-    // 24,000-28,000 words. These targets match standard feature film page counts.
-    const SCRIPT_DOC_TYPES = new Set([
-      "feature_script", "production_draft", "screenplay_draft",
-    ]);
+    // ── Per-section length targets for all sectioned doc types ─────────────
+    // Without explicit targets the model defaults to a "complete" but short
+    // section. These targets enforce minimum output for every doc type that
+    // goes through the sectioned chunk strategy. No document should ever be
+    // shortened — if a section is worth generating, it is worth generating in full.
+    const sectionKey = chunk.sectionId || chunk.chunkKey;
     let lengthGuidance = "";
-    if (SCRIPT_DOC_TYPES.has(docType)) {
-      const PER_ACT_TARGETS: Record<string, string> = {
-        "act_1":    "25–30 pages (approximately 6,000–7,500 words). Opens the world, establishes protagonist + goal, lands the Inciting Incident, ends with the Break Into Two.",
-        "act_2a":   "28–32 pages (approximately 7,000–8,000 words). Rising action, B Story launch, Fun & Games / Promise of the Premise section, builds to Midpoint.",
-        "act_2b":   "28–32 pages (approximately 7,000–8,000 words). Bad Guys Close In, All Is Lost, Dark Night of the Soul, ends at the Break Into Three.",
-        "act_3":    "22–28 pages (approximately 5,500–7,000 words). Finale, climax, resolution, final image.",
-      };
-      const sectionKey = chunk.sectionId || chunk.chunkKey;
-      const actTarget = PER_ACT_TARGETS[sectionKey]
-        ?? "25–30 pages (approximately 6,000–7,500 words)";
 
+    // ── Feature-length screenplay types ──────────────────────────────────────
+    if (["feature_script", "production_draft", "screenplay_draft"].includes(docType)) {
+      const PER_ACT_TARGETS: Record<string, string> = {
+        "act_1":  "25–30 pages (approximately 6,000–7,500 words). Opens the world, establishes protagonist + goal, lands the Inciting Incident, ends with the Break Into Two.",
+        "act_2a": "28–32 pages (approximately 7,000–8,000 words). Rising action, B Story launch, Fun & Games / Promise of the Premise section, builds to Midpoint.",
+        "act_2b": "28–32 pages (approximately 7,000–8,000 words). Bad Guys Close In, All Is Lost, Dark Night of the Soul, ends at the Break Into Three.",
+        "act_3":  "22–28 pages (approximately 5,500–7,000 words). Finale, climax, resolution, final image.",
+      };
+      const actTarget = PER_ACT_TARGETS[sectionKey] ?? "25–30 pages (approximately 6,000–7,500 words)";
       lengthGuidance = `
 FEATURE SCREENPLAY LENGTH — MANDATORY:
-- A feature film screenplay is 95–115 pages (approximately 24,000–28,000 words total, 4 acts combined).
+- A feature film screenplay is 95–115 pages (approximately 24,000–28,000 words total across all 4 acts).
 - This act (${sectionLabel}) must reach: ${actTarget}
-- Write EVERY scene in FULL: INT./EXT. slugline, action paragraph(s), full dialogue.
-- Do NOT compress, summarise, or skip scenes.
+- Write EVERY scene in FULL: INT./EXT. slugline, action paragraph(s), complete dialogue.
+- Do NOT compress, summarise, or skip any scene.
 - Do NOT stop writing until you have reached the page/word target above.
-- If a scene is important enough to exist in the story outline or beat sheet, it is important enough to be written in full here.
+- Every scene in the story outline or beat sheet is important enough to be written in full here.
+`;
+
+    // ── Treatment (standard) ─────────────────────────────────────────────────
+    } else if (docType === "treatment") {
+      const PER_ACT_TARGETS: Record<string, string> = {
+        "act_1_setup":           "3–5 pages (approximately 750–1,250 words). Introduce the world, protagonist, ordinary life, and the inciting incident that disrupts everything.",
+        "act_2a_rising_action":  "4–6 pages (approximately 1,000–1,500 words). Protagonist commits to the journey. Rising stakes, early obstacles, key relationships forged or strained.",
+        "act_2b_complications":  "4–6 pages (approximately 1,000–1,500 words). Complications escalate. Midpoint turn, reversals, the protagonist pushed to their limit. Dark night of the soul.",
+        "act_3_climax_resolution": "3–5 pages (approximately 750–1,250 words). Climax, final confrontation, resolution. Thematic statement landed. Closing image.",
+      };
+      const actTarget = PER_ACT_TARGETS[sectionKey] ?? "4–6 pages (approximately 1,000–1,500 words)";
+      lengthGuidance = `
+TREATMENT LENGTH — MANDATORY:
+- A feature film treatment is 14–22 pages (approximately 3,500–5,500 words total across all 4 sections).
+- This section (${sectionLabel}) must reach: ${actTarget}
+- Write in vivid present-tense prose. Describe scenes, action, and emotional beats — not summaries.
+- Do NOT compress or skip story beats. Every beat in the outline belongs in the treatment.
+- Do NOT stop writing until you have reached the word target above.
+`;
+
+    // ── Long treatment ───────────────────────────────────────────────────────
+    } else if (docType === "long_treatment") {
+      const PER_ACT_TARGETS: Record<string, string> = {
+        "act_1_setup":           "6–10 pages (approximately 1,500–2,500 words). Full establishment of world, protagonist psychology, stakes, and inciting incident with scene-level texture.",
+        "act_2a_rising_action":  "8–12 pages (approximately 2,000–3,000 words). Scene-level rising action, key set-pieces, relationship dynamics, midpoint build.",
+        "act_2b_complications":  "8–12 pages (approximately 2,000–3,000 words). Full complications, reversals, midpoint consequence, all-is-lost sequence.",
+        "act_3_climax_resolution": "6–10 pages (approximately 1,500–2,500 words). Full climax sequence, resolution, thematic close, final image.",
+      };
+      const actTarget = PER_ACT_TARGETS[sectionKey] ?? "8–12 pages (approximately 2,000–3,000 words)";
+      lengthGuidance = `
+LONG TREATMENT LENGTH — MANDATORY:
+- A long treatment is 28–44 pages (approximately 7,000–11,000 words total across all 4 sections).
+- This section (${sectionLabel}) must reach: ${actTarget}
+- Write in vivid present-tense prose with full scene-level texture. Not a summary — a reading experience.
+- Every scene, set-piece, and emotional beat must be rendered in full.
+- Do NOT compress or skip. Do NOT stop writing until you have reached the word target above.
+`;
+
+    // ── Story Outline ────────────────────────────────────────────────────────
+    } else if (docType === "story_outline") {
+      const PER_ACT_TARGETS: Record<string, string> = {
+        "act_1_setup":         "12–16 scenes (approximately 1,800–3,000 words). Each scene: slug line, 2–4 sentence description, dramatic purpose. Covers world establishment through inciting incident to end of Act 1.",
+        "act_2a_complication": "14–18 scenes (approximately 2,200–3,600 words). Rising action, B story introduction, Fun & Games section, build to Midpoint. Each scene fully described.",
+        "act_2b_crisis":       "14–18 scenes (approximately 2,200–3,600 words). Post-midpoint complications, All Is Lost, Dark Night of the Soul. Every scene fully described.",
+        "act_3_resolution":    "10–14 scenes (approximately 1,500–2,600 words). Break Into Three, finale sequence, climax, resolution, final image. Every scene fully described.",
+      };
+      const actTarget = PER_ACT_TARGETS[sectionKey] ?? "12–16 scenes (approximately 2,000–3,000 words)";
+      lengthGuidance = `
+STORY OUTLINE LENGTH — MANDATORY:
+- A feature film story outline is 50–80 scenes (approximately 8,000–13,000 words total across all 4 acts).
+- This act (${sectionLabel}) must contain: ${actTarget}
+- Each scene entry MUST include: location/time slug, 2–4 sentence action description, and dramatic purpose.
+- Do NOT summarise multiple scenes into one entry. Every scene is its own entry.
+- Do NOT skip scenes to save space. Do NOT stop writing until you have reached the scene count and word target above.
+`;
+
+    // ── Beat Sheet ───────────────────────────────────────────────────────────
+    } else if (docType === "beat_sheet") {
+      const PER_ACT_TARGETS: Record<string, string> = {
+        "act_1_beats":  "10–14 named beats (approximately 900–1,400 words). Opening Image through Break Into Two. Each beat: name, 2–3 sentence description, page number, emotional/dramatic function.",
+        "act_2a_beats": "10–14 named beats (approximately 900–1,400 words). B Story through Midpoint. Each beat fully described.",
+        "act_2b_beats": "10–14 named beats (approximately 900–1,400 words). Bad Guys Close In through Dark Night of the Soul. Each beat fully described.",
+        "act_3_beats":  "8–12 named beats (approximately 700–1,100 words). Break Into Three through Final Image. Each beat fully described.",
+      };
+      const actTarget = PER_ACT_TARGETS[sectionKey] ?? "10–14 named beats (approximately 900–1,400 words)";
+      lengthGuidance = `
+BEAT SHEET LENGTH — MANDATORY:
+- A feature film beat sheet has 38–54 named beats (approximately 3,500–5,000 words total across all 4 acts).
+- This act (${sectionLabel}) must contain: ${actTarget}
+- Each beat MUST include: beat name (e.g. "Opening Image"), page number, 2–3 sentence description, dramatic/emotional function.
+- Do NOT merge multiple beats into one. Do NOT skip beats to save space.
+- Do NOT stop writing until you have reached the beat count and word target above.
+`;
+
+    // ── Character Bible ──────────────────────────────────────────────────────
+    } else if (docType === "character_bible" || docType === "long_character_bible") {
+      const isLong = docType === "long_character_bible";
+      const PER_SECTION_TARGETS: Record<string, string> = isLong ? {
+        "protagonists":              "Minimum 800–1,200 words per protagonist. Cover: full backstory, psychology, wound, want vs need, voice, arc, relationships, contradictions.",
+        "antagonists":               "Minimum 600–1,000 words per antagonist. Cover: motivation, ideology, relationship to protagonist, how they embody the theme's dark mirror.",
+        "supporting_cast":           "Minimum 400–600 words per supporting character. Cover: role in story, relationship to protagonist, arc, distinct voice.",
+        "relationships_and_dynamics": "Minimum 800–1,200 words total. Map all key relationships: power dynamics, history, how each relationship tests the protagonist's arc.",
+      } : {
+        "protagonists":              "Minimum 500–800 words per protagonist. Cover: backstory, psychology, want vs need, voice, arc.",
+        "antagonists":               "Minimum 400–600 words per antagonist. Cover: motivation, relationship to protagonist, thematic role.",
+        "supporting_cast":           "Minimum 250–400 words per supporting character. Cover: role, relationship to protagonist, distinct voice.",
+        "relationships_and_dynamics": "Minimum 500–800 words total. Map key relationships and how they drive the story.",
+      };
+      const sectionTarget = PER_SECTION_TARGETS[sectionKey] ?? "Minimum 500 words per character. Full profiles — do not truncate.";
+      lengthGuidance = `
+CHARACTER BIBLE LENGTH — MANDATORY:
+- Every character profile must be COMPLETE. Do NOT truncate or summarise any character.
+- This section (${sectionLabel}): ${sectionTarget}
+- For each character: write the FULL profile to the word target. A short entry means a shortchanged character.
+- Do NOT use placeholder text, bullet-point stubs, or "see above" references.
+- Do NOT stop writing until EVERY character in this section has a complete profile.
 `;
     }
 
