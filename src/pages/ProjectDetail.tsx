@@ -452,7 +452,10 @@ export default function ProjectDetail() {
           {/* Auto-Run Setup Panel */}
           <AutoRunSetupPanel project={project} />
 
-          {/* Import Pipeline Status — only renders for script-dropped projects */}
+          {/* Screenplay Intake Banner — intake-run orchestration truth */}
+          <ScreenplayIntakeBanner projectId={id} />
+
+          {/* Import Pipeline Status — downstream materialisation readiness */}
           <ImportStatusPanel projectId={id} />
 
           {/* Reverse Engineer Callout */}
