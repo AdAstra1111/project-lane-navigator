@@ -9,6 +9,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -307,6 +308,50 @@ Deno.serve(async (req) => {
           .select("scene_key,source_axis,source_unit_key,risk_source,patch_intent,target_surface,reason,slugline,source_doc_version_id,computed_at")
           .eq("project_id", project_id).order("scene_key", { ascending: true }).limit(lim);
         result = bindings ?? [];
+        break;
+      }
+
+      case "run_migration": {
+        // Execute approved DDL migrations via direct PostgreSQL connection.
+        // Gated by X-Lara-Secret. Only pre-approved migration keys allowed.
+        // Uses SUPABASE_DB_URL (direct pooler connection) for DDL execution.
+        const { migration_key } = params;
+        const APPROVED_MIGRATIONS: Record<string, string> = {
+          "create_scene_blueprint_bindings": `
+            CREATE TABLE IF NOT EXISTS public.scene_blueprint_bindings (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              project_id uuid NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+              scene_id uuid NOT NULL,
+              scene_key text NOT NULL,
+              source_axis text NOT NULL,
+              source_unit_key text NULL,
+              source_doc_version_id uuid NULL,
+              risk_source text NOT NULL DEFAULT 'direct',
+              patch_intent text NOT NULL DEFAULT 'inspect',
+              target_surface text NOT NULL DEFAULT 'screenplay',
+              slugline text NULL,
+              reason text NULL,
+              computed_at timestamptz NOT NULL DEFAULT now(),
+              updated_at timestamptz NOT NULL DEFAULT now(),
+              UNIQUE (project_id, scene_id, source_axis)
+            );
+            CREATE INDEX IF NOT EXISTS idx_sbb_project ON public.scene_blueprint_bindings (project_id);
+            CREATE INDEX IF NOT EXISTS idx_sbb_scene   ON public.scene_blueprint_bindings (project_id, scene_id);
+            CREATE INDEX IF NOT EXISTS idx_sbb_axis    ON public.scene_blueprint_bindings (project_id, source_axis);
+          `,
+        };
+        if (!migration_key || !APPROVED_MIGRATIONS[migration_key]) {
+          throw new Error(`run_migration: unknown migration_key '${migration_key}'`);
+        }
+        const dbUrl = Deno.env.get("SUPABASE_DB_URL");
+        if (!dbUrl) throw new Error("SUPABASE_DB_URL not available");
+        const sql = postgres(dbUrl, { max: 1 });
+        try {
+          await sql.unsafe(APPROVED_MIGRATIONS[migration_key]);
+          result = { executed: migration_key, status: "success" };
+        } finally {
+          await sql.end();
+        }
         break;
       }
 
