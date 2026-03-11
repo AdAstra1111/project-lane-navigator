@@ -454,6 +454,12 @@ Deno.serve(async (req) => {
             GRANT EXECUTE ON FUNCTION public.scene_graph_atomic_write(uuid, uuid, boolean, jsonb)
               TO authenticated, service_role;
           `,
+          "scene_key_not_null": `
+            ALTER TABLE public.scene_graph_scenes ALTER COLUMN scene_key SET NOT NULL;
+            COMMENT ON COLUMN public.scene_graph_scenes.scene_key IS
+              'Canonical scene identity key (SCENE_NNN). Assigned at creation, never reused. '
+              'Unique per project (partial unique index). NOT NULL enforced at DB layer.';
+          `,
         };
         if (!migration_key || !APPROVED_MIGRATIONS[migration_key]) {
           throw new Error(`run_migration: unknown migration_key '${migration_key}'`);
