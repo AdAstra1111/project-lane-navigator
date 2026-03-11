@@ -2002,6 +2002,137 @@ function compareSnapshots(a: CriteriaSnapshot | null, b: CriteriaSnapshot | null
 // Grounding is via existing narrative_entity_relations — no invented semantic model.
 // protagonist_arc → arc entities (e.g. ARC_PROTAGONIST) → characters that drives_arc them
 // central_conflict → conflict entities (e.g. CONFLICT_PRIMARY) → characters subject_of_conflict
+// ── Continuous Narrative Monitoring (Installment 47A) ────────────────────────
+//
+// computeAutopilotMonitorStatus — shared kernel for both detect_autopilot_repair
+// and get_autopilot_monitor_status. Read-only. Fail-closed.
+//
+// Sources of truth (in order of freshness):
+//   narrative_units        — live stale/contradicted count
+//   regeneration_runs      — historical confidence + NDG risk from last run
+//   computeSelectiveRegenerationPlanHelper — live impact estimate (non-fatal)
+//
+// Returns the same structural payload regardless of caller.
+// Caller actions may wrap with additional fields (timestamps, monitoring metadata).
+//
+async function computeAutopilotMonitorStatus(
+  supabase: ReturnType<typeof createClient>,
+  projectId: string,
+): Promise<{
+  autopilot_state:       "stable" | "triggered" | "unknown";
+  trigger_reason:        string | null;
+  stale_unit_count:      number;
+  ndg_at_risk_count:     number;
+  recommended_scope:     string | null;
+  estimated_scene_count: number;
+  repair_preview: {
+    direct: number; propagated: number;
+    entity_link: number; entity_propagation: number;
+  } | null;
+  execution_allowed:     true;
+  structural_uncertainty: boolean;
+  last_run_at:           string | null;
+  last_run_confidence_band: string | null;
+  last_run_scope:        string | null;
+}> {
+  // ── 1. Stale unit count (live from DB) ────────────────────────────────────
+  const { count: staleUnitCount } = await (supabase as any)
+    .from("narrative_units")
+    .select("id", { count: "exact", head: true })
+    .eq("project_id", projectId)
+    .in("status", ["stale", "contradicted"]);
+  const staleCount = staleUnitCount ?? 0;
+
+  // ── 2. Last completed run data ────────────────────────────────────────────
+  let latestBand: string | null = null;
+  let latestNdgPreAtRisk = 0;
+  let lastRunAt: string | null = null;
+  let lastRunScope: string | null = null;
+  const { data: latestRun } = await (supabase as any)
+    .from("regeneration_runs")
+    .select("meta_json, ndg_pre_at_risk_count, completed_at, recommended_scope")
+    .eq("project_id", projectId)
+    .eq("status", "completed")
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latestRun) {
+    latestNdgPreAtRisk = latestRun.ndg_pre_at_risk_count ?? 0;
+    lastRunAt  = latestRun.completed_at ?? null;
+    lastRunScope = latestRun.recommended_scope ?? null;
+    const mj = typeof latestRun.meta_json === "string"
+      ? JSON.parse(latestRun.meta_json)
+      : (latestRun.meta_json ?? {});
+    latestBand = mj?.repair_confidence_band ?? null;
+  }
+
+  // ── 3. Live planner preview (non-fatal — fail-closed on error) ────────────
+  let plan: Awaited<ReturnType<typeof computeSelectiveRegenerationPlanHelper>> | null = null;
+  let structuralUncertainty = false;
+  try {
+    plan = await computeSelectiveRegenerationPlanHelper(supabase, projectId, null);
+  } catch (planErr: any) {
+    console.warn("[computeAutopilotMonitorStatus] planner failed:", planErr?.message);
+    structuralUncertainty = true;
+  }
+
+  // ndg_at_risk_count: prefer live planner (direct + propagated), fallback to history
+  const ndgAtRiskCount = plan
+    ? plan.direct_scene_count + plan.propagated_scene_count
+    : latestNdgPreAtRisk;
+
+  // ── 4. Trigger evaluation (priority order) ────────────────────────────────
+  let autopilotState: "stable" | "triggered" | "unknown" = "stable";
+  let triggerReason: string | null = null;
+
+  if (plan === null) {
+    // Planner failed — evaluate with available data; surface uncertainty if unclear
+    if (staleCount >= 1) {
+      autopilotState = "triggered"; triggerReason = "stale_units";
+    } else if (latestNdgPreAtRisk >= 3) {
+      autopilotState = "triggered"; triggerReason = "ndg_risk";
+    } else if (latestBand === "low") {
+      autopilotState = "triggered"; triggerReason = "failed_repair";
+    } else {
+      // Cannot confirm stable — structural data unavailable
+      autopilotState = "unknown";
+    }
+  } else {
+    if (staleCount >= 1) {
+      autopilotState = "triggered"; triggerReason = "stale_units";
+    } else if (ndgAtRiskCount >= 3) {
+      autopilotState = "triggered"; triggerReason = "ndg_risk";
+    } else if (latestBand === "low") {
+      autopilotState = "triggered"; triggerReason = "failed_repair";
+    } else if ((plan.entity_propagated_scene_count ?? 0) >= 5) {
+      autopilotState = "triggered"; triggerReason = "propagation_drift";
+    }
+    // else: stable — all conditions clear
+  }
+
+  const repairPreview = plan ? {
+    direct:             plan.direct_scene_count,
+    propagated:         plan.propagated_scene_count,
+    entity_link:        plan.entity_impacted_scene_count,
+    entity_propagation: plan.entity_propagated_scene_count,
+  } : null;
+
+  return {
+    autopilot_state:         autopilotState,
+    trigger_reason:          triggerReason,
+    stale_unit_count:        staleCount,
+    ndg_at_risk_count:       ndgAtRiskCount,
+    recommended_scope:       plan?.recommended_scope ?? null,
+    estimated_scene_count:   plan ? plan.direct_scene_count + plan.propagated_scene_count : 0,
+    repair_preview:          repairPreview,
+    execution_allowed:       true,
+    structural_uncertainty:  structuralUncertainty,
+    last_run_at:             lastRunAt,
+    last_run_confidence_band: latestBand,
+    last_run_scope:          lastRunScope,
+  };
+}
+
 // ── Repair Strategy Engine (Installment 46A) ─────────────────────────────────
 //
 // Three deterministic strategies govern which scene categories the planner
@@ -2722,6 +2853,7 @@ serve(async (req) => {
       "regen-insufficient-tick",
       "regen-insufficient-status",
       "detect_autopilot_repair",
+      "get_autopilot_monitor_status",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -9305,113 +9437,75 @@ Return ONLY valid JSON:
     // NEVER executes repairs. Returns execution_allowed = true as a signal to UI.
     //
     if (action === "detect_autopilot_repair") {
+      // Thin delegation to shared monitoring kernel.
+      // Preserved for backward compat with useAutopilotRepairDetection hook.
       const { projectId } = body;
       if (!projectId) throw new Error("projectId required");
 
-      // ── 1. Count stale narrative units ─────────────────────────────────────
-      const { count: staleUnitCount } = await (supabase as any)
-        .from("narrative_units")
-        .select("id", { count: "exact", head: true })
-        .eq("project_id", projectId)
-        .in("status", ["stale", "contradicted"]);
-      const staleCount = staleUnitCount ?? 0;
-
-      // ── 2. Latest run: repair_confidence_band + ndg_pre_at_risk_count ──────
-      let latestBand: string | null = null;
-      let latestNdgPreAtRisk = 0;
-      const { data: latestRun } = await (supabase as any)
-        .from("regeneration_runs")
-        .select("meta_json, ndg_pre_at_risk_count")
-        .eq("project_id", projectId)
-        .eq("status", "completed")
-        .order("started_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (latestRun) {
-        latestNdgPreAtRisk = latestRun.ndg_pre_at_risk_count ?? 0;
-        const mj = typeof latestRun.meta_json === "string"
-          ? JSON.parse(latestRun.meta_json)
-          : (latestRun.meta_json ?? {});
-        latestBand = mj?.repair_confidence_band ?? null;
-      }
-
-      // ── 3. Run planner for repair preview (non-fatal) ──────────────────────
-      let plan: Awaited<ReturnType<typeof computeSelectiveRegenerationPlanHelper>> | null = null;
-      try {
-        plan = await computeSelectiveRegenerationPlanHelper(supabase, projectId, null);
-      } catch (planErr: any) {
-        console.warn("[detect_autopilot_repair] planner failed (non-fatal):", planErr?.message);
-      }
-
-      // ndg_at_risk_count: use planner's impacted scene count (direct + propagated)
-      // when available; fall back to latest run's pre-count from history.
-      const ndgAtRiskCount = plan
-        ? (plan.direct_scene_count + plan.propagated_scene_count)
-        : latestNdgPreAtRisk;
-
-      // ── 4. Evaluate trigger conditions (priority order) ────────────────────
-      //   1. stale_units          — any stale units present right now
-      //   2. ndg_risk             — ≥3 scenes structurally at risk
-      //   3. failed_repair        — most recent completed run has "low" confidence
-      //   4. propagation_drift    — entity propagation spread is wide (≥5 scenes)
-      let autopilotState: "stable" | "triggered" | "unknown" = "stable";
-      let triggerReason: string | null = null;
-
-      if (plan === null) {
-        // Planner failed — still evaluate non-planner conditions if possible
-        if (staleCount >= 1) {
-          autopilotState = "triggered";
-          triggerReason = "stale_units";
-        } else if (latestNdgPreAtRisk >= 3) {
-          autopilotState = "triggered";
-          triggerReason = "ndg_risk";
-        } else if (latestBand === "low") {
-          autopilotState = "triggered";
-          triggerReason = "failed_repair";
-        } else {
-          autopilotState = "unknown";
-        }
-      } else {
-        if (staleCount >= 1) {
-          autopilotState = "triggered";
-          triggerReason = "stale_units";
-        } else if (ndgAtRiskCount >= 3) {
-          autopilotState = "triggered";
-          triggerReason = "ndg_risk";
-        } else if (latestBand === "low") {
-          autopilotState = "triggered";
-          triggerReason = "failed_repair";
-        } else if ((plan.entity_propagated_scene_count ?? 0) >= 5) {
-          autopilotState = "triggered";
-          triggerReason = "propagation_drift";
-        }
-        // else: stable — all conditions clear
-      }
-
-      // ── 5. Assemble response ───────────────────────────────────────────────
-      const repairPreview = plan ? {
-        direct:             plan.direct_scene_count,
-        propagated:         plan.propagated_scene_count,
-        entity_link:        plan.entity_impacted_scene_count,
-        entity_propagation: plan.entity_propagated_scene_count,
-      } : null;
-
-      const estimatedSceneCount = plan
-        ? plan.direct_scene_count + plan.propagated_scene_count
-        : 0;
+      const status = await computeAutopilotMonitorStatus(supabase, projectId);
 
       return new Response(JSON.stringify({
         project_id:            projectId,
         action:                "detect_autopilot_repair",
         ok:                    true,
-        autopilot_state:       autopilotState,
-        trigger_reason:        triggerReason,
-        stale_unit_count:      staleCount,
-        ndg_at_risk_count:     ndgAtRiskCount,
-        recommended_scope:     plan?.recommended_scope ?? null,
-        estimated_scene_count: estimatedSceneCount,
-        repair_preview:        repairPreview,
-        execution_allowed:     true,
+        autopilot_state:       status.autopilot_state,
+        trigger_reason:        status.trigger_reason,
+        stale_unit_count:      status.stale_unit_count,
+        ndg_at_risk_count:     status.ndg_at_risk_count,
+        recommended_scope:     status.recommended_scope,
+        estimated_scene_count: status.estimated_scene_count,
+        repair_preview:        status.repair_preview,
+        execution_allowed:     status.execution_allowed,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Continuous Narrative Monitoring: get_autopilot_monitor_status ────────────
+    //
+    // Canonical monitoring entry point for narrative health. Always computed from
+    // live DB state (Model A — computed-on-read). Never writes. Fail-closed.
+    //
+    // Extends detect_autopilot_repair with:
+    //   evaluated_at          — honest request timestamp (not fabricated)
+    //   derived_live          — always true (signals no cache layer below)
+    //   monitoring_model      — "computed_on_read"
+    //   structural_uncertainty — true if planner failed (surfaces incomplete state)
+    //   last_run_at           — completed_at from latest completed run (from DB)
+    //   last_run_confidence_band — repair_confidence_band from last run meta_json
+    //   last_run_scope        — recommended_scope from last completed run
+    //
+    // Post-repair refresh: caller should re-call this action after execution.
+    // UI: invalidate ['autopilot-monitor-status', projectId] query key.
+    //
+    if (action === "get_autopilot_monitor_status") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const evaluatedAt = new Date().toISOString();
+      const status = await computeAutopilotMonitorStatus(supabase, projectId);
+
+      return new Response(JSON.stringify({
+        project_id:              projectId,
+        action:                  "get_autopilot_monitor_status",
+        ok:                      true,
+        // ── Monitoring metadata ─────────────────────────────────────────────
+        monitoring_model:        "computed_on_read",
+        derived_live:            true,
+        evaluated_at:            evaluatedAt,
+        structural_uncertainty:  status.structural_uncertainty,
+        // ── Health state ───────────────────────────────────────────────────
+        autopilot_state:         status.autopilot_state,
+        trigger_reason:          status.trigger_reason,
+        // ── Impact summary ─────────────────────────────────────────────────
+        stale_unit_count:        status.stale_unit_count,
+        ndg_at_risk_count:       status.ndg_at_risk_count,
+        recommended_scope:       status.recommended_scope,
+        estimated_scene_count:   status.estimated_scene_count,
+        repair_preview:          status.repair_preview,
+        execution_allowed:       status.execution_allowed,
+        // ── Historical context (from regeneration_runs — deterministic) ────
+        last_run_at:             status.last_run_at,
+        last_run_confidence_band: status.last_run_confidence_band,
+        last_run_scope:          status.last_run_scope,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
