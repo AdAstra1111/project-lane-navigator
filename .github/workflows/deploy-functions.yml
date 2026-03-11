@@ -14,7 +14,7 @@ jobs:
 
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.75.0
 
       - name: Deploy core pipeline functions
         env:
