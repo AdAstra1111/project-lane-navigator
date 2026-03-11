@@ -1183,15 +1183,17 @@ export function buildDialogueHeadingMap(
 // ── Phase 2 public surface ────────────────────────────────────────────────
 
 export interface DialogueCharacterSyncResult {
-  scenes_processed:  number;
-  links_upserted:    number;
+  scenes_processed:      number;
+  links_upserted:        number;
+  characters_written:    number;   // scenes that got a characters_present write-back
   per_scene: Array<{
-    scene_id:       string;
-    scene_key:      string | null;
-    slugline:       string | null;
-    dialogue_links: number;
-    headings_found: number;
-    skipped?:       string;
+    scene_id:             string;
+    scene_key:            string | null;
+    slugline:             string | null;
+    dialogue_links:       number;
+    headings_found:       number;
+    skipped?:             string;
+    unresolved_headings?: string[];  // headings detected but not mapped to any entity
   }>;
 }
 
@@ -1299,17 +1301,27 @@ export async function syncDialogueCharactersForProject(
       continue;
     }
 
-    // Resolve headings → entity ids
+    // Resolve headings → entity ids, track unresolved for diagnostics
     const resolvedEntityIds = new Set<string>();
+    const unresolvedHeadings: string[] = [];
     for (const heading of headings) {
       const entityId = headingMap.get(heading);
-      if (entityId) resolvedEntityIds.add(entityId);
+      if (entityId) {
+        resolvedEntityIds.add(entityId);
+      } else {
+        unresolvedHeadings.push(heading);
+      }
     }
 
     if (resolvedEntityIds.size === 0) {
       per_scene.push({
-        scene_id: scene.id, scene_key: scene.scene_key, slugline: ver.slugline,
-        dialogue_links: 0, headings_found: headings.size, skipped: "no_headings_resolved",
+        scene_id:             scene.id,
+        scene_key:            scene.scene_key,
+        slugline:             ver.slugline,
+        dialogue_links:       0,
+        headings_found:       headings.size,
+        skipped:              "no_headings_resolved",
+        unresolved_headings:  unresolvedHeadings,
       });
       continue;
     }
@@ -1343,16 +1355,81 @@ export async function syncDialogueCharactersForProject(
 
     totalLinks += linkRows.length;
     per_scene.push({
-      scene_id:       scene.id,
-      scene_key:      scene.scene_key,
-      slugline:       ver.slugline,
-      dialogue_links: linkRows.length,
-      headings_found: headings.size,
+      scene_id:            scene.id,
+      scene_key:           scene.scene_key,
+      slugline:            ver.slugline,
+      dialogue_links:      linkRows.length,
+      headings_found:      headings.size,
+      unresolved_headings: unresolvedHeadings.length > 0 ? unresolvedHeadings : undefined,
     });
   }
 
-  const processed = per_scene.filter(s => !s.skipped).length;
-  console.log(`[NIT:Phase2] ${processed} scenes processed, ${totalLinks} dialogue character links upserted`);
+  // ── characters_present write-back ────────────────────────────────────────
+  // After all link upserts, write back characters_present to scene_graph_versions.
+  //
+  // Source of truth: narrative_scene_entity_links (relation_type='character_present').
+  // This pass queries the full link set for each scene (not just this run's additions)
+  // so the write-back reflects BOTH name-scan and dialogue-heading contributions.
+  //
+  // Implementation: direct UPDATE on scene_graph_versions.id (latest version).
+  // Does NOT create a new version (avoids version number churn).
+  // Idempotent: same links → same canonical name array → same result on every run.
+  //
+  // Write-back is scoped to scenes that have at least one version row.
+  // Scenes with no version, empty content, or no links are skipped — fail-closed.
 
-  return { scenes_processed: processed, links_upserted: totalLinks, per_scene };
+  // Build entity_id → canonical_name lookup from the already-loaded entities array
+  const entityNameMap = new Map<string, string>();
+  for (const e of (entities as any[])) {
+    entityNameMap.set(e.id, e.canonical_name);
+  }
+
+  // Collect all scene_ids for which we have a latest version in memory
+  const allSceneIds = [...latestByScene.keys()];
+
+  // Fetch all current character_present links for this project in one query
+  const { data: allLinks, error: linkFetchErr } = await supabase
+    .from("narrative_scene_entity_links")
+    .select("scene_id, entity_id")
+    .eq("project_id", projectId)
+    .eq("relation_type", "character_present")
+    .in("scene_id", allSceneIds);
+
+  let charsWritten = 0;
+
+  if (!linkFetchErr && allLinks) {
+    // Group by scene_id
+    const linksByScene = new Map<string, string[]>();
+    for (const row of (allLinks as any[])) {
+      const name = entityNameMap.get(row.entity_id);
+      if (!name) continue;
+      if (!linksByScene.has(row.scene_id)) linksByScene.set(row.scene_id, []);
+      linksByScene.get(row.scene_id)!.push(name);
+    }
+
+    // Write back for each scene that has at least one link
+    for (const [sceneId, names] of linksByScene.entries()) {
+      const ver = latestByScene.get(sceneId);
+      if (!ver) continue;
+
+      const sortedNames = [...new Set(names)].sort();
+      const { error: updErr } = await supabase
+        .from("scene_graph_versions")
+        .update({ characters_present: sortedNames })
+        .eq("id", ver.id);
+
+      if (updErr) {
+        console.warn("[NIT:Phase2] characters_present write-back error", sceneId, updErr.message);
+      } else {
+        charsWritten++;
+      }
+    }
+  } else if (linkFetchErr) {
+    console.warn("[NIT:Phase2] could not fetch links for write-back:", linkFetchErr.message);
+  }
+
+  const processed = per_scene.filter(s => !s.skipped).length;
+  console.log(`[NIT:Phase2] ${processed} scenes processed, ${totalLinks} dialogue links upserted, ${charsWritten} characters_present written`);
+
+  return { scenes_processed: processed, links_upserted: totalLinks, characters_written: charsWritten, per_scene };
 }

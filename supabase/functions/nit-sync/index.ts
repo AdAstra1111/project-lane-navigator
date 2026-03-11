@@ -61,11 +61,12 @@ serve(async (req) => {
     if (action === "sync_dialogue_characters") {
       const result = await syncDialogueCharactersForProject(supabase, projectId);
       return new Response(JSON.stringify({
-        project_id:       projectId,
-        action:           "sync_dialogue_characters",
-        scenes_processed: result.scenes_processed,
-        links_upserted:   result.links_upserted,
-        per_scene:        result.per_scene,
+        project_id:          projectId,
+        action:              "sync_dialogue_characters",
+        scenes_processed:    result.scenes_processed,
+        links_upserted:      result.links_upserted,
+        characters_written:  result.characters_written,
+        per_scene:           result.per_scene,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
