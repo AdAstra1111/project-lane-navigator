@@ -5,14 +5,16 @@
  * Fail-closed: calm state when no risk; graceful degradation on errors.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSelectiveRegenerationPlan, type RecommendedScope, type SourceUnit, type ImpactedScene } from '@/hooks/useSelectiveRegenerationPlan';
 import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/hooks/useExecuteSelectiveRegeneration';
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
 import { useSceneVersionDiff } from '@/hooks/useSceneVersionDiff';
 import { useRegenerationRunHistory, type RegenerationRun } from '@/hooks/useRegenerationRunHistory';
+import { useAutopilotRepairDetection } from '@/hooks/useAutopilotRepairDetection';
 import { SceneRewriteDiffViewer } from '@/components/project/SceneRewriteDiffViewer';
 import { NDGImpactHeatmap } from '@/components/project/NDGImpactHeatmap';
+import { AutopilotRepairPanel } from '@/components/project/AutopilotRepairPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
