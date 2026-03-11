@@ -10145,7 +10145,7 @@ Return ONLY valid JSON:
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── Step 1: Load seed ─────────────────────────────────────────────────
+      // ── Step 1: Load seed (validation only — no writes yet) ───────────────
       let rootQuery = (supabase as any)
         .from("dev_seed_v2_projects")
         .select("*")
@@ -10215,186 +10215,32 @@ Return ONLY valid JSON:
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── Step 3: Promote Layer 3 → narrative_spine_json ───────────────────
-      // Write-once guard: only if spine is currently NULL. Matches promote-to-devseed pattern.
-      // Respects spine lifecycle (provisional → confirmed → locked via decision_ledger).
-      let spinePromoted = 0;
-      let spineSkipReason: string | null = null;
+      // ── Steps 3–7: Atomic promotion via PL/pgSQL (DS2E) ──────────────────
+      // All writes (spine, units, entities, relations, promoted_at) execute in a
+      // single DB transaction via ds2_sync_seed_to_canon(). If any step raises,
+      // PostgreSQL rolls back the entire function — no partial canon state possible.
+      const { data: syncResult, error: syncErr } = await (supabase as any)
+        .rpc("ds2_sync_seed_to_canon", {
+          p_seed_id:    seedId,
+          p_project_id: projectId,
+        });
 
-      if (seedAxes.length > 0) {
-        const { data: spineCheck } = await (supabase as any)
-          .from("projects")
-          .select("narrative_spine_json")
-          .eq("id", projectId)
-          .maybeSingle();
-
-        if (spineCheck?.narrative_spine_json !== null && spineCheck?.narrative_spine_json !== undefined) {
-          spineSkipReason = "spine_already_set — use spine-amendment to amend individual axes";
-        } else {
-          // Build spine object from seed axes (axis_statement = axis value)
-          const spineJson: Record<string, string | null> = {};
-          for (const ax of seedAxes) {
-            if (VALID_SPINE_AXES.has(ax.axis_key)) {
-              spineJson[ax.axis_key as string] = ax.axis_statement ?? null;
-            }
-          }
-          const { error: spineErr } = await (supabase as any)
-            .from("projects")
-            .update({ narrative_spine_json: spineJson })
-            .eq("id", projectId)
-            .is("narrative_spine_json", null);  // write-once guard
-          if (spineErr) {
-            console.warn("[sync_dev_seed_v2_to_canon] spine write failed:", spineErr.message);
-            spineSkipReason = "spine_write_failed: " + spineErr.message;
-          } else {
-            spinePromoted = seedAxes.length;
-          }
-        }
+      if (syncErr) {
+        console.error("[dev-engine-v2] sync_dev_seed_v2_to_canon rpc failed:", syncErr.message);
+        return new Response(JSON.stringify({
+          project_id: projectId,
+          action:     "sync_dev_seed_v2_to_canon",
+          ok:         false,
+          seed_id:    seedId,
+          error:      syncErr.message,
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── Step 4: Promote Layer 4 → narrative_units ────────────────────────
-      // unit_key = {seed_id}::{axis_key} — seed_id IS a UUID, matches canonical format.
-      // Idempotent: ON CONFLICT (project_id, unit_type, unit_key) DO UPDATE.
-      let unitsPromoted = 0;
-      const now = new Date().toISOString();
-
-      if (seedUnits.length > 0) {
-        const unitRows = seedUnits.map((u: any) => ({
-          project_id:          projectId,
-          unit_type:           u.unit_type,
-          unit_key:            `${seedId}::${u.unit_type}`,  // canonical format
-          payload_json: {
-            spine_value:       u.unit_statement ?? null,
-            success_state:     u.success_state  ?? null,
-            failure_mode:      u.failure_mode   ?? null,
-            seed_unit_key:     u.unit_key,     // provenance back to seed unit
-            seed_id:           seedId,         // FK-safe provenance (not source_doc_version_id)
-          },
-          source_doc_type:         "dev_seed_v2",
-          source_doc_version_id:   null,        // FK to project_document_versions — null for seed origin
-          confidence:              1.0,
-          extraction_method:       "dev_seed_v2_promotion",
-          status:                  u.initial_alignment_status ?? "aligned",
-          updated_at:              now,
-        }));
-
-        const { error: unitErr, data: unitData } = await (supabase as any)
-          .from("narrative_units")
-          .upsert(unitRows, {
-            onConflict:       "project_id,unit_type,unit_key",
-            ignoreDuplicates: false,
-          })
-          .select("id");
-
-        if (unitErr) {
-          console.warn("[sync_dev_seed_v2_to_canon] units upsert failed:", unitErr.message);
-        } else {
-          unitsPromoted = (unitData || []).length;
-        }
-      }
-
-      // ── Step 5: Promote Layer 5a → narrative_entities ────────────────────
-      // UPSERT on (project_id, entity_key) — idempotent.
-      let entitiesPromoted = 0;
-      const promotedEntityIdMap = new Map<string, string>(); // entity_key → uuid
-
-      if (seedEntities.length > 0) {
-        const entityRows = seedEntities.map((e: any) => ({
-          project_id:     projectId,
-          entity_key:     e.entity_key,
-          canonical_name: e.entity_name,
-          entity_type:    e.entity_type,
-          source_kind:    "dev_seed_v2",
-          source_key:     seedId,
-          status:         "active",
-          meta_json: {
-            narrative_role:      e.narrative_role      ?? null,
-            description:         e.description         ?? null,
-            aliases:             e.aliases             ?? [],
-            story_critical_flag: e.story_critical_flag ?? false,
-          },
-          updated_at: now,
-        }));
-
-        const { error: entErr } = await (supabase as any)
-          .from("narrative_entities")
-          .upsert(entityRows, {
-            onConflict:       "project_id,entity_key",
-            ignoreDuplicates: false,
-          });
-
-        if (entErr) {
-          console.warn("[sync_dev_seed_v2_to_canon] entities upsert failed:", entErr.message);
-        } else {
-          entitiesPromoted = entityRows.length;
-
-          // Load promoted entity IDs for relation insertion
-          const { data: promotedEnts } = await (supabase as any)
-            .from("narrative_entities")
-            .select("id,entity_key")
-            .eq("project_id", projectId)
-            .in("entity_key", seedEntities.map((e: any) => e.entity_key));
-
-          for (const row of (promotedEnts || []) as any[]) {
-            promotedEntityIdMap.set(row.entity_key as string, row.id as string);
-          }
-        }
-      }
-
-      // ── Step 6: Promote Layer 5b → narrative_entity_relations ────────────
-      // Resolve entity_key → UUID. ON CONFLICT DO NOTHING (idempotent).
-      let relationsPromoted = 0;
-
-      if (seedRelations.length > 0 && promotedEntityIdMap.size > 0) {
-        const relRows: any[] = [];
-        for (const r of seedRelations) {
-          const sourceId = promotedEntityIdMap.get(r.source_entity_key);
-          const targetId = promotedEntityIdMap.get(r.target_entity_key);
-          if (!sourceId || !targetId) continue;  // orphaned — skip (already validated above)
-          relRows.push({
-            project_id:       projectId,
-            source_entity_id: sourceId,
-            target_entity_id: targetId,
-            relation_type:    r.relation_type,
-            source_kind:      "dev_seed_v2",
-            confidence:       1.0,
-            updated_at:       now,
-          });
-        }
-
-        if (relRows.length > 0) {
-          const { error: relErr } = await (supabase as any)
-            .from("narrative_entity_relations")
-            .upsert(relRows, {
-              onConflict:       "source_entity_id,target_entity_id,relation_type",
-              ignoreDuplicates: true,  // idempotent
-            });
-          if (relErr) {
-            console.warn("[sync_dev_seed_v2_to_canon] relations upsert failed:", relErr.message);
-          } else {
-            relationsPromoted = relRows.length;
-          }
-        }
-      }
-
-      // ── Step 7: Record promotion in seed root row ─────────────────────────
-      const promotionSummary = {
-        promoted_at:    now,
-        axes_to_spine:  spinePromoted,
-        spine_skip:     spineSkipReason,
-        units:          unitsPromoted,
-        entities:       entitiesPromoted,
-        relations:      relationsPromoted,
-      };
-      await (supabase as any)
-        .from("dev_seed_v2_projects")
-        .update({ promoted_at: now, promotion_summary: promotionSummary })
-        .eq("id", seedId);
-
-      console.log("[dev-engine-v2] sync_dev_seed_v2_to_canon complete", {
+      const promotions = syncResult?.promotions ?? {};
+      console.log("[dev-engine-v2] sync_dev_seed_v2_to_canon complete (atomic)", {
         project_id: projectId,
         seed_id:    seedId,
-        ...promotionSummary,
+        ...promotions,
       });
 
       return new Response(JSON.stringify({
@@ -10402,13 +10248,13 @@ Return ONLY valid JSON:
         action:           "sync_dev_seed_v2_to_canon",
         ok:               true,
         seed_id:          seedId,
-        promoted_at:      now,
+        promoted_at:      syncResult?.promoted_at,
         promotions: {
-          layer_3_axes_to_spine:   spinePromoted,
-          spine_skip_reason:       spineSkipReason,
-          layer_4_units:           unitsPromoted,
-          layer_5_entities:        entitiesPromoted,
-          layer_5_relations:       relationsPromoted,
+          layer_3_axes_to_spine:  promotions.layer_3_axes_to_spine  ?? 0,
+          spine_skip_reason:      promotions.spine_skip_reason       ?? null,
+          layer_4_units:          promotions.layer_4_units           ?? 0,
+          layer_5_entities:       promotions.layer_5_entities        ?? 0,
+          layer_5_relations:      promotions.layer_5_relations       ?? 0,
         },
         seed_only_layers: [
           "layer_1_project_identity",
@@ -10419,10 +10265,11 @@ Return ONLY valid JSON:
         ],
         notes: [
           "Layer 3 → spine only if narrative_spine_json is NULL (write-once guard)",
-          "Layer 4 units: unit_key format is {seed_id}::{axis_key}",
+          "Layer 4 units: unit_key format is {seed_id}::{unit_type}",
           "Layer 5 entities: UPSERT on (project_id, entity_key)",
           "Layer 5 relations: ON CONFLICT DO NOTHING (idempotent)",
           "Layers 2, 6, 7, 8 remain seed-scoped — no canonical target yet",
+          "DS2E: all writes atomic via ds2_sync_seed_to_canon() PL/pgSQL function",
         ],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -10567,234 +10414,52 @@ Return ONLY valid JSON:
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── Step 3: Apply patch — writes only after full validation ────────
-      const now = new Date().toISOString();
-      const updatedLayers: string[] = [];
-
-      try {
-        // Layer 1 — UPDATE root row fields (never delete root)
-        const L1_FIELDS = ["title","lane","format","target_audience","genre_stack",
-                           "tone_contract","market_hook","runtime_pattern","episode_pattern","comparable_mode"];
-        const layer1Patch: Record<string, any> = {};
-        for (const f of L1_FIELDS) {
-          if (f in seedPatch) layer1Patch[f] = (seedPatch as any)[f];
-        }
-        if (Object.keys(layer1Patch).length > 0) {
-          layer1Patch.updated_at = now;
-          // Mark seed as dirty (requires re-sync if it was previously promoted)
-          layer1Patch.promoted_at = null;
-          const { error: l1Err } = await (supabase as any)
-            .from("dev_seed_v2_projects")
-            .update(layer1Patch)
-            .eq("id", seedId);
-          if (l1Err) throw new Error("Layer 1 update failed: " + l1Err.message);
-          updatedLayers.push("layer_1_project_identity");
-        }
-
-        // Mark seed dirty if any layer is being replaced (even if L1 not patched)
-        // Done once here to avoid multiple root updates
-        if (!layer1Patch.promoted_at && (
-          seedPatch.premise || seedPatch.axes || seedPatch.units ||
-          seedPatch.entities || seedPatch.entity_relations ||
-          seedPatch.canon_rules || seedPatch.beats || seedPatch.generation_intent
-        )) {
-          await (supabase as any)
-            .from("dev_seed_v2_projects")
-            .update({ updated_at: now, promoted_at: null })
-            .eq("id", seedId);
-        }
-
-        // Layer 2 — Premise Kernel
-        if (seedPatch.premise && typeof seedPatch.premise === "object") {
-          await (supabase as any).from("dev_seed_v2_premise").delete().eq("seed_id", seedId);
-          const { error: l2Err } = await (supabase as any)
-            .from("dev_seed_v2_premise")
-            .insert({
-              seed_id:           seedId,
-              project_id:        projectId,
-              premise:           seedPatch.premise.premise           ?? null,
-              dramatic_question: seedPatch.premise.dramatic_question ?? null,
-              central_irony:     seedPatch.premise.central_irony     ?? null,
-              emotional_promise: seedPatch.premise.emotional_promise ?? null,
-              audience_fantasy:  seedPatch.premise.audience_fantasy  ?? null,
-              audience_fear:     seedPatch.premise.audience_fear     ?? null,
-              theme_vector:      seedPatch.premise.theme_vector      ?? null,
-            });
-          if (l2Err) throw new Error("Layer 2 update failed: " + l2Err.message);
-          updatedLayers.push("layer_2_premise");
-        }
-
-        // Layer 3 — Narrative Axes
-        if (Array.isArray(seedPatch.axes)) {
-          await (supabase as any).from("dev_seed_v2_axes").delete().eq("seed_id", seedId);
-          if (seedPatch.axes.length > 0) {
-            const axRows = (seedPatch.axes as any[]).map((ax: any) => ({
-              seed_id:         seedId,
-              project_id:      projectId,
-              axis_key:        ax.axis_key,
-              axis_statement:  ax.axis_statement  ?? null,
-              axis_role:       ax.axis_role       ?? null,
-              axis_priority:   ax.axis_priority   ?? 0,
-              axis_confidence: ax.axis_confidence ?? 1.0,
-            }));
-            const { error: l3Err } = await (supabase as any).from("dev_seed_v2_axes").insert(axRows);
-            if (l3Err) throw new Error("Layer 3 update failed: " + l3Err.message);
-          }
-          updatedLayers.push("layer_3_axes");
-        }
-
-        // Layer 4 — Narrative Units
-        if (Array.isArray(seedPatch.units)) {
-          await (supabase as any).from("dev_seed_v2_units").delete().eq("seed_id", seedId);
-          if (seedPatch.units.length > 0) {
-            const uRows = (seedPatch.units as any[]).map((u: any) => ({
-              seed_id:                  seedId,
-              project_id:               projectId,
-              unit_key:                 u.unit_key,
-              unit_type:                u.unit_type,
-              axis_source:              u.axis_source              ?? null,
-              unit_statement:           u.unit_statement           ?? null,
-              success_state:            u.success_state            ?? null,
-              failure_mode:             u.failure_mode             ?? null,
-              dependency_position:      u.dependency_position      ?? null,
-              initial_alignment_status: u.initial_alignment_status ?? "aligned",
-            }));
-            const { error: l4Err } = await (supabase as any).from("dev_seed_v2_units").insert(uRows);
-            if (l4Err) throw new Error("Layer 4 update failed: " + l4Err.message);
-          }
-          updatedLayers.push("layer_4_units");
-        }
-
-        // Layer 5 — Entities (replace all, then 5b relations depend on new set)
-        if (Array.isArray(seedPatch.entities)) {
-          await (supabase as any).from("dev_seed_v2_entity_relations").delete().eq("seed_id", seedId);
-          await (supabase as any).from("dev_seed_v2_entities").delete().eq("seed_id", seedId);
-          if (seedPatch.entities.length > 0) {
-            const eRows = (seedPatch.entities as any[]).map((e: any) => ({
-              seed_id:             seedId,
-              project_id:          projectId,
-              entity_key:          e.entity_key,
-              entity_name:         e.entity_name         ?? e.entity_key,
-              entity_type:         e.entity_type,
-              narrative_role:      e.narrative_role      ?? null,
-              description:         e.description         ?? null,
-              aliases:             e.aliases             ?? [],
-              story_critical_flag: e.story_critical_flag ?? false,
-            }));
-            const { error: l5Err } = await (supabase as any).from("dev_seed_v2_entities").insert(eRows);
-            if (l5Err) throw new Error("Layer 5 entities update failed: " + l5Err.message);
-          }
-          updatedLayers.push("layer_5_entities");
-        }
-
-        // Layer 5b — Entity Relations (replace if provided)
-        if (Array.isArray(seedPatch.entity_relations)) {
-          // Only delete if entities layer wasn't already replaced above (avoid double-delete)
-          if (!Array.isArray(seedPatch.entities)) {
-            await (supabase as any).from("dev_seed_v2_entity_relations").delete().eq("seed_id", seedId);
-          }
-          if (seedPatch.entity_relations.length > 0) {
-            const rRows = (seedPatch.entity_relations as any[]).map((r: any) => ({
-              seed_id:           seedId,
-              project_id:        projectId,
-              source_entity_key: r.source_entity_key ?? r.source_entity,
-              relation_type:     r.relation_type,
-              target_entity_key: r.target_entity_key ?? r.target_entity,
-            }));
-            const { error: l5bErr } = await (supabase as any).from("dev_seed_v2_entity_relations").insert(rRows);
-            if (l5bErr) throw new Error("Layer 5b relations update failed: " + l5bErr.message);
-          }
-          updatedLayers.push("layer_5_entity_relations");
-        }
-
-        // Layer 6 — Canon Rules
-        if (Array.isArray(seedPatch.canon_rules)) {
-          await (supabase as any).from("dev_seed_v2_canon_rules").delete().eq("seed_id", seedId);
-          if (seedPatch.canon_rules.length > 0) {
-            const crRows = (seedPatch.canon_rules as any[]).map((r: any) => ({
-              seed_id:          seedId,
-              project_id:       projectId,
-              rule_key:         r.rule_key,
-              rule_description: r.rule_description,
-              rule_scope:       r.rule_scope ?? null,
-              severity:         r.severity   ?? "moderate",
-            }));
-            const { error: l6Err } = await (supabase as any).from("dev_seed_v2_canon_rules").insert(crRows);
-            if (l6Err) throw new Error("Layer 6 update failed: " + l6Err.message);
-          }
-          updatedLayers.push("layer_6_canon_rules");
-        }
-
-        // Layer 7 — Beat Seeds
-        if (Array.isArray(seedPatch.beats)) {
-          await (supabase as any).from("dev_seed_v2_beats").delete().eq("seed_id", seedId);
-          if (seedPatch.beats.length > 0) {
-            const bRows = (seedPatch.beats as any[]).map((b: any) => ({
-              seed_id:                  seedId,
-              project_id:               projectId,
-              beat_key:                 b.beat_key,
-              beat_description:         b.beat_description         ?? null,
-              narrative_axis_reference: b.narrative_axis_reference ?? null,
-              expected_turn:            b.expected_turn            ?? null,
-            }));
-            const { error: l7Err } = await (supabase as any).from("dev_seed_v2_beats").insert(bRows);
-            if (l7Err) throw new Error("Layer 7 update failed: " + l7Err.message);
-          }
-          updatedLayers.push("layer_7_beats");
-        }
-
-        // Layer 8 — Generation Intent
-        if (seedPatch.generation_intent && typeof seedPatch.generation_intent === "object") {
-          await (supabase as any).from("dev_seed_v2_generation_intent").delete().eq("seed_id", seedId);
-          const gi = seedPatch.generation_intent as any;
-          const { error: l8Err } = await (supabase as any)
-            .from("dev_seed_v2_generation_intent")
-            .insert({
-              seed_id:                    seedId,
-              project_id:                 projectId,
-              projection_targets:         gi.projection_targets         ?? [],
-              pacing_bias:                gi.pacing_bias                ?? null,
-              dialogue_density:           gi.dialogue_density           ?? null,
-              mystery_opacity:            gi.mystery_opacity            ?? null,
-              commercial_vs_auteur_scale: gi.commercial_vs_auteur_scale ?? null,
-              tone_intensity:             gi.tone_intensity             ?? null,
-            });
-          if (l8Err) throw new Error("Layer 8 update failed: " + l8Err.message);
-          updatedLayers.push("layer_8_generation_intent");
-        }
-
-        console.log("[dev-engine-v2] update_dev_seed_v2 complete", {
-          project_id: projectId,
-          seed_id:    seedId,
-          was_promoted: wasPromoted,
-          updated_layers: updatedLayers,
+      // ── Step 3: Atomic write via PL/pgSQL (DS2E) ──────────────────────────
+      // All layer DELETEs + INSERTs execute inside ds2_update_seed() as a single
+      // DB transaction. Any raised exception causes PostgreSQL to rollback fully —
+      // no partial seed state is possible.
+      const { data: rpcResult, error: rpcErr } = await (supabase as any)
+        .rpc("ds2_update_seed", {
+          p_seed_id:    seedId,
+          p_project_id: projectId,
+          p_patch:      seedPatch,   // JS object serialised to JSONB by Supabase client
         });
 
-        return new Response(JSON.stringify({
-          project_id:      projectId,
-          action:          "update_dev_seed_v2",
-          ok:              true,
-          seed_id:         seedId,
-          updated_at:      now,
-          updated_layers:  updatedLayers,
-          was_promoted:    wasPromoted,
-          runtime_dirty:   wasPromoted,
-          notes: wasPromoted
-            ? ["Seed was previously promoted. Run sync_dev_seed_v2_to_canon again to update canonical runtime state."]
-            : [],
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-
-      } catch (updateErr: any) {
-        console.error("[dev-engine-v2] update_dev_seed_v2 failed mid-write:", updateErr?.message);
+      if (rpcErr) {
+        console.error("[dev-engine-v2] update_dev_seed_v2 rpc failed:", rpcErr.message);
         return new Response(JSON.stringify({
           project_id: projectId,
           action:     "update_dev_seed_v2",
           ok:         false,
           seed_id:    seedId,
-          error:      updateErr?.message ?? "Unknown update error",
-          note:       "Partial writes may have occurred for layers processed before this error. Use get_dev_seed_v2 to inspect current state.",
+          error:      rpcErr.message,
+          note:       "DB transaction rolled back — no partial writes.",
         }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+
+      const updatedLayers: string[] = rpcResult?.updated_layers ?? [];
+      const updatedAt: string        = rpcResult?.updated_at    ?? new Date().toISOString();
+
+      console.log("[dev-engine-v2] update_dev_seed_v2 complete (atomic)", {
+        project_id:     projectId,
+        seed_id:        seedId,
+        was_promoted:   wasPromoted,
+        updated_layers: updatedLayers,
+      });
+
+      return new Response(JSON.stringify({
+        project_id:    projectId,
+        action:        "update_dev_seed_v2",
+        ok:            true,
+        seed_id:       seedId,
+        updated_at:    updatedAt,
+        updated_layers: updatedLayers,
+        was_promoted:  wasPromoted,
+        runtime_dirty: wasPromoted,
+        notes: wasPromoted
+          ? ["Seed was previously promoted. Run sync_dev_seed_v2_to_canon again to update canonical runtime state."]
+          : [],
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── Selective Regeneration Planner v1: selective_regeneration_plan ──────────
