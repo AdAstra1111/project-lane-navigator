@@ -533,6 +533,27 @@ Deno.serve(async (req) => {
             ALTER TABLE public.scene_graph_scenes
               ADD COLUMN IF NOT EXISTS provenance jsonb NOT NULL DEFAULT '{}'::jsonb;
           `,
+          "validation_set_protagonist_arc_stale": `
+            -- VALIDATION-ONLY: set protagonist_arc to stale for dry-run testing.
+            -- Paired with validation_restore_protagonist_arc_aligned for cleanup.
+            -- Targets Obsidian Mirror project only (37e830b8-0143-4d01-9207-b460ff441e8c).
+            UPDATE public.narrative_units
+              SET status      = 'stale',
+                  stale_reason = '{"reason":"dry_run_validation_test"}'::jsonb,
+                  updated_at   = NOW()
+              WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c'
+                AND unit_key LIKE '%::protagonist_arc';
+          `,
+          "validation_restore_protagonist_arc_aligned": `
+            -- VALIDATION-ONLY: restore protagonist_arc to aligned after dry-run test.
+            UPDATE public.narrative_units
+              SET status      = 'aligned',
+                  stale_reason = NULL,
+                  updated_at   = NOW()
+              WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c'
+                AND unit_key LIKE '%::protagonist_arc';
+          `,
+
           "regeneration_runs_v1": `
             CREATE TABLE IF NOT EXISTS public.regeneration_runs (
               id                      uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
