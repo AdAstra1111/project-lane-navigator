@@ -961,6 +961,47 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "get_narrative_units": {
+        // Returns narrative_units rows for a project, with optional status filter
+        const { project_id, status: statusFilter, limit: nuLim = 50 } = params;
+        let q = supabase
+          .from("narrative_units")
+          .select("id, unit_type, unit_key, status, stale_reason, payload_json, source_doc_type, source_doc_version_id, confidence, extraction_method, created_at, updated_at")
+          .eq("project_id", project_id)
+          .order("unit_type")
+          .order("created_at")
+          .limit(nuLim);
+        if (statusFilter) q = q.eq("status", statusFilter);
+        const { data: nuRows, error: nuErr } = await q;
+        if (nuErr) throw nuErr;
+        result = nuRows ?? [];
+        break;
+      }
+
+      case "get_story_outline_doc": {
+        // Returns the current story_outline document_id + version for a project
+        const { project_id } = params;
+        const { data: docRow, error: docErr } = await supabase
+          .from("project_documents")
+          .select("id, doc_type, needs_reconcile, reconcile_reasons")
+          .eq("project_id", project_id)
+          .eq("doc_type", "story_outline")
+          .maybeSingle();
+        if (docErr) throw docErr;
+        if (!docRow) { result = null; break; }
+        const { data: vRow } = await supabase
+          .from("project_document_versions")
+          .select("id, version_number, approval_status, is_current")
+          .eq("document_id", docRow.id)
+          .eq("is_current", true)
+          .maybeSingle();
+        result = { document_id: docRow.id, doc_type: docRow.doc_type,
+                   needs_reconcile: docRow.needs_reconcile,
+                   reconcile_reasons: docRow.reconcile_reasons,
+                   current_version: vRow ?? null };
+        break;
+      }
+
       default:
         return new Response(JSON.stringify({ error: `Unknown op: ${op}` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
