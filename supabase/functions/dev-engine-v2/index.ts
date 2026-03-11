@@ -2002,6 +2002,56 @@ function compareSnapshots(a: CriteriaSnapshot | null, b: CriteriaSnapshot | null
 // Grounding is via existing narrative_entity_relations — no invented semantic model.
 // protagonist_arc → arc entities (e.g. ARC_PROTAGONIST) → characters that drives_arc them
 // central_conflict → conflict entities (e.g. CONFLICT_PRIMARY) → characters subject_of_conflict
+// ── Rewrite Confidence Scoring (Installment 42) ──────────────────────────────
+//
+// Deterministic confidence score (0–100) derived strictly from post-execution
+// run data. No LLM judgement, no probabilistic signals.
+//
+// Signals:
+//   S1 NDG improvement:       post < pre → 40 | post == pre → 10 | post > pre → 0
+//   S2 NUE alignment:         aligned_unit_count > 0 → 25 | else → 0
+//   S3 Execution completeness: failed==0 → 20 | failed>0 && completed>0 → 10 | completed==0 → 0
+//   S4 Impact coverage:        ratio>=0.9 → 15 | ratio>=0.5 → 10 | ratio<0.5 → 0
+//
+// Bands: score >= 80 → "high" | score >= 50 → "medium" | score < 50 → "low"
+//
+function computeRepairConfidence(params: {
+  ndgPreAtRiskCount:  number;
+  ndgPostAtRiskCount: number;
+  alignedUnitCount:   number;
+  completedCount:     number;
+  failedCount:        number;
+  targetCount:        number;
+}): { repair_confidence_score: number; repair_confidence_band: "high" | "medium" | "low" } {
+  const { ndgPreAtRiskCount, ndgPostAtRiskCount, alignedUnitCount,
+          completedCount, failedCount, targetCount } = params;
+
+  // S1 — NDG improvement
+  let s1 = 0;
+  if (ndgPostAtRiskCount < ndgPreAtRiskCount)       s1 = 40;
+  else if (ndgPostAtRiskCount === ndgPreAtRiskCount) s1 = 10;
+
+  // S2 — NUE alignment
+  const s2 = alignedUnitCount > 0 ? 25 : 0;
+
+  // S3 — Execution completeness
+  let s3 = 0;
+  if (failedCount === 0)                               s3 = 20;
+  else if (failedCount > 0 && completedCount > 0)      s3 = 10;
+
+  // S4 — Impact coverage
+  const coverageRatio = targetCount > 0 ? completedCount / targetCount : 0;
+  let s4 = 0;
+  if (coverageRatio >= 0.9)      s4 = 15;
+  else if (coverageRatio >= 0.5) s4 = 10;
+
+  const score = s1 + s2 + s3 + s4;
+  const band: "high" | "medium" | "low" =
+    score >= 80 ? "high" : score >= 50 ? "medium" : "low";
+
+  return { repair_confidence_score: score, repair_confidence_band: band };
+}
+
 // ── Adaptive Batch Sizing Policy ─────────────────────────────────────────────
 //
 // Deterministic function: batch size depends only on planner outputs.
@@ -9945,6 +9995,17 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
       const propagatedScenesExecuted = batchScenes.filter(s => s.execution_source === "propagated").length;
       const entityScenesExecuted     = batchScenes.filter(s => s.execution_source === "entity_link").length;
 
+      // ── Rewrite Confidence Score ────────────────────────────────────────
+      // Computed after NUE revalidation + NDG recomputation — uses final values.
+      const { repair_confidence_score, repair_confidence_band } = computeRepairConfidence({
+        ndgPreAtRiskCount,
+        ndgPostAtRiskCount,
+        alignedUnitCount,
+        completedCount,
+        failedCount,
+        targetCount: batchN,
+      });
+
       const finalMetaJson = {
         dry_run:                    false,
         stage:                      4,
@@ -9957,6 +10018,8 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
         nue_revalidated:            nueRevalidated,
         revalidated_unit_keys:      revalidatedUnitKeys,
         units_aligned_count:        alignedUnitCount,
+        repair_confidence_score,
+        repair_confidence_band,
       };
 
       await supabase
@@ -10013,6 +10076,8 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
         direct_scenes_executed:      directScenesExecuted,
         propagated_scenes_executed:  propagatedScenesExecuted,
         entity_scenes_executed:      entityScenesExecuted,
+        repair_confidence_score,
+        repair_confidence_band,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
