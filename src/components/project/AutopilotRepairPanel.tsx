@@ -1,10 +1,13 @@
 /**
- * AutopilotRepairPanel — Displays autopilot narrative repair state.
+ * AutopilotRepairPanel — Displays autopilot narrative repair state
+ * with continuous monitoring metadata.
  *
  * Shows health status (stable/triggered/unknown), trigger reason,
- * repair preview counts, strategy selector, and action buttons.
+ * repair preview counts, strategy selector, action buttons,
+ * and monitoring metadata (evaluated_at, derived_live, structural_uncertainty,
+ * last_run confidence).
  *
- * All data from detect_autopilot_repair engine action.
+ * All data from get_autopilot_monitor_status or detect_autopilot_repair.
  * Never fabricates state or executes repairs automatically.
  */
 
@@ -22,12 +25,15 @@ import {
   FlaskConical,
   Play,
   Search,
+  Radio,
+  Clock,
+  ShieldAlert,
 } from 'lucide-react';
-import type { AutopilotRepairDetection } from '@/hooks/useAutopilotRepairDetection';
+import type { NarrativeMonitorStatus } from '@/hooks/useNarrativeMonitor';
 import type { RepairStrategy } from '@/hooks/useSelectiveRegenerationPlan';
 
 interface Props {
-  data: AutopilotRepairDetection | null | undefined;
+  data: NarrativeMonitorStatus | null | undefined;
   isLoading: boolean;
   onRefresh: () => void;
   onPreviewPlan: () => void;
@@ -52,6 +58,12 @@ const SCOPE_LABELS: Record<string, string> = {
   broad_impact: 'Broad Impact',
 };
 
+const CONFIDENCE_LABELS: Record<string, { label: string; className: string }> = {
+  high:   { label: 'High',   className: 'text-emerald-600 dark:text-emerald-400' },
+  medium: { label: 'Medium', className: 'text-amber-600 dark:text-amber-400' },
+  low:    { label: 'Low',    className: 'text-destructive' },
+};
+
 const STRATEGY_OPTIONS: { value: RepairStrategy; label: string; description: string }[] = [
   {
     value: 'precision',
@@ -70,6 +82,21 @@ const STRATEGY_OPTIONS: { value: RepairStrategy; label: string; description: str
   },
 ];
 
+function formatRelativeTime(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return isoString;
+    const now = Date.now();
+    const diffMs = now - date.getTime();
+    if (diffMs < 60_000) return 'just now';
+    if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)}m ago`;
+    if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}h ago`;
+    return `${Math.floor(diffMs / 86_400_000)}d ago`;
+  } catch {
+    return isoString;
+  }
+}
+
 export function AutopilotRepairPanel({
   data,
   isLoading,
@@ -86,7 +113,7 @@ export function AutopilotRepairPanel({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Autopilot Status
+            Narrative Health
           </h3>
         </div>
         <Skeleton className="h-16 w-full rounded-md" />
@@ -100,7 +127,7 @@ export function AutopilotRepairPanel({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Autopilot Status
+            Narrative Health
           </h3>
           <button onClick={onRefresh} className="text-muted-foreground hover:text-foreground">
             <RefreshCw className="h-3 w-3" />
@@ -109,7 +136,7 @@ export function AutopilotRepairPanel({
         <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-3">
           <HelpCircle className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm text-muted-foreground">
-            Autopilot state unavailable
+            Monitoring unavailable
           </span>
         </div>
       </div>
@@ -119,19 +146,26 @@ export function AutopilotRepairPanel({
   const state = data.autopilot_state;
   const isTriggered = state === 'triggered';
   const isStable = state === 'stable';
+  const hasStructuralUncertainty = data.structural_uncertainty === true;
   const actionsEnabled = isTriggered && data.execution_allowed && !isExecuting;
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Autopilot Status
+          Narrative Health
         </h3>
         <div className="flex items-center gap-2">
-          {isStable && (
+          {isStable && !hasStructuralUncertainty && (
             <Badge variant="secondary" className="gap-1 text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
               <ShieldCheck className="h-3 w-3" />
-              Healthy
+              Stable
+            </Badge>
+          )}
+          {isStable && hasStructuralUncertainty && (
+            <Badge variant="outline" className="gap-1 text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400">
+              <ShieldAlert className="h-3 w-3" />
+              Uncertain
             </Badge>
           )}
           {isTriggered && (
@@ -152,8 +186,21 @@ export function AutopilotRepairPanel({
         </div>
       </div>
 
-      {/* Stable state */}
-      {isStable && (
+      {/* Monitoring metadata bar */}
+      <MonitoringMetaBar data={data} />
+
+      {/* Structural uncertainty warning */}
+      {hasStructuralUncertainty && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+          <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0" />
+          <span className="text-xs text-muted-foreground">
+            Structural uncertainty detected — narrative health cannot be fully confirmed.
+          </span>
+        </div>
+      )}
+
+      {/* Stable state (no uncertainty) */}
+      {isStable && !hasStructuralUncertainty && (
         <div className="flex items-center gap-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5">
           <ShieldCheck className="h-4 w-4 text-emerald-500 shrink-0" />
           <span className="text-sm text-muted-foreground">
@@ -222,6 +269,41 @@ export function AutopilotRepairPanel({
             </Button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Monitoring Metadata Bar ── */
+
+function MonitoringMetaBar({ data }: { data: NarrativeMonitorStatus }) {
+  const confBand = data.last_run_confidence_band
+    ? CONFIDENCE_LABELS[data.last_run_confidence_band]
+    : null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+      {data.derived_live && (
+        <span className="flex items-center gap-1">
+          <Radio className="h-2.5 w-2.5 text-emerald-500" />
+          Live evaluation
+        </span>
+      )}
+      {data.evaluated_at && (
+        <span className="flex items-center gap-1">
+          <Clock className="h-2.5 w-2.5" />
+          Evaluated {formatRelativeTime(data.evaluated_at)}
+        </span>
+      )}
+      {data.last_run_at && (
+        <span className="flex items-center gap-1">
+          Last repair: {formatRelativeTime(data.last_run_at)}
+        </span>
+      )}
+      {confBand && (
+        <span className="flex items-center gap-1">
+          Confidence: <span className={`font-medium ${confBand.className}`}>{confBand.label}</span>
+        </span>
       )}
     </div>
   );

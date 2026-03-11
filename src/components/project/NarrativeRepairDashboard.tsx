@@ -11,7 +11,7 @@ import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/ho
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
 import { useSceneVersionDiff } from '@/hooks/useSceneVersionDiff';
 import { useRegenerationRunHistory, type RegenerationRun } from '@/hooks/useRegenerationRunHistory';
-import { useAutopilotRepairDetection } from '@/hooks/useAutopilotRepairDetection';
+import { useNarrativeMonitor } from '@/hooks/useNarrativeMonitor';
 import { SceneRewriteDiffViewer } from '@/components/project/SceneRewriteDiffViewer';
 import { NDGImpactHeatmap } from '@/components/project/NDGImpactHeatmap';
 import { AutopilotRepairPanel } from '@/components/project/AutopilotRepairPanel';
@@ -89,7 +89,7 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
   const { execute, isExecuting, result, error, reset } = useExecuteSelectiveRegeneration(projectId);
   const { data: sluglines } = useSceneSluglines(projectId);
   const { data: runHistory, isLoading: historyLoading, refetch: refetchHistory } = useRegenerationRunHistory(projectId);
-  const { data: autopilotData, isLoading: autopilotLoading, refresh: refreshAutopilot } = useAutopilotRepairDetection(projectId);
+  const { data: monitorData, isLoading: monitorLoading, refresh: refreshMonitor } = useNarrativeMonitor(projectId);
   const diffHook = useSceneVersionDiff(projectId);
   const slugMap = sluglines ?? new Map<string, string>();
 
@@ -125,10 +125,10 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
   };
 
   const refreshAfterExecution = useCallback(() => {
-    refreshAutopilot();
+    refreshMonitor();
     refetchPlan();
     refetchHistory();
-  }, [refreshAutopilot, refetchPlan, refetchHistory]);
+  }, [refreshMonitor, refetchPlan, refetchHistory]);
 
   const handleDryRun = useCallback(async () => {
     reset();
@@ -175,9 +175,9 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
         <CardContent className="space-y-4">
           {/* Autopilot Status */}
           <AutopilotRepairPanel
-            data={autopilotData}
-            isLoading={autopilotLoading}
-            onRefresh={refreshAutopilot}
+            data={monitorData}
+            isLoading={monitorLoading}
+            onRefresh={refreshMonitor}
             onPreviewPlan={() => refetchPlan()}
             onDryRun={handleDryRun}
             onExecuteRepair={() => setConfirmOpen(true)}
@@ -224,9 +224,9 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
       <CardContent className="space-y-6">
         {/* ═══ AUTOPILOT STATUS ═══ */}
         <AutopilotRepairPanel
-          data={autopilotData}
-          isLoading={autopilotLoading}
-          onRefresh={refreshAutopilot}
+          data={monitorData}
+          isLoading={monitorLoading}
+          onRefresh={refreshMonitor}
           onPreviewPlan={() => refetchPlan()}
           onDryRun={handleDryRun}
           onExecuteRepair={() => setConfirmOpen(true)}
