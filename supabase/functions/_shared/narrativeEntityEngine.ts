@@ -1263,7 +1263,7 @@ export async function syncDialogueCharactersForProject(
 
   if (sceneErr || !scenes || (scenes as any[]).length === 0) {
     console.log("[NIT:Phase2] no active scenes — no-op");
-    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+    return { scenes_processed: 0, links_upserted: 0, characters_written: 0, per_scene: [] };
   }
 
   // 4. Load latest version per scene
