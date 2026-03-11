@@ -1214,3 +1214,46 @@ export interface SetPrimaryDocumentInput {
 export interface DocsBackfillDisplayNamesInput {
   projectId: string;
 }
+
+// ── Scene Blueprint Binding Layer v1 ──────────────────────────────────────
+
+export type ScenePatchIntent = "inspect" | "reinforce" | "revise";
+export type SceneTargetSurface = "screenplay";   // v1: screenplay only
+
+export interface SceneBlueprintBinding {
+  id:                    string;
+  project_id:            string;
+  scene_id:              string;
+  scene_key:             string;
+  source_axis:           string;
+  source_unit_key:       string | null;
+  source_doc_version_id: string | null;
+  risk_source:           "direct" | "propagated";
+  patch_intent:          ScenePatchIntent;
+  target_surface:        SceneTargetSurface;
+  slugline:              string | null;
+  reason:                string | null;
+  computed_at:           string;
+  updated_at:            string;
+}
+
+export interface SceneDeriveBindingsInput {
+  projectId: string;
+}
+
+export interface SceneDeriveBindingsOutput {
+  project_id:        string;
+  bindings_upserted: number;
+  bindings_skipped:  number;
+  direct_risk_axes:  string[];
+  propagated_axes:   string[];
+  sample_bindings:   Array<{
+    scene_key:    string;
+    slugline:     string | null;
+    source_axis:  string;
+    risk_source:  "direct" | "propagated";
+    patch_intent: ScenePatchIntent;
+    reason:       string | null;
+  }>;
+  note?: string;
+}

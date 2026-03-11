@@ -8349,6 +8349,217 @@ Return ONLY valid JSON:
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ── Scene Blueprint Binding Layer v1: scene_derive_blueprint_bindings ───────
+    //
+    // Derives and persists deterministic scene-level patch targets by joining:
+    //   1. narrative_units (contradicted|stale) → direct risk axes + reason
+    //   2. NDG propagation → downstream risk axes
+    //   3. scene_spine_links.axis_key → scenes per axis
+    //   4. scene_graph_scenes/versions → scene identity + slugline
+    //
+    // Produces one binding per (project_id, scene_id, source_axis).
+    // Upserts into scene_blueprint_bindings (ON CONFLICT UPDATE).
+    //
+    // patch_intent derivation (deterministic):
+    //   direct risk + climax|protagonist_arc|central_conflict → "revise"
+    //   direct risk + other axes                              → "reinforce"
+    //   propagated risk                                       → "inspect"
+    //
+    // target_surface: "screenplay" (v1 only).
+    //
+    // Fail-closed:
+    //   - No narrative_units contradicted/stale → 0 bindings produced, no error
+    //   - No scene_spine_links → 0 bindings produced, no error
+    //   - Ambiguous axis (no entry in ROLE_AXIS_MAP) → skip
+    //
+    // Idempotent: UNIQUE(project_id, scene_id, source_axis) → ON CONFLICT DO UPDATE.
+    // Blast radius: scene_blueprint_bindings only. No other tables modified.
+    if (action === "scene_derive_blueprint_bindings") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // Structural axes whose direct risk warrants "revise" intent
+      const REVISE_AXES = new Set(["protagonist_arc", "central_conflict", "inciting_incident"]);
+
+      // 1. Load narrative_units — find contradicted or stale axes
+      const { data: unitRows, error: unitErr } = await supabase
+        .from("narrative_units")
+        .select("unit_key, unit_type, status, payload_json, source_doc_version_id")
+        .eq("project_id", projectId)
+        .in("status", ["contradicted", "stale"]);
+
+      if (unitErr) throw unitErr;
+
+      if (!unitRows || unitRows.length === 0) {
+        return new Response(JSON.stringify({
+          project_id:       projectId,
+          action:           "scene_derive_blueprint_bindings",
+          bindings_upserted: 0,
+          bindings_skipped:  0,
+          note:             "No contradicted or stale units — no bindings derived",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Extract direct risk axes → reason + unit_key + source_doc_version_id
+      interface RiskEntry { reason: string; unit_key: string; source_doc_version_id: string | null }
+      const directRiskAxes = new Map<string, RiskEntry>();
+      for (const unit of unitRows as any[]) {
+        const parts = (unit.unit_key as string).split("::");
+        const axis  = parts.length >= 2 ? parts[parts.length - 1] : null;
+        if (!axis) continue;
+        const payload = (unit.payload_json as any) ?? {};
+        const reason  = unit.status === "contradicted"
+          ? (payload.contradiction_note || "contradiction detected")
+          : "stale — needs revalidation";
+        if (!directRiskAxes.has(axis)) {
+          directRiskAxes.set(axis, {
+            reason,
+            unit_key:             unit.unit_key  as string,
+            source_doc_version_id: unit.source_doc_version_id ?? null,
+          });
+        }
+      }
+
+      // 2. NDG propagation: downstream risk axes
+      const directAxes = [...directRiskAxes.keys()] as SpineAxis[];
+      const propagated = computePropagatedRisk(directAxes);
+      const allRiskAxes = new Map<string, RiskEntry & { risk_source: "direct" | "propagated" }>();
+      for (const [axis, entry] of directRiskAxes.entries()) {
+        allRiskAxes.set(axis, { ...entry, risk_source: "direct" });
+      }
+      for (const pr of propagated) {
+        for (const downAx of pr.downstream_axes) {
+          if (!allRiskAxes.has(downAx)) {
+            // Propagated: inherit reason from source axis, no direct unit_key
+            const sourceEntry = directRiskAxes.get(pr.source_axis);
+            allRiskAxes.set(downAx, {
+              reason:               `downstream of ${pr.source_axis} (${sourceEntry?.reason ?? "risk"})`,
+              unit_key:             sourceEntry?.unit_key ?? pr.source_axis,
+              source_doc_version_id: sourceEntry?.source_doc_version_id ?? null,
+              risk_source:          "propagated",
+            });
+          }
+        }
+      }
+
+      // 3. Load scene_spine_links for affected axes
+      const affectedAxes = [...allRiskAxes.keys()];
+      const { data: spineLinkRows } = await supabase
+        .from("scene_spine_links")
+        .select("scene_id, axis_key")
+        .eq("project_id", projectId)
+        .in("axis_key", affectedAxes);
+
+      if (!spineLinkRows || spineLinkRows.length === 0) {
+        return new Response(JSON.stringify({
+          project_id:        projectId,
+          action:            "scene_derive_blueprint_bindings",
+          bindings_upserted: 0,
+          bindings_skipped:  0,
+          direct_risk_axes:  [...directRiskAxes.keys()],
+          propagated_axes:   affectedAxes.filter(a => !directRiskAxes.has(a)),
+          note:              "No scene_spine_links for affected axes — run scene_graph_classify_roles_heuristic + scene_graph_sync_spine_links first",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // 4. Load scene identity and sluglines for the affected scenes
+      const atRiskSceneIds = [...new Set((spineLinkRows as any[]).map((r: any) => r.scene_id as string))];
+
+      const { data: sceneRows } = await supabase
+        .from("scene_graph_scenes")
+        .select("id, scene_key")
+        .in("id", atRiskSceneIds)
+        .is("deprecated_at", null);
+
+      const { data: verRows } = await supabase
+        .from("scene_graph_versions")
+        .select("scene_id, slugline, version_number")
+        .in("scene_id", atRiskSceneIds)
+        .order("version_number", { ascending: false });
+
+      const sceneKeyMap = new Map<string, string>(((sceneRows || []) as any[]).map((s: any) => [s.id, s.scene_key]));
+      const sluglineMap = new Map<string, string | null>();
+      for (const v of (verRows || []) as any[]) {
+        if (!sluglineMap.has(v.scene_id)) sluglineMap.set(v.scene_id, v.slugline ?? null);
+      }
+
+      // 5. Derive bindings and upsert
+      const bindingRows: any[] = [];
+      const skippedRows: any[] = [];
+
+      for (const link of (spineLinkRows as any[])) {
+        const axisKey  = link.axis_key as string;
+        const sceneId  = link.scene_id as string;
+        const sceneKey = sceneKeyMap.get(sceneId);
+        const riskEntry = allRiskAxes.get(axisKey);
+
+        if (!sceneKey || !riskEntry) {
+          skippedRows.push({ scene_id: sceneId, axis: axisKey, reason: "missing scene_key or risk entry" });
+          continue;
+        }
+
+        // Determine patch_intent deterministically
+        let patchIntent: "inspect" | "reinforce" | "revise" = "inspect";
+        if (riskEntry.risk_source === "direct") {
+          patchIntent = REVISE_AXES.has(axisKey) ? "revise" : "reinforce";
+        }
+
+        bindingRows.push({
+          project_id:            projectId,
+          scene_id:              sceneId,
+          scene_key:             sceneKey,
+          source_axis:           axisKey,
+          source_unit_key:       riskEntry.unit_key ?? null,
+          source_doc_version_id: riskEntry.source_doc_version_id ?? null,
+          risk_source:           riskEntry.risk_source,
+          patch_intent:          patchIntent,
+          target_surface:        "screenplay",
+          slugline:              sluglineMap.get(sceneId) ?? null,
+          reason:                riskEntry.reason,
+          computed_at:           new Date().toISOString(),
+          updated_at:            new Date().toISOString(),
+        });
+      }
+
+      if (bindingRows.length === 0) {
+        return new Response(JSON.stringify({
+          project_id:        projectId,
+          action:            "scene_derive_blueprint_bindings",
+          bindings_upserted: 0,
+          bindings_skipped:  skippedRows.length,
+          skipped:           skippedRows,
+          note:              "No valid bindings derived (missing scene identity or axis mapping)",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const { error: upsErr } = await supabase
+        .from("scene_blueprint_bindings")
+        .upsert(bindingRows, {
+          onConflict:       "project_id,scene_id,source_axis",
+          ignoreDuplicates: false,   // update on conflict (refresh reason/slugline/updated_at)
+        });
+
+      if (upsErr) throw upsErr;
+
+      return new Response(JSON.stringify({
+        project_id:        projectId,
+        action:            "scene_derive_blueprint_bindings",
+        bindings_upserted: bindingRows.length,
+        bindings_skipped:  skippedRows.length,
+        direct_risk_axes:  [...directRiskAxes.keys()],
+        propagated_axes:   affectedAxes.filter(a => !directRiskAxes.has(a)),
+        skipped:           skippedRows,
+        sample_bindings:   bindingRows.slice(0, 5).map((b: any) => ({
+          scene_key:    b.scene_key,
+          slugline:     b.slugline,
+          source_axis:  b.source_axis,
+          risk_source:  b.risk_source,
+          patch_intent: b.patch_intent,
+          reason:       b.reason,
+        })),
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (action === "scene_graph_insert_scene") {
       const { projectId, position, intent, sceneDraft } = body;
       if (!projectId) throw new Error("projectId required");

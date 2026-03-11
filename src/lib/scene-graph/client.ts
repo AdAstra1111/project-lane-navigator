@@ -488,3 +488,24 @@ export async function setPrimaryDocument(input: SetPrimaryDocumentInput) {
 export async function docsBackfillDisplayNames(input: DocsBackfillDisplayNamesInput) {
   return callSceneGraph<{ success: boolean; updated: number }>('docs_backfill_display_names', input);
 }
+
+// Scene Blueprint Binding Layer v1
+
+export async function sceneDeriveBlueprintBindings(input: { projectId: string }) {
+  return callSceneGraph<{
+    project_id: string;
+    bindings_upserted: number;
+    bindings_skipped: number;
+    direct_risk_axes: string[];
+    propagated_axes: string[];
+    sample_bindings: Array<{
+      scene_key: string;
+      slugline: string | null;
+      source_axis: string;
+      risk_source: 'direct' | 'propagated';
+      patch_intent: 'inspect' | 'reinforce' | 'revise';
+      reason: string | null;
+    }>;
+    note?: string;
+  }>('scene_derive_blueprint_bindings', input);
+}
