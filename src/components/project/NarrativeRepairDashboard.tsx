@@ -132,16 +132,16 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
 
   const handleDryRun = useCallback(async () => {
     reset();
-    await execute(true);
+    await execute(true, repairStrategy);
     refreshAfterExecution();
-  }, [reset, execute, refreshAfterExecution]);
+  }, [reset, execute, refreshAfterExecution, repairStrategy]);
 
   const handleExecute = useCallback(async () => {
     setConfirmOpen(false);
     reset();
-    await execute(false);
+    await execute(false, repairStrategy);
     refreshAfterExecution();
-  }, [reset, execute, refreshAfterExecution]);
+  }, [reset, execute, refreshAfterExecution, repairStrategy]);
 
   if (planLoading) {
     return (
