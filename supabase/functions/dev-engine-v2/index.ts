@@ -2002,6 +2002,34 @@ function compareSnapshots(a: CriteriaSnapshot | null, b: CriteriaSnapshot | null
 // Grounding is via existing narrative_entity_relations — no invented semantic model.
 // protagonist_arc → arc entities (e.g. ARC_PROTAGONIST) → characters that drives_arc them
 // central_conflict → conflict entities (e.g. CONFLICT_PRIMARY) → characters subject_of_conflict
+// ── Adaptive Batch Sizing Policy ─────────────────────────────────────────────
+//
+// Deterministic function: batch size depends only on planner outputs.
+// No randomness, no probabilistic heuristics.
+//
+// Scope-based base limits:
+//   targeted_scenes  → min(6, impacted_scene_count)  — precise, small repair
+//   propagated_only  → min(5, impacted_scene_count)  — propagation chains fragile
+//   broad_impact     → min(4, impacted_scene_count)  — conservative for root changes
+//   default          → min(5, impacted_scene_count)  — fallback
+//
+// Hard bounds: [1, 8]
+//
+function computeAdaptiveBatchSize(plan: {
+  recommended_scope:    string;
+  impacted_scene_count: number;
+}): number {
+  const { recommended_scope, impacted_scene_count } = plan;
+  let base: number;
+  switch (recommended_scope) {
+    case "targeted_scenes":  base = Math.min(6, impacted_scene_count); break;
+    case "propagated_only":  base = Math.min(5, impacted_scene_count); break;
+    case "broad_impact":     base = Math.min(4, impacted_scene_count); break;
+    default:                 base = Math.min(5, impacted_scene_count); break;
+  }
+  return Math.max(1, Math.min(8, base));
+}
+
 const AXIS_ENTITY_TYPE_GROUNDING: Partial<Record<string, string[]>> = {
   protagonist_arc:  ["arc"],
   central_conflict: ["conflict"],
@@ -9160,27 +9188,36 @@ Return ONLY valid JSON:
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── Step 6: Derive rewrite targets — v3: direct first, entity fill ──────
+      // ── Step 6: Derive rewrite targets — v4: adaptive batch + propagated fill ──
       //
-      // PRIMARY: direct scenes — sequenced by axis rank then scene_key (unchanged).
-      // SECONDARY (entity fill): entity-linked scenes appended when:
-      //   - direct scenes exist (never replace primary)
-      //   - remaining batch capacity > 0
-      //   - scope is targeted_scenes or broad_impact (not no_risk / propagated_only)
-      //   - entity_impacted_scenes[] is non-empty
-      // Entity fill is sorted deterministically by scene_key.
-      // Each scene carries execution_source: "direct" | "entity_link" for provenance.
+      // Execution order: direct → propagated → entity_link
+      //
+      // Adaptive policy (computeAdaptiveBatchSize):
+      //   targeted_scenes  → min(6, impacted_scene_count)
+      //   propagated_only  → min(5, impacted_scene_count)
+      //   broad_impact     → min(4, impacted_scene_count)
+      //   bounds:            [1, 8]
+      //
+      // Entity cap: floor(batchLimit / 2) — entity scenes never dominate a batch.
+      // Entity execution gated on: directScenes.length > 0 AND scope allows it.
       //
       const SAFE_ENTITY_EXEC_SCOPES = new Set(["targeted_scenes", "broad_impact"]);
-      const BATCH_CAP = 5; // referenced early for capacity calculation
+      const batchLimit = computeAdaptiveBatchSize(plan);
+      const entityCap = (plan.entity_impacted_scenes?.length ?? 0) > 0
+        ? Math.floor(batchLimit / 2)
+        : 0;
 
       const directOnlyScenes = plan.impacted_scenes.filter(
         (s: any) => s.risk_source === "direct"
       );
+      const propagatedOnlyScenes = plan.impacted_scenes.filter(
+        (s: any) => s.risk_source === "propagated"
+      );
 
       // ── Step 7: Sequence scenes deterministically ─────────────────────────
-      // Direct scenes: axis rank ASC, then scene_key ASC.
-      // Entity scenes: scene_key ASC (no axis rank — sorted after all direct).
+      // Direct:     axis rank ASC, then scene_key ASC.
+      // Propagated: axis rank ASC (propagated axes rank 99), then scene_key ASC.
+      // Entity:     scene_key ASC — always after direct + propagated.
       const axisRankMap = new Map<string, number>(
         (plan.source_units || []).map((u: any) => [u.axis, u.sequence_rank as number])
       );
@@ -9199,32 +9236,50 @@ Return ONLY valid JSON:
           if (a._axis_rank !== b._axis_rank) return a._axis_rank - b._axis_rank;
           return a.scene_key.localeCompare(b.scene_key);
         })
-        .map((s: any) => {
-          const { _axis_rank: _, ...rest } = s;
-          return rest;
-        });
+        .map((s: any) => { const { _axis_rank: _, ...rest } = s; return rest; });
 
-      // Entity fill — strict gating
+      // Propagated fill — takes remaining capacity after direct
+      const afterDirect = batchLimit - sequencedDirectScenes.length;
+      const sequencedPropagatedScenes = afterDirect > 0
+        ? propagatedOnlyScenes
+            .map((s: any) => ({
+              scene_id:         s.scene_id   as string,
+              scene_key:        s.scene_key  as string,
+              slugline:         s.slugline   as string | null,
+              axis_key:         s.axis_key   as string,
+              risk_reason:      s.risk_reason as string,
+              execution_source: "propagated" as const,
+              _axis_rank:       axisRankMap.get(s.axis_key) ?? 99,
+            }))
+            .sort((a: any, b: any) => {
+              if (a._axis_rank !== b._axis_rank) return a._axis_rank - b._axis_rank;
+              return a.scene_key.localeCompare(b.scene_key);
+            })
+            .map((s: any) => { const { _axis_rank: _, ...rest } = s; return rest; })
+            .slice(0, afterDirect)
+        : [];
+
+      // Entity fill — gated, capped at entityCap
+      const afterPropagated = batchLimit - sequencedDirectScenes.length - sequencedPropagatedScenes.length;
       const entityFillScenes: Array<{
         scene_id: string; scene_key: string; slugline: string | null;
         axis_key: string; risk_reason: string; execution_source: "entity_link";
       }> = [];
 
-      const remainingCapacity = BATCH_CAP - sequencedDirectScenes.length;
       if (
-        remainingCapacity > 0 &&
+        afterPropagated > 0 &&
+        entityCap > 0 &&
         sequencedDirectScenes.length > 0 &&
-        SAFE_ENTITY_EXEC_SCOPES.has(plan.recommended_scope) &&
-        (plan.entity_impacted_scenes?.length ?? 0) > 0
+        SAFE_ENTITY_EXEC_SCOPES.has(plan.recommended_scope)
       ) {
+        const entitySlots = Math.min(afterPropagated, entityCap);
         const sorted = ((plan.entity_impacted_scenes || []) as any[])
           .sort((a: any, b: any) => (a.scene_key as string).localeCompare(b.scene_key));
-        for (const s of sorted.slice(0, remainingCapacity)) {
+        for (const s of sorted.slice(0, entitySlots)) {
           entityFillScenes.push({
             scene_id:         s.scene_id as string,
             scene_key:        s.scene_key as string,
             slugline:         (s.slugline ?? null) as string | null,
-            // Use first source_axis as axis context for rewrite prompt stale-unit lookup
             axis_key:         ((s.source_axes as string[] | undefined)?.[0] ?? "entity_link"),
             risk_reason:      (s.grounding_rationale as string) ?? "entity-linked scene",
             execution_source: "entity_link",
@@ -9232,8 +9287,11 @@ Return ONLY valid JSON:
         }
       }
 
-      const targetScenes = [...sequencedDirectScenes, ...entityFillScenes]
-        .map((s, i) => ({ ...s, order: i + 1 }));
+      const targetScenes = [
+        ...sequencedDirectScenes,
+        ...sequencedPropagatedScenes,
+        ...entityFillScenes,
+      ].map((s, i) => ({ ...s, order: i + 1 }));
 
       // ── Step 8: Create regeneration_runs record ───────────────────────────
       const { data: runRow, error: runInsertErr } = await supabase
@@ -9273,7 +9331,9 @@ Return ONLY valid JSON:
       // ── STAGE 1: DRY RUN ─────────────────────────────────────────────────
       // No scene_graph_versions writes. No LLM calls. No NDG post-validation.
       if (dryRun) {
-        const entityCandidates = targetScenes.filter(s => s.execution_source === "entity_link");
+        const directCandidates    = targetScenes.filter(s => s.execution_source === "direct");
+        const propagatedCandidates = targetScenes.filter(s => s.execution_source === "propagated");
+        const entityCandidates    = targetScenes.filter(s => s.execution_source === "entity_link");
         return new Response(JSON.stringify({
           project_id:                  projectId,
           action:                      "execute_selective_regeneration",
@@ -9285,12 +9345,17 @@ Return ONLY valid JSON:
           source_units:                plan.source_units,
           direct_axes:                 plan.direct_axes,
           target_scene_count:          targetScenes.length,
-          target_scenes:               targetScenes,          // includes direct + entity_link
+          target_scenes:               targetScenes,
           ndg_pre_at_risk_count:       ndgPreAtRiskCount,
           entity_impacted_scenes:      plan.entity_impacted_scenes,
           entity_impacted_scene_count: plan.entity_impacted_scene_count,
-          entity_scene_candidates:     entityCandidates,     // entity scenes selected for this run
-          entity_scene_count:          entityCandidates.length,
+          // ── Adaptive batch preview ─────────────────────────────────────
+          batch_limit:                 batchLimit,
+          entity_cap:                  entityCap,
+          direct_candidate_count:      directCandidates.length,
+          propagated_candidate_count:  propagatedCandidates.length,
+          entity_candidate_count:      entityCandidates.length,
+          entity_scene_candidates:     entityCandidates,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
@@ -9301,14 +9366,14 @@ Return ONLY valid JSON:
       //   with status='running' — all in a single transaction. Lock auto-releases
       //   on transaction commit; the row status='running' serves as the persistent lock.
       //
-      const BATCH_LIMIT = BATCH_CAP; // 5 — defined above in target selection
-      const batchScenes = targetScenes.slice(0, BATCH_LIMIT) as Array<{
+      // batchLimit is already computed by computeAdaptiveBatchSize(plan) above.
+      const batchScenes = targetScenes.slice(0, batchLimit) as Array<{
         scene_id:         string;
         scene_key:        string;
         slugline:         string | null;
         axis_key:         string;
         risk_reason:      string;
-        execution_source: "direct" | "entity_link";
+        execution_source: "direct" | "propagated" | "entity_link";
         order:            number;
       }>;
 
@@ -9744,18 +9809,22 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
 
       // ── Step 8: Finalise run record ───────────────────────────────────────
       // NUE revalidation metadata stored in meta_json alongside batch config.
-      const directScenesExecuted = batchScenes.filter(s => s.execution_source === "direct").length;
-      const entityScenesExecuted = batchScenes.filter(s => s.execution_source === "entity_link").length;
+      const directScenesExecuted     = batchScenes.filter(s => s.execution_source === "direct").length;
+      const propagatedScenesExecuted = batchScenes.filter(s => s.execution_source === "propagated").length;
+      const entityScenesExecuted     = batchScenes.filter(s => s.execution_source === "entity_link").length;
 
       const finalMetaJson = {
-        dry_run:                  false,
-        stage:                    4,
-        batch_size:               batchN,
-        direct_scenes_executed:   directScenesExecuted,
-        entity_scenes_executed:   entityScenesExecuted,
-        nue_revalidated:          nueRevalidated,
-        revalidated_unit_keys:    revalidatedUnitKeys,
-        units_aligned_count:      alignedUnitCount,
+        dry_run:                    false,
+        stage:                      4,
+        batch_limit:                batchLimit,
+        entity_cap:                 entityCap,
+        batch_size:                 batchN,
+        direct_scenes_executed:     directScenesExecuted,
+        propagated_scenes_executed: propagatedScenesExecuted,
+        entity_scenes_executed:     entityScenesExecuted,
+        nue_revalidated:            nueRevalidated,
+        revalidated_unit_keys:      revalidatedUnitKeys,
+        units_aligned_count:        alignedUnitCount,
       };
 
       await supabase
@@ -9804,11 +9873,14 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
         ndg_pre_at_risk_count:   ndgPreAtRiskCount,
         ndg_post_at_risk_count:  ndgPostAtRiskCount,
         ndg_validation_status:   ndgValidationStatus,
-        nue_revalidated:          nueRevalidated,
-        revalidated_unit_keys:    revalidatedUnitKeys,
-        aligned_unit_count:       alignedUnitCount,
-        direct_scenes_executed:   directScenesExecuted,
-        entity_scenes_executed:   entityScenesExecuted,
+        nue_revalidated:             nueRevalidated,
+        revalidated_unit_keys:       revalidatedUnitKeys,
+        aligned_unit_count:          alignedUnitCount,
+        batch_limit:                 batchLimit,
+        entity_cap:                  entityCap,
+        direct_scenes_executed:      directScenesExecuted,
+        propagated_scenes_executed:  propagatedScenesExecuted,
+        entity_scenes_executed:      entityScenesExecuted,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
