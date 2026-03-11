@@ -7597,6 +7597,34 @@ Return ONLY valid JSON:
           await supabase.from("scene_graph_scenes").delete().eq("project_id", projectId);
         }
       }
+
+      // ── Pre-flight guard: prevent accidental duplication ───────────────────
+      // scene_graph_scenes has no UNIQUE constraint on (project_id, scene_key).
+      // Without this guard, force:false would append a full new batch of scenes
+      // on top of any existing rows — either doubling an intact graph or creating
+      // overlapping scene keys after a partial extraction failure.
+      //
+      // Policy:
+      //   force:false + existing active scenes → throw; do not insert.
+      //   force:true  → upstream DELETE already ran; safe to insert.
+      //
+      // Consumers that need to rebuild must call with force:true explicitly.
+      // "retry" (force:false) is only safe when the graph is empty.
+      if (!force) {
+        const { count: existingCount, error: countErr } = await supabase
+          .from("scene_graph_scenes")
+          .select("id", { count: "exact", head: true })
+          .eq("project_id", projectId)
+          .is("deprecated_at", null);
+        if (!countErr && existingCount && existingCount > 0) {
+          throw new Error(
+            `scene_graph_not_empty:${existingCount} — scene graph already contains ` +
+            `${existingCount} active scenes for this project. ` +
+            `Use force:true to rebuild, or clear the scene graph before re-extracting.`
+          );
+        }
+      }
+
       let scriptText = rawText || '';
 
       if (mode !== 'from_text' || !scriptText) {

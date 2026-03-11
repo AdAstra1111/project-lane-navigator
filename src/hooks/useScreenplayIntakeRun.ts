@@ -163,7 +163,59 @@ export function useScreenplayIntakeRun(projectId: string | undefined) {
             versionId:   data.run.script_version_id,
           }, token);
           break;
-        case 'scene_extract':
+        case 'scene_extract': {
+          // Pre-flight: check whether the scene graph already has active scenes.
+          //
+          // Retry policy for scene_extract:
+          //   EMPTY graph  → safe to re-run with force:false (normal retry path)
+          //   NON-EMPTY    → blocked; would create duplicate/overlapping scenes
+          //                  because scene_graph_scenes has no UNIQUE guard.
+          //                  User must use explicit rebuild (force:true) — which
+          //                  is a separate destructive action, not a normal retry.
+          //
+          // If the count query fails, we fail-closed (do not proceed).
+          const { data: sceneRows, error: sceneCountErr } = await (supabase as any)
+            .from('scene_graph_scenes')
+            .select('id', { count: 'exact', head: true })
+            .eq('project_id', projectId)
+            .is('deprecated_at', null);
+          const existingSceneCount: number =
+            typeof sceneRows?.count === 'number' ? sceneRows.count
+            : sceneCountErr ? -1   // unknown — fail-closed
+            : 0;
+
+          if (sceneCountErr || existingSceneCount !== 0) {
+            // Blocked — persist the reason and surface to the user
+            const reason = sceneCountErr
+              ? `scene_count_check_failed:${sceneCountErr.message}`
+              : `retry_blocked:scene_graph_not_empty:${existingSceneCount}`;
+
+            await (supabase as any)
+              .from('screenplay_intake_stage_runs')
+              .update({
+                status:          'skipped',
+                completed_at:    new Date().toISOString(),
+                error:           reason,
+                output_summary:  {
+                  retry_blocked:        true,
+                  reason:               sceneCountErr ? 'scene_count_check_failed' : 'scene_graph_not_empty',
+                  existing_scene_count: existingSceneCount,
+                  message:              existingSceneCount > 0
+                    ? `Scene graph already has ${existingSceneCount} active scene(s). Use explicit rebuild (force) to replace.`
+                    : 'Could not verify scene graph state — retry blocked.',
+                },
+              })
+              .eq('run_id', data!.run.id)
+              .eq('stage_key', stageKey)
+              .catch(() => {});
+
+            throw new Error(
+              existingSceneCount > 0
+                ? `Scene graph already has ${existingSceneCount} scene(s). Retry is blocked — use Rebuild to replace the scene graph.`
+                : `Could not verify scene graph state. Retry blocked.`
+            );
+          }
+
           result = await callFunction('dev-engine-v2', {
             action:           'scene_graph_extract',
             projectId,
@@ -172,6 +224,7 @@ export function useScreenplayIntakeRun(projectId: string | undefined) {
             force:            false,
           }, token);
           break;
+        }
         case 'nit_dialogue':
           result = await callFunction('nit-sync', { projectId, action: 'sync_dialogue_characters' }, token);
           break;
