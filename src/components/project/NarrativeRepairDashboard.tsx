@@ -267,7 +267,7 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
           canExecute={canExecute}
           isExecuting={isExecuting}
           scope={scope}
-          onDryRun={async () => { reset(); await execute(true); }}
+          onDryRun={handleDryRun}
           onExecuteClick={() => setConfirmOpen(true)}
           error={error}
           result={result}
