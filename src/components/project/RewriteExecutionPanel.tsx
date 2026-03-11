@@ -8,6 +8,8 @@ import { useState } from 'react';
 import { useSelectiveRegenerationPlan } from '@/hooks/useSelectiveRegenerationPlan';
 import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/hooks/useExecuteSelectiveRegeneration';
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
+import { useSceneVersionDiff } from '@/hooks/useSceneVersionDiff';
+import { SceneRewriteDiffViewer } from '@/components/project/SceneRewriteDiffViewer';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +33,7 @@ import {
   ArrowDownUp,
   ChevronDown,
   ChevronUp,
+  GitCompare,
 } from 'lucide-react';
 
 interface Props {
