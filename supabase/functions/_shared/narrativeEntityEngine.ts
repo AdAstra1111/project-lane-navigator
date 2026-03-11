@@ -779,21 +779,30 @@ export async function extractEntityMentionsForProject(
   projectId: string,
 ): Promise<ProjectMentionSyncResult> {
 
+  // NIT v2.5: fetch project documents WITH doc_type so we can build a fallback map.
+  // Older versions have deliverable_type=null; we fall back to parent doc_type.
+  const { data: docs, error: docsErr } = await supabase
+    .from("project_documents")
+    .select("id, doc_type")
+    .eq("project_id", projectId);
+
+  if (docsErr || !docs) {
+    console.warn("[NIT:v2] project documents fetch error:", docsErr?.message);
+    return { versions_processed: 0, total_mentions: 0, per_version: [] };
+  }
+
+  // Map document_id → doc_type (used as fallback when deliverable_type is null)
+  const docTypeMap = new Map<string, string>(
+    (docs as Array<{ id: string; doc_type: string }>).map(d => [d.id, d.doc_type])
+  );
+
   // Load all current versions with non-empty plaintext for this project
   const { data: versions, error: vErr } = await supabase
     .from("project_document_versions")
     .select("id, document_id, deliverable_type")
     .eq("is_current", true)
     .filter("plaintext", "not.is", null)
-    .in(
-      "document_id",
-      // sub-select: all document IDs for this project
-      (await supabase
-        .from("project_documents")
-        .select("id")
-        .eq("project_id", projectId)
-        .then(r => (r.data ?? []).map((d: any) => d.id)))
-    );
+    .in("document_id", docs.map((d: any) => d.id));
 
   if (vErr || !versions) {
     console.warn("[NIT:v2] project version fetch error:", vErr?.message);
@@ -804,9 +813,15 @@ export async function extractEntityMentionsForProject(
   let total = 0;
 
   for (const v of versions) {
-    const docType = v.deliverable_type as string;
+    // NIT v2.5: COALESCE — use deliverable_type when present, fall back to parent doc_type.
+    // Preserves fail-closed: null effective type → skip; unsupported type → skip.
+    const effectiveDocType: string | null =
+      (v.deliverable_type as string | null) ?? docTypeMap.get(v.document_id) ?? null;
+
     // Skip unsupported doc types deterministically (isSectionRepairSupported is the gate)
-    if (!isSectionRepairSupported(docType)) continue;
+    if (!effectiveDocType || !isSectionRepairSupported(effectiveDocType)) continue;
+
+    const docType = effectiveDocType;
 
     const result = await extractEntityMentionsForVersion(
       supabase, projectId, v.document_id, v.id, docType,
