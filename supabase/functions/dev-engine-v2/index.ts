@@ -9331,9 +9331,11 @@ Return ONLY valid JSON:
       // ── STAGE 1: DRY RUN ─────────────────────────────────────────────────
       // No scene_graph_versions writes. No LLM calls. No NDG post-validation.
       if (dryRun) {
-        const directCandidates    = targetScenes.filter(s => s.execution_source === "direct");
-        const propagatedCandidates = targetScenes.filter(s => s.execution_source === "propagated");
-        const entityCandidates    = targetScenes.filter(s => s.execution_source === "entity_link");
+        // Slice to batchLimit so dry-run reflects the actual batch, not all candidates
+        const dryRunBatch          = targetScenes.slice(0, batchLimit);
+        const directCandidates     = dryRunBatch.filter(s => s.execution_source === "direct");
+        const propagatedCandidates = dryRunBatch.filter(s => s.execution_source === "propagated");
+        const entityCandidates     = dryRunBatch.filter(s => s.execution_source === "entity_link");
         return new Response(JSON.stringify({
           project_id:                  projectId,
           action:                      "execute_selective_regeneration",
@@ -9344,8 +9346,8 @@ Return ONLY valid JSON:
           rationale:                   plan.rationale,
           source_units:                plan.source_units,
           direct_axes:                 plan.direct_axes,
-          target_scene_count:          targetScenes.length,
-          target_scenes:               targetScenes,
+          target_scene_count:          dryRunBatch.length,
+          target_scenes:               dryRunBatch,
           ndg_pre_at_risk_count:       ndgPreAtRiskCount,
           entity_impacted_scenes:      plan.entity_impacted_scenes,
           entity_impacted_scene_count: plan.entity_impacted_scene_count,
