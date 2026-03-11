@@ -468,6 +468,26 @@ Deno.serve(async (req) => {
               ADD CONSTRAINT scene_spine_links_scene_id_fkey
               FOREIGN KEY (scene_id) REFERENCES public.scene_graph_scenes(id) ON DELETE CASCADE;
           `,
+          "narrative_entity_rls_v1": `
+            -- narrative_entities: full CRUD (manual source_kind supports user writes)
+            CREATE POLICY "ne_select" ON public.narrative_entities
+              FOR SELECT TO authenticated USING (has_project_access(auth.uid(), project_id));
+            CREATE POLICY "ne_insert" ON public.narrative_entities
+              FOR INSERT TO authenticated WITH CHECK (has_project_access(auth.uid(), project_id));
+            CREATE POLICY "ne_update" ON public.narrative_entities
+              FOR UPDATE TO authenticated USING (has_project_access(auth.uid(), project_id));
+            CREATE POLICY "ne_delete" ON public.narrative_entities
+              FOR DELETE TO authenticated USING (has_project_access(auth.uid(), project_id));
+            -- mentions: SELECT only (pipeline-derived)
+            CREATE POLICY "nem_select" ON public.narrative_entity_mentions
+              FOR SELECT TO authenticated USING (has_project_access(auth.uid(), project_id));
+            -- relations: SELECT only (pipeline-derived; upgrade to full CRUD when manual UX designed)
+            CREATE POLICY "ner_select" ON public.narrative_entity_relations
+              FOR SELECT TO authenticated USING (has_project_access(auth.uid(), project_id));
+            -- scene_entity_links: SELECT only (purely pipeline-derived)
+            CREATE POLICY "nsel_select" ON public.narrative_scene_entity_links
+              FOR SELECT TO authenticated USING (has_project_access(auth.uid(), project_id));
+          `,
         };
         if (!migration_key || !APPROVED_MIGRATIONS[migration_key]) {
           throw new Error(`run_migration: unknown migration_key '${migration_key}'`);
