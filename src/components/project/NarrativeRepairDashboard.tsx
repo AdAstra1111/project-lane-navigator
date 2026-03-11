@@ -206,6 +206,19 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
           completedKeys={completedKeysForDiff}
         />
 
+        {/* ═══ SECTION 2.5: NDG IMPACT HEATMAP ═══ */}
+        <NDGImpactHeatmap
+          allScenes={allScenes}
+          entityScenes={entityScenes}
+          slugMap={slugMap}
+          latestRun={(runHistory && runHistory.length > 0) ? runHistory[0] : null}
+          onSceneClick={(key, hasRun) => {
+            if (hasRun && completedKeysForDiff.includes(key)) {
+              handleViewChanges(key, completedKeysForDiff);
+            }
+          }}
+        />
+
         {/* ═══ SECTION 3: EXECUTION CONTROLS ═══ */}
         <ExecutionSection
           canExecute={canExecute}
