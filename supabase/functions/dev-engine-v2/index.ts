@@ -23,8 +23,9 @@ import {
 } from "../_shared/styleDeviation.ts";
 import { buildEffectiveProfileContextBlock } from "../_shared/effective-profile-context.ts";
 import { computeDefaultResolverHash, createVersion } from "../_shared/doc-os.ts";
-import { syncAllEntities, syncSceneEntityLinksForProject } from "../_shared/narrativeEntityEngine.ts";
+import { syncAllEntities, syncSceneEntityLinksForProject, syncDialogueCharactersForProject } from "../_shared/narrativeEntityEngine.ts";
 import { computePropagatedRisk } from "../_shared/narrativeDependencyGraph.ts";
+import { classifySceneRoles, type SceneForClassification } from "../_shared/sceneRoleClassifier.ts";
 import type { SpineAxis } from "../_shared/narrativeSpine.ts";
 
 // ── Constraint Pack: unified loader for all generation prompts ──
@@ -7896,39 +7897,200 @@ Return ONLY valid JSON:
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ── Scene Semantic Enrichment: scene_graph_classify_roles_heuristic ────────
+    //
+    // Deterministic, position-zone + keyword heuristic scene role classification.
+    //
+    // Populates scene_graph_versions.scene_roles for all scenes that currently have
+    // empty roles, using the sceneRoleClassifier. Skips scenes that already have roles
+    // (idempotent).
+    //
+    // After this action succeeds, run scene_graph_sync_spine_links to map roles → axes.
+    //
+    // No LLM. No external calls. Fail-closed.
+    // Writes via next_scene_version RPC (concurrency-safe).
+    if (action === "scene_graph_classify_roles_heuristic") {
+      const { projectId, force } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // 1. Load active scenes in display order
+      const { data: orderRows, error: orErr } = await supabase
+        .from("scene_graph_order")
+        .select("scene_id, order_key")
+        .eq("project_id", projectId)
+        .eq("is_active", true)
+        .order("order_key", { ascending: true });
+      if (orErr) throw orErr;
+      if (!orderRows || orderRows.length === 0) {
+        return new Response(JSON.stringify({
+          project_id: projectId, action: "scene_graph_classify_roles_heuristic",
+          scenes_classified: 0, scenes_skipped: 0, note: "no active scenes",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const sceneIds = (orderRows as any[]).map((r: any) => r.scene_id);
+
+      // 2. Load latest version per scene
+      const { data: allVers } = await supabase
+        .from("scene_graph_versions")
+        .select("id, scene_id, slugline, summary, content, scene_roles, version_number")
+        .in("scene_id", sceneIds)
+        .order("version_number", { ascending: false });
+
+      const latestVer = new Map<string, any>();
+      for (const v of (allVers || []) as any[]) {
+        if (!latestVer.has(v.scene_id)) latestVer.set(v.scene_id, v);
+      }
+
+      // 3. Load scene_key for reporting
+      const { data: sceneRows } = await supabase
+        .from("scene_graph_scenes")
+        .select("id, scene_key")
+        .in("id", sceneIds);
+      const sceneKeyMap = new Map<string, string>((sceneRows || []).map((s: any) => [s.id, s.scene_key]));
+
+      // 4. Build SceneForClassification input (ordered by position)
+      const total = (orderRows as any[]).length;
+      const classifyInput: SceneForClassification[] = [];
+      const skipMap = new Map<string, string>(); // scene_id → skip reason
+
+      for (let i = 0; i < total; i++) {
+        const row = (orderRows as any[])[i];
+        const ver = latestVer.get(row.scene_id);
+        if (!ver) { skipMap.set(row.scene_id, "no_version"); continue; }
+
+        // Skip scenes with existing roles unless force=true
+        const existingRoles = (ver.scene_roles as any[] | null) || [];
+        if (!force && existingRoles.length > 0) {
+          skipMap.set(row.scene_id, "already_has_roles");
+          continue;
+        }
+
+        classifyInput.push({
+          scene_id:       row.scene_id,
+          position_index: i,
+          total_scenes:   total,
+          slugline:       ver.slugline  ?? null,
+          summary:        ver.summary   ?? null,
+          content:        ver.content   ?? null,
+        });
+      }
+
+      // 5. Classify roles
+      const classifications = classifySceneRoles(classifyInput);
+
+      // 6. Write classified roles via next_scene_version RPC (concurrency-safe)
+      const perScene: any[] = [];
+      let classified = 0;
+
+      for (const result of classifications) {
+        if (result.scene_roles.length === 0) {
+          perScene.push({
+            scene_id:  result.scene_id,
+            scene_key: sceneKeyMap.get(result.scene_id) ?? null,
+            skipped:   result.skipped ?? "no_heuristic_match",
+          });
+          continue;
+        }
+
+        const ver = latestVer.get(result.scene_id);
+        if (!ver) { continue; }
+
+        const { error: rpcErr } = await supabase.rpc("next_scene_version", {
+          p_scene_id:   result.scene_id,
+          p_project_id: projectId,
+          p_patch:      { scene_roles: result.scene_roles },
+          p_propose:    false,
+          p_created_by: user?.id ?? null,
+        });
+
+        if (rpcErr) {
+          console.warn("[classify_roles_heuristic] RPC error for scene", result.scene_id, rpcErr.message);
+          perScene.push({
+            scene_id:  result.scene_id,
+            scene_key: sceneKeyMap.get(result.scene_id) ?? null,
+            skipped:   `rpc_error:${rpcErr.message}`,
+          });
+          continue;
+        }
+
+        classified++;
+        perScene.push({
+          scene_id:   result.scene_id,
+          scene_key:  sceneKeyMap.get(result.scene_id) ?? null,
+          scene_roles: result.scene_roles,
+        });
+      }
+
+      // Report skipped scenes (already had roles or no version)
+      for (const [sceneId, reason] of skipMap.entries()) {
+        perScene.push({ scene_id: sceneId, scene_key: sceneKeyMap.get(sceneId) ?? null, skipped: reason });
+      }
+
+      // Sort by scene_key for readable output
+      perScene.sort((a: any, b: any) =>
+        (a.scene_key ?? "").localeCompare(b.scene_key ?? "")
+      );
+
+      return new Response(JSON.stringify({
+        project_id:         projectId,
+        action:             "scene_graph_classify_roles_heuristic",
+        total_scenes:       total,
+        scenes_classified:  classified,
+        scenes_skipped:     total - classified,
+        per_scene:          perScene,
+        note:               force ? "force=true — overwrote existing roles" : "skipped scenes with existing roles",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // ── Phase 3: scene_graph_sync_spine_links ────────────────────────────────
     // Maps scene_roles → spine axes and populates scene_spine_links.axis_key.
     // scene_roles is a jsonb array of role_key strings (from scene_role_taxonomy).
     // UNIQUE (project_id, scene_id) → one row per scene = one primary axis_key.
     //
-    // Role → axis mapping (spec-defined). Priority order determines primary axis
-    // when a scene has multiple roles (climax > reversal > reveal > escalation >
-    // setup > denouement > breather > transition > payoff).
+    // Role → axis mapping — CANONICAL SPINE AXES ONLY (see ROLE_AXIS_MAP below).
+    // Priority order determines primary axis when a scene has multiple roles.
     //
     // Source: scene_graph_versions.scene_roles (latest version per scene).
+    // Supports both string[] (legacy) and {role_key, confidence, note}[] (v2) formats.
     // Fail-closed: empty scene graph, empty scene_roles → no-op.
-    //
-    // Note: scene_roles is populated by downstream LLM scene processing (not by
-    // scene_graph_extract). Until that step runs, sync produces 0 rows.
     if (action === "scene_graph_sync_spine_links") {
       const { projectId } = body;
       if (!projectId) throw new Error("projectId required");
 
-      // Role → axis mapping (spec-defined)
+      // Role → axis mapping — CANONICAL SPINE AXES ONLY.
+      //
+      // Every key maps to a valid SpineAxis from narrativeSpine.ts.
+      // Non-canonical keys ("midpoint_shift", "structural_turn", "narrative_bridge",
+      // "pacing_relief") have been removed — they are not valid spine axes and would
+      // silently produce scene_spine_links rows that never match NDG propagation.
+      //
+      // Mapping rationale:
+      //   setup       → story_engine       (opening establishes the narrative engine)
+      //   escalation  → pressure_system    (rising action is driven by pressure)
+      //   reveal      → inciting_incident  (a reveal IS an inciting structural event)
+      //   reversal    → central_conflict   (reversal = shift in the central conflict)
+      //   climax      → protagonist_arc    (protagonist arc peaks at climax)
+      //   denouement  → resolution_type    (resolution type manifests in denouement)
+      //   payoff      → stakes_class       (stakes paying off = stakes_class manifesting)
+      //
+      // transition + breather: no canonical spine axis mapping.
+      // Scenes with only these roles will produce no spine link (correct — they are
+      // structural connective tissue, not axis-bearing beats).
       const ROLE_AXIS_MAP: Record<string, string> = {
-        setup:       "story_engine",
-        escalation:  "pressure_system",
-        reveal:      "midpoint_shift",
-        reversal:    "structural_turn",
-        climax:      "protagonist_arc",
-        denouement:  "resolution_type",
-        transition:  "narrative_bridge",
-        breather:    "pacing_relief",
-        // payoff: not in spec mapping — no axis assigned
+        setup:      "story_engine",
+        escalation: "pressure_system",
+        reveal:     "inciting_incident",
+        reversal:   "central_conflict",
+        climax:     "protagonist_arc",
+        denouement: "resolution_type",
+        payoff:     "stakes_class",
+        // transition → no canonical spine axis (structural connective tissue — omit)
+        // breather   → no canonical spine axis (pacing device — omit)
       };
 
       // Priority order for primary axis selection (most structurally significant first)
-      const ROLE_PRIORITY = ["climax","reversal","reveal","escalation","setup","denouement","breather","transition"];
+      const ROLE_PRIORITY = ["climax","reversal","reveal","escalation","setup","denouement","payoff","breather","transition"];
 
       // Load active scenes
       const { data: sceneRows, error: scEr } = await supabase
@@ -7973,7 +8135,13 @@ Return ONLY valid JSON:
 
       for (const scene of sceneRows as any[]) {
         const ver = latestVer.get(scene.id);
-        const sceneRoles: string[] = (ver?.scene_roles || []) as string[];
+        // Normalise scene_roles: stored as either string[] (legacy) or
+        // {role_key, confidence, note}[] (from scene_graph_tag_scene_roles / classify_roles_heuristic).
+        // Both formats are valid on scene_graph_versions.scene_roles.
+        const rawRoles = (ver?.scene_roles || []) as any[];
+        const sceneRoles: string[] = rawRoles.map((r: any) =>
+          typeof r === "string" ? r : (r?.role_key ?? "")
+        ).filter(Boolean);
 
         if (sceneRoles.length === 0) {
           noRolesCount++;

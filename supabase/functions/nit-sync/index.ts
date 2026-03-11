@@ -18,6 +18,7 @@ import {
   extractEntityMentionsForVersion,
   extractEntityMentionsForProject,
   syncSceneEntityLinksForProject,
+  syncDialogueCharactersForProject,
 } from "../_shared/narrativeEntityEngine.ts";
 
 const corsHeaders = {
@@ -44,6 +45,28 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "projectId is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ── action = 'sync_dialogue_characters' — Phase 2 Dialogue Character Detection ──
+    // Extracts uppercase screenplay dialogue headings from each scene's content,
+    // resolves them to NIT character entities via deterministic shorthand derivation,
+    // and upserts narrative_scene_entity_links (relation_type='character_present').
+    //
+    // Additive to sync_scene_entity_links (canonical name scan). Together they give
+    // complete coverage: exact names + dialogue headings.
+    //
+    // Fail-closed: no entities or no scenes → no-op, no crash.
+    // Idempotent: ON CONFLICT ignoreDuplicates.
+    // Does NOT modify NIT schema.
+    if (action === "sync_dialogue_characters") {
+      const result = await syncDialogueCharactersForProject(supabase, projectId);
+      return new Response(JSON.stringify({
+        project_id:       projectId,
+        action:           "sync_dialogue_characters",
+        scenes_processed: result.scenes_processed,
+        links_upserted:   result.links_upserted,
+        per_scene:        result.per_scene,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── action = 'sync_scene_entity_links' — Scene Identity v1.1 ──

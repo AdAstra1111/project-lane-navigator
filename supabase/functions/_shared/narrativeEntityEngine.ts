@@ -998,3 +998,361 @@ export async function syncSceneEntityLinksForProject(
     per_scene,
   };
 }
+
+// ── Phase 2: Dialogue Character Detection ────────────────────────────────
+//
+// Supplementary character detection via screenplay dialogue heading analysis.
+//
+// WHY this is needed:
+//   syncSceneEntityLinksForProject() scans scene content for exact canonical names
+//   (e.g., "Elara Vance"). Screenplay dialogue headings use uppercase abbreviated
+//   forms ("ELARA", "DR. RAMSAY", "MR. CALDWELL") that don't contain the full
+//   canonical name and are therefore missed by the canonical name scan.
+//
+// This pass: extracts uppercase dialogue headings → normalises → resolves to
+//   NIT entity via deterministic shorthand derivation → upserts character_present links.
+//
+// Architecture:
+//   - No fuzzy matching. All mappings are deterministic derivations from canonical names.
+//   - Fail-closed: ambiguous headings (two entities share a shorthand) are excluded.
+//   - Idempotent: ON CONFLICT (scene_id, entity_id, relation_type) ignoreDuplicates.
+//   - Additive to syncSceneEntityLinksForProject (same table, same relation_type).
+//   - Does NOT modify NIT schema (narrative_entities / narrative_entity_relations).
+
+/**
+ * Dialogue heading regex.
+ * Matches screenplay character name lines:
+ *   "ELARA"  "ELARA (V.O.)"  "DR. RAMSAY"  "MR. CALDWELL (CONT'D)"
+ *
+ * Constraints:
+ *   - 0–30 leading spaces (screenplay headings are indented)
+ *   - 2–42 uppercase chars including spaces, periods, hyphens, apostrophes
+ *   - Optional trailing parenthetical extension (V.O., O.S., CONT'D, etc.)
+ *   - Anchored at line boundaries (applied per-line after split)
+ */
+const DIALOGUE_HEADING_RE = /^\s{0,30}([A-Z][A-Z\s\.\-']{1,40}?)(?:\s*\([^)]{1,30}\))?\s*$/;
+
+/** Slugline prefix pattern — these lines are NOT dialogue headings */
+const SLUGLINE_RE = /^\s*(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/i;
+
+/** Transition line pattern — these lines are NOT dialogue headings */
+const TRANSITION_RE = /^\s*(FADE\s+(IN|OUT|TO)|CUT\s+TO|DISSOLVE\s+TO|SMASH\s+CUT|MATCH\s+CUT|JUMP\s+CUT|WIPE\s+TO|IRIS\s+(IN|OUT)|TITLE\s*:)/i;
+
+/**
+ * Extracts candidate dialogue headings from raw screenplay scene content.
+ * Returns a deduplicated Set of normalised uppercase heading strings (without parentheticals).
+ *
+ * Heuristic validation: a line is accepted as a dialogue heading only when:
+ *   1. Matches DIALOGUE_HEADING_RE
+ *   2. Is not a slugline or transition line
+ *   3. Contains at least two consecutive uppercase letters (not just "DR." or "-")
+ *   4. The next non-empty line contains lowercase letters (indicates it is dialogue text)
+ *
+ * Fail-closed: returns empty Set when content is null/empty.
+ */
+export function extractDialogueHeadings(content: string | null): Set<string> {
+  const result = new Set<string>();
+  if (!content || content.trim().length === 0) return result;
+
+  const lines = content.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (SLUGLINE_RE.test(line) || TRANSITION_RE.test(line)) continue;
+
+    const match = DIALOGUE_HEADING_RE.exec(line);
+    if (!match) continue;
+
+    const raw = match[1].trim();
+    if (raw.length < 2) continue;
+
+    // Must contain at least 2 consecutive uppercase letters (not just "A." etc.)
+    if (!/[A-Z]{2}/.test(raw.replace(/[\s\.\-']/g, ""))) continue;
+
+    // Validate: next non-empty line should look like dialogue (contains lowercase)
+    let nextIdx = i + 1;
+    while (nextIdx < lines.length && lines[nextIdx].trim() === "") nextIdx++;
+    if (nextIdx < lines.length) {
+      const nextLine = lines[nextIdx];
+      // Next line must have lowercase letters → it is dialogue, not another action line
+      if (!/[a-z]/.test(nextLine)) continue;
+    }
+
+    result.add(raw);
+  }
+
+  return result;
+}
+
+/**
+ * Builds a deterministic lookup map: dialogue_heading_uppercase → entity_id.
+ *
+ * For each canonical character name, derives the following shorthand forms
+ * that a screenwriter would use as a dialogue heading:
+ *
+ *   1. FULL NAME UPPERCASE:    "ELARA VANCE"      → entity
+ *   2. FIRST NAME ONLY:        "ELARA"            → entity  (if title-free and unique)
+ *   3. LAST NAME ONLY:         "VANCE"            → entity  (if unique)
+ *   4. TITLE + LAST NAME:      "DR. RAMSAY"       → entity  (if has title prefix)
+ *   5. TITLE + FULL SURNAME:   "MR. CALDWELL"     → entity
+ *   6. THE + SECOND WORD:      "THE ALTERNATE"    → entity  (for "The Alternate Elara" style)
+ *
+ * Conflict resolution: if two entities share a shorthand form, that form is
+ * excluded from the map (ambiguous → fail-closed, never guess).
+ *
+ * Does NOT produce fuzzy matches. All mappings are exact string lookups.
+ */
+export function buildDialogueHeadingMap(
+  entities: Array<{ id: string; canonical_name: string }>,
+): Map<string, string> {
+  // heading (uppercase) → [entity_id, ...] (for conflict detection)
+  const candidates = new Map<string, string[]>();
+
+  const add = (heading: string, entityId: string) => {
+    const h = heading.toUpperCase().trim();
+    if (!h || h.length < 2) return;
+    if (!candidates.has(h)) candidates.set(h, []);
+    candidates.get(h)!.push(entityId);
+  };
+
+  const TITLE_PREFIXES = [
+    "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sgt.", "Det.", "Capt.", "Lt.", "Cpl.",
+  ];
+
+  for (const entity of entities) {
+    const name = (entity.canonical_name || "").trim();
+    if (!name) continue;
+
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length === 0) continue;
+
+    // 1. Full name uppercase
+    add(name, entity.id);
+
+    // Detect title prefix (e.g., "Dr.", "Mr.")
+    const titlePrefix = TITLE_PREFIXES.find(t =>
+      name.toLowerCase().startsWith(t.toLowerCase())
+    );
+
+    const nameParts  = titlePrefix ? parts.slice(1) : parts;   // parts after title
+    const lastName   = nameParts.length > 0 ? nameParts[nameParts.length - 1] : null;
+    const firstName  = nameParts.length > 0 ? nameParts[0] : null;
+
+    if (titlePrefix) {
+      // 4+5. Title + last name: "DR. RAMSAY", "MR. CALDWELL"
+      if (lastName) {
+        add(`${titlePrefix.toUpperCase()} ${lastName}`, entity.id);
+        // Also without dot: "DR RAMSAY"
+        add(`${titlePrefix.replace(".", "").toUpperCase()} ${lastName}`, entity.id);
+      }
+    } else {
+      // 2. First name only (title-free entities)
+      if (firstName && firstName.length >= 2) {
+        add(firstName, entity.id);
+      }
+      // 3. Last name only (multi-word names)
+      if (lastName && lastName !== firstName && lastName.length >= 2) {
+        add(lastName, entity.id);
+      }
+    }
+
+    // 6. "THE X" shorthand for "The Alternate Elara" style composite names
+    if (
+      parts[0].toLowerCase() === "the" &&
+      parts.length >= 2 &&
+      parts[1].length >= 3
+    ) {
+      add(`THE ${parts[1]}`, entity.id);
+    }
+  }
+
+  // Resolve conflicts: exclude headings that map to more than one entity
+  const finalMap = new Map<string, string>();
+  for (const [heading, entityIds] of candidates.entries()) {
+    const unique = [...new Set(entityIds)];
+    if (unique.length === 1) {
+      finalMap.set(heading, unique[0]);
+    }
+    // else: ambiguous — omit (fail-closed)
+  }
+
+  return finalMap;
+}
+
+// ── Phase 2 public surface ────────────────────────────────────────────────
+
+export interface DialogueCharacterSyncResult {
+  scenes_processed:  number;
+  links_upserted:    number;
+  per_scene: Array<{
+    scene_id:       string;
+    scene_key:      string | null;
+    slugline:       string | null;
+    dialogue_links: number;
+    headings_found: number;
+    skipped?:       string;
+  }>;
+}
+
+/**
+ * Phase 2 — Dialogue Character Detection sync.
+ *
+ * For each active scene in the project:
+ *   1. Extract uppercase dialogue headings from scene content
+ *   2. Resolve headings to NIT character entities via buildDialogueHeadingMap
+ *   3. Upsert into narrative_scene_entity_links (relation_type='character_present')
+ *
+ * This is ADDITIVE to syncSceneEntityLinksForProject() (canonical name scan).
+ * Both mechanisms populate the same table; together they give complete coverage.
+ *
+ * Idempotent: ON CONFLICT (scene_id, entity_id, relation_type) ignoreDuplicates.
+ * Fail-closed: empty entities, empty scenes, empty content → no-op, no crash.
+ * Does NOT modify NIT schema.
+ */
+export async function syncDialogueCharactersForProject(
+  supabase: SupabaseClient,
+  projectId: string,
+): Promise<DialogueCharacterSyncResult> {
+  const per_scene: DialogueCharacterSyncResult["per_scene"] = [];
+  let totalLinks = 0;
+
+  // 1. Load active character entities
+  const { data: entities, error: entErr } = await supabase
+    .from("narrative_entities")
+    .select("id, entity_key, canonical_name")
+    .eq("project_id", projectId)
+    .eq("entity_type", "character")
+    .eq("status", "active");
+
+  if (entErr || !entities || (entities as any[]).length === 0) {
+    console.log("[NIT:Phase2] no active character entities — no-op");
+    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+  }
+
+  // 2. Build heading → entity_id lookup map
+  const headingMap = buildDialogueHeadingMap(entities as any[]);
+  if (headingMap.size === 0) {
+    console.log("[NIT:Phase2] heading map empty (no derivable shorthand forms) — no-op");
+    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+  }
+
+  // 3. Load active scenes
+  const { data: scenes, error: sceneErr } = await supabase
+    .from("scene_graph_scenes")
+    .select("id, scene_key")
+    .eq("project_id", projectId)
+    .is("deprecated_at", null);
+
+  if (sceneErr || !scenes || (scenes as any[]).length === 0) {
+    console.log("[NIT:Phase2] no active scenes — no-op");
+    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+  }
+
+  // 4. Load latest version per scene
+  const sceneIds = (scenes as any[]).map((s: any) => s.id);
+  const { data: versions, error: verErr } = await supabase
+    .from("scene_graph_versions")
+    .select("id, scene_id, content, slugline, version_number")
+    .in("scene_id", sceneIds)
+    .order("version_number", { ascending: false });
+
+  if (verErr || !versions) {
+    console.warn("[NIT:Phase2] version fetch error:", verErr?.message);
+    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+  }
+
+  // Dedupe: latest version per scene
+  const latestByScene = new Map<string, any>();
+  for (const v of (versions as any[])) {
+    if (!latestByScene.has(v.scene_id)) latestByScene.set(v.scene_id, v);
+  }
+
+  // 5. Process each scene
+  for (const scene of (scenes as any[])) {
+    const ver = latestByScene.get(scene.id);
+    if (!ver) {
+      per_scene.push({
+        scene_id: scene.id, scene_key: scene.scene_key, slugline: null,
+        dialogue_links: 0, headings_found: 0, skipped: "no_version",
+      });
+      continue;
+    }
+
+    const content = (ver.content as string | null) || "";
+    if (!content.trim()) {
+      per_scene.push({
+        scene_id: scene.id, scene_key: scene.scene_key, slugline: ver.slugline,
+        dialogue_links: 0, headings_found: 0, skipped: "empty_content",
+      });
+      continue;
+    }
+
+    // Extract dialogue headings from scene content
+    const headings = extractDialogueHeadings(content);
+
+    if (headings.size === 0) {
+      per_scene.push({
+        scene_id: scene.id, scene_key: scene.scene_key, slugline: ver.slugline,
+        dialogue_links: 0, headings_found: 0, skipped: "no_headings_detected",
+      });
+      continue;
+    }
+
+    // Resolve headings → entity ids
+    const resolvedEntityIds = new Set<string>();
+    for (const heading of headings) {
+      const entityId = headingMap.get(heading);
+      if (entityId) resolvedEntityIds.add(entityId);
+    }
+
+    if (resolvedEntityIds.size === 0) {
+      per_scene.push({
+        scene_id: scene.id, scene_key: scene.scene_key, slugline: ver.slugline,
+        dialogue_links: 0, headings_found: headings.size, skipped: "no_headings_resolved",
+      });
+      continue;
+    }
+
+    // Upsert links
+    const linkRows = [...resolvedEntityIds].map(entityId => ({
+      project_id:        projectId,
+      scene_id:          scene.id,
+      entity_id:         entityId,
+      relation_type:     "character_present",
+      confidence:        "deterministic",
+      source_version_id: ver.id,
+    }));
+
+    const { error: upsErr } = await supabase
+      .from("narrative_scene_entity_links")
+      .upsert(linkRows, {
+        onConflict:       "scene_id,entity_id,relation_type",
+        ignoreDuplicates: true,
+      });
+
+    if (upsErr) {
+      console.warn("[NIT:Phase2] upsert error for scene", scene.id, upsErr.message);
+      per_scene.push({
+        scene_id: scene.id, scene_key: scene.scene_key, slugline: ver.slugline,
+        dialogue_links: 0, headings_found: headings.size,
+        skipped: `upsert_error:${upsErr.message}`,
+      });
+      continue;
+    }
+
+    totalLinks += linkRows.length;
+    per_scene.push({
+      scene_id:       scene.id,
+      scene_key:      scene.scene_key,
+      slugline:       ver.slugline,
+      dialogue_links: linkRows.length,
+      headings_found: headings.size,
+    });
+  }
+
+  const processed = per_scene.filter(s => !s.skipped).length;
+  console.log(`[NIT:Phase2] ${processed} scenes processed, ${totalLinks} dialogue character links upserted`);
+
+  return { scenes_processed: processed, links_upserted: totalLinks, per_scene };
+}
