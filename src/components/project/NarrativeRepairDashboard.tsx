@@ -5,14 +5,16 @@
  * Fail-closed: calm state when no risk; graceful degradation on errors.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSelectiveRegenerationPlan, type RecommendedScope, type SourceUnit, type ImpactedScene } from '@/hooks/useSelectiveRegenerationPlan';
 import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/hooks/useExecuteSelectiveRegeneration';
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
 import { useSceneVersionDiff } from '@/hooks/useSceneVersionDiff';
 import { useRegenerationRunHistory, type RegenerationRun } from '@/hooks/useRegenerationRunHistory';
+import { useAutopilotRepairDetection } from '@/hooks/useAutopilotRepairDetection';
 import { SceneRewriteDiffViewer } from '@/components/project/SceneRewriteDiffViewer';
 import { NDGImpactHeatmap } from '@/components/project/NDGImpactHeatmap';
+import { AutopilotRepairPanel } from '@/components/project/AutopilotRepairPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -82,10 +84,11 @@ function sceneLabelFromImpacted(scene: ImpactedScene, slugMap: SluglineMap): str
 /* ── Main Dashboard ── */
 
 export function NarrativeRepairDashboard({ projectId }: Props) {
-  const { data: plan, isLoading: planLoading } = useSelectiveRegenerationPlan(projectId);
+  const { data: plan, isLoading: planLoading, refetch: refetchPlan } = useSelectiveRegenerationPlan(projectId);
   const { execute, isExecuting, result, error, reset } = useExecuteSelectiveRegeneration(projectId);
   const { data: sluglines } = useSceneSluglines(projectId);
-  const { data: runHistory, isLoading: historyLoading } = useRegenerationRunHistory(projectId);
+  const { data: runHistory, isLoading: historyLoading, refetch: refetchHistory } = useRegenerationRunHistory(projectId);
+  const { data: autopilotData, isLoading: autopilotLoading, refresh: refreshAutopilot } = useAutopilotRepairDetection(projectId);
   const diffHook = useSceneVersionDiff(projectId);
   const slugMap = sluglines ?? new Map<string, string>();
 
@@ -120,6 +123,25 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
     diffHook.loadDiff(sceneKey);
   };
 
+  const refreshAfterExecution = useCallback(() => {
+    refreshAutopilot();
+    refetchPlan();
+    refetchHistory();
+  }, [refreshAutopilot, refetchPlan, refetchHistory]);
+
+  const handleDryRun = useCallback(async () => {
+    reset();
+    await execute(true);
+    refreshAfterExecution();
+  }, [reset, execute, refreshAfterExecution]);
+
+  const handleExecute = useCallback(async () => {
+    setConfirmOpen(false);
+    reset();
+    await execute(false);
+    refreshAfterExecution();
+  }, [reset, execute, refreshAfterExecution]);
+
   if (planLoading) {
     return (
       <Card className="border-border/50">
@@ -150,6 +172,17 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Autopilot Status */}
+          <AutopilotRepairPanel
+            data={autopilotData}
+            isLoading={autopilotLoading}
+            onRefresh={refreshAutopilot}
+            onPreviewPlan={() => refetchPlan()}
+            onDryRun={handleDryRun}
+            onExecuteRepair={() => setConfirmOpen(true)}
+            isExecuting={isExecuting}
+          />
+
           <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-3">
             <ShieldCheck className="h-4 w-4 text-emerald-500" />
             <span className="text-sm text-muted-foreground">
@@ -186,6 +219,16 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
       </CardHeader>
 
       <CardContent className="space-y-6">
+        {/* ═══ AUTOPILOT STATUS ═══ */}
+        <AutopilotRepairPanel
+          data={autopilotData}
+          isLoading={autopilotLoading}
+          onRefresh={refreshAutopilot}
+          onPreviewPlan={() => refetchPlan()}
+          onDryRun={handleDryRun}
+          onExecuteRepair={() => setConfirmOpen(true)}
+          isExecuting={isExecuting}
+        />
         {/* ═══ SECTION 1: REPAIR STATUS ═══ */}
         <RepairStatusSection
           plan={plan}
@@ -224,7 +267,7 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
           canExecute={canExecute}
           isExecuting={isExecuting}
           scope={scope}
-          onDryRun={async () => { reset(); await execute(true); }}
+          onDryRun={handleDryRun}
           onExecuteClick={() => setConfirmOpen(true)}
           error={error}
           result={result}
@@ -245,7 +288,7 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
       <ConfirmExecutionDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        onConfirm={async () => { setConfirmOpen(false); reset(); await execute(false); }}
+        onConfirm={handleExecute}
         plan={plan}
       />
 
