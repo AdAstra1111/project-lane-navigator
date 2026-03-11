@@ -8843,18 +8843,11 @@ Return ONLY valid JSON:
         propagated_scene_count: plan.propagated_scene_count,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    // ── execute_selective_regeneration — Stage 1: Dry-Run ────────────────────────
+    // ── execute_selective_regeneration ───────────────────────────────────────────
     //
-    // STAGE 1 (current): dry-run only.
-    //   • Recomputes the regeneration plan server-side (never trusts client plan)
-    //   • Runs NDG baseline (at_risk_scene_count before any writes)
-    //   • Validates scope — aborts for no_risk / propagated_only / no_scenes
-    //   • Sequences target scenes deterministically via axis sequence ranks
-    //   • Inserts regeneration_runs row (status='pending', meta_json.dry_run=true)
-    //   • Returns dry-run payload — NO LLM calls, NO scene_graph_versions writes
-    //
-    // Stage 2 will add: status='running', LLM generation loop, version inserts,
-    //   NDG post-validation, status terminal transitions.
+    // STAGE 1 (dryRun: true):  validates pipeline, inserts pending run row, no writes.
+    // STAGE 2 (dryRun: false): generates exactly one scene, inserts new version row,
+    //   writes provenance metadata, updates run to completed/failed, runs NDG post-check.
     if (action === "execute_selective_regeneration") {
       const { projectId, unitKeys, dryRun = true } = body;
       if (!projectId) throw new Error("projectId required");
@@ -9025,20 +9018,413 @@ Return ONLY valid JSON:
       });
 
       // ── Step 9: Return dry-run payload ────────────────────────────────────
+      // ── STAGE 1: DRY RUN ─────────────────────────────────────────────────
       // No scene_graph_versions writes. No LLM calls. No NDG post-validation.
+      if (dryRun) {
+        return new Response(JSON.stringify({
+          project_id:             projectId,
+          action:                 "execute_selective_regeneration",
+          ok:                     true,
+          dry_run:                true,
+          run_id:                 runId,
+          recommended_scope:      plan.recommended_scope,
+          rationale:              plan.rationale,
+          source_units:           plan.source_units,
+          direct_axes:            plan.direct_axes,
+          target_scene_count:     targetScenes.length,
+          target_scenes:          targetScenes,
+          ndg_pre_at_risk_count:  ndgPreAtRiskCount,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── STAGE 2: REAL EXECUTION — exactly one scene ───────────────────────
+      //
+      // Step 2a: Advisory lock + atomic run insert (replaces Step 8 in dry-run path).
+      //   We do NOT use the 'pending' row created above. The atomic RPC:
+      //     1. Acquires pg_try_advisory_xact_lock scoped to project_id
+      //     2. Re-checks for running rows inside the same transaction
+      //     3. Inserts the run row with status='running'
+      //   The advisory lock prevents the TOCTOU race where two concurrent requests
+      //   both pass the 'already_running' check before either inserts a running row.
+      //
+      // NOTE: The dry-run 'pending' row inserted above is intentionally left as-is.
+      //   It serves as an audit trail showing the plan was evaluated before execution.
+      //   The new 'running' row below is a separate execution row.
+      const lockResult = await supabase.rpc("create_regen_run_locked", {
+        p_project_id:            projectId,
+        p_triggered_by:          userId ?? null,
+        p_source_unit_keys:      (plan.source_units || []).map((u: any) => u.unit_key),
+        p_source_axes:           plan.direct_axes,
+        p_recommended_scope:     plan.recommended_scope,
+        p_target_scene_ids:      targetScenes.map((s: any) => s.scene_id),
+        p_target_scene_count:    targetScenes.length,
+        p_ndg_pre_at_risk_count: ndgPreAtRiskCount,
+        p_meta_json:             { dry_run: false, stage: 2, batch_size: 1 },
+      });
+
+      if (lockResult.error) {
+        throw new Error(`create_regen_run_locked RPC failed: ${lockResult.error.message}`);
+      }
+
+      const lockData = lockResult.data as { ok: boolean; run_id?: string; abort_reason?: string; note?: string };
+
+      if (!lockData.ok) {
+        return new Response(JSON.stringify({
+          project_id:   projectId,
+          action:       "execute_selective_regeneration",
+          ok:           false,
+          abort:        true,
+          abort_reason: lockData.abort_reason ?? "execution_locked",
+          note:         lockData.note ?? "Could not acquire execution lock",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const execRunId = lockData.run_id as string;
+
+      // Helper: mark run as failed and return failure response
+      const markRunFailed = async (failedSceneId: string | null, reason: string) => {
+        await supabase
+          .from("regeneration_runs")
+          .update({
+            status:           "failed",
+            failed_scene_ids: failedSceneId ? [failedSceneId] : [],
+            abort_reason:     reason,
+            completed_at:     new Date().toISOString(),
+          })
+          .eq("id", execRunId);
+      };
+
+      // ── Step 5: Select exactly one target scene ───────────────────────────
+      // targetScenes is already sequenced (axis_rank ASC, scene_key ASC).
+      // Take the first element only.
+      const chosenScene = targetScenes[0] as {
+        scene_id:    string;
+        scene_key:   string;
+        slugline:    string | null;
+        axis_key:    string;
+        risk_reason: string;
+        order:       number;
+      };
+
+      if (!chosenScene) {
+        await markRunFailed(null, "no_scenes");
+        return new Response(JSON.stringify({
+          project_id:   projectId,
+          action:       "execute_selective_regeneration",
+          ok:           false,
+          run_id:       execRunId,
+          status:       "failed",
+          abort:        true,
+          abort_reason: "no_scenes",
+          note:         "No target scenes available after sequencing",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 6: Load rewrite context ─────────────────────────────────────
+      // Required: latest scene_graph_versions row for chosenScene.
+      // Optional but enriching: spine links, narrative units, entity links.
+      const [latestVerRes, spineLinksRes, entityLinksRes, narrativeUnitsRes] = await Promise.all([
+        supabase
+          .from("scene_graph_versions")
+          .select("id, version_number, content, slugline, summary, characters_present, metadata")
+          .eq("scene_id", chosenScene.scene_id)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .single(),
+        supabase
+          .from("scene_spine_links")
+          .select("axis_key, axis_value, confidence")
+          .eq("scene_id", chosenScene.scene_id)
+          .eq("project_id", projectId),
+        supabase
+          .from("narrative_scene_entity_links")
+          .select("entity_id, relation_type, confidence")
+          .eq("scene_id", chosenScene.scene_id)
+          .eq("project_id", projectId),
+        supabase
+          .from("narrative_units")
+          .select("unit_key, unit_type, status, payload_json, stale_reason")
+          .eq("project_id", projectId)
+          .in("status", ["stale", "contradicted"]),
+      ]);
+
+      // Fail-closed: if latest version is missing, mark failed and abort
+      if (latestVerRes.error || !latestVerRes.data) {
+        await markRunFailed(chosenScene.scene_id, "missing_scene_version");
+        return new Response(JSON.stringify({
+          project_id:   projectId,
+          action:       "execute_selective_regeneration",
+          ok:           false,
+          run_id:       execRunId,
+          status:       "failed",
+          abort_reason: "missing_scene_version",
+          note:         `No existing version found for scene ${chosenScene.scene_key} — cannot regenerate`,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const prevVersion = latestVerRes.data as {
+        id:                 string;
+        version_number:     number;
+        content:            string;
+        slugline:           string | null;
+        summary:            string | null;
+        characters_present: string[];
+        metadata:           Record<string, unknown>;
+      };
+
+      // Load entity names for context
+      const entityIds = ((entityLinksRes.data || []) as any[]).map((l: any) => l.entity_id);
+      const { data: entityRows } = entityIds.length > 0
+        ? await supabase
+            .from("narrative_entities")
+            .select("entity_key, canonical_name, entity_type")
+            .in("id", entityIds)
+        : { data: [] as any[] };
+
+      // ── Step 7: Generation prompt construction ────────────────────────────
+      // Grounded inputs only. Bounded scope. Preserve continuity unless repair requires change.
+      const staleUnitsForPrompt = ((narrativeUnitsRes.data || []) as any[])
+        .filter((u: any) => {
+          const parts = (u.unit_key as string).split("::");
+          const axis = parts.length >= 2 ? parts[parts.length - 1] : null;
+          return axis === chosenScene.axis_key;
+        });
+
+      const entityContext = ((entityRows || []) as any[])
+        .map((e: any) => `${e.entity_type}: ${e.canonical_name} (${e.entity_key})`)
+        .join("; ") || "None identified";
+
+      const spineContext = ((spineLinksRes.data || []) as any[])
+        .map((sl: any) => `${sl.axis_key}: ${sl.axis_value ?? "(linked)"}`)
+        .join("\n") || "None";
+
+      const unitPayloadSummary = staleUnitsForPrompt.map((u: any) => {
+        const p = u.payload_json ?? {};
+        return `Axis: ${u.unit_key.split("::").pop()}\nStatus: ${u.status}\nValue: ${p.value ?? p.spine_value ?? "(not set)"}\nReason: ${u.status === "contradicted" ? (p.contradiction_note || "contradiction detected") : "stale — revalidation needed"}`;
+      }).join("\n\n") || `Axis: ${chosenScene.axis_key}\nReason: ${chosenScene.risk_reason}`;
+
+      const rewriteSystemPrompt =
+`You are a precise cinematic scene writer operating inside a deterministic narrative system.
+Your task is to rewrite a single scene to resolve a specific narrative axis inconsistency.
+
+RULES:
+- Output ONLY the scene text in proper screenplay format.
+- Do NOT summarise, explain, or add commentary.
+- Preserve scene identity (location, time of day, slugline) unless the repair specifically requires a change.
+- Preserve character voice and continuity facts unless they are the source of the contradiction.
+- Resolve the narrative axis issue identified below — make only the changes required.
+- Output must be non-empty screenplay text.`;
+
+      const rewriteUserPrompt =
+`SCENE TO REWRITE
+Scene Key: ${chosenScene.scene_key}
+Slugline: ${chosenScene.slugline ?? "(none)"}
+
+NARRATIVE AXIS REQUIRING REPAIR
+${unitPayloadSummary}
+
+SPINE LINKS FOR THIS SCENE
+${spineContext}
+
+ENTITIES PRESENT IN THIS SCENE
+${entityContext}
+
+PREVIOUS SCENE CONTENT
+---
+${prevVersion.content}
+---
+
+Rewrite this scene to resolve the narrative axis inconsistency above.
+Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
+
+      // ── Step 8: Generate one scene ────────────────────────────────────────
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      if (!LOVABLE_API_KEY) {
+        await markRunFailed(chosenScene.scene_id, "missing_api_key");
+        throw new Error("LOVABLE_API_KEY not configured");
+      }
+
+      let generatedContent: string;
+      try {
+        const rawGenerated = await callAI(
+          LOVABLE_API_KEY,
+          PRO_MODEL,
+          rewriteSystemPrompt,
+          rewriteUserPrompt,
+          0.3,   // temperature — deterministic lean
+          8000,  // max_tokens — bounded single scene
+        );
+        generatedContent = rawGenerated.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+      } catch (genErr: any) {
+        await markRunFailed(chosenScene.scene_id, `generation_failed: ${genErr?.message?.slice(0, 100) ?? "unknown"}`);
+        return new Response(JSON.stringify({
+          project_id:   projectId,
+          action:       "execute_selective_regeneration",
+          ok:           false,
+          run_id:       execRunId,
+          status:       "failed",
+          abort_reason: "generation_failed",
+          note:         genErr?.message ?? "LLM generation failed",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Fail if generation returned empty
+      if (!generatedContent || generatedContent.length < 10) {
+        await markRunFailed(chosenScene.scene_id, "generation_empty");
+        return new Response(JSON.stringify({
+          project_id:   projectId,
+          action:       "execute_selective_regeneration",
+          ok:           false,
+          run_id:       execRunId,
+          status:       "failed",
+          abort_reason: "generation_empty",
+          note:         "LLM returned empty or near-empty content",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 9: Insert new scene_graph_versions row ───────────────────────
+      // version_number = max(existing) + 1
+      // supersedes_version_id = previous latest version id
+      // metadata = provenance payload
+      const newVersionNumber = prevVersion.version_number + 1;
+      const now = new Date().toISOString();
+
+      const provenanceMetadata = {
+        provenance_type:       "selective_regen",
+        regeneration_run_id:   execRunId,
+        source_unit_keys:      (plan.source_units || []).map((u: any) => u.unit_key),
+        source_axes:           plan.direct_axes,
+        regeneration_scope:    plan.recommended_scope,
+        regeneration_reason:   plan.rationale,
+        generated_at:          now,
+      };
+
+      const { data: newVerRow, error: newVerErr } = await supabase
+        .from("scene_graph_versions")
+        .insert({
+          scene_id:              chosenScene.scene_id,
+          project_id:            projectId,
+          version_number:        newVersionNumber,
+          status:                "draft",
+          created_by:            userId ?? null,
+          slugline:              prevVersion.slugline,
+          content:               generatedContent,
+          supersedes_version_id: prevVersion.id,
+          metadata:              provenanceMetadata,
+        })
+        .select("id, version_number")
+        .single();
+
+      if (newVerErr || !newVerRow) {
+        await markRunFailed(chosenScene.scene_id, `version_insert_failed: ${newVerErr?.message?.slice(0, 100) ?? "unknown"}`);
+        return new Response(JSON.stringify({
+          project_id:   projectId,
+          action:       "execute_selective_regeneration",
+          ok:           false,
+          run_id:       execRunId,
+          status:       "failed",
+          abort_reason: "version_insert_failed",
+          note:         newVerErr?.message ?? "Failed to insert new scene_graph_versions row",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 10: Finalise run (success path) ──────────────────────────────
+      await supabase
+        .from("regeneration_runs")
+        .update({
+          status:               "completed",
+          completed_scene_ids:  [chosenScene.scene_id],
+          completed_at:         now,
+        })
+        .eq("id", execRunId);
+
+      // ── Step 11: NDG post-validation ──────────────────────────────────────
+      // Re-derive at_risk_count after generation. Diagnostic only — does NOT gate response.
+      // Note: NUE revalidation (stale → aligned) must happen separately; the count
+      //   won't drop until the NUE marks the unit as aligned after human review.
+      let ndgPostAtRiskCount: number = ndgPreAtRiskCount; // default: unchanged
+      let ndgValidationStatus: string = "not_run";
+
+      try {
+        const { data: postStaleUnits } = await supabase
+          .from("narrative_units")
+          .select("unit_key")
+          .eq("project_id", projectId)
+          .in("status", ["contradicted", "stale"]);
+
+        const postStaleAxes = ((postStaleUnits || []) as any[]).map((u: any) => {
+          const parts = (u.unit_key as string).split("::");
+          return parts.length >= 2 ? parts[parts.length - 1] : null;
+        }).filter(Boolean) as string[];
+
+        const postPropagated = computePropagatedRisk(postStaleAxes as SpineAxis[]);
+        const postAllAxes = new Set([
+          ...postStaleAxes,
+          ...postPropagated.flatMap(pr => pr.downstream_axes),
+        ]);
+
+        if (postAllAxes.size > 0) {
+          const { data: postLinks } = await supabase
+            .from("scene_spine_links")
+            .select("scene_id")
+            .eq("project_id", projectId)
+            .in("axis_key", [...postAllAxes]);
+          ndgPostAtRiskCount = new Set(((postLinks || []) as any[]).map((r: any) => r.scene_id)).size;
+        } else {
+          ndgPostAtRiskCount = 0;
+        }
+
+        ndgValidationStatus = ndgPostAtRiskCount < ndgPreAtRiskCount
+          ? "improved"
+          : ndgPostAtRiskCount === ndgPreAtRiskCount
+            ? "unchanged"
+            : "degraded";
+      } catch (ndgErr: any) {
+        console.warn("[dev-engine-v2] NDG post-validation failed (non-fatal):", ndgErr?.message);
+        ndgValidationStatus = "not_run";
+      }
+
+      // Update run with NDG post counts
+      await supabase
+        .from("regeneration_runs")
+        .update({
+          ndg_post_at_risk_count: ndgPostAtRiskCount,
+          ndg_validation_status:  ndgValidationStatus,
+        })
+        .eq("id", execRunId);
+
+      console.log("[dev-engine-v2] execute_selective_regeneration Stage 2 complete", {
+        project_id:            projectId,
+        run_id:                execRunId,
+        scene_key:             chosenScene.scene_key,
+        new_version_id:        newVerRow.id,
+        new_version_number:    newVerRow.version_number,
+        supersedes_version_id: prevVersion.id,
+        ndg_pre:               ndgPreAtRiskCount,
+        ndg_post:              ndgPostAtRiskCount,
+        ndg_status:            ndgValidationStatus,
+      });
+
       return new Response(JSON.stringify({
-        project_id:             projectId,
-        action:                 "execute_selective_regeneration",
-        ok:                     true,
-        dry_run:                dryRun,
-        run_id:                 runId,
-        recommended_scope:      plan.recommended_scope,
-        rationale:              plan.rationale,
-        source_units:           plan.source_units,
-        direct_axes:            plan.direct_axes,
-        target_scene_count:     targetScenes.length,
-        target_scenes:          targetScenes,
-        ndg_pre_at_risk_count:  ndgPreAtRiskCount,
+        project_id:              projectId,
+        action:                  "execute_selective_regeneration",
+        ok:                      true,
+        dry_run:                 false,
+        run_id:                  execRunId,
+        status:                  "completed",
+        completed_scene_count:   1,
+        failed_scene_count:      0,
+        completed_scene_keys:    [chosenScene.scene_key],
+        failed_scene_keys:       [],
+        recommended_scope:       plan.recommended_scope,
+        source_units:            plan.source_units,
+        direct_axes:             plan.direct_axes,
+        ndg_pre_at_risk_count:   ndgPreAtRiskCount,
+        ndg_post_at_risk_count:  ndgPostAtRiskCount,
+        ndg_validation_status:   ndgValidationStatus,
+        new_version_id:          newVerRow.id,
+        new_version_number:      newVerRow.version_number,
+        supersedes_version_id:   prevVersion.id,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
