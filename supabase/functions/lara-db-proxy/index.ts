@@ -533,6 +533,52 @@ Deno.serve(async (req) => {
             ALTER TABLE public.scene_graph_scenes
               ADD COLUMN IF NOT EXISTS provenance jsonb NOT NULL DEFAULT '{}'::jsonb;
           `,
+          "regeneration_runs_v1": `
+            CREATE TABLE IF NOT EXISTS public.regeneration_runs (
+              id                      uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+              project_id              uuid        NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+              triggered_by            uuid,
+              source_unit_keys        text[]      NOT NULL DEFAULT '{}',
+              source_axes             text[]      NOT NULL DEFAULT '{}',
+              recommended_scope       text        NOT NULL,
+              target_scene_ids        uuid[]      NOT NULL DEFAULT '{}',
+              target_scene_count      integer     NOT NULL DEFAULT 0,
+              completed_scene_ids     uuid[]      NOT NULL DEFAULT '{}',
+              failed_scene_ids        uuid[]      NOT NULL DEFAULT '{}',
+              status                  text        NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending','running','completed','partial_failure','failed','aborted')),
+              abort_reason            text,
+              ndg_pre_at_risk_count   integer,
+              ndg_post_at_risk_count  integer,
+              ndg_validation_status   text
+                CHECK (ndg_validation_status IS NULL OR
+                       ndg_validation_status IN ('improved','unchanged','degraded','not_run')),
+              started_at              timestamptz NOT NULL DEFAULT now(),
+              completed_at            timestamptz,
+              meta_json               jsonb       NOT NULL DEFAULT '{}'
+            );
+            CREATE INDEX IF NOT EXISTS idx_regeneration_runs_project_id
+              ON public.regeneration_runs(project_id);
+            CREATE INDEX IF NOT EXISTS idx_regeneration_runs_active
+              ON public.regeneration_runs(project_id, status)
+              WHERE status IN ('pending', 'running');
+            ALTER TABLE public.regeneration_runs ENABLE ROW LEVEL SECURITY;
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='regeneration_runs' AND policyname='rr_select') THEN
+                CREATE POLICY "rr_select" ON public.regeneration_runs
+                  FOR SELECT TO authenticated USING (has_project_access(auth.uid(), project_id));
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='regeneration_runs' AND policyname='rr_insert') THEN
+                CREATE POLICY "rr_insert" ON public.regeneration_runs
+                  FOR INSERT TO authenticated WITH CHECK (has_project_access(auth.uid(), project_id));
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='regeneration_runs' AND policyname='rr_update') THEN
+                CREATE POLICY "rr_update" ON public.regeneration_runs
+                  FOR UPDATE TO authenticated USING (has_project_access(auth.uid(), project_id));
+              END IF;
+            END $$;
+          `,
+
           "narrative_entity_rls_v1": `
             -- narrative_entities: full CRUD (manual source_kind supports user writes)
             CREATE POLICY "ne_select" ON public.narrative_entities
