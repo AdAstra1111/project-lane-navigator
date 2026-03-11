@@ -224,9 +224,9 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
       <CardContent className="space-y-6">
         {/* ═══ AUTOPILOT STATUS ═══ */}
         <AutopilotRepairPanel
-          data={autopilotData}
-          isLoading={autopilotLoading}
-          onRefresh={refreshAutopilot}
+          data={monitorData}
+          isLoading={monitorLoading}
+          onRefresh={refreshMonitor}
           onPreviewPlan={() => refetchPlan()}
           onDryRun={handleDryRun}
           onExecuteRepair={() => setConfirmOpen(true)}
