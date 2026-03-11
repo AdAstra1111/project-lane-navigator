@@ -468,6 +468,16 @@ Deno.serve(async (req) => {
               ADD CONSTRAINT scene_spine_links_scene_id_fkey
               FOREIGN KEY (scene_id) REFERENCES public.scene_graph_scenes(id) ON DELETE CASCADE;
           `,
+          "scene_blueprint_bindings_rls_v1": `
+            CREATE POLICY "sbb_select" ON public.scene_blueprint_bindings
+              FOR SELECT TO authenticated USING (has_project_access(auth.uid(), project_id));
+            CREATE POLICY "sbb_insert" ON public.scene_blueprint_bindings
+              FOR INSERT TO authenticated WITH CHECK (has_project_access(auth.uid(), project_id));
+            CREATE POLICY "sbb_update" ON public.scene_blueprint_bindings
+              FOR UPDATE TO authenticated USING (has_project_access(auth.uid(), project_id));
+            CREATE POLICY "sbb_delete" ON public.scene_blueprint_bindings
+              FOR DELETE TO authenticated USING (has_project_access(auth.uid(), project_id));
+          `,
           "codify_enrichment_columns_v1": `
             ALTER TABLE public.scene_graph_versions
               ADD COLUMN IF NOT EXISTS characters_present jsonb NOT NULL DEFAULT '[]'::jsonb,
