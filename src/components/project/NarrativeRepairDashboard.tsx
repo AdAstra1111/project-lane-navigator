@@ -125,10 +125,10 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
   };
 
   const refreshAfterExecution = useCallback(() => {
-    refreshAutopilot();
+    refreshMonitor();
     refetchPlan();
     refetchHistory();
-  }, [refreshAutopilot, refetchPlan, refetchHistory]);
+  }, [refreshMonitor, refetchPlan, refetchHistory]);
 
   const handleDryRun = useCallback(async () => {
     reset();
