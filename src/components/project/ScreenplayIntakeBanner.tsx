@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { CheckCircle2, Loader2, RotateCcw, Clock, FileText, XCircle, MinusCircle, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, Loader2, RotateCcw, Clock, FileText, XCircle, MinusCircle, AlertTriangle, ShieldCheck, ShieldAlert, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
