@@ -478,6 +478,34 @@ Deno.serve(async (req) => {
               END IF;
             END $$;
           `,
+          "resolve_stale_nu_obsidian_mirror": `
+            -- EVIDENCE-BASED DIRECT RESOLUTION: two stale narrative_units in The Obsidian Mirror
+            -- protagonist_arc (id: 20d04c60): stale_reason shows previous_value == new_value
+            --   → no-op spine amendment, false-positive stale trigger
+            --   → contradiction_note=None, verbatim_quote_verified=True
+            -- central_conflict (id: ceae1662): spine simplified ("...— and the life she refused to live" removed)
+            --   → contradiction_note=None, evidence present and verified
+            --   → core conflict identity unchanged, safe to mark aligned
+            --
+            -- document (id: 95dceb5b): needs_reconcile=True due to the same no-op protagonist_arc amendment
+            --   → safe to clear after unit resolution
+
+            UPDATE public.narrative_units
+              SET status      = 'aligned',
+                  stale_reason = NULL,
+                  updated_at   = NOW()
+              WHERE id IN (
+                'ceae1662-3a9c-4a3c-a411-12cadfa3ddf9',
+                '20d04c60-459d-4b02-9caa-d87df193d761'
+              );
+
+            UPDATE public.project_documents
+              SET needs_reconcile    = false,
+                  reconcile_reasons  = NULL,
+                  updated_at         = NOW()
+              WHERE id = '95dceb5b-c354-486b-b142-7113ac570c56'
+                AND needs_reconcile  = true;
+          `,
           "scene_blueprint_bindings_rls_v1": `
             CREATE POLICY "sbb_select" ON public.scene_blueprint_bindings
               FOR SELECT TO authenticated USING (has_project_access(auth.uid(), project_id));
