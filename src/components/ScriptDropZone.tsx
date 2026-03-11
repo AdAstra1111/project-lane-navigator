@@ -98,7 +98,7 @@ export function ScriptDropZone() {
 
   const anyRunning = isRunning;
   const allDone    = stages.every(s => s.status === 'done' || s.status === 'skipped');
-  const hasError   = stages.some(s => s.status === 'error');
+  const hasError   = stages.some(s => s.status === 'failed');
   const activeStage = stages.find(s => s.status === 'running');
 
   return (
