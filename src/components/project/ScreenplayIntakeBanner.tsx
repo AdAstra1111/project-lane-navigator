@@ -6,12 +6,12 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { CheckCircle2, Loader2, RotateCcw, Clock, FileText, XCircle, MinusCircle, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, Loader2, RotateCcw, Clock, FileText, XCircle, MinusCircle, AlertTriangle, ShieldCheck, ShieldAlert, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { useScreenplayIntakeRun, type IntakeStageRecord } from '@/hooks/useScreenplayIntakeRun';
+import { useScreenplayIntakeRun, type IntakeStageRecord, type SceneGraphHealth } from '@/hooks/useScreenplayIntakeRun';
 import { formatDistanceToNow } from 'date-fns';
 
 interface ScreenplayIntakeBannerProps {
@@ -162,6 +162,51 @@ function StageRow({
   );
 }
 
+function GraphHealthAdvisory({ health }: { health: SceneGraphHealth | null }) {
+  if (!health) return null;
+
+  const config: Record<string, { icon: React.ReactNode; label: string; message: string; style: string }> = {
+    POPULATED_GRAPH: {
+      icon:    <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 shrink-0" />,
+      label:   'Healthy Scene Graph',
+      message: 'Scene graph is structurally complete.',
+      style:   'border-emerald-500/20 bg-emerald-500/5 text-emerald-400/90',
+    },
+    PARTIAL_GRAPH: {
+      icon:    <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />,
+      label:   'Partial Scene Graph',
+      message: 'Scene graph appears incomplete. Rebuild is recommended.',
+      style:   'border-amber-500/20 bg-amber-500/5 text-amber-400/90',
+    },
+    EMPTY_GRAPH: {
+      icon:    <Shield className="h-3.5 w-3.5 text-muted-foreground shrink-0" />,
+      label:   'Empty Scene Graph',
+      message: 'Scene graph has not been generated yet.',
+      style:   'border-border/40 bg-muted/30 text-muted-foreground',
+    },
+  };
+
+  const c = config[health.state];
+  if (!c) return null;
+
+  return (
+    <div className={cn('flex items-start gap-2 rounded-lg border px-3 py-2', c.style)}>
+      {c.icon}
+      <div className="text-[11px] space-y-0.5">
+        <p className="font-medium">{c.label}
+          {health.scene_count > 0 && (
+            <span className="font-normal ml-1 opacity-70">({health.scene_count} scenes)</span>
+          )}
+        </p>
+        <p className="opacity-70">{c.message}</p>
+        {health.state === 'PARTIAL_GRAPH' && health.signals.length > 0 && (
+          <p className="opacity-50 text-[10px] font-mono">{health.signals.join(', ')}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ScreenplayIntakeBanner({ projectId }: ScreenplayIntakeBannerProps) {
   const {
     latestRun,
@@ -173,6 +218,7 @@ export function ScreenplayIntakeBanner({ projectId }: ScreenplayIntakeBannerProp
     rebuildRequired,
     rebuildSceneCount,
     rebuildSceneGraph,
+    graphHealth,
   } = useScreenplayIntakeRun(projectId);
 
   // Fail closed
@@ -222,6 +268,9 @@ export function ScreenplayIntakeBanner({ projectId }: ScreenplayIntakeBannerProp
           </div>
         </div>
       )}
+
+      {/* Scene graph health advisory */}
+      <GraphHealthAdvisory health={graphHealth} />
 
       {/* Progress bar */}
       <div className="w-full h-1.5 rounded-full overflow-hidden bg-muted">
