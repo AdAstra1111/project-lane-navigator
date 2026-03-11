@@ -225,3 +225,8 @@ CREATE POLICY dsv2_intent_delete ON public.dev_seed_v2_generation_intent FOR DEL
 -- If versioning is needed in future, add dev_seed_v2_history (append-only).
 ALTER TABLE public.dev_seed_v2_projects
   ADD CONSTRAINT dev_seed_v2_projects_project_id_unique UNIQUE (project_id);
+
+-- ── DS2B: Promotion tracking (additive) ──────────────────────────────────────
+ALTER TABLE public.dev_seed_v2_projects
+  ADD COLUMN IF NOT EXISTS promoted_at        TIMESTAMPTZ DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS promotion_summary  JSONB       DEFAULT NULL;

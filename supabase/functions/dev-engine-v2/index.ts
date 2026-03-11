@@ -2150,6 +2150,13 @@ async function computeAutopilotMonitorStatus(
 const REPAIR_STRATEGIES = new Set(["precision", "balanced", "stabilization"]);
 const DEFAULT_REPAIR_STRATEGY = "balanced";
 
+// Module-level canonical axis set (matches SPINE_AXES in narrativeSpine.ts).
+// Used by simulation, Dev Seed v2 sync, and any other axis-validation paths.
+const VALID_SPINE_AXES = new Set([
+  "story_engine", "pressure_system", "central_conflict", "inciting_incident",
+  "resolution_type", "stakes_class", "protagonist_arc", "midpoint_reversal", "tonal_gravity",
+]);
+
 // NDG_HIGH_RISK_THRESHOLD: scope at which 'precision' allows propagated scenes
 const PRECISION_PROPAGATED_SCOPE = new Set(["broad_impact"]);
 
@@ -2868,6 +2875,7 @@ serve(async (req) => {
       "simulate_narrative_impact",
       "create_dev_seed_v2",
       "get_dev_seed_v2",
+      "sync_dev_seed_v2_to_canon",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -9579,10 +9587,7 @@ Return ONLY valid JSON:
       }
 
       // ── Validate axis_keys against SPINE_AXES (closed set) ───────────────
-      const VALID_SPINE_AXES = new Set([
-        "story_engine", "pressure_system", "central_conflict", "inciting_incident",
-        "resolution_type", "stakes_class", "protagonist_arc", "midpoint_reversal", "tonal_gravity",
-      ]);
+      // Uses module-level VALID_SPINE_AXES constant.
       if (hasAxisKeys) {
         const invalidAxes = (rawAxisKeys as string[]).filter(ax => !VALID_SPINE_AXES.has(ax));
         if (invalidAxes.length > 0) {
@@ -10104,6 +10109,319 @@ Return ONLY valid JSON:
         layer_6_canon_rules:      ruleRes.data ?? [],
         layer_7_beats:            beatRes.data ?? [],
         layer_8_generation_intent: intentRes.data ?? null,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── Dev Seed v2: sync_dev_seed_v2_to_canon ───────────────────────────────────
+    //
+    // Promotes structured seed data into canonical runtime systems.
+    // Manual, explicit, idempotent. Gated by validation before any write.
+    //
+    // PROMOTABLE LAYERS:
+    //   Layer 3 (Axes)     → projects.narrative_spine_json (write-once guard — only if NULL)
+    //   Layer 4 (Units)    → narrative_units (UPSERT; unit_key = {seed_id}::{axis_key})
+    //   Layer 5a (Entities) → narrative_entities (UPSERT on project_id,entity_key)
+    //   Layer 5b (Relations) → narrative_entity_relations (ON CONFLICT DO NOTHING)
+    //
+    // SEED-ONLY (not promoted):
+    //   Layer 1 (Project Identity) — fields already exist in projects table
+    //   Layer 2 (Premise Kernel)   — risk of overwriting AI-extracted project_canon
+    //   Layer 6 (Canon Rules)      — no canonical target system yet
+    //   Layer 7 (Beat Seeds)       — no canonical target system yet
+    //   Layer 8 (Generation Intent) — projection controls, not canonical state
+    //
+    // PROVENANCE:
+    //   narrative_units:   source_doc_type="dev_seed_v2", source_doc_version_id=seed_id
+    //   narrative_entities: source_kind="dev_seed_v2", source_key=seed_id
+    //
+    // POST-PROMOTION:
+    //   dev_seed_v2_projects.promoted_at + promotion_summary updated.
+    //
+    if (action === "sync_dev_seed_v2_to_canon") {
+      const { projectId, seedId: reqSeedId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 1: Load seed ─────────────────────────────────────────────────
+      let rootQuery = (supabase as any)
+        .from("dev_seed_v2_projects")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (reqSeedId) rootQuery = rootQuery.eq("id", reqSeedId);
+      const { data: rootRow, error: rootErr } = await rootQuery.maybeSingle();
+      if (rootErr) throw rootErr;
+      if (!rootRow) {
+        return new Response(JSON.stringify({
+          ok: false, error: "No Dev Seed v2 found for this project",
+          action: "sync_dev_seed_v2_to_canon",
+        }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const seedId = rootRow.id as string;
+
+      const [axRes, unitRes, entRes, relRes] = await Promise.all([
+        (supabase as any).from("dev_seed_v2_axes").select("*").eq("seed_id", seedId),
+        (supabase as any).from("dev_seed_v2_units").select("*").eq("seed_id", seedId),
+        (supabase as any).from("dev_seed_v2_entities").select("*").eq("seed_id", seedId),
+        (supabase as any).from("dev_seed_v2_entity_relations").select("*").eq("seed_id", seedId),
+      ]);
+
+      const seedAxes      = (axRes.data  || []) as any[];
+      const seedUnits     = (unitRes.data || []) as any[];
+      const seedEntities  = (entRes.data || []) as any[];
+      const seedRelations = (relRes.data || []) as any[];
+
+      // ── Step 2: Validate before any write ────────────────────────────────
+      const validationErrors: string[] = [];
+
+      // 2a. Validate axis_keys
+      const invalidAxes = seedAxes
+        .filter((ax: any) => !VALID_SPINE_AXES.has(ax.axis_key))
+        .map((ax: any) => ax.axis_key);
+      if (invalidAxes.length > 0) {
+        validationErrors.push(`Invalid axis_keys: [${invalidAxes.join(", ")}]. Must be in SPINE_AXES.`);
+      }
+
+      // 2b. Validate entity_keys are non-empty
+      const entityKeySet = new Set(seedEntities.map((e: any) => e.entity_key as string));
+      const emptyEntityKeys = seedEntities.filter((e: any) => !e.entity_key || !e.entity_name);
+      if (emptyEntityKeys.length > 0) {
+        validationErrors.push(`${emptyEntityKeys.length} entity/entities missing entity_key or entity_name`);
+      }
+
+      // 2c. Validate relation entity_keys exist in seed
+      const orphanedRelations = seedRelations.filter((r: any) =>
+        !entityKeySet.has(r.source_entity_key) || !entityKeySet.has(r.target_entity_key)
+      );
+      if (orphanedRelations.length > 0) {
+        validationErrors.push(
+          `${orphanedRelations.length} relation(s) reference entity_keys not in seed entities: ` +
+          orphanedRelations.map((r: any) => `${r.source_entity_key} → ${r.target_entity_key}`).join(", ")
+        );
+      }
+
+      if (validationErrors.length > 0) {
+        return new Response(JSON.stringify({
+          ok:               false,
+          action:           "sync_dev_seed_v2_to_canon",
+          project_id:       projectId,
+          seed_id:          seedId,
+          validation_errors: validationErrors,
+          error:            "Seed validation failed — no promotion occurred",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 3: Promote Layer 3 → narrative_spine_json ───────────────────
+      // Write-once guard: only if spine is currently NULL. Matches promote-to-devseed pattern.
+      // Respects spine lifecycle (provisional → confirmed → locked via decision_ledger).
+      let spinePromoted = 0;
+      let spineSkipReason: string | null = null;
+
+      if (seedAxes.length > 0) {
+        const { data: spineCheck } = await (supabase as any)
+          .from("projects")
+          .select("narrative_spine_json")
+          .eq("id", projectId)
+          .maybeSingle();
+
+        if (spineCheck?.narrative_spine_json !== null && spineCheck?.narrative_spine_json !== undefined) {
+          spineSkipReason = "spine_already_set — use spine-amendment to amend individual axes";
+        } else {
+          // Build spine object from seed axes (axis_statement = axis value)
+          const spineJson: Record<string, string | null> = {};
+          for (const ax of seedAxes) {
+            if (VALID_SPINE_AXES.has(ax.axis_key)) {
+              spineJson[ax.axis_key as string] = ax.axis_statement ?? null;
+            }
+          }
+          const { error: spineErr } = await (supabase as any)
+            .from("projects")
+            .update({ narrative_spine_json: spineJson })
+            .eq("id", projectId)
+            .is("narrative_spine_json", null);  // write-once guard
+          if (spineErr) {
+            console.warn("[sync_dev_seed_v2_to_canon] spine write failed:", spineErr.message);
+            spineSkipReason = "spine_write_failed: " + spineErr.message;
+          } else {
+            spinePromoted = seedAxes.length;
+          }
+        }
+      }
+
+      // ── Step 4: Promote Layer 4 → narrative_units ────────────────────────
+      // unit_key = {seed_id}::{axis_key} — seed_id IS a UUID, matches canonical format.
+      // Idempotent: ON CONFLICT (project_id, unit_type, unit_key) DO UPDATE.
+      let unitsPromoted = 0;
+      const now = new Date().toISOString();
+
+      if (seedUnits.length > 0) {
+        const unitRows = seedUnits.map((u: any) => ({
+          project_id:          projectId,
+          unit_type:           u.unit_type,
+          unit_key:            `${seedId}::${u.unit_type}`,  // canonical format
+          payload_json: {
+            spine_value:       u.unit_statement ?? null,
+            success_state:     u.success_state  ?? null,
+            failure_mode:      u.failure_mode   ?? null,
+            seed_unit_key:     u.unit_key,          // provenance back to seed
+          },
+          source_doc_type:         "dev_seed_v2",
+          source_doc_version_id:   seedId,          // seed_id is a UUID
+          confidence:              1.0,
+          extraction_method:       "dev_seed_v2_promotion",
+          status:                  u.initial_alignment_status ?? "aligned",
+          updated_at:              now,
+        }));
+
+        const { error: unitErr, data: unitData } = await (supabase as any)
+          .from("narrative_units")
+          .upsert(unitRows, {
+            onConflict:       "project_id,unit_type,unit_key",
+            ignoreDuplicates: false,
+          })
+          .select("id");
+
+        if (unitErr) {
+          console.warn("[sync_dev_seed_v2_to_canon] units upsert failed:", unitErr.message);
+        } else {
+          unitsPromoted = (unitData || []).length;
+        }
+      }
+
+      // ── Step 5: Promote Layer 5a → narrative_entities ────────────────────
+      // UPSERT on (project_id, entity_key) — idempotent.
+      let entitiesPromoted = 0;
+      const promotedEntityIdMap = new Map<string, string>(); // entity_key → uuid
+
+      if (seedEntities.length > 0) {
+        const entityRows = seedEntities.map((e: any) => ({
+          project_id:     projectId,
+          entity_key:     e.entity_key,
+          canonical_name: e.entity_name,
+          entity_type:    e.entity_type,
+          source_kind:    "dev_seed_v2",
+          source_key:     seedId,
+          status:         "active",
+          meta_json: {
+            narrative_role:      e.narrative_role      ?? null,
+            description:         e.description         ?? null,
+            aliases:             e.aliases             ?? [],
+            story_critical_flag: e.story_critical_flag ?? false,
+          },
+          updated_at: now,
+        }));
+
+        const { error: entErr } = await (supabase as any)
+          .from("narrative_entities")
+          .upsert(entityRows, {
+            onConflict:       "project_id,entity_key",
+            ignoreDuplicates: false,
+          });
+
+        if (entErr) {
+          console.warn("[sync_dev_seed_v2_to_canon] entities upsert failed:", entErr.message);
+        } else {
+          entitiesPromoted = entityRows.length;
+
+          // Load promoted entity IDs for relation insertion
+          const { data: promotedEnts } = await (supabase as any)
+            .from("narrative_entities")
+            .select("id,entity_key")
+            .eq("project_id", projectId)
+            .in("entity_key", seedEntities.map((e: any) => e.entity_key));
+
+          for (const row of (promotedEnts || []) as any[]) {
+            promotedEntityIdMap.set(row.entity_key as string, row.id as string);
+          }
+        }
+      }
+
+      // ── Step 6: Promote Layer 5b → narrative_entity_relations ────────────
+      // Resolve entity_key → UUID. ON CONFLICT DO NOTHING (idempotent).
+      let relationsPromoted = 0;
+
+      if (seedRelations.length > 0 && promotedEntityIdMap.size > 0) {
+        const relRows: any[] = [];
+        for (const r of seedRelations) {
+          const sourceId = promotedEntityIdMap.get(r.source_entity_key);
+          const targetId = promotedEntityIdMap.get(r.target_entity_key);
+          if (!sourceId || !targetId) continue;  // orphaned — skip (already validated above)
+          relRows.push({
+            project_id:       projectId,
+            source_entity_id: sourceId,
+            target_entity_id: targetId,
+            relation_type:    r.relation_type,
+            source_kind:      "dev_seed_v2",
+            confidence:       1.0,
+            updated_at:       now,
+          });
+        }
+
+        if (relRows.length > 0) {
+          const { error: relErr } = await (supabase as any)
+            .from("narrative_entity_relations")
+            .upsert(relRows, {
+              onConflict:       "source_entity_id,target_entity_id,relation_type",
+              ignoreDuplicates: true,  // idempotent
+            });
+          if (relErr) {
+            console.warn("[sync_dev_seed_v2_to_canon] relations upsert failed:", relErr.message);
+          } else {
+            relationsPromoted = relRows.length;
+          }
+        }
+      }
+
+      // ── Step 7: Record promotion in seed root row ─────────────────────────
+      const promotionSummary = {
+        promoted_at:    now,
+        axes_to_spine:  spinePromoted,
+        spine_skip:     spineSkipReason,
+        units:          unitsPromoted,
+        entities:       entitiesPromoted,
+        relations:      relationsPromoted,
+      };
+      await (supabase as any)
+        .from("dev_seed_v2_projects")
+        .update({ promoted_at: now, promotion_summary: promotionSummary })
+        .eq("id", seedId);
+
+      console.log("[dev-engine-v2] sync_dev_seed_v2_to_canon complete", {
+        project_id: projectId,
+        seed_id:    seedId,
+        ...promotionSummary,
+      });
+
+      return new Response(JSON.stringify({
+        project_id:       projectId,
+        action:           "sync_dev_seed_v2_to_canon",
+        ok:               true,
+        seed_id:          seedId,
+        promoted_at:      now,
+        promotions: {
+          layer_3_axes_to_spine:   spinePromoted,
+          spine_skip_reason:       spineSkipReason,
+          layer_4_units:           unitsPromoted,
+          layer_5_entities:        entitiesPromoted,
+          layer_5_relations:       relationsPromoted,
+        },
+        seed_only_layers: [
+          "layer_1_project_identity",
+          "layer_2_premise_kernel",
+          "layer_6_canon_rules",
+          "layer_7_beat_seeds",
+          "layer_8_generation_intent",
+        ],
+        notes: [
+          "Layer 3 → spine only if narrative_spine_json is NULL (write-once guard)",
+          "Layer 4 units: unit_key format is {seed_id}::{axis_key}",
+          "Layer 5 entities: UPSERT on (project_id, entity_key)",
+          "Layer 5 relations: ON CONFLICT DO NOTHING (idempotent)",
+          "Layers 2, 6, 7, 8 remain seed-scoped — no canonical target yet",
+        ],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
