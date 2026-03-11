@@ -61,10 +61,28 @@ export function RewriteExecutionPanel({ projectId }: Props) {
   const { execute, isExecuting, result, error, reset } = useExecuteSelectiveRegeneration(projectId);
   const { data: sluglines } = useSceneSluglines(projectId);
   const slugMap = sluglines ?? new Map<string, string>();
+  const diffHook = useSceneVersionDiff(projectId);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [showAllCompleted, setShowAllCompleted] = useState(false);
   const [showAllFailed, setShowAllFailed] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [diffSceneIndex, setDiffSceneIndex] = useState(0);
+
+  const completedKeysForDiff = result?.completed_scene_keys ?? [];
+
+  const handleViewChanges = (sceneKey: string) => {
+    const idx = completedKeysForDiff.indexOf(sceneKey);
+    setDiffSceneIndex(idx >= 0 ? idx : 0);
+    setDiffOpen(true);
+    diffHook.loadDiff(sceneKey);
+  };
+
+  const handleDiffNavigate = (sceneKey: string) => {
+    const idx = completedKeysForDiff.indexOf(sceneKey);
+    setDiffSceneIndex(idx >= 0 ? idx : 0);
+    diffHook.loadDiff(sceneKey);
+  };
 
   // Loading
   if (planLoading) {
