@@ -12,6 +12,7 @@ import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
 import { useSceneVersionDiff } from '@/hooks/useSceneVersionDiff';
 import { useRegenerationRunHistory, type RegenerationRun } from '@/hooks/useRegenerationRunHistory';
 import { SceneRewriteDiffViewer } from '@/components/project/SceneRewriteDiffViewer';
+import { NDGImpactHeatmap } from '@/components/project/NDGImpactHeatmap';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -203,6 +204,19 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
           slugMap={slugMap}
           onViewChanges={(key) => handleViewChanges(key, completedKeysForDiff)}
           completedKeys={completedKeysForDiff}
+        />
+
+        {/* ═══ SECTION 2.5: NDG IMPACT HEATMAP ═══ */}
+        <NDGImpactHeatmap
+          allScenes={allScenes}
+          entityScenes={entityScenes}
+          slugMap={slugMap}
+          latestRun={(runHistory && runHistory.length > 0) ? runHistory[0] : null}
+          onSceneClick={(key, hasRun) => {
+            if (hasRun && completedKeysForDiff.includes(key)) {
+              handleViewChanges(key, completedKeysForDiff);
+            }
+          }}
         />
 
         {/* ═══ SECTION 3: EXECUTION CONTROLS ═══ */}
