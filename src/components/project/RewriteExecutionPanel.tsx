@@ -262,6 +262,7 @@ function ExecutionResultView({
   setShowAllCompleted,
   showAllFailed,
   setShowAllFailed,
+  onViewChanges,
 }: {
   result: RegenExecutionResult;
   slugMap: SluglineMap;
@@ -269,6 +270,7 @@ function ExecutionResultView({
   setShowAllCompleted: (v: boolean) => void;
   showAllFailed: boolean;
   setShowAllFailed: (v: boolean) => void;
+  onViewChanges?: (sceneKey: string) => void;
 }) {
   const status = result.status ?? (result.ok ? 'completed' : 'failed');
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.failed;
