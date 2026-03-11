@@ -2319,6 +2319,7 @@ async function computeSelectiveRegenerationPlanHelper(
 
             // Determine which axis grounds each present entity
             const groundingClaims: string[] = [];
+            const sourceAxesForScene = new Set<string>(); // tracks which direct axes ground this scene
             for (const entity of presentEntities) {
               // Is this an anchor entity? Build axis rationale
               const anchorRow = anchorEntities.find(a => presentEntityIds.includes(a.id));
@@ -2328,6 +2329,7 @@ async function computeSelectiveRegenerationPlanHelper(
                 );
                 for (const ax of matchingAxes) {
                   groundingClaims.push(`${ax} grounds to ${entity.entity_key} (${entity.entity_type})`);
+                  sourceAxesForScene.add(ax);
                 }
               }
               // Is this a related entity? Build chain rationale
@@ -2345,6 +2347,7 @@ async function computeSelectiveRegenerationPlanHelper(
                   groundingClaims.push(
                     `${ax} grounds to ${anchorEntity.entity_key}; ${entity.entity_key} ${rel.relation_type} ${anchorEntity.entity_key}`
                   );
+                  sourceAxesForScene.add(ax);
                 }
               }
             }
@@ -2357,6 +2360,7 @@ async function computeSelectiveRegenerationPlanHelper(
               slugline:             entitySluglineMap.get(sceneId) ?? null,
               risk_source:          "entity_link",
               entity_keys:          presentEntities.map(e => e.entity_key),
+              source_axes:          [...sourceAxesForScene],  // direct axes grounding this scene
               grounding_rationale:  groundingClaims.join("; ") + " — entity present in scene",
             };
             entityImpactedScenes.push(entityScene);
@@ -9156,35 +9160,80 @@ Return ONLY valid JSON:
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── Step 6: Derive rewrite targets (direct risk only for Stage 1) ─────
+      // ── Step 6: Derive rewrite targets — v3: direct first, entity fill ──────
+      //
+      // PRIMARY: direct scenes — sequenced by axis rank then scene_key (unchanged).
+      // SECONDARY (entity fill): entity-linked scenes appended when:
+      //   - direct scenes exist (never replace primary)
+      //   - remaining batch capacity > 0
+      //   - scope is targeted_scenes or broad_impact (not no_risk / propagated_only)
+      //   - entity_impacted_scenes[] is non-empty
+      // Entity fill is sorted deterministically by scene_key.
+      // Each scene carries execution_source: "direct" | "entity_link" for provenance.
+      //
+      const SAFE_ENTITY_EXEC_SCOPES = new Set(["targeted_scenes", "broad_impact"]);
+      const BATCH_CAP = 5; // referenced early for capacity calculation
+
       const directOnlyScenes = plan.impacted_scenes.filter(
         (s: any) => s.risk_source === "direct"
       );
 
       // ── Step 7: Sequence scenes deterministically ─────────────────────────
-      // Sequence axes via sequenceRewriteTargets, then sort scenes by
-      // (axis_sequence_rank ASC, scene_key ASC) for deterministic order.
+      // Direct scenes: axis rank ASC, then scene_key ASC.
+      // Entity scenes: scene_key ASC (no axis rank — sorted after all direct).
       const axisRankMap = new Map<string, number>(
         (plan.source_units || []).map((u: any) => [u.axis, u.sequence_rank as number])
       );
 
-      const targetScenes = directOnlyScenes
+      const sequencedDirectScenes = directOnlyScenes
         .map((s: any) => ({
-          scene_id:      s.scene_id   as string,
-          scene_key:     s.scene_key  as string,
-          slugline:      s.slugline   as string | null,
-          axis_key:      s.axis_key   as string,
-          risk_reason:   s.risk_reason as string,
-          _axis_rank:    axisRankMap.get(s.axis_key) ?? 99,
+          scene_id:         s.scene_id   as string,
+          scene_key:        s.scene_key  as string,
+          slugline:         s.slugline   as string | null,
+          axis_key:         s.axis_key   as string,
+          risk_reason:      s.risk_reason as string,
+          execution_source: "direct" as const,
+          _axis_rank:       axisRankMap.get(s.axis_key) ?? 99,
         }))
         .sort((a: any, b: any) => {
           if (a._axis_rank !== b._axis_rank) return a._axis_rank - b._axis_rank;
           return a.scene_key.localeCompare(b.scene_key);
         })
-        .map((s: any, i: number) => {
+        .map((s: any) => {
           const { _axis_rank: _, ...rest } = s;
-          return { ...rest, order: i + 1 };
+          return rest;
         });
+
+      // Entity fill — strict gating
+      const entityFillScenes: Array<{
+        scene_id: string; scene_key: string; slugline: string | null;
+        axis_key: string; risk_reason: string; execution_source: "entity_link";
+      }> = [];
+
+      const remainingCapacity = BATCH_CAP - sequencedDirectScenes.length;
+      if (
+        remainingCapacity > 0 &&
+        sequencedDirectScenes.length > 0 &&
+        SAFE_ENTITY_EXEC_SCOPES.has(plan.recommended_scope) &&
+        (plan.entity_impacted_scenes?.length ?? 0) > 0
+      ) {
+        const sorted = ((plan.entity_impacted_scenes || []) as any[])
+          .sort((a: any, b: any) => (a.scene_key as string).localeCompare(b.scene_key));
+        for (const s of sorted.slice(0, remainingCapacity)) {
+          entityFillScenes.push({
+            scene_id:         s.scene_id as string,
+            scene_key:        s.scene_key as string,
+            slugline:         (s.slugline ?? null) as string | null,
+            // Use first source_axis as axis context for rewrite prompt stale-unit lookup
+            axis_key:         ((s.source_axes as string[] | undefined)?.[0] ?? "entity_link"),
+            risk_reason:      (s.grounding_rationale as string) ?? "entity-linked scene",
+            execution_source: "entity_link",
+          });
+        }
+      }
+
+      const targetScenes = [...sequencedDirectScenes, ...entityFillScenes]
+        .map((s, i) => ({ ...s, order: i + 1 }));
 
       // ── Step 8: Create regeneration_runs record ───────────────────────────
       const { data: runRow, error: runInsertErr } = await supabase
@@ -9224,6 +9273,7 @@ Return ONLY valid JSON:
       // ── STAGE 1: DRY RUN ─────────────────────────────────────────────────
       // No scene_graph_versions writes. No LLM calls. No NDG post-validation.
       if (dryRun) {
+        const entityCandidates = targetScenes.filter(s => s.execution_source === "entity_link");
         return new Response(JSON.stringify({
           project_id:                  projectId,
           action:                      "execute_selective_regeneration",
@@ -9235,10 +9285,12 @@ Return ONLY valid JSON:
           source_units:                plan.source_units,
           direct_axes:                 plan.direct_axes,
           target_scene_count:          targetScenes.length,
-          target_scenes:               targetScenes,
+          target_scenes:               targetScenes,          // includes direct + entity_link
           ndg_pre_at_risk_count:       ndgPreAtRiskCount,
           entity_impacted_scenes:      plan.entity_impacted_scenes,
           entity_impacted_scene_count: plan.entity_impacted_scene_count,
+          entity_scene_candidates:     entityCandidates,     // entity scenes selected for this run
+          entity_scene_count:          entityCandidates.length,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
@@ -9249,14 +9301,15 @@ Return ONLY valid JSON:
       //   with status='running' — all in a single transaction. Lock auto-releases
       //   on transaction commit; the row status='running' serves as the persistent lock.
       //
-      const BATCH_LIMIT = 5;
+      const BATCH_LIMIT = BATCH_CAP; // 5 — defined above in target selection
       const batchScenes = targetScenes.slice(0, BATCH_LIMIT) as Array<{
-        scene_id:    string;
-        scene_key:   string;
-        slugline:    string | null;
-        axis_key:    string;
-        risk_reason: string;
-        order:       number;
+        scene_id:         string;
+        scene_key:        string;
+        slugline:         string | null;
+        axis_key:         string;
+        risk_reason:      string;
+        execution_source: "direct" | "entity_link";
+        order:            number;
       }>;
 
       const lockResult = await supabase.rpc("create_regen_run_locked", {
@@ -9441,6 +9494,7 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
         const sceneGeneratedAt    = new Date().toISOString();
         const provenanceMetadata  = {
           provenance_type:      "selective_regen",
+          execution_source:     scene.execution_source,  // "direct" | "entity_link"
           regeneration_run_id:  execRunId,
           source_unit_keys:     sourceUnitKeysForProvenance,
           source_axes:          plan.direct_axes,
@@ -9690,13 +9744,18 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
 
       // ── Step 8: Finalise run record ───────────────────────────────────────
       // NUE revalidation metadata stored in meta_json alongside batch config.
+      const directScenesExecuted = batchScenes.filter(s => s.execution_source === "direct").length;
+      const entityScenesExecuted = batchScenes.filter(s => s.execution_source === "entity_link").length;
+
       const finalMetaJson = {
-        dry_run:                false,
-        stage:                  4,
-        batch_size:             batchN,
-        nue_revalidated:        nueRevalidated,
-        revalidated_unit_keys:  revalidatedUnitKeys,
-        units_aligned_count:    alignedUnitCount,
+        dry_run:                  false,
+        stage:                    4,
+        batch_size:               batchN,
+        direct_scenes_executed:   directScenesExecuted,
+        entity_scenes_executed:   entityScenesExecuted,
+        nue_revalidated:          nueRevalidated,
+        revalidated_unit_keys:    revalidatedUnitKeys,
+        units_aligned_count:      alignedUnitCount,
       };
 
       await supabase
@@ -9745,9 +9804,11 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
         ndg_pre_at_risk_count:   ndgPreAtRiskCount,
         ndg_post_at_risk_count:  ndgPostAtRiskCount,
         ndg_validation_status:   ndgValidationStatus,
-        nue_revalidated:         nueRevalidated,
-        revalidated_unit_keys:   revalidatedUnitKeys,
-        aligned_unit_count:      alignedUnitCount,
+        nue_revalidated:          nueRevalidated,
+        revalidated_unit_keys:    revalidatedUnitKeys,
+        aligned_unit_count:       alignedUnitCount,
+        direct_scenes_executed:   directScenesExecuted,
+        entity_scenes_executed:   entityScenesExecuted,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
