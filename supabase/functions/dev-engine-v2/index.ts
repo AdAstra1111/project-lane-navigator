@@ -9339,14 +9339,14 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
 
           const { data: verRow } = await supabase
             .from("project_document_versions")
-            .select("content")
+            .select("plaintext")
             .eq("document_id", docRow.id)
             .eq("is_current", true)
             .limit(1)
             .maybeSingle();
-          if (!verRow?.content) throw new Error("No current story_outline version content — NUE revalidation skipped");
+          if (!verRow?.plaintext) throw new Error("No current story_outline version content — NUE revalidation skipped");
 
-          const docText = verRow.content as string;
+          const docText = verRow.plaintext as string;
 
           // Load project title for prompt context
           const { data: projectRow } = await supabase
