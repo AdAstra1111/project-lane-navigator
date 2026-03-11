@@ -1146,6 +1146,13 @@ export function buildDialogueHeadingMap(
         // Also without dot: "DR RAMSAY"
         add(`${titlePrefix.replace(".", "").toUpperCase()} ${lastName}`, entity.id);
       }
+    } else if (parts[0].toLowerCase() === "the") {
+      // "The X" composite names (e.g. "The Alternate Elara"):
+      //   - Do NOT produce first-name ("THE") or last-name ("ELARA") shorthands.
+      //     First-name "THE" is generic and would collide across multiple The-names.
+      //     Last-name (the final word) is a real character name and WOULD create
+      //     an ambiguity conflict with other entities (e.g. "ELARA" ↔ Elara Vance).
+      //   - The "THE X" rule below handles the useful shorthand deterministically.
     } else {
       // 2. First name only (title-free entities)
       if (firstName && firstName.length >= 2) {
@@ -1157,13 +1164,21 @@ export function buildDialogueHeadingMap(
       }
     }
 
-    // 6. "THE X" shorthand for "The Alternate Elara" style composite names
+    // 6. "THE X" shorthand for "The Alternate Elara" style composite names:
+    //    "THE ALTERNATE" → The Alternate Elara
+    //    Also add "THE X Y" variant (second + third word) for three-word The-names:
+    //    "THE ALTERNATE ELARA" is already covered by the full-name entry above.
     if (
       parts[0].toLowerCase() === "the" &&
       parts.length >= 2 &&
       parts[1].length >= 3
     ) {
       add(`THE ${parts[1]}`, entity.id);
+      // For "The Alternate Elara" also add "ALTERNATE ELARA" (without THE)
+      // — matches scripts that drop the article in dialogue headings
+      if (parts.length >= 3) {
+        add(`${parts[1].toUpperCase()} ${parts[2].toUpperCase()}`, entity.id);
+      }
     }
   }
 
