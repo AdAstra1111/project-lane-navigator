@@ -15,6 +15,7 @@ import { useNarrativeMonitor } from '@/hooks/useNarrativeMonitor';
 import { SceneRewriteDiffViewer } from '@/components/project/SceneRewriteDiffViewer';
 import { NDGImpactHeatmap } from '@/components/project/NDGImpactHeatmap';
 import { AutopilotRepairPanel } from '@/components/project/AutopilotRepairPanel';
+import { NarrativeSimulationPanel } from '@/components/project/NarrativeSimulationPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -186,6 +187,9 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
             onStrategyChange={setRepairStrategy}
           />
 
+          {/* Simulation Preview */}
+          <NarrativeSimulationPanel projectId={projectId} />
+
           <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-3">
             <ShieldCheck className="h-4 w-4 text-emerald-500" />
             <span className="text-sm text-muted-foreground">
@@ -234,6 +238,8 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
           repairStrategy={repairStrategy}
           onStrategyChange={setRepairStrategy}
         />
+        {/* ═══ SIMULATION PREVIEW ═══ */}
+        <NarrativeSimulationPanel projectId={projectId} />
         {/* ═══ SECTION 1: REPAIR STATUS ═══ */}
         <RepairStatusSection
           plan={plan}
