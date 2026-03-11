@@ -9662,6 +9662,27 @@ Return ONLY valid JSON:
         }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // ── Fail-closed: unit_keys provided but none found in DB ─────────────
+      // Plan returns no_risk with "Simulation targets not found" rationale when
+      // explicit unit_keys don't resolve to any narrative_units. Surface this as
+      // invalid_input rather than silently returning no_impact.
+      if (
+        plan.recommended_scope === "no_risk" &&
+        hasUnitKeys &&
+        plan.source_units.length === 0 &&
+        plan.rationale.includes("Simulation targets not found")
+      ) {
+        return new Response(JSON.stringify({
+          ok: false,
+          project_id:       projectId,
+          action:           "simulate_narrative_impact",
+          simulation_state: "invalid_input",
+          derived_live:     true,
+          evaluated_at:     evaluatedAt,
+          error:            `unit_keys not found in this project. Verify keys match narrative_units.unit_key format (e.g. "{version_id}::{axis}"). Use axis_keys for named lookup.`,
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // ── Determine simulation_state ────────────────────────────────────────
       const simulationState =
         plan.recommended_scope === "no_risk"        ? "no_impact" :
