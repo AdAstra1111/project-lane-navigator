@@ -8,6 +8,8 @@ import { useState } from 'react';
 import { useSelectiveRegenerationPlan } from '@/hooks/useSelectiveRegenerationPlan';
 import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/hooks/useExecuteSelectiveRegeneration';
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
+import { useSceneVersionDiff } from '@/hooks/useSceneVersionDiff';
+import { SceneRewriteDiffViewer } from '@/components/project/SceneRewriteDiffViewer';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +33,7 @@ import {
   ArrowDownUp,
   ChevronDown,
   ChevronUp,
+  GitCompare,
 } from 'lucide-react';
 
 interface Props {
@@ -58,10 +61,28 @@ export function RewriteExecutionPanel({ projectId }: Props) {
   const { execute, isExecuting, result, error, reset } = useExecuteSelectiveRegeneration(projectId);
   const { data: sluglines } = useSceneSluglines(projectId);
   const slugMap = sluglines ?? new Map<string, string>();
+  const diffHook = useSceneVersionDiff(projectId);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [showAllCompleted, setShowAllCompleted] = useState(false);
   const [showAllFailed, setShowAllFailed] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [diffSceneIndex, setDiffSceneIndex] = useState(0);
+
+  const completedKeysForDiff = result?.completed_scene_keys ?? [];
+
+  const handleViewChanges = (sceneKey: string) => {
+    const idx = completedKeysForDiff.indexOf(sceneKey);
+    setDiffSceneIndex(idx >= 0 ? idx : 0);
+    setDiffOpen(true);
+    diffHook.loadDiff(sceneKey);
+  };
+
+  const handleDiffNavigate = (sceneKey: string) => {
+    const idx = completedKeysForDiff.indexOf(sceneKey);
+    setDiffSceneIndex(idx >= 0 ? idx : 0);
+    diffHook.loadDiff(sceneKey);
+  };
 
   // Loading
   if (planLoading) {
@@ -143,7 +164,7 @@ export function RewriteExecutionPanel({ projectId }: Props) {
         )}
 
         {/* ── Execution Result ── */}
-        {result && <ExecutionResultView result={result} slugMap={slugMap} showAllCompleted={showAllCompleted} setShowAllCompleted={setShowAllCompleted} showAllFailed={showAllFailed} setShowAllFailed={setShowAllFailed} />}
+        {result && <ExecutionResultView result={result} slugMap={slugMap} showAllCompleted={showAllCompleted} setShowAllCompleted={setShowAllCompleted} showAllFailed={showAllFailed} setShowAllFailed={setShowAllFailed} onViewChanges={handleViewChanges} />}
 
         {/* ── Confirmation Dialog ── */}
         <ConfirmExecutionDialog
@@ -151,6 +172,18 @@ export function RewriteExecutionPanel({ projectId }: Props) {
           onOpenChange={setConfirmOpen}
           onConfirm={handleConfirmExecute}
           plan={plan}
+        />
+
+        {/* ── Scene Rewrite Diff Viewer ── */}
+        <SceneRewriteDiffViewer
+          open={diffOpen}
+          onOpenChange={(v) => { setDiffOpen(v); if (!v) diffHook.clear(); }}
+          data={diffHook.data}
+          loading={diffHook.loading}
+          error={diffHook.error}
+          sceneKeys={completedKeysForDiff}
+          currentIndex={diffSceneIndex}
+          onNavigate={handleDiffNavigate}
         />
       </CardContent>
     </Card>
@@ -229,6 +262,7 @@ function ExecutionResultView({
   setShowAllCompleted,
   showAllFailed,
   setShowAllFailed,
+  onViewChanges,
 }: {
   result: RegenExecutionResult;
   slugMap: SluglineMap;
@@ -236,6 +270,7 @@ function ExecutionResultView({
   setShowAllCompleted: (v: boolean) => void;
   showAllFailed: boolean;
   setShowAllFailed: (v: boolean) => void;
+  onViewChanges?: (sceneKey: string) => void;
 }) {
   const status = result.status ?? (result.ok ? 'completed' : 'failed');
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.failed;
@@ -325,6 +360,7 @@ function ExecutionResultView({
           showAll={showAllCompleted}
           onToggle={() => setShowAllCompleted(!showAllCompleted)}
           variant="success"
+          onViewChanges={onViewChanges}
         />
       )}
 
@@ -370,6 +406,7 @@ function SceneKeyList({
   showAll,
   onToggle,
   variant,
+  onViewChanges,
 }: {
   title: string;
   keys: string[];
@@ -378,6 +415,7 @@ function SceneKeyList({
   showAll: boolean;
   onToggle: () => void;
   variant: 'success' | 'destructive';
+  onViewChanges?: (sceneKey: string) => void;
 }) {
   return (
     <div className="space-y-1.5">
@@ -386,7 +424,16 @@ function SceneKeyList({
         {keys.map((k) => (
           <div key={k} className="flex items-center rounded-md border border-border/30 bg-muted/20 px-2.5 py-1.5 text-xs">
             <span className={`h-1.5 w-1.5 rounded-full shrink-0 mr-2 ${variant === 'success' ? 'bg-emerald-500' : 'bg-destructive'}`} />
-            <span className="text-foreground truncate">{sceneLabel(k, slugMap)}</span>
+            <span className="text-foreground truncate flex-1">{sceneLabel(k, slugMap)}</span>
+            {onViewChanges && variant === 'success' && (
+              <button
+                onClick={() => onViewChanges(k)}
+                className="flex items-center gap-1 text-[10px] text-primary hover:underline shrink-0 ml-2"
+              >
+                <GitCompare className="h-3 w-3" />
+                View Changes
+              </button>
+            )}
           </div>
         ))}
       </div>
