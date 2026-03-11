@@ -7583,34 +7583,17 @@ Return ONLY valid JSON:
       const { projectId, sourceDocumentId, sourceVersionId, mode, text: rawText, force } = body;
       if (!projectId) throw new Error("projectId required");
 
-      // If force mode, clear existing scene graph data first
-      if (force) {
-        console.log(`[scene_graph_extract] Force mode — clearing existing scenes for project ${projectId}`);
-        // Delete in dependency order: snapshots, order, versions, scenes
-        await supabase.from("scene_graph_snapshots").delete().eq("project_id", projectId);
-        await supabase.from("scene_graph_order").delete().eq("project_id", projectId);
-        // Get all scene IDs for this project
-        const { data: existingScenes } = await supabase.from("scene_graph_scenes")
-          .select("id").eq("project_id", projectId);
-        if (existingScenes && existingScenes.length > 0) {
-          const sceneIds = existingScenes.map((s: any) => s.id);
-          await supabase.from("scene_graph_versions").delete().in("scene_id", sceneIds);
-          await supabase.from("scene_graph_scenes").delete().eq("project_id", projectId);
-        }
-      }
-
-      // ── Pre-flight guard: prevent accidental duplication ───────────────────
-      // scene_graph_scenes has no UNIQUE constraint on (project_id, scene_key).
-      // Without this guard, force:false would append a full new batch of scenes
-      // on top of any existing rows — either doubling an intact graph or creating
-      // overlapping scene keys after a partial extraction failure.
+      // ── Pre-flight guard (force:false only) ───────────────────────────────
+      // Prevents accidental duplication when the graph already has active scenes.
+      // scene_graph_scenes has no UNIQUE constraint on (project_id, scene_key);
+      // without this check, a non-forced retry would append a full duplicate batch.
       //
       // Policy:
-      //   force:false + existing active scenes → throw; do not insert.
-      //   force:true  → upstream DELETE already ran; safe to insert.
+      //   force:false + existing active scenes → throw immediately, no writes.
+      //   force:true  → deletion handled atomically inside scene_graph_atomic_write.
       //
-      // Consumers that need to rebuild must call with force:true explicitly.
-      // "retry" (force:false) is only safe when the graph is empty.
+      // Retry is only safe when the graph is empty.
+      // Rebuild must use force:true explicitly.
       if (!force) {
         const { count: existingCount, error: countErr } = await supabase
           .from("scene_graph_scenes")
@@ -7626,6 +7609,7 @@ Return ONLY valid JSON:
         }
       }
 
+      // ── Fetch script text ─────────────────────────────────────────────────
       let scriptText = rawText || '';
 
       if (mode !== 'from_text' || !scriptText) {
@@ -7661,9 +7645,8 @@ Return ONLY valid JSON:
 
       console.log(`[scene_graph_extract] Script text length: ${scriptText.length}`);
 
-      // Parse into scenes by slugline detection
+      // ── Parse sluglines (pure, no DB) ─────────────────────────────────────
       const lines = scriptText.split('\n');
-      // Match standard sluglines and numbered sluglines (e.g. "1  EXT. ROAD - DAY", "23. INT. OFFICE - NIGHT")
       const sluglinePattern = /^\s*(\d+\s*[\.\)\s]\s*)?(INT\.|EXT\.|INT\.\/EXT\.|INT\/EXT\.|I\/E\.?)\s/i;
       const sceneBreaks: { startLine: number; headingLine: string }[] = [];
 
@@ -7675,73 +7658,109 @@ Return ONLY valid JSON:
 
       console.log(`[scene_graph_extract] Detected ${sceneBreaks.length} scene breaks. First few:`, sceneBreaks.slice(0, 5).map(b => b.headingLine));
 
-      // If no sluglines found, treat entire text as one scene
       if (sceneBreaks.length === 0) {
         sceneBreaks.push({ startLine: 0, headingLine: 'SCENE 1' });
       }
 
-      const scenes: any[] = [];
       const orderKeys = sgGenerateEvenKeys(sceneBreaks.length);
 
-      // Scene Identity v1: assign stable scene_keys for this batch before the loop
-      // (one query to find current max, then generate N monotonic keys offline)
-      const batchSceneKeys = await sgNextSceneKeys(supabase, projectId, sceneBreaks.length);
-
-      for (let i = 0; i < sceneBreaks.length; i++) {
-        const start = sceneBreaks[i].startLine;
-        const end = i + 1 < sceneBreaks.length ? sceneBreaks[i + 1].startLine : lines.length;
-        const sceneContent = lines.slice(start, end).join('\n').trim();
-        const parsed = sgParseSlugline(sceneBreaks[i].headingLine);
-
-        // Create scene — scene_key assigned once at creation, never recomputed from order
-        const { data: scene, error: sErr } = await supabase.from("scene_graph_scenes").insert({
-          project_id: projectId,
-          scene_kind: 'narrative',
-          created_by: user.id,
-          scene_key: batchSceneKeys[i],
-        }).select().single();
-        if (sErr) throw sErr;
-
-        // Create version
-        const { data: version, error: vErr } = await supabase.from("scene_graph_versions").insert({
-          scene_id: scene.id,
-          project_id: projectId,
-          version_number: 1,
-          status: 'draft',
-          created_by: user.id,
-          slugline: parsed.slugline,
-          location: parsed.location,
-          time_of_day: parsed.time_of_day,
-          content: sceneContent,
-          summary: sceneContent.slice(0, 200),
-        }).select().single();
-        if (vErr) throw vErr;
-
-        // Create order entry
-        const { error: oErr } = await supabase.from("scene_graph_order").insert({
-          project_id: projectId,
-          scene_id: scene.id,
-          order_key: orderKeys[i],
-          act: null,
-          is_active: true,
+      // ── Scene key assignment ───────────────────────────────────────────────
+      // force:false — graph is empty (pre-flight confirmed); read MAX and continue.
+      // force:true  — graph will be deleted inside the transaction; start from 1.
+      //               Do NOT query MAX here: the old graph is still present and
+      //               would produce wrong offsets before the atomic delete runs.
+      let batchSceneKeys: string[];
+      if (force) {
+        batchSceneKeys = Array.from({ length: sceneBreaks.length }, (_, i) => {
+          const n = i + 1;
+          return `SCENE_${String(n).padStart(n > 999 ? 4 : 3, "0")}`;
         });
-        if (oErr) throw oErr;
-
-        scenes.push({
-          scene_id: scene.id,
-          scene_key: scene.scene_key,  // Scene Identity v1: expose stable key in response
-          display_number: i + 1,
-          order_key: orderKeys[i],
-          act: null,
-          sequence: null,
-          is_active: true,
-          scene_kind: 'narrative',
-          latest_version: version,
-          approval_status: 'draft',
-        });
+      } else {
+        batchSceneKeys = await sgNextSceneKeys(supabase, projectId, sceneBreaks.length);
       }
 
-      // Create snapshot
+      // ── Build JSONB payload for atomic RPC ────────────────────────────────
+      // All per-scene data assembled here before any DB write.
+      // The RPC receives the full batch and writes scene / version / order rows
+      // inside a single PL/pgSQL implicit transaction.
+      type ParsedScene = {
+        slugline: string; location: string; time_of_day: string;
+        content: string; summary: string;
+      };
+      const parsedScenes: ParsedScene[] = sceneBreaks.map((b, i) => {
+        const start = b.startLine;
+        const end = i + 1 < sceneBreaks.length ? sceneBreaks[i + 1].startLine : lines.length;
+        const content = lines.slice(start, end).join('\n').trim();
+        const parsed = sgParseSlugline(b.headingLine);
+        return {
+          slugline:    parsed.slugline,
+          location:    parsed.location,
+          time_of_day: parsed.time_of_day,
+          content,
+          summary:     content.slice(0, 200),
+        };
+      });
+
+      const rpcPayload = parsedScenes.map((p, i) => ({
+        scene_key:   batchSceneKeys[i],
+        scene_kind:  'narrative',
+        order_key:   orderKeys[i],
+        slugline:    p.slugline,
+        location:    p.location,
+        time_of_day: p.time_of_day,
+        content:     p.content,
+        summary:     p.summary,
+      }));
+
+      // ── Atomic write ──────────────────────────────────────────────────────
+      // scene_graph_atomic_write is a PL/pgSQL function.
+      // All inserts (and deletions when force:true) execute inside its implicit
+      // transaction. If any statement fails, the entire function rolls back:
+      //   force:false → nothing is written
+      //   force:true  → old graph is fully preserved (delete + insert are in the
+      //                 same transaction boundary, so either full replacement
+      //                 commits or the old graph survives intact)
+      console.log(`[scene_graph_extract] Calling scene_graph_atomic_write — ${rpcPayload.length} scenes, force:${!!force}`);
+      const { data: rpcResult, error: rpcErr } = await supabase.rpc("scene_graph_atomic_write", {
+        p_project_id: projectId,
+        p_created_by: user.id ?? null,
+        p_force:      !!force,
+        p_scenes:     rpcPayload,
+      });
+      if (rpcErr) throw new Error(`[scene_graph_extract] atomic write failed: ${rpcErr.message}`);
+      if (!rpcResult || !Array.isArray(rpcResult)) {
+        throw new Error(`[scene_graph_extract] atomic write returned unexpected result`);
+      }
+
+      // ── Reconstruct scenes array from RPC results + local parsed data ─────
+      type RpcRow = { scene_id: string; scene_key: string; version_id: string; order_key: string };
+      const scenes: any[] = (rpcResult as RpcRow[]).map((r, i) => ({
+        scene_id:       r.scene_id,
+        scene_key:      r.scene_key,
+        display_number: i + 1,
+        order_key:      r.order_key,
+        act:            null,
+        sequence:       null,
+        is_active:      true,
+        scene_kind:     'narrative',
+        latest_version: {
+          id:             r.version_id,
+          scene_id:       r.scene_id,
+          project_id:     projectId,
+          version_number: 1,
+          status:         'draft',
+          slugline:       parsedScenes[i].slugline,
+          location:       parsedScenes[i].location,
+          time_of_day:    parsedScenes[i].time_of_day,
+          content:        parsedScenes[i].content,
+          summary:        parsedScenes[i].summary,
+        },
+        approval_status: 'draft',
+      }));
+
+      // ── Snapshot INSERT (post-commit, outside transaction) ────────────────
+      // Snapshot is metadata. Its failure does not corrupt the scene graph.
+      // Error is surfaced to the caller — stage run will record the failure.
       const assembledContent = scenes.map(s => s.latest_version?.content || '').join('\n\n');
       const { data: snapshot, error: snErr } = await supabase.from("scene_graph_snapshots").insert({
         project_id: projectId,
@@ -7749,11 +7768,11 @@ Return ONLY valid JSON:
         label: 'Initial extraction',
         assembly: {
           scene_order: scenes.map(s => ({
-            scene_id: s.scene_id,
+            scene_id:   s.scene_id,
             version_id: s.latest_version?.id,
-            order_key: s.order_key,
-            act: s.act,
-            sequence: s.sequence,
+            order_key:  s.order_key,
+            act:        s.act,
+            sequence:   s.sequence,
           })),
           generated_at: new Date().toISOString(),
           mode: 'latest',
@@ -7763,8 +7782,9 @@ Return ONLY valid JSON:
       }).select().single();
       if (snErr) throw snErr;
 
-      // Scene Identity v1.1: auto-sync character presence links after extraction.
-      // Fail-safe: error here must not block the extraction response.
+      // ── Entity link sync (post-commit, fail-safe) ─────────────────────────
+      // Runs after the scene graph is fully committed.
+      // Failure here must not block the extraction response.
       try {
         const linkResult = await syncSceneEntityLinksForProject(supabase, projectId);
         console.log("[scene_graph_extract] Scene Identity v1.1 link sync:", {
