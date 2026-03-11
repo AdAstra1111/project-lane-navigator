@@ -54,7 +54,7 @@ function StageRow({ stage }: { stage: DropStage }) {
       )}>
         {stage.label}
       </span>
-      {stage.detail && stage.status === 'error' && (
+      {stage.detail && stage.status === 'failed' && (
         <span className="text-[10px] text-destructive/70 max-w-[120px] truncate">{stage.detail}</span>
       )}
     </div>
