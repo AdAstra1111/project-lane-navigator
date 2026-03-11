@@ -72,6 +72,7 @@ import { AdvancedProjectView } from '@/components/project/AdvancedProjectView';
 import { AutoRunSetupPanel } from '@/components/project/AutoRunSetupPanel';
 import { ReverseEngineerCallout } from '@/components/project/ReverseEngineerCallout';
 import { ImportStatusPanel } from '@/components/project/ImportStatusPanel';
+import { ScreenplayIntakeBanner } from '@/components/project/ScreenplayIntakeBanner';
 
 
 export default function ProjectDetail() {
