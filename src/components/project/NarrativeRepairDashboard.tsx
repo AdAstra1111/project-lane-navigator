@@ -238,6 +238,8 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
           repairStrategy={repairStrategy}
           onStrategyChange={setRepairStrategy}
         />
+        {/* ═══ SIMULATION PREVIEW ═══ */}
+        <NarrativeSimulationPanel projectId={projectId} />
         {/* ═══ SECTION 1: REPAIR STATUS ═══ */}
         <RepairStatusSection
           plan={plan}
