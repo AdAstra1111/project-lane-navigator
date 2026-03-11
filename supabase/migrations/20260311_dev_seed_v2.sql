@@ -239,3 +239,22 @@ ALTER TABLE public.narrative_entities ADD CONSTRAINT narrative_entities_source_k
   CHECK (source_kind = ANY (ARRAY[
     'project_canon'::text, 'spine_axis'::text, 'manual'::text, 'dev_seed_v2'::text
   ]));
+
+-- ── DS2B: Extend narrative_entity_relations constraints for seed promotion ────
+-- relation_type: add the full ALLOWED_PROPAGATION_RELATIONS set used by NDG planner
+-- source_kind: add dev_seed_v2 as a valid auditable origin
+ALTER TABLE public.narrative_entity_relations
+  DROP CONSTRAINT IF EXISTS narrative_entity_relations_relation_type_check;
+ALTER TABLE public.narrative_entity_relations
+  ADD CONSTRAINT narrative_entity_relations_relation_type_check
+  CHECK (relation_type = ANY (ARRAY[
+    'drives_arc', 'subject_of_conflict', 'opposes',
+    'conflicts_with', 'allied_with', 'mentor_of', 'family_of'
+  ]));
+ALTER TABLE public.narrative_entity_relations
+  DROP CONSTRAINT IF EXISTS narrative_entity_relations_source_kind_check;
+ALTER TABLE public.narrative_entity_relations
+  ADD CONSTRAINT narrative_entity_relations_source_kind_check
+  CHECK (source_kind = ANY (ARRAY[
+    'canon_sync', 'spine_derivation', 'manual', 'dev_seed_v2'
+  ]));
