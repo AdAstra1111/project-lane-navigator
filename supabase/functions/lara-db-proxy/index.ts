@@ -218,6 +218,98 @@ Deno.serve(async (req) => {
         break;
       }
 
+      // ── SCENE GRAPH VALIDATION OPS ──
+
+      case "scene_graph_counts": {
+        // Returns baseline/post-run counts for all scene enrichment tables
+        const { project_id } = params;
+
+        const [scenes, spineLinks, entityLinks, blueprintBindings, narrativeUnits] = await Promise.all([
+          supabase.from("scene_graph_scenes").select("id", { count: "exact", head: true })
+            .eq("project_id", project_id).is("deprecated_at", null),
+          supabase.from("scene_spine_links").select("id,axis_key", { count: "exact" })
+            .eq("project_id", project_id),
+          supabase.from("narrative_scene_entity_links").select("id,entity_id", { count: "exact" })
+            .eq("project_id", project_id).eq("relation_type", "character_present"),
+          supabase.from("scene_blueprint_bindings").select("id,patch_intent,risk_source", { count: "exact" })
+            .eq("project_id", project_id),
+          supabase.from("narrative_units").select("unit_key,status,unit_type")
+            .eq("project_id", project_id).in("status", ["contradicted", "stale"]),
+        ]);
+
+        result = {
+          scene_count:              scenes.count ?? 0,
+          spine_links_count:        spineLinks.count ?? 0,
+          spine_links_axes:         [...new Set((spineLinks.data || []).map((r: any) => r.axis_key).filter(Boolean))],
+          entity_links_count:       entityLinks.count ?? 0,
+          blueprint_bindings_count: blueprintBindings.count ?? 0,
+          blueprint_intents:        (blueprintBindings.data || []).reduce((acc: any, r: any) => {
+            acc[r.patch_intent] = (acc[r.patch_intent] || 0) + 1; return acc;
+          }, {}),
+          narrative_units_at_risk:  narrativeUnits.data?.length ?? 0,
+          narrative_units_sample:   (narrativeUnits.data || []).slice(0, 5).map((u: any) => ({ unit_key: u.unit_key, status: u.status })),
+        };
+        break;
+      }
+
+      case "scene_roles_sample": {
+        // Returns scene_roles payload for the first N scenes (to inspect format)
+        const { project_id, limit: lim = 8 } = params;
+        const { data: orderRows } = await supabase.from("scene_graph_order")
+          .select("scene_id, order_key").eq("project_id", project_id)
+          .eq("is_active", true).order("order_key", { ascending: true }).limit(lim);
+        if (!orderRows || orderRows.length === 0) { result = []; break; }
+        const sceneIds = orderRows.map((r: any) => r.scene_id);
+        const { data: verRows } = await supabase.from("scene_graph_versions")
+          .select("scene_id, version_number, scene_roles, characters_present, slugline")
+          .in("scene_id", sceneIds).order("version_number", { ascending: false });
+        const latest = new Map<string, any>();
+        for (const v of (verRows || [])) { if (!latest.has(v.scene_id)) latest.set(v.scene_id, v); }
+        const { data: sceneRows } = await supabase.from("scene_graph_scenes")
+          .select("id, scene_key").in("id", sceneIds);
+        const sceneKeyMap = new Map<string, string>((sceneRows || []).map((s: any) => [s.id, s.scene_key]));
+        result = orderRows.map((r: any) => {
+          const v = latest.get(r.scene_id);
+          return {
+            scene_key:          sceneKeyMap.get(r.scene_id) ?? "?",
+            slugline:           v?.slugline ?? null,
+            scene_roles:        v?.scene_roles ?? [],
+            characters_present: v?.characters_present ?? [],
+          };
+        });
+        break;
+      }
+
+      case "spine_links_sample": {
+        // Returns sample spine links with axis_key + scene_key
+        const { project_id, limit: lim = 10 } = params;
+        const { data: links } = await supabase.from("scene_spine_links")
+          .select("scene_id, axis_key, roles, updated_at")
+          .eq("project_id", project_id).not("axis_key", "is", null).limit(lim);
+        if (!links || links.length === 0) { result = []; break; }
+        const sceneIds = links.map((l: any) => l.scene_id);
+        const { data: sceneRows } = await supabase.from("scene_graph_scenes")
+          .select("id, scene_key").in("id", sceneIds);
+        const sceneKeyMap = new Map<string, string>((sceneRows || []).map((s: any) => [s.id, s.scene_key]));
+        result = links.map((l: any) => ({
+          scene_key:  sceneKeyMap.get(l.scene_id) ?? l.scene_id,
+          axis_key:   l.axis_key,
+          roles:      l.roles,
+          updated_at: l.updated_at,
+        }));
+        break;
+      }
+
+      case "blueprint_bindings_sample": {
+        // Returns sample scene_blueprint_bindings rows
+        const { project_id, limit: lim = 10 } = params;
+        const { data: bindings } = await supabase.from("scene_blueprint_bindings")
+          .select("scene_key,source_axis,source_unit_key,risk_source,patch_intent,target_surface,reason,slugline,source_doc_version_id,computed_at")
+          .eq("project_id", project_id).order("scene_key", { ascending: true }).limit(lim);
+        result = bindings ?? [];
+        break;
+      }
+
       default:
         return new Response(JSON.stringify({ error: `Unknown op: ${op}` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
