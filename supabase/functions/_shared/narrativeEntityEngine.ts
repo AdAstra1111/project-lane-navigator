@@ -1251,7 +1251,7 @@ export async function syncDialogueCharactersForProject(
   const headingMap = buildDialogueHeadingMap(entities as any[]);
   if (headingMap.size === 0) {
     console.log("[NIT:Phase2] heading map empty (no derivable shorthand forms) — no-op");
-    return { scenes_processed: 0, links_upserted: 0, per_scene: [] };
+    return { scenes_processed: 0, links_upserted: 0, characters_written: 0, per_scene: [] };
   }
 
   // 3. Load active scenes
