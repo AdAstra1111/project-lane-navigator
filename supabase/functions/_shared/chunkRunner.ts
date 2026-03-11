@@ -167,9 +167,40 @@ ${upstreamContent}
 Generate ${epRange} now. Full content for each episode.`;
   } else if (plan.strategy === "sectioned") {
     const sectionLabel = chunk.label;
+
+    // ── Per-act length targets for feature-length screenplay doc types ──────
+    // Without explicit targets the model defaults to a short "complete" act
+    // (~1,800 words), producing a 7,500-word total instead of the required
+    // 24,000-28,000 words. These targets match standard feature film page counts.
+    const SCRIPT_DOC_TYPES = new Set([
+      "feature_script", "production_draft", "screenplay_draft",
+    ]);
+    let lengthGuidance = "";
+    if (SCRIPT_DOC_TYPES.has(docType)) {
+      const PER_ACT_TARGETS: Record<string, string> = {
+        "act_1":    "25–30 pages (approximately 6,000–7,500 words). Opens the world, establishes protagonist + goal, lands the Inciting Incident, ends with the Break Into Two.",
+        "act_2a":   "28–32 pages (approximately 7,000–8,000 words). Rising action, B Story launch, Fun & Games / Promise of the Premise section, builds to Midpoint.",
+        "act_2b":   "28–32 pages (approximately 7,000–8,000 words). Bad Guys Close In, All Is Lost, Dark Night of the Soul, ends at the Break Into Three.",
+        "act_3":    "22–28 pages (approximately 5,500–7,000 words). Finale, climax, resolution, final image.",
+      };
+      const sectionKey = chunk.sectionId || chunk.chunkKey;
+      const actTarget = PER_ACT_TARGETS[sectionKey]
+        ?? "25–30 pages (approximately 6,000–7,500 words)";
+
+      lengthGuidance = `
+FEATURE SCREENPLAY LENGTH — MANDATORY:
+- A feature film screenplay is 95–115 pages (approximately 24,000–28,000 words total, 4 acts combined).
+- This act (${sectionLabel}) must reach: ${actTarget}
+- Write EVERY scene in FULL: INT./EXT. slugline, action paragraph(s), full dialogue.
+- Do NOT compress, summarise, or skip scenes.
+- Do NOT stop writing until you have reached the page/word target above.
+- If a scene is important enough to exist in the story outline or beat sheet, it is important enough to be written in full here.
+`;
+    }
+
     chunkPrompt = `You are generating the "${sectionLabel}" section for the project "${projectTitle}".
 Document type: ${docType.replace(/_/g, " ")}
-
+${lengthGuidance}
 CRITICAL RULES:
 - Output ONLY the "${sectionLabel}" section.
 - Write full, complete content — do NOT summarize or abbreviate.
@@ -181,7 +212,7 @@ ${previousChunkEnding ? `PREVIOUS SECTION ENDING (for continuity):\n...${previou
 UPSTREAM CONTEXT:
 ${upstreamContent}
 
-Generate the "${sectionLabel}" section now.`;
+Generate the "${sectionLabel}" section now. Write to the full page target specified above.`;
   } else {
     chunkPrompt = `Generate chunk ${chunk.chunkIndex + 1} (${chunk.label}) for "${projectTitle}".
 ${upstreamContent}`;
