@@ -1997,6 +1997,16 @@ function compareSnapshots(a: CriteriaSnapshot | null, b: CriteriaSnapshot | null
 // whether to abort (execute) or return as-is (plan action).
 // ═══════════════════════════════════════════════════════════════
 
+// ── Entity-aware grounding: axis → entity_types that ground it deterministically.
+// Only axes listed here can trigger entity-aware scene expansion.
+// Grounding is via existing narrative_entity_relations — no invented semantic model.
+// protagonist_arc → arc entities (e.g. ARC_PROTAGONIST) → characters that drives_arc them
+// central_conflict → conflict entities (e.g. CONFLICT_PRIMARY) → characters subject_of_conflict
+const AXIS_ENTITY_TYPE_GROUNDING: Partial<Record<string, string[]>> = {
+  protagonist_arc:  ["arc"],
+  central_conflict: ["conflict"],
+};
+
 async function computeSelectiveRegenerationPlanHelper(
   supabase: ReturnType<typeof createClient>,
   projectId: string,
@@ -2010,6 +2020,8 @@ async function computeSelectiveRegenerationPlanHelper(
   impacted_scene_count: number;
   direct_scene_count: number;
   propagated_scene_count: number;
+  entity_impacted_scenes: any[];
+  entity_impacted_scene_count: number;
   recommended_scope: string;
   rationale: string;
 }> {
@@ -2041,6 +2053,8 @@ async function computeSelectiveRegenerationPlanHelper(
       impacted_scene_count: 0,
       direct_scene_count: 0,
       propagated_scene_count: 0,
+      entity_impacted_scenes: [],
+      entity_impacted_scene_count: 0,
       recommended_scope: "no_risk",
       rationale: hasSpecificKeys
         ? "Requested unit keys found but none are stale or contradicted — no regeneration needed"
@@ -2128,6 +2142,8 @@ async function computeSelectiveRegenerationPlanHelper(
       impacted_scene_count: 0,
       direct_scene_count: 0,
       propagated_scene_count: 0,
+      entity_impacted_scenes: [],
+      entity_impacted_scene_count: 0,
       recommended_scope: "no_scene_links",
       rationale: "At-risk units identified but no scene_spine_links exist — run scene enrichment first",
     };
@@ -2174,6 +2190,184 @@ async function computeSelectiveRegenerationPlanHelper(
       : (propagatedAxesMap.get(s.axis_key) ?? "propagated risk"),
   }));
 
+  // ── Step 5b: Entity-aware impact expansion ───────────────────────────────
+  //
+  // Secondary path: for each at-risk axis that has a deterministic entity grounding
+  // (see AXIS_ENTITY_TYPE_GROUNDING), find scenes through entity presence rather than
+  // spine links. These scenes are added to the plan as risk_source: "entity_link"
+  // and exposed separately as entity_impacted_scenes for transparency.
+  //
+  // Safety guarantees:
+  //   - Only axes in AXIS_ENTITY_TYPE_GROUNDING trigger this path
+  //   - Only existing narrative_entity_relations are used — no invented connections
+  //   - Scenes already in impacted_scenes are excluded (no duplicates)
+  //   - Executor filters risk_source === "direct" — entity_link scenes are
+  //     not included in execution batches until explicitly enabled in a future installment
+  //   - Failure is non-fatal: entity expansion silently skips on any error
+  //
+  const alreadyScopedIds  = new Set(impactedScenes.map((s: any) => s.scene_id as string));
+  const entityImpactedScenes: any[] = [];
+
+  try {
+    // Identify which direct axes have entity grounding
+    const groundableAxes = directAxesArray.filter(ax => AXIS_ENTITY_TYPE_GROUNDING[ax]);
+    if (groundableAxes.length > 0) {
+      const entityTypes = [...new Set(
+        groundableAxes.flatMap(ax => AXIS_ENTITY_TYPE_GROUNDING[ax] ?? [])
+      )];
+
+      // 5b.1 — Load anchor entities (matching entity_type for at-risk axes)
+      const { data: anchorEntityRows } = await (supabase as any)
+        .from("narrative_entities")
+        .select("id,entity_key,entity_type,canonical_name")
+        .eq("project_id", projectId)
+        .in("entity_type", entityTypes);
+
+      const anchorEntities = (anchorEntityRows || []) as Array<{
+        id: string; entity_key: string; entity_type: string; canonical_name: string;
+      }>;
+
+      if (anchorEntities.length > 0) {
+        const anchorIds = anchorEntities.map(e => e.id);
+
+        // 5b.2 — Expand via entity_relations: entities related to anchors (source or target)
+        const { data: relRows } = await (supabase as any)
+          .from("narrative_entity_relations")
+          .select("source_entity_id,target_entity_id,relation_type")
+          .eq("project_id", projectId)
+          .or(`source_entity_id.in.(${anchorIds.join(",")}),target_entity_id.in.(${anchorIds.join(",")})`);
+
+        const relatedIds = new Set<string>();
+        const relationIndex = new Map<string, Array<{ relation_type: string; anchor_entity_id: string }>>();
+        for (const rel of ((relRows || []) as any[])) {
+          const isSourceAnchor = anchorIds.includes(rel.source_entity_id);
+          const relatedId      = isSourceAnchor ? rel.target_entity_id : rel.source_entity_id;
+          const anchorId       = isSourceAnchor ? rel.source_entity_id : rel.target_entity_id;
+          relatedIds.add(relatedId);
+          if (!relationIndex.has(relatedId)) relationIndex.set(relatedId, []);
+          relationIndex.get(relatedId)!.push({ relation_type: rel.relation_type, anchor_entity_id: anchorId });
+        }
+
+        const allEntityIds = [...anchorIds, ...relatedIds];
+
+        // 5b.3 — Load all entities in the expanded set for rationale building
+        const { data: expandedEntityRows } = await (supabase as any)
+          .from("narrative_entities")
+          .select("id,entity_key,canonical_name,entity_type")
+          .in("id", allEntityIds);
+
+        const entityById = new Map<string, { entity_key: string; canonical_name: string; entity_type: string }>(
+          ((expandedEntityRows || []) as any[]).map((e: any) => [e.id, e])
+        );
+
+        // 5b.4 — Load narrative_scene_entity_links for expanded entity set
+        const { data: entityLinkRows } = await (supabase as any)
+          .from("narrative_scene_entity_links")
+          .select("scene_id,entity_id,relation_type")
+          .eq("project_id", projectId)
+          .in("entity_id", allEntityIds);
+
+        const entityLinkSceneIds = [...new Set(
+          ((entityLinkRows || []) as any[]).map((r: any) => r.scene_id as string)
+        )].filter(sid => !alreadyScopedIds.has(sid));
+
+        if (entityLinkSceneIds.length > 0) {
+          // 5b.5 — Load scene metadata for new scene IDs
+          const [entitySceneRes, entityVerRes] = await Promise.all([
+            (supabase as any)
+              .from("scene_graph_scenes")
+              .select("id,scene_key")
+              .in("id", entityLinkSceneIds),
+            (supabase as any)
+              .from("scene_graph_versions")
+              .select("scene_id,slugline,version_number")
+              .in("scene_id", entityLinkSceneIds)
+              .order("version_number", { ascending: false }),
+          ]);
+
+          const entitySluglineMap = new Map<string, string | null>();
+          for (const v of ((entityVerRes.data || []) as any[])) {
+            if (!entitySluglineMap.has(v.scene_id))
+              entitySluglineMap.set(v.scene_id, v.slugline ?? null);
+          }
+
+          const entitySceneKeyMap = new Map<string, string>(
+            ((entitySceneRes.data || []) as any[]).map((s: any) => [s.id, s.scene_key])
+          );
+
+          // 5b.6 — Build per-scene entity rationale
+          // Group entity links by scene
+          const sceneEntityMap = new Map<string, Set<string>>();
+          for (const row of ((entityLinkRows || []) as any[])) {
+            if (!entityLinkSceneIds.includes(row.scene_id)) continue;
+            if (!sceneEntityMap.has(row.scene_id)) sceneEntityMap.set(row.scene_id, new Set());
+            sceneEntityMap.get(row.scene_id)!.add(row.entity_id as string);
+          }
+
+          for (const sceneId of entityLinkSceneIds) {
+            const sceneKey = entitySceneKeyMap.get(sceneId);
+            if (!sceneKey) continue;
+
+            const presentEntityIds = [...(sceneEntityMap.get(sceneId) ?? [])];
+            const presentEntities  = presentEntityIds
+              .map(eid => entityById.get(eid))
+              .filter(Boolean) as Array<{ entity_key: string; canonical_name: string; entity_type: string }>;
+
+            // Determine which axis grounds each present entity
+            const groundingClaims: string[] = [];
+            for (const entity of presentEntities) {
+              // Is this an anchor entity? Build axis rationale
+              const anchorRow = anchorEntities.find(a => presentEntityIds.includes(a.id));
+              if (anchorRow && entity.entity_key === anchorRow.entity_key) {
+                const matchingAxes = groundableAxes.filter(ax =>
+                  (AXIS_ENTITY_TYPE_GROUNDING[ax] ?? []).includes(entity.entity_type)
+                );
+                for (const ax of matchingAxes) {
+                  groundingClaims.push(`${ax} grounds to ${entity.entity_key} (${entity.entity_type})`);
+                }
+              }
+              // Is this a related entity? Build chain rationale
+              const rels = relationIndex.get(presentEntityIds.find(eid => {
+                const e = entityById.get(eid);
+                return e?.entity_key === entity.entity_key;
+              }) ?? "") ?? [];
+              for (const rel of rels) {
+                const anchorEntity = entityById.get(rel.anchor_entity_id);
+                if (!anchorEntity) continue;
+                const matchingAxes = groundableAxes.filter(ax =>
+                  (AXIS_ENTITY_TYPE_GROUNDING[ax] ?? []).includes(anchorEntity.entity_type)
+                );
+                for (const ax of matchingAxes) {
+                  groundingClaims.push(
+                    `${ax} grounds to ${anchorEntity.entity_key}; ${entity.entity_key} ${rel.relation_type} ${anchorEntity.entity_key}`
+                  );
+                }
+              }
+            }
+
+            if (groundingClaims.length === 0) continue; // no valid grounding — skip
+
+            const entityScene = {
+              scene_id:             sceneId,
+              scene_key:            sceneKey,
+              slugline:             entitySluglineMap.get(sceneId) ?? null,
+              risk_source:          "entity_link",
+              entity_keys:          presentEntities.map(e => e.entity_key),
+              grounding_rationale:  groundingClaims.join("; ") + " — entity present in scene",
+            };
+            entityImpactedScenes.push(entityScene);
+            impactedScenes.push(entityScene); // add to combined list
+          }
+
+          // Sort entity scenes by scene_key for deterministic output
+          entityImpactedScenes.sort((a, b) => (a.scene_key as string).localeCompare(b.scene_key));
+        }
+      }
+    }
+  } catch (entityExpErr: any) {
+    console.warn("[dev-engine-v2] entity-aware expansion failed (non-fatal):", entityExpErr?.message);
+  }
+
   // 6. Classify recommended_scope
   const ROOT_AXES  = new Set<SpineAxis>(["story_engine", "pressure_system"]);
   const hasRootAxis = directAxesArray.some(ax => ROOT_AXES.has(ax));
@@ -2206,6 +2400,8 @@ async function computeSelectiveRegenerationPlanHelper(
     impacted_scene_count: impactedScenes.length,
     direct_scene_count: directCount,
     propagated_scene_count: impactedScenes.length - directCount,
+    entity_impacted_scenes: entityImpactedScenes,
+    entity_impacted_scene_count: entityImpactedScenes.length,
     recommended_scope: recommendedScope,
     rationale,
   };
@@ -8822,25 +9018,28 @@ Return ONLY valid JSON:
       const plan = await computeSelectiveRegenerationPlanHelper(supabase, projectId, unitKeys ?? null);
 
       console.log("[dev-engine-v2] selective_regeneration_plan complete", {
-        project_id:         projectId,
-        source_unit_count:  plan.source_units.length,
-        recommended_scope:  plan.recommended_scope,
-        impacted_scenes:    plan.impacted_scene_count,
+        project_id:                 projectId,
+        source_unit_count:          plan.source_units.length,
+        recommended_scope:          plan.recommended_scope,
+        impacted_scenes:            plan.impacted_scene_count,
+        entity_impacted_scene_count: plan.entity_impacted_scene_count,
       });
 
       return new Response(JSON.stringify({
-        project_id:             projectId,
-        action:                 "selective_regeneration_plan",
-        ok:                     true,
-        recommended_scope:      plan.recommended_scope,
-        rationale:              plan.rationale,
-        source_units:           plan.source_units,
-        direct_axes:            plan.direct_axes,
-        propagated_axes:        plan.propagated_axes,
-        impacted_scenes:        plan.impacted_scenes,
-        impacted_scene_count:   plan.impacted_scene_count,
-        direct_scene_count:     plan.direct_scene_count,
-        propagated_scene_count: plan.propagated_scene_count,
+        project_id:                  projectId,
+        action:                      "selective_regeneration_plan",
+        ok:                          true,
+        recommended_scope:           plan.recommended_scope,
+        rationale:                   plan.rationale,
+        source_units:                plan.source_units,
+        direct_axes:                 plan.direct_axes,
+        propagated_axes:             plan.propagated_axes,
+        impacted_scenes:             plan.impacted_scenes,
+        impacted_scene_count:        plan.impacted_scene_count,
+        direct_scene_count:          plan.direct_scene_count,
+        propagated_scene_count:      plan.propagated_scene_count,
+        entity_impacted_scenes:      plan.entity_impacted_scenes,
+        entity_impacted_scene_count: plan.entity_impacted_scene_count,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     // ── execute_selective_regeneration ───────────────────────────────────────────
@@ -9022,18 +9221,20 @@ Return ONLY valid JSON:
       // No scene_graph_versions writes. No LLM calls. No NDG post-validation.
       if (dryRun) {
         return new Response(JSON.stringify({
-          project_id:             projectId,
-          action:                 "execute_selective_regeneration",
-          ok:                     true,
-          dry_run:                true,
-          run_id:                 runId,
-          recommended_scope:      plan.recommended_scope,
-          rationale:              plan.rationale,
-          source_units:           plan.source_units,
-          direct_axes:            plan.direct_axes,
-          target_scene_count:     targetScenes.length,
-          target_scenes:          targetScenes,
-          ndg_pre_at_risk_count:  ndgPreAtRiskCount,
+          project_id:                  projectId,
+          action:                      "execute_selective_regeneration",
+          ok:                          true,
+          dry_run:                     true,
+          run_id:                      runId,
+          recommended_scope:           plan.recommended_scope,
+          rationale:                   plan.rationale,
+          source_units:                plan.source_units,
+          direct_axes:                 plan.direct_axes,
+          target_scene_count:          targetScenes.length,
+          target_scenes:               targetScenes,
+          ndg_pre_at_risk_count:       ndgPreAtRiskCount,
+          entity_impacted_scenes:      plan.entity_impacted_scenes,
+          entity_impacted_scene_count: plan.entity_impacted_scene_count,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
