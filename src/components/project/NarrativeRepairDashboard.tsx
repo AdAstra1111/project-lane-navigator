@@ -231,6 +231,8 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
           onDryRun={handleDryRun}
           onExecuteRepair={() => setConfirmOpen(true)}
           isExecuting={isExecuting}
+          repairStrategy={repairStrategy}
+          onStrategyChange={setRepairStrategy}
         />
         {/* ═══ SECTION 1: REPAIR STATUS ═══ */}
         <RepairStatusSection
