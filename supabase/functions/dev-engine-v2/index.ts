@@ -2289,31 +2289,60 @@ async function computeSelectiveRegenerationPlanHelper(
         const anchorIds     = anchorEntities.map(e => e.id);
         const anchorIdSet   = new Set(anchorIds);
 
-        // 5b.2 — Expand via entity_relations at depth=1.
-        //        Layer 2 only: filter to ALLOWED_PROPAGATION_RELATIONS.
-        const { data: relRows } = await (supabase as any)
+        // 5b.2 — Two-query relation expansion.
+        //
+        // Layer 1 bridge: anchor → related via ALL relations (recovers characters
+        //   that drive arcs/conflicts — e.g. drives_arc: CHAR_X → ARC_PROTAGONIST).
+        //   Arc/conflict meta-entities have 0 scene links; their related characters do.
+        //
+        // Layer 2 propagation: bridge entities → related via ALLOWED_PROPAGATION_RELATIONS only.
+        //   Depth=1 FROM bridge entities (the spec's "anchor entity" = bridge character).
+
+        const { data: relRowsAll } = await (supabase as any)
           .from("narrative_entity_relations")
           .select("source_entity_id,target_entity_id,relation_type")
           .eq("project_id", projectId)
           .or(`source_entity_id.in.(${anchorIds.join(",")}),target_entity_id.in.(${anchorIds.join(",")})`);
 
-        // Only allowed relation types enter the propagation layer
-        const allowedRelatedIds  = new Set<string>();
-        const relationIndex = new Map<string, Array<{ relation_type: string; anchor_entity_id: string }>>();
-        for (const rel of ((relRows || []) as any[])) {
-          if (!ALLOWED_PROPAGATION_RELATIONS.has(rel.relation_type)) continue;
+        // Bridge entities: all entities related to anchors via ANY relation (Layer 1)
+        const bridgeRelatedIds = new Set<string>();
+        for (const rel of ((relRowsAll || []) as any[])) {
           const isSourceAnchor = anchorIdSet.has(rel.source_entity_id);
           const relatedId      = isSourceAnchor ? rel.target_entity_id : rel.source_entity_id;
-          const anchorId       = isSourceAnchor ? rel.source_entity_id : rel.target_entity_id;
-          // Skip if the related entity is itself an anchor (already covered by Layer 1)
-          if (anchorIdSet.has(relatedId)) continue;
-          allowedRelatedIds.add(relatedId);
-          if (!relationIndex.has(relatedId)) relationIndex.set(relatedId, []);
-          relationIndex.get(relatedId)!.push({ relation_type: rel.relation_type, anchor_entity_id: anchorId });
+          if (!anchorIdSet.has(relatedId)) bridgeRelatedIds.add(relatedId);
+        }
+
+        // Layer 1 entity set: anchors + bridge entities
+        const layer1EntityIds  = [...anchorIds, ...bridgeRelatedIds];
+        const layer1EntityIdSet = new Set(layer1EntityIds);
+
+        // Propagation expansion: bridge entities → ALLOWED_PROPAGATION_RELATIONS → Layer 2 entities
+        const allowedRelatedIds  = new Set<string>();
+        const propagationIndex = new Map<string, Array<{ relation_type: string; bridge_entity_id: string }>>();
+
+        if (bridgeRelatedIds.size > 0) {
+          const bridgeIdArray = [...bridgeRelatedIds];
+          const { data: relRowsProp } = await (supabase as any)
+            .from("narrative_entity_relations")
+            .select("source_entity_id,target_entity_id,relation_type")
+            .eq("project_id", projectId)
+            .or(`source_entity_id.in.(${bridgeIdArray.join(",")}),target_entity_id.in.(${bridgeIdArray.join(",")})`);
+
+          for (const rel of ((relRowsProp || []) as any[])) {
+            if (!ALLOWED_PROPAGATION_RELATIONS.has(rel.relation_type)) continue;
+            const isSourceBridge = bridgeRelatedIds.has(rel.source_entity_id);
+            const relatedId      = isSourceBridge ? rel.target_entity_id : rel.source_entity_id;
+            const bridgeId       = isSourceBridge ? rel.source_entity_id : rel.target_entity_id;
+            // Skip if this entity is already covered by Layer 1
+            if (layer1EntityIdSet.has(relatedId)) continue;
+            allowedRelatedIds.add(relatedId);
+            if (!propagationIndex.has(relatedId)) propagationIndex.set(relatedId, []);
+            propagationIndex.get(relatedId)!.push({ relation_type: rel.relation_type, bridge_entity_id: bridgeId });
+          }
         }
 
         // Combined entity set for a single scene-link query
-        const allEntityIds = [...anchorIds, ...allowedRelatedIds];
+        const allEntityIds = [...layer1EntityIds, ...allowedRelatedIds];
 
         // 5b.3 — Load all entities in the expanded set for rationale building
         const { data: expandedEntityRows } = await (supabase as any)
@@ -2368,30 +2397,57 @@ async function computeSelectiveRegenerationPlanHelper(
             sceneEntityMap.get(row.scene_id)!.add(row.entity_id as string);
           }
 
-          // 5b.7 — Classify each candidate scene into Layer 1 or Layer 2
-          //         Priority: entity_link (anchor present) > entity_propagation (related only)
+          // 5b.7 — Classify each candidate scene into Layer 1 or Layer 2.
+          //         Priority: entity_link (anchor/bridge present) > entity_propagation (propagation only)
           for (const sceneId of candidateSceneIds) {
             const sceneKey = entitySceneKeyMap.get(sceneId);
             if (!sceneKey) continue;
 
-            const presentEntityIds   = [...(sceneEntityMap.get(sceneId) ?? [])];
-            const anchorsPresent     = presentEntityIds.filter(eid => anchorIdSet.has(eid));
-            const relatedPresent     = presentEntityIds.filter(eid => allowedRelatedIds.has(eid));
+            const presentEntityIds  = [...(sceneEntityMap.get(sceneId) ?? [])];
+            // Layer 1: any anchor OR bridge entity present
+            const layer1Present     = presentEntityIds.filter(eid => layer1EntityIdSet.has(eid));
+            // Layer 2: any propagation entity present (only if no Layer 1 entity)
+            const layer2Present     = presentEntityIds.filter(eid => allowedRelatedIds.has(eid));
 
-            if (anchorsPresent.length > 0) {
+            if (layer1Present.length > 0) {
               // ── Layer 1: entity_link ────────────────────────────────────
+              // Build rationale: trace from axis → anchor → bridge → scene
               const groundingClaims: string[] = [];
               const sourceAxesForScene = new Set<string>();
 
-              for (const anchorId of anchorsPresent) {
-                const anchorEntity = entityById.get(anchorId);
-                if (!anchorEntity) continue;
-                const matchingAxes = groundableAxes.filter(ax =>
-                  (AXIS_ENTITY_TYPE_GROUNDING[ax] ?? []).includes(anchorEntity.entity_type)
-                );
-                for (const ax of matchingAxes) {
-                  groundingClaims.push(`${ax} → ${anchorEntity.entity_key} — entity present in scene`);
-                  sourceAxesForScene.add(ax);
+              for (const eid of layer1Present) {
+                const entity = entityById.get(eid);
+                if (!entity) continue;
+
+                if (anchorIdSet.has(eid)) {
+                  // Direct anchor entity
+                  const matchingAxes = groundableAxes.filter(ax =>
+                    (AXIS_ENTITY_TYPE_GROUNDING[ax] ?? []).includes(entity.entity_type)
+                  );
+                  for (const ax of matchingAxes) {
+                    groundingClaims.push(`${ax} → ${entity.entity_key} — entity present in scene`);
+                    sourceAxesForScene.add(ax);
+                  }
+                } else if (bridgeRelatedIds.has(eid)) {
+                  // Bridge entity: find which anchor it connects to
+                  for (const rel of ((relRowsAll || []) as any[])) {
+                    const isSourceBridge = rel.source_entity_id === eid;
+                    const isTargetBridge = rel.target_entity_id === eid;
+                    if (!isSourceBridge && !isTargetBridge) continue;
+                    const anchorId = isSourceBridge ? rel.target_entity_id : rel.source_entity_id;
+                    if (!anchorIdSet.has(anchorId)) continue;
+                    const anchorEntity = entityById.get(anchorId);
+                    if (!anchorEntity) continue;
+                    const matchingAxes = groundableAxes.filter(ax =>
+                      (AXIS_ENTITY_TYPE_GROUNDING[ax] ?? []).includes(anchorEntity.entity_type)
+                    );
+                    for (const ax of matchingAxes) {
+                      groundingClaims.push(
+                        `${ax} → ${anchorEntity.entity_key} → ${rel.relation_type} → ${entity.entity_key} — entity present in scene`
+                      );
+                      sourceAxesForScene.add(ax);
+                    }
+                  }
                 }
               }
 
@@ -2402,34 +2458,45 @@ async function computeSelectiveRegenerationPlanHelper(
                 scene_key:           sceneKey,
                 slugline:            entitySluglineMap.get(sceneId) ?? null,
                 risk_source:         "entity_link",
-                entity_keys:         anchorsPresent.map(eid => entityById.get(eid)?.entity_key).filter(Boolean),
+                entity_keys:         layer1Present.map(eid => entityById.get(eid)?.entity_key).filter(Boolean),
                 source_axes:         [...sourceAxesForScene],
                 grounding_rationale: groundingClaims.join("; "),
               };
               entityImpactedScenes.push(entityScene);
               impactedScenes.push(entityScene);
 
-            } else if (relatedPresent.length > 0) {
+            } else if (layer2Present.length > 0) {
               // ── Layer 2: entity_propagation ────────────────────────────
-              // Only arrives here if NO anchor entity is present in this scene
+              // Only arrives here when NO Layer 1 entity is present in this scene.
+              // Rationale: axis → anchor → bridge → ALLOWED_RELATION → propagation_entity → scene
               const groundingClaims: string[] = [];
               const sourceAxesForScene = new Set<string>();
 
-              for (const relatedId of relatedPresent) {
-                const relatedEntity = entityById.get(relatedId);
-                if (!relatedEntity) continue;
-                const rels = relationIndex.get(relatedId) ?? [];
-                for (const rel of rels) {
-                  const anchorEntity = entityById.get(rel.anchor_entity_id);
-                  if (!anchorEntity) continue;
-                  const matchingAxes = groundableAxes.filter(ax =>
-                    (AXIS_ENTITY_TYPE_GROUNDING[ax] ?? []).includes(anchorEntity.entity_type)
-                  );
-                  for (const ax of matchingAxes) {
-                    groundingClaims.push(
-                      `${ax} → ${anchorEntity.entity_key} → ${rel.relation_type} → ${relatedEntity.entity_key} — entity present in scene`
+              for (const propId of layer2Present) {
+                const propEntity = entityById.get(propId);
+                if (!propEntity) continue;
+                const propRels = propagationIndex.get(propId) ?? [];
+                for (const prel of propRels) {
+                  const bridgeEntity = entityById.get(prel.bridge_entity_id);
+                  if (!bridgeEntity) continue;
+                  // Trace bridge back to anchor
+                  for (const rel of ((relRowsAll || []) as any[])) {
+                    const bridgeIsSource = rel.source_entity_id === prel.bridge_entity_id;
+                    const bridgeIsTarget = rel.target_entity_id === prel.bridge_entity_id;
+                    if (!bridgeIsSource && !bridgeIsTarget) continue;
+                    const anchorId = bridgeIsSource ? rel.target_entity_id : rel.source_entity_id;
+                    if (!anchorIdSet.has(anchorId)) continue;
+                    const anchorEntity = entityById.get(anchorId);
+                    if (!anchorEntity) continue;
+                    const matchingAxes = groundableAxes.filter(ax =>
+                      (AXIS_ENTITY_TYPE_GROUNDING[ax] ?? []).includes(anchorEntity.entity_type)
                     );
-                    sourceAxesForScene.add(ax);
+                    for (const ax of matchingAxes) {
+                      groundingClaims.push(
+                        `${ax} → ${anchorEntity.entity_key} → ${bridgeEntity.entity_key} → ${prel.relation_type} → ${propEntity.entity_key} — entity present in scene`
+                      );
+                      sourceAxesForScene.add(ax);
+                    }
                   }
                 }
               }
@@ -2441,12 +2508,12 @@ async function computeSelectiveRegenerationPlanHelper(
                 scene_key:           sceneKey,
                 slugline:            entitySluglineMap.get(sceneId) ?? null,
                 risk_source:         "entity_propagation",
-                entity_keys:         relatedPresent.map(eid => entityById.get(eid)?.entity_key).filter(Boolean),
+                entity_keys:         layer2Present.map(eid => entityById.get(eid)?.entity_key).filter(Boolean),
                 source_axes:         [...sourceAxesForScene],
                 grounding_rationale: groundingClaims.join("; "),
               });
             }
-            // else: only non-allowed-relation related entities — skip
+            // else: only entities with no valid axis grounding — skip
           }
 
           // Sort both layers by scene_key for deterministic output
