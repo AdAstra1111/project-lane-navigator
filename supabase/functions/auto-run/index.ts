@@ -547,6 +547,32 @@ async function enforcePrereqGateBeforeAdvance(
 const GLOBAL_MIN_CI = 85; // default fallback when job has no converge_target_json.ci
 const CI_PLATEAU_WINDOW = 2;   // consecutive non-improving ticks before fail-close
 const CI_MIN_DELTA = 1;        // minimum CI improvement to count as progress
+
+/**
+ * Per-doc-type gate overrides.
+ *
+ * Market-facing and structural docs are NOT narrative-craft documents — grading them
+ * on CI (Creative Integrity) is like marking a financial model on its prose style.
+ * GP (Green Potential / commercial viability) is the meaningful metric for these types.
+ *
+ * - market_sheet / vertical_market_sheet: CI lowered to 50, GP required at 72.
+ *   These docs are graded on market positioning, comp accuracy, audience targeting.
+ * - format_rules: CI lowered to 55, GP required at 65.
+ *   Graded on production feasibility and format compliance.
+ *
+ * All other doc types use the job-level converge_target_json / GLOBAL_MIN_CI.
+ */
+const DOC_TYPE_GATE_OVERRIDES: Record<string, { ci: number; gp: number }> = {
+  market_sheet:          { ci: 50, gp: 72 },
+  vertical_market_sheet: { ci: 50, gp: 72 },
+  format_rules:          { ci: 55, gp: 65 },
+};
+
+/** Returns the effective CI+GP gate thresholds for a given doc type and job. */
+function resolveDocTypeGates(job: any, docType: string): { ci: number; gp: number } {
+  if (DOC_TYPE_GATE_OVERRIDES[docType]) return DOC_TYPE_GATE_OVERRIDES[docType];
+  return { ci: resolveTargetCI(job), gp: 0 }; // default: CI-only gate
+}
 // ── Cost optimisation: max iterations per stage ──
 // If a stage has been reviewed this many times without hitting target, force-promote
 // the best version rather than burning more Pro ANALYZE tokens. A stage that can't
@@ -571,17 +597,40 @@ function resolveTargetCI(job: any): number {
 }
 
 /**
- * Evaluate CI gate for stage advancement. Returns { pass, ci, bestCiSoFar }.
- * Source of truth: stage-scoped best CI from auto_run_steps (action=review),
- * with DB-persisted fallback from project_document_versions.meta_json.
+ * Evaluate promotion gate for stage advancement.
+ *
+ * For most doc types: CI-only gate using job converge_target_json / GLOBAL_MIN_CI.
+ * For commercially-oriented docs (market_sheet, format_rules, etc.): applies
+ * DOC_TYPE_GATE_OVERRIDES — lower CI floor + explicit GP minimum, so these
+ * docs are judged on commercial viability rather than narrative craft.
+ *
+ * Returns { pass, ci, gp, bestCiSoFar, failReason }.
  */
 async function evaluateCIGate(
   supabase: any, jobId: string, docType: string, targetCi: number = GLOBAL_MIN_CI,
   projectId: string | null = null,
-): Promise<{ pass: boolean; ci: number; bestCiSoFar: number }> {
+  job?: any,
+): Promise<{ pass: boolean; ci: number; gp: number; bestCiSoFar: number; failReason?: string }> {
   const stageBest = await getStageBestFromSteps(supabase, jobId, docType, projectId);
   const ci = stageBest?.ci ?? 0;
-  return { pass: ci >= targetCi, ci, bestCiSoFar: ci };
+  const gp = stageBest?.gp ?? 0;
+
+  // Check for doc-type-specific overrides (e.g. market_sheet, format_rules)
+  const override = DOC_TYPE_GATE_OVERRIDES[docType];
+  if (override) {
+    const ciPass = ci >= override.ci;
+    const gpPass = gp >= override.gp;
+    const pass = ciPass && gpPass;
+    const failReason = !ciPass && !gpPass
+      ? `CI ${ci} < ${override.ci} and GP ${gp} < ${override.gp}`
+      : !ciPass ? `CI ${ci} < ${override.ci}`
+      : `GP ${gp} < ${override.gp}`;
+    console.log(`[auto-run][IEL] doc_type_gate_eval { doc_type: "${docType}", ci: ${ci}, gp: ${gp}, required_ci: ${override.ci}, required_gp: ${override.gp}, pass: ${pass} }`);
+    return { pass, ci, gp, bestCiSoFar: ci, failReason: pass ? undefined : failReason };
+  }
+
+  // Default: CI-only gate
+  return { pass: ci >= targetCi, ci, gp, bestCiSoFar: ci };
 }
 
 /**
@@ -5960,7 +6009,7 @@ Deno.serve(async (req) => {
 
         const iterCount = reviewCallCount ?? 0;
         if (iterCount >= MAX_STAGE_ITERATIONS) {
-          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, targetCiForIterCap, job.project_id);
+          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, targetCiForIterCap, job.project_id, job);
           if (!ciGate.pass) {
             // Over the iteration cap and still below target — force-promote best or pause
             console.warn(`[auto-run] max_stage_iterations_reached { job_id: "${jobId}", doc_type: "${currentDoc}", iterations: ${iterCount}, best_ci: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap} }`);
@@ -8150,22 +8199,24 @@ Deno.serve(async (req) => {
             } else {
               // Converged enough — apply CI hard gate before promotion (uses job target_ci)
               const promoteTargetCi = resolveTargetCI(job);
-              const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, promoteTargetCi, job.project_id);
-              console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${promoteTargetCi}, rule: "converge_promote_gate" }`);
+              const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, promoteTargetCi, job.project_id, job);
+              const docOverride = DOC_TYPE_GATE_OVERRIDES[currentDoc];
+              console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, gp: ${ciGate.gp}, min_ci: ${docOverride ? docOverride.ci : promoteTargetCi}, min_gp: ${docOverride ? docOverride.gp : 0}, override: ${!!docOverride}, rule: "converge_promote_gate" }`);
               if (!ciGate.pass) {
-                // CI below target — do NOT promote, continue stabilise
-                console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${promoteTargetCi}, trigger: "converge_promote" }`);
-                // ── TRANSITION LEDGER: promotion_gate_evaluated (blocked by CI) ──
+                // Gate failed — CI below target (or GP below target for overridden doc types)
+                const blockReason = ciGate.failReason || `CI=${ciGate.ci} < ${promoteTargetCi}`;
+                console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, gp: ${ciGate.gp}, reason: "${blockReason}", trigger: "converge_promote" }`);
+                // ── TRANSITION LEDGER: promotion_gate_evaluated (blocked) ──
                 await emitTransition(supabase, {
                   projectId: job.project_id, eventType: TRANSITION_EVENTS.PROMOTION_GATE_EVALUATED,
                   docType: currentDoc, stage: currentDoc, jobId, resultingVersionId: latestVersion?.id,
                   status: "failed", trigger: "ci_hard_gate", sourceOfTruth: "auto-run",
-                  ci: ciGate.ci, previousState: { min_ci: promoteTargetCi },
-                  resultingState: { pass: false, reason: "ci_below_threshold" },
+                  ci: ciGate.ci, previousState: { min_ci: docOverride ? docOverride.ci : promoteTargetCi, min_gp: docOverride?.gp ?? 0 },
+                  resultingState: { pass: false, reason: docOverride ? "doc_type_gate_failed" : "ci_below_threshold", detail: blockReason },
                 });
                 await logStep(supabase, jobId, null, currentDoc, "ci_gate_blocked",
-                  `Promotion blocked: CI=${ciGate.ci} < ${promoteTargetCi}. Continuing stabilise.`,
-                  { ci: ciGate.ci }, undefined, { min_ci: promoteTargetCi, trigger: "converge_promote" });
+                  `Promotion blocked: ${blockReason}. Continuing stabilise.`,
+                  { ci: ciGate.ci, gp: ciGate.gp }, undefined, { min_ci: docOverride ? docOverride.ci : promoteTargetCi, min_gp: docOverride?.gp ?? 0, trigger: "converge_promote", doc_type_override: !!docOverride });
                 await updateJob(supabase, jobId, { stage_loop_count: newLoopCount });
                 // Fall through to rewrite below
               }
@@ -10120,7 +10171,7 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
         if (promo.recommendation === "promote") {
           // ── CI HARD GATE: no promotion unless CI meets job target (default 90) ──
           const writeTargetCi = resolveTargetCI(job);
-          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, writeTargetCi, job.project_id);
+          const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, writeTargetCi, job.project_id, job);
           console.log(`[auto-run][IEL] ci_gate_eval { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${writeTargetCi}, rule: "promote_gate_writing" }`);
           if (!ciGate.pass) {
             console.warn(`[auto-run][IEL] ci_gate_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci}, min_ci: ${writeTargetCi}, trigger: "promote_writing" }`);
