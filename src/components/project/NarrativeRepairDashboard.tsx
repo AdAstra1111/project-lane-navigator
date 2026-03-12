@@ -17,6 +17,7 @@ import { NDGImpactHeatmap } from '@/components/project/NDGImpactHeatmap';
 import { AutopilotRepairPanel } from '@/components/project/AutopilotRepairPanel';
 import { NarrativeSimulationPanel } from '@/components/project/NarrativeSimulationPanel';
 import { NarrativeEssenceDriftPanel } from '@/components/project/NarrativeEssenceDriftPanel';
+import { NarrativeDiagnosticsPanel } from '@/components/narrative/NarrativeDiagnosticsPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -190,6 +191,9 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
             onStrategyChange={setRepairStrategy}
           />
 
+          {/* Narrative Diagnostics */}
+          {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
+
           {/* Simulation Preview */}
           <NarrativeSimulationPanel projectId={projectId} />
 
@@ -244,6 +248,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
           repairStrategy={repairStrategy}
           onStrategyChange={setRepairStrategy}
         />
+        {/* ═══ NARRATIVE DIAGNOSTICS ═══ */}
+        {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
         {/* ═══ SIMULATION PREVIEW ═══ */}
         <NarrativeSimulationPanel projectId={projectId} />
         {/* ═══ NARRATIVE DRIFT ═══ */}
