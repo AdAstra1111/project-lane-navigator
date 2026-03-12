@@ -246,6 +246,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
         />
         {/* ═══ SIMULATION PREVIEW ═══ */}
         <NarrativeSimulationPanel projectId={projectId} />
+        {/* ═══ NARRATIVE DRIFT ═══ */}
+        <NarrativeEssenceDriftPanel projectId={projectId} authoredSeedId={authoredSeedId} derivedSeedId={derivedSeedId} />
         {/* ═══ SECTION 1: REPAIR STATUS ═══ */}
         <RepairStatusSection
           plan={plan}
