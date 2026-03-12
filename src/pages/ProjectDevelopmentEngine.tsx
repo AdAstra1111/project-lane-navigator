@@ -754,6 +754,21 @@ export default function ProjectDevelopmentEngine() {
     runAnalysisWithContext();
   };
 
+  const handleStaleRegenerate = async () => {
+    if (!selectedDoc?.doc_type || !projectId) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase.functions.invoke('generate-document', {
+      body: {
+        projectId,
+        docType: selectedDoc.doc_type,
+        userId: user?.id,
+        mode: 'draft',
+      },
+    });
+    qc.invalidateQueries({ queryKey: ['versions', projectId, selectedDoc.doc_type] });
+    qc.invalidateQueries({ queryKey: ['documents', projectId] });
+  };
+
   const handleRewrite = async (decisions?: Record<string, string>, globalDirections?: any[]) => {
     const approved = allPrioritizedMoves.filter((_, i) => selectedNotes.has(i));
     const protectItems = latestNotes?.protect || latestAnalysis?.protect || [];
