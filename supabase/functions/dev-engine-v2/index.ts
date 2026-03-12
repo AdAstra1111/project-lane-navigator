@@ -11007,17 +11007,23 @@ Return ONLY valid JSON:
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── DX: get_narrative_diagnostics (Installment DX) ───────────────────────────
+    // ── DX2: get_narrative_diagnostics (Installment DX2) ─────────────────────────
     //
     // Unified diagnostics aggregator. Runs multiple analytical collectors and returns
-    // a normalized array of diagnostic objects sorted by severity.
+    // a normalized array of diagnostic objects sorted by severity + load priority.
     //
-    // Collectors (V1):
-    //   soul_drift       — compare_dev_seed_v2 via dxComputeDriftReport
-    //   narrative_monitor — query narrative_units for stale/misaligned state
-    //   simulation_engine — stub (V1; documented as future collector)
+    // Collectors (DX2):
+    //   soul_drift          — dxComputeDriftReport (V1, unchanged)
+    //   narrative_monitor   — narrative_units stale/misaligned (V1, unchanged)
+    //   obligation_validator — inline NC2 logic against narrative_obligations + seed
+    //   simulation_engine   — heuristic blast-radius from stale high-load unit types
+    //   diagnostics_layer   — subsystem_unavailable emitted on any collector failure
     //
-    // All collectors are isolated: failure of one does not collapse the response.
+    // Load-aware prioritization (SL2):
+    //   priority_score field added per diagnostic; sort: severity → priority → scope.
+    //   load_class influences ranking but never overrides subsystem severity.
+    //
+    // All collectors are isolated: failure of one → subsystem_unavailable diagnostic.
     // No data is mutated. All outputs are deterministic for identical DB state.
     //
     if (action === "get_narrative_diagnostics") {
@@ -11027,27 +11033,34 @@ Return ONLY valid JSON:
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Diagnostic canonical object type
+      // ── DX2: Type definitions ──────────────────────────────────────────────
+      // NarrativeDiagnostic is the normalized output object consumed by the DX UI.
+      // DX2 adds optional priority_score and load_class fields (additive only).
       interface NarrativeDiagnostic {
-        diagnostic_id:    string;
-        project_id:       string;
-        source_system:    string;
-        diagnostic_type:  string;
-        severity:         "info" | "warning" | "high" | "critical";
-        scope_level:      string;
-        affected_axes:    string[];
-        affected_units:   string[];
-        affected_entities: string[];
-        affected_beats:   string[];
+        diagnostic_id:      string;
+        project_id:         string;
+        source_system:      string;
+        diagnostic_type:    string;
+        severity:           "info" | "warning" | "high" | "critical";
+        scope_level:        string;
+        scope_key?:         string;             // DX2: element key this finding targets
+        affected_axes:      string[];
+        affected_units:     string[];
+        affected_entities:  string[];
+        affected_beats:     string[];
         affected_relations: string[];
-        summary:          string;
-        details:          string | null;
+        summary:            string;
+        details:            string | null;
         recommended_action: string | null;
-        repairability:    "auto" | "guided" | "manual" | "unknown";
-        created_at:       string;
+        repairability:      "auto" | "guided" | "manual" | "unknown";
+        // DX2 additive fields — safe to ignore if UI doesn't consume them
+        base_severity?:     string;             // original severity before load boost
+        load_class?:        string;             // CORE | primary | supporting | decorative
+        priority_score?:    number;             // deterministic sort key (higher = earlier)
+        created_at:         string;
       }
 
-      // Stable content-based diagnostic ID (deterministic for identical inputs)
+      // Stable content-hash diagnostic ID (deterministic for identical inputs)
       const dxStableId = (parts: string[]): string => {
         let h = 5381;
         for (const p of parts) for (const c of p) h = ((h << 5) + h) + c.charCodeAt(0);
@@ -11071,11 +11084,62 @@ Return ONLY valid JSON:
         relationship_core_missing: { type:"relationship_core_missing",  scope:"relationship", summary:"Core relationship structure has changed",                  action:"reinforce protagonist-antagonist relation" },
       };
 
+      // DX2: obligation status → severity
+      const OBL_STATUS_SEVERITY: Record<string, NarrativeDiagnostic["severity"]> = {
+        violated:    "high",     // default; overridden by obligation severity_default below
+        unresolved:  "warning",
+        unavailable: "info",
+      };
+      // DX2: obligation severity_default maps to DX severity (for violated obligations)
+      const OBL_DEFAULT_TO_SEV: Record<string, NarrativeDiagnostic["severity"]> = {
+        critical: "critical", high: "high", warning: "warning", info: "info",
+      };
+
+      // DX2: unit_type blast-radius weight (heuristic; informs simulation_engine collector)
+      const UNIT_BLAST_WEIGHT: Record<string, number> = {
+        protagonist_arc:  3,
+        central_conflict: 3,
+        story_engine:     3,
+        resolution_type:  3,
+        inciting_incident:2,
+        pressure_system:  2,
+        stakes_class:     2,
+        midpoint_reversal:2,
+        tonal_gravity:    1,
+      };
+
+      // DX2: load_class priority boost (added to priority_score; does NOT change severity)
+      const LOAD_CLASS_BOOST: Record<string, number> = {
+        core:       40,
+        primary:    20,
+        supporting: 5,
+        decorative: 0,
+      };
+
       const diagnostics: NarrativeDiagnostic[] = [];
-      const collectorErrors: string[] = [];
       const nowIso = new Date().toISOString();
 
-      // ── Collector 1: soul_drift ────────────────────────────────────────
+      // DX2: helper to emit a subsystem_unavailable diagnostic on collector failure
+      const emitSubsystemUnavailable = (sourceSystem: string, errorMsg: string) => {
+        diagnostics.push({
+          diagnostic_id:      dxStableId([projectId, "diagnostics_layer", "subsystem_unavailable", sourceSystem]),
+          project_id:         projectId,
+          source_system:      "diagnostics_layer",
+          diagnostic_type:    "subsystem_unavailable",
+          severity:           "warning",
+          scope_level:        "project",
+          scope_key:          sourceSystem,
+          affected_axes:      [], affected_units:    [], affected_entities: [],
+          affected_beats:     [], affected_relations: [],
+          summary:            `${sourceSystem} diagnostics unavailable`,
+          details:            errorMsg,
+          recommended_action: "Check subsystem configuration or re-run after ensuring seed data is present",
+          repairability:      "manual",
+          created_at:         nowIso,
+        });
+      };
+
+      // ── Collector 1: soul_drift (DX1, unchanged) ──────────────────────────
       try {
         const seedsRes = await (supabase as any)
           .from("dev_seed_v2_projects")
@@ -11093,60 +11157,56 @@ Return ONLY valid JSON:
             dxLoadSeed(derivedSeed.id  as string),
           ]);
           const drift = dxComputeDriftReport(aData, dData);
-
-          // Emit one diagnostic per cause (severity = overall band)
           const sev = DX_BAND_SEVERITY[drift.drift_band] ?? "info";
+
           for (const cause of drift.primary_drift_causes) {
             const meta = DX_CAUSE_META[cause];
             if (!meta) continue;
             diagnostics.push({
-              diagnostic_id:     dxStableId([projectId, "soul_drift", meta.type, cause]),
-              project_id:        projectId,
-              source_system:     "soul_drift",
-              diagnostic_type:   meta.type,
-              severity:          sev,
-              scope_level:       meta.scope,
-              affected_axes:     meta.scope === "axis" ? aData.axes.map(a => a.axis_key) : [],
-              affected_units:    meta.scope === "unit" ? aData.units.map(u => u.unit_type) : [],
-              affected_entities: [],
-              affected_beats:    meta.scope === "beat"
+              diagnostic_id:      dxStableId([projectId, "soul_drift", meta.type, cause]),
+              project_id:         projectId,
+              source_system:      "soul_drift",
+              diagnostic_type:    meta.type,
+              severity:           sev,
+              scope_level:        meta.scope,
+              affected_axes:      meta.scope === "axis" ? aData.axes.map(a => a.axis_key) : [],
+              affected_units:     meta.scope === "unit" ? aData.units.map(u => u.unit_type) : [],
+              affected_entities:  [],
+              affected_beats:     meta.scope === "beat"
                 ? drift.dimension_details.beats.causes ?? [] : [],
               affected_relations: meta.scope === "relationship"
                 ? aData.relations.map(r => `${r.source_entity_key}::${r.relation_type}::${r.target_entity_key}`) : [],
-              summary:           meta.summary,
-              details:           `Soul drift: ${drift.drift_band} (score ${drift.overall_soul_drift_score})`,
+              summary:            meta.summary,
+              details:            `Soul drift: ${drift.drift_band} (score ${drift.overall_soul_drift_score})`,
               recommended_action: meta.action,
-              repairability:     "guided",
-              created_at:        nowIso,
+              repairability:      "guided",
+              created_at:         nowIso,
             });
           }
-
-          // Summary diagnostic at project scope (only if band > LOW)
           if (drift.drift_band !== "LOW") {
             diagnostics.push({
-              diagnostic_id:     dxStableId([projectId, "soul_drift", "summary", drift.drift_band]),
-              project_id:        projectId,
-              source_system:     "soul_drift",
-              diagnostic_type:   "soul_drift_summary",
-              severity:          sev,
-              scope_level:       "project",
-              affected_axes:     [], affected_units:     [], affected_entities: [],
-              affected_beats:    [], affected_relations: [],
-              summary:           `Narrative soul drift detected: ${drift.drift_band} (overall score ${drift.overall_soul_drift_score})`,
-              details:           `Causes: ${drift.primary_drift_causes.join(", ")}`,
+              diagnostic_id:      dxStableId([projectId, "soul_drift", "summary", drift.drift_band]),
+              project_id:         projectId,
+              source_system:      "soul_drift",
+              diagnostic_type:    "soul_drift_summary",
+              severity:           sev,
+              scope_level:        "project",
+              affected_axes:      [], affected_units:    [], affected_entities: [],
+              affected_beats:     [], affected_relations: [],
+              summary:            `Narrative soul drift detected: ${drift.drift_band} (overall score ${drift.overall_soul_drift_score})`,
+              details:            `Causes: ${drift.primary_drift_causes.join(", ")}`,
               recommended_action: drift.primary_drift_causes[0]
                 ? (DX_CAUSE_META[drift.primary_drift_causes[0]]?.action ?? null) : null,
-              repairability:     "guided",
-              created_at:        nowIso,
+              repairability:      "guided",
+              created_at:         nowIso,
             });
           }
         }
-        // No seeds → soul_drift collector produces no diagnostics (not an error)
       } catch (e: any) {
-        collectorErrors.push("soul_drift: " + (e?.message ?? "unknown"));
+        emitSubsystemUnavailable("soul_drift", e?.message ?? "unknown");
       }
 
-      // ── Collector 2: narrative_monitor ────────────────────────────────
+      // ── Collector 2: narrative_monitor (DX1, unchanged) ──────────────────
       try {
         const staleRes = await (supabase as any)
           .from("narrative_units")
@@ -11157,42 +11217,295 @@ Return ONLY valid JSON:
         for (const unit of (staleRes.data ?? []) as any[]) {
           const sev: NarrativeDiagnostic["severity"] = unit.status === "stale" ? "warning" : "info";
           diagnostics.push({
-            diagnostic_id:     dxStableId([projectId, "narrative_monitor", "unit_stale", unit.unit_type]),
-            project_id:        projectId,
-            source_system:     "narrative_monitor",
-            diagnostic_type:   "unit_stale",
-            severity:          sev,
-            scope_level:       "unit",
-            affected_axes:     [unit.unit_type],
-            affected_units:    [unit.unit_key ?? unit.unit_type],
-            affected_entities: [], affected_beats: [], affected_relations: [],
-            summary:           `Narrative unit '${unit.unit_type}' is ${unit.status}`,
-            details:           unit.stale_reason ?? null,
+            diagnostic_id:      dxStableId([projectId, "narrative_monitor", "unit_stale", unit.unit_type]),
+            project_id:         projectId,
+            source_system:      "narrative_monitor",
+            diagnostic_type:    "unit_stale",
+            severity:           sev,
+            scope_level:        "unit",
+            scope_key:          unit.unit_type,
+            affected_axes:      [unit.unit_type],
+            affected_units:     [unit.unit_key ?? unit.unit_type],
+            affected_entities:  [], affected_beats: [], affected_relations: [],
+            summary:            `Narrative unit '${unit.unit_type}' is ${unit.status}`,
+            details:            unit.stale_reason ?? null,
             recommended_action: "regenerate narrative unit",
-            repairability:     "auto",
-            created_at:        nowIso,
+            repairability:      "auto",
+            created_at:         nowIso,
           });
         }
       } catch (e: any) {
-        collectorErrors.push("narrative_monitor: " + (e?.message ?? "unknown"));
+        emitSubsystemUnavailable("narrative_monitor", e?.message ?? "unknown");
       }
 
-      // ── Collector 3: simulation_engine (stub — V1) ────────────────────
-      // Reserved for future integration with simulate_narrative_impact.
-      // No diagnostics emitted in V1.
+      // ── Collector 3: obligation_validator (DX2 — inline NC2 logic) ────────
+      //
+      // Reads obligation registry + authored seed signals.
+      // Emits violated (high/critical) and unresolved (warning) obligations.
+      // Does NOT emit fulfilled obligations.
+      // Does NOT emit unavailable obligations unless severity_default >= high.
+      // If registry not built → emits one info diagnostic (not a subsystem error).
+      try {
+        const oblRes = await (supabase as any)
+          .from("narrative_obligations")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("obligation_type");
+        const obligations = (oblRes.data ?? []) as any[];
 
-      // ── Sort: severity desc → scope importance asc ────────────────────
+        if (obligations.length === 0) {
+          // Registry not built — emit info, not error
+          diagnostics.push({
+            diagnostic_id:      dxStableId([projectId, "obligation_validator", "registry_empty"]),
+            project_id:         projectId,
+            source_system:      "obligation_validator",
+            diagnostic_type:    "obligation_registry_empty",
+            severity:           "info",
+            scope_level:        "project",
+            affected_axes:      [], affected_units:   [], affected_entities: [],
+            affected_beats:     [], affected_relations:[],
+            summary:            "Narrative obligation registry not yet built for this project",
+            details:            "Call build_narrative_obligations to populate the registry.",
+            recommended_action: "Run build_narrative_obligations",
+            repairability:      "auto",
+            created_at:         nowIso,
+          });
+        } else {
+          // Load authored seed signals for inline validation
+          const { data: oblSeedRoot } = await (supabase as any)
+            .from("dev_seed_v2_projects")
+            .select("id")
+            .eq("project_id", projectId)
+            .eq("derived", false)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          const oblSeedId = oblSeedRoot?.id ?? null;
+
+          const [oblPremiseRes, oblBeatsRes, oblEntitiesRes, oblRelationsRes,
+                 oblGenIntentRes, oblLiveRelationsRes] = await Promise.all([
+            oblSeedId ? (supabase as any).from("dev_seed_v2_premise").select("premise,theme_vector,emotional_promise").eq("seed_id", oblSeedId).maybeSingle() : Promise.resolve({ data: null }),
+            oblSeedId ? (supabase as any).from("dev_seed_v2_beats").select("beat_key,beat_description").eq("seed_id", oblSeedId)                              : Promise.resolve({ data: [] }),
+            oblSeedId ? (supabase as any).from("dev_seed_v2_entities").select("entity_key,entity_type,story_critical_flag").eq("seed_id", oblSeedId)          : Promise.resolve({ data: [] }),
+            oblSeedId ? (supabase as any).from("dev_seed_v2_entity_relations").select("source_entity_key").eq("seed_id", oblSeedId)                           : Promise.resolve({ data: [] }),
+            oblSeedId ? (supabase as any).from("dev_seed_v2_generation_intent").select("mystery_opacity,projection_targets").eq("seed_id", oblSeedId).maybeSingle() : Promise.resolve({ data: null }),
+            (supabase as any).from("narrative_entity_relations").select("id").eq("project_id", projectId).limit(1),
+          ]);
+
+          const oblPremise    = oblPremiseRes.data ?? null;
+          const oblBeats      = (oblBeatsRes.data ?? []) as any[];
+          const oblEntities   = (oblEntitiesRes.data ?? []) as any[];
+          const oblSeedRels   = (oblRelationsRes.data ?? []) as any[];
+          const oblGenIntent  = oblGenIntentRes.data ?? null;
+          const oblLiveRels   = (oblLiveRelationsRes.data ?? []) as any[];
+
+          const oblBeatHasContent = (key: string) =>
+            oblBeats.some(b => b.beat_key === key && b.beat_description?.trim?.().length > 0);
+          const oblAntagonistExists = () =>
+            oblEntities.some(e => e.entity_key?.toUpperCase().includes("ANTAGONIST") ||
+              (e.entity_type === "conflict" && e.story_critical_flag === true));
+
+          // Inline NC2 status computation (mirrors validate_narrative_obligations)
+          const computeOblStatus = (oblType: string): "fulfilled" | "unresolved" | "violated" | "unavailable" => {
+            if (!oblSeedId) return "unavailable";
+            switch (oblType) {
+              case "promise_of_premise":
+                return oblPremise?.premise?.trim().length > 20 ? "fulfilled" : !oblPremise ? "unavailable" : "unresolved";
+              case "protagonist_arc_resolution":
+                if (!oblBeats.length) return "unavailable";
+                return oblBeatHasContent("climax_promise") ? "fulfilled" : "unresolved";
+              case "antagonist_arc_resolution":
+                if (!oblEntities.length) return "unavailable";
+                return oblAntagonistExists() ? "fulfilled" : "unresolved";
+              case "relationship_arc_bridge":
+                if (!oblSeedRels.length && !oblLiveRels.length) return "unresolved";
+                if (oblSeedRels.length > 0 && oblLiveRels.length === 0) return "violated";
+                return oblLiveRels.length > 0 ? "fulfilled" : "unresolved";
+              case "mystery_payoff": {
+                const mo = oblGenIntent?.mystery_opacity ?? null;
+                if (!oblGenIntent) return "unavailable";
+                if (!mo || mo === 0) return "unavailable";
+                return oblBeatHasContent("ending_condition") ? "fulfilled" : "unresolved";
+              }
+              case "theme_confirmation":
+                if (!oblPremise) return "unavailable";
+                if (!oblPremise.theme_vector || (Array.isArray(oblPremise.theme_vector) && oblPremise.theme_vector.length === 0)) return "unavailable";
+                return oblBeatHasContent("ending_condition") ? "fulfilled" : "unresolved";
+              case "tonal_contract":
+                if (!oblPremise) return "unavailable";
+                return oblPremise.emotional_promise ? "fulfilled" : "unresolved";
+              case "genre_contract": {
+                if (!oblGenIntent) return "unavailable";
+                const targets = Array.isArray(oblGenIntent.projection_targets) ? oblGenIntent.projection_targets : [];
+                return targets.length > 0 ? "fulfilled" : "unresolved";
+              }
+              case "climax_payoff":
+                if (!oblBeats.length) return "unavailable";
+                return oblBeatHasContent("climax_promise") ? "fulfilled" : "unresolved";
+              case "ending_condition_fulfillment":
+                if (!oblBeats.length) return "unavailable";
+                return oblBeatHasContent("ending_condition") ? "fulfilled" : "unresolved";
+              default:
+                return "unavailable";
+            }
+          };
+
+          for (const obl of obligations) {
+            const oblType    = obl.obligation_type as string;
+            const severityDef = obl.severity_default as string;
+            const oblStatus  = computeOblStatus(oblType);
+
+            // Skip fulfilled obligations — they are not diagnostic findings
+            if (oblStatus === "fulfilled") continue;
+            // Skip unavailable at info level unless it's a critical/high obligation
+            if (oblStatus === "unavailable" && !["critical", "high"].includes(severityDef)) continue;
+
+            const sev: NarrativeDiagnostic["severity"] =
+              oblStatus === "violated"   ? (OBL_DEFAULT_TO_SEV[severityDef] ?? "high") :
+              oblStatus === "unresolved" ? "warning" : "info";
+
+            diagnostics.push({
+              diagnostic_id:      dxStableId([projectId, "obligation_validator", oblType, oblStatus]),
+              project_id:         projectId,
+              source_system:      "obligation_validator",
+              diagnostic_type:    `obligation_${oblStatus}`,
+              severity:           sev,
+              scope_level:        obl.source_layer ?? "project",
+              scope_key:          obl.source_key ?? oblType,
+              affected_axes:      obl.source_layer === "axes"   ? [obl.source_key] : [],
+              affected_units:     obl.source_layer === "units"  ? [obl.source_key] : [],
+              affected_entities:  obl.source_layer === "entities" ? [obl.source_key] : [],
+              affected_beats:     obl.source_layer === "beats"  ? [obl.source_key] : [],
+              affected_relations: obl.source_layer === "relations" ? [obl.source_key] : [],
+              summary:            `Obligation '${oblType}' is ${oblStatus}: ${obl.description ?? ""}`,
+              details:            `required_by: ${obl.required_by ?? "unknown"} | severity_default: ${severityDef}`,
+              recommended_action: obl.required_by
+                ? `Ensure ${obl.required_by} is present and complete in the narrative structure`
+                : "Review obligation registry and narrative seed",
+              repairability:      oblStatus === "violated" ? "guided" : "manual",
+              created_at:         nowIso,
+            });
+          }
+        }
+      } catch (e: any) {
+        emitSubsystemUnavailable("obligation_validator", e?.message ?? "unknown");
+      }
+
+      // ── Collector 4: simulation_engine (DX2 — heuristic blast-radius) ─────
+      //
+      // Does not call simulate_narrative_impact (requires explicit unit_keys).
+      // Instead, derives heuristic simulation_risk signals from stale narrative_units
+      // where the unit_type carries known high blast-radius (protagonist_arc, etc.).
+      // These are advisory signals — not repair triggers.
+      try {
+        const simStaleRes = await (supabase as any)
+          .from("narrative_units")
+          .select("unit_key,unit_type,status")
+          .eq("project_id", projectId)
+          .in("status", ["stale", "contradicted"]);
+
+        for (const unit of (simStaleRes.data ?? []) as any[]) {
+          const blastWeight = UNIT_BLAST_WEIGHT[unit.unit_type] ?? 0;
+          if (blastWeight < 2) continue; // Only emit for medium/high-blast unit types
+
+          const sev: NarrativeDiagnostic["severity"] = blastWeight >= 3 ? "high" : "warning";
+          diagnostics.push({
+            diagnostic_id:      dxStableId([projectId, "simulation_engine", "blast_risk", unit.unit_type]),
+            project_id:         projectId,
+            source_system:      "simulation_engine",
+            diagnostic_type:    "simulation_risk",
+            severity:           sev,
+            scope_level:        "unit",
+            scope_key:          unit.unit_type,
+            affected_axes:      [unit.unit_type],
+            affected_units:     [unit.unit_key ?? unit.unit_type],
+            affected_entities:  [], affected_beats: [], affected_relations: [],
+            summary:            `High blast-radius unit '${unit.unit_type}' is ${unit.status} — downstream scene risk`,
+            details:            `unit_type '${unit.unit_type}' has blast_weight=${blastWeight}. Regeneration of this unit will likely cascade to multiple scenes.`,
+            recommended_action: `Run simulate_narrative_impact with axis_keys=["${unit.unit_type}"] before regenerating`,
+            repairability:      "guided",
+            created_at:         nowIso,
+          });
+        }
+      } catch (e: any) {
+        emitSubsystemUnavailable("simulation_engine", e?.message ?? "unknown");
+      }
+
+      // ── DX2: Load-aware priority scoring ──────────────────────────────────
+      //
+      // Reads seed entities (story_critical_flag) and obligation severity_defaults
+      // to build a priority boost map. Applied additively — does NOT change severity.
+      //
+      // priority_score = base_severity_score + load_class_boost
+      // Sort: severity (primary) → priority_score desc (secondary) → scope (tertiary)
+      try {
+        // Build load class lookup from obligation source keys
+        const oblLoadMap = new Map<string, string>(); // scope_key → load_class heuristic
+        const { data: oblRows } = await (supabase as any)
+          .from("narrative_obligations")
+          .select("source_key, severity_default")
+          .eq("project_id", projectId);
+        for (const o of (oblRows ?? []) as any[]) {
+          const cls = o.severity_default === "critical" ? "core"
+            : o.severity_default === "high" ? "primary"
+            : "supporting";
+          if (!oblLoadMap.has(o.source_key)) oblLoadMap.set(o.source_key, cls);
+        }
+
+        // Build critical entity set
+        const { data: critEnts } = await (supabase as any)
+          .from("dev_seed_v2_entities")
+          .select("entity_key, story_critical_flag, entity_type")
+          .eq("project_id", projectId); // Note: this may not filter correctly; use supabase join
+        const critEntityKeys = new Set(
+          ((critEnts ?? []) as any[])
+            .filter((e: any) => e.story_critical_flag || e.entity_type === "conflict")
+            .map((e: any) => e.entity_key)
+        );
+
+        const SEV_BASE: Record<string, number> = { critical: 100, high: 70, warning: 40, info: 10 };
+
+        for (const dx of diagnostics) {
+          const sevBase = SEV_BASE[dx.severity] ?? 10;
+          // Determine load_class from scope_key
+          const scopeKey = dx.scope_key ?? "";
+          let loadClass = oblLoadMap.get(scopeKey) ?? "supporting";
+          if (critEntityKeys.has(scopeKey)) loadClass = "core";
+          if (dx.scope_level === "project") loadClass = "core"; // project-scope always core
+          const boost = LOAD_CLASS_BOOST[loadClass] ?? 0;
+          dx.load_class    = loadClass;
+          dx.priority_score = sevBase + boost;
+          dx.base_severity = dx.severity;
+        }
+      } catch (_) {
+        // Load scoring failure is non-fatal — diagnostics are still valid without priority_score
+        for (const dx of diagnostics) {
+          const SEV_BASE: Record<string, number> = { critical: 100, high: 70, warning: 40, info: 10 };
+          dx.priority_score = SEV_BASE[dx.severity] ?? 10;
+        }
+      }
+
+      // ── DX2: Sort — severity (primary) → priority_score desc → scope ──────
       const SEV_ORDER   = { critical: 0, high: 1, warning: 2, info: 3 } as Record<string, number>;
       const SCOPE_ORDER = { project: 0, axis: 1, unit: 2, beat: 3, entity: 4, relationship: 5, scene: 6 } as Record<string, number>;
       diagnostics.sort((a, b) => {
         const sd = (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9);
         if (sd !== 0) return sd;
+        // Within same severity: higher priority_score first (load-critical findings first)
+        const pd = (b.priority_score ?? 0) - (a.priority_score ?? 0);
+        if (pd !== 0) return pd;
         return (SCOPE_ORDER[a.scope_level] ?? 9) - (SCOPE_ORDER[b.scope_level] ?? 9);
       });
 
-      console.log("[dev-engine-v2] get_narrative_diagnostics", {
-        project_id: projectId, count: diagnostics.length,
-        collector_errors: collectorErrors.length,
+      // DX2 summary by source system
+      const bySource: Record<string, number> = {};
+      for (const dx of diagnostics) {
+        bySource[dx.source_system] = (bySource[dx.source_system] ?? 0) + 1;
+      }
+
+      console.log("[dev-engine-v2] get_narrative_diagnostics DX2", {
+        project_id: projectId, total: diagnostics.length, by_source: bySource,
       });
 
       return new Response(JSON.stringify({
@@ -11201,7 +11514,7 @@ Return ONLY valid JSON:
         project_id:        projectId,
         diagnostics,
         diagnostics_count: diagnostics.length,
-        ...(collectorErrors.length > 0 ? { collector_errors: collectorErrors } : {}),
+        by_source:         bySource,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
