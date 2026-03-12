@@ -1538,15 +1538,15 @@ async function nextUnsatisfiedStage(
   if (allDocIds.length > 0) {
     const { data: vers } = await supabase
       .from("project_document_versions")
-      .select("document_id, plaintext, approval_status, label, status")
+      .select("document_id, plaintext, approval_status, label, status, meta_json")
       .in("document_id", allDocIds)
       .eq("is_current", true);
     currentVersions = vers || [];
   }
 
-  const versionByDocId = new Map<string, { plaintext: string | null; approval_status: string; label: string | null; status?: string }>();
+  const versionByDocId = new Map<string, { plaintext: string | null; approval_status: string; label: string | null; status?: string; bg_generating?: boolean }>();
   for (const v of currentVersions) {
-    versionByDocId.set(v.document_id, { plaintext: v.plaintext, approval_status: v.approval_status, label: v.label || null, status: v.status || null });
+    versionByDocId.set(v.document_id, { plaintext: v.plaintext, approval_status: v.approval_status, label: v.label || null, status: v.status || null, bg_generating: (v.meta_json as any)?.bg_generating === true });
   }
 
   // ── REVIEWED-IN-JOB GATE: batch-fetch all reviewed stages for this job in one query ──
@@ -1591,7 +1591,8 @@ async function nextUnsatisfiedStage(
     // can yield and wait for the background task rather than re-triggering generate.
     const hasGenerating = docIds.some(id => {
       const ver = versionByDocId.get(id);
-      return ver?.status === "generating";
+      // bg_generating: true in meta_json flags an in-progress background task (status stays 'draft')
+      return ver?.bg_generating === true;
     });
     if (hasGenerating) {
       console.log(`[auto-run] stage ${stage} has a background generation in progress — yielding`);
@@ -7717,10 +7718,10 @@ Deno.serve(async (req) => {
       // Do NOT attempt auto-regen or analysis — just yield and let the background task finish.
       if (reviewCharCount === 0 && latestVersion?.id) {
         const { data: versionStatusRow } = await supabase.from("project_document_versions")
-          .select("status")
+          .select("meta_json")
           .eq("id", latestVersion.id)
           .maybeSingle();
-        if (versionStatusRow?.status === "generating") {
+        if ((versionStatusRow?.meta_json as any)?.bg_generating === true) {
           const newStep = stepCount + 1;
           await logStep(supabase, jobId, newStep, currentDoc, "generate",
             `Background generation in progress for ${currentDoc} — yielding until complete`,

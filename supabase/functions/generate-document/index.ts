@@ -944,7 +944,8 @@ If you find yourself describing what happens in the story, which characters appe
         const { data: inProgressVer } = await supabase.from("project_document_versions")
           .select("id, version_number, created_at")
           .eq("document_id", epDocRecord!.id)
-          .eq("status", "generating")
+          .eq("status", "draft")
+          .not("meta_json->bg_generating", "is", "null")
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -966,7 +967,7 @@ If you find yourself describing what happens in the story, which characters appe
           // Stale (>30 min) — fall through and start a fresh generation
           console.log(`[generate-document] Stale generating version found for ${docType} (age ${Math.round(ageMs/60000)} min) — starting fresh generation`);
           await supabase.from("project_document_versions")
-            .update({ status: "failed", is_current: false })
+            .update({ status: "draft", is_current: false, meta_json: { bg_generating: false, bg_stale: true } })
             .eq("id", inProgressVer.id);
         }
 
@@ -980,7 +981,7 @@ If you find yourself describing what happens in the story, which characters appe
           .insert({
             document_id: epDocRecord!.id,
             version_number: epVersionNum,
-            status: "generating",
+            status: "draft",
             plaintext: "",
             created_by: actorUserId,
             is_current: true,
@@ -989,6 +990,7 @@ If you find yourself describing what happens in the story, which characters appe
             inputs_used: inputsUsed,
             is_stale: false,
             stale_reason: null,
+            meta_json: { bg_generating: true, bg_started_at: new Date().toISOString(), episode_count: finalEpisodeCount },
           }).select("id").single();
         if (epVerErr) throw new Error(`Failed to create episode beats version placeholder: ${epVerErr.message}`);
 
@@ -1020,7 +1022,7 @@ If you find yourself describing what happens in the story, which characters appe
 
             // Update version with completed content
             await supabase.from("project_document_versions")
-              .update({ plaintext: genContent, status: "draft", is_current: true })
+              .update({ plaintext: genContent, status: "draft", is_current: true, meta_json: { bg_generating: false, bg_completed_at: new Date().toISOString(), episode_count: finalEpisodeCount } })
               .eq("id", epVersion!.id);
 
             await supabase.from("project_documents")
@@ -1031,7 +1033,7 @@ If you find yourself describing what happens in the story, which characters appe
           } catch (bgErr: any) {
             console.error(`[generate-document] Episode beats background generation FAILED: ${bgErr?.message}`);
             await supabase.from("project_document_versions")
-              .update({ status: "failed", is_current: false })
+              .update({ status: "draft", is_current: false, meta_json: { bg_generating: false, bg_failed: true, bg_failed_at: new Date().toISOString() } })
               .eq("id", epVersion!.id);
           }
         })();
