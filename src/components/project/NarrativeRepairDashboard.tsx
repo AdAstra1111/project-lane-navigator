@@ -18,6 +18,7 @@ import { AutopilotRepairPanel } from '@/components/project/AutopilotRepairPanel'
 import { NarrativeSimulationPanel } from '@/components/project/NarrativeSimulationPanel';
 import { NarrativeEssenceDriftPanel } from '@/components/project/NarrativeEssenceDriftPanel';
 import { NarrativeDiagnosticsPanel } from '@/components/narrative/NarrativeDiagnosticsPanel';
+import { NarrativeRepairQueuePanel } from '@/components/project/NarrativeRepairQueuePanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -194,6 +195,9 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
           {/* Narrative Diagnostics */}
           {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
 
+          {/* Repair Queue */}
+          {projectId && <NarrativeRepairQueuePanel projectId={projectId} />}
+
           {/* Simulation Preview */}
           <NarrativeSimulationPanel projectId={projectId} />
 
@@ -250,6 +254,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
         />
         {/* ═══ NARRATIVE DIAGNOSTICS ═══ */}
         {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
+        {/* ═══ REPAIR QUEUE ═══ */}
+        {projectId && <NarrativeRepairQueuePanel projectId={projectId} />}
         {/* ═══ SIMULATION PREVIEW ═══ */}
         <NarrativeSimulationPanel projectId={projectId} />
         {/* ═══ NARRATIVE DRIFT ═══ */}

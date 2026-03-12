@@ -179,6 +179,21 @@ export function NarrativeDiagnosticsPanel({ projectId }: Props) {
             </div>
           );
         })}
+
+        {/* Link to repair queue */}
+        {diagnostics.length > 0 && (
+          <Button
+            variant="link"
+            size="sm"
+            className="text-xs px-0 h-auto"
+            onClick={() => {
+              const el = document.getElementById('repair-queue-panel');
+              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+          >
+            View Repair Plans →
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
