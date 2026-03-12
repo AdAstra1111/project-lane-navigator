@@ -684,6 +684,28 @@ Deno.serve(async (req) => {
               WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c';
           `,
 
+          "rp2_inject_investigatory_real_dx": `
+            -- VALIDATION-ONLY: inject investigatory plan whose source_diagnostic_id
+            -- matches the real obligation_registry_empty diagnostic for Obsidian Mirror.
+            -- Requires rp1_delete_obligations_obsidian_mirror to have run first.
+            -- dx-9f070ca5 is the stable content-hash for obligation_registry_empty on this project.
+            INSERT INTO public.narrative_repairs
+              (project_id, source_diagnostic_id, source_system, diagnostic_type,
+               repair_type, scope_type, scope_key, strategy, priority_score, repairability, status)
+            VALUES
+              ('37e830b8-0143-4d01-9207-b460ff441e8c',
+               'dx-9f070ca5', 'obligation_validator', 'obligation_registry_empty',
+               'investigate_simulation_impact', 'axis', 'protagonist_arc', 'investigatory', 50, 'investigatory', 'pending')
+            ON CONFLICT (project_id, source_diagnostic_id) DO UPDATE
+              SET repair_type = 'investigate_simulation_impact',
+                  repairability = 'investigatory',
+                  status = 'pending',
+                  skipped_reason = NULL,
+                  executed_at = NULL,
+                  execution_result = NULL,
+                  dismissed_at = NULL;
+          `,
+
           "rp2_inject_test_plans_obsidian_mirror": `
             -- VALIDATION-ONLY: inject synthetic plans for RP2 C3/C5/C9/C13 validation.
             -- Covers: guided (requires_approval), manual (permanent skip),
