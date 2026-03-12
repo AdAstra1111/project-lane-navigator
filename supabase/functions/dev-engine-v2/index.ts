@@ -3754,6 +3754,7 @@ serve(async (req) => {
       "evaluate_repair_paths",
       "forecast_repair_pressure",
       "preventive_repair_prioritization",
+      "select_preventive_strategy",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -12607,6 +12608,324 @@ Return ONLY valid JSON:
         },
         computed_at: prp1ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // PRP2 — select_preventive_strategy
+    //
+    // Preventive Strategy Selection Engine.
+    // Unifies ARP1 (importance), NRF1.4 (preventive pressure + axis debt),
+    // and CSP1-evaluated ARP3 paths to select the single best first-repair move.
+    //
+    // Architecture:
+    //   1. Load ARP1 data via runARP1Core() — direct, no HTTP
+    //   2. Load NRF1.4 data via runNRF1Core() — direct, no HTTP
+    //   3. Load CSP1-evaluated paths via evaluate_repair_paths HTTP call
+    //      (CSP1 internally loads ARP3 paths; no separate ARP3 call from PRP2)
+    //   4. Inline PRP1-style scoring on ARP1 + NRF1 data (same formula as PRP1.1)
+    //   5. Composite selection: preventive_score + adjusted_path_score × 0.10
+    //   6. Axis debt and downstream family analysis on selected repair
+    //
+    // No state mutation. No schema changes. No LLM. Deterministic for identical DB state.
+    // Safe for repeated execution. Composes existing layers only.
+    //
+    if (action === "select_preventive_strategy") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const prp2ComputedAt  = new Date().toISOString();
+      const supabaseUrlStr2 = Deno.env.get("SUPABASE_URL") ?? "";
+      const serviceKeyStr2  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      const selfCallHeaders2 = { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr2}` };
+
+      // ── Step 1: Load ARP1 + NRF1 via direct cores ────────────────────────────
+      const [arp1Result, nrf1Result] = await Promise.all([
+        runARP1Core(supabase, projectId),
+        runNRF1Core(supabase, projectId),
+      ]);
+
+      if (!arp1Result.ok) {
+        return new Response(JSON.stringify({ ok: false, error: `PRP2: ARP1 core failed — ${arp1Result.error ?? "unknown"}` }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 2: Load CSP1-evaluated paths (degrades gracefully) ──────────────
+      let csp1Paths: any[] = [];
+      let csp1Degraded = false;
+      try {
+        const csp1Resp = await fetch(`${supabaseUrlStr2}/functions/v1/dev-engine-v2`, {
+          method: "POST", headers: selfCallHeaders2,
+          body: JSON.stringify({ action: "evaluate_repair_paths", projectId }),
+        });
+        if (csp1Resp.ok) {
+          const csp1Json = await csp1Resp.json();
+          if (csp1Json?.ok) csp1Paths = csp1Json.paths ?? [];
+          else csp1Degraded = true;
+        } else {
+          csp1Degraded = true;
+        }
+      } catch {
+        csp1Degraded = true;
+      }
+
+      // ── Step 3: Inline PRP1-style scoring (same weights as PRP1.1) ───────────
+      // preventive_score = baseline + (preventive_value × confidence × 0.30)
+      //                  + (root_cause × 5) − (friction × 0.02)
+      const PRP2_UPLIFT_W   = 0.3;
+      const PRP2_ROOT_W     = 5;
+      const PRP2_FRICTION_W = 0.02;
+      const PRP2_PATH_BONUS = 0.10;  // path signal weight in composite
+
+      const nrf1ForecastMap = new Map<string, any>();
+      const nrf1Ok = nrf1Result.ok;
+      for (const f of (nrf1Ok ? nrf1Result.perRepairForecasts : [])) {
+        nrf1ForecastMap.set(f.repair_id, f);
+      }
+
+      interface PRP2Repair {
+        repair_id:          string;
+        repair_type:        string;
+        status:             string;
+        affected_axes:      string[];
+        arp1_rank:          number;
+        net_priority_score: number;
+        preventive_score:   number;
+        uplift_amount:      number;
+        explanation_tags:   string[];
+        prp2_rank:          number;
+        nrf_forecast:       any | null;
+      }
+
+      const prp2Repairs: PRP2Repair[] = arp1Result.scoredRepairs.map((rec: any) => {
+        const nrf              = nrf1ForecastMap.get(rec.repair_id) ?? null;
+        const currentPriority  = rec.net_priority_score ?? 0;
+        const preventiveValue  = nrf?.repair_preventive_value ?? 0;
+        const confidence       = nrf?.forecast_confidence ?? 0;
+        const rootCause        = nrf?.root_cause_score ?? 0;
+        const friction         = rec.execution_friction_score ?? 0;
+
+        const preventiveUplift = preventiveValue * confidence * PRP2_UPLIFT_W;
+        const rootCauseBonus   = rootCause * PRP2_ROOT_W;
+        const frictionDampen   = friction * PRP2_FRICTION_W;
+        const upliftAmount     = Math.round((preventiveUplift + rootCauseBonus - frictionDampen) * 100) / 100;
+        const preventiveScore  = Math.round((currentPriority + upliftAmount) * 100) / 100;
+
+        // Explanation tags — identical logic to PRP1.1
+        const tags: string[] = [];
+        if (preventiveUplift >= 5)      tags.push("high preventive value");
+        else if (preventiveUplift >= 2) tags.push("moderate preventive value");
+        else if (preventiveUplift > 0)  tags.push("low preventive value");
+        if (rootCause >= 0.7)           tags.push("high root-cause position");
+        else if (rootCause >= 0.4)      tags.push("moderate root-cause position");
+        if (confidence < 0.2 && preventiveValue > 0) tags.push("low preventive confidence");
+        if (friction >= 75 && upliftAmount > 0)      tags.push("high execution friction dampened uplift");
+        if (Math.abs(upliftAmount) < 0.5)            tags.push("little preventive uplift; remained near baseline");
+        if (!nrf) tags.push("no NRF1 forecast data for this repair");
+
+        return {
+          repair_id:          rec.repair_id,
+          repair_type:        rec.repair_type,
+          status:             rec.status,
+          affected_axes:      rec.affected_axes ?? [],
+          arp1_rank:          rec.priority_rank,
+          net_priority_score: currentPriority,
+          preventive_score:   preventiveScore,
+          uplift_amount:      upliftAmount,
+          explanation_tags:   tags,
+          prp2_rank:          0,
+          nrf_forecast:       nrf,
+        };
+      });
+
+      // Sort: preventive_score desc → net_priority_score desc → repair_id asc
+      prp2Repairs.sort((a, b) => {
+        if (b.preventive_score !== a.preventive_score) return b.preventive_score - a.preventive_score;
+        if (b.net_priority_score !== a.net_priority_score) return b.net_priority_score - a.net_priority_score;
+        return a.repair_id < b.repair_id ? -1 : 1;
+      });
+      prp2Repairs.forEach((r, i) => { r.prp2_rank = i + 1; });
+
+      // Empty guard
+      if (prp2Repairs.length === 0) {
+        return new Response(JSON.stringify({
+          ok:                      true,
+          action:                  "select_preventive_strategy",
+          project_id:              projectId,
+          selected_repair_id:      null,
+          selected_repair_type:    null,
+          selected_path_id:        null,
+          selected_path_label:     null,
+          selection_rationale:     null,
+          axis_debt_reduction:     { axes_addressed: [], axis_debt_before: {}, highest_debt_axis: null },
+          downstream_prevention:   { forecasted_families_cleared: [], forecast_confidence: 0, repair_preventive_value: 0 },
+          likely_next_repairs:     [],
+          path_context:            null,
+          project_context: {
+            current_nsi:             arp1Result.currentNSI ?? null,
+            current_stability_band:  arp1Result.currentStabilityBand ?? null,
+            project_repair_pressure: nrf1Ok ? nrf1Result.projectRepairPressure : 0,
+            total_pending_repairs:   0,
+            axis_debt_axes:          nrf1Ok ? Object.keys(nrf1Result.axisDebtMap).length : 0,
+          },
+          scoring_notes: { selection_model: "No pending repairs", version: "prp2", csp1_degraded: csp1Degraded },
+          computed_at: prp2ComputedAt,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 4: Composite selection ───────────────────────────────────────────
+      // For each repair: composite = preventive_score + best_path_adjusted_score × PRP2_PATH_BONUS
+      // Best path for a repair = highest adjusted_path_score path where steps[0].repair_id matches
+      const pathByFirstStep = new Map<string, any>();
+      for (const path of csp1Paths) {
+        const firstId = path.steps?.[0]?.repair_id;
+        if (!firstId) continue;
+        const existing = pathByFirstStep.get(firstId);
+        if (!existing || (path.adjusted_path_score ?? 0) > (existing.adjusted_path_score ?? 0)) {
+          pathByFirstStep.set(firstId, path);
+        }
+      }
+
+      let selectedRepair: PRP2Repair = prp2Repairs[0];
+      let selectedPath: any | null   = pathByFirstStep.get(selectedRepair.repair_id) ?? null;
+      let bestComposite = selectedRepair.preventive_score + (selectedPath?.adjusted_path_score ?? 0) * PRP2_PATH_BONUS;
+
+      for (const rep of prp2Repairs.slice(1)) {
+        const path      = pathByFirstStep.get(rep.repair_id) ?? null;
+        const composite = rep.preventive_score + (path?.adjusted_path_score ?? 0) * PRP2_PATH_BONUS;
+        if (composite > bestComposite) {
+          bestComposite    = composite;
+          selectedRepair   = rep;
+          selectedPath     = path;
+        }
+      }
+
+      // If top repair has no path but CSP1 paths exist, use top path's step-1 repair for path_context only
+      // (selectedRepair stays the PRP2 winner; we surface the path separately)
+      if (!selectedPath && csp1Paths.length > 0) {
+        selectedPath = csp1Paths[0];
+      }
+
+      // ── Step 5: Axis debt reduction ───────────────────────────────────────────
+      const axisDebtMap  = nrf1Ok ? nrf1Result.axisDebtMap : {};
+      const axesAddressed: string[] = selectedRepair.affected_axes;
+      const axisDebtBefore: Record<string, any> = {};
+      let highestDebtAxis: string | null = null;
+      let highestDebtWeight = 0;
+      for (const axis of axesAddressed) {
+        if (axisDebtMap[axis]) {
+          axisDebtBefore[axis] = axisDebtMap[axis];
+          if ((axisDebtMap[axis].total_weight ?? 0) > highestDebtWeight) {
+            highestDebtWeight = axisDebtMap[axis].total_weight;
+            highestDebtAxis   = axis;
+          }
+        }
+      }
+
+      // ── Step 6: Downstream prevention ────────────────────────────────────────
+      const repairForecast           = selectedRepair.nrf_forecast;
+      const forecastedFamiliesCleared: string[] = repairForecast?.forecasted_repair_families ?? [];
+      const forecastConfidence        = Math.round((repairForecast?.forecast_confidence ?? 0) * 100) / 100;
+      const repairPreventiveValue     = Math.round((repairForecast?.repair_preventive_value ?? 0) * 100) / 100;
+
+      // ── Step 7: Likely next repairs from selected path ─────────────────────
+      const likelyNextRepairs: { repair_id: string; repair_type: string; path_step: number }[] = [];
+      if (selectedPath?.steps) {
+        for (let si = 1; si < selectedPath.steps.length; si++) {
+          const s = selectedPath.steps[si];
+          if (s?.repair_id) likelyNextRepairs.push({ repair_id: s.repair_id, repair_type: s.repair_type, path_step: si + 1 });
+        }
+      }
+
+      // ── Step 8: Selection basis string ───────────────────────────────────────
+      const selectionBasis = (() => {
+        const parts: string[] = [];
+        parts.push(`Ranked #${selectedRepair.prp2_rank} by preventive score (${selectedRepair.preventive_score})`);
+        if (selectedRepair.uplift_amount > 0.5) {
+          parts.push(`preventive uplift of ${selectedRepair.uplift_amount} above ARP1 baseline`);
+        }
+        if (highestDebtAxis) {
+          parts.push(`addresses highest-debt axis: ${highestDebtAxis}`);
+        }
+        if (forecastedFamiliesCleared.length > 0) {
+          parts.push(`helps prevent: ${forecastedFamiliesCleared.slice(0, 3).join(", ")}`);
+        }
+        if (selectedPath) {
+          parts.push(`fits ${selectedPath.path_label ?? "a path"} (adjusted_score=${selectedPath.adjusted_path_score})`);
+        }
+        return parts.join("; ");
+      })();
+
+      // ── Step 9: Response ──────────────────────────────────────────────────────
+      console.log("[dev-engine-v2] select_preventive_strategy", {
+        project_id:       projectId,
+        selected_repair:  selectedRepair.repair_id,
+        prp2_rank:        selectedRepair.prp2_rank,
+        preventive_score: selectedRepair.preventive_score,
+        selected_path:    selectedPath?.path_id ?? null,
+        csp1_paths:       csp1Paths.length,
+        csp1_degraded:    csp1Degraded,
+        axis_debt_count:  Object.keys(axisDebtBefore).length,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                      true,
+        action:                  "select_preventive_strategy",
+        project_id:              projectId,
+        selected_repair_id:      selectedRepair.repair_id,
+        selected_repair_type:    selectedRepair.repair_type,
+        selected_path_id:        selectedPath?.path_id ?? null,
+        selected_path_label:     selectedPath?.path_label ?? null,
+        selection_rationale: {
+          arp1_rank:           selectedRepair.arp1_rank,
+          prp2_rank:           selectedRepair.prp2_rank,
+          rank_delta:          selectedRepair.arp1_rank - selectedRepair.prp2_rank,
+          net_priority_score:  selectedRepair.net_priority_score,
+          preventive_score:    selectedRepair.preventive_score,
+          uplift_amount:       selectedRepair.uplift_amount,
+          explanation_tags:    selectedRepair.explanation_tags,
+          selection_basis:     selectionBasis,
+        },
+        axis_debt_reduction: {
+          axes_addressed:    axesAddressed,
+          axis_debt_before:  axisDebtBefore,
+          highest_debt_axis: highestDebtAxis,
+        },
+        downstream_prevention: {
+          forecasted_families_cleared: forecastedFamiliesCleared,
+          forecast_confidence:         forecastConfidence,
+          repair_preventive_value:     repairPreventiveValue,
+        },
+        likely_next_repairs:    likelyNextRepairs,
+        path_context: selectedPath ? {
+          path_id:                 selectedPath.path_id,
+          path_label:              selectedPath.path_label ?? null,
+          adjusted_path_score:     selectedPath.adjusted_path_score ?? null,
+          sequential_effect_label: selectedPath.sequential_effect_label ?? null,
+          path_confidence:         selectedPath.confidence ?? null,
+          path_step_count:         selectedPath.steps?.length ?? null,
+        } : null,
+        project_context: {
+          current_nsi:             arp1Result.currentNSI ?? null,
+          current_stability_band:  arp1Result.currentStabilityBand ?? null,
+          project_repair_pressure: nrf1Ok ? nrf1Result.projectRepairPressure : 0,
+          total_pending_repairs:   prp2Repairs.length,
+          axis_debt_axes:          Object.keys(axisDebtMap).length,
+        },
+        scoring_notes: {
+          arp1_source:         "runARP1Core() — net_priority_score, priority_rank, affected_axes",
+          nrf1_source:         "runNRF1Core() — repair_preventive_value, forecast_confidence, root_cause_score, axisDebtMap",
+          csp1_source:         csp1Degraded ? "CSP1 unavailable — path_context degraded, repair selection from inline PRP2 scoring only" : "CSP1 evaluate_repair_paths — adjusted_path_score, sequential_effect_label",
+          inline_formula:      "preventive_score = net_priority_score + (preventive_value × confidence × 0.30) + (root_cause × 5) − (friction × 0.02)",
+          composite_formula:   "prp2_composite = preventive_score + adjusted_path_score × 0.10",
+          tie_break:           "preventive_score desc → net_priority_score desc → repair_id asc",
+          csp1_degraded:       csp1Degraded,
+          version:             "prp2",
+        },
+        computed_at: prp2ComputedAt,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     }
 
     // ── Dev Seed v2: create_dev_seed_v2 ──────────────────────────────────────────
