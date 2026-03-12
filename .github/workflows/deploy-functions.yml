@@ -35,5 +35,6 @@ jobs:
             coverage-engine \
             script-coverage \
             script-intake \
+            reverse-engineer-script \
             --project-ref tzdxrhklarzccqamxbxw \
             --no-verify-jwt
