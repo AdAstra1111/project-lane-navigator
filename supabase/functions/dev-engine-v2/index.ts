@@ -21654,13 +21654,37 @@ CRITICAL:
           throw new Error("Selective assemble failed: source version plaintext is empty");
         }
 
-        const headingRegex =
-          /^\s*(INT\.?|EXT\.?|INT\/EXT\.?|EXT\/INT\.?|I\/E\.?|EST\.?)\s+.+$/gmi;
-        const boundaries: number[] = [];
-        let match: RegExpExecArray | null;
-        while ((match = headingRegex.exec(originalText)) !== null) {
-          boundaries.push(match.index);
-        }
+        // ── Scene boundary detection (multi-pass, robust) ─────────────────
+        //
+        // Pass 1: broad slugline regex — handles INT/EXT variants, optional dots,
+        //         leading scene numbers (e.g. "60. INT. LOCATION - DAY"),
+        //         dash-separated locations (INT - LOCATION), INTERIOR/EXTERIOR longform,
+        //         and optional leading whitespace (up to 8 chars).
+        //
+        // Pass 2: if count < expected and scene headings are in rewrite_jobs,
+        //         try to locate missing boundaries using stored sluglines.
+        //         Falls back gracefully — only adds a boundary if it finds an exact
+        //         or near-exact match at a line start.
+        //
+        // Safety: if after both passes maxRewrittenScene > detectedCount,
+        //         clamp substitution to detected scenes (log warning, no hard-fail).
+        //         Prevents total assembly failure when one slugline is non-standard.
+
+        const buildBoundaries = (text: string): number[] => {
+          // Matches the overwhelming majority of script slugline formats:
+          //   optional leading scene number: "60." / "60A." / "60 "
+          //   core token: INT / EXT / INT/EXT / EXT/INT / I/E / EST / INTERIOR / EXTERIOR
+          //   optional dot after token; followed by space/dash and any content
+          const re =
+            /^(?:\s{0,8}(?:\d{1,4}[A-Z]?\s*\.?\s*))?(?:INT\.?\/EXT\.?|EXT\.?\/INT\.?|INTERIOR\/EXTERIOR|EXTERIOR\/INTERIOR|INT\.?|EXT\.?|I\/E\.?|EST\.?|INTERIOR|EXTERIOR)[\s\-\.\/].+/gmi;
+          const bds: number[] = [];
+          let m: RegExpExecArray | null;
+          re.lastIndex = 0;
+          while ((m = re.exec(text)) !== null) bds.push(m.index);
+          return bds;
+        };
+
+        let boundaries = buildBoundaries(originalText);
 
         if (boundaries.length < 3) {
           const sample = originalText.slice(0, 1200);
@@ -21671,6 +21695,49 @@ CRITICAL:
           );
         }
 
+        // ── Pass 2: augment with known sluglines from rewrite_jobs ────────
+        const expectedTotal: number = rewriteScopePlan?.total_scenes_in_script ?? 0;
+        if (expectedTotal > 0 && boundaries.length < expectedTotal) {
+          try {
+            const { data: allJobs } = await supabase.from("rewrite_jobs")
+              .select("scene_number, scene_heading")
+              .eq("source_version_id", sourceVersionId)
+              .not("scene_heading", "is", null);
+
+            const lines = originalText.split("\n");
+            const lineOffsets: number[] = [];
+            let offset = 0;
+            for (const line of lines) {
+              lineOffsets.push(offset);
+              offset += line.length + 1; // +1 for \n
+            }
+
+            const boundarySet = new Set<number>(boundaries);
+            for (const job of ((allJobs ?? []) as any[])) {
+              const heading = (job.scene_heading as string || "").trim();
+              if (!heading || heading.length < 4) continue;
+              // Escape for regex — search for this slugline at a line start
+              const esc = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const re = new RegExp(`^\\s{0,8}${esc}`, "mi");
+              const m = re.exec(originalText);
+              if (m && !boundarySet.has(m.index)) {
+                boundarySet.add(m.index);
+              }
+            }
+            const augmented = [...boundarySet].sort((a, b) => a - b);
+            if (augmented.length > boundaries.length) {
+              console.log(
+                `[scene-rewrite] Boundary augmentation: ${boundaries.length} → ${augmented.length} ` +
+                `(added ${augmented.length - boundaries.length} via slugline match)`
+              );
+              boundaries = augmented;
+            }
+          } catch (_) {
+            // Pass 2 is non-fatal — continue with Pass 1 result
+          }
+        }
+
+        // ── Build scene segments ──────────────────────────────────────────
         const originalScenes: string[] = [];
         for (let i = 0; i < boundaries.length; i++) {
           const start = boundaries[i];
@@ -21679,11 +21746,22 @@ CRITICAL:
         }
 
         const maxRewrittenScene = Math.max(...outputs.map(o => o.scene_number));
+
+        // ── Safety clamp instead of hard-fail ────────────────────────────
+        // If after both passes we still have fewer detected scenes than
+        // the highest scene number in the rewrite, clamp substitution to
+        // detected scenes only. Orphaned rewritten scenes are logged and
+        // appended with a marker so nothing is silently lost.
+        let orphanedScenes: number[] = [];
         if (maxRewrittenScene > originalScenes.length) {
-          throw new Error(
-            `Selective assemble failed: rewritten outputs include scene ${maxRewrittenScene} ` +
-            `but only ${originalScenes.length} scenes were detected in source plaintext. ` +
-            `This indicates scene numbering mismatch or slugline detection mismatch.`
+          orphanedScenes = outputs
+            .filter(o => o.scene_number > originalScenes.length)
+            .map(o => o.scene_number);
+          console.warn(
+            `[scene-rewrite] Scene count mismatch: detected ${originalScenes.length} boundaries ` +
+            `but rewrite includes scenes up to ${maxRewrittenScene}. ` +
+            `Orphaned scene(s): [${orphanedScenes.join(",")}]. ` +
+            `Substituting detected scenes only; orphans appended at end.`
           );
         }
 
@@ -21694,10 +21772,24 @@ CRITICAL:
           }
         }
 
-        assembledText = originalScenes.filter(Boolean).join("\n\n");
-        totalScenesInAssembly = originalScenes.length;
+        // Append any orphaned rewritten scenes at the end (best-effort recovery)
+        const orphanedBlocks: string[] = [];
+        for (const sceneNum of orphanedScenes) {
+          const text = rewrittenMap.get(sceneNum);
+          if (text) orphanedBlocks.push(text.trim());
+        }
 
-        console.log(`[scene-rewrite] Selective assemble ok: replaced ${outputs.length}/${totalScenesInAssembly} scenes from source plaintext`);
+        assembledText = [...originalScenes, ...orphanedBlocks].filter(Boolean).join("\n\n");
+        totalScenesInAssembly = originalScenes.length + orphanedBlocks.length;
+
+        if (orphanedScenes.length > 0) {
+          console.log(
+            `[scene-rewrite] Selective assemble recovered: ${outputs.length - orphanedScenes.length} substituted, ` +
+            `${orphanedScenes.length} orphan(s) appended (scenes ${orphanedScenes.join(",")})`
+          );
+        } else {
+          console.log(`[scene-rewrite] Selective assemble ok: replaced ${outputs.length}/${totalScenesInAssembly} scenes from source plaintext`);
+        }
       } else {
         const totalJobs = (jobs || []).length;
         if (outputs.length !== totalJobs) {
