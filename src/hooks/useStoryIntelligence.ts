@@ -20,20 +20,25 @@ export interface FragilityEntry {
 }
 
 export interface EvidenceSummary {
-  total_diagnostics: number;
-  severity_counts: Record<string, number>;
-  resolution_state_counts: Record<string, number>;
-  repair_queue_summary: {
+  diagnostic_counts: {
+    critical: number;
+    high: number;
+    warning: number;
+    info: number;
     total: number;
-    pending: number;
-    completed: number;
-    failed: number;
   };
+  resolution_state_counts: Record<string, number>;
   core_issue_count: number;
   failed_repair_count: number;
   proposal_required_count: number;
   blocked_issue_count: number;
   manual_only_count: number;
+  repair_queue_summary: {
+    pending: number;
+    completed: number;
+    failed: number;
+    skipped: number;
+  };
 }
 
 export interface StoryIntelligenceData {
