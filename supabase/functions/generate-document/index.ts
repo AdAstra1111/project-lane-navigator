@@ -922,7 +922,7 @@ If you find yourself describing what happens in the story, which characters appe
       // 30-ep vertical-drama = 5 batches × ~40s = ~200s >> 150s edge function limit).
       // For beats mode, use background generation: create placeholder version first, fire in background,
       // return immediately. This pattern extends naturally to any doc that grows beyond timeout budget.
-      const epOutputMode = docType === 'episode_grid' ? 'grid' : 'beats';
+      const epOutputMode = docType === 'episode_grid' ? 'grid' : docType === 'season_script' ? 'script' : 'beats';
 
       // ── BEATS MODE: background generation ──────────────────────────────────────────────────────
       if (epOutputMode === 'beats') {

@@ -42,6 +42,7 @@ export const EPISODE_DOC_TYPES = new Set([
   'episode_grid',
   'episode_beats',
   'vertical_episode_beats',
+  'season_script',  // vertical-drama per-episode screenplay generation
 ]);
 
 /**

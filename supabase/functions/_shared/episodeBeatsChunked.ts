@@ -28,8 +28,8 @@ export interface EpisodeBeatsOpts {
   apiKey: string;
   episodeCount: number;
   systemPrompt: string;
-  /** 'grid' = structural overview per episode; 'beats' = full micro-beat breakdown (default) */
-  outputMode?: 'grid' | 'beats';
+  /** 'grid' = structural overview per episode; 'beats' = full micro-beat breakdown; 'script' = full screenplay per episode */
+  outputMode?: 'grid' | 'beats' | 'script';
   upstreamContent: string;
   projectTitle: string;
   requestId?: string;
@@ -84,6 +84,48 @@ Rules:
 - Do NOT include detailed beat breakdowns or sub-beats — those belong in Episode Beats, not the Grid.
 - Every requested episode MUST appear as its own key in the JSON object.`;
 
+// Episode SCRIPT mode: full screenplay per episode (plain text, not JSON)
+// Used for season_script doc type in vertical drama.
+// Outputs raw screenplay markdown — NOT JSON batched (JSON breaks sluglines/dialogue formatting).
+const BATCH_SYSTEM_PROMPT_SCRIPT = `You are writing ACTUAL SCREENPLAY CONTENT for a vertical drama series.
+Output ONLY valid JSON. No markdown fences, no commentary outside the JSON.
+
+JSON schema:
+{"episodes": {"1": "<FULL EPISODE 1 SCREENPLAY>", "2": "<FULL EPISODE 2 SCREENPLAY>", ...}}
+
+Each episode value MUST contain full screenplay content in this format:
+## EPISODE N: <EPISODE TITLE>
+*Duration: 120–180 seconds*
+
+COLD OPEN
+[Action line: scroll-stopping hook in 2-3 lines]
+
+SCENE 1 — [SCENE HEADING]
+[Action line describing what the viewer sees]
+CHARACTER NAME
+(parenthetical if needed)
+Dialogue line.
+[Continue action / reaction]
+CHARACTER NAME
+Dialogue line.
+
+[Continue with 2–4 more scenes]
+
+EPISODE END
+[Final image + unresolved tension pulling to next episode]
+
+---
+
+MANDATORY RULES:
+- Every episode MUST have: COLD OPEN + minimum 3 scenes + EPISODE END
+- Write ACTUAL dialogue — character-specific, personality-revealing, subtext-loaded
+- Every scene has a clear dramatic function (reveal, escalation, turn, confrontation)
+- End every episode on an unresolved micro-cliffhanger
+- Each episode must feel self-contained AND propel the season arc forward
+- NEVER write "same as above", "continues the pattern", or placeholder text
+- NEVER write episode summaries — write SCRIPTED SCENES with DIALOGUE
+- Do NOT include JSON metadata, project overviews, or character descriptions`;
+
 // Backwards-compatible alias — defaults to beats mode
 const BATCH_SYSTEM_PROMPT = BATCH_SYSTEM_PROMPT_BEATS;
 
@@ -93,10 +135,12 @@ function buildBatchUserPrompt(
   projectTitle: string,
   upstreamContent: string,
   contextPrompt: string,
-  outputMode: 'grid' | 'beats' = 'beats',
+  outputMode: 'grid' | 'beats' | 'script' = 'beats',
 ): string {
   const outputInstruction = outputMode === 'grid'
     ? `You MUST output JSON with a key for EVERY episode listed above. Each value is the full episode grid entry using the EPISODE GRID format (PREMISE / HOOK / CORE MOVE / CHARACTER FOCUS / CLIFFHANGER / ARC POSITION / TONE).`
+    : outputMode === 'script'
+    ? `You MUST output JSON with a key for EVERY episode listed above. Each value is the FULL SCREENPLAY for that episode: COLD OPEN + minimum 3 SCENES with actual dialogue + EPISODE END cliffhanger. Write real scripted content — no summaries, no placeholders.`
     : `You MUST output JSON with a key for EVERY episode listed above. Each value is the full episode block text starting with "## EPISODE N:" heading and 5–8 numbered beats.`;
 
   return `${contextPrompt}
@@ -154,9 +198,9 @@ async function generateBatch(
   upstreamContent: string,
   contextPrompt: string,
   requestId: string,
-  outputMode: 'grid' | 'beats' = 'beats',
+  outputMode: 'grid' | 'beats' | 'script' = 'beats',
 ): Promise<Record<number, string>> {
-  const BASE_SYSTEM = outputMode === 'grid' ? BATCH_SYSTEM_PROMPT_GRID : BATCH_SYSTEM_PROMPT_BEATS;
+  const BASE_SYSTEM = outputMode === 'grid' ? BATCH_SYSTEM_PROMPT_GRID : outputMode === 'script' ? BATCH_SYSTEM_PROMPT_SCRIPT : BATCH_SYSTEM_PROMPT_BEATS;
   for (let attempt = 0; attempt < MAX_RETRIES_PER_BATCH; attempt++) {
     const userPrompt = buildBatchUserPrompt(
       episodes, totalEpisodes, projectTitle, upstreamContent, contextPrompt, outputMode,
@@ -230,11 +274,15 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
   const outputMode = opts.outputMode ?? 'beats';
   const requestId = opts.requestId || crypto.randomUUID();
 
+  // Script mode uses smaller batches — full episode screenplays are ~3-5x larger than beats
+  // and can overflow context limits. 3 eps/batch keeps token usage manageable.
+  const effectiveBatchSize = outputMode === 'script' ? 3 : BATCH_SIZE;
+
   // Build numeric batches: [1..6], [7..12], etc.
   const allEpisodes = Array.from({ length: episodeCount }, (_, i) => i + 1);
   const batches: number[][] = [];
-  for (let i = 0; i < allEpisodes.length; i += BATCH_SIZE) {
-    batches.push(allEpisodes.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < allEpisodes.length; i += effectiveBatchSize) {
+    batches.push(allEpisodes.slice(i, i + effectiveBatchSize));
   }
 
   console.error(JSON.stringify({
