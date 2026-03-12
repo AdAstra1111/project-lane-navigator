@@ -1161,7 +1161,7 @@ function RecommendationCard({ recommendation }: { recommendation: RepairRecommen
       className="w-full text-left rounded-md border border-border/50 bg-card hover:bg-accent/30 transition-colors px-3 py-2 space-y-1.5"
     >
       <div className="flex items-start gap-2">
-        <Badge variant="secondary" className="text-[10px] shrink-0 mt-0.5">#{recommendation.rank}</Badge>
+        <Badge variant="secondary" className="text-[10px] shrink-0 mt-0.5">#{recommendation.priority_rank}</Badge>
         <div className="min-w-0 flex-1 space-y-1">
           <p className="text-xs text-foreground line-clamp-2">{recommendation.summary}</p>
           <div className="flex flex-wrap items-center gap-1.5">
