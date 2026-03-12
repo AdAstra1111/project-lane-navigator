@@ -53,12 +53,20 @@ export function NarrativeEssenceDriftPanel({ projectId, authoredSeedId, derivedS
   const { data, isLoading, error, load } = useDevSeedDrift(projectId);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  // Auto-load on mount if seeds available and no data yet
+  // Auto-load via effect — safe for StrictMode
   const [hasTriggered, setHasTriggered] = useState(false);
-  if (!hasTriggered && projectId && authoredSeedId && derivedSeedId && !data && !isLoading && !error) {
-    setHasTriggered(true);
-    load(authoredSeedId, derivedSeedId);
-  }
+
+  // Reset trigger when seed IDs change
+  useEffect(() => {
+    setHasTriggered(false);
+  }, [authoredSeedId, derivedSeedId]);
+
+  useEffect(() => {
+    if (!hasTriggered && projectId && authoredSeedId && derivedSeedId && !data && !isLoading && !error) {
+      setHasTriggered(true);
+      load(authoredSeedId, derivedSeedId);
+    }
+  }, [hasTriggered, projectId, authoredSeedId, derivedSeedId, data, isLoading, error, load]);
 
   // Empty state — missing seeds
   if (!authoredSeedId || !derivedSeedId) {
