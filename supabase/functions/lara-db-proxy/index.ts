@@ -725,6 +725,64 @@ Deno.serve(async (req) => {
               WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c';
           `,
 
+          "dx3_insert_test_repairs_obsidian_mirror": `
+            -- DX3 VALIDATION-ONLY: insert repairs covering all resolution_state branches.
+            -- diagnostic IDs are real dxStableId hashes for Obsidian Mirror.
+            -- Requires obligations to be deleted (so obligation_registry_empty fires).
+            --
+            -- dx-9f070ca5 = obligation_registry_empty (auto/build_obligation_registry)
+            --               → resolution_state: queued
+            -- dx-test-guided-dx3 = synthetic soul_drift_summary (guided non-patchable)
+            --               → resolution_state: awaiting_approval
+            -- dx-test-patchable-dx3 = synthetic obligation_violated (guided patchable)
+            --               → resolution_state: awaiting_proposal
+            -- dx-test-failed-dx3 = synthetic with status=failed
+            --               → resolution_state: failed
+            -- dx-test-skipped-dx3 = synthetic with status=skipped, skipped_reason=manual
+            --               → resolution_state: blocked
+
+            DELETE FROM public.narrative_repairs
+              WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c'
+                AND source_diagnostic_id IN (
+                  'dx-9f070ca5','dx-test-guided-dx3','dx-test-patchable-dx3',
+                  'dx-test-failed-dx3','dx-test-skipped-dx3'
+                );
+
+            INSERT INTO public.narrative_repairs
+              (project_id, source_diagnostic_id, source_system, diagnostic_type,
+               repair_type, scope_type, scope_key, strategy, priority_score, repairability, status)
+            VALUES
+              ('37e830b8-0143-4d01-9207-b460ff441e8c',
+               'dx-9f070ca5', 'obligation_validator', 'obligation_registry_empty',
+               'build_obligation_registry', 'project', NULL, 'auto', 50, 'auto', 'pending'),
+              ('37e830b8-0143-4d01-9207-b460ff441e8c',
+               'dx-test-guided-dx3', 'soul_drift', 'soul_drift_summary',
+               'repair_seed_alignment', 'project', NULL, 'guided', 60, 'guided', 'pending'),
+              ('37e830b8-0143-4d01-9207-b460ff441e8c',
+               'dx-test-patchable-dx3', 'obligation_validator', 'obligation_violated',
+               'repair_relation_graph', 'project', NULL, 'guided', 70, 'guided', 'pending'),
+              ('37e830b8-0143-4d01-9207-b460ff441e8c',
+               'dx-test-failed-dx3', 'soul_drift', 'premise_drift',
+               'repair_seed_alignment', 'project', NULL, 'guided', 60, 'guided', 'failed'),
+              ('37e830b8-0143-4d01-9207-b460ff441e8c',
+               'dx-test-skipped-dx3', 'diagnostics_layer', 'subsystem_unavailable',
+               'inspect_subsystem', 'project', NULL, 'manual', 40, 'manual', 'skipped')
+            ON CONFLICT (project_id, source_diagnostic_id) DO UPDATE
+              SET status        = EXCLUDED.status,
+                  repair_type   = EXCLUDED.repair_type,
+                  repairability = EXCLUDED.repairability;
+          `,
+
+          "dx3_cleanup_test_repairs_obsidian_mirror": `
+            -- DX3 VALIDATION-ONLY: clean up DX3 test repair rows.
+            DELETE FROM public.narrative_repairs
+              WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c'
+                AND source_diagnostic_id IN (
+                  'dx-9f070ca5','dx-test-guided-dx3','dx-test-patchable-dx3',
+                  'dx-test-failed-dx3','dx-test-skipped-dx3'
+                );
+          `,
+
           "rp2_inject_seed_alignment_mismatch": `
             -- VALIDATION-ONLY: inject a repair_seed_alignment plan whose source_diagnostic_id
             -- is dx-9f070ca5 (obligation_registry_empty). Since seed alignment won't fix
