@@ -63,40 +63,27 @@ const BATCH_SYSTEM_PROMPT_GRID = `You output ONLY valid JSON. No markdown fences
 JSON schema:
 {"episodes": {"1": "<FULL EPISODE 1 GRID ENTRY>", "2": "<FULL EPISODE 2 GRID ENTRY>", ...}}
 
-═══════════════════════════════════════
-EPISODE GRID — MANDATORY FORMAT
-═══════════════════════════════════════
+Each episode value is a text string containing these fields in order, separated by newlines:
 
-Each episode value MUST follow this EXACT structure (copy the field labels verbatim):
+## EPISODE N: <episode title — a specific active phrase, e.g. "Leila Tears the Tracker From Her Wrist">
+PREMISE: <one sentence — name the characters, state the specific event and its consequence>
+HOOK: <concrete opening image or line of dialogue that demands the viewer keep watching>
+CORE MOVE: <the single new story fact that is true AFTER this episode that was not true before>
+CHARACTER COST: <what this episode extracts from the focal character — emotional, relational, or practical>
+CLIFFHANGER: <the specific final beat — an image or revelation, unresolved, pulling to the next episode>
+ARC POSITION: <one of: COLD OPEN WORLD / INCITING DISRUPTION / ESCALATION / COMPLICATION / MIDPOINT TURN / DARK SPIRAL / PRE-CLIMAX / CLIMAX / RESOLUTION / AFTERMATH>
+TONE: <dominant emotional register, e.g. paranoid dread, charged chemistry, devastating grief>
 
-## EPISODE N: [SPECIFIC TITLE — an active phrase describing what THIS episode does, e.g. "Leila Finds the Burner Phone" not "Escape"]
-
-PREMISE: [One sentence. Name the characters involved, the specific action or revelation, and the consequence. No generics. Wrong: "Leila and Gabriel grow closer." Right: "Gabriel reveals he was paid by Leila's father to fake her kidnapping, upending everything Leila thought she knew about her rescue."]
-
-HOOK: [The specific image, line of dialogue, or action that opens this episode and demands the viewer keep watching. Concrete. No abstract descriptions.]
-
-CORE MOVE: [The single most important story change in this episode. A fact that is true AFTER this episode that was not true before. Must advance the season arc.]
-
-CHARACTER COST: [What does this episode cost the focal character emotionally, relationally, or practically? Every episode must extract a price.]
-
-CLIFFHANGER: [The final image or revelation — unresolved, specific, and calibrated to pull the viewer to the next episode. Not a summary — a beat.]
-
-ARC POSITION: [One of: COLD OPEN WORLD | INCITING DISRUPTION | ESCALATION | COMPLICATION | MIDPOINT TURN | DARK SPIRAL | PRE-CLIMAX | CLIMAX | RESOLUTION | AFTERMATH. Map to the season arc.]
-
-TONE: [The dominant emotional register: e.g. paranoid dread, charged chemistry, comic relief, devastating grief, mounting dread, exhilarating reversal]
-
-═══════════════════════════════════════
-QUALITY RULES — VIOLATIONS CAUSE REJECTION
-═══════════════════════════════════════
-1. Every episode title MUST be a specific active phrase — no single generic words ("Escape", "Betrayal", "Truth")
-2. PREMISE must name specific characters and specific events — no passive summaries
-3. CORE MOVE must be a concrete new story fact — not a feeling or a vague development
-4. CLIFFHANGER must be a specific image or revelation — not "leaves the audience wondering"
-5. No two episodes may have the same CORE MOVE or CLIFFHANGER
-6. NEVER write "continues from", "follows on from", "same as", "establishes", "explores" without specifics
-7. NEVER use placeholders, ellipsis, or "and so on"
-8. Every requested episode MUST appear as its own key in the JSON object
-9. Only output the specifically requested episode numbers — no others`;
+Rules:
+- All 8 fields are mandatory for every episode.
+- Titles must be specific active phrases — no single generic nouns like "Escape" or "Betrayal".
+- PREMISE must name characters and describe specific events — no vague summaries.
+- CORE MOVE must be a concrete new fact — not a feeling or atmosphere.
+- CLIFFHANGER must be a specific beat — not "leaves the audience wondering".
+- No two episodes in this batch may have identical CORE MOVE or CLIFFHANGER content.
+- Never use placeholder text, ellipsis, or "same structure as above".
+- Every requested episode MUST appear as its own key in the JSON object.
+- Output only the requested episode numbers.`;
 
 
 // Episode SCRIPT mode: full screenplay per episode (plain text, not JSON)
