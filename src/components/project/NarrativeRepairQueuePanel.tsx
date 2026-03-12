@@ -926,6 +926,153 @@ const PATH_LABEL_STYLE: Record<string, string> = {
   'Investigate Then Repair': 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30',
 };
 
+/* ─── ARP5: Counterfactual Repair Strategies Section ─── */
+
+const SEQUENTIAL_EFFECT_STYLE: Record<string, string> = {
+  strengthened_by_sequence: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+  prerequisite_aligned: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+  de_risked_by_investigation: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30',
+  redundant_sequence: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
+  proposal_friction_constrained: 'bg-destructive/10 text-destructive border-destructive/30',
+  neutral_sequence: 'bg-muted/50 text-muted-foreground border-border',
+};
+
+const CONFIDENCE_STYLE: Record<string, string> = {
+  high: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+  medium: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
+  low: 'bg-muted/50 text-muted-foreground border-border',
+};
+
+function CounterfactualRepairStrategiesSection({ data, isLoading, error }: {
+  data: import('@/hooks/useEvaluatedRepairPaths').EvaluatedRepairPathsData | null;
+  isLoading: boolean;
+  error: string | null;
+}) {
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-2.5">
+        <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">Sequential repair strategy evaluation unavailable.</span>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-foreground">Counterfactual Repair Strategies</p>
+        {[0, 1, 2].map(i => <Skeleton key={i} className="h-28 w-full rounded-md" />)}
+      </div>
+    );
+  }
+
+  if (!data || data.evaluated_paths.length === 0) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-2.5">
+        <Info className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">No counterfactual repair strategies available for this project.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <p className="text-xs font-medium text-foreground">Counterfactual Repair Strategies</p>
+        <p className="text-[10px] text-muted-foreground">Sequential evaluation of repair paths using CSP1 interaction modelling.</p>
+      </div>
+      {data.evaluated_paths.map((path) => (
+        <CounterfactualPathCard key={path.path_id} path={path} />
+      ))}
+    </div>
+  );
+}
+
+function CounterfactualPathCard({ path }: { path: EvaluatedPath }) {
+  const effectStyle = SEQUENTIAL_EFFECT_STYLE[path.sequential_effect_label] ?? SEQUENTIAL_EFFECT_STYLE.neutral_sequence;
+  const confStyle = CONFIDENCE_STYLE[path.confidence] ?? CONFIDENCE_STYLE.low;
+  const deltaColor = path.adjustment_delta > 0 ? 'text-emerald-600 dark:text-emerald-400' : path.adjustment_delta < 0 ? 'text-destructive' : 'text-muted-foreground';
+
+  return (
+    <div className="rounded-md border border-border/50 bg-card p-3 space-y-2">
+      {/* Header */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge variant="outline" className={`text-[10px] ${PATH_LABEL_STYLE[path.path_label] ?? 'bg-muted/50 text-muted-foreground border-border'}`}>
+          {path.path_label}
+        </Badge>
+        <Badge variant="outline" className={`text-[10px] ${effectStyle}`}>
+          {path.sequential_effect_label.replace(/_/g, ' ')}
+        </Badge>
+        <Badge variant="outline" className={`text-[10px] ${confStyle}`}>
+          {path.confidence}
+        </Badge>
+      </div>
+
+      {/* Score Panel */}
+      <div className="flex items-center gap-4 text-xs">
+        <span className="text-muted-foreground">Baseline: <span className="font-medium text-foreground">{path.baseline_path_score}</span></span>
+        <span className="text-muted-foreground">Adjusted: <span className="font-medium text-foreground">{path.adjusted_path_score}</span></span>
+        <span className={`font-semibold ${deltaColor}`}>
+          Δ {path.adjustment_delta > 0 ? '+' : ''}{path.adjustment_delta}
+        </span>
+      </div>
+
+      {/* Steps */}
+      <div className="space-y-1.5 pl-1 border-l-2 border-border/50 ml-1">
+        {path.steps.map((step, idx) => (
+          <CounterfactualStepRow key={step.repair_id} step={step} index={idx} />
+        ))}
+      </div>
+
+      {/* Interaction Notes */}
+      {path.interaction_notes.length > 0 && (
+        <ul className="text-[10px] text-muted-foreground space-y-0.5 pl-3 list-disc">
+          {path.interaction_notes.map((note, i) => <li key={i}>{note}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function CounterfactualStepRow({ step, index }: { step: EvaluatedStep; index: number }) {
+  const adj = step.sequential_adjustments;
+
+  const handleClick = () => {
+    const el = document.getElementById(`repair-card-${step.repair_id}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-primary/50');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-primary/50'), 2000);
+    }
+  };
+
+  const deltaLabel = (v: number) => (v > 0 ? `+${v}` : `${v}`);
+  const deltaColor = (v: number) => v > 0 ? 'text-emerald-600 dark:text-emerald-400' : v < 0 ? 'text-destructive' : 'text-muted-foreground';
+
+  return (
+    <button type="button" onClick={handleClick} className="w-full text-left pl-2 py-1 hover:bg-accent/30 rounded transition-colors space-y-0.5">
+      <div className="flex items-center gap-1.5 text-xs">
+        <span className="font-mono text-[10px] text-muted-foreground">{index + 1}.</span>
+        <span className="text-foreground">{step.repair_type.replace(/_/g, ' ')}</span>
+        {step.scope_key && <span className="text-[10px] text-muted-foreground">({step.scope_key})</span>}
+        {step.proposal_required && (
+          <Badge variant="outline" className="text-[9px] text-sky-600 dark:text-sky-400 border-sky-500/30">Proposal</Badge>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground pl-4">
+        <span>Gain <span className={`font-medium ${deltaColor(adj.gain_delta)}`}>{deltaLabel(adj.gain_delta)}</span></span>
+        <span>Blast <span className={`font-medium ${deltaColor(adj.blast_delta)}`}>{deltaLabel(adj.blast_delta)}</span></span>
+        <span>Friction <span className={`font-medium ${deltaColor(adj.friction_delta)}`}>{deltaLabel(adj.friction_delta)}</span></span>
+      </div>
+      {adj.reasons.length > 0 && (
+        <ul className="text-[10px] text-muted-foreground/70 pl-4 list-disc list-inside">
+          {adj.reasons.map((r, i) => <li key={i}>{r}</li>)}
+        </ul>
+      )}
+    </button>
+  );
+}
+
 /* ─── ARP4: Recommended Repair Strategies Section ─── */
 function RecommendedRepairStrategiesSection({ data, isLoading, error }: {
   data: import('@/hooks/useRecommendedRepairPaths').RecommendedRepairPathsData | null;
