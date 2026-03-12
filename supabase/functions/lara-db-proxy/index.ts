@@ -1722,11 +1722,13 @@ Deno.serve(async (req) => {
       case "patch_project": {
         // Update specific fields on the projects table (Lara-internal use only).
         // Allowed fields: season_episode_count, guardrails_config
-        const { project_id: ppId, season_episode_count: ppEpCount, guardrails_config: ppGc } = params;
+        const { project_id: ppId, season_episode_count: ppEpCount, guardrails_config: ppGc, format: ppFormat, assigned_lane: ppLane } = params;
         if (!ppId) throw new Error("patch_project requires project_id");
         const patch: Record<string, any> = {};
         if (ppEpCount != null) patch.season_episode_count = ppEpCount;
         if (ppGc != null) patch.guardrails_config = ppGc;
+        if (ppFormat != null) patch.format = ppFormat;
+        if (ppLane != null) patch.assigned_lane = ppLane;
         if (Object.keys(patch).length === 0) throw new Error("patch_project: no fields to update");
         const { error: ppErr } = await supabase.from("projects").update(patch).eq("id", ppId);
         if (ppErr) throw ppErr;
