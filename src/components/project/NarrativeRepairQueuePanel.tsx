@@ -32,6 +32,7 @@ import {
   ListChecks,
   FileText,
   ArrowRight,
+  Zap,
 } from 'lucide-react';
 
 interface Props {
