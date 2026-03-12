@@ -8,28 +8,69 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY")!;
+
+// Gateway resolution: LOVABLE_API_KEY (OpenRouter) → OPENROUTER_API_KEY → OPENAI_API_KEY
+// Matches the same priority as dev-engine-v2 _shared/llm.ts resolveGateway()
+function resolveGatewayKey(): { key: string; baseUrl: string; model: string } {
+  const lovable = Deno.env.get("LOVABLE_API_KEY");
+  if (lovable) return { key: lovable, baseUrl: "https://openrouter.ai/api/v1", model: "google/gemini-2.5-flash" };
+  const openrouter = Deno.env.get("OPENROUTER_API_KEY");
+  if (openrouter) return { key: openrouter, baseUrl: "https://openrouter.ai/api/v1", model: "google/gemini-2.5-flash" };
+  const openai = Deno.env.get("OPENAI_API_KEY");
+  if (openai) return { key: openai, baseUrl: "https://api.openai.com/v1", model: "gpt-4o" };
+  throw new Error("No AI gateway key configured — set LOVABLE_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY");
+}
 
 async function callLLM(prompt: string, maxTokens = 8000): Promise<any> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: maxTokens,
-      temperature: 0.25,
-      response_format: { type: "json_object" },
-    }),
-  });
-  if (!res.ok) throw new Error(`OpenAI error: ${res.status} ${await res.text()}`);
-  const raw = (await res.json()).choices[0].message.content;
-  try { return JSON.parse(raw); }
-  catch { 
-    const s = raw.indexOf("{"); const e = raw.lastIndexOf("}");
-    if (s !== -1 && e !== -1) return JSON.parse(raw.slice(s, e + 1));
-    throw new Error("No valid JSON in response");
+  const { key, baseUrl, model } = resolveGatewayKey();
+
+  const MAX_RETRIES = 3;
+  let lastErr: Error | null = null;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: maxTokens,
+          temperature: 0.25,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        lastErr = new Error(`LLM gateway error: ${res.status} ${body.slice(0, 300)}`);
+        if (res.status === 429 || res.status >= 500) {
+          await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 2000));
+          continue;
+        }
+        throw lastErr;
+      }
+
+      const raw = (await res.json()).choices[0].message.content as string;
+
+      // Strip markdown fences if present
+      const cleaned = raw
+        .replace(/^```json\s*/im, "")
+        .replace(/^```\s*/im, "")
+        .replace(/\s*```$/im, "")
+        .trim();
+
+      try { return JSON.parse(cleaned); }
+      catch {
+        const s = cleaned.indexOf("{"); const e = cleaned.lastIndexOf("}");
+        if (s !== -1 && e !== -1) return JSON.parse(cleaned.slice(s, e + 1));
+        throw new Error("No valid JSON in LLM response");
+      }
+    } catch (err: any) {
+      lastErr = err;
+      if (attempt < MAX_RETRIES - 1) await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 2000));
+    }
   }
+  throw lastErr ?? new Error("LLM call failed after retries");
 }
 
 async function storeDoc(
