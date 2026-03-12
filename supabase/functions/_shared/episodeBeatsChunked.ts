@@ -330,21 +330,30 @@ Write Episode ${epNum} now. Start directly with "## EPISODE ${epNum}:".`;
     let episodeText = "";
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const raw = await callLLM(apiKey, SCRIPT_EPISODE_SYSTEM, userPrompt);
+        const result = await callLLM({
+          apiKey,
+          model: MODELS.PRO,
+          system: SCRIPT_EPISODE_SYSTEM,
+          user: userPrompt,
+          temperature: 0.6,
+          maxTokens: 4000,
+        });
         // Strip any accidental code fences
-        const cleaned = raw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+        const cleaned = result.content.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
         if (cleaned.includes(`## EPISODE ${epNum}`) || cleaned.includes(`## EP ${epNum}`)) {
           episodeText = cleaned;
           break;
         }
         // Header missing — prepend it
-        episodeText = `## EPISODE ${epNum}: (Untitled)\n\n${cleaned}`;
+        episodeText = `## EPISODE ${epNum}: (Episode ${epNum})\n\n${cleaned}`;
         break;
       } catch (err: any) {
         console.error(JSON.stringify({ diag: "SCRIPT_EP_FAIL", requestId, epNum, attempt, error: err?.message }));
         if (attempt === 1) {
-          episodeText = `## EPISODE ${epNum}: (Generation failed)\n\n*Content unavailable — regeneration required.*\n\n---`;
+          episodeText = `## EPISODE ${epNum}: (Generation failed — retry needed)\n\n*This episode could not be generated. Please regenerate the Season Script.*\n\n---`;
         }
+        // Brief backoff before retry
+        if (attempt === 0) await new Promise(r => setTimeout(r, 2000));
       }
     }
 
