@@ -2885,6 +2885,7 @@ serve(async (req) => {
       "validate_narrative_obligations",
       "evaluate_structural_load",
       "plan_narrative_repairs",
+      "execute_narrative_repair",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -11727,6 +11728,370 @@ Return ONLY valid JSON:
         plans_skipped:        diagnosticsForPlanning.length - plansToInsert.length,
         plans:                allPendingPlans ?? [],
         plans_total:          allPendingPlans?.length ?? 0,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // RP2 — execute_narrative_repair
+    //
+    // Controlled single-plan execution router. Planning-only system: RP1.
+    // This installment bridges diagnostic → repair plan → executed action.
+    //
+    // Corrections vs spec draft:
+    //   (a) No `investigated` status — investigatory uses `completed` with
+    //       execution_result.mode = "investigation" to avoid schema constraint change
+    //   (b) `in_progress` is NEVER written — status goes pending → terminal in one
+    //       write, preventing stuck plans on early failure
+    //   (c) refresh_runtime_alignment scope derivation respects scope_type:
+    //       unit → scope_key IS unit_key
+    //       axis → derive by unit_key suffix (::scope_key)
+    //       unit_type / default → derive by unit_type = scope_key
+    //   (d) Transient skip conditions (requires_approval, regeneration_in_progress)
+    //       do NOT write to DB — plan stays pending for retry
+    //
+    // Execution allowlist (Tier 1–3 only):
+    //   build_obligation_registry   → build_narrative_obligations
+    //   investigate_simulation_impact → simulate_narrative_impact (read-only)
+    //   repair_seed_alignment       → sync_dev_seed_v2_to_canon (force_resync=true)
+    //   refresh_runtime_alignment   → execute_selective_regeneration (guided+approved)
+    //   All Tier 4 types            → permanent skip
+    //
+    if (action === "execute_narrative_repair") {
+      const { projectId, repair_id, approved = false } = body;
+
+      if (!projectId || !repair_id) {
+        return new Response(JSON.stringify({
+          ok: false, error: "projectId and repair_id are required",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Load repair plan ──────────────────────────────────────────────────
+      const { data: plan, error: planErr } = await (supabase as any)
+        .from("narrative_repairs")
+        .select("*")
+        .eq("repair_id", repair_id)
+        .maybeSingle();
+      if (planErr) throw planErr;
+      if (!plan) {
+        return new Response(JSON.stringify({
+          ok: false, error: "Repair plan not found", repair_id,
+        }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (plan.project_id !== projectId) {
+        return new Response(JSON.stringify({
+          ok: false, error: "repair_id does not belong to the specified projectId",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Helper: update plan in DB ─────────────────────────────────────────
+      const updatePlan = async (updates: Record<string, any>) => {
+        const { error: upErr } = await (supabase as any)
+          .from("narrative_repairs")
+          .update(updates)
+          .eq("repair_id", repair_id);
+        if (upErr) console.warn("[RP2] plan update failed:", upErr.message);
+      };
+
+      // ── Helper: build response ────────────────────────────────────────────
+      const respond = (overrides: Record<string, any> = {}) => new Response(JSON.stringify({
+        ok:                      true,
+        action:                  "execute_narrative_repair",
+        project_id:              projectId,
+        repair_id,
+        repair_type:             plan.repair_type,
+        repairability:           plan.repairability,
+        source_diagnostic_id:    plan.source_diagnostic_id,
+        status:                  plan.status,
+        skipped_reason:          plan.skipped_reason ?? null,
+        executed_at:             plan.executed_at ?? null,
+        execution_result:        plan.execution_result ?? null,
+        post_dx_diagnostic_present: null,
+        outcome_summary:         "no_change",
+        ...overrides,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      // ── Helper: DX diagnostic presence check ─────────────────────────────
+      const checkDiagnosticPresent = async (): Promise<boolean | null> => {
+        try {
+          const res = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${supabaseServiceKey}` },
+            body: JSON.stringify({ action: "get_narrative_diagnostics", projectId }),
+          });
+          const dxData = await res.json();
+          if (!dxData.ok) return null;
+          return (dxData.diagnostics ?? []).some((d: any) => d.diagnostic_id === plan.source_diagnostic_id);
+        } catch {
+          return null;
+        }
+      };
+
+      // ── Helper: self-call another dev-engine-v2 action ───────────────────
+      const dispatchAction = async (actionName: string, payload: Record<string, any>) => {
+        const res = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${supabaseServiceKey}` },
+          body: JSON.stringify({ action: actionName, ...payload }),
+        });
+        return res.json();
+      };
+
+      // ── Idempotency guard ─────────────────────────────────────────────────
+      const TERMINAL_STATUSES = new Set(["completed","failed","skipped","dismissed"]);
+      if (TERMINAL_STATUSES.has(plan.status)) {
+        return respond({ outcome_summary: "already_terminal" });
+      }
+      if (plan.status === "in_progress") {
+        return new Response(JSON.stringify({
+          ok: false, error: "plan_already_in_progress", repair_id,
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Execution allowlist ───────────────────────────────────────────────
+      const EXECUTABLE_REPAIR_TYPES = new Set([
+        "build_obligation_registry",
+        "investigate_simulation_impact",
+        "repair_seed_alignment",
+        "refresh_runtime_alignment",
+      ]);
+
+      // ── Repairability gate ────────────────────────────────────────────────
+      // Transient conditions (requires_approval, regeneration_in_progress):
+      //   do NOT write to DB — plan stays pending for retry
+      // Permanent conditions (manual, unknown, not_executable):
+      //   write skipped permanently
+      if (plan.repairability === "manual") {
+        await updatePlan({ status: "skipped", skipped_reason: "manual_resolution_required" });
+        return respond({ status: "skipped", skipped_reason: "manual_resolution_required", outcome_summary: "permanent_skip" });
+      }
+      if (plan.repairability === "unknown") {
+        await updatePlan({ status: "skipped", skipped_reason: "unknown_repairability" });
+        return respond({ status: "skipped", skipped_reason: "unknown_repairability", outcome_summary: "permanent_skip" });
+      }
+      if (!EXECUTABLE_REPAIR_TYPES.has(plan.repair_type)) {
+        await updatePlan({ status: "skipped", skipped_reason: "repair_type_not_executable" });
+        return respond({ status: "skipped", skipped_reason: "repair_type_not_executable", outcome_summary: "permanent_skip" });
+      }
+      if (plan.repairability === "guided" && !approved) {
+        // Transient: do NOT write to DB. Plan stays pending for retry with approved=true.
+        return respond({ status: "pending", skipped_reason: "requires_approval", outcome_summary: "requires_approval" });
+      }
+
+      // ── Pre-execution DX re-run ───────────────────────────────────────────
+      // Fail closed if DX check itself fails.
+      const preDxPresent = await checkDiagnosticPresent();
+      if (preDxPresent === null) {
+        return new Response(JSON.stringify({
+          ok: false, error: "pre_execution_dx_check_failed",
+          repair_id, project_id: projectId,
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!preDxPresent) {
+        const dismissedAt = new Date().toISOString();
+        await updatePlan({ status: "dismissed", dismissed_at: dismissedAt });
+        return respond({
+          status: "dismissed",
+          dismissed_at: dismissedAt,
+          outcome_summary: "source_diagnostic_resolved_before_execution",
+          post_dx_diagnostic_present: false,
+        });
+      }
+
+      // ── Dispatch + write final status (single DB write after outcome known) ─
+      let executionResult: any = null;
+      let finalStatus    = "failed";
+      let skippedReason: string | null = null;
+      let executedAt: string | null = null;
+      let postDxPresent: boolean | null = null;
+
+      try {
+
+        // ── Tier 1: build_obligation_registry ──────────────────────────────
+        if (plan.repair_type === "build_obligation_registry") {
+          executionResult = await dispatchAction("build_narrative_obligations", { projectId });
+          executedAt = new Date().toISOString();
+          if (executionResult?.ok === false) {
+            finalStatus  = "failed";
+            skippedReason = executionResult?.error ?? "action_returned_error";
+          } else {
+            finalStatus = "completed";
+            // No post-DX re-run needed — obligations are additive; NC2 picks up on next DX call
+          }
+        }
+
+        // ── Tier 1: investigate_simulation_impact (read-only) ──────────────
+        else if (plan.repair_type === "investigate_simulation_impact") {
+          // Derive axis input from scope_key based on scope_type
+          let axisKey = plan.scope_key ?? "";
+          if (axisKey.includes("::")) axisKey = axisKey.split("::").pop() ?? axisKey;
+
+          const simInput: Record<string, any> = { projectId };
+          if (plan.scope_type === "unit") {
+            simInput.unit_keys = [plan.scope_key];
+          } else {
+            simInput.axis_keys = [axisKey];
+          }
+          const simResult = await dispatchAction("simulate_narrative_impact", simInput);
+          // Wrap with mode marker so caller knows this was investigatory
+          executionResult = { mode: "investigation", ...simResult };
+          executedAt = new Date().toISOString();
+          // Investigatory is always "completed" — read-only, no DX re-run needed
+          finalStatus = "completed";
+        }
+
+        // ── Tier 2: repair_seed_alignment ──────────────────────────────────
+        else if (plan.repair_type === "repair_seed_alignment") {
+          executionResult = await dispatchAction("sync_dev_seed_v2_to_canon", {
+            projectId, force_resync: true,
+          });
+          executedAt = new Date().toISOString();
+          if (executionResult?.ok === false) {
+            finalStatus   = "failed";
+            skippedReason = executionResult?.error ?? "action_returned_error";
+          } else {
+            // Post-DX re-run: determine resolved vs persists
+            postDxPresent = await checkDiagnosticPresent();
+            if (postDxPresent === null) {
+              finalStatus   = "failed";
+              skippedReason = "post_execution_dx_check_failed";
+            } else if (!postDxPresent) {
+              finalStatus = "completed";
+            } else {
+              finalStatus   = "failed";
+              skippedReason = "diagnostic_persists_post_execution";
+            }
+          }
+        }
+
+        // ── Tier 3: refresh_runtime_alignment ──────────────────────────────
+        else if (plan.repair_type === "refresh_runtime_alignment") {
+          // Concurrency guard — transient, do NOT write to DB
+          const { data: activeRuns } = await (supabase as any)
+            .from("regeneration_runs")
+            .select("id")
+            .eq("project_id", projectId)
+            .eq("status", "running")
+            .limit(1);
+          if (activeRuns && activeRuns.length > 0) {
+            // Transient block: plan stays pending for retry
+            return respond({
+              status:          "pending",
+              skipped_reason:  "regeneration_in_progress",
+              outcome_summary: "regeneration_in_progress",
+            });
+          }
+
+          // Derive unit_keys from scope_key respecting scope_type
+          let staleQuery = (supabase as any)
+            .from("narrative_units")
+            .select("unit_key, unit_type")
+            .eq("project_id", projectId)
+            .in("status", ["stale", "contradicted"]);
+
+          if (plan.scope_type === "unit") {
+            // scope_key IS the literal unit_key
+            staleQuery = staleQuery.eq("unit_key", plan.scope_key);
+          } else if (plan.scope_type === "axis") {
+            // scope_key is axis name — match by suffix after "::"
+            // Fetch all stale, then filter in TypeScript (no LIKE on array elements in Supabase JS)
+            // (filtered below after fetch)
+          }
+          // For scope_type = "unit_type" or unknown: filter by unit_type = scope_key
+          // This is handled after fetch for axis, and here for unit_type
+          if (plan.scope_type === "unit_type" || (!["unit","axis"].includes(plan.scope_type ?? ""))) {
+            staleQuery = staleQuery.eq("unit_type", plan.scope_key);
+          }
+
+          const { data: staleRows } = await staleQuery;
+          let unitKeys: string[] = (staleRows ?? []).map((r: any) => r.unit_key);
+
+          // For axis scope: post-filter by unit_key suffix
+          if (plan.scope_type === "axis") {
+            // Re-fetch without type filter, then filter by suffix
+            const { data: allStale } = await (supabase as any)
+              .from("narrative_units")
+              .select("unit_key")
+              .eq("project_id", projectId)
+              .in("status", ["stale", "contradicted"]);
+            unitKeys = (allStale ?? [])
+              .filter((r: any) => (r.unit_key as string).split("::").pop() === plan.scope_key)
+              .map((r: any) => r.unit_key);
+          }
+
+          if (unitKeys.length === 0) {
+            // No stale units — issue is resolved. Dismiss permanently.
+            const dismissedAt = new Date().toISOString();
+            await updatePlan({ status: "dismissed", dismissed_at: dismissedAt, skipped_reason: "no_stale_units_for_scope_key" });
+            return respond({
+              status:          "dismissed",
+              dismissed_at:    dismissedAt,
+              skipped_reason:  "no_stale_units_for_scope_key",
+              outcome_summary: "no_stale_units_dismissed",
+            });
+          }
+
+          executionResult = await dispatchAction("execute_selective_regeneration", {
+            projectId, unitKeys, dryRun: false,
+          });
+          executedAt = new Date().toISOString();
+          if (executionResult?.ok === false || executionResult?.abort === true) {
+            finalStatus   = "failed";
+            skippedReason = executionResult?.abort_reason ?? executionResult?.error ?? "action_returned_error";
+          } else {
+            // Post-DX re-run
+            postDxPresent = await checkDiagnosticPresent();
+            if (postDxPresent === null) {
+              finalStatus   = "failed";
+              skippedReason = "post_execution_dx_check_failed";
+            } else if (!postDxPresent) {
+              finalStatus = "completed";
+            } else {
+              finalStatus   = "failed";
+              skippedReason = "diagnostic_persists_post_execution";
+            }
+          }
+        }
+
+      } catch (dispatchErr: any) {
+        finalStatus   = "failed";
+        skippedReason = "dispatch_exception: " + (dispatchErr?.message ?? "unknown");
+        executionResult = { exception: dispatchErr?.message };
+      }
+
+      // ── Single DB write: pending → terminal ───────────────────────────────
+      const updates: Record<string, any> = { status: finalStatus };
+      if (skippedReason)    updates.skipped_reason    = skippedReason;
+      if (executedAt)       updates.executed_at        = executedAt;
+      if (executionResult)  updates.execution_result   = executionResult;
+      if (finalStatus === "dismissed") updates.dismissed_at = new Date().toISOString();
+      await updatePlan(updates);
+
+      const outcomeSummary =
+        finalStatus === "completed"  ? (postDxPresent === false ? "plan_executed_diagnostic_resolved" : "plan_executed_completed") :
+        finalStatus === "failed"     ? (skippedReason ?? "execution_failed") :
+        finalStatus === "dismissed"  ? "source_diagnostic_resolved" :
+        "execution_skipped";
+
+      console.log("[dev-engine-v2] execute_narrative_repair", {
+        project_id: projectId, repair_id, repair_type: plan.repair_type,
+        final_status: finalStatus, skipped_reason: skippedReason,
+        post_dx_diagnostic_present: postDxPresent,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                         true,
+        action:                     "execute_narrative_repair",
+        project_id:                 projectId,
+        repair_id,
+        repair_type:                plan.repair_type,
+        repairability:              plan.repairability,
+        source_diagnostic_id:       plan.source_diagnostic_id,
+        status:                     finalStatus,
+        skipped_reason:             skippedReason ?? null,
+        executed_at:                executedAt ?? null,
+        execution_result:           executionResult ?? null,
+        post_dx_diagnostic_present: postDxPresent,
+        outcome_summary:            outcomeSummary,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

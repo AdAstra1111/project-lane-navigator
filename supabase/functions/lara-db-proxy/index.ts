@@ -643,6 +643,14 @@ Deno.serve(async (req) => {
             $$;
           `,
 
+          "narrative_repairs_v3": `
+            ALTER TABLE public.narrative_repairs
+              ADD COLUMN IF NOT EXISTS executed_at      TIMESTAMPTZ,
+              ADD COLUMN IF NOT EXISTS execution_result JSONB,
+              ADD COLUMN IF NOT EXISTS skipped_reason   TEXT,
+              ADD COLUMN IF NOT EXISTS dismissed_at     TIMESTAMPTZ;
+          `,
+
           "narrative_repairs_v2": `
             ALTER TABLE public.narrative_repairs
               ADD COLUMN IF NOT EXISTS source_system      TEXT,
@@ -1417,6 +1425,7 @@ Deno.serve(async (req) => {
           "evaluate_structural_load",
           "get_narrative_diagnostics",
           "plan_narrative_repairs",
+          "execute_narrative_repair",
           "get_dev_seed_v2",
           "compare_dev_seed_v2",
           "create_dev_seed_v2",
