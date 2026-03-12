@@ -727,6 +727,7 @@ If you find yourself describing what happens in the story, which characters appe
         `You are a professional development document generator for film/TV projects. Creative direction in this prompt must be honoured — implement the intent with full craft across the full document. Never ignore, dilute, or reinterpret creative direction away from what was asked.`,
         `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
         `Production type: ${project.format || "film"}`,
+        `## OUTPUT FORMAT RULE (MANDATORY)\nOutput PLAIN MARKDOWN TEXT only. Do NOT output JSON, XML, code blocks, or any structured data format. Do NOT wrap your response in \`\`\`json or \`\`\`markdown fences. Begin directly with the document content (e.g. a heading like "# CONCEPT BRIEF" or "## LOGLINE"). No preamble.`,
         completenessBlock,
         qualBlock,
         styleBlock,
@@ -1175,6 +1176,47 @@ If you find yourself describing what happens in the story, which characters appe
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     } else {
       content = await callLLM(apiKey, system, userPrompt);
+
+      // ── JSON output guard: if LLM returned JSON instead of markdown, extract and convert ──
+      // Some models (especially Gemini) return structured JSON objects despite plain-markdown instructions.
+      // This safety net detects JSON output and converts it to formatted markdown before saving.
+      const trimmedContent = content.trim();
+      const looksLikeJson = trimmedContent.startsWith("{") || trimmedContent.startsWith("```json");
+      if (looksLikeJson) {
+        console.warn(`[generate-document] LLM returned JSON for ${docType} — extracting to markdown`);
+        try {
+          const jsonStr = trimmedContent.replace(/^```json\s*/, "").replace(/\s*```\s*$/, "");
+          const parsed = JSON.parse(jsonStr);
+          // Recursively flatten JSON object into readable markdown
+          function jsonToMarkdown(obj: any, depth = 0): string {
+            if (typeof obj === "string") return obj;
+            if (Array.isArray(obj)) return obj.map((item: any) => `- ${jsonToMarkdown(item, depth + 1)}`).join("\n");
+            if (typeof obj === "object" && obj !== null) {
+              return Object.entries(obj).map(([key, val]: [string, any]) => {
+                const heading = "#".repeat(Math.min(depth + 2, 4));
+                const label = key.replace(/_/g, " ").toUpperCase();
+                if (typeof val === "string") return `${heading} ${label}\n\n${val}`;
+                if (Array.isArray(val)) return `${heading} ${label}\n\n${val.map((v: any) => `- ${typeof v === "string" ? v : JSON.stringify(v)}`).join("\n")}`;
+                if (typeof val === "object") return `${heading} ${label}\n\n${jsonToMarkdown(val, depth + 1)}`;
+                return `${heading} ${label}\n\n${val}`;
+              }).join("\n\n");
+            }
+            return String(obj);
+          }
+          const extracted = jsonToMarkdown(parsed);
+          if (extracted && extracted.length > 50) {
+            content = `# ${docType.replace(/_/g, " ").toUpperCase()}\n\n${extracted}`;
+            console.log(`[generate-document] JSON extracted to markdown for ${docType}, chars=${content.length}`);
+          } else {
+            // Extraction produced too little — retry with stronger instruction
+            throw new Error("extracted content too short");
+          }
+        } catch (jsonErr: any) {
+          console.warn(`[generate-document] JSON extraction failed for ${docType}: ${jsonErr?.message} — retrying with stricter instruction`);
+          const noJsonSystem = system + `\n\n⛔ CRITICAL: Your previous response was JSON. This is FORBIDDEN. You MUST output plain markdown text only. Start directly with a heading like "# CONCEPT BRIEF" followed by sections. Never use JSON, objects, or key-value pairs.`;
+          content = await callLLM(apiKey, noJsonSystem, userPrompt);
+        }
+      }
 
       // Post-generation banned language check for non-large-risk docs
       if (hasBannedSummarizationLanguage(content)) {
