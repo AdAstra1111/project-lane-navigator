@@ -128,12 +128,12 @@ Generate fix options for this note.`;
       // Resolve target document + base version
       const resolvedVersion = await resolveBaseVersion(db, project_id, docType, base_version_id);
       if (!resolvedVersion) {
-        return json({ error: `No document found for type "${docType}". Create the document first or defer this note.`, needs_doc_creation: true }, 404);
+        return json({ error: `No document found for type "${docType}". Create the document first or defer this note.`, needs_doc_creation: true }, 200);
       }
 
       const baseText = resolvedVersion.plaintext || "";
       if (!baseText.trim()) {
-        return json({ error: "Base version has no text content" }, 400);
+        return json({ error: `"${docType}" is still generating — wait a moment and try again.`, still_generating: true }, 200);
       }
 
       const noteText = note_data?.description || note_data?.note || note_data?.summary || "";
@@ -266,14 +266,19 @@ async function resolveBaseVersion(
     if (data) return data;
   }
 
-  // 2. Find document for this doc type
-  const { data: doc } = await db
+  // 2. Find document(s) for this doc type — use limit(1) not maybeSingle()
+  //    because multiple project_documents rows can share a doc_type, and
+  //    maybeSingle() throws on multiple results.
+  const { data: docs } = await db
     .from("project_documents")
     .select("id")
     .eq("project_id", projectId)
     .eq("doc_type", docType)
-    .maybeSingle();
-  if (!doc) return null;
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (!docs || docs.length === 0) return null;
+
+  const docIds = docs.map((d: any) => d.id);
 
   // 3. Active approved version
   const { data: activeDoc } = await db
@@ -289,17 +294,30 @@ async function resolveBaseVersion(
       .select("id, document_id, plaintext, version_number")
       .eq("id", activeDoc.active_version_id)
       .maybeSingle();
-    if (ver) return ver;
+    if (ver?.plaintext?.trim()) return ver;
   }
 
-  // 4. Latest version
-  const { data: latest } = await db
+  // 4. Best version across all doc_type documents: approved first, then latest with content
+  const { data: candidates } = await db
     .from("project_document_versions")
-    .select("id, document_id, plaintext, version_number")
-    .eq("document_id", doc.id)
+    .select("id, document_id, plaintext, version_number, approval_status, is_current, meta_json")
+    .in("document_id", docIds)
     .order("version_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(20);
 
-  return latest || null;
+  if (!candidates || candidates.length === 0) return null;
+
+  // Prefer: approved with content > is_current with content > latest with content
+  // Skip bg_generating placeholder versions (empty plaintext)
+  const withContent = candidates.filter((v: any) => {
+    const pt = v.plaintext || "";
+    const isBgGenerating = v.meta_json?.bg_generating === true;
+    return pt.trim().length > 50 && !isBgGenerating;
+  });
+
+  const approved = withContent.find((v: any) => v.approval_status === "approved");
+  if (approved) return approved;
+  const current = withContent.find((v: any) => v.is_current);
+  if (current) return current;
+  return withContent[0] || null;
 }
