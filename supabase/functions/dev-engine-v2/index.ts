@@ -11802,19 +11802,21 @@ Return ONLY valid JSON:
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // NRF1 — forecast_repair_pressure
+    // NRF1 — forecast_repair_pressure (NRF1.3)
     //
     // NDG-Driven Repair Forecasting. Preventive narrative intelligence layer.
     // Estimates downstream repair pressure from current unresolved repairs
     // using the existing NDG and repair metadata.
     //
-    // Architecture:
-    //   1. Self-call recommend_repair_order (ARP1) for enriched repair pool
-    //   2. For each unresolved repair with affected_axes:
+    // Architecture (NRF1.3 — fully direct, no self-calls):
+    //   1. Direct DB retrieval of unresolved repairs from narrative_repairs
+    //   2. Deterministic affected_axes derivation from repair scope_type + scope_key
+    //      (no DX self-call, no ARP1 self-call)
+    //   3. For each unresolved repair with affected_axes:
     //      a. Compute downstream/upstream axes via NDG
     //      b. Map downstream axes → likely diagnostic families → forecast repair families
     //      c. Score: forecast_confidence, repair_preventive_value, root_cause_score, symptom_score
-    //   3. Aggregate project-level repair pressure
+    //   4. Aggregate project-level repair pressure
     //
     // No state mutation. No schema changes. No LLM. Deterministic for identical DB state.
     // Safe for repeated execution. All outputs explainable from current state only.
@@ -11892,10 +11894,10 @@ Return ONLY valid JSON:
         constitutional: 5, severe: 4, severe_moderate: 3, moderate: 2, light: 1,
       };
 
-      // ── Step 1: Load unresolved repairs + diagnostics directly ─────────────
-      // Direct DB retrieval — no HTTP self-fetch to ARP1.
-      // NRF1 needs only raw repair rows and diagnostic affected_axes, not
-      // the full ARP1 enrichment pipeline (gain/blast/friction/urgency).
+      // ── Step 1: Load unresolved repairs directly ──────────────────────────
+      // NRF1.3: Direct DB retrieval only — no HTTP self-fetch to ARP1 or DX.
+      // NRF1 needs only raw repair rows; affected_axes are derived
+      // deterministically from scope_type + scope_key in Step 2.
       const NRF1_PENDING       = "pending";
       const NRF1_BLOCKED       = ["failed", "skipped", "dismissed"];
 
@@ -11917,25 +11919,32 @@ Return ONLY valid JSON:
         r.status === "pending" || r.status === "failed" || r.status === "skipped"
       );
 
-      // Load diagnostics for affected_axes mapping (non-fatal — degrades gracefully)
-      const dxMap = new Map<string, any>();
-      try {
-        const supabaseUrlStr = Deno.env.get("SUPABASE_URL") ?? "";
-        const serviceKeyStr  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-        const dxResp = await fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` },
-          body: JSON.stringify({ action: "get_narrative_diagnostics", projectId }),
-        });
-        if (dxResp.ok) {
-          const dxJson = await dxResp.json();
-          for (const dx of (dxJson?.diagnostics ?? [])) {
-            dxMap.set(dx.diagnostic_id, dx);
-          }
-        }
-      } catch { /* degrade — affected_axes will be empty for unmatched repairs */ }
+      // ── Step 2: Deterministic affected_axes derivation ─────────────────────
+      // NRF1.3: Derives affected_axes directly from repair metadata (scope_type,
+      // scope_key, diagnostic_type) — no DX self-call, no ARP1 self-call.
+      //
+      // Derivation rules (match diagnostic collector semantics):
+      //   scope_type = "unit" or "axis" → scope_key is the axis name → [scope_key]
+      //   scope_type = "beat"/"relationship"/"project" → no axis-level resolution → []
+      //   Exception: if scope_key is a valid SpineAxis regardless of scope_type → [scope_key]
+      //
+      // This is deterministic and consistent with how plan_narrative_repairs stores
+      // scope_type (from dx.scope_level) and scope_key (from dx.scope_key).
+      const nrf1DeriveAffectedAxes = (repair: any): SpineAxis[] => {
+        const scopeKey = repair.scope_key as string | null;
+        const scopeType = repair.scope_type as string | null;
 
-      // ── Step 2: Empty guard ────────────────────────────────────────────────
+        // If scope_key is a valid spine axis, it's always an affected axis
+        if (scopeKey && AXIS_METADATA[scopeKey as SpineAxis] !== undefined) {
+          return [scopeKey as SpineAxis];
+        }
+
+        // For unit/axis scope types, scope_key should be the axis (handled above)
+        // For other scope types, no axis-level info available from repair metadata
+        return [];
+      };
+
+      // ── Step 3: Empty guard ────────────────────────────────────────────────
       if (unresolvedRepairs.length === 0) {
         return new Response(JSON.stringify({
           ok:                      true,
@@ -11952,17 +11961,13 @@ Return ONLY valid JSON:
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── Step 3: Per-repair forecast computation ────────────────────────────
+      // ── Step 4: Per-repair forecast computation ────────────────────────────
       const registryByAxis = new Map(NRF1_REVERSE_FORECAST_REGISTRY.map(r => [r.axis, r]));
       const projectForecastFamilies = new Set<string>();
 
       const perRepairForecasts = unresolvedRepairs.map((repair: any) => {
-        // Resolve affected_axes from diagnostic if available
-        const dx = dxMap.get(repair.source_diagnostic_id);
-        const rawAxes: string[] = dx?.affected_axes ?? [];
-        const affectedAxes: SpineAxis[] = rawAxes.filter(
-          (a: string) => AXIS_METADATA[a as SpineAxis] !== undefined
-        ) as SpineAxis[];
+        // NRF1.3: Derive affected_axes deterministically from repair metadata
+        const affectedAxes: SpineAxis[] = nrf1DeriveAffectedAxes(repair);
 
         // Compute downstream and upstream axes
         const downstreamSet = new Set<SpineAxis>();
@@ -12116,8 +12121,8 @@ Return ONLY valid JSON:
           pressure_raw_model:         "Σ(preventive_value × confidence) — unbounded aggregate",
           pressure_normalized_model:  "100×(1−e^(−raw/k)), k=30/ln2≈43.3 — bounded 0–100 asymptotic",
           registry_source:            "NRF1_REVERSE_FORECAST_REGISTRY (deterministic, NDG-seeded)",
-          data_source:                "direct DB retrieval + DX self-call for affected_axes (no ARP1 self-fetch)",
-          version:                    "nrf1.2",
+          data_source:                "fully direct: repairs from narrative_repairs DB query, affected_axes derived deterministically from repair scope_type+scope_key — no internal action self-fetches",
+          version:                    "nrf1.3",
         },
         computed_at: nrf1ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
