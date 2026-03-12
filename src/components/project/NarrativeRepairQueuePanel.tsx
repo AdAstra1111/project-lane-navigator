@@ -237,6 +237,9 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
           </div>
         )}
 
+        {/* Counterfactual Repair Strategies (ARP5) */}
+        <CounterfactualRepairStrategiesSection data={evaluatedPaths.data} isLoading={evaluatedPaths.isLoading} error={evaluatedPaths.error} />
+
         {/* Recommended Repair Strategies (ARP4) */}
         <RecommendedRepairStrategiesSection data={repairPaths.data} isLoading={repairPaths.isLoading} error={repairPaths.error} />
 
