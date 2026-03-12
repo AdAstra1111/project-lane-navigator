@@ -16,6 +16,7 @@ import { SceneRewriteDiffViewer } from '@/components/project/SceneRewriteDiffVie
 import { NDGImpactHeatmap } from '@/components/project/NDGImpactHeatmap';
 import { AutopilotRepairPanel } from '@/components/project/AutopilotRepairPanel';
 import { NarrativeSimulationPanel } from '@/components/project/NarrativeSimulationPanel';
+import { NarrativeEssenceDriftPanel } from '@/components/project/NarrativeEssenceDriftPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -50,6 +51,8 @@ import {
 
 interface Props {
   projectId: string | undefined;
+  authoredSeedId?: string;
+  derivedSeedId?: string;
 }
 
 /* ── Config ── */
@@ -84,7 +87,7 @@ function sceneLabelFromImpacted(scene: ImpactedScene, slugMap: SluglineMap): str
 
 /* ── Main Dashboard ── */
 
-export function NarrativeRepairDashboard({ projectId }: Props) {
+export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSeedId }: Props) {
   const [repairStrategy, setRepairStrategy] = useState<RepairStrategy>('balanced');
   const { data: plan, isLoading: planLoading, refetch: refetchPlan } = useSelectiveRegenerationPlan(projectId, repairStrategy);
   const { execute, isExecuting, result, error, reset } = useExecuteSelectiveRegeneration(projectId);
@@ -190,6 +193,9 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
           {/* Simulation Preview */}
           <NarrativeSimulationPanel projectId={projectId} />
 
+          {/* Narrative Drift */}
+          <NarrativeEssenceDriftPanel projectId={projectId} authoredSeedId={authoredSeedId} derivedSeedId={derivedSeedId} />
+
           <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-3">
             <ShieldCheck className="h-4 w-4 text-emerald-500" />
             <span className="text-sm text-muted-foreground">
@@ -240,6 +246,8 @@ export function NarrativeRepairDashboard({ projectId }: Props) {
         />
         {/* ═══ SIMULATION PREVIEW ═══ */}
         <NarrativeSimulationPanel projectId={projectId} />
+        {/* ═══ NARRATIVE DRIFT ═══ */}
+        <NarrativeEssenceDriftPanel projectId={projectId} authoredSeedId={authoredSeedId} derivedSeedId={derivedSeedId} />
         {/* ═══ SECTION 1: REPAIR STATUS ═══ */}
         <RepairStatusSection
           plan={plan}
