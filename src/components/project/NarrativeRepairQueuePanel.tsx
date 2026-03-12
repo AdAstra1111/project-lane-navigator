@@ -540,6 +540,23 @@ function ProposalPanel({ repair, projectId, generateHook, applyHook, simulateHoo
             {isGeneratingThis ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             Regenerate Proposal
           </Button>
+          <PatchPreview proposal={proposal} />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs gap-1.5 text-muted-foreground"
+            onClick={() => simulateHook.preview(proposal.proposal_id)}
+            disabled={simulateHook.isPreviewing}
+          >
+            {simulateHook.isPreviewing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+            {simulateHook.isPreviewing ? 'Previewing...' : 'Preview Impact'}
+          </Button>
+          {simulateHook.result?.proposal_id === proposal.proposal_id && (
+            <ImpactPreviewBlock result={simulateHook.result} />
+          )}
+          {simulateHook.error && !simulateHook.isPreviewing && (
+            <p className="text-xs text-muted-foreground">Impact preview unavailable: {simulateHook.error}</p>
+          )}
         </div>
       )}
 
