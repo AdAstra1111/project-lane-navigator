@@ -1677,6 +1677,8 @@ export default function ProjectDevelopmentEngine() {
                     onAutoReviewToggle={setAutoReviewEnabled}
                     format={normalizedFormat}
                     assignedLane={project?.assigned_lane}
+                    onGenerateDocument={handleGenerateDocument}
+                    generateDocumentPending={isGeneratingDocument}
                   />
 
                   {/* Resume auto-run handled by banner above */}
