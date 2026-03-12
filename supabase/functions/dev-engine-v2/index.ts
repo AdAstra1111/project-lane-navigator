@@ -11874,21 +11874,21 @@ Return ONLY valid JSON:
       const slStaleDx    = (slDiagnosticsRes.data ?? []) as Array<{ unit_type: string; status: string }>;
       const slLiveUnits  = (slLiveUnitsRes.data   ?? []) as Array<{ unit_type: string; unit_key: string; status: string }>;
 
-      // ── Classification helpers ─────────────────────────────────────────────
+      // ── SL2 Classification helpers ────────────────────────────────────────
+      // SL2 calibrates load classification beyond brittle key-name matching by
+      // using semantic fields (axis_role, story_critical_flag, relation_type,
+      // entity_type) as primary signals, with key-name as a secondary fallback.
       type LoadClass = "core" | "primary" | "supporting" | "decorative";
 
       // Obligation linkage: count how many obligations reference this element
       const obligationCountForKey = (key: string): number =>
         slObligations.filter(o => o.source_key === key || o.source_key.includes(key)).length;
 
-      const obligationCountForLayer = (layer: string): number =>
-        slObligations.filter(o => o.source_layer === layer).length;
-
       // Diagnostic linkage: count stale/misaligned units referencing this element
       const diagnosticCountForUnitType = (unitType: string): number =>
         slStaleDx.filter(d => d.unit_type === unitType).length;
 
-      // Conservative scoring → class
+      // Conservative scoring → class (unchanged from SL1)
       const scoreToClass = (score: number): LoadClass => {
         if (score >= 3) return "core";
         if (score >= 2) return "primary";
@@ -11896,14 +11896,73 @@ Return ONLY valid JSON:
         return "decorative";
       };
 
-      // Core axis keys (directly tied to premise/resolution/climax)
-      const CORE_AXIS_KEYS = new Set(["story_engine", "resolution_type", "inciting_incident"]);
-      const PRIMARY_AXIS_KEYS = new Set(["protagonist_arc", "midpoint_reversal", "stakes_class", "pressure_system"]);
-      // Core beat keys
-      const CORE_BEAT_KEYS = new Set(["climax_promise", "ending_condition"]);
-      const PRIMARY_BEAT_KEYS = new Set(["inciting_event_seed", "opening_state"]);
+      // ── SL2: Axis role → base score (replaces/supplements hardcoded key lists)
+      // axis_role is stored in dev_seed_v2_axes and carries semantic meaning
+      // independent of the specific key name used.
+      const AXIS_ROLE_SCORES: Record<string, number> = {
+        "protagonist_primary":  3, // drives the protagonist arc — always core territory
+        "antagonist_engine":    3, // drives the antagonist/conflict arc — core territory
+        "thematic_spine":       2, // thematic backbone — primary
+        "thematic_resonance":   2, // secondary thematic layer — primary
+        "genre_tension":        2, // genre contract carrier — primary
+        "pressure_engine":      2, // structural pressure — primary
+        "resolution_engine":    3, // drives resolution — core
+      };
+
+      // SL2: Key-name base scores (kept as secondary fallback for standard spine axes)
+      const AXIS_KEY_BASE_SCORES: Record<string, number> = {
+        "story_engine":      3,
+        "resolution_type":   3,
+        "inciting_incident": 3,
+        "protagonist_arc":   2,
+        "midpoint_reversal": 2,
+        "stakes_class":      2,
+        "pressure_system":   2,
+        "central_conflict":  2,
+        "tonal_gravity":     2,
+      };
+
+      // SL2: Unit type base scores — extended to ALL valid spine axes
+      // story_engine is now correctly CORE (was missing in SL1)
+      const UNIT_TYPE_BASE_SCORES: Record<string, number> = {
+        "protagonist_arc":  3, // premise-critical through-line
+        "central_conflict": 3, // premise-critical conflict engine
+        "resolution_type":  3, // closing resolution — premise-critical
+        "story_engine":     3, // primary driver of narrative engine — core (was DECORATIVE in SL1)
+        "inciting_incident":3, // what sets the story in motion — core
+        "pressure_system":  2, // structural pressure — primary
+        "stakes_class":     2, // stakes definition — primary
+        "midpoint_reversal":2, // structural reversal — primary
+        "tonal_gravity":    2, // tonal backbone — primary
+      };
+
+      // SL2: Beat guaranteed minimum floors (PRIMARY for structural arc beats)
+      // Beats with no obligation linkage still deserve a minimum floor
+      const BEAT_GUARANTEED_FLOORS: Record<string, number> = {
+        "climax_promise":    3, // always CORE — climax payoff obligation
+        "ending_condition":  3, // always CORE — ending condition obligation
+        "midpoint_type":     2, // always PRIMARY — structural arc pivot
+        "crisis_shape":      2, // always PRIMARY — forced choice
+        "inciting_event_seed":2, // always PRIMARY — story trigger
+        "opening_state":     2, // always PRIMARY — equilibrium anchor
+        "first_escalation":  1, // at least SUPPORTING
+      };
+
+      // SL2: Story-critical entity map — used by relation scoring
+      // An entity is "critical" if story_critical_flag=true or entity_type=conflict/arc
+      const criticalEntityKeys = new Set(
+        slEntities
+          .filter(e => e.story_critical_flag || e.entity_type === "conflict" || e.entity_type === "arc")
+          .map(e => e.entity_key)
+      );
+
+      // SL2: Arc-bearing relation types — carry structural weight beyond pure presence
+      const ARC_BEARING_RELATION_TYPES = new Set([
+        "drives_arc", "conflicts_with", "subject_of_conflict", "opposes",
+      ]);
 
       // ── Classify axes ──────────────────────────────────────────────────────
+      // SL2: axis_role is now primary signal; key name is secondary fallback.
       const axesMap: Array<{
         key: string; class: LoadClass; rationale: string;
         linked_obligations_count: number; linked_diagnostics_count: number;
@@ -11912,24 +11971,42 @@ Return ONLY valid JSON:
         const dxCount  = diagnosticCountForUnitType(ax.axis_key);
         let score = 0;
         const reasons: string[] = [];
-        if (CORE_AXIS_KEYS.has(ax.axis_key)) { score += 3; reasons.push("directly tied to premise/resolution/inciting incident"); }
-        else if (PRIMARY_AXIS_KEYS.has(ax.axis_key)) { score += 2; reasons.push("primary structural axis"); }
-        if (oblCount >= 2) { score += 2; reasons.push(`${oblCount} obligation(s) reference this axis`); }
+
+        // Primary signal: axis_role (semantic field, independent of key name)
+        const axisRole = (ax.axis_role ?? "").toLowerCase();
+        if (axisRole && AXIS_ROLE_SCORES[axisRole] !== undefined) {
+          score += AXIS_ROLE_SCORES[axisRole];
+          reasons.push(`axis_role="${ax.axis_role}" — ${AXIS_ROLE_SCORES[axisRole] >= 3 ? "core" : "primary"} narrative function`);
+        } else {
+          // Secondary fallback: key-name matching for standard spine axes
+          const keyScore = AXIS_KEY_BASE_SCORES[ax.axis_key] ?? 0;
+          if (keyScore > 0) {
+            score += keyScore;
+            reasons.push(`structural axis key "${ax.axis_key}"`);
+          }
+        }
+
+        // Obligation linkage (additive — can elevate any axis)
+        if (oblCount >= 2) { score += 2; reasons.push(`${oblCount} obligations reference this axis`); }
         else if (oblCount === 1) { score += 1; reasons.push("1 obligation references this axis"); }
-        if (dxCount > 0) { score += 1; reasons.push(`${dxCount} active diagnostic(s) on this axis`); }
-        if (score === 0) reasons.push("no strong obligation or diagnostic linkage found");
-        // Fail closed: if no justification for core, downgrade
-        const cls = scoreToClass(score);
+
+        // Diagnostic density
+        if (dxCount > 0) { score += 1; reasons.push(`${dxCount} active diagnostic(s)`); }
+
+        if (score === 0) reasons.push("no axis_role, key-name match, or obligation linkage found — conservative classification");
+
         return {
           key: ax.axis_key,
-          class: cls,
-          rationale: reasons.join("; ") || "insufficient evidence — conservative classification applied",
+          class: scoreToClass(score),
+          rationale: reasons.join("; "),
           linked_obligations_count: oblCount,
           linked_diagnostics_count: dxCount,
         };
       });
 
       // ── Classify units ─────────────────────────────────────────────────────
+      // SL2: Uses extended UNIT_TYPE_BASE_SCORES (all VALID_SPINE_AXES covered).
+      // story_engine now scores CORE. axis_source propagation added.
       const unitsMap: Array<{
         key: string; class: LoadClass; rationale: string;
         linked_obligations_count: number; linked_diagnostics_count: number;
@@ -11938,41 +12015,63 @@ Return ONLY valid JSON:
         const dxCount  = diagnosticCountForUnitType(u.unit_type);
         let score = 0;
         const reasons: string[] = [];
-        // Protagonist arc and central conflict are premise-critical
-        if (["protagonist_arc", "central_conflict", "resolution_type"].includes(u.unit_type)) {
-          score += 3; reasons.push("premise-critical unit type");
-        } else if (["pressure_system", "stakes_class", "midpoint_reversal"].includes(u.unit_type)) {
-          score += 2; reasons.push("primary structural unit");
+
+        // Primary signal: unit_type base score (extended in SL2)
+        const typeScore = UNIT_TYPE_BASE_SCORES[u.unit_type] ?? 0;
+        if (typeScore > 0) {
+          score += typeScore;
+          reasons.push(`unit_type="${u.unit_type}" — ${typeScore >= 3 ? "premise-critical" : "primary structural"} unit`);
         }
+
+        // Obligation linkage (additive)
         if (oblCount >= 2) { score += 2; reasons.push(`${oblCount} obligation(s) link to this unit`); }
         else if (oblCount === 1) { score += 1; reasons.push("1 obligation links to this unit"); }
+
+        // Diagnostic density
         if (dxCount > 0) { score += 1; reasons.push(`${dxCount} diagnostic(s) active on this unit`); }
-        if (score === 0) reasons.push("no strong obligation or diagnostic linkage found");
+
+        if (score === 0) reasons.push("unit_type not in structural registry and no obligation linkage — conservative classification");
+
         return {
           key: u.unit_type,
           class: scoreToClass(score),
-          rationale: reasons.join("; ") || "insufficient evidence — conservative classification applied",
+          rationale: reasons.join("; "),
           linked_obligations_count: oblCount,
           linked_diagnostics_count: dxCount,
         };
       });
 
       // ── Classify beats ─────────────────────────────────────────────────────
+      // SL2: Guaranteed minimum floors extended to structural arc beats.
+      // midpoint_type, crisis_shape, inciting_event_seed guaranteed PRIMARY+.
       const beatsMap: Array<{
         key: string; class: LoadClass; rationale: string;
         linked_obligations_count: number; linked_diagnostics_count: number;
         expected_turn: string | null;
       }> = slBeats.map(b => {
-        const oblCount = obligationCountForKey(b.beat_key);
+        const oblCount  = obligationCountForKey(b.beat_key);
+        const floorScore = BEAT_GUARANTEED_FLOORS[b.beat_key] ?? 1; // floor at supporting
         let score = 0;
         const reasons: string[] = [];
-        if (CORE_BEAT_KEYS.has(b.beat_key)) { score += 3; reasons.push("directly tied to climax/ending — always core"); }
-        else if (PRIMARY_BEAT_KEYS.has(b.beat_key)) { score += 2; reasons.push("primary structural beat"); }
+
+        // Apply guaranteed floor for structural arc beats
+        if (floorScore >= 3) {
+          score += 3;
+          reasons.push(`beat_key="${b.beat_key}" — structurally obligated (climax/ending) — always core`);
+        } else if (floorScore >= 2) {
+          score += 2;
+          reasons.push(`beat_key="${b.beat_key}" — structural arc beat — guaranteed primary minimum`);
+        } else {
+          reasons.push("structural beat — floor at supporting");
+        }
+
+        // Obligation linkage (additive — can elevate non-structural beats)
         if (oblCount >= 2) { score += 2; reasons.push(`${oblCount} obligation(s) reference this beat`); }
         else if (oblCount === 1) { score += 1; reasons.push("1 obligation references this beat"); }
-        if (score === 0) reasons.push("no strong obligation linkage; default to supporting");
-        // Conservative: beats without signals should not be decorative
-        const cls = scoreToClass(Math.max(score, 1)); // floor at supporting (1)
+
+        // Enforce floor
+        const cls = scoreToClass(Math.max(score, floorScore));
+
         return {
           key: b.beat_key,
           class: cls,
@@ -11984,6 +12083,9 @@ Return ONLY valid JSON:
       });
 
       // ── Classify entities ──────────────────────────────────────────────────
+      // SL2: story_critical_flag + entity_type as primary signals.
+      // entity_type="conflict"|"arc" + story_critical_flag → CORE territory.
+      // Removes brittle PROTAGONIST/ANTAGONIST string matching as sole path to CORE.
       const entitiesMap: Array<{
         key: string; class: LoadClass; rationale: string;
         linked_obligations_count: number; linked_diagnostics_count: number;
@@ -11991,29 +12093,40 @@ Return ONLY valid JSON:
         const oblCount = obligationCountForKey(e.entity_key);
         let score = 0;
         const reasons: string[] = [];
-        const keyUpper = e.entity_key.toUpperCase();
-        const typeUpper = (e.entity_type ?? "").toUpperCase();
-        if (keyUpper.includes("PROTAGONIST") || typeUpper.includes("PROTAGONIST") ||
-            keyUpper.includes("ARC_PROTAGONIST")) {
-          score += 3; reasons.push("protagonist entity — premise-critical");
-        } else if (keyUpper.includes("ANTAGONIST") || typeUpper.includes("ANTAGONIST")) {
-          score += 3; reasons.push("antagonist entity — arc-critical");
+
+        // Primary signal: story_critical_flag + entity_type combination
+        // story_critical_flag + (conflict|arc) type → core-equivalent signal
+        if (e.story_critical_flag && (e.entity_type === "conflict" || e.entity_type === "arc")) {
+          score += 3;
+          reasons.push(`story_critical_flag=true + entity_type="${e.entity_type}" — arc/conflict critical entity`);
         } else if (e.story_critical_flag) {
-          score += 2; reasons.push("story_critical_flag is set");
+          score += 2;
+          reasons.push("story_critical_flag=true — structurally significant entity");
         }
+
+        // Secondary: PROTAGONIST/ANTAGONIST in key (legacy support, additive)
+        const keyUpper = e.entity_key.toUpperCase();
+        if (keyUpper.includes("PROTAGONIST") || keyUpper.includes("ANTAGONIST")) {
+          if (score < 3) { score = 3; } // ensure CORE floor for explicitly named archetypes
+          reasons.push(`entity_key contains archetype label "${e.entity_key}"`);
+        }
+
+        // Obligation linkage (additive)
         if (oblCount >= 2) { score += 2; reasons.push(`${oblCount} obligation(s) reference this entity`); }
         else if (oblCount === 1) { score += 1; reasons.push("1 obligation references this entity"); }
-        // Count how many relations involve this entity
+
+        // Relation centrality (additive)
         const relCount = slRelations.filter(r =>
           r.source_entity_key === e.entity_key || r.target_entity_key === e.entity_key
         ).length;
-        if (relCount >= 2) { score += 1; reasons.push(`${relCount} relation(s) involve this entity`); }
-        if (score === 0) reasons.push("no strong classification signal — supporting by default");
-        // Conservative: entities with no evidence get supporting (not decorative)
-        const cls = scoreToClass(Math.max(score, 1));
+        if (relCount >= 3) { score += 2; reasons.push(`${relCount} relations — highly connected`); }
+        else if (relCount >= 1) { score += 1; reasons.push(`${relCount} relation(s)`); }
+
+        if (score === 0) reasons.push("no critical signal — supporting by default");
+
         return {
           key: e.entity_key,
-          class: cls,
+          class: scoreToClass(Math.max(score, 1)), // floor at supporting
           rationale: reasons.join("; "),
           linked_obligations_count: oblCount,
           linked_diagnostics_count: 0,
@@ -12021,27 +12134,48 @@ Return ONLY valid JSON:
       });
 
       // ── Classify relations ─────────────────────────────────────────────────
+      // SL2: Endpoint entity criticality (from criticalEntityKeys map) + arc-bearing
+      // relation types replace brittle PROTAGONIST/ANTAGONIST string matching.
       const relationsMap: Array<{
         key: string; class: LoadClass; rationale: string;
         linked_obligations_count: number; linked_diagnostics_count: number;
       }> = slRelations.map(r => {
         const relKey = `${r.source_entity_key}::${r.relation_type}::${r.target_entity_key}`;
-        const oblCount = obligationCountForKey("entity_relations") +
-                         obligationCountForKey(r.source_entity_key) +
-                         obligationCountForKey(r.target_entity_key);
+        // Obligation count: relation itself + its endpoint entities
+        const oblCount =
+          obligationCountForKey("entity_relations") +
+          obligationCountForKey(r.source_entity_key) +
+          obligationCountForKey(r.target_entity_key);
         let score = 0;
         const reasons: string[] = [];
-        const srcUpper = r.source_entity_key.toUpperCase();
-        const tgtUpper = r.target_entity_key.toUpperCase();
-        if (srcUpper.includes("PROTAGONIST") || tgtUpper.includes("PROTAGONIST") ||
-            srcUpper.includes("ANTAGONIST")  || tgtUpper.includes("ANTAGONIST")) {
-          score += 2; reasons.push("involves protagonist or antagonist entity");
+
+        const srcCritical = criticalEntityKeys.has(r.source_entity_key);
+        const tgtCritical = criticalEntityKeys.has(r.target_entity_key);
+
+        // Both endpoints are story-critical → primary territory
+        if (srcCritical && tgtCritical) {
+          score += 2;
+          reasons.push("both endpoints are story-critical entities");
+        } else if (srcCritical || tgtCritical) {
+          score += 1;
+          reasons.push("one endpoint is a story-critical entity");
         }
-        if (oblCount >= 1) { score += 1; reasons.push(`${oblCount} obligation(s) involve this relation's parties`); }
-        if (score === 0) reasons.push("supporting relation — no protagonist/antagonist linkage");
+
+        // Arc-bearing relation type (drives the narrative arc directly)
+        if (ARC_BEARING_RELATION_TYPES.has(r.relation_type)) {
+          score += 1;
+          reasons.push(`arc-bearing relation_type="${r.relation_type}"`);
+        }
+
+        // Obligation linkage (additive)
+        if (oblCount >= 2) { score += 1; reasons.push(`${oblCount} obligation(s) involve this relation's parties`); }
+        else if (oblCount === 1) { score += 1; reasons.push("1 obligation involves this relation's parties"); }
+
+        if (score === 0) reasons.push("non-critical endpoints, no arc-bearing type");
+
         return {
           key: relKey,
-          class: scoreToClass(Math.max(score, 1)),
+          class: scoreToClass(Math.max(score, 1)), // floor at supporting
           rationale: reasons.join("; "),
           linked_obligations_count: oblCount,
           linked_diagnostics_count: 0,
