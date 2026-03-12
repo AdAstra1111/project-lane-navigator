@@ -2886,6 +2886,8 @@ serve(async (req) => {
       "evaluate_structural_load",
       "plan_narrative_repairs",
       "execute_narrative_repair",
+      "propose_narrative_patch",
+      "apply_narrative_patch",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -11855,6 +11857,15 @@ Return ONLY valid JSON:
         "refresh_runtime_alignment",
       ]);
 
+      // ── Patch-proposal required types (RP4) ───────────────────────────────
+      // These types require a seed mutation via propose_narrative_patch +
+      // apply_narrative_patch. They are NOT directly executable by RP2.
+      // Return transient pending (no DB write) so plans remain retryable.
+      const PATCH_PROPOSAL_REQUIRED_TYPES = new Set([
+        "repair_relation_graph",
+        "repair_structural_beats",
+      ]);
+
       // ── Repairability gate ────────────────────────────────────────────────
       // Transient conditions (requires_approval, regeneration_in_progress):
       //   do NOT write to DB — plan stays pending for retry
@@ -11868,6 +11879,15 @@ Return ONLY valid JSON:
         await updatePlan({ status: "skipped", skipped_reason: "unknown_repairability" });
         return respond({ status: "skipped", skipped_reason: "unknown_repairability", outcome_summary: "permanent_skip" });
       }
+      // Patch-proposal path: transient return, plan stays pending
+      if (PATCH_PROPOSAL_REQUIRED_TYPES.has(plan.repair_type)) {
+        return respond({
+          status:          "pending",
+          skipped_reason:  "requires_patch_proposal",
+          outcome_summary: "requires_patch_proposal",
+        });
+      }
+
       if (!EXECUTABLE_REPAIR_TYPES.has(plan.repair_type)) {
         await updatePlan({ status: "skipped", skipped_reason: "repair_type_not_executable" });
         return respond({ status: "skipped", skipped_reason: "repair_type_not_executable", outcome_summary: "permanent_skip" });
@@ -12092,6 +12112,474 @@ Return ONLY valid JSON:
         execution_result:           executionResult ?? null,
         post_dx_diagnostic_present: postDxPresent,
         outcome_summary:            outcomeSummary,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // RP4 — propose_narrative_patch
+    //
+    // Generates a structured LLM-assisted patch proposal for deferred repair types:
+    //   repair_relation_graph     → patches layer_5b_entity_relations
+    //   repair_structural_beats   → patches layer_7_beats
+    //
+    // Proposal is validated before persistence.
+    // No seed mutation occurs here — apply_narrative_patch executes it.
+    // Requires LOVABLE_API_KEY (OpenRouter). Fail-closed if absent.
+    //
+    if (action === "propose_narrative_patch") {
+      const { projectId, repair_id } = body;
+      if (!projectId || !repair_id) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId and repair_id are required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Load repair plan ──────────────────────────────────────────────
+      const { data: plan, error: planErr } = await (supabase as any)
+        .from("narrative_repairs")
+        .select("*")
+        .eq("repair_id", repair_id)
+        .maybeSingle();
+      if (planErr) throw planErr;
+      if (!plan) {
+        return new Response(JSON.stringify({ ok: false, error: "Repair plan not found", repair_id }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (plan.project_id !== projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "repair_id does not belong to projectId" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Validate repair is patchable ──────────────────────────────────
+      const RP4_PATCHABLE = new Set(["repair_relation_graph", "repair_structural_beats"]);
+      if (plan.status !== "pending" || plan.repairability !== "guided" || !RP4_PATCHABLE.has(plan.repair_type)) {
+        return new Response(JSON.stringify({ ok: false, error: "repair_not_patchable", repair_type: plan.repair_type, status: plan.status }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── LOVABLE_API_KEY guard ─────────────────────────────────────────
+      const RP4_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      if (!RP4_API_KEY) {
+        return new Response(JSON.stringify({ ok: false, error: "LOVABLE_API_KEY not configured — cannot generate patch proposal" }),
+          { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Determine patch layer ─────────────────────────────────────────
+      const patchType  = plan.repair_type as string;
+      const patchLayer = patchType === "repair_relation_graph"
+        ? "layer_5b_entity_relations"
+        : "layer_7_beats";
+
+      // ── Load seed context ─────────────────────────────────────────────
+      // Load authored seed for this project
+      const { data: seedRoot } = await (supabase as any)
+        .from("dev_seed_v2_projects")
+        .select("id, updated_at")
+        .eq("project_id", projectId)
+        .eq("derived", false)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!seedRoot) {
+        return new Response(JSON.stringify({ ok: false, error: "No authored Dev Seed v2 found for this project" }),
+          { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const seedId       = seedRoot.id as string;
+      const seedUpdatedAt = seedRoot.updated_at as string;
+
+      const [entRes, relRes, beatRes, premRes] = await Promise.all([
+        (supabase as any).from("dev_seed_v2_entities").select("entity_key,entity_name,entity_type,narrative_role,story_critical_flag").eq("seed_id", seedId),
+        (supabase as any).from("dev_seed_v2_entity_relations").select("source_entity_key,relation_type,target_entity_key").eq("seed_id", seedId),
+        (supabase as any).from("dev_seed_v2_beats").select("beat_key,beat_description,narrative_axis_reference,expected_turn").eq("seed_id", seedId),
+        (supabase as any).from("dev_seed_v2_premise").select("premise,dramatic_question,emotional_promise,theme_vector").eq("seed_id", seedId).maybeSingle(),
+      ]);
+
+      const seedEntities  = (entRes.data ?? []) as any[];
+      const seedRelations = (relRes.data ?? []) as any[];
+      const seedBeats     = (beatRes.data ?? []) as any[];
+      const seedPremise   = premRes.data as any;
+
+      const seedContextSnapshot = { entities: seedEntities, entity_relations: seedRelations, beats: seedBeats };
+
+      // ── Load obligation context ───────────────────────────────────────
+      const { data: obligationRow } = await (supabase as any)
+        .from("narrative_obligations")
+        .select("obligation_type,description,required_by,severity_default,source_layer,source_key")
+        .eq("project_id", projectId)
+        .ilike("obligation_id", `%${plan.diagnostic_type ?? ""}%`)
+        .limit(1)
+        .maybeSingle();
+
+      // ── Build constrained LLM prompt ──────────────────────────────────
+      const VALID_RELATION_TYPES_RP4 = ["drives_arc","subject_of_conflict","opposes","conflicts_with","allied_with","mentor_of","family_of"];
+      const VALID_BEAT_KEYS_RP4      = ["opening_state","inciting_event_seed","first_escalation","midpoint_type","crisis_shape","climax_promise","ending_condition"];
+
+      const systemPrompt = `You are a narrative structure analyst generating a precise seed patch for a film/TV project.
+Output ONLY a single JSON object with two fields: "seed_patch" and "rationale".
+Do NOT include any prose, markdown, or explanation outside the JSON.
+The seed_patch must be a valid JSON object that can be applied directly to the project's narrative seed.
+
+ARCHITECTURE RULES:
+- For entity_relations patches: ONLY use valid relation_type values: ${VALID_RELATION_TYPES_RP4.join(", ")}
+- For entity_relations patches: ONLY reference entity_key values that exist in the provided entity list
+- For beats patches: ONLY use valid beat_key values: ${VALID_BEAT_KEYS_RP4.join(", ")}
+- For beats patches: You MUST include ALL beats the seed should contain (not just missing ones — all existing beats must be preserved)
+- beat_description must be a non-empty string describing the beat in narrative terms
+- rationale must briefly explain what was changed and why (1-3 sentences)
+
+OUTPUT FORMAT (strict JSON, no other text):
+{
+  "seed_patch": { ${patchLayer === "layer_5b_entity_relations" ? '"entity_relations": [{"source_entity_key":"...","relation_type":"...","target_entity_key":"..."}]' : '"beats": [{"beat_key":"...","beat_description":"...","narrative_axis_reference":"...","expected_turn":"..."}]'} },
+  "rationale": "..."
+}`;
+
+      const userPrompt = `PROJECT SEED CONTEXT:
+Entities: ${JSON.stringify(seedEntities.map((e: any) => ({ key: e.entity_key, type: e.entity_type, role: e.narrative_role, critical: e.story_critical_flag })))}
+Current relations: ${JSON.stringify(seedRelations)}
+Current beats: ${JSON.stringify(seedBeats)}
+${seedPremise ? `Premise: ${seedPremise.premise ?? ""}\nDramatic question: ${seedPremise.dramatic_question ?? ""}\nTheme: ${seedPremise.theme_vector ?? ""}` : ""}
+
+FAILING DIAGNOSTIC:
+Type: ${plan.diagnostic_type ?? "unknown"}
+Repair type: ${plan.repair_type}
+Summary: ${plan.summary ?? ""}
+Recommended action: ${plan.recommended_action ?? ""}
+${obligationRow ? `Obligation: ${obligationRow.obligation_type} — ${obligationRow.description ?? ""}\nRequired by: ${obligationRow.required_by ?? ""}` : ""}
+
+TASK: Generate a ${patchLayer === "layer_5b_entity_relations" ? "complete entity_relations array" : "complete beats array"} that resolves the above diagnostic.
+${patchLayer === "layer_7_beats" ? "IMPORTANT: Include ALL existing beats plus any new/updated beats needed. Do not drop existing beats unless they are being replaced." : "IMPORTANT: Include all relationships needed to satisfy the obligation. The entity_key values in your patch must exactly match the entity_key values listed above."}`;
+
+      // ── Call LLM ─────────────────────────────────────────────────────
+      let rawLLM: string;
+      try {
+        rawLLM = await callAI(RP4_API_KEY, "google/gemini-2.5-flash", systemPrompt, userPrompt, 0.2, 3000);
+      } catch (llmErr: any) {
+        return new Response(JSON.stringify({ ok: false, error: "LLM generation failed: " + (llmErr?.message ?? "unknown") }),
+          { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Parse LLM output ──────────────────────────────────────────────
+      let llmParsed: { seed_patch: any; rationale: string };
+      try {
+        // Strip markdown fences if present
+        const cleaned = rawLLM.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+        llmParsed = JSON.parse(cleaned);
+        if (!llmParsed.seed_patch || typeof llmParsed.seed_patch !== "object") throw new Error("seed_patch missing");
+        if (typeof llmParsed.rationale !== "string") llmParsed.rationale = "No rationale provided";
+      } catch (parseErr: any) {
+        // Attempt JSON repair
+        try {
+          const repaired = await callAI(RP4_API_KEY, "google/gemini-2.5-flash", "Fix this malformed JSON. Return ONLY valid JSON.", rawLLM.slice(0, 3000));
+          const cleaned2 = repaired.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+          llmParsed = JSON.parse(cleaned2);
+        } catch {
+          return new Response(JSON.stringify({ ok: false, error: "LLM output parse failed", raw_excerpt: rawLLM.slice(0, 500) }),
+            { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      const proposedPatch = llmParsed.seed_patch;
+
+      // ── Validate proposed_patch ───────────────────────────────────────
+      const validationErrors: string[] = [];
+      const entityKeyUniverse = new Set(seedEntities.map((e: any) => e.entity_key));
+
+      if (patchLayer === "layer_5b_entity_relations") {
+        const relations = Array.isArray(proposedPatch.entity_relations) ? proposedPatch.entity_relations : [];
+        if (relations.length === 0) {
+          validationErrors.push("entity_relations must be a non-empty array");
+        }
+        const validRelTypes = new Set(VALID_RELATION_TYPES_RP4);
+        for (const r of relations) {
+          const src = r.source_entity_key ?? r.source_entity;
+          const tgt = r.target_entity_key ?? r.target_entity;
+          if (!src || !entityKeyUniverse.has(src)) validationErrors.push(`source_entity_key "${src}" not in seed entity graph`);
+          if (!tgt || !entityKeyUniverse.has(tgt)) validationErrors.push(`target_entity_key "${tgt}" not in seed entity graph`);
+          if (r.relation_type && !validRelTypes.has(r.relation_type)) validationErrors.push(`Invalid relation_type "${r.relation_type}"`);
+        }
+      } else {
+        // layer_7_beats
+        const beats = Array.isArray(proposedPatch.beats) ? proposedPatch.beats : [];
+        if (beats.length === 0) {
+          validationErrors.push("beats must be a non-empty array");
+        }
+        const validBeatKeys = new Set(VALID_BEAT_KEYS_RP4);
+        for (const b of beats) {
+          if (!b.beat_key || !validBeatKeys.has(b.beat_key)) validationErrors.push(`Invalid or missing beat_key "${b.beat_key}"`);
+          if (!b.beat_description || typeof b.beat_description !== "string" || b.beat_description.trim().length === 0) {
+            validationErrors.push(`beat_description must be non-empty for beat "${b.beat_key}"`);
+          }
+        }
+      }
+
+      if (validationErrors.length > 0) {
+        return new Response(JSON.stringify({ ok: false, error: "Proposal validation failed — not persisted", validation_errors: validationErrors }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Compute proposal_hash ─────────────────────────────────────────
+      const patchStr   = JSON.stringify(proposedPatch);
+      let patchHash    = "ph-";
+      let h            = 5381;
+      for (let i = 0; i < patchStr.length; i++) { h = ((h << 5) + h) ^ patchStr.charCodeAt(i); }
+      patchHash += (h >>> 0).toString(16).padStart(8, "0");
+
+      // ── Persist proposal ──────────────────────────────────────────────
+      const { data: inserted, error: insertErr } = await (supabase as any)
+        .from("narrative_patch_proposals")
+        .upsert({
+          project_id:           projectId,
+          repair_id,
+          source_diagnostic_id: plan.source_diagnostic_id,
+          patch_type:           patchType,
+          patch_layer:          patchLayer,
+          proposed_patch:       proposedPatch,
+          seed_context_snapshot: seedContextSnapshot,
+          rationale:            llmParsed.rationale,
+          proposal_hash:        patchHash,
+          generator_model:      "google/gemini-2.5-flash",
+          seed_snapshot_at:     seedUpdatedAt,
+          status:               "proposed",
+        }, { onConflict: "repair_id", ignoreDuplicates: false })
+        .select("proposal_id")
+        .single();
+
+      if (insertErr) {
+        return new Response(JSON.stringify({ ok: false, error: "Proposal persist failed: " + insertErr.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      console.log("[dev-engine-v2] propose_narrative_patch", {
+        project_id: projectId, repair_id, proposal_id: inserted.proposal_id,
+        patch_type: patchType, patch_layer: patchLayer,
+      });
+
+      return new Response(JSON.stringify({
+        ok:              true,
+        action:          "propose_narrative_patch",
+        project_id:      projectId,
+        repair_id,
+        proposal_id:     inserted.proposal_id,
+        patch_type:      patchType,
+        patch_layer:     patchLayer,
+        proposed_patch:  proposedPatch,
+        rationale:       llmParsed.rationale,
+        seed_snapshot_at: seedUpdatedAt,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // RP4 — apply_narrative_patch
+    //
+    // Applies a confirmed patch proposal to the Dev Seed v2.
+    // Requires confirmed=true. No execution without explicit confirmation.
+    // Flow:
+    //   1. Load proposal + check status = proposed
+    //   2. Staleness check (seed_snapshot_at vs current updated_at)
+    //   3. Re-validate patch against current seed state
+    //   4. update_dev_seed_v2 (atomic seed mutation)
+    //   5. sync_dev_seed_v2_to_canon (force_resync=true)
+    //   6. get_narrative_diagnostics → check source_diagnostic_id resolved
+    //   7. Write terminal status to narrative_repairs + narrative_patch_proposals
+    //
+    if (action === "apply_narrative_patch") {
+      const { projectId, repair_id, proposal_id, confirmed = false } = body;
+
+      if (!projectId || !repair_id || !proposal_id) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId, repair_id, and proposal_id are required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (confirmed !== true) {
+        return new Response(JSON.stringify({ ok: false, error: "confirmation_required", note: "Pass confirmed:true to apply the proposal" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Load proposal ─────────────────────────────────────────────────
+      const { data: proposal, error: propErr } = await (supabase as any)
+        .from("narrative_patch_proposals")
+        .select("*")
+        .eq("proposal_id", proposal_id)
+        .maybeSingle();
+      if (propErr) throw propErr;
+      if (!proposal) {
+        return new Response(JSON.stringify({ ok: false, error: "Proposal not found", proposal_id }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (proposal.project_id !== projectId || proposal.repair_id !== repair_id) {
+        return new Response(JSON.stringify({ ok: false, error: "proposal_id does not match projectId/repair_id" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Verify status = proposed ──────────────────────────────────────
+      if (proposal.status !== "proposed") {
+        return new Response(JSON.stringify({ ok: false, error: "invalid_proposal_state", current_status: proposal.status }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Helper: update proposal status ───────────────────────────────
+      const updateProposal = async (updates: Record<string, any>) => {
+        await (supabase as any).from("narrative_patch_proposals").update(updates).eq("proposal_id", proposal_id);
+      };
+      // ── Helper: update repair status ──────────────────────────────────
+      const updateRepair = async (updates: Record<string, any>) => {
+        await (supabase as any).from("narrative_repairs").update(updates).eq("repair_id", repair_id);
+      };
+
+      // ── Staleness check ───────────────────────────────────────────────
+      const { data: seedRoot } = await (supabase as any)
+        .from("dev_seed_v2_projects")
+        .select("id, updated_at")
+        .eq("project_id", projectId)
+        .eq("derived", false)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!seedRoot) {
+        return new Response(JSON.stringify({ ok: false, error: "No authored seed found for project" }),
+          { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const currentSeedUpdatedAt = new Date(seedRoot.updated_at as string).getTime();
+      const proposalSnapshotAt   = new Date(proposal.seed_snapshot_at as string).getTime();
+      if (currentSeedUpdatedAt > proposalSnapshotAt) {
+        await updateProposal({ status: "stale" });
+        return new Response(JSON.stringify({
+          ok: false, error: "proposal_stale",
+          proposal_id, repair_id,
+          seed_updated_at:     seedRoot.updated_at,
+          proposal_snapshot_at: proposal.seed_snapshot_at,
+          note: "Re-run propose_narrative_patch to generate a fresh proposal against the current seed state.",
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Re-validate patch against current seed state ──────────────────
+      const proposedPatch = proposal.proposed_patch as any;
+      const revalidationErrors: string[] = [];
+      const VALID_RELATION_TYPES_APPLY = new Set(["drives_arc","subject_of_conflict","opposes","conflicts_with","allied_with","mentor_of","family_of"]);
+      const VALID_BEAT_KEYS_APPLY = new Set(["opening_state","inciting_event_seed","first_escalation","midpoint_type","crisis_shape","climax_promise","ending_condition"]);
+
+      if (proposal.patch_layer === "layer_5b_entity_relations") {
+        // Load current entity keys
+        const { data: currentEnts } = await (supabase as any)
+          .from("dev_seed_v2_entities")
+          .select("entity_key")
+          .eq("seed_id", seedRoot.id);
+        const currentEntityKeys = new Set(((currentEnts ?? []) as any[]).map((e: any) => e.entity_key));
+        const relations = Array.isArray(proposedPatch.entity_relations) ? proposedPatch.entity_relations : [];
+        for (const r of relations) {
+          const src = r.source_entity_key ?? r.source_entity;
+          const tgt = r.target_entity_key ?? r.target_entity;
+          if (!currentEntityKeys.has(src)) revalidationErrors.push(`source_entity_key "${src}" no longer in seed`);
+          if (!currentEntityKeys.has(tgt)) revalidationErrors.push(`target_entity_key "${tgt}" no longer in seed`);
+          if (r.relation_type && !VALID_RELATION_TYPES_APPLY.has(r.relation_type)) revalidationErrors.push(`Invalid relation_type "${r.relation_type}"`);
+        }
+      } else {
+        const beats = Array.isArray(proposedPatch.beats) ? proposedPatch.beats : [];
+        for (const b of beats) {
+          if (!b.beat_key || !VALID_BEAT_KEYS_APPLY.has(b.beat_key)) revalidationErrors.push(`Invalid beat_key "${b.beat_key}"`);
+          if (!b.beat_description?.trim()) revalidationErrors.push(`Empty beat_description for "${b.beat_key}"`);
+        }
+      }
+
+      if (revalidationErrors.length > 0) {
+        await updateProposal({ status: "stale" });
+        return new Response(JSON.stringify({
+          ok: false, error: "patch_revalidation_failed",
+          revalidation_errors: revalidationErrors,
+          note: "Proposal marked stale. Re-run propose_narrative_patch.",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Execute seed mutation ─────────────────────────────────────────
+      let updateResult: any;
+      try {
+        const updateResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${supabaseServiceKey}` },
+          body: JSON.stringify({ action: "update_dev_seed_v2", projectId, seed_patch: proposedPatch }),
+        });
+        updateResult = await updateResp.json();
+      } catch (updateErr: any) {
+        return new Response(JSON.stringify({
+          ok: false, error: "update_dev_seed_v2 dispatch failed: " + (updateErr?.message ?? "unknown"),
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      if (!updateResult?.ok) {
+        return new Response(JSON.stringify({
+          ok: false, error: "update_dev_seed_v2 failed",
+          update_error: updateResult?.error ?? "unknown",
+          validation_errors: updateResult?.validation_errors,
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const updatedLayers: string[] = updateResult.updated_layers ?? [];
+
+      // ── Canon sync ────────────────────────────────────────────────────
+      let syncResult: any = null;
+      try {
+        const syncResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${supabaseServiceKey}` },
+          body: JSON.stringify({ action: "sync_dev_seed_v2_to_canon", projectId, force_resync: true }),
+        });
+        syncResult = await syncResp.json();
+      } catch (syncErr: any) {
+        console.warn("[RP4] canon sync failed (non-fatal):", syncErr?.message);
+      }
+
+      // ── Post-apply diagnostics ────────────────────────────────────────
+      let postDxPresent: boolean | null = null;
+      try {
+        const dxResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${supabaseServiceKey}` },
+          body: JSON.stringify({ action: "get_narrative_diagnostics", projectId }),
+        });
+        const dxData = await dxResp.json();
+        if (dxData.ok) {
+          postDxPresent = (dxData.diagnostics ?? []).some((d: any) => d.diagnostic_id === proposal.source_diagnostic_id);
+        }
+      } catch (dxErr: any) {
+        console.warn("[RP4] post-apply DX check failed:", dxErr?.message);
+      }
+
+      // ── Write terminal states ─────────────────────────────────────────
+      const finalRepairStatus = (!postDxPresent || postDxPresent === false) ? "completed" : "failed";
+      const skippedReason     = finalRepairStatus === "failed" ? "diagnostic_persists_post_apply" : null;
+      const now               = new Date().toISOString();
+
+      await Promise.all([
+        updateRepair({
+          status:           finalRepairStatus,
+          executed_at:      now,
+          skipped_reason:   skippedReason,
+          execution_result: { mode: "patch_apply", proposal_id, updated_layers: updatedLayers, sync_ok: syncResult?.ok ?? null },
+        }),
+        updateProposal({
+          status:     "applied",
+          applied_at: now,
+        }),
+      ]);
+
+      const outcomeSummary = finalRepairStatus === "completed"
+        ? "patch_applied_diagnostic_resolved"
+        : "patch_applied_diagnostic_persists";
+
+      console.log("[dev-engine-v2] apply_narrative_patch", {
+        project_id: projectId, repair_id, proposal_id,
+        final_repair_status: finalRepairStatus, post_dx_diagnostic_present: postDxPresent,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                         true,
+        action:                     "apply_narrative_patch",
+        project_id:                 projectId,
+        repair_id,
+        proposal_id,
+        status:                     finalRepairStatus,
+        outcome_summary:            outcomeSummary,
+        post_dx_diagnostic_present: postDxPresent,
+        updated_layers:             updatedLayers,
+        sync_result:                syncResult ? { ok: syncResult.ok, promotions: syncResult.promotions } : null,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

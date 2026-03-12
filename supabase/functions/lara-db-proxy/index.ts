@@ -643,6 +643,47 @@ Deno.serve(async (req) => {
             $$;
           `,
 
+          "narrative_patch_proposals_v1": `
+            CREATE TABLE IF NOT EXISTS public.narrative_patch_proposals (
+              proposal_id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+              project_id            UUID        NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+              repair_id             UUID        NOT NULL REFERENCES public.narrative_repairs(repair_id) ON DELETE CASCADE,
+              source_diagnostic_id  TEXT        NOT NULL,
+              patch_type            TEXT        NOT NULL CHECK (patch_type IN ('repair_relation_graph','repair_structural_beats')),
+              patch_layer           TEXT        NOT NULL CHECK (patch_layer IN ('layer_5b_entity_relations','layer_7_beats')),
+              proposed_patch        JSONB       NOT NULL,
+              seed_context_snapshot JSONB,
+              rationale             TEXT,
+              proposal_hash         TEXT,
+              generator_model       TEXT,
+              seed_snapshot_at      TIMESTAMPTZ NOT NULL,
+              status                TEXT        NOT NULL DEFAULT 'proposed'
+                                                CHECK (status IN ('proposed','applied','rejected','stale')),
+              created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              applied_at            TIMESTAMPTZ,
+              CONSTRAINT unique_repair_proposal UNIQUE (repair_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_patch_proposals_project ON public.narrative_patch_proposals(project_id);
+            CREATE INDEX IF NOT EXISTS idx_patch_proposals_status ON public.narrative_patch_proposals(project_id, status);
+            ALTER TABLE public.narrative_patch_proposals ENABLE ROW LEVEL SECURITY;
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='narrative_patch_proposals' AND policyname='narrative_patch_proposals_select') THEN
+                CREATE POLICY "narrative_patch_proposals_select" ON public.narrative_patch_proposals FOR SELECT TO authenticated USING (has_project_access(auth.uid(), project_id));
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='narrative_patch_proposals' AND policyname='narrative_patch_proposals_insert') THEN
+                CREATE POLICY "narrative_patch_proposals_insert" ON public.narrative_patch_proposals FOR INSERT TO authenticated WITH CHECK (has_project_access(auth.uid(), project_id));
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='narrative_patch_proposals' AND policyname='narrative_patch_proposals_update') THEN
+                CREATE POLICY "narrative_patch_proposals_update" ON public.narrative_patch_proposals FOR UPDATE TO authenticated USING (has_project_access(auth.uid(), project_id));
+              END IF;
+            END $$;
+          `,
+
+          "rp4_delete_proposals_obsidian_mirror": `
+            DELETE FROM public.narrative_patch_proposals
+              WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c';
+          `,
+
           "narrative_repairs_v3": `
             ALTER TABLE public.narrative_repairs
               ADD COLUMN IF NOT EXISTS executed_at      TIMESTAMPTZ,
@@ -1494,6 +1535,8 @@ Deno.serve(async (req) => {
           "get_narrative_diagnostics",
           "plan_narrative_repairs",
           "execute_narrative_repair",
+          "propose_narrative_patch",
+          "apply_narrative_patch",
           "get_dev_seed_v2",
           "compare_dev_seed_v2",
           "create_dev_seed_v2",
