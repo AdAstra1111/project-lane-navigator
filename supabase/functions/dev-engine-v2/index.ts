@@ -2895,6 +2895,7 @@ serve(async (req) => {
       "simulate_narrative_patch",
       "project_narrative_stability",
       "recommend_repair_order",
+      "recommend_repair_paths",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -10950,6 +10951,446 @@ Return ONLY valid JSON:
           version:               "arp1",
         },
         computed_at:             arpComputedAt,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // ARP3 — recommend_repair_paths
+    //
+    // Repair Path Planner. Generates bounded multi-step repair paths from the
+    // pending repair pool ranked by ARP1. Returns scored, labelled candidate paths.
+    //
+    // Architecture:
+    //   1. Self-call recommend_repair_order (ARP1) for enriched candidate pool
+    //   2. Filter: exclude manual / inspect_subsystem / non-pending
+    //   3. Cap: ARP_PATH_CANDIDATE_CAP = 6 top candidates
+    //   4. Generate: all ordered 2-step pairs; 3-step paths to fill ARP_PATH_COUNT_CAP = 20
+    //   5. Score: additive weighted formula with dependency bonuses + redundancy penalties
+    //   6. Label: Highest Gain / Safest Path / Fastest Path / Balanced Path /
+    //             Proposal-Led Path / Investigate Then Repair
+    //   7. Return: top ARP_PATH_RESULT_CAP = 4 paths
+    //
+    // No NSI3/SIM3 calls — inherits preview data from ARP1 output.
+    // No state mutation. No schema changes. Deterministic for identical DB state.
+    //
+    if (action === "recommend_repair_paths") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const arp3ComputedAt        = new Date().toISOString();
+      const ARP_PATH_CANDIDATE_CAP = 6;
+      const ARP_PATH_COUNT_CAP     = 20;
+      const ARP_PATH_RESULT_CAP    = 4;
+
+      const supabaseUrlStr  = Deno.env.get("SUPABASE_URL") ?? "";
+      const serviceKeyStr   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      const selfCallHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` };
+
+      // ── Step 1: Load ARP1 ranked pending candidates ───────────────────────
+      let arp1Data: any;
+      try {
+        const arp1Resp = await fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
+          method: "POST", headers: selfCallHeaders,
+          body: JSON.stringify({ action: "recommend_repair_order", projectId }),
+        });
+        if (!arp1Resp.ok) throw new Error(`ARP1 responded ${arp1Resp.status}`);
+        const arp1Json = await arp1Resp.json();
+        if (!arp1Json?.ok) throw new Error(`ARP1 returned ok=false: ${arp1Json?.error ?? "unknown"}`);
+        arp1Data = arp1Json;
+      } catch (e: any) {
+        return new Response(JSON.stringify({
+          ok: false, error: `recommend_repair_paths: failed to load candidate repairs — ${e?.message ?? "ARP1 call failed"}`,
+        }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const allCandidates: any[] = arp1Data.recommendations ?? [];
+
+      // ── Step 2: Empty-queue fast return ──────────────────────────────────
+      if (allCandidates.length === 0) {
+        return new Response(JSON.stringify({
+          ok:                    true,
+          action:                "recommend_repair_paths",
+          project_id:            projectId,
+          candidate_repair_count: 0,
+          path_count:            0,
+          paths:                 [],
+          excluded_repairs:      [],
+          current_nsi:           arp1Data.current_nsi ?? null,
+          current_stability_band: arp1Data.current_stability_band ?? null,
+          scoring_notes: { version: "arp3", candidate_cap: ARP_PATH_CANDIDATE_CAP, path_count_cap: ARP_PATH_COUNT_CAP, result_cap: ARP_PATH_RESULT_CAP },
+          computed_at:           arp3ComputedAt,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 3: Filter unsuitable candidates ─────────────────────────────
+      const ARP3_EXCLUDED_TYPES         = new Set(["inspect_subsystem"]);
+      const ARP3_EXCLUDED_REPAIRABILITY = new Set(["manual"]);
+
+      const eligible: any[] = [];
+      const excludedRepairs: Array<{ repair_id: string; repair_type: string; reason: string }> = [];
+
+      for (const r of allCandidates) {
+        if (ARP3_EXCLUDED_REPAIRABILITY.has(r.repairability)) {
+          excludedRepairs.push({ repair_id: r.repair_id, repair_type: r.repair_type, reason: `repairability=${r.repairability} — not directly executable` });
+        } else if (ARP3_EXCLUDED_TYPES.has(r.repair_type)) {
+          excludedRepairs.push({ repair_id: r.repair_id, repair_type: r.repair_type, reason: `repair_type=${r.repair_type} — non-executable` });
+        } else {
+          eligible.push(r);
+        }
+      }
+
+      // Add ARP1 blocked_repairs to excluded list
+      for (const b of arp1Data.blocked_repairs ?? []) {
+        excludedRepairs.push({ repair_id: b.repair_id, repair_type: b.repair_type, reason: `status=${b.status} — ${b.reason ?? "blocked/terminal"}` });
+      }
+
+      // ── Step 4: Cap candidate pool ────────────────────────────────────────
+      const candidates = eligible.slice(0, ARP_PATH_CANDIDATE_CAP);
+
+      if (candidates.length < 2) {
+        return new Response(JSON.stringify({
+          ok:                    true,
+          action:                "recommend_repair_paths",
+          project_id:            projectId,
+          candidate_repair_count: candidates.length,
+          path_count:            0,
+          paths:                 [],
+          excluded_repairs:      excludedRepairs,
+          current_nsi:           arp1Data.current_nsi ?? null,
+          current_stability_band: arp1Data.current_stability_band ?? null,
+          scoring_notes: {
+            version: "arp3", note: "Fewer than 2 eligible candidates — no paths generated",
+            candidate_cap: ARP_PATH_CANDIDATE_CAP, path_count_cap: ARP_PATH_COUNT_CAP, result_cap: ARP_PATH_RESULT_CAP,
+          },
+          computed_at: arp3ComputedAt,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 5: Generate candidate paths ──────────────────────────────────
+      // Generate all ordered 2-step pairs first; fill remaining capacity with 3-step
+      const rawPaths: any[][] = [];
+      const n = candidates.length;
+
+      // 2-step: all ordered pairs (n × n-1 max = 6×5=30, but capped)
+      outer2: for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          if (i === j) continue;
+          rawPaths.push([candidates[i], candidates[j]]);
+          if (rawPaths.length >= ARP_PATH_COUNT_CAP) break outer2;
+        }
+      }
+
+      // 3-step: fill remaining slots (only if >= 3 candidates)
+      if (n >= 3 && rawPaths.length < ARP_PATH_COUNT_CAP) {
+        outer3: for (let i = 0; i < n; i++) {
+          for (let j = 0; j < n; j++) {
+            if (i === j) continue;
+            for (let k = 0; k < n; k++) {
+              if (k === i || k === j) continue;
+              rawPaths.push([candidates[i], candidates[j], candidates[k]]);
+              if (rawPaths.length >= ARP_PATH_COUNT_CAP) break outer3;
+            }
+          }
+        }
+      }
+
+      // ── Step 6: Score each path ───────────────────────────────────────────
+
+      // Deterministic path ID: stable hash of repair_id sequence
+      const arp3PathId = (steps: any[]): string => {
+        const input = steps.map(s => s.repair_id).join(":");
+        let h = 5381;
+        for (const c of input) h = ((h << 5) + h) + c.charCodeAt(0);
+        return "path-" + (h >>> 0).toString(16).padStart(8, "0");
+      };
+
+      // Families that are direct-executable (not proposal-gated)
+      const DIRECT_EXEC = new Set(["build_obligation_registry", "investigate_simulation_impact", "repair_seed_alignment", "refresh_runtime_alignment"]);
+      const GUIDED_PATCHABLE = new Set(["repair_relation_graph", "repair_structural_beats"]);
+
+      interface ScoredPath {
+        path_id:                  string;
+        steps:                    any[];
+        path_label:               string;
+        path_score:               number;
+        cumulative_expected_gain: number;
+        cumulative_blast_risk:    number;
+        cumulative_friction:      number;
+        cumulative_urgency:       number;
+        dependency_bonus:         number;
+        redundancy_penalty:       number;
+        projected_effect_summary: string | null;
+        rationale_summary:        string;
+        notes:                    string[];
+      }
+
+      const scoredPaths: ScoredPath[] = rawPaths.map((steps) => {
+        const stepCount    = steps.length;
+        const gainWeights  = [1.0, 0.75, 0.5];
+        const blastWeights = [1.0, 0.80, 0.60];
+
+        // ── Cumulative components ──────────────────────────────────────────
+        const cumGain    = steps.reduce((acc, s, i) => acc + s.expected_stability_gain  * gainWeights[i],  0);
+        const cumUrgency = steps.reduce((acc, s, i) => acc + s.urgency_score            * gainWeights[i],  0);
+        const cumFriction = steps.reduce((acc, s, i) => acc + s.execution_friction_score * gainWeights[i], 0);
+
+        // Blast: weighted average (not sum) — max blast sets the floor
+        const blastNum = steps.reduce((acc, s, i) => acc + s.blast_risk_score * blastWeights[i], 0);
+        const blastDen = blastWeights.slice(0, stepCount).reduce((a, b) => a + b, 0);
+        const cumBlast  = blastNum / blastDen;
+
+        // ── Dependency bonus ───────────────────────────────────────────────
+        let depBonus = 0;
+        const depNotes: string[] = [];
+
+        for (let i = 0; i < stepCount - 1; i++) {
+          const a = steps[i], b = steps[i + 1];
+
+          // build_obligation_registry → obligation-derived repairs
+          if (a.repair_type === "build_obligation_registry" &&
+              (b.repair_type === "repair_relation_graph" || b.repair_type === "repair_structural_beats")) {
+            depBonus += 10;
+            depNotes.push(`Prerequisite ordering: obligation registry before ${b.repair_type.replace(/_/g, " ")}`);
+          }
+
+          // repair_seed_alignment → refresh_runtime_alignment
+          if (a.repair_type === "repair_seed_alignment" && b.repair_type === "refresh_runtime_alignment") {
+            depBonus += 10;
+            depNotes.push("Prerequisite ordering: seed alignment before runtime regeneration");
+          }
+
+          // repair_seed_alignment → repair_relation_graph (seed context for RP4 proposal)
+          if (a.repair_type === "repair_seed_alignment" && b.repair_type === "repair_relation_graph") {
+            depBonus += 8;
+            depNotes.push("Preferred: seed alignment provides stable context for relation graph proposal");
+          }
+
+          // investigate_simulation_impact → high-blast guided repair
+          if (a.repair_type === "investigate_simulation_impact") {
+            const isGuidedOrPatchable = DIRECT_EXEC.has(b.repair_type) || GUIDED_PATCHABLE.has(b.repair_type);
+            if (isGuidedOrPatchable && b.blast_risk_score >= 55) {
+              depBonus += 6;
+              depNotes.push(`Investigation first reduces blast uncertainty (step 2 blast=${b.blast_risk_score})`);
+            } else if (isGuidedOrPatchable) {
+              depBonus += 4;
+              depNotes.push("Investigation first reduces uncertainty before guided repair");
+            }
+          }
+
+          // Axis/scope continuity bonus
+          const axesA   = new Set<string>(a.affected_axes ?? []);
+          const axesB   = new Set<string>(b.affected_axes ?? []);
+          const shared  = [...axesA].filter(x => axesB.has(x));
+          const sameKey = a.scope_key && a.scope_key === b.scope_key;
+          if (shared.length > 0 || sameKey) {
+            const label = shared.length > 0 ? shared.join(", ") : a.scope_key;
+            depBonus += 6;
+            depNotes.push(`Structural continuity: shared axis/scope (${label})`);
+          }
+        }
+
+        // ── Redundancy penalty ─────────────────────────────────────────────
+        let redPenalty = 0;
+        const redNotes: string[] = [];
+
+        // Same repair_type repeated
+        const repairTypes = steps.map(s => s.repair_type);
+        const typeSet = new Set(repairTypes);
+        if (typeSet.size < repairTypes.length) {
+          redPenalty += 8;
+          redNotes.push("Duplicate repair type in path — limited structural diversification");
+        }
+
+        // Two proposal-required steps without proposals AND weak gain
+        const gapSteps = steps.filter(s => s.proposal_required && !s.proposal_status);
+        if (gapSteps.length >= 2 && gapSteps.every(s => s.expected_stability_gain < 50)) {
+          redPenalty += 10;
+          redNotes.push("Multiple proposal-required steps without active proposals — high friction, limited gain");
+        }
+
+        // Final step adds diminishing value (< 30% of step-1 gain)
+        if (stepCount >= 2) {
+          const lastGain  = steps[stepCount - 1].expected_stability_gain;
+          const firstGain = steps[0].expected_stability_gain;
+          if (firstGain > 0 && lastGain < firstGain * 0.30) {
+            redPenalty += 6;
+            redNotes.push("Final step adds limited incremental gain");
+          }
+        }
+
+        // ── Path score ─────────────────────────────────────────────────────
+        const pathScore = Math.round(
+          cumGain      * 0.40 +
+          cumUrgency   * 0.25 -
+          cumBlast     * 0.15 -
+          cumFriction  * 0.10 +
+          depBonus     * 0.10 -
+          redPenalty   * 0.10
+        );
+
+        // ── Path notes ─────────────────────────────────────────────────────
+        const pathNotes: string[] = [];
+        const step0 = steps[0];
+
+        if (DIRECT_EXEC.has(step0.repair_type) && step0.repairability !== "investigatory") {
+          pathNotes.push("Starts with direct executable repair");
+        }
+        if (step0.repair_type === "investigate_simulation_impact") {
+          pathNotes.push("Investigation first — reduces blast-radius uncertainty before execution");
+        }
+        const firstProposalIdx = steps.findIndex(s => s.proposal_required && !s.proposal_status);
+        if (firstProposalIdx >= 0) {
+          pathNotes.push(`Proposal required before step ${firstProposalIdx + 1} can execute`);
+        }
+        const firstProposalReadyIdx = steps.findIndex(s => s.proposal_required && s.proposal_status === "proposed");
+        if (firstProposalReadyIdx >= 0) {
+          pathNotes.push(`Step ${firstProposalReadyIdx + 1} has proposal ready for review`);
+        }
+        const highBlastStep = steps.findIndex(s => s.blast_risk_score >= 70);
+        if (highBlastStep >= 0) {
+          pathNotes.push(`High blast risk in step ${highBlastStep + 1} (blast=${steps[highBlastStep].blast_risk_score})`);
+        }
+
+        // Merge dep/redundancy/path notes (deduplicated)
+        const allNotes = [...new Set([...pathNotes, ...depNotes, ...redNotes])];
+
+        // ── Projected effect summary ───────────────────────────────────────
+        const previewedSteps = steps.filter(s => s.projected_effect);
+        const projEffectSummary = previewedSteps.length > 0
+          ? previewedSteps.map((s: any, _i: number) => {
+              const idx = steps.indexOf(s) + 1;
+              return `step${idx}:${s.projected_effect}`;
+            }).join(", ")
+          : null;
+
+        return {
+          path_id:                  arp3PathId(steps),
+          steps: steps.map((s: any) => ({
+            repair_id:                s.repair_id,
+            repair_type:              s.repair_type,
+            repairability:            s.repairability,
+            scope_type:               s.scope_type,
+            scope_key:                s.scope_key,
+            source_system:            s.source_system,
+            proposal_required:        s.proposal_required,
+            proposal_status:          s.proposal_status,
+            recommendation_label:     s.recommendation_label,
+            expected_stability_gain:  s.expected_stability_gain,
+            blast_risk_score:         s.blast_risk_score,
+            execution_friction_score: s.execution_friction_score,
+            urgency_score:            s.urgency_score,
+            projected_effect:         s.projected_effect ?? null,
+          })),
+          path_label:               "", // assigned post-sort
+          path_score:               pathScore,
+          cumulative_expected_gain: Math.round(cumGain  * 10) / 10,
+          cumulative_blast_risk:    Math.round(cumBlast * 10) / 10,
+          cumulative_friction:      Math.round(cumFriction * 10) / 10,
+          cumulative_urgency:       Math.round(cumUrgency  * 10) / 10,
+          dependency_bonus:         depBonus,
+          redundancy_penalty:       redPenalty,
+          projected_effect_summary: projEffectSummary,
+          rationale_summary: `Score=${pathScore}: gain=${Math.round(cumGain)}, urgency=${Math.round(cumUrgency)}, blast=${Math.round(cumBlast)}, friction=${Math.round(cumFriction)}, dep_bonus=${depBonus}, red_penalty=${redPenalty}`,
+          notes: allNotes,
+        };
+      });
+
+      // Sort descending by path_score
+      scoredPaths.sort((a, b) => b.path_score - a.path_score);
+      const topPaths = scoredPaths.slice(0, ARP_PATH_RESULT_CAP);
+
+      // ── Step 7: Assign path labels ────────────────────────────────────────
+      // Priority: override labels first, then comparative across top paths
+      const labelledPaths = topPaths.map(path => ({ ...path }));
+
+      // Override labels (checked first, in priority order)
+      for (const path of labelledPaths) {
+        const step0Type       = path.steps[0].repair_type;
+        const proposalReqCount = path.steps.filter((s: any) => s.proposal_required).length;
+        const totalSteps      = path.steps.length;
+
+        if (step0Type === "investigate_simulation_impact") {
+          path.path_label = "Investigate Then Repair";
+        } else if (proposalReqCount > Math.floor(totalSteps / 2)) {
+          path.path_label = "Proposal-Led Path";
+        }
+        // others get comparative labels below
+      }
+
+      // Comparative labels for unlabelled paths
+      const unlabelled = labelledPaths.filter(p => p.path_label === "");
+      if (unlabelled.length > 0) {
+        // Highest Gain: max cumulative_expected_gain (and blast < 65)
+        const highGainCandidate = [...unlabelled].sort((a, b) => b.cumulative_expected_gain - a.cumulative_expected_gain)[0];
+
+        // Safest: min cumulative_blast_risk
+        const safestCandidate = [...unlabelled].sort((a, b) => a.cumulative_blast_risk - b.cumulative_blast_risk)[0];
+
+        // Fastest: min cumulative_friction, no unmet proposal gaps
+        const noProposalGap = unlabelled.filter(p => !p.steps.some((s: any) => s.proposal_required && !s.proposal_status));
+        const fastestCandidate = noProposalGap.length > 0
+          ? [...noProposalGap].sort((a, b) => a.cumulative_friction - b.cumulative_friction)[0]
+          : null;
+
+        const assigned = new Set<string>();
+
+        if (highGainCandidate && highGainCandidate.cumulative_blast_risk < 65) {
+          highGainCandidate.path_label = "Highest Gain";
+          assigned.add(highGainCandidate.path_id);
+        }
+        if (safestCandidate && !assigned.has(safestCandidate.path_id)) {
+          safestCandidate.path_label = "Safest Path";
+          assigned.add(safestCandidate.path_id);
+        }
+        if (fastestCandidate && !assigned.has(fastestCandidate.path_id)) {
+          fastestCandidate.path_label = "Fastest Path";
+          assigned.add(fastestCandidate.path_id);
+        }
+        // Remaining → Balanced Path
+        for (const p of unlabelled) {
+          if (p.path_label === "") p.path_label = "Balanced Path";
+        }
+      }
+
+      // ── Step 8: Response ──────────────────────────────────────────────────
+      console.log("[dev-engine-v2] recommend_repair_paths", {
+        project_id:            projectId,
+        candidate_count:       candidates.length,
+        raw_path_count:        rawPaths.length,
+        returned_path_count:   labelledPaths.length,
+        current_nsi:           arp1Data.current_nsi ?? null,
+        top_path_label:        labelledPaths[0]?.path_label ?? null,
+        top_path_score:        labelledPaths[0]?.path_score ?? null,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                     true,
+        action:                 "recommend_repair_paths",
+        project_id:             projectId,
+        current_nsi:            arp1Data.current_nsi ?? null,
+        current_stability_band: arp1Data.current_stability_band ?? null,
+        candidate_repair_count: candidates.length,
+        path_count:             labelledPaths.length,
+        paths:                  labelledPaths,
+        excluded_repairs:       excludedRepairs,
+        scoring_notes: {
+          formula:              "gain*0.40 + urgency*0.25 - blast*0.15 - friction*0.10 + dep_bonus*0.10 - red_penalty*0.10",
+          gain_weighting:       "step1*1.0 + step2*0.75 + step3*0.50",
+          blast_weighting:      "weighted_average(step1*1.0 + step2*0.80 + step3*0.60)",
+          dep_bonus_rules:      "obligation_registry→obligation_repair +10; seed_align→runtime +10; seed_align→relation_graph +8; investigate→high-blast_guided +6; axis_overlap +6",
+          red_penalty_rules:    "duplicate_repair_type +8; double_proposal_gap_weak_gain +10; diminishing_last_step +6",
+          candidate_cap:        ARP_PATH_CANDIDATE_CAP,
+          path_count_cap:       ARP_PATH_COUNT_CAP,
+          result_cap:           ARP_PATH_RESULT_CAP,
+          raw_paths_generated:  rawPaths.length,
+          approximation_note:   "Path scores are additive approximations. No sequential temp-state simulation is performed. Treat projections as directional guidance.",
+          version:              "arp3",
+        },
+        computed_at: arp3ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
