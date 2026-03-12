@@ -10997,14 +10997,17 @@ Return ONLY valid JSON:
         : "CRITICAL";
 
       // ── Explanation arrays ────────────────────────────────────────────
-      const CAUSE_THRESHOLD = 0.5;
+      // Thresholds: D4 (beats) uses lower threshold — even one missing beat is diagnostic.
+      // All other dimensions use 0.5 (partial drift) to filter noise.
+      const CAUSE_THRESHOLD     = 0.5;
+      const BEAT_CAUSE_THRESHOLD = 0;    // any beat drift triggers cause
       const primaryDriftCauses: string[] = [
-        ...(d1.score >= CAUSE_THRESHOLD ? d1.details : []),
-        ...(d2.score >= CAUSE_THRESHOLD ? d2.details : []),
-        ...(d3.score >= CAUSE_THRESHOLD ? d3.details : []),
-        ...(d4.score >= CAUSE_THRESHOLD ? d4.details : []),
-        ...(d5.score >= CAUSE_THRESHOLD ? d5.details : []),
-        ...(d6.score >= CAUSE_THRESHOLD ? d6.details : []),
+        ...(d1.score >= CAUSE_THRESHOLD      ? d1.details : []),
+        ...(d2.score >= CAUSE_THRESHOLD      ? d2.details : []),
+        ...(d3.score >= CAUSE_THRESHOLD      ? d3.details : []),
+        ...(d4.score >  BEAT_CAUSE_THRESHOLD ? d4.details : []),  // beat: any drift
+        ...(d5.score >= CAUSE_THRESHOLD      ? d5.details : []),
+        ...(d6.score >= CAUSE_THRESHOLD      ? d6.details : []),
       ];
 
       const RESTORATION_MAP: Record<string, string> = {
