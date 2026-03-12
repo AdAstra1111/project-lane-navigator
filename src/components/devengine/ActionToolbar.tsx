@@ -98,6 +98,8 @@ export function ActionToolbar({
   selectedVersionId,
   format,
   assignedLane,
+  onGenerateDocument,
+  generateDocumentPending,
 }: ActionToolbarProps) {
   const navigate = useNavigate();
   const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
