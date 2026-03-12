@@ -1581,8 +1581,8 @@ export default function ProjectDevelopmentEngine() {
                       oldHash={(selectedVersion as any).depends_on_resolver_hash || ''}
                       currentHash={currentResolverHash}
                       seasonEpisodeCount={resolvedQuals?.season_episode_count || effectiveSeasonEpisodes || undefined}
-                      onRegenerate={handleRunEngine}
-                      isRegenerating={analyze.isPending}
+                      onRegenerate={handleStaleRegenerate}
+                      isRegenerating={false}
                     />
                   )}
 
