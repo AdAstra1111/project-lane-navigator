@@ -1335,6 +1335,38 @@ Deno.serve(async (req) => {
         break;
       }
 
+      // ── dev_engine_action: relay an action to dev-engine-v2 using service role ──
+      // Used for CI/internal tooling that doesn't have a user JWT.
+      // Only allowed for analytics/read-type actions (no generator rewrites).
+      case "dev_engine_action": {
+        const ALLOWED_RELAY_ACTIONS = new Set([
+          "build_narrative_obligations",
+          "validate_narrative_obligations",
+          "evaluate_structural_load",
+          "get_narrative_diagnostics",
+          "get_dev_seed_v2",
+          "compare_dev_seed_v2",
+        ]);
+        const { action: relayAction, payload: relayPayload = {} } = params;
+        if (!ALLOWED_RELAY_ACTIONS.has(relayAction)) {
+          return new Response(JSON.stringify({ error: `Action '${relayAction}' not allowed via relay` }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const devEngineUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/dev-engine-v2`;
+        const devResp = await fetch(devEngineUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ action: relayAction, ...relayPayload }),
+        });
+        const devData = await devResp.json();
+        result = devData;
+        break;
+      }
+
       default:
         return new Response(JSON.stringify({ error: `Unknown op: ${op}` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
