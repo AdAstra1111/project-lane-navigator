@@ -10471,30 +10471,33 @@ Return ONLY valid JSON:
     // ARP1 — recommend_repair_order
     //
     // Counterfactual Repair Prioritization Engine.
-    // Ranks active narrative repairs by expected structural value using live signals.
+    // Ranks pending narrative repairs by expected structural value.
     //
-    // Scoring dimensions per repair:
-    //   expected_stability_gain  (0–100) — NSI impact if repair resolves
-    //   blast_risk_score         (0–100) — structural disruption risk
-    //   execution_friction_score (0–100) — execution effort / gate complexity
-    //   urgency_score            (0–100) — severity + load + resolution urgency
-    //   net_priority_score       (0–100) — composite ranking score
+    // Scope:
+    //   recommendations[] — status=pending repairs only, ranked by net_priority_score
+    //   blocked_repairs[]  — status=failed|skipped|dismissed repairs, surfaced separately
     //
-    // net_priority_score = stability_gain*0.35 + (100-blast)*0.25 + (100-friction)*0.20 + urgency*0.20
+    // Scoring formula:
+    //   net_priority_score =
+    //     expected_stability_gain * 0.40 +
+    //     urgency_score           * 0.30 -
+    //     blast_risk_score        * 0.15 -
+    //     execution_friction_score * 0.15
     //
-    // Data sources (parallel where possible):
-    //   1. narrative_repairs (DB query) — active repairs + fields
-    //   2. get_narrative_diagnostics (self-call) — DX data incl. load_class, priority_score,
-    //      resolution_state, simulation blast from DX4 details field
-    //   3. get_narrative_stability (self-call) — current NSI context
-    //   4. narrative_patch_proposals (DB query) — proposal status per repair
-    //   5. project_narrative_stability (self-call, capped at ARP_NSI3_CAP=2) — NSI3
-    //      projected effect for top patchable repairs
+    // Component sources:
+    //   expected_stability_gain — NSI3 projected_delta (if proposal+preview available),
+    //                              else severity+load_class fallback
+    //   blast_risk_score        — blast_radius_score from DX4 details field (sim-engine),
+    //                              else severity+scope heuristic
+    //   execution_friction_score — repairability base + proposal/status modifiers
+    //   urgency_score           — severity base + resolution_state modifier
     //
-    // ARP_NSI3_CAP = 2: max NSI3 self-calls per ARP1 invocation.
-    // Prevents N+1 simulation explosion (same discipline as DX4 SIM_CALL_CAP).
+    // Preview cap: ARP_PREVIEW_CAP = 5
+    //   Only top-5 eligible proposal-backed pending repairs invoke project_narrative_stability.
+    //   Selection: sorted by existing priority_score desc, then severity.
+    //   Remainder: fallback scoring.
     //
-    // No state mutation. No LLM. Deterministic for identical DB state.
+    // No state mutation. No LLM. No schema changes. Deterministic for identical DB state.
     //
     if (action === "recommend_repair_order") {
       const { projectId } = body;
@@ -10503,23 +10506,23 @@ Return ONLY valid JSON:
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const arpComputedAt   = new Date().toISOString();
-      const ARP_NSI3_CAP    = 2;
-      const ARP_ACTIVE_STATUSES = ["pending", "planned", "approved", "queued", "in_progress"];
+      const arpComputedAt    = new Date().toISOString();
+      const ARP_PREVIEW_CAP  = 5;
+      const ARP_PENDING      = "pending";
       const ARP_BLOCKED_STATUSES = ["failed", "skipped", "dismissed"];
-      const ARP_PATCHABLE = new Set(["repair_relation_graph", "repair_structural_beats"]);
+      const ARP_PATCHABLE    = new Set(["repair_relation_graph", "repair_structural_beats"]);
 
-      // ── Step 1: Parallel data fetches (repairs + DX + NSI) ───────────────
-      const supabaseUrlStr      = Deno.env.get("SUPABASE_URL") ?? "";
-      const serviceKeyStr       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-      const selfCallHeaders     = { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` };
+      const supabaseUrlStr   = Deno.env.get("SUPABASE_URL") ?? "";
+      const serviceKeyStr    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      const selfCallHeaders  = { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` };
 
+      // ── Step 1: Parallel data fetches ─────────────────────────────────────
       const [repairsRes, dxRes, nsiRes] = await Promise.all([
         (supabase as any)
           .from("narrative_repairs")
           .select("repair_id,source_diagnostic_id,source_system,diagnostic_type,repair_type,scope_type,scope_key,strategy,priority_score,repairability,status,summary,recommended_action,skipped_reason,created_at")
           .eq("project_id", projectId)
-          .in("status", [...ARP_ACTIVE_STATUSES, ...ARP_BLOCKED_STATUSES])
+          .in("status", [ARP_PENDING, ...ARP_BLOCKED_STATUSES])
           .order("priority_score", { ascending: false }),
         fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
           method: "POST", headers: selfCallHeaders,
@@ -10534,7 +10537,7 @@ Return ONLY valid JSON:
       if (repairsRes.error) throw repairsRes.error;
       const allRepairs: any[] = repairsRes.data ?? [];
 
-      // Parse DX response (non-fatal)
+      // Parse DX response (non-fatal — scoring degrades to heuristics)
       let allDiagnostics: any[] = [];
       try {
         if (dxRes.ok) {
@@ -10543,7 +10546,7 @@ Return ONLY valid JSON:
         }
       } catch { /* degrade gracefully */ }
 
-      // Parse NSI response (non-fatal)
+      // Parse NSI response (non-fatal — context only, not scoring critical)
       let currentNSI: number | null = null;
       let currentStabilityBand: string | null = null;
       let currentNSIComponents: any = null;
@@ -10551,9 +10554,9 @@ Return ONLY valid JSON:
         if (nsiRes.ok) {
           const nsiJson = await nsiRes.json();
           if (nsiJson?.ok) {
-            currentNSI = nsiJson.narrative_stability_index ?? null;
-            currentStabilityBand = nsiJson.stability_band ?? null;
-            currentNSIComponents = {
+            currentNSI              = nsiJson.narrative_stability_index ?? null;
+            currentStabilityBand    = nsiJson.stability_band ?? null;
+            currentNSIComponents    = {
               structural_health_score:      nsiJson.structural_health_score,
               blast_risk_score:             nsiJson.blast_risk_score,
               repair_flow_score:            nsiJson.repair_flow_score,
@@ -10563,60 +10566,157 @@ Return ONLY valid JSON:
         }
       } catch { /* degrade gracefully */ }
 
-      // Build diagnostic lookup map: source_diagnostic_id → diagnostic
+      // Build diagnostic lookup: source_diagnostic_id → diagnostic
       const dxMap = new Map<string, any>();
-      for (const dx of allDiagnostics) {
-        dxMap.set(dx.diagnostic_id, dx);
+      for (const dx of allDiagnostics) dxMap.set(dx.diagnostic_id, dx);
+
+      // ── Step 2: Split pending vs blocked ──────────────────────────────────
+      const pendingRepairs  = allRepairs.filter(r => r.status === ARP_PENDING);
+      const blockedRepairsRaw = allRepairs.filter(r => ARP_BLOCKED_STATUSES.includes(r.status));
+
+      // Return early if nothing to rank
+      if (pendingRepairs.length === 0) {
+        return new Response(JSON.stringify({
+          ok:                     true,
+          action:                 "recommend_repair_order",
+          project_id:             projectId,
+          current_nsi:            currentNSI,
+          current_stability_band: currentStabilityBand,
+          repair_count:           0,
+          recommendations:        [],
+          blocked_repairs:        blockedRepairsRaw.map(r => ({
+            repair_id:   r.repair_id,
+            repair_type: r.repair_type,
+            status:      r.status,
+            reason:      r.skipped_reason ?? null,
+            next_action: "Manual review required",
+          })),
+          scoring_notes: { version: "arp1", preview_calls_made: 0, preview_cap: ARP_PREVIEW_CAP },
+          computed_at:   arpComputedAt,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── Step 2: Load proposals for patchable repairs ──────────────────────
-      const activeRepairs  = allRepairs.filter(r => ARP_ACTIVE_STATUSES.includes(r.status));
-      const blockedRepairs = allRepairs.filter(r => ARP_BLOCKED_STATUSES.includes(r.status));
-
-      const patchableRepairIds = activeRepairs
+      // ── Step 3: Load proposals for patchable pending repairs ──────────────
+      const patchableIds = pendingRepairs
         .filter(r => ARP_PATCHABLE.has(r.repair_type))
         .map(r => r.repair_id);
 
       const proposalMap = new Map<string, any>(); // repair_id → proposal
-      if (patchableRepairIds.length > 0) {
+      if (patchableIds.length > 0) {
         const { data: proposals } = await (supabase as any)
           .from("narrative_patch_proposals")
           .select("proposal_id,repair_id,patch_type,status,created_at")
-          .in("repair_id", patchableRepairIds);
+          .in("repair_id", patchableIds);
         for (const p of proposals ?? []) proposalMap.set(p.repair_id, p);
       }
 
-      // ── Step 3: Scoring helpers ───────────────────────────────────────────
+      // ── Step 4: Scoring helpers ────────────────────────────────────────────
 
-      const ARP_SIM_PENALTY: Record<string, number> = {
-        systemic: 30, broad: 22, moderate: 11, limited: 5, none: 0,
+      const SEV_RANK: Record<string, number> = { critical: 4, high: 3, warning: 2, info: 1 };
+
+      // expected_stability_gain — fallback table (severity × load_class)
+      const ARP_GAIN_FALLBACK = (sev: string | null, load: string | null): number => {
+        if (sev === "critical" && load === "CORE")            return 80;
+        if (sev === "high"     && load === "CORE")            return 70;
+        if (sev === "warning"  && load === "primary")         return 55;
+        if (sev === "warning"  && load === "supporting")      return 40;
+        if (sev === "info"     || load === "decorative")      return 20;
+        // Reasonable defaults when load_class is absent
+        if (sev === "critical")                               return 75;
+        if (sev === "high")                                   return 60;
+        if (sev === "warning")                                return 45;
+        return 20;
       };
-      const ARP_SEV_TO_BAND: Record<string, string> = {
-        critical: "systemic", high: "broad", warning: "moderate", info: "limited",
+
+      // expected_stability_gain — NSI3 projected_delta table
+      const ARP_GAIN_FROM_DELTA = (delta: number): number => {
+        if (delta >= 15) return 95;
+        if (delta >= 10) return 85;
+        if (delta >= 5)  return 70;
+        if (delta >= 1)  return 55;
+        if (delta === 0) return 40;
+        if (delta <= -5) return 10;
+        return 20; // delta <= -1
       };
-      const ARP_SEVERITY_GAIN: Record<string, number> = {
-        critical: 15, high: 8, warning: 3, info: 1,
+
+      // blast_risk — heuristic fallback
+      const ARP_BLAST_FALLBACK = (sev: string | null, load: string | null): number => {
+        if (sev === "critical" || load === "CORE")    return 75;
+        if (sev === "high"     || load === "primary") return 55;
+        if (sev === "warning"  || load === "supporting") return 35;
+        return 15;
       };
-      const ARP_LOAD_MULTIPLIER: Record<string, number> = {
-        CORE: 2.0, primary: 1.5, supporting: 1.0, decorative: 0.5,
-      };
-      const ARP_URGENCY_BASE: Record<string, number> = {
-        critical: 90, high: 70, warning: 40, info: 15,
-      };
-      const ARP_URGENCY_LOAD_BOOST: Record<string, number> = {
-        CORE: 15, primary: 8, supporting: 3, decorative: 0,
-      };
-      const ARP_RESOLUTION_URGENCY_MOD: Record<string, number> = {
-        failed: 12, blocked: 8, open: 0, awaiting_proposal: -3,
-        awaiting_approval: -5, in_progress: -10, under_investigation: -8,
-        awaiting_acceptance: -2, proposal_ready: -4,
-      };
-      const ARP_FRICTION: Record<string, number> = {
-        auto: 10, guided: 40, manual: 70, investigatory: 80, unknown: 90,
-      };
+
       const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
-      // ── Step 4: Score each active repair ──────────────────────────────────
+      // ── Step 5: First-pass scoring (no NSI3 yet) for preview-cap ordering ─
+      // We need to identify top ARP_PREVIEW_CAP proposal-eligible repairs before
+      // making NSI3 calls, so we pre-score using fallbacks only.
+
+      interface ArpPreScore {
+        repair: any;
+        proposal: any | null;
+        dx: any | null;
+        severity: string | null;
+        loadClass: string | null;
+        resState: string;
+        presortScore: number;
+      }
+
+      const preScored: ArpPreScore[] = pendingRepairs.map(repair => {
+        const dx        = dxMap.get(repair.source_diagnostic_id) ?? null;
+        const proposal  = proposalMap.get(repair.repair_id) ?? null;
+        const severity  = dx?.severity ?? null;
+        const loadClass = dx?.load_class ?? null;
+        const resState  = dx?.resolution_state ?? "open";
+        // Presort: DX priority_score first, then severity rank
+        const presortScore = (dx?.priority_score ?? repair.priority_score ?? 0) * 10 + (SEV_RANK[severity ?? "info"] ?? 1);
+        return { repair, proposal, dx, severity, loadClass, resState, presortScore };
+      });
+
+      preScored.sort((a, b) => b.presortScore - a.presortScore);
+
+      // Identify NSI3 candidates: top ARP_PREVIEW_CAP patchable repairs with active proposals
+      const nsi3Candidates = preScored
+        .filter(ps =>
+          ARP_PATCHABLE.has(ps.repair.repair_type) &&
+          ps.proposal?.proposal_id &&
+          ["proposed", "stale"].includes(ps.proposal.status)
+        )
+        .slice(0, ARP_PREVIEW_CAP);
+
+      // ── Step 6: NSI3 preview calls (bounded at ARP_PREVIEW_CAP) ──────────
+      const nsi3ResultMap = new Map<string, any>(); // repair_id → nsi3 result
+      const nsi3NoteMap   = new Map<string, string>(); // repair_id → note if failed
+
+      if (nsi3Candidates.length > 0) {
+        await Promise.all(nsi3Candidates.map(async (ps) => {
+          try {
+            const resp = await fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
+              method: "POST", headers: selfCallHeaders,
+              body: JSON.stringify({
+                action:      "project_narrative_stability",
+                projectId,
+                proposal_id: ps.proposal.proposal_id,
+              }),
+            });
+            if (resp.ok) {
+              const json = await resp.json();
+              if (json?.ok) {
+                nsi3ResultMap.set(ps.repair.repair_id, json);
+              } else {
+                nsi3NoteMap.set(ps.repair.repair_id, "Projected stability unavailable — fallback scoring used");
+              }
+            } else {
+              nsi3NoteMap.set(ps.repair.repair_id, "Projected stability unavailable — fallback scoring used");
+            }
+          } catch {
+            nsi3NoteMap.set(ps.repair.repair_id, "Projected stability unavailable — fallback scoring used");
+          }
+        }));
+      }
+
+      // ── Step 7: Full scoring pass ─────────────────────────────────────────
 
       interface ArpScoredRepair {
         repair_id:                  string;
@@ -10653,100 +10753,111 @@ Return ONLY valid JSON:
 
       const scoredRepairs: ArpScoredRepair[] = [];
 
-      for (const repair of activeRepairs) {
-        const dx       = dxMap.get(repair.source_diagnostic_id);
-        const proposal = proposalMap.get(repair.repair_id) ?? null;
-
-        const severity    = dx?.severity ?? null;
-        const loadClass   = dx?.load_class ?? null;
-        const resState    = dx?.resolution_state ?? "open";
+      for (const ps of preScored) {
+        const { repair, proposal, dx, severity, loadClass, resState } = ps;
         const affectedAxes: string[] = dx?.affected_axes ?? [];
-
-        // ── expected_stability_gain ──────────────────────────────────────
-        const sevGain   = ARP_SEVERITY_GAIN[severity ?? "info"] ?? 1;
-        const loadMult  = ARP_LOAD_MULTIPLIER[loadClass ?? "supporting"] ?? 1.0;
-        const rfsDelta  = 5; // one fewer awaiting_proposal in RFS
-
-        // BRS contribution: only for simulation_engine diagnostics
-        let brsDelta = 0;
-        if (repair.source_system === "simulation_engine" && dx) {
-          const details    = typeof dx.details === "string" ? dx.details : "";
-          const bandMatch  = details.match(/impact_band=([a-z]+)/);
-          const confMatch  = details.match(/simulation_confidence=(\d+)/);
-          const iBand      = bandMatch ? bandMatch[1] : ARP_SEV_TO_BAND[severity ?? "warning"] ?? "moderate";
-          const conf       = confMatch ? parseInt(confMatch[1]) / 100 : 0.70;
-          brsDelta = (ARP_SIM_PENALTY[iBand] ?? 11) * conf;
-        }
-
-        const rawGain = (sevGain * loadMult) * 0.40 + brsDelta * 0.25 + rfsDelta * 0.20;
-        const expectedStabilityGain = clamp(Math.round(rawGain), 0, 100);
-
-        // ── blast_risk_score ──────────────────────────────────────────────
-        let blastRisk: number;
-        if (repair.source_system === "simulation_engine" && dx) {
-          const details   = typeof dx.details === "string" ? dx.details : "";
-          const blastMatch = details.match(/blast_radius_score=(\d+)/);
-          blastRisk = blastMatch ? parseInt(blastMatch[1]) : (
-            clamp((ARP_URGENCY_BASE[severity ?? "warning"] ?? 40) + (ARP_URGENCY_LOAD_BOOST[loadClass ?? "supporting"] ?? 3), 0, 100)
-          );
-        } else {
-          const blastBase  = { critical: 70, high: 50, warning: 25, info: 8 }[severity ?? "warning"] ?? 25;
-          const loadBoost  = { CORE: 20, primary: 10, supporting: 0, decorative: -10 }[loadClass ?? "supporting"] ?? 0;
-          blastRisk = clamp(blastBase + loadBoost, 0, 100);
-        }
-
-        // ── execution_friction_score ──────────────────────────────────────
-        let friction = ARP_FRICTION[repair.repairability ?? "unknown"] ?? 90;
-        if (ARP_PATCHABLE.has(repair.repair_type)) {
-          if (proposal?.status === "proposed") friction = 20;  // ready to apply
-          else if (proposal?.status === "stale") friction = 30;  // needs regeneration
-          else if (!proposal) friction = 40;  // needs generation first
-        }
-
-        // ── urgency_score ─────────────────────────────────────────────────
-        const urgBase  = ARP_URGENCY_BASE[severity ?? "info"] ?? 15;
-        const urgLoad  = ARP_URGENCY_LOAD_BOOST[loadClass ?? "supporting"] ?? 3;
-        const urgMod   = ARP_RESOLUTION_URGENCY_MOD[resState] ?? 0;
-        const urgencyScore = clamp(Math.round(urgBase + urgLoad + urgMod), 0, 100);
-
-        // ── net_priority_score ────────────────────────────────────────────
-        const netPriority = clamp(Math.round(
-          expectedStabilityGain     * 0.35 +
-          (100 - blastRisk)         * 0.25 +
-          (100 - friction)          * 0.20 +
-          urgencyScore              * 0.20
-        ), 0, 100);
-
-        // ── recommendation_label ──────────────────────────────────────────
-        let label: string;
-        if (blastRisk >= 75 && netPriority < 45) label = "High Risk — Review Before Acting";
-        else if (netPriority >= 75)  label = "Do First";
-        else if (netPriority >= 55)  label = "High Value";
-        else if (netPriority >= 35)  label = "Consider";
-        else if (netPriority >= 15)  label = "Low Priority";
-        else                          label = "Defer";
-
-        // ── rationale_breakdown ───────────────────────────────────────────
-        const ratBreakdown: Record<string, string> = {
-          stability_gain_basis:
-            `severity=${severity ?? "unknown"}, load=${loadClass ?? "unknown"}, source_system=${repair.source_system ?? "unknown"}; gain=${expectedStabilityGain} pts`,
-          blast_risk_basis:
-            `blast_risk=${blastRisk}; ${repair.source_system === "simulation_engine" ? "from DX4 simulation data" : "heuristic from severity+load"}`,
-          execution_friction_basis:
-            `repairability=${repair.repairability}; proposal_status=${proposal?.status ?? "none"}; friction=${friction}`,
-          urgency_basis:
-            `severity_base=${urgBase}, load_boost=${urgLoad}, resolution_mod=${urgMod}; resolution_state=${resState}`,
-        };
-
-        const ratSummary = `${label}: gain=${expectedStabilityGain}, blast=${blastRisk}, friction=${friction}, urgency=${urgencyScore}, net=${netPriority}`;
-
-        // ── notes ─────────────────────────────────────────────────────────
         const notes: string[] = [];
-        if (!dx) notes.push("Source diagnostic not found in current DX — scoring degraded to defaults");
-        if (repair.repairability === "investigatory") notes.push("Investigatory repair — review only, no direct execution");
-        if (resState === "blocked") notes.push(`Blocked: ${dx?.blocked_reason ?? "see repair record"}`);
-        if (resState === "failed") notes.push(`Previously failed: ${repair.skipped_reason ?? "see repair record"}`);
-        if (proposal?.status === "stale") notes.push("Proposal is stale — regeneration recommended before apply");
+
+        if (!dx) notes.push("Source diagnostic not found in current DX — scoring uses defaults");
+
+        // ── expected_stability_gain ────────────────────────────────────────
+        let expectedStabilityGain: number;
+        let gainBasis: string;
+        const nsi3Result = nsi3ResultMap.get(repair.repair_id);
+        const nsi3Note   = nsi3NoteMap.get(repair.repair_id);
+
+        if (nsi3Result) {
+          const delta = nsi3Result.projected_delta ?? 0;
+          expectedStabilityGain = ARP_GAIN_FROM_DELTA(delta);
+          gainBasis = `NSI3 projected_delta=${delta} → gain=${expectedStabilityGain}`;
+        } else {
+          expectedStabilityGain = ARP_GAIN_FALLBACK(severity, loadClass);
+          gainBasis = `fallback: severity=${severity ?? "unknown"}, load=${loadClass ?? "unknown"} → gain=${expectedStabilityGain}`;
+          if (nsi3Note) notes.push(nsi3Note);
+        }
+
+        // ── blast_risk_score ───────────────────────────────────────────────
+        let blastRisk: number;
+        let blastBasis: string;
+
+        if (repair.source_system === "simulation_engine" && dx) {
+          const details     = typeof dx.details === "string" ? dx.details : "";
+          const blastMatch  = details.match(/blast_radius_score=(\d+)/);
+          if (blastMatch) {
+            blastRisk  = parseInt(blastMatch[1]);
+            blastBasis = `DX4 simulation blast_radius_score=${blastRisk}`;
+          } else {
+            blastRisk  = ARP_BLAST_FALLBACK(severity, loadClass);
+            blastBasis = `heuristic (no blast score in details): severity=${severity}, load=${loadClass} → ${blastRisk}`;
+          }
+        } else if (nsi3Result) {
+          // If we have NSI3, it called SIM3 internally — use NSI3 projected delta as proxy
+          // blast still heuristic here; NSI3 doesn't directly return blast_radius_score
+          blastRisk  = ARP_BLAST_FALLBACK(severity, loadClass);
+          blastBasis = `heuristic (non-sim repair): severity=${severity}, load=${loadClass} → ${blastRisk}`;
+        } else {
+          blastRisk  = ARP_BLAST_FALLBACK(severity, loadClass);
+          blastBasis = `heuristic: severity=${severity ?? "unknown"}, load=${loadClass ?? "unknown"} → ${blastRisk}`;
+        }
+
+        // ── execution_friction_score ───────────────────────────────────────
+        const ARP_FRICTION_BASE: Record<string, number> = {
+          auto: 10, guided: 35, investigatory: 55, manual: 85, unknown: 85,
+        };
+        let friction    = ARP_FRICTION_BASE[repair.repairability ?? "unknown"] ?? 85;
+        const frictionMods: string[] = [`base(${repair.repairability})=${friction}`];
+
+        if (ARP_PATCHABLE.has(repair.repair_type)) {
+          friction += 20;
+          frictionMods.push("+20(proposal_required)");
+        }
+        if (proposal?.status === "stale") {
+          friction += 20;
+          frictionMods.push("+20(stale_proposal)");
+        }
+        if (resState === "blocked") {
+          friction += 20;
+          frictionMods.push("+20(blocked)");
+        }
+        if (repair.status === "failed" || resState === "failed") {
+          friction += 15;
+          frictionMods.push("+15(previously_failed)");
+        }
+        friction = clamp(friction, 0, 100);
+
+        // ── urgency_score ──────────────────────────────────────────────────
+        const ARP_URGENCY_BASE: Record<string, number> = {
+          critical: 95, high: 80, warning: 55, info: 25,
+        };
+        let urgency     = ARP_URGENCY_BASE[severity ?? "info"] ?? 25;
+        const urgMods: string[] = [`base(${severity})=${urgency}`];
+
+        if (resState === "failed")  { urgency += 10; urgMods.push("+10(failed)");  }
+        else if (resState === "blocked") { urgency += 8; urgMods.push("+8(blocked)"); }
+        else if (resState === "open")    { urgency += 5; urgMods.push("+5(open)");   }
+        urgency = clamp(urgency, 0, 100);
+
+        // ── net_priority_score ─────────────────────────────────────────────
+        const netPriority = Math.round(
+          expectedStabilityGain  * 0.40 +
+          urgency                * 0.30 -
+          blastRisk              * 0.15 -
+          friction               * 0.15
+        );
+
+        // ── recommendation_label ───────────────────────────────────────────
+        let label: string;
+        if      (expectedStabilityGain >= 80 && blastRisk <= 40)                  label = "High Return";
+        else if (expectedStabilityGain >= 70 && blastRisk >= 60)                  label = "High Return / High Risk";
+        else if (expectedStabilityGain <= 40 && blastRisk >= 60)                  label = "Low Return / High Risk";
+        else if (friction >= 75)                                                   label = "Blocked / Manual Heavy";
+        else if (ARP_PATCHABLE.has(repair.repair_type) && !proposal?.proposal_id) label = "Proposal Needed";
+        else                                                                       label = "Standard Priority";
+
+        // ── Additional notes ───────────────────────────────────────────────
+        if (repair.repairability === "investigatory") notes.push("Investigatory — review-only, no direct execution path");
+        if (resState === "blocked")  notes.push(`Blocked: ${dx?.blocked_reason ?? repair.skipped_reason ?? "see repair record"}`);
+        if (proposal?.status === "stale") notes.push("Proposal is stale — regenerate before applying");
 
         scoredRepairs.push({
           repair_id:               repair.repair_id,
@@ -10759,24 +10870,29 @@ Return ONLY valid JSON:
           summary:                 repair.summary ?? null,
           source_system:           repair.source_system ?? null,
           diagnostic_type:         repair.diagnostic_type ?? null,
-          severity:                severity,
+          severity,
           load_class:              loadClass,
           resolution_state:        resState,
-          priority_rank:           0, // filled after sort
+          priority_rank:           0, // filled post-sort
           expected_stability_gain: expectedStabilityGain,
           blast_risk_score:        blastRisk,
           execution_friction_score: friction,
-          urgency_score:           urgencyScore,
+          urgency_score:           urgency,
           net_priority_score:      netPriority,
           recommendation_label:    label,
-          rationale_summary:       ratSummary,
-          rationale_breakdown:     ratBreakdown,
-          preview_available:       ARP_PATCHABLE.has(repair.repair_type) && !!proposal,
+          rationale_summary:       `${label}: gain=${expectedStabilityGain}, blast=${blastRisk}, friction=${friction}, urgency=${urgency}, net=${netPriority}`,
+          rationale_breakdown: {
+            stability_gain_basis:      gainBasis,
+            blast_risk_basis:          blastBasis,
+            execution_friction_basis:  frictionMods.join("; "),
+            urgency_basis:             urgMods.join("; "),
+          },
+          preview_available:       !!nsi3Result,
           proposal_required:       ARP_PATCHABLE.has(repair.repair_type),
           proposal_id:             proposal?.proposal_id ?? null,
           proposal_status:         proposal?.status ?? null,
-          projected_effect:        null,
-          projected_nsi_range:     null,
+          projected_effect:        nsi3Result?.projected_effect ?? null,
+          projected_nsi_range:     nsi3Result?.projected_nsi_range ?? null,
           affected_axes:           affectedAxes,
           notes,
         });
@@ -10786,56 +10902,30 @@ Return ONLY valid JSON:
       scoredRepairs.sort((a, b) => b.net_priority_score - a.net_priority_score);
       scoredRepairs.forEach((r, i) => { r.priority_rank = i + 1; });
 
-      // ── Step 5: NSI3 projected effect for top patchable repairs ──────────
-      // Cap: ARP_NSI3_CAP=2 NSI3 calls. Pick top-ranked patchable repairs with
-      // an active (proposed or stale) proposal to get projected stability signal.
-      const nsi3Candidates = scoredRepairs.filter(r =>
-        r.proposal_required &&
-        r.proposal_id &&
-        r.proposal_status &&
-        ["proposed", "stale"].includes(r.proposal_status)
-      ).slice(0, ARP_NSI3_CAP);
+      // ── Step 8: Blocked repairs summary ───────────────────────────────────
+      const ARP_BLOCKED_NEXT_ACTION: Record<string, string> = {
+        failed:   "Investigate failure reason; re-queue if root cause resolved",
+        skipped:  "Manual review required; determine if retry is appropriate",
+        dismissed: "No action required unless conditions change",
+      };
 
-      if (nsi3Candidates.length > 0) {
-        await Promise.all(nsi3Candidates.map(async (r) => {
-          try {
-            const nsi3Resp = await fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
-              method: "POST", headers: selfCallHeaders,
-              body: JSON.stringify({
-                action: "project_narrative_stability",
-                projectId,
-                proposal_id: r.proposal_id,
-              }),
-            });
-            if (nsi3Resp.ok) {
-              const nsi3Json = await nsi3Resp.json();
-              if (nsi3Json?.ok) {
-                r.projected_effect    = nsi3Json.projected_effect ?? null;
-                r.projected_nsi_range = nsi3Json.projected_nsi_range ?? null;
-              }
-            }
-          } catch { /* non-fatal — projected fields remain null */ }
-        }));
-      }
-
-      // ── Step 6: Blocked repair summaries ─────────────────────────────────
-      const blockedSummaries = blockedRepairs.map(r => ({
-        repair_id:           r.repair_id,
-        source_diagnostic_id: r.source_diagnostic_id,
-        repair_type:         r.repair_type,
-        status:              r.status,
-        skipped_reason:      r.skipped_reason ?? null,
-        summary:             r.summary ?? null,
+      const blockedSummaries = blockedRepairsRaw.map(r => ({
+        repair_id:   r.repair_id,
+        repair_type: r.repair_type,
+        status:      r.status,
+        reason:      r.skipped_reason ?? null,
+        next_action: ARP_BLOCKED_NEXT_ACTION[r.status] ?? "Review repair record",
       }));
 
-      // ── Step 7: Response ──────────────────────────────────────────────────
+      // ── Step 9: Response ───────────────────────────────────────────────────
       console.log("[dev-engine-v2] recommend_repair_order", {
-        project_id:   projectId,
-        active_count: scoredRepairs.length,
-        blocked_count: blockedRepairs.length,
-        nsi3_calls:   nsi3Candidates.length,
-        current_nsi:  currentNSI,
-        top_repair:   scoredRepairs[0]?.repair_id ?? null,
+        project_id:      projectId,
+        pending_count:   scoredRepairs.length,
+        blocked_count:   blockedRepairsRaw.length,
+        preview_calls:   nsi3ResultMap.size,
+        current_nsi:     currentNSI,
+        top_repair:      scoredRepairs[0]?.repair_id ?? null,
+        top_label:       scoredRepairs[0]?.recommendation_label ?? null,
       });
 
       return new Response(JSON.stringify({
@@ -10849,11 +10939,14 @@ Return ONLY valid JSON:
         recommendations:         scoredRepairs,
         blocked_repairs:         blockedSummaries,
         scoring_notes: {
-          net_priority_formula:  "gain*0.35 + (100-blast)*0.25 + (100-friction)*0.20 + urgency*0.20",
-          nsi3_calls_made:       nsi3Candidates.length,
-          nsi3_cap:              ARP_NSI3_CAP,
-          nsi3_note:             "NSI3 projected effect computed for top patchable repairs with active proposals only",
-          data_sources:          ["narrative_repairs", "get_narrative_diagnostics", "get_narrative_stability", "narrative_patch_proposals", "project_narrative_stability"],
+          formula:               "gain*0.40 + urgency*0.30 - blast*0.15 - friction*0.15",
+          gain_sources:          "NSI3 projected_delta (proposal-backed) > severity+load_class fallback",
+          blast_sources:         "DX4 blast_radius_score (simulation_engine) > severity+scope heuristic",
+          friction_base_map:     "auto=10, guided=35, investigatory=55, manual=85",
+          urgency_base_map:      "critical=95, high=80, warning=55, info=25",
+          preview_calls_made:    nsi3ResultMap.size,
+          preview_cap:           ARP_PREVIEW_CAP,
+          preview_note:          "NSI3 preview called for top eligible proposal-backed repairs; remainder fallback-scored",
           version:               "arp1",
         },
         computed_at:             arpComputedAt,
