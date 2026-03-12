@@ -365,6 +365,26 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
   );
 }
 
+/* ── Tab Switcher ── */
+function DashTabSwitcher({ active, onChange }: { active: 'repairs' | 'strategy'; onChange: (v: 'repairs' | 'strategy') => void }) {
+  return (
+    <div className="inline-flex items-center rounded-md bg-muted p-0.5 text-xs">
+      <button
+        onClick={() => onChange('repairs')}
+        className={`px-2.5 py-1 rounded-sm font-medium transition-colors ${active === 'repairs' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+      >
+        Repairs
+      </button>
+      <button
+        onClick={() => onChange('strategy')}
+        className={`px-2.5 py-1 rounded-sm font-medium transition-colors ${active === 'strategy' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+      >
+        Strategy
+      </button>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    SECTION 1: REPAIR STATUS
    ═══════════════════════════════════════════════════════════════════════════ */
