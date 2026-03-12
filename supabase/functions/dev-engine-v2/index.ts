@@ -11966,12 +11966,8 @@ Return ONLY valid JSON:
       const projectForecastFamilies = new Set<string>();
 
       const perRepairForecasts = unresolvedRepairs.map((repair: any) => {
-        // Resolve affected_axes from diagnostic if available
-        const dx = dxMap.get(repair.source_diagnostic_id);
-        const rawAxes: string[] = dx?.affected_axes ?? [];
-        const affectedAxes: SpineAxis[] = rawAxes.filter(
-          (a: string) => AXIS_METADATA[a as SpineAxis] !== undefined
-        ) as SpineAxis[];
+        // NRF1.3: Derive affected_axes deterministically from repair metadata
+        const affectedAxes: SpineAxis[] = nrf1DeriveAffectedAxes(repair);
 
         // Compute downstream and upstream axes
         const downstreamSet = new Set<SpineAxis>();
