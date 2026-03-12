@@ -684,6 +684,29 @@ Deno.serve(async (req) => {
               WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c';
           `,
 
+          "rp2_inject_test_plans_obsidian_mirror": `
+            -- VALIDATION-ONLY: inject synthetic plans for RP2 C3/C5/C9/C13 validation.
+            -- Covers: guided (requires_approval), manual (permanent skip),
+            --         Tier 4 deferred (repair_relation_graph), investigatory (simulate).
+            INSERT INTO public.narrative_repairs
+              (project_id, source_diagnostic_id, source_system, diagnostic_type,
+               repair_type, scope_type, scope_key, strategy, priority_score, repairability, status)
+            VALUES
+              ('37e830b8-0143-4d01-9207-b460ff441e8c',
+               'dx-test-guided-0001', 'soul_drift', 'soul_drift_summary',
+               'repair_seed_alignment', 'project', NULL, 'guided', 60, 'guided', 'pending'),
+              ('37e830b8-0143-4d01-9207-b460ff441e8c',
+               'dx-test-manual-0001', 'diagnostics_layer', 'subsystem_unavailable',
+               'inspect_subsystem', 'project', 'obligation_validator', 'manual', 50, 'manual', 'pending'),
+              ('37e830b8-0143-4d01-9207-b460ff441e8c',
+               'dx-test-tier4-0001', 'obligation_validator', 'obligation_violated',
+               'repair_relation_graph', 'project', NULL, 'guided', 60, 'guided', 'pending'),
+              ('37e830b8-0143-4d01-9207-b460ff441e8c',
+               'dx-test-invst-0001', 'simulation_engine', 'simulation_risk',
+               'investigate_simulation_impact', 'axis', 'protagonist_arc', 'investigatory', 70, 'investigatory', 'pending')
+            ON CONFLICT (project_id, source_diagnostic_id) DO NOTHING;
+          `,
+
           "inject_running_regen_row_obsidian_mirror": `
             -- VALIDATION-ONLY: insert a fake 'running' row for concurrency guard testing.
             -- Paired with cleanup_test_running_regen_row for teardown.
