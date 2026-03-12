@@ -2891,6 +2891,7 @@ serve(async (req) => {
       "propose_narrative_patch",
       "apply_narrative_patch",
       "get_story_intelligence",
+      "get_narrative_stability",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -12233,6 +12234,232 @@ Return ONLY valid JSON:
         },
 
         scoring_note: "This is a deterministic synthesis of current narrative diagnostics and repair state. It reflects OS-layer readiness and narrative risk, not the CI/GP engine's creative or market assessment.",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // NSI1 — get_narrative_stability
+    //
+    // Narrative Stability Index (NSI): deterministic 0–100 operational health signal.
+    //
+    // NSI is an OS-layer metric. Must NOT overlap with CI/GP (LLM-based creative/
+    // market signals). NSI is purely structural and operational.
+    //
+    // Four component scores, each 0–100:
+    //   SHS (Structural Health Score, weight 0.35) — unresolved diagnostic penalties
+    //   BRS (Blast Risk Score, weight 0.25)        — simulation_risk diagnostic impact
+    //   RFS (Repair Flow Score, weight 0.20)        — repair queue health
+    //   IAS (Intelligence Alignment Score, 0.20)   — health/risk synthesis
+    //
+    // NSI = round(clamp(SHS*0.35 + BRS*0.25 + RFS*0.20 + IAS*0.20, 0, 100))
+    //
+    // Bands: stable (85–100), watch (70–84), fragile (50–69),
+    //        unstable (30–49), critical (0–29)
+    //
+    // Data source: single self-call to get_story_intelligence (which already
+    // contains diagnostic severity counts, repair state, SI signals, and
+    // simulation_engine blockers via top_blockers).
+    // No new DB queries. No LLM. No schema changes. Computed on read.
+    //
+    if (action === "get_narrative_stability") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 1: Self-call get_story_intelligence (single data source) ──────
+      //
+      // SI1 response contains:
+      //   - evidence_summary.diagnostic_counts → SHS
+      //   - top_blockers (incl. simulation_engine entries) → BRS
+      //   - evidence_summary (failed/blocked/proposal/approval counts) → RFS
+      //   - narrative_health_score + story_risk_score → IAS
+      //   - repair_readiness → RFS exhausted penalty
+      //
+      const nsiSIRes = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${supabaseServiceKey}`,
+        },
+        body: JSON.stringify({ action: "get_story_intelligence", projectId }),
+      });
+
+      if (!nsiSIRes.ok) {
+        const errText = await nsiSIRes.text().catch(() => "");
+        return new Response(JSON.stringify({
+          ok: false, error: `get_story_intelligence failed (${nsiSIRes.status}): ${errText}`,
+        }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const nsiSI = await nsiSIRes.json();
+      if (!nsiSI?.ok) {
+        return new Response(JSON.stringify({
+          ok: false, error: "get_story_intelligence returned ok:false",
+        }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 2: Extract inputs from SI1 response ──────────────────────────
+
+      const nsiEvidence  = nsiSI.evidence_summary ?? {};
+      const nsiDxCounts  = nsiEvidence.diagnostic_counts ?? {};
+      const nsiRSCounts  = nsiEvidence.resolution_state_counts ?? {};
+
+      const nsiCritical  = nsiDxCounts.critical  ?? 0;
+      const nsiHigh      = nsiDxCounts.high       ?? 0;
+      const nsiWarning   = nsiDxCounts.warning    ?? 0;
+      const nsiInfo      = nsiDxCounts.info       ?? 0;
+
+      const nsiFailed           = nsiEvidence.failed_repair_count    ?? 0;
+      const nsiBlocked          = nsiEvidence.blocked_issue_count     ?? 0;
+      const nsiAwaitingProposal = nsiEvidence.proposal_required_count ?? 0;
+      const nsiAwaitingApproval = nsiRSCounts["awaiting_approval"]    ?? 0;
+
+      const nsiRepairReadiness    = nsiSI.repair_readiness    ?? "open";
+      const nsiNarrativeHealth    = nsiSI.narrative_health_score ?? 100;
+      const nsiStoryRisk          = nsiSI.story_risk_score        ?? 0;
+      const nsiTopBlockers: any[] = nsiSI.top_blockers ?? [];
+
+      // ── Step 3: SHS — Structural Health Score ─────────────────────────────
+      //
+      // Start: 100. Subtract per-diagnostic penalties.
+      // Penalties applied to ALL unresolved diagnostics regardless of source.
+      //
+      const nsiShsPenalty = nsiCritical * 12 + nsiHigh * 6 + nsiWarning * 2 + nsiInfo * 0.5;
+      const nsiSHS = Math.max(0, Math.round((100 - nsiShsPenalty) * 10) / 10);
+
+      // Diagnostics summary for contributing_factors
+      const nsiDiagSummary = {
+        critical: nsiCritical,
+        high:     nsiHigh,
+        warning:  nsiWarning,
+        info:     nsiInfo,
+        penalty:  Math.round(nsiShsPenalty * 10) / 10,
+      };
+
+      // ── Step 4: BRS — Blast Risk Score ────────────────────────────────────
+      //
+      // Derived from simulation_engine entries in top_blockers.
+      // Severity → impact_band mapping:
+      //   critical → systemic → -20
+      //   high     → broad    → -12
+      //   warning  → moderate → -6
+      //   info     → limited  → -3
+      //
+      // Penalty multiplied by simulation_confidence/100 (default 0.80 when unavailable).
+      //
+      const NSI_SIM_IMPACT_PENALTY: Record<string, number> = {
+        systemic: 20, broad: 12, moderate: 6, limited: 3, none: 0,
+      };
+      const NSI_SEV_TO_IMPACT: Record<string, string> = {
+        critical: "systemic", high: "broad", warning: "moderate", info: "limited",
+      };
+      const DEFAULT_SIM_CONFIDENCE = 0.80;
+
+      const simBlockers = nsiTopBlockers.filter(
+        (b: any) => b.source_system === "simulation_engine"
+      );
+
+      let nsibrsPenalty = 0;
+      const nsiSimEntries: Array<{ axis: string; impact_band: string; confidence: number; penalty: number }> = [];
+
+      for (const b of simBlockers) {
+        const impactBand    = NSI_SEV_TO_IMPACT[b.severity] ?? "moderate";
+        const basePenalty   = NSI_SIM_IMPACT_PENALTY[impactBand] ?? 6;
+        const confidence    = typeof b.simulation_confidence === "number"
+          ? b.simulation_confidence / 100
+          : DEFAULT_SIM_CONFIDENCE;
+        const weightedPenalty = basePenalty * confidence;
+        nsibrsPenalty += weightedPenalty;
+        nsiSimEntries.push({
+          axis:        b.scope_key ?? b.source_system,
+          impact_band: impactBand,
+          confidence:  Math.round(confidence * 100),
+          penalty:     Math.round(weightedPenalty * 10) / 10,
+        });
+      }
+
+      const nsiBRS = Math.max(0, Math.round((100 - nsibrsPenalty) * 10) / 10);
+
+      const nsiSimSummary = {
+        simulation_entries:   nsiSimEntries,
+        total_blast_penalty:  Math.round(nsibrsPenalty * 10) / 10,
+        simulation_source:    simBlockers.length > 0 ? "top_blockers" : "none_detected",
+      };
+
+      // ── Step 5: RFS — Repair Flow Score ───────────────────────────────────
+      //
+      // Start: 100. Subtract per-state penalties.
+      // Exhausted readiness adds an additional -15.
+      //
+      const nsiRfsPenalty =
+        nsiFailed           * 10 +
+        nsiBlocked          * 6  +
+        nsiAwaitingProposal * 4  +
+        nsiAwaitingApproval * 3  +
+        (nsiRepairReadiness === "exhausted" ? 15 : 0);
+
+      const nsiRFS = Math.max(0, Math.min(100, Math.round((100 - nsiRfsPenalty) * 10) / 10));
+
+      const nsiRepairSummary = {
+        failed_repairs:       nsiFailed,
+        blocked_issues:       nsiBlocked,
+        awaiting_proposal:    nsiAwaitingProposal,
+        awaiting_approval:    nsiAwaitingApproval,
+        repair_readiness:     nsiRepairReadiness,
+        exhausted_penalty:    nsiRepairReadiness === "exhausted" ? 15 : 0,
+        total_repair_penalty: Math.round(nsiRfsPenalty * 10) / 10,
+      };
+
+      // ── Step 6: IAS — Intelligence Alignment Score ────────────────────────
+      //
+      // IAS = average of narrative_health_score and (100 - story_risk_score)
+      // Example: health=70, risk=30 → IAS = (70 + 70) / 2 = 70
+      //
+      const nsiIAS = Math.round(((nsiNarrativeHealth + (100 - nsiStoryRisk)) / 2) * 10) / 10;
+
+      const nsiIntelligenceSummary = {
+        narrative_health_score: nsiNarrativeHealth,
+        story_risk_score:       nsiStoryRisk,
+        inverted_risk:          100 - nsiStoryRisk,
+      };
+
+      // ── Step 7: NSI final score ────────────────────────────────────────────
+      //
+      // NSI = round(clamp(SHS*0.35 + BRS*0.25 + RFS*0.20 + IAS*0.20, 0, 100))
+      //
+      const nsiRaw = nsiSHS * 0.35 + nsiBRS * 0.25 + nsiRFS * 0.20 + nsiIAS * 0.20;
+      const narrativeStabilityIndex = Math.max(0, Math.min(100, Math.round(nsiRaw)));
+
+      const nsiStabilityBand =
+        narrativeStabilityIndex >= 85 ? "stable"   :
+        narrativeStabilityIndex >= 70 ? "watch"    :
+        narrativeStabilityIndex >= 50 ? "fragile"  :
+        narrativeStabilityIndex >= 30 ? "unstable" :
+        "critical";
+
+      return new Response(JSON.stringify({
+        ok:                          true,
+        action:                      "get_narrative_stability",
+        project_id:                  projectId,
+
+        narrative_stability_index:   narrativeStabilityIndex,
+        stability_band:              nsiStabilityBand,
+
+        structural_health_score:     nsiSHS,
+        blast_risk_score:            nsiBRS,
+        repair_flow_score:           nsiRFS,
+        intelligence_alignment_score: nsiIAS,
+
+        contributing_factors: {
+          diagnostics_summary:   nsiDiagSummary,
+          simulation_summary:    nsiSimSummary,
+          repair_summary:        nsiRepairSummary,
+          intelligence_summary:  nsiIntelligenceSummary,
+        },
+
+        computed_at: new Date().toISOString(),
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
