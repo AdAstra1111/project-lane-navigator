@@ -5541,6 +5541,75 @@ MATERIAL:\n${version.plaintext}`;
       // Small documents (< 8000 chars) can safely use single-pass rewrite.
       const LARGE_RISK_MIN_CHARS = 8000;
 
+      // ── SURGICAL EPISODE REWRITE ──
+      // For episode-type docs (beats, grids, scripts), rewrite ONLY affected episodes
+      // rather than regenerating the full document. Identified via note text or LLM detection.
+      if (SURGICAL_EPISODE_DOC_TYPES.has(effectiveDeliverable) && fullText.trim().length > 100) {
+        const rewriteNote = [userNotes, additionalContext, (rewriteNotes || []).join("\n")].filter(Boolean).join("\n\n");
+        if (rewriteNote.trim()) {
+          console.log(`[dev-engine-v2] rewrite: surgical episode mode for "${effectiveDeliverable}" (${fullText.length} chars)`);
+          const surgLLM = async (system: string, user: string): Promise<string> => {
+            const r = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, system, user, 0.25, 4000);
+            return r || "";
+          };
+          const surgResult = await surgicalEpisodeRewrite({
+            plaintext: fullText,
+            note: rewriteNote,
+            docType: effectiveDeliverable,
+            callLLM: surgLLM,
+          });
+          if (surgResult.success) {
+            // Save as new version
+            const { data: docRow } = await supabase.from("project_documents")
+              .select("id").eq("id", documentId).maybeSingle();
+            if (docRow) {
+              const { data: maxVer } = await supabase.from("project_document_versions")
+                .select("version_number").eq("document_id", documentId)
+                .order("version_number", { ascending: false }).limit(1).maybeSingle();
+              const nextVer = ((maxVer as any)?.version_number || 1) + 1;
+              const { data: newVer } = await supabase.from("project_document_versions")
+                .insert({
+                  document_id: documentId,
+                  version_number: nextVer,
+                  plaintext: surgResult.rewrittenText,
+                  status: "draft",
+                  is_current: true,
+                  created_by: actorId || actorUserId,
+                  parent_version_id: version.id,
+                  change_summary: `Surgical rewrite: episodes [${surgResult.affectedEpisodes.join(",")}] updated`,
+                  meta_json: {
+                    surgical: true,
+                    affected_episodes: surgResult.affectedEpisodes,
+                    total_episodes: surgResult.totalEpisodes,
+                    detection_method: surgResult.detectionMethod,
+                  },
+                }).select("id, version_number").single();
+              if (newVer) {
+                await supabase.from("project_document_versions")
+                  .update({ is_current: false }).eq("document_id", documentId).neq("id", (newVer as any).id);
+                console.log(`[dev-engine-v2] surgical rewrite complete: affected=${surgResult.affectedEpisodes.join(",")}`);
+                return new Response(JSON.stringify({
+                  rewrite: {
+                    rewritten_text: surgResult.rewrittenText,
+                    change_summary: `Surgical rewrite: episodes [${surgResult.affectedEpisodes.join(",")}] updated (${surgResult.totalEpisodes} total)`,
+                    surgical: true,
+                    affected_episodes: surgResult.affectedEpisodes,
+                    detection_method: surgResult.detectionMethod,
+                  },
+                  version_id: (newVer as any).id,
+                  version_number: (newVer as any).version_number,
+                }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+              }
+            }
+          } else if (surgResult.detectionMethod !== "full_rewrite") {
+            // Surgical error (not a graceful "needs full rewrite" fallback) — surface it
+            console.warn(`[dev-engine-v2] surgical rewrite error: ${surgResult.error}`);
+          }
+          // detectionMethod === "full_rewrite" → fall through to standard path
+          console.log(`[dev-engine-v2] surgical rewrite: global change detected — falling through to standard rewrite`);
+        }
+      }
+
       // ── LARGE-RISK DOC TYPE: force chunked rewrite only when content is large enough ──
       if (isLargeRiskDocType(effectiveDeliverable) && fullText.length >= LARGE_RISK_MIN_CHARS) {
         console.log(`[dev-engine-v2] rewrite: Large-risk doc type "${effectiveDeliverable}" — forcing chunked rewrite (${fullText.length} chars >= ${LARGE_RISK_MIN_CHARS})`);

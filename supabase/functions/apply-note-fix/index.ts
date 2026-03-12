@@ -9,6 +9,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS } from "../_shared/llm.ts";
+import { surgicalEpisodeRewrite, SURGICAL_EPISODE_DOC_TYPES } from "../_shared/surgicalEpisodeRewrite.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -139,7 +140,47 @@ Generate fix options for this note.`;
       const noteText = note_data?.description || note_data?.note || note_data?.summary || "";
       const noteDetail = note_data?.detail || note_data?.why_it_matters || "";
 
-      const systemPrompt = `You are a professional script/story editor performing a targeted fix.
+      // ── Surgical episode rewrite for large episode docs ──
+      // Episode beats, grids, and scripts are split into episode blocks.
+      // Only affected episodes are rewritten — everything else is preserved.
+      const fullNote = [fix.instructions || "", noteText, noteDetail].filter(Boolean).join("\n");
+      let newText: string;
+      let surgicalMeta: Record<string, unknown> = {};
+
+      if (SURGICAL_EPISODE_DOC_TYPES.has(docType)) {
+        const llmBridge = async (system: string, user: string) => {
+          const r = await callLLM({ apiKey, model: MODELS.BALANCED, system, user, temperature: 0.25, maxTokens: 4000 });
+          return r.content;
+        };
+        const surgicalResult = await surgicalEpisodeRewrite({
+          plaintext: baseText,
+          note: fullNote,
+          docType,
+          callLLM: llmBridge,
+        });
+        if (surgicalResult.success) {
+          newText = surgicalResult.rewrittenText;
+          surgicalMeta = {
+            surgical: true,
+            affected_episodes: surgicalResult.affectedEpisodes,
+            total_episodes: surgicalResult.totalEpisodes,
+            detection_method: surgicalResult.detectionMethod,
+          };
+          console.log(`[apply-note-fix] surgical rewrite: docType=${docType} affected=${surgicalResult.affectedEpisodes.join(",")}`);
+        } else if (surgicalResult.detectionMethod === "full_rewrite") {
+          // Global change — fall through to full rewrite below with a clear log
+          console.log(`[apply-note-fix] surgical could not isolate episodes — falling back to full rewrite: ${surgicalResult.error}`);
+          newText = ""; // signal fall-through
+        } else {
+          return json({ error: surgicalResult.error || "Surgical rewrite failed" }, 500);
+        }
+      } else {
+        newText = ""; // signal: use standard path
+      }
+
+      // ── Standard full-doc rewrite (non-episode docs, or global-change fallback) ──
+      if (!newText) {
+        const systemPrompt = `You are a professional script/story editor performing a targeted fix.
 Apply ONLY the specified fix to the document.
 RULES:
 1. Preserve all content not mentioned in the fix instructions
@@ -148,7 +189,7 @@ RULES:
 4. Maintain the original voice, tone, and style
 5. Return the COMPLETE revised document text, no commentary`;
 
-      const userPrompt = `ORIGINAL DOCUMENT:
+        const userPrompt = `ORIGINAL DOCUMENT:
 ${baseText}
 
 === FIX TO APPLY ===
@@ -161,13 +202,14 @@ Instructions: ${fix.instructions || "Resolve the issue using minimal targeted ch
 === INSTRUCTION ===
 Apply the fix above. Return ONLY the complete revised document text.`;
 
-      const result = await callLLM({
-        apiKey, model: MODELS.PRO, system: systemPrompt, user: userPrompt,
-        temperature: 0.2, maxTokens: 16000,
-      });
+        const result = await callLLM({
+          apiKey, model: MODELS.PRO, system: systemPrompt, user: userPrompt,
+          temperature: 0.2, maxTokens: 16000,
+        });
 
-      const newText = result.content.trim();
-      if (!newText) return json({ error: "AI returned empty result" }, 500);
+        newText = result.content.trim();
+        if (!newText) return json({ error: "AI returned empty result" }, 500);
+      }
 
       // Get next version number
       const documentId = resolvedVersion.document_id;
@@ -181,15 +223,19 @@ Apply the fix above. Return ONLY the complete revised document text.`;
 
       const nextVersion = ((maxVerRow as any)?.version_number || 1) + 1;
 
+      const surgicalLabel = surgicalMeta.surgical
+        ? ` [eps ${(surgicalMeta.affected_episodes as number[]).join(",")}]`
+        : "";
       const insertPayload: Record<string, unknown> = {
         document_id: documentId,
         version_number: nextVersion,
         plaintext: newText,
-        label: `v${nextVersion} (note fix: ${(fix.title || noteText).slice(0, 50)})`,
+        label: `v${nextVersion} (note fix${surgicalLabel}: ${(fix.title || noteText).slice(0, 50)})`,
         created_by: userId,
         parent_version_id: resolvedVersion.id,
         change_summary: `Applied fix: ${(fix.title || noteText).slice(0, 120)}`,
         approval_status: approve_after_apply ? "approved" : "draft",
+        meta_json: Object.keys(surgicalMeta).length > 0 ? surgicalMeta : undefined,
       };
       if (approve_after_apply) {
         insertPayload.approved_at = new Date().toISOString();
@@ -238,6 +284,7 @@ Apply the fix above. Return ONLY the complete revised document text.`;
         target_doc_type: docType,
         target_document_id: documentId,
         approved: !!approve_after_apply,
+        ...(surgicalMeta.surgical ? { surgical_rewrite: surgicalMeta } : {}),
       });
     }
 
