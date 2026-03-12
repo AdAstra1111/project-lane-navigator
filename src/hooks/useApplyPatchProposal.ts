@@ -67,6 +67,8 @@ export function useApplyPatchProposal(projectId: string | undefined) {
       setResult(json as PatchApplyResult);
       queryClient.invalidateQueries({ queryKey: ['narrative-patch-proposals', repairId] });
       queryClient.invalidateQueries({ queryKey: ['narrative-repairs', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['narrative-diagnostics', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['story-intelligence', projectId] });
     } catch (e: any) {
       setError(e?.message ?? 'Apply request failed');
     } finally {

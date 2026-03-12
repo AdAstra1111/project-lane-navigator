@@ -64,9 +64,10 @@ export function useExecuteNarrativeRepair(projectId: string | undefined) {
       const json = await resp.json();
       setResult(json as RepairExecutionResult);
 
-      // Invalidate both queues
+      // Invalidate queue, diagnostics, and story intelligence
       queryClient.invalidateQueries({ queryKey: ['narrative-repairs', projectId] });
       queryClient.invalidateQueries({ queryKey: ['narrative-diagnostics', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['story-intelligence', projectId] });
     } catch (e: any) {
       setError(e?.message ?? 'Execution request failed');
     } finally {

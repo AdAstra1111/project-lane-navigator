@@ -71,7 +71,7 @@ export function NarrativeDiagnosticsPanel({ projectId }: Props) {
               <p className="text-xs text-muted-foreground">Unable to retrieve diagnostics from backend.</p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" className="mt-2 gap-1.5" onClick={() => { setHasLoaded(false); }}>
+          <Button variant="ghost" size="sm" className="mt-2 gap-1.5" onClick={refresh}>
             <RefreshCw className="h-3 w-3" /> Retry
           </Button>
         </CardContent>
