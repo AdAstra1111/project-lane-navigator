@@ -28,6 +28,8 @@ import {
   computePropagatedRisk,
   getDependencyPosition,
   computeRewritePriorityScore,
+  computeDownstreamRiskScores,
+  getDependencyChain,
   sequenceRewriteTargets,
   buildSceneImpactIndex,
   getAffectedScenesForAxes,
