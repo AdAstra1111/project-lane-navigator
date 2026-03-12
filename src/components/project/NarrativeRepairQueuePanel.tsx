@@ -390,7 +390,7 @@ function RepairActionButton({ repair, onExecute, isExecuting }: {
   onExecute: (id: string, approved?: boolean) => void;
   isExecuting: boolean;
 }) {
-  if (repair.status !== 'pending' && repair.status !== 'failed') return null;
+  if (repair.status !== 'pending') return null;
 
   if (repair.repairability === 'auto') {
     return (
