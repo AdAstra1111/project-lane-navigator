@@ -193,6 +193,9 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
             onStrategyChange={setRepairStrategy}
           />
 
+          {/* Story Intelligence */}
+          {projectId && <StoryIntelligencePanel projectId={projectId} />}
+
           {/* Narrative Diagnostics */}
           {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
 
