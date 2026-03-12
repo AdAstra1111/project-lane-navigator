@@ -256,6 +256,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
           repairStrategy={repairStrategy}
           onStrategyChange={setRepairStrategy}
         />
+        {/* ═══ STORY INTELLIGENCE ═══ */}
+        {projectId && <StoryIntelligencePanel projectId={projectId} />}
         {/* ═══ NARRATIVE DIAGNOSTICS ═══ */}
         {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
         {/* ═══ REPAIR QUEUE ═══ */}
