@@ -2,7 +2,7 @@
  * NarrativeEssenceDriftPanel — Displays soul drift between authored and derived seeds.
  * Read-only. Fail-closed on missing data.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
