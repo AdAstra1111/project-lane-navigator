@@ -11892,30 +11892,48 @@ Return ONLY valid JSON:
         constitutional: 5, severe: 4, severe_moderate: 3, moderate: 2, light: 1,
       };
 
-      // ── Step 1: Load ARP1 enriched repairs ─────────────────────────────────
-      const supabaseUrlStr = Deno.env.get("SUPABASE_URL") ?? "";
-      const serviceKeyStr  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-      const selfCallHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` };
+      // ── Step 1: Load unresolved repairs + diagnostics directly ─────────────
+      // Direct DB retrieval — no HTTP self-fetch to ARP1.
+      // NRF1 needs only raw repair rows and diagnostic affected_axes, not
+      // the full ARP1 enrichment pipeline (gain/blast/friction/urgency).
+      const NRF1_PENDING       = "pending";
+      const NRF1_BLOCKED       = ["failed", "skipped", "dismissed"];
 
-      let arp1Data: any = null;
-      try {
-        const arp1Resp = await fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
-          method: "POST", headers: selfCallHeaders,
-          body: JSON.stringify({ action: "recommend_repair_order", projectId }),
-        });
-        if (!arp1Resp.ok) throw new Error(`ARP1 responded ${arp1Resp.status}`);
-        arp1Data = await arp1Resp.json();
-        if (!arp1Data?.ok) throw new Error(arp1Data?.error ?? "ARP1 returned ok=false");
-      } catch (e: any) {
+      const repairsRes = await (supabase as any)
+        .from("narrative_repairs")
+        .select("repair_id,source_diagnostic_id,source_system,diagnostic_type,repair_type,scope_type,scope_key,strategy,priority_score,repairability,status,summary,recommended_action,skipped_reason,created_at")
+        .eq("project_id", projectId)
+        .in("status", [NRF1_PENDING, ...NRF1_BLOCKED])
+        .order("priority_score", { ascending: false });
+
+      if (repairsRes.error) {
         return new Response(JSON.stringify({
-          ok: false, error: `forecast_repair_pressure: failed to load ARP1 — ${e?.message ?? "unknown"}`,
+          ok: false, error: `forecast_repair_pressure: failed to load repairs — ${repairsRes.error.message}`,
         }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const repairs: any[] = arp1Data.repairs ?? [];
-      const unresolvedRepairs = repairs.filter((r: any) =>
+      const allRepairs: any[] = repairsRes.data ?? [];
+      const unresolvedRepairs = allRepairs.filter((r: any) =>
         r.status === "pending" || r.status === "failed" || r.status === "skipped"
       );
+
+      // Load diagnostics for affected_axes mapping (non-fatal — degrades gracefully)
+      const dxMap = new Map<string, any>();
+      try {
+        const supabaseUrlStr = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKeyStr  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const dxResp = await fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` },
+          body: JSON.stringify({ action: "get_narrative_diagnostics", projectId }),
+        });
+        if (dxResp.ok) {
+          const dxJson = await dxResp.json();
+          for (const dx of (dxJson?.diagnostics ?? [])) {
+            dxMap.set(dx.diagnostic_id, dx);
+          }
+        }
+      } catch { /* degrade — affected_axes will be empty for unmatched repairs */ }
 
       // ── Step 2: Empty guard ────────────────────────────────────────────────
       if (unresolvedRepairs.length === 0) {
@@ -11939,7 +11957,10 @@ Return ONLY valid JSON:
       const projectForecastFamilies = new Set<string>();
 
       const perRepairForecasts = unresolvedRepairs.map((repair: any) => {
-        const affectedAxes: SpineAxis[] = (repair.affected_axes ?? []).filter(
+        // Resolve affected_axes from diagnostic if available
+        const dx = dxMap.get(repair.source_diagnostic_id);
+        const rawAxes: string[] = dx?.affected_axes ?? [];
+        const affectedAxes: SpineAxis[] = rawAxes.filter(
           (a: string) => AXIS_METADATA[a as SpineAxis] !== undefined
         ) as SpineAxis[];
 
