@@ -731,6 +731,83 @@ function PatchPreview({ proposal }: { proposal: NarrativePatchProposal }) {
   return <p className="text-xs text-muted-foreground italic">Unable to display proposal contents.</p>;
 }
 
+/* ── Impact Preview Block ── */
+
+const IMPACT_BAND_STYLE: Record<string, string> = {
+  none: 'text-muted-foreground border-border/40',
+  limited: 'text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+  moderate: 'text-amber-600 dark:text-amber-400 border-amber-500/30',
+  broad: 'text-orange-600 dark:text-orange-400 border-orange-500/30',
+  systemic: 'text-destructive border-destructive/30',
+};
+
+function getBlastStyle(score: number): string {
+  if (score <= 25) return 'text-emerald-600 dark:text-emerald-400';
+  if (score <= 50) return 'text-amber-600 dark:text-amber-400';
+  if (score <= 75) return 'text-orange-600 dark:text-orange-400';
+  return 'text-destructive';
+}
+
+function ImpactPreviewBlock({ result }: { result: SimulateNarrativePatchResult }) {
+  const bandStyle = IMPACT_BAND_STYLE[result.impact_band] ?? IMPACT_BAND_STYLE.none;
+  const blastStyle = getBlastStyle(result.blast_radius_score);
+
+  if (result.simulation_state === 'no_impact' || result.impact_band === 'none') {
+    return (
+      <div className="rounded border border-border/30 bg-muted/20 px-3 py-2">
+        <p className="text-xs text-muted-foreground">No impact detected for current project state.</p>
+      </div>
+    );
+  }
+
+  const axes = result.affected_axes_enriched?.slice(0, 6) ?? [];
+
+  return (
+    <div className="rounded border border-border/30 bg-muted/20 px-3 py-2.5 space-y-2">
+      {/* Header */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Zap className="h-3 w-3 text-muted-foreground" />
+        <span className="text-xs font-medium text-foreground">Impact Preview</span>
+        <Badge variant="outline" className={`text-[10px] ${bandStyle}`}>{result.impact_band}</Badge>
+        <span className={`text-[10px] font-semibold ${blastStyle}`}>Blast: {result.blast_radius_score}</span>
+      </div>
+
+      {/* Scene summary */}
+      <p className="text-xs text-muted-foreground">
+        Impacted scenes: {result.impacted_scene_count} ({result.direct_scene_count} direct, {result.propagated_scene_count} propagated)
+        {result.entity_link_scene_count > 0 && ` + ${result.entity_link_scene_count} entity-linked`}
+      </p>
+
+      {/* Affected axes */}
+      {axes.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {axes.map((ax) => (
+            <div key={ax.axis} className="flex items-center gap-1">
+              <Badge variant="outline" className="text-[10px]">{ax.label}</Badge>
+              <span className="text-[10px] text-muted-foreground">{ax.class}</span>
+              <span className="text-[10px] text-muted-foreground">{ax.severity}</span>
+              {ax.is_direct && <Badge variant="secondary" className="text-[9px] px-1 py-0 text-sky-600 dark:text-sky-400">direct</Badge>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Confidence + notes */}
+      <div className="space-y-0.5">
+        {result.simulation_confidence != null && (
+          <p className="text-[10px] text-muted-foreground">Confidence: {result.simulation_confidence}%</p>
+        )}
+        {result.simulation_note && (
+          <p className="text-[10px] text-muted-foreground">{result.simulation_note}</p>
+        )}
+        {result.structural_uncertainty_reason && (
+          <p className="text-[10px] text-amber-600 dark:text-amber-400">{result.structural_uncertainty_reason}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── Action Button ── */
 
 function RepairActionButton({ repair, onExecute, isExecuting }: {
