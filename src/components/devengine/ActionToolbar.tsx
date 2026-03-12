@@ -126,6 +126,14 @@ export function ActionToolbar({
           {hasAnalysis ? 'Re-review' : 'Run Review'}
         </Button>
 
+        {/* Generate document */}
+        {onGenerateDocument && (
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={onGenerateDocument} disabled={anyPending || generateDocumentPending}>
+            {generateDocumentPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Generate
+          </Button>
+        )}
+
         {/* Auto-review on content-change toggle */}
         {onAutoReviewToggle && (
           <div className="flex items-center gap-1.5 pl-1 border-l border-border/50">
