@@ -895,7 +895,148 @@ function ImpactPreviewBlock({ result, stabilityData, stabilityLoading, stability
   );
 }
 
+/* ── Recommended Repair Order Section ── */
+
+const LABEL_STYLE: Record<string, string> = {
+  'High Return': 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+  'High Return / High Risk': 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
+  'Low Return / High Risk': 'bg-destructive/10 text-destructive border-destructive/30',
+  'Blocked / Manual Heavy': 'bg-muted text-muted-foreground border-border/40',
+  'Proposal Needed': 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30',
+  'Standard Priority': 'bg-muted text-muted-foreground border-border/40',
+};
+
+function RecommendedRepairOrderSection({ data, isLoading, error }: {
+  data: import('@/hooks/useRecommendedRepairOrder').RecommendedRepairOrderData | null;
+  isLoading: boolean;
+  error: string | null;
+}) {
+  if (error) {
+    return (
+      <div className="rounded-md border border-border/40 bg-muted/20 px-3 py-2">
+        <p className="text-xs text-muted-foreground">Repair prioritization unavailable.</p>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-semibold text-foreground">Recommended Repair Order</span>
+        </div>
+        <Skeleton className="h-16 w-full rounded-md" />
+        <Skeleton className="h-16 w-full rounded-md" />
+        <Skeleton className="h-16 w-full rounded-md" />
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { recommendations, blocked_repairs } = data;
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-semibold text-foreground">Recommended Repair Order</span>
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-0.5">
+          Repairs ranked by expected stability improvement, urgency, and structural risk.
+        </p>
+      </div>
+
+      {recommendations.length === 0 && (
+        <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-2.5">
+          <ShieldCheck className="h-4 w-4 text-emerald-500" />
+          <span className="text-xs text-muted-foreground">No pending repairs requiring prioritization.</span>
+        </div>
+      )}
+
+      {recommendations.length > 0 && (
+        <div className="space-y-1.5">
+          {recommendations.map(rec => (
+            <RecommendationCard key={rec.repair_id} recommendation={rec} />
+          ))}
+        </div>
+      )}
+
+      {blocked_repairs.length > 0 && (
+        <CollapsibleSection title={`Blocked Repairs · ${blocked_repairs.length}`} defaultOpen={false}>
+          <div className="space-y-1.5">
+            {blocked_repairs.map((br, i) => (
+              <div key={br.repair_id ?? i} className="rounded-md border border-border/40 bg-muted/20 px-3 py-2 space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <Ban className="h-3 w-3 text-muted-foreground shrink-0" />
+                  <Badge variant="outline" className="text-[10px] text-muted-foreground">{br.repair_type}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">{br.reason}</p>
+                <p className="text-[10px] text-muted-foreground">Next: {br.next_action}</p>
+              </div>
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
+    </div>
+  );
+}
+
+/* ── Recommendation Card ── */
+
+function RecommendationCard({ recommendation }: { recommendation: RepairRecommendation }) {
+  const labelStyle = LABEL_STYLE[recommendation.recommendation_label] ?? LABEL_STYLE['Standard Priority'];
+
+  const handleClick = () => {
+    // Scroll to the repair card in the queue
+    const el = document.getElementById(`repair-card-${recommendation.repair_id}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Brief highlight
+      el.classList.add('ring-2', 'ring-primary/50');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-primary/50'), 2000);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className="w-full text-left rounded-md border border-border/50 bg-card hover:bg-accent/30 transition-colors px-3 py-2 space-y-1.5"
+    >
+      <div className="flex items-start gap-2">
+        <Badge variant="secondary" className="text-[10px] shrink-0 mt-0.5">#{recommendation.rank}</Badge>
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-xs text-foreground line-clamp-2">{recommendation.summary}</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline" className={`text-[10px] ${labelStyle}`}>
+              {recommendation.recommendation_label}
+            </Badge>
+            <Badge variant="outline" className="text-[10px] text-muted-foreground">
+              Score: {recommendation.net_priority_score}
+            </Badge>
+            {recommendation.proposal_required && (
+              <Badge variant="outline" className="text-[10px] text-sky-600 dark:text-sky-400 border-sky-500/30">
+                Proposal required
+              </Badge>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+            <span>Gain: <span className="font-medium text-foreground">{recommendation.expected_stability_gain}</span></span>
+            <span>Risk: <span className="font-medium text-foreground">{recommendation.blast_risk}</span></span>
+            <span>Friction: <span className="font-medium text-foreground">{recommendation.execution_friction}</span></span>
+            <span>Urgency: <span className="font-medium text-foreground">{recommendation.urgency}</span></span>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 /* ── Action Button ── */
+
 
 function RepairActionButton({ repair, onExecute, isExecuting }: {
   repair: NarrativeRepair;
