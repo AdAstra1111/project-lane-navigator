@@ -2893,6 +2893,7 @@ serve(async (req) => {
       "get_story_intelligence",
       "get_narrative_stability",
       "simulate_narrative_patch",
+      "project_narrative_stability",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -10254,6 +10255,214 @@ Return ONLY valid JSON:
           "simulation does not modify project state",
           `axis_keys [${derivedAxes.join(", ")}] resolved to ${resolvedUnitKeys.length} unit(s): [${resolvedUnitKeys.join(", ")}]`,
         ].filter(Boolean),
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // NSI3 — project_narrative_stability
+    //
+    // Projected narrative stability for a proposal. Read-only. Deterministic.
+    // Combines SIM3 impact simulation with current NSI to produce an approximation
+    // of how applying the proposal would affect stability.
+    //
+    if (action === "project_narrative_stability") {
+      const { projectId, proposal_id } = body;
+
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!proposal_id) {
+        return new Response(JSON.stringify({ ok: false, error: "proposal_id required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const evaluatedAt = new Date().toISOString();
+
+      // ── Step 1: Load proposal ─────────────────────────────────────────
+      const { data: nsi3Proposal, error: nsi3PropErr } = await (supabase as any)
+        .from("narrative_patch_proposals")
+        .select("proposal_id,project_id,repair_id,patch_type,status,proposed_patch,seed_context_snapshot")
+        .eq("proposal_id", proposal_id)
+        .maybeSingle();
+
+      if (nsi3PropErr) throw nsi3PropErr;
+      if (!nsi3Proposal) {
+        return new Response(JSON.stringify({ ok: false, error: "Proposal not found", proposal_id }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      if (nsi3Proposal.status === "applied") {
+        return new Response(JSON.stringify({ ok: false, error: "Proposal already applied", proposal_id }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (nsi3Proposal.status === "rejected") {
+        return new Response(JSON.stringify({ ok: false, error: "Proposal was rejected", proposal_id }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const nsi3StaleWarning = nsi3Proposal.status === "stale"
+        ? "Proposal is stale — projection based on outdated patch content."
+        : null;
+
+      // ── Step 2: Run SIM3 internally ───────────────────────────────────
+      let simResult: any = null;
+      let simFailed = false;
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const simResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceRoleKey}`,
+          },
+          body: JSON.stringify({
+            action: "simulate_narrative_patch",
+            projectId,
+            proposal_id,
+          }),
+        });
+        if (simResp.ok) {
+          const simJson = await simResp.json();
+          if (simJson?.ok) simResult = simJson;
+          else simFailed = true;
+        } else {
+          simFailed = true;
+        }
+      } catch (e: any) {
+        console.warn("[project_narrative_stability] SIM3 call failed:", e?.message);
+        simFailed = true;
+      }
+
+      // ── Step 3: Get current NSI ───────────────────────────────────────
+      let nsiResult: any = null;
+      let nsiFailed = false;
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const nsiResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceRoleKey}`,
+          },
+          body: JSON.stringify({
+            action: "get_narrative_stability",
+            projectId,
+          }),
+        });
+        if (nsiResp.ok) {
+          const nsiJson = await nsiResp.json();
+          if (nsiJson?.ok) nsiResult = nsiJson;
+          else nsiFailed = true;
+        } else {
+          nsiFailed = true;
+        }
+      } catch (e: any) {
+        console.warn("[project_narrative_stability] NSI call failed:", e?.message);
+        nsiFailed = true;
+      }
+
+      // ── Fail-safe: if either call failed ──────────────────────────────
+      if (simFailed || nsiFailed || !simResult || !nsiResult) {
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "project_narrative_stability",
+          project_id: projectId,
+          proposal_id,
+          proposal_status: nsi3Proposal.status,
+          current_nsi: nsiResult?.narrative_stability_index ?? null,
+          current_stability_band: nsiResult?.stability_band ?? null,
+          projected_effect: "unknown",
+          projected_delta: 0,
+          projected_nsi_range: null,
+          projection_basis: "simulation_plus_current_nsi",
+          projection_note: "Projection unavailable — simulation or stability data could not be retrieved.",
+          stale_warning: nsi3StaleWarning,
+          evaluated_at: evaluatedAt,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 4: Compute projected stability effect ────────────────────
+      const currentNsi = nsiResult.narrative_stability_index as number;
+      const impactBandVal = simResult.impact_band as string;
+      const blastScore = simResult.blast_radius_score as number;
+      const simConfidence = simResult.simulation_confidence as number | null;
+      const patchType = nsi3Proposal.patch_type as string;
+
+      // Impact band pressure
+      const impactPressureMap: Record<string, number> = {
+        systemic: -30,
+        broad: -20,
+        moderate: -10,
+        limited: -5,
+        none: 0,
+      };
+      let pressure = impactPressureMap[impactBandVal] ?? 0;
+
+      // Blast radius modifier
+      if (blastScore >= 80) pressure += -15;
+      else if (blastScore >= 60) pressure += -10;
+      else if (blastScore >= 40) pressure += -5;
+
+      // Stabilizing offset based on patch type
+      let stabilizingOffset = 0;
+      if (patchType === "repair_structural_beats") stabilizingOffset = 10;
+      else if (patchType === "repair_relation_graph") stabilizingOffset = 5;
+
+      // Raw delta
+      let delta = stabilizingOffset + pressure; // pressure is negative
+
+      // Confidence modifier: reduce magnitude by 40% if low confidence
+      if (simConfidence != null && simConfidence < 60) {
+        delta = Math.round(delta * 0.6);
+      }
+
+      // ── Step 5: Projected NSI range ───────────────────────────────────
+      const projectedLow = Math.max(0, Math.min(100, currentNsi + delta - 5));
+      const projectedHigh = Math.max(0, Math.min(100, currentNsi + delta + 5));
+
+      // ── Step 6: Effect label ──────────────────────────────────────────
+      let projectedEffect: string;
+      if (delta >= 10) projectedEffect = "stabilizing";
+      else if (delta >= 3) projectedEffect = "likely_improving";
+      else if (delta >= -2) projectedEffect = "neutral";
+      else if (delta >= -9) projectedEffect = "likely_destabilizing";
+      else projectedEffect = "destabilizing";
+
+      // ── Step 7: Response ──────────────────────────────────────────────
+      const projectionNote = nsi3StaleWarning
+        ? `${nsi3StaleWarning} Projected stability is an approximation derived from simulation impact and current stability metrics. It does not simulate the post-apply world state.`
+        : "Projected stability is an approximation derived from simulation impact and current stability metrics. It does not simulate the post-apply world state.";
+
+      console.log("[dev-engine-v2] project_narrative_stability", {
+        project_id: projectId,
+        proposal_id,
+        current_nsi: currentNsi,
+        projected_effect: projectedEffect,
+        projected_delta: delta,
+        projected_nsi_range: { low: projectedLow, high: projectedHigh },
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "project_narrative_stability",
+        project_id: projectId,
+        proposal_id,
+        proposal_status: nsi3Proposal.status,
+        current_nsi: currentNsi,
+        current_stability_band: nsiResult.stability_band,
+        projected_effect: projectedEffect,
+        projected_delta: delta,
+        projected_nsi_range: {
+          low: projectedLow,
+          high: projectedHigh,
+        },
+        projection_basis: "simulation_plus_current_nsi",
+        projection_note: projectionNote,
+        stale_warning: nsi3StaleWarning,
+        evaluated_at: evaluatedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

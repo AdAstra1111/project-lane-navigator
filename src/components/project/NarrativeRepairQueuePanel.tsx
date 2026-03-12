@@ -13,6 +13,7 @@ import { usePatchProposalsByRepair, type NarrativePatchProposal } from '@/hooks/
 import { useGeneratePatchProposal } from '@/hooks/useGeneratePatchProposal';
 import { useApplyPatchProposal } from '@/hooks/useApplyPatchProposal';
 import { useSimulateNarrativePatch, type SimulateNarrativePatchResult } from '@/hooks/useSimulateNarrativePatch';
+import { useProjectedNarrativeStability, type ProjectedEffect } from '@/hooks/useProjectedNarrativeStability';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -431,6 +432,14 @@ function ProposalPanel({ repair, projectId, generateHook, applyHook, simulateHoo
 }) {
   const { data: proposal, isLoading: proposalLoading, error: proposalError, refetch: refetchProposal } = usePatchProposalsByRepair(repair.repair_id);
   const [confirmMode, setConfirmMode] = useState(false);
+  const [stabilityEnabled, setStabilityEnabled] = useState(false);
+
+  // Projected stability — enabled when Preview Impact is clicked
+  const stabilityHook = useProjectedNarrativeStability(
+    projectId,
+    proposal?.proposal_id,
+    stabilityEnabled && !!proposal?.proposal_id,
+  );
 
   const handleGenerate = useCallback(() => {
     generateHook.generate(repair.repair_id);
@@ -441,6 +450,12 @@ function ProposalPanel({ repair, projectId, generateHook, applyHook, simulateHoo
     applyHook.apply(repair.repair_id, proposal.proposal_id);
     setConfirmMode(false);
   }, [applyHook, repair.repair_id, proposal]);
+
+  const handlePreviewImpact = useCallback(() => {
+    if (!proposal) return;
+    simulateHook.preview(proposal.proposal_id);
+    setStabilityEnabled(true);
+  }, [simulateHook, proposal]);
 
   const isGeneratingThis = generateHook.isGenerating;
   const isApplyingThis = applyHook.isApplying;
@@ -545,14 +560,14 @@ function ProposalPanel({ repair, projectId, generateHook, applyHook, simulateHoo
             variant="ghost"
             size="sm"
             className="h-7 text-xs gap-1.5 text-muted-foreground"
-            onClick={() => simulateHook.preview(proposal.proposal_id)}
+            onClick={handlePreviewImpact}
             disabled={simulateHook.isPreviewing}
           >
             {simulateHook.isPreviewing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
             {simulateHook.isPreviewing ? 'Previewing...' : 'Preview Impact'}
           </Button>
           {simulateHook.result?.proposal_id === proposal.proposal_id && (
-            <ImpactPreviewBlock result={simulateHook.result} />
+            <ImpactPreviewBlock result={simulateHook.result} stabilityData={stabilityHook.data} stabilityLoading={stabilityHook.isLoading} stabilityError={stabilityHook.error} />
           )}
           {simulateHook.error && !simulateHook.isPreviewing && (
             <p className="text-xs text-muted-foreground">Impact preview unavailable: {simulateHook.error}</p>
@@ -570,14 +585,14 @@ function ProposalPanel({ repair, projectId, generateHook, applyHook, simulateHoo
             variant="ghost"
             size="sm"
             className="h-7 text-xs gap-1.5 text-muted-foreground"
-            onClick={() => simulateHook.preview(proposal.proposal_id)}
+            onClick={handlePreviewImpact}
             disabled={simulateHook.isPreviewing}
           >
             {simulateHook.isPreviewing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
             {simulateHook.isPreviewing ? 'Previewing...' : 'Preview Impact'}
           </Button>
           {simulateHook.result?.proposal_id === proposal.proposal_id && (
-            <ImpactPreviewBlock result={simulateHook.result} />
+            <ImpactPreviewBlock result={simulateHook.result} stabilityData={stabilityHook.data} stabilityLoading={stabilityHook.isLoading} stabilityError={stabilityHook.error} />
           )}
           {simulateHook.error && !simulateHook.isPreviewing && (
             <p className="text-xs text-muted-foreground">Impact preview unavailable: {simulateHook.error}</p>
@@ -748,7 +763,30 @@ function getBlastStyle(score: number): string {
   return 'text-destructive';
 }
 
-function ImpactPreviewBlock({ result }: { result: SimulateNarrativePatchResult }) {
+const PROJECTED_EFFECT_STYLE: Record<string, string> = {
+  stabilizing: 'text-emerald-600 dark:text-emerald-400',
+  likely_improving: 'text-green-600 dark:text-green-400',
+  neutral: 'text-muted-foreground',
+  likely_destabilizing: 'text-amber-600 dark:text-amber-400',
+  destabilizing: 'text-destructive',
+  unknown: 'text-muted-foreground',
+};
+
+const PROJECTED_EFFECT_LABEL: Record<string, string> = {
+  stabilizing: 'Stabilizing',
+  likely_improving: 'Likely Improving',
+  neutral: 'Neutral',
+  likely_destabilizing: 'Likely Destabilizing',
+  destabilizing: 'Destabilizing',
+  unknown: 'Unknown',
+};
+
+function ImpactPreviewBlock({ result, stabilityData, stabilityLoading, stabilityError }: {
+  result: SimulateNarrativePatchResult;
+  stabilityData?: import('@/hooks/useProjectedNarrativeStability').ProjectedNarrativeStabilityData | null;
+  stabilityLoading?: boolean;
+  stabilityError?: string | null;
+}) {
   const bandStyle = IMPACT_BAND_STYLE[result.impact_band] ?? IMPACT_BAND_STYLE.none;
   const blastStyle = getBlastStyle(result.blast_radius_score);
 
@@ -764,7 +802,7 @@ function ImpactPreviewBlock({ result }: { result: SimulateNarrativePatchResult }
 
   return (
     <div className="rounded border border-border/30 bg-muted/20 px-3 py-2.5 space-y-2">
-      {/* Header */}
+      {/* 1. Impact band */}
       <div className="flex flex-wrap items-center gap-1.5">
         <Zap className="h-3 w-3 text-muted-foreground" />
         <span className="text-xs font-medium text-foreground">Impact Preview</span>
@@ -772,13 +810,13 @@ function ImpactPreviewBlock({ result }: { result: SimulateNarrativePatchResult }
         <span className={`text-[10px] font-semibold ${blastStyle}`}>Blast: {result.blast_radius_score}</span>
       </div>
 
-      {/* Scene summary */}
+      {/* 3. Scene summary */}
       <p className="text-xs text-muted-foreground">
         Impacted scenes: {result.impacted_scene_count} ({result.direct_scene_count} direct, {result.propagated_scene_count} propagated)
         {result.entity_link_scene_count > 0 && ` + ${result.entity_link_scene_count} entity-linked`}
       </p>
 
-      {/* Affected axes */}
+      {/* 4. Affected axes */}
       {axes.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {axes.map((ax) => (
@@ -792,11 +830,53 @@ function ImpactPreviewBlock({ result }: { result: SimulateNarrativePatchResult }
         </div>
       )}
 
-      {/* Confidence + notes */}
+      {/* 5. Confidence + notes */}
       <div className="space-y-0.5">
         {result.simulation_confidence != null && (
           <p className="text-[10px] text-muted-foreground">Confidence: {result.simulation_confidence}%</p>
         )}
+      </div>
+
+      {/* 6. Projected Stability (NSI3) */}
+      {stabilityLoading && (
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Loading projected stability...
+        </div>
+      )}
+      {stabilityData && (
+        <div className="rounded border border-border/20 bg-muted/10 px-2.5 py-2 space-y-1">
+          <span className="text-[10px] font-semibold uppercase text-muted-foreground">Projected Stability</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {stabilityData.current_nsi != null && (
+              <Badge variant="outline" className="text-[10px]">NSI: {stabilityData.current_nsi}</Badge>
+            )}
+            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <Badge variant="outline" className={`text-[10px] ${PROJECTED_EFFECT_STYLE[stabilityData.projected_effect] ?? 'text-muted-foreground'}`}>
+              {PROJECTED_EFFECT_LABEL[stabilityData.projected_effect] ?? stabilityData.projected_effect}
+            </Badge>
+          </div>
+          {stabilityData.projected_nsi_range && stabilityData.current_nsi != null && (
+            <p className="text-[10px] text-muted-foreground">
+              range: {stabilityData.current_nsi} → {stabilityData.projected_nsi_range.low}–{stabilityData.projected_nsi_range.high}
+              {stabilityData.projected_delta !== 0 && (
+                <span className={stabilityData.projected_delta > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
+                  {' '}({stabilityData.projected_delta > 0 ? '+' : ''}{stabilityData.projected_delta})
+                </span>
+              )}
+            </p>
+          )}
+          {stabilityData.stale_warning && (
+            <p className="text-[10px] text-amber-600 dark:text-amber-400">{stabilityData.stale_warning}</p>
+          )}
+        </div>
+      )}
+      {stabilityError && !stabilityLoading && (
+        <p className="text-[10px] text-muted-foreground">Projected stability unavailable.</p>
+      )}
+
+      {/* 7. Simulation note */}
+      <div className="space-y-0.5">
         {result.simulation_note && (
           <p className="text-[10px] text-muted-foreground">{result.simulation_note}</p>
         )}
