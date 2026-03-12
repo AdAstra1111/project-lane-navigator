@@ -11916,8 +11916,23 @@ Return ONLY valid JSON:
       }
 
       const allRepairs: any[] = repairsRes.data ?? [];
+      // B: include dismissed at 0.3 weight — still contributes forecast pressure
       const unresolvedRepairs = allRepairs.filter((r: any) =>
-        r.status === "pending" || r.status === "failed" || r.status === "skipped"
+        r.status === "pending" || r.status === "failed" || r.status === "skipped" || r.status === "dismissed"
+      );
+
+      // Status weight — applied to repair_preventive_value and forecast_confidence
+      const NRF1_STATUS_WEIGHT: Record<string, number> = {
+        pending:   1.0,
+        failed:    0.8,
+        skipped:   0.6,
+        dismissed: 0.3,
+      };
+
+      // C: unit_stale signal — include refresh_runtime_alignment in forecast only
+      // when there are active refresh_runtime_alignment repairs (proxy for unit_stale active)
+      const unitStaleActive = allRepairs.some(
+        (r: any) => r.repair_type === "refresh_runtime_alignment" && ["pending", "failed"].includes(r.status)
       );
 
       // ── Step 2: Deterministic affected_axes derivation ─────────────────────
@@ -11998,6 +12013,12 @@ Return ONLY valid JSON:
           projectionBasis.push(`${dAxis}:${entry.strength_class}`);
         }
 
+        // C: add refresh_runtime_alignment when unit_stale is active
+        if (unitStaleActive && downstreamAxes.length > 0) {
+          forecastedFamilies.add("refresh_runtime_alignment");
+          projectForecastFamilies.add("refresh_runtime_alignment");
+        }
+
         const forecastedRepairFamilies = Array.from(forecastedFamilies).sort();
 
         // ── Forecast confidence (NRF1.2: distance-aware) ─────────────────
@@ -12066,16 +12087,22 @@ Return ONLY valid JSON:
           Math.min(1, 0.4 * upstreamLoad + 0.4 * propagatedFraction + 0.2 * inverseReach) * 100
         ) / 100;
 
+        // B: apply status weight to forecast_confidence and preventive_value
+        const statusWeight = NRF1_STATUS_WEIGHT[repair.status] ?? 0.3;
+        const weightedConfidence     = Math.round(forecastConfidence * statusWeight * 100) / 100;
+        const weightedPreventiveValue = Math.round(preventiveValue * statusWeight * 10) / 10;
+
         return {
           repair_id:                 repair.repair_id,
           repair_type:               repair.repair_type,
           status:                    repair.status,
+          status_weight:             statusWeight,
           affected_axes:             affectedAxes,
           downstream_axes:           downstreamAxes,
           upstream_axes:             upstreamAxes,
           forecasted_repair_families: forecastedRepairFamilies,
-          forecast_confidence:       forecastConfidence,
-          repair_preventive_value:   preventiveValue,
+          forecast_confidence:       weightedConfidence,
+          repair_preventive_value:   weightedPreventiveValue,
           root_cause_score:          rootCauseScore,
           symptom_score:             symptomScore,
           projection_basis:          projectionBasis,
@@ -12094,6 +12121,47 @@ Return ONLY valid JSON:
         100 * (1 - Math.exp(-projectRepairPressureRaw / NRF1_NORM_K))
       );
 
+      // ── A: axis_debt_map — aggregate downstream pressure per axis ────────────
+      const axisDebtMap: Record<string, {
+        risk_level: "high" | "medium" | "low";
+        source_repair_count: number;
+        max_forecast_confidence: number;
+        forecast_repair_families: string[];
+        notes: string[];
+      }> = {};
+
+      for (const repForecast of perRepairForecasts) {
+        for (const ax of repForecast.downstream_axes) {
+          if (!axisDebtMap[ax]) {
+            axisDebtMap[ax] = {
+              risk_level:               "low",
+              source_repair_count:      0,
+              max_forecast_confidence:  0,
+              forecast_repair_families: [],
+              notes: [],
+            };
+          }
+          const entry = axisDebtMap[ax];
+          entry.source_repair_count++;
+          if (repForecast.forecast_confidence > entry.max_forecast_confidence) {
+            entry.max_forecast_confidence = repForecast.forecast_confidence;
+          }
+          for (const fam of repForecast.forecasted_repair_families) {
+            if (!entry.forecast_repair_families.includes(fam)) entry.forecast_repair_families.push(fam);
+          }
+          if (entry.source_repair_count >= 2 && !entry.notes.some(n => n.includes("Convergent"))) {
+            entry.notes.push(`Convergent pressure from ${entry.source_repair_count} unresolved upstream repairs`);
+          }
+        }
+      }
+      // Set risk_level from max_forecast_confidence
+      for (const [, entry] of Object.entries(axisDebtMap)) {
+        entry.risk_level = entry.max_forecast_confidence >= 0.65 ? "high"
+                         : entry.max_forecast_confidence >= 0.35 ? "medium"
+                         : "low";
+        entry.forecast_repair_families.sort();
+      }
+
       console.log("[dev-engine-v2] forecast_repair_pressure", {
         project_id:           projectId,
         unresolved_count:     unresolvedRepairs.length,
@@ -12101,6 +12169,8 @@ Return ONLY valid JSON:
         project_pressure_raw: projectRepairPressureRaw,
         project_pressure:     projectRepairPressure,
         family_count:         projectForecastFamilies.size,
+        axis_debt_count:      Object.keys(axisDebtMap).length,
+        unit_stale_active:    unitStaleActive,
       });
 
       return new Response(JSON.stringify({
@@ -12114,16 +12184,19 @@ Return ONLY valid JSON:
           per_repair_forecasts:        perRepairForecasts,
           forecast_disclaimer:         "Forecasts represent dependency-based projections derived from current unresolved repairs and NDG structure. They do not represent guaranteed future diagnostics or repairs.",
         },
+        axis_debt_map:           axisDebtMap,
         scoring_notes: {
-          confidence_model:           "distance-weighted: Σ(strength/path_distance) / pair_count × breadth_dilution × has_axes — closer NDG paths yield higher confidence",
-          preventive_value_model:     "downstream_reach × max_severity × confidence × 10",
+          confidence_model:           "distance-weighted: Σ(strength/path_distance) / pair_count × breadth_dilution × has_axes × status_weight",
+          preventive_value_model:     "downstream_reach × max_severity × confidence × 10 × status_weight",
           root_cause_model:           "0.5×position(root=1,upstream=0.7,propagated=0.3,terminal=0.1) + 0.3×severity(constitutional=1..light=0.2) + 0.2×reach(downstream/8) — origin-likeness",
           symptom_model:              "0.4×upstream_load(count/8) + 0.4×propagated_fraction + 0.2×inverse_reach — consequence-likeness",
           pressure_raw_model:         "Σ(preventive_value × confidence) — unbounded aggregate",
           pressure_normalized_model:  "100×(1−e^(−raw/k)), k=30/ln2≈43.3 — bounded 0–100 asymptotic",
+          status_weights:             "pending=1.0, failed=0.8, skipped=0.6, dismissed=0.3",
+          unit_stale_signal:          unitStaleActive ? "active: refresh_runtime_alignment added to forecast families" : "inactive",
           registry_source:            "NRF1_REVERSE_FORECAST_REGISTRY (deterministic, NDG-seeded)",
-          data_source:                "fully direct: repairs from narrative_repairs DB query, affected_axes derived deterministically from repair scope_type+scope_key — no internal action self-fetches",
-          version:                    "nrf1.3",
+          data_source:                "fully direct: repairs from narrative_repairs DB query, affected_axes derived deterministically from repair scope_type+scope_key",
+          version:                    "nrf1.4",
         },
         computed_at: nrf1ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
