@@ -383,18 +383,19 @@ export function useScriptDropProject() {
 
       // Update intake run with doc refs now that we have them
       if (currentRunId) {
-        await (supabase as any)
-          .from('screenplay_intake_runs')
-          .update({
-            source_doc_id:     doc.id,
-            script_version_id: docVersionId,
-            metadata:          {
-              source: 'drop', original_filename: file.name,
-              storage_path: storagePath, title_guess: titleGuess,
-            },
-          })
-          .eq('id', currentRunId)
-          .catch(() => {});
+        try {
+          await (supabase as any)
+            .from('screenplay_intake_runs')
+            .update({
+              source_doc_id:     doc.id,
+              script_version_id: docVersionId,
+              metadata:          {
+                source: 'drop', original_filename: file.name,
+                storage_path: storagePath, title_guess: titleGuess,
+              },
+            })
+            .eq('id', currentRunId);
+        } catch (_) { /* non-fatal — intake run update failure does not block import */ }
       }
 
       // ── Enrichment stages — fail-tolerant after project exists ──────────────
@@ -506,11 +507,12 @@ export function useScriptDropProject() {
       console.error('[useScriptDropProject]', err);
       toast.error('Script import failed', { description: err.message });
       if (currentRunId) {
-        await (supabase as any)
-          .from('screenplay_intake_runs')
-          .update({ status: 'failed', completed_at: new Date().toISOString(), error: err.message })
-          .eq('id', currentRunId)
-          .catch(() => {});
+        try {
+          await (supabase as any)
+            .from('screenplay_intake_runs')
+            .update({ status: 'failed', completed_at: new Date().toISOString(), error: err.message })
+            .eq('id', currentRunId);
+        } catch (_) { /* best-effort failure recording */ }
       }
     } finally {
       setIsRunning(false);
