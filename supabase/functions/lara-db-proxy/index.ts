@@ -684,6 +684,93 @@ Deno.serve(async (req) => {
               WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c';
           `,
 
+          // SIM3 validation test data
+          "sim3_insert_beats_proposal": `
+            -- VALIDATION-ONLY: insert synthetic beats repair + proposal for SIM3 testing.
+            -- Cleanup with sim3_cleanup_test_data.
+            INSERT INTO public.narrative_repairs
+              (repair_id, project_id, source_diagnostic_id, source_system, diagnostic_type,
+               repair_type, scope_type, scope_key, strategy, priority_score, repairability, status,
+               summary, recommended_action)
+            VALUES (
+              '11111111-2222-3333-4444-555555555555',
+              '37e830b8-0143-4d01-9207-b460ff441e8c',
+              'dx-sim3-test-beats', 'structural_validator', 'missing_beat_coverage',
+              'repair_structural_beats', 'project', 'layer_7', 'balanced', 60, 'guided', 'pending',
+              'Test repair for SIM3 beats validation', 'Patch beats to cover all narrative axes'
+            ) ON CONFLICT DO NOTHING;
+
+            INSERT INTO public.narrative_patch_proposals
+              (proposal_id, project_id, repair_id, source_diagnostic_id, patch_type, patch_layer,
+               proposed_patch, seed_context_snapshot, rationale, proposal_hash, generator_model,
+               seed_snapshot_at, status)
+            VALUES (
+              'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+              '37e830b8-0143-4d01-9207-b460ff441e8c',
+              '11111111-2222-3333-4444-555555555555',
+              'dx-sim3-test-beats', 'repair_structural_beats', 'layer_7_beats',
+              '{"beats":[{"beat_key":"opening_state","beat_description":"A retired operative receives a coded message","narrative_axis_reference":"story_engine","expected_turn":"act_one_open"},{"beat_key":"inciting_event_seed","beat_description":"The message triggers a manhunt","narrative_axis_reference":"inciting_incident","expected_turn":"act_one"},{"beat_key":"first_escalation","beat_description":"Stakes escalate as forces close in","narrative_axis_reference":"pressure_system","expected_turn":"act_two_a"}]}'::jsonb,
+              '{"entities":[],"entity_relations":[],"beats":[]}'::jsonb,
+              'SIM3 test beats proposal', 'ph-sim3beats', 'test-model', NOW(), 'proposed'
+            ) ON CONFLICT DO NOTHING;
+          `,
+
+          "sim3_insert_relation_proposals": `
+            -- VALIDATION-ONLY: insert synthetic relation repair + proposals for SIM3 testing.
+            -- Cleanup with sim3_cleanup_test_data.
+            INSERT INTO public.narrative_repairs
+              (repair_id, project_id, source_diagnostic_id, source_system, diagnostic_type,
+               repair_type, scope_type, scope_key, strategy, priority_score, repairability, status,
+               summary, recommended_action)
+            VALUES (
+              '22222222-3333-4444-5555-666666666666',
+              '37e830b8-0143-4d01-9207-b460ff441e8c',
+              'dx-sim3-test-rel', 'structural_validator', 'missing_relation_graph',
+              'repair_relation_graph', 'project', 'layer_5b', 'balanced', 70, 'guided', 'pending',
+              'Test repair for SIM3 relation validation', 'Patch entity relations'
+            ) ON CONFLICT DO NOTHING;
+
+            INSERT INTO public.narrative_patch_proposals
+              (proposal_id, project_id, repair_id, source_diagnostic_id, patch_type, patch_layer,
+               proposed_patch, seed_context_snapshot, rationale, proposal_hash, generator_model,
+               seed_snapshot_at, status)
+            VALUES
+            (
+              'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
+              '37e830b8-0143-4d01-9207-b460ff441e8c',
+              '22222222-3333-4444-5555-666666666666',
+              'dx-sim3-test-rel', 'repair_relation_graph', 'layer_5b_entity_relations',
+              '{"entity_relations":[{"source_entity_key":"CHAR_PROTAGONIST","relation_type":"drives_arc","target_entity_key":"ARC_PROTAGONIST"},{"source_entity_key":"CHAR_ANTAGONIST","relation_type":"opposes","target_entity_key":"CHAR_PROTAGONIST"}]}'::jsonb,
+              '{"entities":[{"entity_key":"CHAR_PROTAGONIST","entity_type":"character","narrative_role":"protagonist","story_critical_flag":true},{"entity_key":"ARC_PROTAGONIST","entity_type":"arc","narrative_role":"arc","story_critical_flag":true},{"entity_key":"CHAR_ANTAGONIST","entity_type":"character","narrative_role":"antagonist","story_critical_flag":false}],"entity_relations":[],"beats":[]}'::jsonb,
+              'SIM3 test relation proposal (drives_arc → protagonist_arc)', 'ph-sim3rel', 'test-model', NOW(), 'proposed'
+            ),
+            (
+              'cccccccc-dddd-eeee-ffff-aaaaaaaaaaaa',
+              '37e830b8-0143-4d01-9207-b460ff441e8c',
+              '22222222-3333-4444-5555-666666666666',
+              'dx-sim3-test-applied', 'repair_relation_graph', 'layer_5b_entity_relations',
+              '{"entity_relations":[]}'::jsonb,
+              '{}'::jsonb,
+              'SIM3 test applied proposal (V6)', 'ph-sim3applied', 'test-model', NOW(), 'applied'
+            )
+            ON CONFLICT DO NOTHING;
+          `,
+
+          "sim3_cleanup_test_data": `
+            -- VALIDATION-ONLY: clean up SIM3 test data.
+            DELETE FROM public.narrative_patch_proposals
+              WHERE proposal_id IN (
+                'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
+                'cccccccc-dddd-eeee-ffff-aaaaaaaaaaaa'
+              );
+            DELETE FROM public.narrative_repairs
+              WHERE repair_id IN (
+                '11111111-2222-3333-4444-555555555555',
+                '22222222-3333-4444-5555-666666666666'
+              );
+          `,
+
           "narrative_repairs_v3": `
             ALTER TABLE public.narrative_repairs
               ADD COLUMN IF NOT EXISTS executed_at      TIMESTAMPTZ,
