@@ -11801,6 +11801,266 @@ Return ONLY valid JSON:
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════
+    // NRF1 — forecast_repair_pressure
+    //
+    // NDG-Driven Repair Forecasting. Preventive narrative intelligence layer.
+    // Estimates downstream repair pressure from current unresolved repairs
+    // using the existing NDG and repair metadata.
+    //
+    // Architecture:
+    //   1. Self-call recommend_repair_order (ARP1) for enriched repair pool
+    //   2. For each unresolved repair with affected_axes:
+    //      a. Compute downstream/upstream axes via NDG
+    //      b. Map downstream axes → likely diagnostic families → forecast repair families
+    //      c. Score: forecast_confidence, repair_preventive_value, root_cause_score, symptom_score
+    //   3. Aggregate project-level repair pressure
+    //
+    // No state mutation. No schema changes. No LLM. Deterministic for identical DB state.
+    // Safe for repeated execution. All outputs explainable from current state only.
+    //
+    if (action === "forecast_repair_pressure") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const nrf1ComputedAt = new Date().toISOString();
+
+      // ── Reverse Forecast Registry ──────────────────────────────────────────
+      // Maps downstream axes → likely diagnostics → forecast repair families.
+      // Seeded from architecture scan of DIAGNOSTIC_TO_REPAIR and NDG structure.
+      const NRF1_REVERSE_FORECAST_REGISTRY: ReadonlyArray<{
+        axis: SpineAxis;
+        likely_diagnostic_families: string[];
+        forecasted_repair_families: string[];
+        strength_class: "high" | "medium" | "low";
+      }> = [
+        {
+          axis: "story_engine",
+          likely_diagnostic_families: ["soul_drift_summary", "premise_drift"],
+          forecasted_repair_families: ["repair_seed_alignment"],
+          strength_class: "high",
+        },
+        {
+          axis: "protagonist_arc",
+          likely_diagnostic_families: ["soul_drift_summary", "emotional_promise_shift"],
+          forecasted_repair_families: ["repair_seed_alignment"],
+          strength_class: "high",
+        },
+        {
+          axis: "pressure_system",
+          likely_diagnostic_families: ["obligation_violated"],
+          forecasted_repair_families: ["repair_relation_graph"],
+          strength_class: "medium",
+        },
+        {
+          axis: "central_conflict",
+          likely_diagnostic_families: ["obligation_violated", "obligation_unresolved"],
+          forecasted_repair_families: ["repair_relation_graph", "repair_structural_beats"],
+          strength_class: "medium",
+        },
+        {
+          axis: "resolution_type",
+          likely_diagnostic_families: ["obligation_unresolved"],
+          forecasted_repair_families: ["repair_structural_beats"],
+          strength_class: "medium",
+        },
+        {
+          axis: "stakes_class",
+          likely_diagnostic_families: ["obligation_violated"],
+          forecasted_repair_families: ["repair_relation_graph"],
+          strength_class: "medium",
+        },
+        {
+          axis: "inciting_incident",
+          likely_diagnostic_families: ["obligation_violated"],
+          forecasted_repair_families: ["repair_relation_graph"],
+          strength_class: "low",
+        },
+        {
+          axis: "midpoint_reversal",
+          likely_diagnostic_families: ["obligation_unresolved"],
+          forecasted_repair_families: ["repair_structural_beats"],
+          strength_class: "low",
+        },
+      ];
+
+      const STRENGTH_WEIGHTS: Record<string, number> = { high: 1.0, medium: 0.6, low: 0.3 };
+      const SEVERITY_WEIGHTS_NRF: Record<string, number> = {
+        constitutional: 5, severe: 4, severe_moderate: 3, moderate: 2, light: 1,
+      };
+
+      // ── Step 1: Load ARP1 enriched repairs ─────────────────────────────────
+      const supabaseUrlStr = Deno.env.get("SUPABASE_URL") ?? "";
+      const serviceKeyStr  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      const selfCallHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` };
+
+      let arp1Data: any = null;
+      try {
+        const arp1Resp = await fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
+          method: "POST", headers: selfCallHeaders,
+          body: JSON.stringify({ action: "recommend_repair_order", projectId }),
+        });
+        if (!arp1Resp.ok) throw new Error(`ARP1 responded ${arp1Resp.status}`);
+        arp1Data = await arp1Resp.json();
+        if (!arp1Data?.ok) throw new Error(arp1Data?.error ?? "ARP1 returned ok=false");
+      } catch (e: any) {
+        return new Response(JSON.stringify({
+          ok: false, error: `forecast_repair_pressure: failed to load ARP1 — ${e?.message ?? "unknown"}`,
+        }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const repairs: any[] = arp1Data.repairs ?? [];
+      const unresolvedRepairs = repairs.filter((r: any) =>
+        r.status === "pending" || r.status === "failed" || r.status === "skipped"
+      );
+
+      // ── Step 2: Empty guard ────────────────────────────────────────────────
+      if (unresolvedRepairs.length === 0) {
+        return new Response(JSON.stringify({
+          ok:                      true,
+          action:                  "forecast_repair_pressure",
+          project_id:              projectId,
+          nrf1_forecast: {
+            project_repair_pressure:  0,
+            forecasted_repair_families: [],
+            per_repair_forecasts:     [],
+            forecast_disclaimer:      "Forecasts represent dependency-based projections derived from current unresolved repairs and NDG structure. They do not represent guaranteed future diagnostics or repairs.",
+          },
+          computed_at: nrf1ComputedAt,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 3: Per-repair forecast computation ────────────────────────────
+      const registryByAxis = new Map(NRF1_REVERSE_FORECAST_REGISTRY.map(r => [r.axis, r]));
+      const projectForecastFamilies = new Set<string>();
+
+      const perRepairForecasts = unresolvedRepairs.map((repair: any) => {
+        const affectedAxes: SpineAxis[] = (repair.affected_axes ?? []).filter(
+          (a: string) => AXIS_METADATA[a as SpineAxis] !== undefined
+        ) as SpineAxis[];
+
+        // Compute downstream and upstream axes
+        const downstreamSet = new Set<SpineAxis>();
+        const upstreamSet   = new Set<SpineAxis>();
+        for (const axis of affectedAxes) {
+          for (const d of getDownstreamAxes(axis)) downstreamSet.add(d);
+          for (const u of getUpstreamAxes(axis))   upstreamSet.add(u);
+        }
+        const downstreamAxes = Array.from(downstreamSet).sort();
+        const upstreamAxes   = Array.from(upstreamSet).sort();
+
+        // Map downstream axes to forecast families via registry
+        const forecastedFamilies = new Set<string>();
+        const projectionBasis: string[] = [];
+        let totalStrength = 0;
+        let strengthCount = 0;
+
+        for (const dAxis of downstreamAxes) {
+          const entry = registryByAxis.get(dAxis);
+          if (!entry) continue;
+          for (const fam of entry.forecasted_repair_families) {
+            forecastedFamilies.add(fam);
+            projectForecastFamilies.add(fam);
+          }
+          totalStrength += STRENGTH_WEIGHTS[entry.strength_class] ?? 0.3;
+          strengthCount++;
+          projectionBasis.push(`${dAxis}:${entry.strength_class}`);
+        }
+
+        const forecastedRepairFamilies = Array.from(forecastedFamilies).sort();
+
+        // ── Forecast confidence ──────────────────────────────────────────
+        // Based on: dependency distance (closer=higher), strength_class, axis breadth dilution
+        const avgStrength  = strengthCount > 0 ? totalStrength / strengthCount : 0;
+        const axisBreadth  = affectedAxes.length;
+        const dilution     = axisBreadth > 1 ? Math.max(0.5, 1 - (axisBreadth - 1) * 0.1) : 1;
+        const hasAxes      = affectedAxes.length > 0 ? 1 : 0;
+        const forecastConfidence = Math.round(
+          Math.min(1, avgStrength * dilution * hasAxes) * 100
+        ) / 100;
+
+        // ── Repair preventive value ──────────────────────────────────────
+        // downstream reach × axis constitutional importance × forecast confidence
+        const downstreamReach = downstreamAxes.length;
+        const maxSeverity = affectedAxes.reduce((max, ax) => {
+          const sev = SEVERITY_WEIGHTS_NRF[AXIS_METADATA[ax]?.severity ?? "moderate"] ?? 2;
+          return Math.max(max, sev);
+        }, 0);
+        const preventiveValue = Math.round(
+          downstreamReach * maxSeverity * forecastConfidence * 10
+        ) / 10;
+
+        // ── Root cause score (upstream position) ─────────────────────────
+        // Higher when repair sits upstream in NDG (few upstream, many downstream)
+        const rootCauseScore = Math.round(
+          (downstreamReach / Math.max(1, downstreamReach + upstreamAxes.length)) * 100
+        ) / 100;
+
+        // ── Symptom score (downstream position) ─────────────────────────
+        // Higher when repair sits downstream in NDG
+        const symptomScore = Math.round(
+          (upstreamAxes.length / Math.max(1, downstreamReach + upstreamAxes.length)) * 100
+        ) / 100;
+
+        return {
+          repair_id:                 repair.repair_id,
+          repair_type:               repair.repair_type,
+          status:                    repair.status,
+          affected_axes:             affectedAxes,
+          downstream_axes:           downstreamAxes,
+          upstream_axes:             upstreamAxes,
+          forecasted_repair_families: forecastedRepairFamilies,
+          forecast_confidence:       forecastConfidence,
+          repair_preventive_value:   preventiveValue,
+          root_cause_score:          rootCauseScore,
+          symptom_score:             symptomScore,
+          projection_basis:          projectionBasis,
+        };
+      });
+
+      // ── Step 4: Project-level repair pressure ──────────────────────────────
+      const projectRepairPressure = Math.round(
+        perRepairForecasts.reduce((sum: number, f: any) =>
+          sum + f.repair_preventive_value * f.forecast_confidence, 0
+        ) * 10
+      ) / 10;
+
+      console.log("[dev-engine-v2] forecast_repair_pressure", {
+        project_id:           projectId,
+        unresolved_count:     unresolvedRepairs.length,
+        forecast_count:       perRepairForecasts.length,
+        project_pressure:     projectRepairPressure,
+        family_count:         projectForecastFamilies.size,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                      true,
+        action:                  "forecast_repair_pressure",
+        project_id:              projectId,
+        current_nsi:             arp1Data.current_nsi ?? null,
+        current_stability_band:  arp1Data.current_stability_band ?? null,
+        nrf1_forecast: {
+          project_repair_pressure:  projectRepairPressure,
+          forecasted_repair_families: Array.from(projectForecastFamilies).sort(),
+          per_repair_forecasts:     perRepairForecasts,
+          forecast_disclaimer:      "Forecasts represent dependency-based projections derived from current unresolved repairs and NDG structure. They do not represent guaranteed future diagnostics or repairs.",
+        },
+        scoring_notes: {
+          confidence_model:         "avg_strength * axis_dilution * has_axes",
+          preventive_value_model:   "downstream_reach * max_severity * confidence * 10",
+          root_cause_model:         "downstream / (downstream + upstream)",
+          symptom_model:            "upstream / (downstream + upstream)",
+          pressure_model:           "Σ(preventive_value * confidence)",
+          registry_source:          "NRF1_REVERSE_FORECAST_REGISTRY (deterministic, NDG-seeded)",
+          version:                  "nrf1",
+        },
+        computed_at: nrf1ComputedAt,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // ── Dev Seed v2: create_dev_seed_v2 ──────────────────────────────────────────
     //
     // Inserts all 8 layers of a Dev Seed v2 record transactionally.
