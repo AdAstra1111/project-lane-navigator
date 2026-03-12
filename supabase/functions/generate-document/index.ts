@@ -748,6 +748,26 @@ If you find yourself describing what happens in the story, which characters appe
       userPrompt = upstreamContent
         ? `Using the upstream documents below, generate the ${docType.replace(/_/g, " ")}.\n\n${upstreamContent}`
         : `Generate the ${docType.replace(/_/g, " ")} from scratch based on the project context.`;
+
+      // ── Template injection ──
+      // Append a canonical scaffold so the LLM fills a defined structure rather than
+      // inventing formatting. Guarantees markdown output, all sections present, no JSON.
+      try {
+        const { buildTemplatePrompt } = await import("../_shared/docTypeTemplates.ts");
+        const templateBlock = buildTemplatePrompt(docType, {
+          title: project.title,
+          format: project.format,
+          episodeCount: resolvedQuals?.season_episode_count,
+          episodeDurationMin: resolvedQuals?.episode_target_duration_min_seconds,
+          episodeDurationMax: resolvedQuals?.episode_target_duration_max_seconds,
+        });
+        if (templateBlock) {
+          userPrompt += templateBlock;
+          console.log(`[generate-document] template_injected { doc_type: "${docType}", project_id: "${projectId}" }`);
+        }
+      } catch (tErr: any) {
+        console.warn(`[generate-document] template_inject_failed { doc_type: "${docType}", error: "${tErr?.message}" }`);
+      }
     }
 
     // 5) Generate content

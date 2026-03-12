@@ -6290,11 +6290,27 @@ Format: ${rq.format}.`;
       const cvConstraintPack = await loadConstraintPack(supabase, projectId);
       console.log("[dev-engine-v2] convert: constraint injection", { path: "convert", hasNEC: !!cvNecBlock, hasConstraintPack: !!cvConstraintPack });
 
+      // ── Template injection for convert path ──
+      let convertTemplateBlock = "";
+      try {
+        const { buildTemplatePrompt } = await import("../_shared/docTypeTemplates.ts");
+        const resolvedDocTypeForTemplate = (targetOutput || "").toLowerCase().replace(/[\s\-]+/g, "_");
+        const qualifications = resolverResult?.qualifications || {};
+        const tb = buildTemplatePrompt(resolvedDocTypeForTemplate, {
+          title: project?.title,
+          format: project?.format,
+          episodeCount: qualifications.season_episode_count,
+          episodeDurationMin: qualifications.episode_target_duration_min_seconds,
+          episodeDurationMax: qualifications.episode_target_duration_max_seconds,
+        });
+        if (tb) convertTemplateBlock = tb;
+      } catch (_te) { /* non-fatal */ }
+
       const userPrompt = `SOURCE FORMAT: ${srcDoc?.doc_type || "unknown"}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA):\n${JSON.stringify(protectItems || [])}
 ${qualBindingBlock}${cvNecBlock}${cvConstraintPack}
-MATERIAL:\n${version.plaintext}`;
+MATERIAL:\n${version.plaintext}${convertTemplateBlock}`;
 
       const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
 
