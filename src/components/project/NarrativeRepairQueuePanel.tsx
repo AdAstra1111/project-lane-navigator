@@ -1179,9 +1179,9 @@ function RecommendationCard({ recommendation }: { recommendation: RepairRecommen
           </div>
           <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground">
             <span>Gain: <span className="font-medium text-foreground">{recommendation.expected_stability_gain}</span></span>
-            <span>Risk: <span className="font-medium text-foreground">{recommendation.blast_risk}</span></span>
-            <span>Friction: <span className="font-medium text-foreground">{recommendation.execution_friction}</span></span>
-            <span>Urgency: <span className="font-medium text-foreground">{recommendation.urgency}</span></span>
+            <span>Risk: <span className="font-medium text-foreground">{recommendation.blast_risk_score}</span></span>
+            <span>Friction: <span className="font-medium text-foreground">{recommendation.execution_friction_score}</span></span>
+            <span>Urgency: <span className="font-medium text-foreground">{recommendation.urgency_score}</span></span>
           </div>
         </div>
       </div>
