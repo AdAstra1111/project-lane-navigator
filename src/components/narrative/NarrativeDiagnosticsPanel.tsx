@@ -3,7 +3,7 @@
  * Renders backend diagnostics only. Fail-closed.
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNarrativeDiagnostics, type NarrativeDiagnostic } from '@/hooks/useNarrativeDiagnostics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
