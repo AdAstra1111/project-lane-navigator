@@ -4804,13 +4804,36 @@ MATERIAL TO REWRITE:\n${fullText}`;
       let rewrittenText: string = (typeof rewrittenTextRaw === "string" ? rewrittenTextRaw : "") ||
         (typeof parsed.converted_text === "string" ? parsed.converted_text : "") ||
         (typeof parsed.text === "string" ? parsed.text : "");
-      // Guard: if the model double-wrapped (rewritten_text is itself a JSON blob / code fence), unwrap it
-      if (rewrittenText.trim().startsWith("```") || rewrittenText.trim().startsWith("{")) {
+      // Guard: if the model returned JSON instead of plain text, convert to markdown
+      if (rewrittenText.trim().startsWith("```") || rewrittenText.trim().startsWith("{") || rewrittenText.trim().startsWith("[")) {
         try {
-          const inner = JSON.parse(extractJSON(rewrittenText));
-          if (inner?.rewritten_text && typeof inner.rewritten_text === "string") rewrittenText = inner.rewritten_text;
-          else if (inner?.converted_text && typeof inner.converted_text === "string") rewrittenText = inner.converted_text;
-          else if (inner?.text && typeof inner.text === "string") rewrittenText = inner.text;
+          const stripped = rewrittenText.trim().replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/\n?```\s*$/, "").trim();
+          const inner = JSON.parse(stripped);
+          // Prefer explicit text keys
+          const explicit = inner?.rewritten_text || inner?.converted_text || inner?.text;
+          if (explicit && typeof explicit === "string" && explicit.trim().length > 50) {
+            rewrittenText = explicit;
+          } else {
+            // Fall back to full recursive JSON→markdown (same logic as convert path)
+            function _jToMd(obj: any, depth = 0): string {
+              if (typeof obj === "string") return obj;
+              if (Array.isArray(obj)) return (obj as any[]).map((item: any) =>
+                `- ${typeof item === "string" ? item : _jToMd(item, depth + 1)}`).join("\n");
+              if (typeof obj === "object" && obj !== null) {
+                return Object.entries(obj).map(([k, v]: [string, any]) => {
+                  const h = "#".repeat(Math.min(depth + 2, 4));
+                  const lbl = k.replace(/_/g, " ").toUpperCase();
+                  if (typeof v === "string") return `${h} ${lbl}\n\n${v}`;
+                  if (Array.isArray(v)) return `${h} ${lbl}\n\n${(v as any[]).map((i: any) => `- ${typeof i === "string" ? i : _jToMd(i, depth + 1)}`).join("\n")}`;
+                  if (typeof v === "object") return `${h} ${lbl}\n\n${_jToMd(v, depth + 1)}`;
+                  return `${h} ${lbl}\n\n${v}`;
+                }).join("\n\n");
+              }
+              return String(obj);
+            }
+            const md = _jToMd(inner);
+            if (md && md.length > 50) rewrittenText = md;
+          }
         } catch { /* not JSON — leave as-is */ }
       }
 
