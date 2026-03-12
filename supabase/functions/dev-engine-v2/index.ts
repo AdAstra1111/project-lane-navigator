@@ -12121,8 +12121,8 @@ Return ONLY valid JSON:
           pressure_raw_model:         "Σ(preventive_value × confidence) — unbounded aggregate",
           pressure_normalized_model:  "100×(1−e^(−raw/k)), k=30/ln2≈43.3 — bounded 0–100 asymptotic",
           registry_source:            "NRF1_REVERSE_FORECAST_REGISTRY (deterministic, NDG-seeded)",
-          data_source:                "direct DB retrieval + DX self-call for affected_axes (no ARP1 self-fetch)",
-          version:                    "nrf1.2",
+          data_source:                "fully direct: repairs from narrative_repairs DB query, affected_axes derived deterministically from repair scope_type+scope_key — no internal action self-fetches",
+          version:                    "nrf1.3",
         },
         computed_at: nrf1ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
