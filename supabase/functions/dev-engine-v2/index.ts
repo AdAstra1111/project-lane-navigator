@@ -10891,11 +10891,18 @@ Return ONLY valid JSON:
           catScore(ap?.audience_fear,     dp?.audience_fear),
         ];
         const score = scores.reduce((s, x) => s + x, 0) / scores.length;
+        // All drifting fields (for dimension-level threshold filtering)
         const details: string[] = [];
         if (scores[0] > 0) details.push("emotional_promise_shift");
         if (scores[1] > 0) details.push("audience_fantasy_shift");
         if (scores[2] > 0) details.push("audience_fear_shift");
-        return { score, details };
+        // Major-only drifts (score=1.0 = clear category mismatch) — always surfaced
+        // even when dimension average is below the global 0.5 threshold
+        const majorDetails: string[] = [];
+        if (scores[0] >= 1.0) majorDetails.push("emotional_promise_shift");
+        if (scores[1] >= 1.0) majorDetails.push("audience_fantasy_shift");
+        if (scores[2] >= 1.0) majorDetails.push("audience_fear_shift");
+        return { score, details, majorDetails };
       };
 
       // ── D3: Theme Vector (15%) ────────────────────────────────────────
@@ -11003,7 +11010,8 @@ Return ONLY valid JSON:
       const BEAT_CAUSE_THRESHOLD = 0;    // any beat drift triggers cause
       const primaryDriftCauses: string[] = [
         ...(d1.score >= CAUSE_THRESHOLD      ? d1.details : []),
-        ...(d2.score >= CAUSE_THRESHOLD      ? d2.details : []),
+        // D2: use dimension average for partial drifts; always surface major (1.0) field drifts
+        ...(d2.score >= CAUSE_THRESHOLD ? d2.details : d2.majorDetails),
         ...(d3.score >= CAUSE_THRESHOLD      ? d3.details : []),
         ...(d4.score >  BEAT_CAUSE_THRESHOLD ? d4.details : []),  // beat: any drift
         ...(d5.score >= CAUSE_THRESHOLD      ? d5.details : []),
