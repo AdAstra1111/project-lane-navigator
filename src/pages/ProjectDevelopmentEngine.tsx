@@ -754,6 +754,21 @@ export default function ProjectDevelopmentEngine() {
     runAnalysisWithContext();
   };
 
+  const handleStaleRegenerate = async () => {
+    if (!selectedDoc?.doc_type || !projectId) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase.functions.invoke('generate-document', {
+      body: {
+        projectId,
+        docType: selectedDoc.doc_type,
+        userId: user?.id,
+        mode: 'draft',
+      },
+    });
+    qc.invalidateQueries({ queryKey: ['versions', projectId, selectedDoc.doc_type] });
+    qc.invalidateQueries({ queryKey: ['documents', projectId] });
+  };
+
   const handleRewrite = async (decisions?: Record<string, string>, globalDirections?: any[]) => {
     const approved = allPrioritizedMoves.filter((_, i) => selectedNotes.has(i));
     const protectItems = latestNotes?.protect || latestAnalysis?.protect || [];
@@ -1581,8 +1596,8 @@ export default function ProjectDevelopmentEngine() {
                       oldHash={(selectedVersion as any).depends_on_resolver_hash || ''}
                       currentHash={currentResolverHash}
                       seasonEpisodeCount={resolvedQuals?.season_episode_count || effectiveSeasonEpisodes || undefined}
-                      onRegenerate={handleRunEngine}
-                      isRegenerating={analyze.isPending}
+                      onRegenerate={handleStaleRegenerate}
+                      isRegenerating={false}
                     />
                   )}
 
@@ -2265,8 +2280,8 @@ export default function ProjectDevelopmentEngine() {
                       episode_target_duration_max_seconds: resolvedQuals.episode_target_duration_max_seconds,
                       format: resolvedQuals.format,
                     } : null}
-                    onRegenerate={handleRunEngine}
-                    isRegenerating={analyze.isPending}
+                    onRegenerate={handleStaleRegenerate}
+                    isRegenerating={false}
                   />
                 </CardContent>
               </Card>
