@@ -39,6 +39,7 @@ import {
   Zap,
   TrendingUp,
   Ban,
+  Info,
 } from 'lucide-react';
 
 interface Props {
