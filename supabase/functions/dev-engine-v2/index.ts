@@ -11489,12 +11489,71 @@ Return ONLY valid JSON:
         emitSubsystemUnavailable("obligation_validator", e?.message ?? "unknown");
       }
 
-      // ── Collector 4: simulation_engine (DX2 — heuristic blast-radius) ─────
+      // ── Collector 4: simulation_engine (DX4 — SIM2-backed blast-radius) ────
       //
-      // Does not call simulate_narrative_impact (requires explicit unit_keys).
-      // Instead, derives heuristic simulation_risk signals from stale narrative_units
-      // where the unit_type carries known high blast-radius (protagonist_arc, etc.).
-      // These are advisory signals — not repair triggers.
+      // Replaces the old heuristic-only collector (DX2).
+      //
+      // Architecture:
+      //   1. Load stale/contradicted narrative_units (same query as before).
+      //   2. Group by unit_type (= SpineAxis). One diagnostic per axis.
+      //   3. Sort axes by UNIT_BLAST_WEIGHT desc; simulate top SIM_CALL_CAP axes
+      //      using computeSelectiveRegenerationPlanHelper(simulationMode=true).
+      //   4. Axes beyond cap receive explicit heuristic fallback diagnostic.
+      //   5. Simulation errors fall back to heuristic non-fatally.
+      //   6. Confirmed no-impact (no structural uncertainty) → suppress diagnostic.
+      //   7. No scene links / structural uncertainty → low-confidence advisory.
+      //
+      // diagnostic_id formula unchanged: dxStableId([projectId, "simulation_engine", "blast_risk", axis])
+      // This preserves all existing narrative_repairs.source_diagnostic_id linkages.
+
+      const SIM_CALL_CAP = 2;
+
+      // Deterministic severity from SIM2 impact_band
+      const impactBandToSeverity = (
+        impactBand: string,
+        structuralUncertainty: boolean,
+      ): NarrativeDiagnostic["severity"] => {
+        if (structuralUncertainty) return "warning";
+        switch (impactBand) {
+          case "systemic": return "critical";
+          case "broad":    return "high";
+          case "moderate": return "warning";
+          case "limited":  return "warning";
+          case "none":     return "info";
+          default:         return "warning";
+        }
+      };
+
+      // Impact band derivation (matches SIM2 semantics)
+      const deriveImpactBand = (
+        totalScenes: number,
+        recommendedScope: string,
+      ): string => {
+        if (totalScenes === 0 && recommendedScope !== "no_scene_links") return "none";
+        if (recommendedScope === "no_scene_links") return "limited"; // advisory, not none
+        if (totalScenes === 0) return "none";
+        if (totalScenes <= 5)  return "limited";
+        if (totalScenes <= 15 || recommendedScope === "propagated_only") return "moderate";
+        if (totalScenes <= 30 || recommendedScope === "broad_impact") return "broad";
+        return "systemic";
+      };
+
+      // blast_radius_score (0-100, same formula as SIM2)
+      const deriveBlastRadius = (
+        sourceAxis: string,
+        directSceneCount: number,
+        propagatedSceneCount: number,
+        entitySceneCount: number,
+      ): number => {
+        const axisScore = computeRewritePriorityScore(sourceAxis as any) ?? 0;
+        return Math.min(100, Math.round(
+          axisScore * 2
+          + directSceneCount * 3
+          + propagatedSceneCount * 1.5
+          + entitySceneCount * 0.5
+        ));
+      };
+
       try {
         const simStaleRes = await (supabase as any)
           .from("narrative_units")
@@ -11502,28 +11561,137 @@ Return ONLY valid JSON:
           .eq("project_id", projectId)
           .in("status", ["stale", "contradicted"]);
 
-        for (const unit of (simStaleRes.data ?? []) as any[]) {
-          const blastWeight = UNIT_BLAST_WEIGHT[unit.unit_type] ?? 0;
-          if (blastWeight < 2) continue; // Only emit for medium/high-blast unit types
+        const staleUnits = (simStaleRes.data ?? []) as Array<{ unit_key: string; unit_type: string; status: string }>;
 
-          const sev: NarrativeDiagnostic["severity"] = blastWeight >= 3 ? "high" : "warning";
-          diagnostics.push({
-            diagnostic_id:      dxStableId([projectId, "simulation_engine", "blast_risk", unit.unit_type]),
-            project_id:         projectId,
-            source_system:      "simulation_engine",
-            diagnostic_type:    "simulation_risk",
-            severity:           sev,
-            scope_level:        "unit",
-            scope_key:          unit.unit_type,
-            affected_axes:      [unit.unit_type],
-            affected_units:     [unit.unit_key ?? unit.unit_type],
-            affected_entities:  [], affected_beats: [], affected_relations: [],
-            summary:            `High blast-radius unit '${unit.unit_type}' is ${unit.status} — downstream scene risk`,
-            details:            `unit_type '${unit.unit_type}' has blast_weight=${blastWeight}. Regeneration of this unit will likely cascade to multiple scenes.`,
-            recommended_action: `Run simulate_narrative_impact with axis_keys=["${unit.unit_type}"] before regenerating`,
-            repairability:      "guided",
-            created_at:         nowIso,
+        // Step 1: group by axis (unit_type = SpineAxis)
+        const axisGroupMap = new Map<string, { axis: string; unitKeys: string[]; statuses: string[] }>();
+        for (const unit of staleUnits) {
+          const axis = unit.unit_type;
+          if (!axisGroupMap.has(axis)) {
+            axisGroupMap.set(axis, { axis, unitKeys: [], statuses: [] });
+          }
+          const g = axisGroupMap.get(axis)!;
+          g.unitKeys.push(unit.unit_key);
+          if (!g.statuses.includes(unit.status)) g.statuses.push(unit.status);
+        }
+
+        if (axisGroupMap.size > 0) {
+          // Step 2: sort by UNIT_BLAST_WEIGHT desc, assign simulation slots
+          const sortedAxes = [...axisGroupMap.values()].sort((a, b) => {
+            const wa = UNIT_BLAST_WEIGHT[a.axis] ?? 0;
+            const wb = UNIT_BLAST_WEIGHT[b.axis] ?? 0;
+            return wb - wa; // descending
           });
+
+          for (let i = 0; i < sortedAxes.length; i++) {
+            const group = sortedAxes[i];
+            const { axis, unitKeys, statuses } = group;
+            const blastWeight = UNIT_BLAST_WEIGHT[axis] ?? 0;
+            const primaryStatus = statuses.includes("contradicted") ? "contradicted" : (statuses[0] ?? "stale");
+            const diagId = dxStableId([projectId, "simulation_engine", "blast_risk", axis]);
+
+            if (i < SIM_CALL_CAP) {
+              // ── Real SIM2-backed diagnostic ──────────────────────────────
+              let plan: Awaited<ReturnType<typeof computeSelectiveRegenerationPlanHelper>> | null = null;
+              let simError: string | null = null;
+
+              try {
+                plan = await computeSelectiveRegenerationPlanHelper(
+                  supabase, projectId, unitKeys, "balanced", true /* simulationMode */
+                );
+              } catch (simErr: any) {
+                simError = simErr?.message ?? "unknown simulation error";
+              }
+
+              if (simError || !plan) {
+                // Fallback: heuristic on simulation error
+                if (blastWeight < 2) continue;
+                const sev: NarrativeDiagnostic["severity"] = blastWeight >= 3 ? "high" : "warning";
+                diagnostics.push({
+                  diagnostic_id:      diagId,
+                  project_id:         projectId,
+                  source_system:      "simulation_engine",
+                  diagnostic_type:    "simulation_risk",
+                  severity:           sev,
+                  scope_level:        "axis",
+                  scope_key:          axis,
+                  affected_axes:      [axis],
+                  affected_units:     unitKeys,
+                  affected_entities:  [], affected_beats: [], affected_relations: [],
+                  summary:            `High blast-radius axis '${axis}' is ${primaryStatus} — downstream scene risk`,
+                  details:            `unit_type '${axis}' has blast_weight=${blastWeight}. Live simulation unavailable — heuristic estimate used. Error: ${simError ?? "plan unavailable"}`,
+                  recommended_action: `Run simulate_narrative_impact with axis_keys=["${axis}"] before regenerating`,
+                  repairability:      "guided",
+                  created_at:         nowIso,
+                });
+                continue;
+              }
+
+              // Compute SIM2 interpretation fields
+              const totalScenes = plan.impacted_scene_count + plan.entity_impacted_scene_count;
+              const structuralUncertainty = plan.recommended_scope === "no_scene_links";
+              const impactBand = deriveImpactBand(totalScenes, plan.recommended_scope);
+              const blastRadiusScore = deriveBlastRadius(
+                axis,
+                plan.direct_scene_count,
+                plan.propagated_scene_count,
+                plan.entity_impacted_scene_count,
+              );
+              const simConfidence = structuralUncertainty ? 40 : plan.source_units.length > 0 ? 85 : 70;
+              const propagatedAxes = plan.propagated_axes ?? [];
+              const allAffectedAxes = [axis, ...propagatedAxes.filter((a: string) => a !== axis)];
+
+              // Suppression rule: confirmed no-impact with full confidence
+              if (impactBand === "none" && !structuralUncertainty) {
+                continue; // Real simulation confirms no blast — no diagnostic emitted
+              }
+
+              const sev = impactBandToSeverity(impactBand, structuralUncertainty);
+              const structUncertaintyNote = structuralUncertainty
+                ? ` structural_uncertainty: true — no scene_spine_links found; install scene enrichment for precise simulation.`
+                : "";
+
+              diagnostics.push({
+                diagnostic_id:      diagId,
+                project_id:         projectId,
+                source_system:      "simulation_engine",
+                diagnostic_type:    "simulation_risk",
+                severity:           sev,
+                scope_level:        "axis",
+                scope_key:          axis,
+                affected_axes:      allAffectedAxes,
+                affected_units:     unitKeys,
+                affected_entities:  [], affected_beats: [], affected_relations: [],
+                summary:            `'${axis}' is ${primaryStatus} — simulation: ${totalScenes} scene${totalScenes !== 1 ? "s" : ""} affected (${impactBand} blast)`,
+                details:            `blast_radius_score=${blastRadiusScore}, impact_band=${impactBand}, direct=${plan.direct_scene_count} scenes, propagated=${plan.propagated_scene_count} scenes, affected_axes=${allAffectedAxes.length} (${allAffectedAxes.join(", ")}), simulation_confidence=${simConfidence}%.${structUncertaintyNote}`,
+                recommended_action: `Repair or verify '${axis}' before regenerating — ${totalScenes} scene${totalScenes !== 1 ? "s" : ""} at risk. Affected axes: [${allAffectedAxes.join(", ")}]`,
+                repairability:      "guided",
+                created_at:         nowIso,
+              });
+
+            } else {
+              // ── Heuristic fallback for axes beyond SIM_CALL_CAP ──────────
+              if (blastWeight < 2) continue; // skip low-blast axes (tonal_gravity etc.)
+              const sev: NarrativeDiagnostic["severity"] = blastWeight >= 3 ? "high" : "warning";
+              diagnostics.push({
+                diagnostic_id:      diagId,
+                project_id:         projectId,
+                source_system:      "simulation_engine",
+                diagnostic_type:    "simulation_risk",
+                severity:           sev,
+                scope_level:        "axis",
+                scope_key:          axis,
+                affected_axes:      [axis],
+                affected_units:     unitKeys,
+                affected_entities:  [], affected_beats: [], affected_relations: [],
+                summary:            `High blast-radius axis '${axis}' is ${primaryStatus} — downstream scene risk`,
+                details:            `unit_type '${axis}' has blast_weight=${blastWeight}. Simulation cap reached — heuristic estimate used; run simulate_narrative_impact for precision`,
+                recommended_action: `Run simulate_narrative_impact for axis '${axis}' to get precise blast-radius impact before regenerating`,
+                repairability:      "guided",
+                created_at:         nowIso,
+              });
+            }
+          }
         }
       } catch (e: any) {
         emitSubsystemUnavailable("simulation_engine", e?.message ?? "unknown");
