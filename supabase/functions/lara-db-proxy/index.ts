@@ -1348,6 +1348,8 @@ Deno.serve(async (req) => {
           "compare_dev_seed_v2",
           "create_dev_seed_v2",
           "create_derived_dev_seed_v2",
+          "update_dev_seed_v2",
+          "sync_dev_seed_v2_to_canon",
         ]);
         const { action: relayAction, payload: relayPayload = {} } = params;
         if (!ALLOWED_RELAY_ACTIONS.has(relayAction)) {
