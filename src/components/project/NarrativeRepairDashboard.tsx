@@ -18,6 +18,7 @@ import { AutopilotRepairPanel } from '@/components/project/AutopilotRepairPanel'
 import { NarrativeSimulationPanel } from '@/components/project/NarrativeSimulationPanel';
 import { NarrativeEssenceDriftPanel } from '@/components/project/NarrativeEssenceDriftPanel';
 import { NarrativeDiagnosticsPanel } from '@/components/narrative/NarrativeDiagnosticsPanel';
+import { NarrativeRepairQueuePanel } from '@/components/project/NarrativeRepairQueuePanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
