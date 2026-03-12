@@ -73,6 +73,9 @@ interface ActionToolbarProps {
   format?: string | null;
   /** Project assigned lane — gates conversions */
   assignedLane?: string | null;
+  /** Generate document on demand */
+  onGenerateDocument?: () => void;
+  generateDocumentPending?: boolean;
 }
 
 export function ActionToolbar({
