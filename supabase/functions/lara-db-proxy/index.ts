@@ -1714,6 +1714,21 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "patch_project": {
+        // Update specific fields on the projects table (Lara-internal use only).
+        // Allowed fields: season_episode_count, guardrails_config
+        const { project_id: ppId, season_episode_count: ppEpCount, guardrails_config: ppGc } = params;
+        if (!ppId) throw new Error("patch_project requires project_id");
+        const patch: Record<string, any> = {};
+        if (ppEpCount != null) patch.season_episode_count = ppEpCount;
+        if (ppGc != null) patch.guardrails_config = ppGc;
+        if (Object.keys(patch).length === 0) throw new Error("patch_project: no fields to update");
+        const { error: ppErr } = await supabase.from("projects").update(patch).eq("id", ppId);
+        if (ppErr) throw ppErr;
+        result = { updated: true, fields: Object.keys(patch) };
+        break;
+      }
+
       case "call_generate_document": {
         // Trigger generate-document for a specific doc_type on a project.
         // Used by Lara for direct regeneration without requiring a user JWT.

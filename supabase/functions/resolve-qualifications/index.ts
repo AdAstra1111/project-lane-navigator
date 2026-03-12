@@ -262,20 +262,42 @@ Deno.serve(async (req) => {
 
     const gc = project.guardrails_config || {};
 
+    // ── Read project_criteria: highest priority for episode count and duration overrides ──
+    // The criteria form saves to project_criteria, but this resolver previously only read
+    // from projects.season_episode_count and guardrails_config. This merge ensures
+    // criteria-set values win over format defaults.
+    let criteriaOverrides: Record<string, any> = {};
+    try {
+      const { data: criteriaRow } = await supabase
+        .from("project_criteria")
+        .select("season_episode_count, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds")
+        .eq("project_id", projectId)
+        .maybeSingle();
+      if (criteriaRow) {
+        if (criteriaRow.season_episode_count != null) criteriaOverrides.season_episode_count = criteriaRow.season_episode_count;
+        if (criteriaRow.episode_target_duration_seconds != null) criteriaOverrides.episode_target_duration_seconds = criteriaRow.episode_target_duration_seconds;
+        if (criteriaRow.episode_target_duration_min_seconds != null) criteriaOverrides.episode_target_duration_min_seconds = criteriaRow.episode_target_duration_min_seconds;
+        if (criteriaRow.episode_target_duration_max_seconds != null) criteriaOverrides.episode_target_duration_max_seconds = criteriaRow.episode_target_duration_max_seconds;
+        console.log("[resolve-qualifications] project_criteria override", { projectId, criteriaOverrides });
+      }
+    } catch (e: any) {
+      console.warn("[resolve-qualifications] project_criteria lookup failed (non-fatal)", e?.message);
+    }
+
     // Build input for resolver
     const resolverInput = {
       project_id: projectId,
       format_subtype: normalizeFormat(project.format || "film"),
       project_qualification_fields: {
-        episode_target_duration_seconds: project.episode_target_duration_seconds,
-        episode_target_duration_min_seconds: (project as any).episode_target_duration_min_seconds,
-        episode_target_duration_max_seconds: (project as any).episode_target_duration_max_seconds,
-        season_episode_count: project.season_episode_count,
+        episode_target_duration_seconds: criteriaOverrides.episode_target_duration_seconds ?? project.episode_target_duration_seconds,
+        episode_target_duration_min_seconds: criteriaOverrides.episode_target_duration_min_seconds ?? (project as any).episode_target_duration_min_seconds,
+        episode_target_duration_max_seconds: criteriaOverrides.episode_target_duration_max_seconds ?? (project as any).episode_target_duration_max_seconds,
+        season_episode_count: criteriaOverrides.season_episode_count ?? project.season_episode_count,
         format: project.format,
       },
       guardrails_config: gc,
       overrides: {
-        qualifications: gc?.overrides?.qualifications || {},
+        qualifications: { ...(gc?.overrides?.qualifications || {}), ...criteriaOverrides },
       },
     };
 
