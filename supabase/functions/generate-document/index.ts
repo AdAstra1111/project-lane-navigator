@@ -961,12 +961,14 @@ If you find yourself describing what happens in the story, which characters appe
           epDocRecord = newEpDoc;
         }
 
-        // 2. Guard: if a 'generating' version was created <30 min ago, return it — don't start a second task
+        // 2. Guard: if a generation is ACTIVELY IN PROGRESS (<30 min ago, bg_generating=true), return it.
+        //    IMPORTANT: only match bg_generating=true — NOT failed/completed versions (bg_generating=false).
+        //    A failed version has bg_generating set to false (not null), and must NOT block a fresh retry.
         const { data: inProgressVer } = await supabase.from("project_document_versions")
-          .select("id, version_number, created_at")
+          .select("id, version_number, created_at, meta_json")
           .eq("document_id", epDocRecord!.id)
           .eq("status", "draft")
-          .not("meta_json->bg_generating", "is", "null")
+          .eq("meta_json->>bg_generating", "true")   // Only truly-in-progress versions
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -985,8 +987,8 @@ If you find yourself describing what happens in the story, which characters appe
               message: "Episode beats generation already in progress — poll for completion",
             }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
-          // Stale (>30 min) — fall through and start a fresh generation
-          console.log(`[generate-document] Stale generating version found for ${docType} (age ${Math.round(ageMs/60000)} min) — starting fresh generation`);
+          // Stale active flag (>30 min) — clear and start fresh
+          console.log(`[generate-document] Stale bg_generating=true version found for ${docType} (age ${Math.round(ageMs/60000)} min) — clearing and starting fresh generation`);
           await supabase.from("project_document_versions")
             .update({ status: "draft", is_current: false, meta_json: { bg_generating: false, bg_stale: true } })
             .eq("id", inProgressVer.id);
