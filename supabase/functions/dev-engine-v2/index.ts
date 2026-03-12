@@ -10299,6 +10299,118 @@ Return ONLY valid JSON:
         }));
       }
 
+      // ── Step 8b: Build Layer 7 — Beat Seeds ───────────────────────────
+      //
+      // Deterministic extraction from structured signals — no LLM.
+      // Sources (priority order per beat):
+      //   1. narrative_units (unit_statement / failure_mode)
+      //   2. narrative_spine_json axis values
+      //   3. project_canon.canon_json (premise, world_rules)
+      //
+      // Each beat only inserted when source signal is non-null.
+      // unit lookup helper: finds first unit by unit_type in the `units` array
+      const findUnit = (type: string) => units.find((u: any) => u.unit_type === type);
+
+      const beats: any[] = [];
+
+      // ── Beat 1: opening_state ──────────────────────────────────────────
+      // Source: story_engine spine axis → opening condition of the story world
+      // Fallback: canon_json.premise (first 300 chars)
+      const openingDesc = (spineJson as any)?.story_engine
+        ?? (typeof canonJson?.premise === "string" ? (canonJson.premise as string).slice(0, 300) : null);
+      if (openingDesc) {
+        beats.push({
+          beat_key:                 "opening_state",
+          beat_description:         String(openingDesc).slice(0, 500),
+          narrative_axis_reference: "story_engine",
+          expected_turn:            "act_one_open",
+        });
+      }
+
+      // ── Beat 2: inciting_event_seed ────────────────────────────────────
+      // Source: inciting_incident unit statement → spine inciting_incident axis
+      const incitingUnit = findUnit("inciting_incident");
+      const incitingDesc = incitingUnit?.unit_statement
+        ?? (spineJson as any)?.inciting_incident ?? null;
+      if (incitingDesc) {
+        beats.push({
+          beat_key:                 "inciting_event_seed",
+          beat_description:         String(incitingDesc).slice(0, 500),
+          narrative_axis_reference: "inciting_incident",
+          expected_turn:            "act_one",
+        });
+      }
+
+      // ── Beat 3: first_escalation ───────────────────────────────────────
+      // Source: pressure_system unit → spine pressure_system axis
+      const escalUnit = findUnit("pressure_system");
+      const escalDesc = escalUnit?.unit_statement
+        ?? (spineJson as any)?.pressure_system ?? null;
+      if (escalDesc) {
+        beats.push({
+          beat_key:                 "first_escalation",
+          beat_description:         String(escalDesc).slice(0, 500),
+          narrative_axis_reference: "pressure_system",
+          expected_turn:            "act_two_a",
+        });
+      }
+
+      // ── Beat 4: midpoint_type ──────────────────────────────────────────
+      // Source: spine midpoint_reversal (preferred — most explicit) → unit
+      const midDesc = (spineJson as any)?.midpoint_reversal
+        ?? findUnit("midpoint_reversal")?.unit_statement ?? null;
+      if (midDesc) {
+        beats.push({
+          beat_key:                 "midpoint_type",
+          beat_description:         String(midDesc).slice(0, 500),
+          narrative_axis_reference: "midpoint_reversal",
+          expected_turn:            "act_two_mid",
+        });
+      }
+
+      // ── Beat 5: crisis_shape ───────────────────────────────────────────
+      // Source: stakes_class unit failure_mode (most diagnostic) → unit_statement → spine
+      const stakeUnit = findUnit("stakes_class");
+      const crisisDesc = stakeUnit?.failure_mode
+        ?? stakeUnit?.unit_statement
+        ?? (spineJson as any)?.stakes_class ?? null;
+      if (crisisDesc) {
+        beats.push({
+          beat_key:                 "crisis_shape",
+          beat_description:         String(crisisDesc).slice(0, 500),
+          narrative_axis_reference: "stakes_class",
+          expected_turn:            "act_two_b",
+        });
+      }
+
+      // ── Beat 6: climax_promise ─────────────────────────────────────────
+      // Source: resolution_type spine axis → unit → central_conflict unit
+      const climaxDesc = (spineJson as any)?.resolution_type
+        ?? findUnit("resolution_type")?.unit_statement
+        ?? findUnit("central_conflict")?.unit_statement ?? null;
+      if (climaxDesc) {
+        beats.push({
+          beat_key:                 "climax_promise",
+          beat_description:         String(climaxDesc).slice(0, 500),
+          narrative_axis_reference: "resolution_type",
+          expected_turn:            "act_three",
+        });
+      }
+
+      // ── Beat 7: ending_condition ───────────────────────────────────────
+      // Source: tonal_gravity spine axis → last world_rule from canon_json
+      const endingFromRules = Array.isArray(canonJson?.world_rules) && canonJson.world_rules.length > 0
+        ? (canonJson.world_rules as string[])[canonJson.world_rules.length - 1] : null;
+      const endingDesc = (spineJson as any)?.tonal_gravity ?? endingFromRules ?? null;
+      if (endingDesc) {
+        beats.push({
+          beat_key:                 "ending_condition",
+          beat_description:         String(endingDesc).slice(0, 500),
+          narrative_axis_reference: "tonal_gravity",
+          expected_turn:            "act_three_close",
+        });
+      }
+
       // ── Step 9: Build Layer 8 — Generation Intent ──────────────────────
       // Derive projection_targets from project format
       const FORMAT_PROJECTION_TARGETS: Record<string, string[]> = {
@@ -10344,11 +10456,12 @@ Return ONLY valid JSON:
           ...layer1,
           ...(layer2 ? { premise: layer2 } : {}),
           axes,
-          units:           fixedUnits,
-          entities:        entityList,
+          units:            fixedUnits,
+          entities:         entityList,
           entity_relations: relationList,
-          canon_rules:     canonRules,
-          generation_intent: genIntent,
+          canon_rules:      canonRules,
+          beats,               // Layer 7 — DS2H derived beat skeleton
+          generation_intent:   genIntent,
         };
 
         const { error: rpcErr } = await (supabase as any)
@@ -10368,6 +10481,7 @@ Return ONLY valid JSON:
           entities_count:    entityList.length,
           relations_count:   relationList.length,
           rules_count:       canonRules.length,
+          beats_count:       beats.length,
         });
 
         return new Response(JSON.stringify({
@@ -10392,7 +10506,7 @@ Return ONLY valid JSON:
             layer_5_entities:           entityList.length,
             layer_5_entity_relations:   relationList.length,
             layer_6_canon_rules:        canonRules.length,
-            layer_7_beats:              0,  // requires LLM — not derived mechanically
+            layer_7_beats:              beats.length,
             layer_8_generation_intent:  1,
           },
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
