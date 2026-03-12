@@ -36,15 +36,6 @@ const FILTER_OPTIONS = ['all', ...SEVERITY_ORDER] as const;
 export function NarrativeDiagnosticsPanel({ projectId }: Props) {
   const { data, isLoading, error, refresh } = useNarrativeDiagnostics(projectId);
   const [filter, setFilter] = useState<string>('all');
-  const [hasLoaded, setHasLoaded] = useState(false);
-
-  // Auto-load on mount
-  useEffect(() => {
-    if (!hasLoaded && projectId && !isLoading && !data && !error) {
-      setHasLoaded(true);
-      refresh();
-    }
-  }, [hasLoaded, projectId, isLoading, data, error, refresh]);
 
   // Loading state
   if (isLoading && !data) {
