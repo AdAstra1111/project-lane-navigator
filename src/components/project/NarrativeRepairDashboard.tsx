@@ -193,6 +193,9 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
           {/* Simulation Preview */}
           <NarrativeSimulationPanel projectId={projectId} />
 
+          {/* Narrative Drift */}
+          <NarrativeEssenceDriftPanel projectId={projectId} authoredSeedId={authoredSeedId} derivedSeedId={derivedSeedId} />
+
           <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-3">
             <ShieldCheck className="h-4 w-4 text-emerald-500" />
             <span className="text-sm text-muted-foreground">
