@@ -11547,26 +11547,36 @@ Return ONLY valid JSON:
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── Diagnostic type → repair type mapping ─────────────────────────────
+      // ── Diagnostic type → repair plan descriptor mapping ──────────────────
       // Deterministic. All unknown diagnostic_types are skipped (fail-closed).
-      const DIAGNOSTIC_TO_REPAIR: Record<string, string> = {
+      // repair_type: canonical repair pathway identifier
+      // repairability: auto | guided | manual | investigatory | unknown
+      //
+      // Skip rule: repairability=unknown → no plan generated
+      // Skip rule: diagnostic_type not in map → no plan (explicit fail-closed)
+      const DIAGNOSTIC_TO_REPAIR: Record<string, {
+        repair_type:   string;
+        repairability: string;
+      }> = {
         // obligation_validator findings
-        obligation_violated:        "repair_relation_graph",
-        obligation_unresolved:      "repair_relation_graph",
-        obligation_registry_empty:  "build_obligation_registry",
-        // soul_drift findings
-        soul_drift_summary:         "repair_seed_sync",
-        premise_drift:              "repair_seed_sync",
-        beat_structure_changed:     "repair_seed_sync",
-        theme_vector_loss:          "repair_seed_sync",
-        emotional_promise_shift:    "repair_seed_sync",
-        relationship_core_missing:  "repair_relation_graph",
+        // violated = relationship/arc has been removed → fix the relation graph
+        // unresolved = structural beat/condition not yet fulfilled → fix the beats
+        obligation_violated:        { repair_type: "repair_relation_graph",        repairability: "guided" },
+        obligation_unresolved:      { repair_type: "repair_structural_beats",       repairability: "guided" },
+        obligation_registry_empty:  { repair_type: "build_obligation_registry",     repairability: "auto"   },
+        // soul_drift findings — all map to seed alignment repair
+        soul_drift_summary:         { repair_type: "repair_seed_alignment",         repairability: "guided" },
+        premise_drift:              { repair_type: "repair_seed_alignment",         repairability: "guided" },
+        beat_structure_changed:     { repair_type: "repair_seed_alignment",         repairability: "guided" },
+        theme_vector_loss:          { repair_type: "repair_seed_alignment",         repairability: "guided" },
+        emotional_promise_shift:    { repair_type: "repair_seed_alignment",         repairability: "guided" },
+        relationship_core_missing:  { repair_type: "repair_relation_graph",         repairability: "guided" },
         // narrative_monitor findings
-        unit_stale:                 "regenerate_units",
-        // simulation_engine findings
-        simulation_risk:            "run_simulation",
+        unit_stale:                 { repair_type: "refresh_runtime_alignment",     repairability: "auto"   },
+        // simulation_engine findings — advisory only, no auto-fix possible
+        simulation_risk:            { repair_type: "investigate_simulation_impact", repairability: "investigatory" },
         // diagnostics_layer findings
-        subsystem_unavailable:      "check_subsystem",
+        subsystem_unavailable:      { repair_type: "inspect_subsystem",             repairability: "manual" },
       };
 
       // ── Step 1: Fetch diagnostics via internal self-call ───────────────────
@@ -11614,6 +11624,8 @@ Return ONLY valid JSON:
       const plansToInsert: Array<{
         project_id:           string;
         source_diagnostic_id: string;
+        source_system:        string;
+        diagnostic_type:      string;
         repair_type:          string;
         scope_type:           string;
         scope_key:            string | null;
@@ -11621,26 +11633,34 @@ Return ONLY valid JSON:
         priority_score:       number;
         repairability:        string;
         status:               string;
+        summary:              string;
+        recommended_action:   string | null;
         created_at:           string;
       }> = [];
 
       for (const dx of diagnosticsForPlanning) {
-        // Skip rule (a): unknown repairability
+        // Skip rule (a): diagnostic-level repairability=unknown — cannot plan
         if (dx.repairability === "unknown") continue;
-        // Skip rule (b): no repair path mapped
-        const repairType = DIAGNOSTIC_TO_REPAIR[dx.diagnostic_type];
-        if (!repairType) continue;
+        // Skip rule (b): no repair pathway mapped for this diagnostic_type
+        const descriptor = DIAGNOSTIC_TO_REPAIR[dx.diagnostic_type];
+        if (!descriptor) continue;
 
         plansToInsert.push({
           project_id:           projectId,
           source_diagnostic_id: dx.diagnostic_id,
-          repair_type:          repairType,
+          source_system:        dx.source_system,
+          diagnostic_type:      dx.diagnostic_type,
+          repair_type:          descriptor.repair_type,
           scope_type:           dx.scope_level ?? "project",
           scope_key:            dx.scope_key ?? null,
-          strategy:             dx.repairability,   // auto|guided|manual
+          // strategy mirrors the plan's repairability — the execution layer
+          // uses this to determine automated vs human-guided approach
+          strategy:             descriptor.repairability,
           priority_score:       dx.priority_score ?? 0,
-          repairability:        dx.repairability,
+          repairability:        descriptor.repairability,
           status:               "pending",
+          summary:              dx.summary,
+          recommended_action:   dx.recommended_action ?? null,
           created_at:           nowIso,
         });
       }

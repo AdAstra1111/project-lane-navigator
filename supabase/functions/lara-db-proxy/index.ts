@@ -643,6 +643,24 @@ Deno.serve(async (req) => {
             $$;
           `,
 
+          "narrative_repairs_v2": `
+            ALTER TABLE public.narrative_repairs
+              ADD COLUMN IF NOT EXISTS source_system      TEXT,
+              ADD COLUMN IF NOT EXISTS diagnostic_type    TEXT,
+              ADD COLUMN IF NOT EXISTS summary            TEXT,
+              ADD COLUMN IF NOT EXISTS recommended_action TEXT;
+            ALTER TABLE public.narrative_repairs
+              DROP CONSTRAINT IF EXISTS narrative_repairs_status_check;
+            ALTER TABLE public.narrative_repairs
+              ADD CONSTRAINT narrative_repairs_status_check
+              CHECK (status IN ('pending','planned','approved','queued','in_progress','completed','failed','skipped','dismissed'));
+            ALTER TABLE public.narrative_repairs
+              DROP CONSTRAINT IF EXISTS narrative_repairs_repairability_check;
+            ALTER TABLE public.narrative_repairs
+              ADD CONSTRAINT narrative_repairs_repairability_check
+              CHECK (repairability IN ('auto','guided','manual','investigatory','unknown'));
+          `,
+
           "rp1_delete_obligations_obsidian_mirror": `
             -- VALIDATION-ONLY: remove narrative_obligations for Obsidian Mirror to
             -- force obligation_registry_empty diagnostic in RP1 validation (C2–C5).
