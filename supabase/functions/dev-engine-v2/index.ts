@@ -2893,6 +2893,7 @@ serve(async (req) => {
       "get_story_intelligence",
       "get_narrative_stability",
       "simulate_narrative_patch",
+      "project_narrative_stability",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
