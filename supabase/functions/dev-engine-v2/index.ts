@@ -11062,6 +11062,14 @@ Return ONLY valid JSON:
         load_class?:        string;             // CORE | primary | supporting | decorative
         priority_score?:    number;             // deterministic sort key (higher = earlier)
         created_at:         string;
+        // DX3 additive convergence fields — safe to ignore if UI doesn't consume them
+        repair_id?:         string | null;      // linked narrative_repairs.repair_id
+        repair_status?:     string | null;      // current repair status
+        proposal_status?:   string | null;      // narrative_patch_proposals.status (patchable only)
+        resolution_state?:  string;             // open|awaiting_approval|awaiting_proposal|proposal_ready|
+                                                // queued|in_progress|under_investigation|
+                                                // resolved|failed|blocked|dismissed
+        blocked_reason?:    string;             // populated when resolution_state=blocked or failed
       }
 
       // Stable content-hash diagnostic ID (deterministic for identical inputs)
@@ -11502,14 +11510,139 @@ Return ONLY valid JSON:
         return (SCOPE_ORDER[a.scope_level] ?? 9) - (SCOPE_ORDER[b.scope_level] ?? 9);
       });
 
-      // DX2 summary by source system
-      const bySource: Record<string, number> = {};
-      for (const dx of diagnostics) {
-        bySource[dx.source_system] = (bySource[dx.source_system] ?? 0) + 1;
+      // ── DX3: Repair + Proposal convergence enrichment ─────────────────────
+      //
+      // After sort, batch-fetch repair and proposal state for all diagnostics.
+      // Adds 2 queries (both non-fatal). Zero schema changes.
+      // Additive fields only — no existing fields overwritten.
+      //
+      // New fields per diagnostic:
+      //   repair_id?       — linked narrative_repairs.repair_id
+      //   repair_status?   — current repair status
+      //   proposal_status? — narrative_patch_proposals.status (patchable repairs only)
+      //   resolution_state — computed convergence label (see values below)
+      //   blocked_reason?  — human-readable reason when state=blocked or failed
+      //
+      // resolution_state values:
+      //   open | awaiting_approval | awaiting_proposal | proposal_ready |
+      //   queued | in_progress | under_investigation | resolved | failed |
+      //   blocked | dismissed
+
+      const DX3_PATCHABLE = new Set(["repair_relation_graph", "repair_structural_beats"]);
+
+      const DX3_ACTION_BY_STATE: Record<string, string> = {
+        awaiting_proposal:   "Generate a patch proposal in the Repair Queue",
+        proposal_ready:      "Review and apply the patch proposal in the Repair Queue",
+        awaiting_approval:   "Approve & execute the repair in the Repair Queue",
+        queued:              "Execute the repair in the Repair Queue",
+        in_progress:         "Repair is in progress",
+        under_investigation: "Investigation in progress — check simulation results",
+        resolved:            "Issue resolved",
+        dismissed:           "Previously dismissed",
+        failed:              "Repair failed — review and retry or regenerate proposal",
+      };
+
+      function computeResolutionState(
+        repair: any | null,
+        proposal: any | null
+      ): { resolution_state: string; blocked_reason?: string } {
+        if (!repair) return { resolution_state: "open" };
+        const { status, repair_type, repairability, skipped_reason } = repair;
+        const isPatchable = DX3_PATCHABLE.has(repair_type);
+
+        if (status === "completed")  return { resolution_state: "resolved" };
+        if (status === "dismissed")  return { resolution_state: "dismissed" };
+        if (status === "failed")     return { resolution_state: "failed",  blocked_reason: skipped_reason ?? "Repair attempt did not resolve the diagnostic" };
+        if (status === "skipped")    return { resolution_state: "blocked", blocked_reason: skipped_reason ?? "Repair skipped — manual review required" };
+        if (["planned","approved","queued","in_progress"].includes(status)) return { resolution_state: "in_progress" };
+
+        if (status === "pending") {
+          if (isPatchable) {
+            if (!proposal || !proposal.status)              return { resolution_state: "awaiting_proposal" };
+            if (proposal.status === "proposed")             return { resolution_state: "proposal_ready" };
+            if (proposal.status === "stale")                return { resolution_state: "blocked",  blocked_reason: "Proposal is stale — regenerate before applying" };
+            if (proposal.status === "rejected")             return { resolution_state: "blocked",  blocked_reason: "Proposal was rejected — regenerate required" };
+            if (proposal.status === "applied")              return { resolution_state: "resolved" };
+            return { resolution_state: "awaiting_proposal" };
+          }
+          if (repairability === "guided")        return { resolution_state: "awaiting_approval" };
+          if (repairability === "auto")          return { resolution_state: "queued" };
+          if (repairability === "investigatory") return { resolution_state: "under_investigation" };
+          if (repairability === "manual")        return { resolution_state: "blocked", blocked_reason: "Manual resolution required" };
+        }
+        return { resolution_state: "open" };
       }
 
-      console.log("[dev-engine-v2] get_narrative_diagnostics DX2", {
-        project_id: projectId, total: diagnostics.length, by_source: bySource,
+      // ── DX3 Query 1: batch repair lookup ───────────────────────────────────
+      const repairByDxId   = new Map<string, any>();
+      const dx3RepairIds:  string[] = [];
+      const dxIds = diagnostics.map((d: any) => d.diagnostic_id);
+
+      if (dxIds.length > 0) {
+        try {
+          const { data: repairRows } = await (supabase as any)
+            .from("narrative_repairs")
+            .select("repair_id, source_diagnostic_id, status, repair_type, repairability, skipped_reason, executed_at")
+            .eq("project_id", projectId)
+            .in("source_diagnostic_id", dxIds);
+          for (const r of (repairRows ?? []) as any[]) {
+            repairByDxId.set(r.source_diagnostic_id, r);
+            dx3RepairIds.push(r.repair_id);
+          }
+        } catch (_) {
+          // Non-fatal — resolution_state degrades to "open" for all diagnostics
+        }
+      }
+
+      // ── DX3 Query 2: batch proposal lookup ────────────────────────────────
+      const proposalByRepairId = new Map<string, any>();
+      if (dx3RepairIds.length > 0) {
+        try {
+          const { data: proposalRows } = await (supabase as any)
+            .from("narrative_patch_proposals")
+            .select("repair_id, status, created_at, applied_at")
+            .in("repair_id", dx3RepairIds);
+          for (const p of (proposalRows ?? []) as any[]) {
+            proposalByRepairId.set(p.repair_id, p);
+          }
+        } catch (_) {
+          // Non-fatal
+        }
+      }
+
+      // ── DX3 Enrichment loop ────────────────────────────────────────────────
+      for (const dx of diagnostics as any[]) {
+        const repair   = repairByDxId.get(dx.diagnostic_id)            ?? null;
+        const proposal = repair ? (proposalByRepairId.get(repair.repair_id) ?? null) : null;
+        const { resolution_state, blocked_reason } = computeResolutionState(repair, proposal);
+
+        // Additive convergence fields
+        dx.repair_id       = repair?.repair_id    ?? null;
+        dx.repair_status   = repair?.status       ?? null;
+        dx.proposal_status = proposal?.status     ?? null;
+        dx.resolution_state = resolution_state;
+        if (blocked_reason) dx.blocked_reason = blocked_reason;
+
+        // Normalize recommended_action to reflect actual next OS step
+        const actionOverride = DX3_ACTION_BY_STATE[resolution_state];
+        if (actionOverride) {
+          dx.recommended_action = blocked_reason
+            ? `${blocked_reason} — ${actionOverride.toLowerCase()}`
+            : actionOverride;
+        }
+      }
+
+      // DX2+DX3 summary by source system
+      const bySource: Record<string, number> = {};
+      for (const dx of diagnostics) {
+        bySource[(dx as any).source_system] = (bySource[(dx as any).source_system] ?? 0) + 1;
+      }
+
+      console.log("[dev-engine-v2] get_narrative_diagnostics DX3", {
+        project_id: projectId, total: diagnostics.length,
+        by_source: bySource,
+        repairs_linked: dx3RepairIds.length,
+        proposals_linked: proposalByRepairId.size,
       });
 
       return new Response(JSON.stringify({
