@@ -84,6 +84,7 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
   const simulateHook = useSimulateNarrativePatch(projectId);
   const repairOrder = useRecommendedRepairOrder(projectId);
   const repairPaths = useRecommendedRepairPaths(projectId);
+  const evaluatedPaths = useEvaluatedRepairPaths(projectId);
   const lastPlanRefreshRef = useRef<number>(0);
 
   // Auto plan on mount with TTL guard
