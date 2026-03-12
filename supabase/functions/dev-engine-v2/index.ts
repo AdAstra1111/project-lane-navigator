@@ -4782,14 +4782,24 @@ MATERIAL TO REWRITE:\n${fullText}`;
           status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      let rewrittenText = parsed.rewritten_text || "";
+      // Guard: rewritten_text must be a string. If the model returned a nested object
+      // (e.g. { rewritten_text: { CONCEPT_BRIEF: {...} } }), coerce or unwrap it.
+      let rewrittenTextRaw = parsed.rewritten_text;
+      if (rewrittenTextRaw !== null && rewrittenTextRaw !== undefined && typeof rewrittenTextRaw !== "string") {
+        // Model returned an object — JSON-stringify it as a recoverable fallback,
+        // then let the unwrap guard below attempt to extract a string from it.
+        rewrittenTextRaw = JSON.stringify(rewrittenTextRaw);
+      }
+      let rewrittenText: string = (typeof rewrittenTextRaw === "string" ? rewrittenTextRaw : "") ||
+        (typeof parsed.converted_text === "string" ? parsed.converted_text : "") ||
+        (typeof parsed.text === "string" ? parsed.text : "");
       // Guard: if the model double-wrapped (rewritten_text is itself a JSON blob / code fence), unwrap it
       if (rewrittenText.trim().startsWith("```") || rewrittenText.trim().startsWith("{")) {
         try {
           const inner = JSON.parse(extractJSON(rewrittenText));
-          if (inner?.rewritten_text) rewrittenText = inner.rewritten_text;
-          else if (inner?.converted_text) rewrittenText = inner.converted_text;
-          else if (inner?.text) rewrittenText = inner.text;
+          if (inner?.rewritten_text && typeof inner.rewritten_text === "string") rewrittenText = inner.rewritten_text;
+          else if (inner?.converted_text && typeof inner.converted_text === "string") rewrittenText = inner.converted_text;
+          else if (inner?.text && typeof inner.text === "string") rewrittenText = inner.text;
         } catch { /* not JSON — leave as-is */ }
       }
 
