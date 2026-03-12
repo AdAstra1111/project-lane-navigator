@@ -1693,6 +1693,7 @@ Deno.serve(async (req) => {
           "recommend_repair_order",
           "recommend_repair_paths",
           "evaluate_repair_paths",
+          "forecast_repair_pressure",
           "get_dev_seed_v2",
           "compare_dev_seed_v2",
           "create_dev_seed_v2",
