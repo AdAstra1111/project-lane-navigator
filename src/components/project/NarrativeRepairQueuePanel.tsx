@@ -252,7 +252,7 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
           <CollapsibleSection title={`Other (system-managed) · ${reserved.length}`} defaultOpen={false}>
             <div className="space-y-2">
               {reserved.map(r => (
-                <RepairCard key={r.repair_id} repair={r} projectId={projectId} onExecute={handleExecute} isExecuting={false} execResult={null} noActions generateHook={generateHook} applyHook={applyHook} />
+                <RepairCard key={r.repair_id} repair={r} projectId={projectId} onExecute={handleExecute} isExecuting={false} execResult={null} noActions generateHook={generateHook} applyHook={applyHook} simulateHook={simulateHook} />
               ))}
             </div>
           </CollapsibleSection>
