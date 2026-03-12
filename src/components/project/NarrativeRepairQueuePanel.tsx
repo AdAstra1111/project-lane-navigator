@@ -297,7 +297,7 @@ function CollapsibleSection({ title, defaultOpen, children }: { title: string; d
 
 /* ── Repair Card ── */
 
-function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noActions, generateHook, applyHook }: {
+function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noActions, generateHook, applyHook, simulateHook }: {
   repair: NarrativeRepair;
   projectId: string;
   onExecute: (id: string, approved?: boolean) => void;
@@ -306,6 +306,7 @@ function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noA
   noActions?: boolean;
   generateHook: ReturnType<typeof useGeneratePatchProposal>;
   applyHook: ReturnType<typeof useApplyPatchProposal>;
+  simulateHook: ReturnType<typeof useSimulateNarrativePatch>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const repStyle = REPAIRABILITY_STYLE[repair.repairability] ?? REPAIRABILITY_STYLE.unknown;
