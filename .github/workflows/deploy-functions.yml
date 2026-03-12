@@ -32,5 +32,8 @@ jobs:
             decisions-engine \
             nit-sync \
             spine-rewrite-plan \
+            coverage-engine \
+            script-coverage \
+            script-intake \
             --project-ref tzdxrhklarzccqamxbxw \
             --no-verify-jwt
