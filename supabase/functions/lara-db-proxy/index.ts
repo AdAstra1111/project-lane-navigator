@@ -1696,6 +1696,7 @@ Deno.serve(async (req) => {
           "forecast_repair_pressure",
           "preventive_repair_prioritization",
           "select_preventive_strategy",
+          "select_preventive_repair_strategy",
           "get_dev_seed_v2",
           "compare_dev_seed_v2",
           "create_dev_seed_v2",

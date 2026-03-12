@@ -23,6 +23,7 @@ import {
 } from "../_shared/styleDeviation.ts";
 import { buildEffectiveProfileContextBlock } from "../_shared/effective-profile-context.ts";
 import { computeDefaultResolverHash, createVersion } from "../_shared/doc-os.ts";
+import { surgicalEpisodeRewrite, SURGICAL_EPISODE_DOC_TYPES } from "../_shared/surgicalEpisodeRewrite.ts";
 import { syncAllEntities, syncSceneEntityLinksForProject, syncDialogueCharactersForProject } from "../_shared/narrativeEntityEngine.ts";
 import {
   computePropagatedRisk,
@@ -3755,6 +3756,7 @@ serve(async (req) => {
       "forecast_repair_pressure",
       "preventive_repair_prioritization",
       "select_preventive_strategy",
+      "select_preventive_repair_strategy",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -12926,6 +12928,381 @@ Return ONLY valid JSON:
           version:             "prp2",
         },
         computed_at: prp2ComputedAt,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // PRP2S — select_preventive_repair_strategy
+    //
+    // Preventive Repair Strategy Selection Engine (full-spec implementation).
+    //
+    // Produces a unified strategic first-move recommendation by composing:
+    //   ARP1  → current repair importance (net_priority_score, arp1_rank)
+    //   NRF1  → preventive pressure, axis debt, root cause, forecast families
+    //   CSP1  → path interaction effects, adjusted_path_score (via HTTP)
+    //   PRP1  → inline preventive scoring (same weights as PRP1.1, no HTTP call)
+    //
+    // 7-signal strategic priority formula (documented in scoring_notes):
+    //   strategic_priority =
+    //     net_priority_score                              (importance anchor)
+    //     + preventive_value × forecast_confidence × 0.30 (preventive uplift)
+    //     + root_cause_score × 5.00                       (root cause component)
+    //     + adjusted_path_score × 0.10                    (path quality)
+    //     + path_interaction_signal × 1.00                (CSP1 interaction)
+    //     + axis_debt_total_weight × 0.05                 (axis debt reduction)
+    //     - execution_friction_score × 0.02               (friction dampener)
+    //
+    // Output: top recommendation + ranked_strategy_options (top 10) + project summary.
+    // No schema drift. No mutation. No LLM. Deterministic.
+    //
+    if (action === "select_preventive_repair_strategy") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const prp2sAt     = new Date().toISOString();
+      const devEngUrl3  = (Deno.env.get("SUPABASE_URL") ?? "") + "/functions/v1/dev-engine-v2";
+      const svcKey3     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      const hdr3        = { "Content-Type": "application/json", Authorization: `Bearer ${svcKey3}` };
+
+      // ── 1. Load ARP1 + NRF1 direct cores ────────────────────────────────────
+      const [arp1R, nrf1R] = await Promise.all([
+        runARP1Core(supabase, projectId),
+        runNRF1Core(supabase, projectId),
+      ]);
+      if (!arp1R.ok) {
+        return new Response(JSON.stringify({ ok: false, error: `PRP2S: ARP1 failed — ${arp1R.error ?? "unknown"}` }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const nrf1Ok3      = nrf1R.ok;
+      const axisDebtMap3 = nrf1Ok3 ? (nrf1R.axisDebtMap ?? {}) : {};
+
+      // ── 2. Load CSP1-evaluated paths (degrades gracefully) ──────────────────
+      let csp1Paths3: any[] = [];
+      let csp1Degraded3 = false;
+      try {
+        const cr = await fetch(devEngUrl3, {
+          method: "POST", headers: hdr3,
+          body: JSON.stringify({ action: "evaluate_repair_paths", projectId }),
+        });
+        if (cr.ok) {
+          const cj = await cr.json();
+          if (cj?.ok) csp1Paths3 = cj.paths ?? [];
+          else csp1Degraded3 = true;
+        } else { csp1Degraded3 = true; }
+      } catch { csp1Degraded3 = true; }
+
+      // ── 3. Build lookup maps ─────────────────────────────────────────────────
+      const nrfMap3 = new Map<string, any>();
+      for (const f of (nrf1Ok3 ? nrf1R.perRepairForecasts : [])) nrfMap3.set(f.repair_id, f);
+
+      // Best CSP1 path per first-step repair (highest adjusted_path_score)
+      const pathByFirst3 = new Map<string, any>();
+      for (const path of csp1Paths3) {
+        const fid = path.steps?.[0]?.repair_id;
+        if (!fid) continue;
+        const ex = pathByFirst3.get(fid);
+        if (!ex || (path.adjusted_path_score ?? 0) > (ex.adjusted_path_score ?? 0)) pathByFirst3.set(fid, path);
+      }
+
+      // ── 4. Signal weight constants (documented in scoring_notes) ─────────────
+      const W_UPLIFT3      = 0.30;
+      const W_ROOT3        = 5.00;
+      const W_PATH3        = 0.10;
+      const W_INTERACTION3 = 1.00;
+      const W_AXIS3        = 0.05;
+      const W_FRICTION3    = 0.02;
+
+      // Path interaction: sequential_effect_label × confidence_factor
+      function prp2sInteraction(label: string | null, conf: string | null): number {
+        const raw = label === "de_risked_by_investigation" ? 1.5
+                  : label === "amplified"   ?  1.0
+                  : label === "neutral"     ?  0.0
+                  : label === "dampened"    ? -1.0
+                  : label === "blocked"     ? -3.0
+                  : 0.0;
+        const mult = conf === "high" ? 1.0 : conf === "medium" ? 0.75 : 0.5;
+        return Math.round(raw * mult * 100) / 100;
+      }
+
+      // Axis debt reduction: sum total_weight for affected axes
+      function prp2sAxisDebt(axes: string[]): { signal: number; reduced: string[]; highRisk: boolean } {
+        let total = 0; const reduced: string[] = []; let highRisk = false;
+        for (const ax of axes) {
+          if (axisDebtMap3[ax]) {
+            total += axisDebtMap3[ax].total_weight ?? 0;
+            reduced.push(ax);
+            if (["high", "critical"].includes(axisDebtMap3[ax].risk_level)) highRisk = true;
+          }
+        }
+        return { signal: Math.round(total * 100) / 100, reduced, highRisk };
+      }
+
+      // Recommendation confidence from signal quality
+      function prp2sConf(fc: number, pathAvail: boolean, rootCause: number, uplift: number, axisSignal: number): "high" | "medium" | "low" {
+        let s = 0;
+        if (fc >= 0.6) s += 2; else if (fc >= 0.3) s += 1;
+        if (pathAvail) s += 2;
+        if (rootCause >= 0.5) s += 1;
+        if (uplift > 1.0) s += 1;
+        if (axisSignal > 0) s += 1;
+        return s >= 5 ? "high" : s >= 3 ? "medium" : "low";
+      }
+
+      // ── 5. Score all candidates ───────────────────────────────────────────────
+      interface PRP2SOption {
+        repair_id: string; repair_type: string; status: string;
+        path_id: string | null; path_label: string | null;
+        baseline_rank: number; preventive_rank: number; strategic_rank: number;
+        baseline_score: number; preventive_score: number; strategic_priority_score: number;
+        current_importance_signal: number; preventive_uplift_signal: number;
+        root_cause_signal: number; path_quality_signal: number;
+        path_interaction_signal: number; axis_debt_reduction_signal: number;
+        execution_friction_signal: number;
+        recommendation_confidence: "high" | "medium" | "low";
+        rationale_tags: string[];
+        prevented_repair_families: string[];
+        reduced_axis_debt: string[];
+        unlocks_repairs: { repair_id: string; repair_type: string; path_step: number }[];
+        // internals for tie-break and tagging
+        _rootCause: number; _fc: number; _frictionRaw: number; _upliftAmount: number;
+        _axisHighRisk: boolean;
+      }
+
+      // Inline PRP1 scoring for preventive_rank
+      const prv3: { id: string; score: number; rank: number }[] = arp1R.scoredRepairs.map((rec: any) => {
+        const nrf = nrfMap3.get(rec.repair_id);
+        const b = rec.net_priority_score ?? 0;
+        const pv = nrf?.repair_preventive_value ?? 0;
+        const fc = nrf?.forecast_confidence ?? 0;
+        const rc = nrf?.root_cause_score ?? 0;
+        const fr = rec.execution_friction_score ?? 0;
+        const score = Math.round((b + pv * fc * W_UPLIFT3 + rc * W_ROOT3 - fr * W_FRICTION3) * 100) / 100;
+        return { id: rec.repair_id, score, rank: 0 };
+      }).sort((a: any, b: any) => b.score - a.score || a.id.localeCompare(b.id));
+      prv3.forEach((r: any, i: number) => { r.rank = i + 1; });
+      const prvMap3 = new Map<string, { score: number; rank: number }>(prv3.map((r: any) => [r.id, r]));
+
+      const options: PRP2SOption[] = arp1R.scoredRepairs.map((rec: any) => {
+        const nrf      = nrfMap3.get(rec.repair_id);
+        const path     = pathByFirst3.get(rec.repair_id) ?? null;
+        const b        = rec.net_priority_score ?? 0;
+        const pv       = nrf?.repair_preventive_value ?? 0;
+        const fc       = nrf?.forecast_confidence ?? 0;
+        const rc       = nrf?.root_cause_score ?? 0;
+        const fr       = rec.execution_friction_score ?? 0;
+
+        // Affected axes: prefer NRF forecast axes (nrf1DeriveAffectedAxes), fallback ARP1
+        const affAxes: string[] = nrf?.affected_axes?.length
+          ? nrf.affected_axes
+          : (rec.affected_axes ?? []);
+
+        const upliftAmt = Math.round((pv * fc * W_UPLIFT3 + rc * W_ROOT3 - fr * W_FRICTION3) * 100) / 100;
+        const prvScore  = Math.round((b + upliftAmt) * 100) / 100;
+
+        const pathQ     = path ? (path.adjusted_path_score ?? 0) * W_PATH3 : 0;
+        const intRaw    = prp2sInteraction(path?.sequential_effect_label ?? null, path?.confidence ?? null);
+        const intComp   = intRaw * W_INTERACTION3;
+        const { signal: axisSignal, reduced: reducedAxes, highRisk: axisHR } = prp2sAxisDebt(affAxes);
+        const axisComp  = axisSignal * W_AXIS3;
+        const frComp    = fr * W_FRICTION3;
+
+        const stratScore = Math.round(
+          (b + pv * fc * W_UPLIFT3 + rc * W_ROOT3 + pathQ + intComp + axisComp - frComp) * 100
+        ) / 100;
+
+        const conf = prp2sConf(fc, !!path, rc, upliftAmt, axisSignal);
+
+        // unlocks_repairs from path steps[1..]
+        const unlocks: { repair_id: string; repair_type: string; path_step: number }[] = [];
+        if (path?.steps) {
+          for (let si = 1; si < path.steps.length; si++) {
+            const s = path.steps[si];
+            if (s?.repair_id) unlocks.push({ repair_id: s.repair_id, repair_type: s.repair_type, path_step: si + 1 });
+          }
+        }
+
+        const prv = prvMap3.get(rec.repair_id);
+
+        return {
+          repair_id:                  rec.repair_id,
+          repair_type:                rec.repair_type,
+          status:                     rec.status,
+          path_id:                    path?.path_id ?? null,
+          path_label:                 path?.path_label ?? null,
+          baseline_rank:              rec.priority_rank,
+          preventive_rank:            prv?.rank ?? 0,
+          strategic_rank:             0,   // filled post-sort
+          baseline_score:             b,
+          preventive_score:           prvScore,
+          strategic_priority_score:   stratScore,
+          current_importance_signal:  Math.round(b * 100) / 100,
+          preventive_uplift_signal:   Math.round(pv * fc * W_UPLIFT3 * 100) / 100,
+          root_cause_signal:          Math.round(rc * W_ROOT3 * 100) / 100,
+          path_quality_signal:        Math.round(pathQ * 100) / 100,
+          path_interaction_signal:    Math.round(intComp * 100) / 100,
+          axis_debt_reduction_signal: Math.round(axisComp * 100) / 100,
+          execution_friction_signal:  Math.round(frComp * 100) / 100,
+          recommendation_confidence:  conf,
+          rationale_tags:             [],  // filled post-sort
+          prevented_repair_families:  nrf?.forecasted_repair_families ?? [],
+          reduced_axis_debt:          reducedAxes,
+          unlocks_repairs:            unlocks,
+          _rootCause:   rc,
+          _fc:          fc,
+          _frictionRaw: fr,
+          _upliftAmount: upliftAmt,
+          _axisHighRisk: axisHR,
+        };
+      });
+
+      // ── 6. Sort + rank (5-level tie-break) ───────────────────────────────────
+      options.sort((a, b) => {
+        if (b.strategic_priority_score !== a.strategic_priority_score)
+          return b.strategic_priority_score - a.strategic_priority_score;
+        if (b.preventive_score !== a.preventive_score)
+          return b.preventive_score - a.preventive_score;
+        if (b.baseline_score !== a.baseline_score)
+          return b.baseline_score - a.baseline_score;
+        const confOrd = { high: 3, medium: 2, low: 1 };
+        if ((confOrd[b.recommendation_confidence] ?? 0) !== (confOrd[a.recommendation_confidence] ?? 0))
+          return (confOrd[b.recommendation_confidence] ?? 0) - (confOrd[a.recommendation_confidence] ?? 0);
+        return a.repair_id < b.repair_id ? -1 : 1;
+      });
+      options.forEach((o, i) => { o.strategic_rank = i + 1; });
+
+      // ── 7. Compute maxima for rationale tagging ───────────────────────────────
+      const maxUplift3   = Math.max(0, ...options.map(o => o.preventive_uplift_signal));
+      const maxPathQ3    = Math.max(0, ...options.map(o => o.path_quality_signal));
+      const maxAxisD3    = Math.max(0, ...options.map(o => o.axis_debt_reduction_signal));
+      const maxRootC3    = Math.max(0, ...options.map(o => o.root_cause_signal));
+
+      // ── 8. Assign deterministic rationale tags ───────────────────────────────
+      for (const o of options) {
+        const tags: string[] = [];
+        if (o.preventive_uplift_signal >= maxUplift3 * 0.90 && maxUplift3 > 0.1) tags.push("highest preventive uplift");
+        if (o.path_quality_signal >= maxPathQ3 * 0.90 && maxPathQ3 > 0)           tags.push("strongest path-adjusted outcome");
+        if (o._axisHighRisk)                                                        tags.push("reduces high-risk axis debt");
+        else if (o.reduced_axis_debt.length > 0)                                   tags.push("reduces axis debt");
+        if (o._rootCause >= 0.7)                                                    tags.push("upstream root-cause repair");
+        else if (o._rootCause >= 0.4)                                              tags.push("moderate root-cause position");
+        if (o._frictionRaw < 30 && o.execution_friction_signal < 0.5)              tags.push("low-friction strategic move");
+        if (o._fc >= 0.7)                                                           tags.push("high-confidence preventive recommendation");
+        if (o.baseline_rank === 1)                                                  tags.push("strong baseline priority");
+        if (o.unlocks_repairs.length >= 2)                                          tags.push("unlocks stronger downstream sequence");
+        if (o.path_interaction_signal > 0.3)                                        tags.push("favorable path interaction effects");
+        else if (o.path_interaction_signal < -0.5)                                 tags.push("adverse path interaction — dampened");
+        if (tags.length === 0)                                                      tags.push("moderate strategic value");
+        o.rationale_tags = tags;
+      }
+
+      // ── 9. Axis debt hotspots (top axes by total_weight, risk=high/critical) ─
+      const axisDebtHotspots: { axis: string; total_weight: number; risk_level: string; forecast_families: string[] }[] =
+        Object.entries(axisDebtMap3)
+          .map(([ax, info]: [string, any]) => ({
+            axis:             ax,
+            total_weight:     info.total_weight ?? 0,
+            risk_level:       info.risk_level ?? "unknown",
+            forecast_families: info.forecast_repair_families ?? [],
+          }))
+          .sort((a, b) => b.total_weight - a.total_weight)
+          .slice(0, 5);
+
+      // ── 10. Top recommendation & ranked options ───────────────────────────────
+      const topOpt = options[0] ?? null;
+      const stratDisclaimer =
+        "PRP2S selects a recommended first move based on current-state signals: " +
+        "ARP1 repair importance, NRF1.4 preventive pressure and axis debt, CSP1 path interaction, " +
+        "and inline PRP1-style preventive scoring. " +
+        "prevented_repair_families and reduced_axis_debt are forecasted strategic effects derived " +
+        "from NRF1.4 forecast data — not guaranteed outcomes. " +
+        "unlocks_repairs reflects subsequent steps in the recommended CSP1-evaluated path, " +
+        "which may change as repairs are resolved. " +
+        "All signals reflect the current database state at time of computation.";
+
+      // Shape ranked_strategy_options (strip internal fields)
+      const toShape = (o: PRP2SOption) => ({
+        repair_id:                  o.repair_id,
+        repair_type:                o.repair_type,
+        status:                     o.status,
+        path_id:                    o.path_id,
+        path_label:                 o.path_label,
+        baseline_rank:              o.baseline_rank,
+        preventive_rank:            o.preventive_rank,
+        strategic_rank:             o.strategic_rank,
+        baseline_score:             o.baseline_score,
+        preventive_score:           o.preventive_score,
+        strategic_priority_score:   o.strategic_priority_score,
+        current_importance_signal:  o.current_importance_signal,
+        preventive_uplift_signal:   o.preventive_uplift_signal,
+        root_cause_signal:          o.root_cause_signal,
+        path_quality_signal:        o.path_quality_signal,
+        path_interaction_signal:    o.path_interaction_signal,
+        axis_debt_reduction_signal: o.axis_debt_reduction_signal,
+        execution_friction_signal:  o.execution_friction_signal,
+        recommendation_confidence:  o.recommendation_confidence,
+        rationale_tags:             o.rationale_tags,
+        prevented_repair_families:  o.prevented_repair_families,
+        reduced_axis_debt:          o.reduced_axis_debt,
+        unlocks_repairs:            o.unlocks_repairs,
+      });
+
+      // ── 11. Log + respond ─────────────────────────────────────────────────────
+      console.log("[dev-engine-v2] select_preventive_repair_strategy", {
+        project_id:       projectId,
+        top_repair:       topOpt?.repair_id ?? null,
+        strategic_score:  topOpt?.strategic_priority_score ?? null,
+        strategic_rank1:  topOpt?.strategic_rank ?? null,
+        confidence:       topOpt?.recommendation_confidence ?? null,
+        total_candidates: options.length,
+        total_paths:      csp1Paths3.length,
+        csp1_degraded:    csp1Degraded3,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                      true,
+        action:                  "select_preventive_repair_strategy",
+        project_id:              projectId,
+        current_nsi:             arp1R.currentNSI ?? null,
+        current_stability_band:  arp1R.currentStabilityBand ?? null,
+        prp2_strategy: {
+          project_repair_pressure:     nrf1Ok3 ? nrf1R.projectRepairPressure : 0,
+          project_repair_pressure_raw: nrf1Ok3 ? (nrf1R.projectRepairPressureRaw ?? null) : null,
+          total_repairs_considered:    options.length,
+          total_paths_considered:      csp1Paths3.length,
+          axis_debt_hotspots:          axisDebtHotspots,
+          recommended_first_repair_id:   topOpt?.repair_id ?? null,
+          recommended_first_repair_type: topOpt?.repair_type ?? null,
+          recommended_path_id:           topOpt?.path_id ?? null,
+          strategic_priority_score:      topOpt?.strategic_priority_score ?? null,
+          recommendation_confidence:     topOpt?.recommendation_confidence ?? "low",
+          rationale_tags:                topOpt?.rationale_tags ?? [],
+          reduced_axis_debt:             topOpt?.reduced_axis_debt ?? [],
+          prevented_repair_families:     topOpt?.prevented_repair_families ?? [],
+          unlocks_repairs:               topOpt?.unlocks_repairs ?? [],
+          ranked_strategy_options:       options.slice(0, 10).map(toShape),
+          strategy_disclaimer:           stratDisclaimer,
+        },
+        scoring_notes: {
+          arp1_source:      "runARP1Core() — net_priority_score, priority_rank, execution_friction_score",
+          nrf1_source:      "runNRF1Core() — repair_preventive_value, forecast_confidence, root_cause_score, axisDebtMap, forecasted_repair_families, affected_axes",
+          csp1_source:      csp1Degraded3
+            ? "CSP1 unavailable (degraded) — path_quality_signal=0, path_interaction_signal=0 for all candidates"
+            : "CSP1 evaluate_repair_paths — adjusted_path_score, sequential_effect_label, confidence, steps",
+          prp1_inline:      "preventive_score = net_priority_score + (preventive_value × forecast_confidence × 0.30) + (root_cause × 5.00) − (friction × 0.02)",
+          formula:          "strategic_priority = net_priority_score + (preventive_value × fc × 0.30) + (root_cause × 5.00) + (adjusted_path_score × 0.10) + (path_interaction_signal × 1.00) + (axis_debt_total_weight × 0.05) − (friction × 0.02)",
+          interaction_map:  "de_risked=1.5, amplified=1.0, neutral=0, dampened=−1.0, blocked=−3.0; scaled by confidence: high=1.0, medium=0.75, low/null=0.50",
+          axis_debt_notes:  "affected_axes sourced from NRF1 nrf1DeriveAffectedAxes if available, else ARP1 affected_axes. axis_debt_reduction_signal = sum(axisDebtMap[ax].total_weight) × 0.05",
+          conf_formula:     "score: fc≥0.6 +2, fc≥0.3 +1; path_available +2; root_cause≥0.5 +1; uplift>1 +1; axis_signal>0 +1. high≥5, medium≥3, else low",
+          tie_break:        "strategic_priority_score desc → preventive_score desc → baseline_score desc → confidence (high>medium>low) → repair_id asc",
+          ranked_options:   `top ${Math.min(options.length, 10)} of ${options.length} candidates returned`,
+          csp1_degraded:    csp1Degraded3,
+          nrf1_degraded:    !nrf1Ok3,
+          version:          "prp2s",
+        },
+        computed_at: prp2sAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
