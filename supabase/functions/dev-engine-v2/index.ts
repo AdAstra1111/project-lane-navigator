@@ -11924,10 +11924,11 @@ Return ONLY valid JSON:
           action:                  "forecast_repair_pressure",
           project_id:              projectId,
           nrf1_forecast: {
-            project_repair_pressure:  0,
-            forecasted_repair_families: [],
-            per_repair_forecasts:     [],
-            forecast_disclaimer:      "Forecasts represent dependency-based projections derived from current unresolved repairs and NDG structure. They do not represent guaranteed future diagnostics or repairs.",
+            project_repair_pressure_raw: 0,
+            project_repair_pressure:     0,
+            forecasted_repair_families:  [],
+            per_repair_forecasts:        [],
+            forecast_disclaimer:         "Forecasts represent dependency-based projections derived from current unresolved repairs and NDG structure. They do not represent guaranteed future diagnostics or repairs.",
           },
           computed_at: nrf1ComputedAt,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
