@@ -263,7 +263,7 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
           <CollapsibleSection title={`History · ${history.length}`} defaultOpen={false}>
             <div className="space-y-2">
               {history.map(r => (
-                <RepairCard key={r.repair_id} repair={r} projectId={projectId} onExecute={handleExecute} isExecuting={false} execResult={null} noActions generateHook={generateHook} applyHook={applyHook} />
+                <RepairCard key={r.repair_id} repair={r} projectId={projectId} onExecute={handleExecute} isExecuting={false} execResult={null} noActions generateHook={generateHook} applyHook={applyHook} simulateHook={simulateHook} />
               ))}
               {(repairs ?? []).filter(r => (HISTORY_STATUSES as readonly string[]).includes(r.status)).length > HISTORY_CAP && (
                 <p className="text-[10px] text-muted-foreground">Showing 50 most recent — older plans not displayed.</p>
