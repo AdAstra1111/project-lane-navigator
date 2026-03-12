@@ -643,6 +643,21 @@ Deno.serve(async (req) => {
             $$;
           `,
 
+          "rp1_delete_obligations_obsidian_mirror": `
+            -- VALIDATION-ONLY: remove narrative_obligations for Obsidian Mirror to
+            -- force obligation_registry_empty diagnostic in RP1 validation (C2–C5).
+            -- Restore via build_narrative_obligations after testing.
+            DELETE FROM public.narrative_obligations
+              WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c';
+          `,
+
+          "rp1_delete_repairs_obsidian_mirror": `
+            -- VALIDATION-ONLY: reset narrative_repairs for Obsidian Mirror
+            -- so C5 idempotency test can start from a known-clean state.
+            DELETE FROM public.narrative_repairs
+              WHERE project_id = '37e830b8-0143-4d01-9207-b460ff441e8c';
+          `,
+
           "inject_running_regen_row_obsidian_mirror": `
             -- VALIDATION-ONLY: insert a fake 'running' row for concurrency guard testing.
             -- Paired with cleanup_test_running_regen_row for teardown.
