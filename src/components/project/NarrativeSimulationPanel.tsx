@@ -1,11 +1,10 @@
 /**
  * NarrativeSimulationPanel — Read-only predictive simulation UI.
  * Calls simulate_narrative_impact via useNarrativeSimulation hook.
- * Displays impact preview without altering runtime state.
+ * Displays impact preview + SIM2 enriched interpretation without altering runtime state.
  */
 
 import { useState, useCallback } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -23,8 +22,13 @@ import {
   ShieldCheck,
   AlertTriangle,
   XCircle,
+  Info,
 } from 'lucide-react';
-import { useNarrativeSimulation, type SimulationResult } from '@/hooks/useNarrativeSimulation';
+import {
+  useNarrativeSimulation,
+  type SimulationResult,
+  type AffectedAxisEnriched,
+} from '@/hooks/useNarrativeSimulation';
 import type { RepairStrategy } from '@/hooks/useSelectiveRegenerationPlan';
 
 interface Props {
@@ -38,13 +42,42 @@ const STRATEGY_OPTIONS: { value: RepairStrategy; label: string }[] = [
 ];
 
 const KNOWN_AXES = [
+  // Class A
   'story_engine',
   'protagonist_arc',
+  // Class B
   'pressure_system',
   'central_conflict',
   'resolution_type',
   'stakes_class',
+  // Class S
+  'inciting_incident',
+  'midpoint_reversal',
+  // Class C
+  'tonal_gravity',
 ];
+
+const IMPACT_BAND_COLORS: Record<string, string> = {
+  none: 'bg-muted text-muted-foreground',
+  limited: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+  moderate: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
+  broad: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/30',
+  systemic: 'bg-destructive/10 text-destructive border-destructive/30',
+};
+
+function blastRadiusColor(score: number): string {
+  if (score <= 25) return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
+  if (score <= 50) return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30';
+  if (score <= 75) return 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/30';
+  return 'bg-destructive/10 text-destructive border-destructive/30';
+}
+
+const CLASS_COLORS: Record<string, string> = {
+  A: 'bg-destructive/10 text-destructive border-destructive/30',
+  B: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
+  S: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30',
+  C: 'bg-muted text-muted-foreground',
+};
 
 export function NarrativeSimulationPanel({ projectId }: Props) {
   const { data, simulate, isLoading, error } = useNarrativeSimulation(projectId);
@@ -158,8 +191,22 @@ function SimulationResultDisplay({ result }: { result: SimulationResult }) {
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
+    <div className="space-y-3">
+      {/* Confidence note */}
+      {result.simulation_confidence != null && (
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <Info className="h-3 w-3 shrink-0" />
+          <span>Simulation confidence: {result.simulation_confidence}%</span>
+        </div>
+      )}
+      {result.structural_uncertainty_reason && (
+        <div className="text-[10px] text-amber-600 dark:text-amber-400 italic pl-4">
+          {result.structural_uncertainty_reason}
+        </div>
+      )}
+
+      {/* Impact header */}
+      <div className="flex flex-wrap items-center gap-2">
         <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
         <span className="text-xs font-medium text-foreground">
           Impact found — {result.impacted_scene_count} scene{result.impacted_scene_count !== 1 ? 's' : ''} affected
@@ -169,13 +216,58 @@ function SimulationResultDisplay({ result }: { result: SimulationResult }) {
             {result.recommended_scope}
           </Badge>
         )}
+        {result.impact_band && result.impact_band !== 'none' && (
+          <Badge variant="outline" className={`text-[10px] ${IMPACT_BAND_COLORS[result.impact_band] ?? ''}`}>
+            {result.impact_band}
+          </Badge>
+        )}
+        {result.blast_radius_score != null && (
+          <Badge variant="outline" className={`text-[10px] ${blastRadiusColor(result.blast_radius_score)}`}>
+            Blast: {result.blast_radius_score}
+          </Badge>
+        )}
       </div>
 
+      {/* Scene counts */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-        <SimCount label="Direct" value={result.direct_scenes} className="text-destructive" />
-        <SimCount label="Propagated" value={result.propagated_scenes} className="text-amber-600 dark:text-amber-400" />
-        <SimCount label="Entity-linked" value={result.entity_link_scenes} className="text-sky-600 dark:text-sky-400" />
-        <SimCount label="Advisory" value={result.entity_propagation_scenes} className="text-violet-600 dark:text-violet-400" advisory />
+        <SimCount label="Direct" value={result.direct_scene_count} className="text-destructive" />
+        <SimCount label="Propagated" value={result.propagated_scene_count} className="text-amber-600 dark:text-amber-400" />
+        <SimCount label="Entity-linked" value={result.entity_link_scene_count} className="text-sky-600 dark:text-sky-400" />
+        <SimCount label="Advisory" value={result.entity_propagation_scene_count} className="text-violet-600 dark:text-violet-400" advisory />
+      </div>
+
+      {/* Affected axes */}
+      {result.affected_axes_enriched && result.affected_axes_enriched.length > 0 && (
+        <AffectedAxesSection axes={result.affected_axes_enriched} />
+      )}
+    </div>
+  );
+}
+
+/* ── Affected Axes ── */
+
+function AffectedAxesSection({ axes }: { axes: AffectedAxisEnriched[] }) {
+  return (
+    <div className="space-y-1.5">
+      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+        Affected Axes
+      </span>
+      <div className="flex flex-wrap gap-1.5">
+        {axes.map((ax) => (
+          <div
+            key={ax.axis}
+            className="flex items-center gap-1 rounded border border-border/40 bg-muted/30 px-2 py-0.5"
+          >
+            <Badge variant="outline" className={`text-[9px] px-1 py-0 ${CLASS_COLORS[ax.class] ?? ''}`}>
+              {ax.class}
+            </Badge>
+            <span className="text-[10px] text-foreground">{ax.label}</span>
+            <span className="text-[9px] text-muted-foreground">{ax.severity}</span>
+            {ax.is_direct && (
+              <span className="text-[9px] text-destructive font-medium">direct</span>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -191,7 +283,7 @@ function SimCount({ label, value, className = '', advisory = false }: {
 }) {
   return (
     <div className="text-center">
-      <div className={`text-sm font-semibold ${className}`}>{value}</div>
+      <div className={`text-sm font-semibold ${className}`}>{value ?? 0}</div>
       <div className="text-[10px] text-muted-foreground">
         {label}
         {advisory && <span className="block text-[9px] italic">not executed</span>}
