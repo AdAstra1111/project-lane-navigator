@@ -90,12 +90,16 @@ Deno.serve(async (req) => {
         if (!doc) { result = []; break; }
         const { data, error } = await supabase
           .from("project_document_versions")
-          .select("id, version_number, approval_status, is_current, meta_json, created_at")
+          .select("id, version_number, approval_status, is_current, meta_json, created_at, plaintext")
           .eq("document_id", doc.id)
           .order("version_number", { ascending: false })
           .limit(limit);
         if (error) throw error;
-        result = data;
+        // Truncate plaintext to 400 chars to keep response small
+        result = (data || []).map((v: any) => ({
+          ...v,
+          plaintext: typeof v.plaintext === "string" ? v.plaintext.slice(0, 400) : v.plaintext,
+        }));
         break;
       }
 
