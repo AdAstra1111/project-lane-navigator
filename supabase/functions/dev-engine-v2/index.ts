@@ -10768,16 +10768,61 @@ Return ONLY valid JSON:
         loadSeed(derivedId),
       ]);
 
-      // Verify both seeds belong to the project
+      // ── DS2J-B: Minimum viable data check ──────────────────────────────
+      // Both seeds must have at least one comparable layer (premise OR axes OR beats).
+      // If ALL layers are empty for a seed, the comparison cannot be honest.
+      const seedIsEmpty = (s: typeof authored) =>
+        !s.premise && s.axes.length === 0 && s.beats.length === 0 && s.units.length === 0;
+      if (seedIsEmpty(authored)) {
+        return new Response(JSON.stringify({ ok: false, error: "authored_seed has no populated layers — insufficient data for comparison" }),
+          { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (seedIsEmpty(derived)) {
+        return new Response(JSON.stringify({ ok: false, error: "derived_seed has no populated layers — insufficient data for comparison" }),
+          { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── DS2J-B: Strict seed type + project validation ──────────────────
       const seedCheck = await (supabase as any)
         .from("dev_seed_v2_projects")
-        .select("id,derived")
-        .eq("project_id", projectId)
+        .select("id,derived,project_id")
         .in("id", [authoredId, derivedId]);
-      const foundIds = new Set((seedCheck.data ?? []).map((r: any) => r.id as string));
-      if (!foundIds.has(authoredId) || !foundIds.has(derivedId)) {
-        return new Response(JSON.stringify({ ok: false, error: "One or both seed IDs not found for this project" }),
+      const seedRows: Map<string, { derived: boolean; project_id: string }> = new Map(
+        (seedCheck.data ?? []).map((r: any) => [r.id as string, { derived: r.derived, project_id: r.project_id }])
+      );
+
+      // Both seeds must exist
+      if (!seedRows.has(authoredId)) {
+        return new Response(JSON.stringify({ ok: false, error: "authored_seed_id not found" }),
           { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!seedRows.has(derivedId)) {
+        return new Response(JSON.stringify({ ok: false, error: "derived_seed_id not found" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Both seeds must belong to the same project
+      const authoredProjectId = seedRows.get(authoredId)!.project_id;
+      const derivedProjectId  = seedRows.get(derivedId)!.project_id;
+      if (authoredProjectId !== derivedProjectId) {
+        return new Response(JSON.stringify({ ok: false, error: "Seeds belong to different projects — cross-project comparison not allowed" }),
+          { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (authoredProjectId !== projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "Seeds do not belong to the specified project" }),
+          { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // authored_seed_id must be non-derived (derived=false)
+      if (seedRows.get(authoredId)!.derived === true) {
+        return new Response(JSON.stringify({ ok: false, error: "authored_seed_id refers to a derived seed — use a non-derived authored seed" }),
+          { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // derived_seed_id must be derived (derived=true)
+      if (seedRows.get(derivedId)!.derived === false) {
+        return new Response(JSON.stringify({ ok: false, error: "derived_seed_id refers to a non-derived seed — use a derived seed for comparison" }),
+          { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // ── Shared helpers ───────────────────────────────────────────────────
@@ -10816,7 +10861,7 @@ Return ONLY valid JSON:
         ];
         const score = scores.reduce((s, x) => s + x, 0) / scores.length;
         const details: string[] = [];
-        if (scores[0] > 0) details.push("premise_text_drift");
+        if (scores[0] > 0) details.push("premise_kernel_shift");
         if (scores[1] > 0) details.push("dramatic_question_shift");
         if (scores[2] > 0) details.push("central_irony_loss");
         return { score, details };
@@ -10887,7 +10932,7 @@ Return ONLY valid JSON:
           const s = textScore(aDesc, dDesc);
           if (s > 0) {
             mismatches++;
-            details.push(`beat_drift_${key}`);
+            if (!details.includes("beat_structure_changed")) details.push("beat_structure_changed");
           }
         }
         const score = allKeys.size > 0 ? mismatches / allKeys.size : 0;
@@ -10905,8 +10950,8 @@ Return ONLY valid JSON:
         const combined = (axJ + utJ) / 2;
         const score = combined >= 0.8 ? 0 : combined >= 0.5 ? 0.5 : 1.0;
         const details: string[] = [];
-        if (axJ < 0.8) details.push("axis_overlap_low");
-        if (utJ < 0.8) details.push("unit_overlap_low");
+        if (axJ < 0.8) details.push("axis_engine_drift");
+        if (utJ < 0.8) details.push("unit_structure_drift");
         return { score, axis_overlap: axJ, unit_overlap: utJ, details };
       };
 
@@ -10963,23 +11008,17 @@ Return ONLY valid JSON:
       ];
 
       const RESTORATION_MAP: Record<string, string> = {
-        premise_text_drift:        "Realign premise text with authored intent",
-        dramatic_question_shift:   "Restore the dramatic question",
-        central_irony_loss:        "Restore the central irony",
-        emotional_promise_shift:   "Restore emotional promise category",
-        audience_fantasy_shift:    "Realign audience fantasy type",
-        audience_fear_shift:       "Realign audience fear statement",
-        theme_vector_loss:         "Reintroduce missing theme vector elements",
-        beat_drift_opening_state:          "Restore opening state beat",
-        beat_drift_inciting_event_seed:    "Restore inciting event seed beat",
-        beat_drift_first_escalation:       "Restore first escalation beat",
-        beat_drift_midpoint_type:          "Restore midpoint reversal beat",
-        beat_drift_crisis_shape:           "Restore crisis shape beat",
-        beat_drift_climax_promise:         "Restore climax promise beat",
-        beat_drift_ending_condition:       "Restore ending condition beat",
-        axis_overlap_low:          "Realign narrative axes with authored spine",
-        unit_overlap_low:          "Restore missing narrative units",
-        relationship_core_missing: "Restore core arc entity relationships",
+        premise_kernel_shift:      "restore premise alignment",
+        dramatic_question_shift:   "restore dramatic question",
+        central_irony_loss:        "restore central irony",
+        emotional_promise_shift:   "restore emotional promise",
+        audience_fantasy_shift:    "realign audience fantasy",
+        audience_fear_shift:       "realign audience fear",
+        theme_vector_loss:         "reintroduce lost theme vectors",
+        beat_structure_changed:    "restore midpoint shape and beat structure",
+        axis_engine_drift:         "restore axis alignment with authored spine",
+        unit_structure_drift:      "restore narrative unit structure",
+        relationship_core_missing: "reinforce protagonist-antagonist relation",
       };
 
       const restorationTargets = [...new Set(primaryDriftCauses)]
@@ -11007,13 +11046,13 @@ Return ONLY valid JSON:
         drift_band:            driftBand,
         primary_drift_causes:  primaryDriftCauses,
         restoration_targets:   restorationTargets,
-        dimension_detail: {
-          premise_kernel:    { score: d1.score, details: d1.details },
-          emotional_promise: { score: d2.score, details: d2.details },
-          theme_vector:      { score: d3.score, overlap_ratio: d3.overlap_ratio, details: d3.details },
-          structural_beats:  { score: d4.score, drift_ratio: d4.drift_ratio,   details: d4.details },
-          axis_unit:         { score: d5.score, axis_overlap: d5.axis_overlap, unit_overlap: d5.unit_overlap, details: d5.details },
-          relationship_core: { score: d6.score, shared_ratio: d6.shared_ratio, details: d6.details },
+        dimension_details: {
+          premise:       { score: d1.score, causes: d1.details },
+          emotional:     { score: d2.score, causes: d2.details },
+          theme:         { score: d3.score, overlap_ratio: d3.overlap_ratio, causes: d3.details },
+          beats:         { score: d4.score, drift_ratio: d4.drift_ratio,     causes: d4.details },
+          axis_units:    { score: d5.score, axis_overlap: d5.axis_overlap, unit_overlap: d5.unit_overlap, causes: d5.details },
+          relationships: { score: d6.score, shared_ratio: d6.shared_ratio,   causes: d6.details },
         },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
