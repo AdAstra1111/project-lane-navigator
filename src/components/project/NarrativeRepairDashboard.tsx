@@ -176,12 +176,19 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
     return (
       <Card className="border-border/50">
         <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base font-semibold">
-            <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
-            Narrative Repair
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
+              Narrative Repair
+            </CardTitle>
+            <DashTabSwitcher active={dashTab} onChange={setDashTab} />
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {dashTab === 'strategy' ? (
+            <RepairStrategyPanel projectId={projectId} />
+          ) : (
+          <>
           {/* Autopilot Status */}
           <AutopilotRepairPanel
             data={monitorData}
@@ -221,6 +228,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
           )}
           {/* Run History even in calm state */}
           <RunHistorySection runs={runHistory ?? []} loading={historyLoading} slugMap={slugMap} onViewDiff={handleViewChanges} />
+          </>
+          )}
         </CardContent>
       </Card>
     );
