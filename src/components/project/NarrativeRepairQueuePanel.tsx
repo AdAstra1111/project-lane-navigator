@@ -434,6 +434,14 @@ function ProposalPanel({ repair, projectId, generateHook, applyHook, simulateHoo
 }) {
   const { data: proposal, isLoading: proposalLoading, error: proposalError, refetch: refetchProposal } = usePatchProposalsByRepair(repair.repair_id);
   const [confirmMode, setConfirmMode] = useState(false);
+  const [stabilityEnabled, setStabilityEnabled] = useState(false);
+
+  // Projected stability — enabled when Preview Impact is clicked
+  const stabilityHook = useProjectedNarrativeStability(
+    projectId,
+    proposal?.proposal_id,
+    stabilityEnabled && !!proposal?.proposal_id,
+  );
 
   const handleGenerate = useCallback(() => {
     generateHook.generate(repair.repair_id);
@@ -444,6 +452,12 @@ function ProposalPanel({ repair, projectId, generateHook, applyHook, simulateHoo
     applyHook.apply(repair.repair_id, proposal.proposal_id);
     setConfirmMode(false);
   }, [applyHook, repair.repair_id, proposal]);
+
+  const handlePreviewImpact = useCallback(() => {
+    if (!proposal) return;
+    simulateHook.preview(proposal.proposal_id);
+    setStabilityEnabled(true);
+  }, [simulateHook, proposal]);
 
   const isGeneratingThis = generateHook.isGenerating;
   const isApplyingThis = applyHook.isApplying;
