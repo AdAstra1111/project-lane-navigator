@@ -2888,6 +2888,7 @@ serve(async (req) => {
       "execute_narrative_repair",
       "propose_narrative_patch",
       "apply_narrative_patch",
+      "get_story_intelligence",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -11652,6 +11653,324 @@ Return ONLY valid JSON:
         diagnostics,
         diagnostics_count: diagnostics.length,
         by_source:         bySource,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // SI1 — get_story_intelligence
+    //
+    // Deterministic OS-layer synthesis of current narrative diagnostic + repair state.
+    // Computed on read. No persistence. No LLM. No schema changes.
+    // Orthogonal to the CI/GP engine (convergence_scores / creative_integrity_score /
+    // greenlight_probability). Does NOT read convergence_scores.
+    //
+    // Flow:
+    //   1. Self-call get_narrative_diagnostics (DX3 — enriched with repair/proposal state)
+    //   2. One additional DB query: narrative_repairs status counts
+    //   3. Compute: health score/band, risk score/band, repair_readiness,
+    //      top_blockers, structural_fragility, recommended_next_moves, evidence_summary
+    //   4. Return canonical SI1 object
+
+    if (action === "get_story_intelligence") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 1: Fetch enriched diagnostics via DX3 self-call ──────────────
+      let diagnostics: any[] = [];
+      try {
+        const dxRes = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${supabaseServiceKey}` },
+          body: JSON.stringify({ action: "get_narrative_diagnostics", projectId }),
+        });
+        const dxData = await dxRes.json();
+        if (dxData.ok) diagnostics = dxData.diagnostics ?? [];
+        // Non-fatal: if DX fails, synthesise from empty set (returns healthy/clear)
+      } catch (_) {}
+
+      // ── Step 2: Repair queue status counts ────────────────────────────────
+      const repairQueueSummary: Record<string, number> = {
+        pending: 0, completed: 0, failed: 0, skipped: 0,
+      };
+      try {
+        const { data: queueRows } = await (supabase as any)
+          .from("narrative_repairs")
+          .select("status")
+          .eq("project_id", projectId);
+        for (const r of (queueRows ?? []) as any[]) {
+          const s = r.status as string;
+          if (s in repairQueueSummary) repairQueueSummary[s]++;
+        }
+      } catch (_) {}
+
+      // ── Constants ─────────────────────────────────────────────────────────
+
+      const SI1_SEV_BASE:    Record<string, number> = { critical: 15, high: 8, warning: 3, info: 1 };
+      const SI1_LOAD_MUL:    Record<string, number> = { core: 2.0, primary: 1.5, supporting: 1.0, decorative: 0.5 };
+      const SI1_RS_MOD:      Record<string, number> = {
+        failed: 1.3, blocked: 1.2, open: 1.0,
+        awaiting_proposal: 0.85, awaiting_approval: 0.80,
+        under_investigation: 0.70, queued: 0.65, in_progress: 0.55,
+      };
+      const SI1_DANGER_RANK: Record<string, number> = {
+        failed: 0, blocked: 1, open: 2,
+        awaiting_proposal: 3, awaiting_approval: 4,
+        queued: 5, in_progress: 6, under_investigation: 7,
+      };
+      const SI1_SEV_ORDER:   Record<string, number> = { critical: 0, high: 1, warning: 2, info: 3 };
+      const SI1_LOAD_ORDER:  Record<string, number> = { core: 0, primary: 1, supporting: 2, decorative: 3 };
+
+      const TERMINAL = new Set(["resolved", "dismissed"]);
+
+      // ── Derived diagnostic sets ────────────────────────────────────────────
+      const active = diagnostics.filter((d: any) => !TERMINAL.has(d.resolution_state ?? "open"));
+
+      // Evidence counts
+      const diagCounts:  Record<string, number> = { critical: 0, high: 0, warning: 0, info: 0, total: 0 };
+      const rsCounts:    Record<string, number> = {
+        open: 0, awaiting_proposal: 0, proposal_ready: 0, awaiting_approval: 0,
+        queued: 0, in_progress: 0, under_investigation: 0,
+        blocked: 0, failed: 0, resolved: 0, dismissed: 0,
+      };
+      for (const d of diagnostics as any[]) {
+        const sev = d.severity as string;
+        if (sev in diagCounts) diagCounts[sev]++;
+        diagCounts.total++;
+        const rs = (d.resolution_state ?? "open") as string;
+        if (rs in rsCounts) rsCounts[rs]++;
+        else rsCounts[rs] = (rsCounts[rs] ?? 0) + 1;
+      }
+
+      const coreIssueCount       = active.filter((d: any) => d.load_class === "core" && ["critical","high"].includes(d.severity)).length;
+      const failedRepairCount    = active.filter((d: any) => d.resolution_state === "failed").length;
+      const proposalRequiredCount = active.filter((d: any) => d.resolution_state === "awaiting_proposal").length;
+      const blockedIssueCount    = active.filter((d: any) => d.resolution_state === "blocked").length;
+      const manualOnlyCount      = active.filter((d: any) => d.repairability === "manual").length;
+
+      // ── A. narrative_health_score ─────────────────────────────────────────
+      let totalPenalty = 0;
+      for (const d of active as any[]) {
+        const sevBase  = SI1_SEV_BASE[d.severity]            ?? 1;
+        const loadMul  = SI1_LOAD_MUL[d.load_class ?? ""]   ?? 1.0;
+        const rsMod    = SI1_RS_MOD[d.resolution_state ?? "open"] ?? 1.0;
+        totalPenalty  += sevBase * loadMul * rsMod;
+      }
+      const narrativeHealthScore = Math.max(0, Math.round(100 - totalPenalty));
+
+      const narrativeHealthBand =
+        narrativeHealthScore >= 85 ? "stable"   :
+        narrativeHealthScore >= 65 ? "watch"    :
+        narrativeHealthScore >= 40 ? "at_risk"  : "critical";
+
+      // ── C. story_risk_score ───────────────────────────────────────────────
+      let riskPoints = 0;
+      for (const d of active as any[]) {
+        const rs = d.resolution_state ?? "open";
+        if (d.severity === "critical" && d.load_class === "core") riskPoints += 20;
+        else if (d.severity === "high" && d.load_class === "core") riskPoints += 10;
+      }
+      riskPoints += failedRepairCount    * 8;
+      riskPoints += blockedIssueCount    * 5;
+      riskPoints += proposalRequiredCount * 4;
+      riskPoints += manualOnlyCount      * 3;
+
+      const storyRiskScore = Math.min(100, riskPoints);
+
+      const storyRiskBand =
+        storyRiskScore >= 66 ? "severe"   :
+        storyRiskScore >= 36 ? "elevated" :
+        storyRiskScore >= 16 ? "moderate" : "low";
+
+      // ── E. repair_readiness ───────────────────────────────────────────────
+      const activeCount    = active.length;
+      const failedCount    = failedRepairCount;
+      const blockedCount   = blockedIssueCount;
+      const propCount      = proposalRequiredCount;
+      const approvalCount  = active.filter((d: any) => d.resolution_state === "awaiting_approval").length;
+      const queuedCount    = active.filter((d: any) => d.resolution_state === "queued").length;
+      const inProgressCount = active.filter((d: any) => d.resolution_state === "in_progress").length;
+
+      const repairReadiness =
+        activeCount    === 0                                   ? "clear"                :
+        (failedCount >= 2 || (failedCount >= 1 && blockedCount >= 1)) ? "exhausted"   :
+        blockedCount > propCount && blockedCount > approvalCount      ? "manual_heavy" :
+        propCount > approvalCount && propCount > 0                    ? "proposal_required" :
+        approvalCount > 0 && approvalCount >= propCount               ? "approval_blocked"  :
+        queuedCount > 0 || inProgressCount > 0                        ? "directly_executable" :
+        "open";
+
+      // ── Top blockers ──────────────────────────────────────────────────────
+      const sortedActive = [...active].sort((a: any, b: any) => {
+        const sd = (SI1_SEV_ORDER[a.severity] ?? 9)           - (SI1_SEV_ORDER[b.severity] ?? 9);
+        if (sd !== 0) return sd;
+        const ld = (SI1_LOAD_ORDER[a.load_class ?? ""] ?? 9)  - (SI1_LOAD_ORDER[b.load_class ?? ""] ?? 9);
+        if (ld !== 0) return ld;
+        return (SI1_DANGER_RANK[a.resolution_state ?? "open"] ?? 9) -
+               (SI1_DANGER_RANK[b.resolution_state ?? "open"] ?? 9);
+      });
+
+      const SI1_NEXT_ACTION: Record<string, string> = {
+        awaiting_proposal:   "Generate a patch proposal in the Repair Queue",
+        proposal_ready:      "Review and apply the patch proposal",
+        awaiting_approval:   "Approve & execute the repair in the Repair Queue",
+        queued:              "Execute the repair in the Repair Queue",
+        in_progress:         "Repair is in progress",
+        under_investigation: "Investigation in progress",
+        failed:              "Retry or reset failed repair",
+        blocked:             "Review blocked reason and regenerate or resolve manually",
+        open:                "Run plan_narrative_repairs to address this issue",
+      };
+
+      const topBlockers = sortedActive.slice(0, 5).map((d: any) => {
+        const obj: Record<string, any> = {
+          diagnostic_id:   d.diagnostic_id,
+          summary:         d.summary,
+          severity:        d.severity,
+          load_class:      d.load_class ?? null,
+          resolution_state: d.resolution_state ?? "open",
+          source_system:   d.source_system,
+          scope_level:     d.scope_level,
+          next_action:     d.recommended_action || SI1_NEXT_ACTION[d.resolution_state ?? "open"] || "Review issue",
+        };
+        if (d.scope_key)      obj.scope_key     = d.scope_key;
+        if (d.blocked_reason) obj.blocked_reason = d.blocked_reason;
+        if (d.repair_id)      obj.repair_id      = d.repair_id;
+        return obj;
+      });
+
+      // ── Structural fragility ──────────────────────────────────────────────
+      const fragGroups = new Map<string, { area: string; area_type: string; diags: any[] }>();
+
+      for (const d of active as any[]) {
+        // Group by scope_key
+        if (d.scope_key) {
+          const key = `elem:${d.scope_key}`;
+          if (!fragGroups.has(key)) fragGroups.set(key, { area: d.scope_key, area_type: "element", diags: [] });
+          fragGroups.get(key)!.diags.push(d);
+        }
+        // Group by source_system
+        const sysKey = `sys:${d.source_system}`;
+        if (!fragGroups.has(sysKey)) fragGroups.set(sysKey, { area: d.source_system, area_type: "subsystem", diags: [] });
+        fragGroups.get(sysKey)!.diags.push(d);
+      }
+
+      const fragEntries: any[] = [];
+      for (const [, g] of fragGroups) {
+        const hasCriticalCore = g.diags.some(
+          (d: any) => d.severity === "critical" && d.load_class === "core"
+        );
+        if (g.diags.length < 2 && !hasCriticalCore) continue;
+
+        const maxSev = g.diags.reduce((best: any, d: any) =>
+          (SI1_SEV_ORDER[d.severity] ?? 9) < (SI1_SEV_ORDER[best.severity] ?? 9) ? d : best,
+          g.diags[0]
+        );
+
+        fragEntries.push({
+          area:         g.area,
+          area_type:    g.area_type,
+          issue_count:  g.diags.length,
+          max_severity: maxSev.severity,
+          load_class:   maxSev.load_class ?? null,
+          description:  `${g.diags.length} active issue(s) affecting ${g.area} ` +
+                        `(max severity: ${maxSev.severity})`,
+        });
+      }
+
+      fragEntries.sort((a, b) => {
+        const sd = (SI1_SEV_ORDER[a.max_severity] ?? 9) - (SI1_SEV_ORDER[b.max_severity] ?? 9);
+        return sd !== 0 ? sd : b.issue_count - a.issue_count;
+      });
+      const structuralFragility = fragEntries.slice(0, 3);
+
+      // ── Recommended next moves ─────────────────────────────────────────────
+      const si1SummaryShort = (s: string) => {
+        if (!s || s.length <= 60) return s || "";
+        const cut = s.lastIndexOf(" ", 60);
+        return (cut > 20 ? s.slice(0, cut) : s.slice(0, 60)) + "…";
+      };
+
+      const movesSeen = new Set<string>();
+      const recommendedNextMoves: string[] = [];
+
+      for (const d of sortedActive) {
+        if (recommendedNextMoves.length >= 3) break;
+        const rs = d.resolution_state ?? "open";
+        const br = (d.blocked_reason ?? "") as string;
+        const ssum = si1SummaryShort(d.summary);
+        let move: string | null = null;
+
+        if (rs === "failed" && ["critical","high"].includes(d.severity))
+          move = `Retry or reset failed repair: ${ssum}`;
+        else if (rs === "blocked" && br.toLowerCase().includes("stale"))
+          move = `Regenerate stale proposal for: ${ssum}`;
+        else if (rs === "blocked" && br.toLowerCase().includes("rejected"))
+          move = `Regenerate rejected proposal for: ${ssum}`;
+        else if (rs === "blocked")
+          move = `Manual review required: ${ssum}`;
+        else if (rs === "awaiting_proposal")
+          move = `Generate patch proposal for: ${ssum}`;
+        else if (rs === "proposal_ready")
+          move = `Apply pending proposal for: ${ssum}`;
+        else if (rs === "awaiting_approval")
+          move = `Approve guided repair for: ${ssum}`;
+        else if (rs === "queued")
+          move = `Execute auto-repair for: ${ssum}`;
+        else if (rs === "open" && d.severity === "critical" && d.load_class === "core")
+          move = `Run plan_narrative_repairs to address critical issue`;
+
+        if (move && !movesSeen.has(move)) {
+          movesSeen.add(move);
+          recommendedNextMoves.push(move);
+        }
+      }
+
+      // ── Assemble response ─────────────────────────────────────────────────
+      console.log("[dev-engine-v2] get_story_intelligence SI1", {
+        project_id: projectId,
+        health_score: narrativeHealthScore,
+        health_band:  narrativeHealthBand,
+        risk_score:   storyRiskScore,
+        risk_band:    storyRiskBand,
+        readiness:    repairReadiness,
+        blockers:     topBlockers.length,
+        active_diags: active.length,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                    true,
+        action:                "get_story_intelligence",
+        project_id:            projectId,
+        computed_at:           new Date().toISOString(),
+
+        narrative_health_score: narrativeHealthScore,
+        narrative_health_band:  narrativeHealthBand,
+
+        story_risk_score: storyRiskScore,
+        story_risk_band:  storyRiskBand,
+
+        repair_readiness: repairReadiness,
+        blocker_count:    active.length,
+
+        top_blockers:          topBlockers,
+        structural_fragility:  structuralFragility,
+        recommended_next_moves: recommendedNextMoves,
+
+        evidence_summary: {
+          diagnostic_counts:   diagCounts,
+          resolution_state_counts: rsCounts,
+          core_issue_count:         coreIssueCount,
+          failed_repair_count:      failedRepairCount,
+          proposal_required_count:  proposalRequiredCount,
+          blocked_issue_count:      blockedIssueCount,
+          manual_only_count:        manualOnlyCount,
+          repair_queue_summary:     repairQueueSummary,
+        },
+
+        scoring_note: "This is a deterministic synthesis of current narrative diagnostics and repair state. It reflects OS-layer readiness and narrative risk, not the CI/GP engine's creative or market assessment.",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

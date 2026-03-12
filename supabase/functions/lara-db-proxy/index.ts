@@ -1595,6 +1595,7 @@ Deno.serve(async (req) => {
           "execute_narrative_repair",
           "propose_narrative_patch",
           "apply_narrative_patch",
+          "get_story_intelligence",
           "get_dev_seed_v2",
           "compare_dev_seed_v2",
           "create_dev_seed_v2",
