@@ -9744,6 +9744,81 @@ Return ONLY valid JSON:
         entity_prop:      plan.entity_propagated_scene_count,
       });
 
+      // ── SIM2: Interpretation layer (additive, deterministic) ─────────────
+      const resolvedSourceAxes: SpineAxis[] = (plan.direct_axes ?? []) as SpineAxis[];
+      const propagatedAxesArray: SpineAxis[] = (plan.propagated_axes ?? []) as SpineAxis[];
+      const totalScenes = plan.impacted_scene_count + plan.entity_impacted_scene_count;
+
+      // blast_radius_score (0–100)
+      const blastRadiusScore = simulationState === "no_impact" ? 0 : Math.min(
+        100,
+        Math.round(
+          resolvedSourceAxes.reduce(
+            (acc: number, ax: SpineAxis) => acc + computeRewritePriorityScore(ax),
+            0
+          ) * 2 +
+            plan.direct_scene_count * 3 +
+            plan.propagated_scene_count * 1.5 +
+            plan.entity_impacted_scene_count * 0.5
+        )
+      );
+
+      // impact_band
+      let impactBand: string;
+      if (simulationState === "no_impact") {
+        impactBand = "none";
+      } else if (totalScenes >= 1 && totalScenes <= 5) {
+        impactBand = "limited";
+      } else if (totalScenes >= 6 && totalScenes <= 15 || plan.recommended_scope === "propagated_only") {
+        impactBand = "moderate";
+      } else if ((totalScenes >= 16 && totalScenes <= 30) || (plan.recommended_scope === "broad_impact" && totalScenes <= 30)) {
+        impactBand = "broad";
+      } else if (totalScenes > 30 || (plan.recommended_scope === "broad_impact" && totalScenes > 30)) {
+        impactBand = "systemic";
+      } else {
+        impactBand = "none";
+      }
+
+      // dependency_risk_scores
+      const dependencyRiskScores = resolvedSourceAxes.flatMap((ax: SpineAxis) =>
+        computeDownstreamRiskScores(ax, new Map())
+      ).sort((a, b) => b.risk_score - a.risk_score).slice(0, 9);
+
+      // affected_axes_enriched
+      const allAffectedAxes = [...new Set([...resolvedSourceAxes, ...propagatedAxesArray])];
+      const affectedAxesEnriched = allAffectedAxes
+        .filter((ax: SpineAxis) => AXIS_METADATA[ax])
+        .map((ax: SpineAxis) => ({
+          axis: ax,
+          label: AXIS_METADATA[ax].label,
+          class: AXIS_METADATA[ax].class,
+          severity: AXIS_METADATA[ax].severity,
+          is_direct: resolvedSourceAxes.includes(ax),
+          chain_length: resolvedSourceAxes.includes(ax)
+            ? 0
+            : (getDependencyChain(resolvedSourceAxes[0], ax)?.length ?? 1) - 1,
+        }));
+
+      // simulation_confidence
+      let simulationConfidence: number;
+      if (structuralUncertainty) {
+        simulationConfidence = 40;
+      } else if (plan.recommended_scope === "no_scene_links") {
+        simulationConfidence = 25;
+      } else if (plan.source_units.length > 0) {
+        simulationConfidence = 85;
+      } else {
+        simulationConfidence = 70;
+      }
+
+      // structural_uncertainty_reason
+      let structuralUncertaintyReason: string | null = null;
+      if (plan.recommended_scope === "no_scene_links") {
+        structuralUncertaintyReason = "No scene_spine_links exist for this project — run scene enrichment first to enable scene-level simulation";
+      } else if (structuralUncertainty) {
+        structuralUncertaintyReason = "Simulation engine encountered structural uncertainty";
+      }
+
       return new Response(JSON.stringify({
         project_id:              projectId,
         action:                  "simulate_narrative_impact",
@@ -9771,6 +9846,13 @@ Return ONLY valid JSON:
         propagated_scenes:        plan.impacted_scenes.filter((s: any) => s.risk_source === "propagated"),
         entity_link_scenes:       plan.entity_impacted_scenes,
         entity_propagation_scenes: plan.entity_propagated_scenes,  // advisory only
+        // ── SIM2: Enriched interpretation ──────────────────────────────────
+        blast_radius_score:             blastRadiusScore,
+        impact_band:                    impactBand,
+        dependency_risk_scores:         dependencyRiskScores,
+        affected_axes_enriched:         affectedAxesEnriched,
+        simulation_confidence:          simulationConfidence,
+        structural_uncertainty_reason:  structuralUncertaintyReason,
         // ── Strategy analysis ──────────────────────────────────────────────
         strategy_effect:           strategyEffect,
         // ── Advisory notes ─────────────────────────────────────────────────

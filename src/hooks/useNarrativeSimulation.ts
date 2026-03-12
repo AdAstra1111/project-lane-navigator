@@ -8,16 +8,41 @@ import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { RepairStrategy } from '@/hooks/useSelectiveRegenerationPlan';
 
+export interface AxisRiskScore {
+  source_axis: string;
+  target_axis: string;
+  risk_score: number;
+  chain_length: number;
+  dependency_type: string;
+  confidence_factor: number;
+}
+
+export interface AffectedAxisEnriched {
+  axis: string;
+  label: string;
+  class: 'A' | 'B' | 'S' | 'C';
+  severity: string;
+  is_direct: boolean;
+  chain_length: number | null;
+}
+
 export interface SimulationResult {
   ok: boolean;
-  simulation_state: 'impact_found' | 'no_impact';
+  simulation_state: 'impact_found' | 'no_impact' | 'unavailable';
   impacted_scene_count: number;
-  direct_scenes: number;
-  propagated_scenes: number;
-  entity_link_scenes: number;
-  entity_propagation_scenes: number;
+  direct_scene_count: number;
+  propagated_scene_count: number;
+  entity_link_scene_count: number;
+  entity_propagation_scene_count: number;
   risk_sources: string[];
   recommended_scope: string;
+  // SIM2 enrichment fields
+  blast_radius_score: number;
+  impact_band: 'none' | 'limited' | 'moderate' | 'broad' | 'systemic';
+  dependency_risk_scores: AxisRiskScore[];
+  affected_axes_enriched: AffectedAxisEnriched[];
+  simulation_confidence: number;
+  structural_uncertainty_reason: string | null;
 }
 
 interface SimulationInput {
