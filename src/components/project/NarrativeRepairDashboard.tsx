@@ -19,6 +19,7 @@ import { NarrativeSimulationPanel } from '@/components/project/NarrativeSimulati
 import { NarrativeEssenceDriftPanel } from '@/components/project/NarrativeEssenceDriftPanel';
 import { NarrativeDiagnosticsPanel } from '@/components/narrative/NarrativeDiagnosticsPanel';
 import { NarrativeRepairQueuePanel } from '@/components/project/NarrativeRepairQueuePanel';
+import { StoryIntelligencePanel } from '@/components/project/StoryIntelligencePanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -192,6 +193,9 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
             onStrategyChange={setRepairStrategy}
           />
 
+          {/* Story Intelligence */}
+          {projectId && <StoryIntelligencePanel projectId={projectId} />}
+
           {/* Narrative Diagnostics */}
           {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
 
@@ -252,6 +256,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
           repairStrategy={repairStrategy}
           onStrategyChange={setRepairStrategy}
         />
+        {/* ═══ STORY INTELLIGENCE ═══ */}
+        {projectId && <StoryIntelligencePanel projectId={projectId} />}
         {/* ═══ NARRATIVE DIAGNOSTICS ═══ */}
         {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
         {/* ═══ REPAIR QUEUE ═══ */}
