@@ -565,6 +565,23 @@ function ProposalPanel({ repair, projectId, generateHook, applyHook, simulateHoo
         <div className="space-y-2.5">
           <PatchPreview proposal={proposal} />
 
+          {/* Impact preview */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs gap-1.5 text-muted-foreground"
+            onClick={() => simulateHook.preview(proposal.proposal_id)}
+            disabled={simulateHook.isPreviewing}
+          >
+            {simulateHook.isPreviewing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+            {simulateHook.isPreviewing ? 'Previewing...' : 'Preview Impact'}
+          </Button>
+          {simulateHook.result?.proposal_id === proposal.proposal_id && (
+            <ImpactPreviewBlock result={simulateHook.result} />
+          )}
+          {simulateHook.error && !simulateHook.isPreviewing && (
+            <p className="text-xs text-muted-foreground">Impact preview unavailable: {simulateHook.error}</p>
+          )}
           {/* Apply feedback */}
           {applyHook.result && applyHook.result.repair_id === repair.repair_id && (
             <div className={`rounded border px-2.5 py-2 text-xs ${
