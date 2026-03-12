@@ -68,6 +68,7 @@ export function useExecuteNarrativeRepair(projectId: string | undefined) {
       queryClient.invalidateQueries({ queryKey: ['narrative-repairs', projectId] });
       queryClient.invalidateQueries({ queryKey: ['narrative-diagnostics', projectId] });
       queryClient.invalidateQueries({ queryKey: ['story-intelligence', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['narrative-stability', projectId] });
     } catch (e: any) {
       setError(e?.message ?? 'Execution request failed');
     } finally {

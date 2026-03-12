@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useStoryIntelligence, type StoryIntelligenceData, type TopBlocker, type FragilityEntry, type EvidenceSummary } from '@/hooks/useStoryIntelligence';
+import { useNarrativeStability, type NarrativeStabilityData, type StabilityBand } from '@/hooks/useNarrativeStability';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Brain, RefreshCw, ShieldCheck, Play, Clock, Sparkles, Wrench, XCircle, Circle,
-  ArrowRight, ChevronDown, AlertTriangle, Loader2,
+  ArrowRight, ChevronDown, AlertTriangle, Loader2, Activity,
 } from 'lucide-react';
 
 interface Props {
@@ -46,12 +48,29 @@ const SEVERITY_DOT: Record<string, string> = {
   low: 'bg-emerald-500',
 };
 
+// Narrative Stability band colors (OS-layer operational signal — not CI/GP)
+const STABILITY_BAND_STYLE: Record<StabilityBand, string> = {
+  stable:   'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
+  watch:    'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
+  fragile:  'bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30',
+  unstable: 'bg-destructive/15 text-destructive border-destructive/30',
+  critical: 'bg-destructive/15 text-destructive border-destructive/30',
+};
+
 function bandLabel(band: string): string {
   return band.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 export function StoryIntelligencePanel({ projectId }: Props) {
-  const { data, isLoading, error, refresh } = useStoryIntelligence(projectId);
+  const queryClient = useQueryClient();
+  const { data, isLoading, error, refresh: refreshSI } = useStoryIntelligence(projectId);
+  const { data: stabilityData, isLoading: stabilityLoading, error: stabilityError } = useNarrativeStability(projectId);
+
+  // Single refresh button refreshes both SI and NSI coherently
+  const refresh = () => {
+    refreshSI();
+    queryClient.invalidateQueries({ queryKey: ['narrative-stability', projectId] });
+  };
 
   // Loading skeleton
   if (isLoading && !data) {
@@ -102,8 +121,16 @@ export function StoryIntelligencePanel({ projectId }: Props) {
           </div>
         )}
 
-        {/* Summary grid */}
-        <SummaryGrid data={data} />
+        {/* Summary grid — 5 cards on md+ */}
+        <SummaryGrid data={data} stabilityData={stabilityData} stabilityLoading={stabilityLoading} />
+
+        {/* NSI error note — inline, non-blocking */}
+        {stabilityError && !stabilityData && (
+          <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
+            <AlertTriangle className="h-2.5 w-2.5 text-amber-500 shrink-0" />
+            <span>Stability index unavailable — {stabilityError}</span>
+          </div>
+        )}
 
         {/* Top blockers */}
         {data.top_blockers.length > 0 && <TopBlockersSection blockers={data.top_blockers} />}
@@ -127,12 +154,21 @@ export function StoryIntelligencePanel({ projectId }: Props) {
 }
 
 /* ── Summary Grid ── */
-function SummaryGrid({ data }: { data: StoryIntelligenceData }) {
+function SummaryGrid({
+  data,
+  stabilityData,
+  stabilityLoading,
+}: {
+  data: StoryIntelligenceData;
+  stabilityData: NarrativeStabilityData | null;
+  stabilityLoading: boolean;
+}) {
   const readiness = READINESS_CONFIG[data.repair_readiness] ?? READINESS_CONFIG.open;
   const ReadinessIcon = readiness.icon;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+      {/* Health */}
       <div className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-2 space-y-0.5">
         <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">Health</span>
         <div className="flex items-center gap-1.5">
@@ -142,6 +178,8 @@ function SummaryGrid({ data }: { data: StoryIntelligenceData }) {
           </Badge>
         </div>
       </div>
+
+      {/* Story Risk */}
       <div className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-2 space-y-0.5">
         <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">Story Risk</span>
         <div className="flex items-center gap-1.5">
@@ -151,6 +189,8 @@ function SummaryGrid({ data }: { data: StoryIntelligenceData }) {
           </Badge>
         </div>
       </div>
+
+      {/* Repair Readiness */}
       <div className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-2 space-y-0.5">
         <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">Readiness</span>
         <div className={`flex items-center gap-1.5 ${readiness.className ?? ''}`}>
@@ -158,9 +198,34 @@ function SummaryGrid({ data }: { data: StoryIntelligenceData }) {
           <span className="text-[10px] font-medium">{readiness.label}</span>
         </div>
       </div>
+
+      {/* Issues */}
       <div className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-2 space-y-0.5">
         <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">Issues</span>
         <span className="text-sm font-semibold">{data.blocker_count}</span>
+      </div>
+
+      {/* Narrative Stability (NSI) — OS-layer operational signal */}
+      <div className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-2 space-y-0.5">
+        <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+          <Activity className="h-2.5 w-2.5" />
+          Stability
+        </span>
+        {stabilityLoading && !stabilityData ? (
+          <Skeleton className="h-4 w-14" />
+        ) : stabilityData ? (
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-semibold">{stabilityData.narrative_stability_index}</span>
+            <Badge
+              variant="outline"
+              className={`text-[8px] px-1.5 py-0 border ${STABILITY_BAND_STYLE[stabilityData.stability_band] ?? ''}`}
+            >
+              {bandLabel(stabilityData.stability_band)}
+            </Badge>
+          </div>
+        ) : (
+          <span className="text-[9px] text-muted-foreground">—</span>
+        )}
       </div>
     </div>
   );
