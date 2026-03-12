@@ -35,6 +35,8 @@ import {
   FileText,
   ArrowRight,
   Zap,
+  TrendingUp,
+  Ban,
 } from 'lucide-react';
 
 interface Props {
