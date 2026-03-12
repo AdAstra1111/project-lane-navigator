@@ -212,11 +212,27 @@ Deno.serve(async (req) => {
 
       const docTypeKey = resolveDocTypeKey(version, parentDoc, isSeries);
 
-      // PATCH A: Demote all previous approvals for this document before approving new version
-      // This enforces the single-authoritative-version invariant per (project_id, doc_type)
+      // PATCH A: Demote all previous approvals for this doc_type within the project.
+      // Enforces single-authoritative-version invariant per (project_id, doc_type).
+      // Scope: ALL documents with the same doc_type in this project (not just same document_id),
+      // because multiple project_documents rows can share a doc_type and each may have
+      // approved versions — approving one must clear ALL others.
+      const docType = parentDoc?.doc_type;
+      let allDocIdsForType: string[] = [version.document_id];
+      if (docType) {
+        const { data: siblingDocs } = await db.from("project_documents")
+          .select("id")
+          .eq("project_id", projectId)
+          .eq("doc_type", docType)
+          .neq("id", version.document_id);
+        if (siblingDocs && siblingDocs.length > 0) {
+          allDocIdsForType = allDocIdsForType.concat(siblingDocs.map((d: any) => d.id));
+        }
+      }
+
       const { data: prevApproved } = await db.from("project_document_versions")
         .select("id")
-        .eq("document_id", version.document_id)
+        .in("document_id", allDocIdsForType)
         .eq("approval_status", "approved")
         .neq("id", documentVersionId);
 
@@ -225,7 +241,7 @@ Deno.serve(async (req) => {
         await db.from("project_document_versions")
           .update({ approval_status: "superseded" })
           .in("id", prevIds);
-        console.log(`[project-folder-engine] approval_superseded_previous { document_id: "${version.document_id}", superseded_count: ${prevIds.length}, superseded_ids: ${JSON.stringify(prevIds)}, new_authoritative: "${documentVersionId}" }`);
+        console.log(`[project-folder-engine] approval_superseded_previous { doc_type: "${docType}", project_id: "${projectId}", superseded_count: ${prevIds.length}, superseded_ids: ${JSON.stringify(prevIds)}, new_authoritative: "${documentVersionId}" }`);
 
         // ── TRANSITION LEDGER: version_superseded for each demoted version ──
         for (const prevId of prevIds) {
@@ -341,10 +357,17 @@ Deno.serve(async (req) => {
 
         const docTypeKey = resolveDocTypeKey(version, parentDoc, isSeries);
 
-        // Demote previous approvals for this document
+        // Demote previous approvals for this doc_type across the whole project
+        const amDocType = parentDoc?.doc_type;
+        let amDocIds: string[] = [version.document_id];
+        if (amDocType) {
+          const { data: amSiblings } = await db.from("project_documents")
+            .select("id").eq("project_id", projectId).eq("doc_type", amDocType).neq("id", version.document_id);
+          if (amSiblings) amDocIds = amDocIds.concat(amSiblings.map((d: any) => d.id));
+        }
         const { data: prevApproved } = await db.from("project_document_versions")
           .select("id")
-          .eq("document_id", version.document_id)
+          .in("document_id", amDocIds)
           .eq("approval_status", "approved")
           .neq("id", versionId);
         if (prevApproved && prevApproved.length > 0) {
