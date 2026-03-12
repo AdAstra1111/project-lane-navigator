@@ -12022,16 +12022,28 @@ Return ONLY valid JSON:
       });
 
       // ── Step 4: Project-level repair pressure ──────────────────────────────
-      const projectRepairPressure = Math.round(
+      // Raw: unbounded aggregate pressure mass = Σ(preventive_value × confidence)
+      const projectRepairPressureRaw = Math.round(
         perRepairForecasts.reduce((sum: number, f: any) =>
           sum + f.repair_preventive_value * f.forecast_confidence, 0
         ) * 10
       ) / 10;
 
+      // Normalized: canonical bounded 0–100 score using asymptotic saturation.
+      // Uses: score = 100 × (1 − e^(−raw / k)) where k is a normalization
+      // constant calibrated so that moderate pressure (~30 raw) maps to ~50.
+      // Properties: deterministic, monotonic, bounded [0,100], asymptotic.
+      // k = 30 / ln(2) ≈ 43.3 ensures raw=30 → score≈50.
+      const NRF1_NORM_K = 30 / Math.LN2; // ≈ 43.3
+      const projectRepairPressure = Math.round(
+        100 * (1 - Math.exp(-projectRepairPressureRaw / NRF1_NORM_K))
+      );
+
       console.log("[dev-engine-v2] forecast_repair_pressure", {
         project_id:           projectId,
         unresolved_count:     unresolvedRepairs.length,
         forecast_count:       perRepairForecasts.length,
+        project_pressure_raw: projectRepairPressureRaw,
         project_pressure:     projectRepairPressure,
         family_count:         projectForecastFamilies.size,
       });
@@ -12043,19 +12055,21 @@ Return ONLY valid JSON:
         current_nsi:             arp1Data.current_nsi ?? null,
         current_stability_band:  arp1Data.current_stability_band ?? null,
         nrf1_forecast: {
-          project_repair_pressure:  projectRepairPressure,
-          forecasted_repair_families: Array.from(projectForecastFamilies).sort(),
-          per_repair_forecasts:     perRepairForecasts,
-          forecast_disclaimer:      "Forecasts represent dependency-based projections derived from current unresolved repairs and NDG structure. They do not represent guaranteed future diagnostics or repairs.",
+          project_repair_pressure_raw: projectRepairPressureRaw,
+          project_repair_pressure:     projectRepairPressure,
+          forecasted_repair_families:  Array.from(projectForecastFamilies).sort(),
+          per_repair_forecasts:        perRepairForecasts,
+          forecast_disclaimer:         "Forecasts represent dependency-based projections derived from current unresolved repairs and NDG structure. They do not represent guaranteed future diagnostics or repairs.",
         },
         scoring_notes: {
-          confidence_model:         "avg_strength * axis_dilution * has_axes",
-          preventive_value_model:   "downstream_reach * max_severity * confidence * 10",
-          root_cause_model:         "downstream / (downstream + upstream)",
-          symptom_model:            "upstream / (downstream + upstream)",
-          pressure_model:           "Σ(preventive_value * confidence)",
-          registry_source:          "NRF1_REVERSE_FORECAST_REGISTRY (deterministic, NDG-seeded)",
-          version:                  "nrf1",
+          confidence_model:           "avg_strength * axis_dilution * has_axes",
+          preventive_value_model:     "downstream_reach * max_severity * confidence * 10",
+          root_cause_model:           "downstream / (downstream + upstream)",
+          symptom_model:              "upstream / (downstream + upstream)",
+          pressure_raw_model:         "Σ(preventive_value * confidence) — unbounded aggregate pressure mass",
+          pressure_normalized_model:  "100 * (1 - e^(-raw / k)), k = 30/ln2 ≈ 43.3 — bounded 0–100 asymptotic score; raw=30 → ~50, monotonic, deterministic",
+          registry_source:            "NRF1_REVERSE_FORECAST_REGISTRY (deterministic, NDG-seeded)",
+          version:                    "nrf1.1",
         },
         computed_at: nrf1ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
