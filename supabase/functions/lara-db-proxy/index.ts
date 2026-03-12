@@ -1713,6 +1713,36 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "call_generate_document": {
+        // Trigger generate-document for a specific doc_type on a project.
+        // Used by Lara for direct regeneration without requiring a user JWT.
+        const { project_id, doc_type, user_id, source_doc_type, source_version_id, episode_count } = params;
+        if (!project_id || !doc_type) {
+          return new Response(JSON.stringify({ error: "call_generate_document requires project_id and doc_type" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const genUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-document`;
+        const genResp = await fetch(genUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            projectId: project_id,
+            docType: doc_type,
+            userId: user_id || null,
+            sourceDocType: source_doc_type || null,
+            sourceVersionId: source_version_id || null,
+            ...(episode_count ? { episodeCount: episode_count } : {}),
+          }),
+        });
+        const genData = await genResp.json();
+        result = genData;
+        break;
+      }
+
       default:
         return new Response(JSON.stringify({ error: `Unknown op: ${op}` }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },

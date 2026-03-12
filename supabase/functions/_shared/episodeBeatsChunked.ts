@@ -267,6 +267,102 @@ async function generateBatch(
 }
 
 /**
+ * Sequential plain-text generator for season_script ('script' mode).
+ *
+ * JSON transport is unreliable for screenplay content — dialogue quotes, colons,
+ * and multi-line action blocks cause frequent JSON parse failures. Instead, generate
+ * each episode sequentially as raw markdown text and concatenate.
+ */
+async function generateSeasonScriptSequential(opts: EpisodeBeatsOpts): Promise<string> {
+  const { apiKey, episodeCount, systemPrompt, upstreamContent, projectTitle } = opts;
+  const requestId = opts.requestId || crypto.randomUUID();
+
+  const SCRIPT_EPISODE_SYSTEM = `You are writing ONE EPISODE of a vertical drama screenplay. Output ONLY the raw screenplay text — no JSON, no markdown code blocks, no preamble.
+
+Format:
+## EPISODE [N]: [EPISODE TITLE]
+*Duration: 120–180 seconds*
+
+COLD OPEN
+[Action line: scroll-stopping hook — 2-3 lines max]
+
+SCENE 1 — [SCENE HEADING]
+[Action line]
+CHARACTER NAME
+(parenthetical if needed)
+Dialogue line.
+[Action / reaction]
+CHARACTER NAME
+Dialogue line.
+
+[Repeat for 2-4 more scenes]
+
+EPISODE END
+[Final image + micro-cliffhanger pulling viewer to next episode]
+
+---
+
+Rules:
+- Write REAL dialogue — character-specific, subtext-loaded, personality-revealing
+- Every scene has a clear dramatic function
+- End on an unresolved micro-cliffhanger
+- 400–600 words of scripted content per episode
+- Do NOT include character descriptions, beat summaries, or project metadata`;
+
+  const allEpisodes = Array.from({ length: episodeCount }, (_, i) => i + 1);
+  const episodeTexts: string[] = [];
+
+  console.error(JSON.stringify({
+    diag: "SEASON_SCRIPT_SEQUENTIAL_START",
+    requestId, episodeCount, mode: "sequential_plaintext",
+  }));
+
+  for (const epNum of allEpisodes) {
+    const userPrompt = `Write Episode ${epNum} of ${episodeCount} for the vertical drama series "${projectTitle}".
+
+UPSTREAM CONTEXT (season arc, character bible, episode beats):
+${upstreamContent.slice(0, 8000)}
+
+${systemPrompt ? `ADDITIONAL PROJECT CONTEXT:\n${systemPrompt.slice(0, 2000)}` : ""}
+
+Write Episode ${epNum} now. Start directly with "## EPISODE ${epNum}:".`;
+
+    let episodeText = "";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const raw = await callLLM(apiKey, SCRIPT_EPISODE_SYSTEM, userPrompt);
+        // Strip any accidental code fences
+        const cleaned = raw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+        if (cleaned.includes(`## EPISODE ${epNum}`) || cleaned.includes(`## EP ${epNum}`)) {
+          episodeText = cleaned;
+          break;
+        }
+        // Header missing — prepend it
+        episodeText = `## EPISODE ${epNum}: (Untitled)\n\n${cleaned}`;
+        break;
+      } catch (err: any) {
+        console.error(JSON.stringify({ diag: "SCRIPT_EP_FAIL", requestId, epNum, attempt, error: err?.message }));
+        if (attempt === 1) {
+          episodeText = `## EPISODE ${epNum}: (Generation failed)\n\n*Content unavailable — regeneration required.*\n\n---`;
+        }
+      }
+    }
+
+    episodeTexts.push(episodeText);
+    console.error(JSON.stringify({ diag: "SCRIPT_EP_DONE", requestId, epNum, chars: episodeText.length }));
+  }
+
+  const assembled = `# ${projectTitle} — SEASON SCRIPT\n\n${episodeTexts.join("\n\n---\n\n")}`;
+
+  console.error(JSON.stringify({
+    diag: "SEASON_SCRIPT_SEQUENTIAL_COMPLETE",
+    requestId, episodeCount, totalChars: assembled.length,
+  }));
+
+  return assembled;
+}
+
+/**
  * Generate episode beats/grid in batches with deterministic merge + validation + repair.
  */
 export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promise<string> {
@@ -274,9 +370,14 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
   const outputMode = opts.outputMode ?? 'beats';
   const requestId = opts.requestId || crypto.randomUUID();
 
-  // Script mode uses smaller batches — full episode screenplays are ~3-5x larger than beats
-  // and can overflow context limits. 3 eps/batch keeps token usage manageable.
-  const effectiveBatchSize = outputMode === 'script' ? 3 : BATCH_SIZE;
+  // Script mode: use sequential plain-text generation (not JSON batching).
+  // JSON transport breaks for screenplay content — quotes, colons, newlines in dialogue
+  // cause frequent parse failures. Sequential generation is more reliable.
+  if (outputMode === 'script') {
+    return generateSeasonScriptSequential({ ...opts, requestId });
+  }
+
+  const effectiveBatchSize = BATCH_SIZE;
 
   // Build numeric batches: [1..6], [7..12], etc.
   const allEpisodes = Array.from({ length: episodeCount }, (_, i) => i + 1);
