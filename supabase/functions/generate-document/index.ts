@@ -1196,7 +1196,7 @@ If you find yourself describing what happens in the story, which characters appe
                 const heading = "#".repeat(Math.min(depth + 2, 4));
                 const label = key.replace(/_/g, " ").toUpperCase();
                 if (typeof val === "string") return `${heading} ${label}\n\n${val}`;
-                if (Array.isArray(val)) return `${heading} ${label}\n\n${val.map((v: any) => `- ${typeof v === "string" ? v : JSON.stringify(v)}`).join("\n")}`;
+                if (Array.isArray(val)) return `${heading} ${label}\n\n${val.map((v: any) => `- ${typeof v === "string" ? v : jsonToMarkdown(v, depth + 1)}`).join("\n")}`;
                 if (typeof val === "object") return `${heading} ${label}\n\n${jsonToMarkdown(val, depth + 1)}`;
                 return `${heading} ${label}\n\n${val}`;
               }).join("\n\n");

@@ -5587,7 +5587,7 @@ MATERIAL:\n${version.plaintext}`;
                 const hashes = "#".repeat(Math.min(depth + 2, 4));
                 const label = key.replace(/_/g, " ").toUpperCase();
                 if (typeof val === "string") return `${hashes} ${label}\n\n${val}`;
-                if (Array.isArray(val)) return `${hashes} ${label}\n\n${val.map((v: any) => `- ${typeof v === "string" ? v : JSON.stringify(v)}`).join("\n")}`;
+                if (Array.isArray(val)) return `${hashes} ${label}\n\n${val.map((v: any) => `- ${typeof v === "string" ? v : jsonToMarkdown(v, depth + 1)}`).join("\n")}`;
                 if (typeof val === "object" && val !== null) return `${hashes} ${label}\n\n${jsonToMarkdown(val, depth + 1)}`;
                 return `${hashes} ${label}\n\n${val}`;
               }).join("\n\n");
