@@ -1346,6 +1346,8 @@ Deno.serve(async (req) => {
           "get_narrative_diagnostics",
           "get_dev_seed_v2",
           "compare_dev_seed_v2",
+          "create_dev_seed_v2",
+          "create_derived_dev_seed_v2",
         ]);
         const { action: relayAction, payload: relayPayload = {} } = params;
         if (!ALLOWED_RELAY_ACTIONS.has(relayAction)) {
