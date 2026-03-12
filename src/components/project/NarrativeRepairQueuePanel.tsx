@@ -16,6 +16,7 @@ import { useSimulateNarrativePatch, type SimulateNarrativePatchResult } from '@/
 import { useProjectedNarrativeStability, type ProjectedEffect } from '@/hooks/useProjectedNarrativeStability';
 import { useRecommendedRepairOrder, type RepairRecommendation, type BlockedRepair } from '@/hooks/useRecommendedRepairOrder';
 import { useRecommendedRepairPaths, type RepairPath, type ExcludedRepair } from '@/hooks/useRecommendedRepairPaths';
+import { useEvaluatedRepairPaths, type EvaluatedPath, type EvaluatedStep } from '@/hooks/useEvaluatedRepairPaths';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
