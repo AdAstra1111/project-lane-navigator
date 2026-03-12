@@ -1,6 +1,7 @@
 /**
- * usePreventiveRepairPrioritization — Fetches PRP1 + NRF1 data.
+ * usePreventiveRepairPrioritization — Fetches PRP1 + conditionally NRF1 data.
  * Read-only. TanStack Query pattern.
+ * NRF1 is only fetched when axis_debt_map is needed and PRP1 doesn't provide it.
  */
 import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -93,7 +94,7 @@ async function fetchPRP1(projectId: string): Promise<PRP1Data> {
   return json as PRP1Data;
 }
 
-async function fetchNRF1(projectId: string): Promise<NRF1Data> {
+async function fetchNRF1(projectId: string): Promise<NRF1Data | null> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Authentication required');
 
@@ -109,9 +110,9 @@ async function fetchNRF1(projectId: string): Promise<NRF1Data> {
     }),
   });
 
-  if (!resp.ok) return null as any;
+  if (!resp.ok) return null;
   const json = await resp.json();
-  if (!json?.ok) return null as any;
+  if (!json?.ok) return null;
   return json as NRF1Data;
 }
 
@@ -127,10 +128,14 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     staleTime: 60_000,
   });
 
+  // Only fetch NRF1 when PRP1 succeeded but is degraded (no preventive data)
+  // or when we need axis_debt_map which PRP1 doesn't include
+  const needsNrf1 = !!projectId && !!prp1Query.data && !prp1Query.data.nrf1_degraded;
+
   const nrf1Query = useQuery({
     queryKey: nrf1Key,
     queryFn: () => fetchNRF1(projectId!),
-    enabled: !!projectId,
+    enabled: needsNrf1,
     staleTime: 60_000,
   });
 

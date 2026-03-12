@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import {
-  ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle, RefreshCw,
+  ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle, RefreshCw, Info,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -53,7 +53,7 @@ const RISK_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 type SortKey = 'preventive_rank' | 'baseline_rank' | 'preventive_score' | 'rank_delta' | 'root_cause_signal' | 'preventive_confidence_signal';
 
 export function RepairStrategyPanel({ projectId }: Props) {
-  const { prp1, nrf1, isLoading, error, refresh } = usePreventiveRepairPrioritization(projectId);
+  const { prp1, nrf1, isLoading, nrf1Loading, error, refresh } = usePreventiveRepairPrioritization(projectId);
   const [selectedRepair, setSelectedRepair] = useState<PRP1Repair | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('preventive_rank');
   const [sortAsc, setSortAsc] = useState(true);
@@ -89,17 +89,27 @@ export function RepairStrategyPanel({ projectId }: Props) {
     else { setSortKey(key); setSortAsc(true); }
   };
 
-  const SortHeader = ({ label, field }: { label: string; field: SortKey }) => (
-    <button
-      onClick={() => handleSort(field)}
-      className="flex items-center gap-1 text-left hover:text-foreground transition-colors"
-    >
-      {label}
-      {sortKey === field && (
-        sortAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
-      )}
-    </button>
-  );
+  const SortHeader = ({ label, field }: { label: string; field: SortKey }) => {
+    const isActive = sortKey === field;
+    return (
+      <button
+        onClick={() => handleSort(field)}
+        className={cn(
+          'flex items-center gap-1 text-left transition-colors',
+          isActive ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'
+        )}
+      >
+        {label}
+        {isActive ? (
+          sortAsc
+            ? <ArrowUp className="h-3 w-3 text-primary" />
+            : <ArrowDown className="h-3 w-3 text-primary" />
+        ) : (
+          <ArrowDown className="h-3 w-3 opacity-0 group-hover:opacity-30" />
+        )}
+      </button>
+    );
+  };
 
   /* ── Loading ── */
   if (isLoading) {
@@ -115,10 +125,10 @@ export function RepairStrategyPanel({ projectId }: Props) {
   if (error || !prioritization) {
     return (
       <Card className="border-border/50">
-        <CardContent className="py-8 text-center">
-          <AlertTriangle className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
+        <CardContent className="py-10 text-center space-y-2">
+          <AlertTriangle className="h-5 w-5 mx-auto text-muted-foreground" />
           <p className="text-sm text-muted-foreground">Repair prioritization unavailable.</p>
-          <Button variant="ghost" size="sm" className="mt-2" onClick={refresh}>
+          <Button variant="ghost" size="sm" onClick={refresh}>
             <RefreshCw className="h-3.5 w-3.5 mr-1" /> Retry
           </Button>
         </CardContent>
@@ -140,6 +150,18 @@ export function RepairStrategyPanel({ projectId }: Props) {
           <span className="text-xs text-amber-400">Preventive forecasts unavailable — baseline ranking only.</span>
         </div>
       )}
+
+      {/* ═══ COMPACT LEGEND ═══ */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-1 text-[10px] text-muted-foreground">
+        <span className="font-semibold uppercase tracking-wider text-muted-foreground/70">Legend</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Low</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block" /> Moderate</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500 inline-block" /> Elevated</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Critical</span>
+        <span className="border-l border-border/50 pl-4 flex items-center gap-1"><ArrowUp className="h-2.5 w-2.5 text-emerald-400" /> Moved up</span>
+        <span className="flex items-center gap-1"><ArrowDown className="h-2.5 w-2.5 text-red-400" /> Moved down</span>
+        <span className="flex items-center gap-1"><Minus className="h-2.5 w-2.5 text-muted-foreground" /> Unchanged</span>
+      </div>
 
       {/* ═══ TOP SUMMARY ROW ═══ */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -201,7 +223,7 @@ export function RepairStrategyPanel({ projectId }: Props) {
 
       {/* ═══ SECTION 1: PREVENTIVE REPAIR RANKING ═══ */}
       <Card className="border-border/50">
-        <CardHeader className="pb-2">
+        <CardHeader className="pb-2 px-4 pt-4">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Gauge className="h-4 w-4 text-muted-foreground" />
@@ -219,7 +241,7 @@ export function RepairStrategyPanel({ projectId }: Props) {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="border-border/50">
                     <TableHead className="text-xs w-[140px]">Repair</TableHead>
                     <TableHead className="text-xs w-[70px]">Status</TableHead>
                     <TableHead className="text-xs w-[50px]"><SortHeader label="Base" field="baseline_rank" /></TableHead>
@@ -236,7 +258,7 @@ export function RepairStrategyPanel({ projectId }: Props) {
                   {sortedRepairs.map((r) => (
                     <TableRow
                       key={r.repair_id}
-                      className="cursor-pointer hover:bg-muted/30 transition-colors"
+                      className="cursor-pointer hover:bg-muted/30 transition-colors border-border/30"
                       onClick={() => setSelectedRepair(r)}
                     >
                       <TableCell className="font-mono text-xs truncate max-w-[140px]">{r.repair_type}</TableCell>
@@ -282,13 +304,22 @@ export function RepairStrategyPanel({ projectId }: Props) {
       </Card>
 
       {/* ═══ SECTION 2: AXIS DEBT MAP ═══ */}
-      {sortedAxes.length > 0 && (
-        <div className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-            <ShieldAlert className="h-3.5 w-3.5" />
-            Axis Debt Map
-            <InfoTooltip text="Shows narrative axes under repair pressure, ranked by risk level and source repair count." />
-          </h3>
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <ShieldAlert className="h-3.5 w-3.5" />
+          Axis Debt Map
+          <InfoTooltip text="Shows narrative axes under repair pressure, ranked by risk level and source repair count." />
+        </h3>
+        {nrf1Loading && sortedAxes.length === 0 ? (
+          <Skeleton className="h-20 w-full rounded-md" />
+        ) : sortedAxes.length === 0 ? (
+          <Card className="border-border/50">
+            <CardContent className="py-6 text-center">
+              <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+              <p className="text-xs text-muted-foreground">Axis debt map unavailable for this project.</p>
+            </CardContent>
+          </Card>
+        ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {sortedAxes.map((ax) => (
               <Card key={ax.axis} className="border-border/50">
@@ -321,8 +352,8 @@ export function RepairStrategyPanel({ projectId }: Props) {
               </Card>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* ═══ SECTION 3: NARRATIVE PRESSURE BAR ═══ */}
       <div className="space-y-1.5">
@@ -333,14 +364,12 @@ export function RepairStrategyPanel({ projectId }: Props) {
           <InfoTooltip text="Estimated future repair pressure derived from NDG dependency propagation." />
         </div>
         <div className="relative h-3 rounded-full overflow-hidden bg-muted">
-          {/* Segmented background */}
           <div className="absolute inset-0 flex">
             <div className="w-[30%] bg-emerald-500/20" />
             <div className="w-[30%] bg-amber-500/20" />
             <div className="w-[20%] bg-orange-500/20" />
             <div className="w-[20%] bg-red-500/20" />
           </div>
-          {/* Actual value bar */}
           <div
             className={cn('h-full rounded-full transition-all duration-500', pressureBg(pressure))}
             style={{ width: `${Math.min(pressure, 100)}%` }}
@@ -370,24 +399,29 @@ export function RepairStrategyPanel({ projectId }: Props) {
             <DialogDescription className="text-xs">Repair detail — preventive ranking context</DialogDescription>
           </DialogHeader>
           {selectedRepair && (
-            <div className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-2">
-                <Detail label="Status" value={selectedRepair.status} />
-                <Detail label="Baseline Rank" value={String(selectedRepair.baseline_rank)} />
-                <Detail label="Preventive Rank" value={String(selectedRepair.preventive_rank)} />
-                <Detail label="Rank Delta" value={`${selectedRepair.rank_delta > 0 ? '+' : ''}${selectedRepair.rank_delta}`} />
-                <Detail label="Baseline Score" value={selectedRepair.baseline_score.toFixed(2)} />
-                <Detail label="Preventive Score" value={selectedRepair.preventive_score.toFixed(2)} />
-                <Detail label="Uplift" value={selectedRepair.uplift_amount.toFixed(2)} />
-                <Detail label="Root Cause" value={selectedRepair.root_cause_signal.toFixed(3)} />
-                <Detail label="Confidence" value={`${(selectedRepair.preventive_confidence_signal * 100).toFixed(0)}%`} />
-                <Detail label="Friction" value={selectedRepair.execution_friction_signal.toFixed(1)} />
+            <div className="space-y-4 text-xs">
+              {/* Section: Ranking */}
+              <div className="space-y-1.5">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Ranking</h4>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pl-1">
+                  <Detail label="Status" value={selectedRepair.status} />
+                  <Detail label="Baseline Rank" value={String(selectedRepair.baseline_rank)} />
+                  <Detail label="Preventive Rank" value={String(selectedRepair.preventive_rank)} />
+                  <Detail label="Rank Delta" value={`${selectedRepair.rank_delta > 0 ? '+' : ''}${selectedRepair.rank_delta}`} />
+                  <Detail label="Baseline Score" value={selectedRepair.baseline_score.toFixed(2)} />
+                  <Detail label="Preventive Score" value={selectedRepair.preventive_score.toFixed(2)} />
+                  <Detail label="Uplift" value={selectedRepair.uplift_amount.toFixed(2)} />
+                  <Detail label="Root Cause" value={selectedRepair.root_cause_signal.toFixed(3)} />
+                  <Detail label="Confidence" value={`${(selectedRepair.preventive_confidence_signal * 100).toFixed(0)}%`} />
+                  <Detail label="Friction" value={selectedRepair.execution_friction_signal.toFixed(1)} />
+                </div>
               </div>
 
+              {/* Section: Forecast Families */}
               {selectedRepair.forecasted_repair_families.length > 0 && (
-                <div className="space-y-1">
-                  <span className="text-muted-foreground font-medium">Forecast Families</span>
-                  <div className="flex flex-wrap gap-1">
+                <div className="space-y-1.5">
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Forecast Families</h4>
+                  <div className="flex flex-wrap gap-1 pl-1">
                     {selectedRepair.forecasted_repair_families.map((f) => (
                       <Badge key={f} variant="outline" className="text-[10px] font-mono">{f}</Badge>
                     ))}
@@ -395,10 +429,11 @@ export function RepairStrategyPanel({ projectId }: Props) {
                 </div>
               )}
 
+              {/* Section: Explanation Tags */}
               {selectedRepair.explanation_tags.length > 0 && (
-                <div className="space-y-1">
-                  <span className="text-muted-foreground font-medium">Explanation Tags</span>
-                  <div className="flex flex-wrap gap-1">
+                <div className="space-y-1.5">
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Explanation Tags</h4>
+                  <div className="flex flex-wrap gap-1 pl-1">
                     {selectedRepair.explanation_tags.map((t) => (
                       <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
                     ))}
