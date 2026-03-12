@@ -12628,6 +12628,8 @@ Return ONLY valid JSON:
     // No state mutation. No schema changes. No LLM. Deterministic for identical DB state.
     // Safe for repeated execution. Composes existing layers only.
     //
+    }
+
     if (action === "select_preventive_strategy") {
       const { projectId } = body;
       if (!projectId) {
@@ -12925,7 +12927,6 @@ Return ONLY valid JSON:
         },
         computed_at: prp2ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
     }
 
     // ── Dev Seed v2: create_dev_seed_v2 ──────────────────────────────────────────
