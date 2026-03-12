@@ -12,6 +12,7 @@ import { useExecuteNarrativeRepair } from '@/hooks/useExecuteNarrativeRepair';
 import { usePatchProposalsByRepair, type NarrativePatchProposal } from '@/hooks/usePatchProposalsByRepair';
 import { useGeneratePatchProposal } from '@/hooks/useGeneratePatchProposal';
 import { useApplyPatchProposal } from '@/hooks/useApplyPatchProposal';
+import { useSimulateNarrativePatch, type SimulateNarrativePatchResult } from '@/hooks/useSimulateNarrativePatch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
