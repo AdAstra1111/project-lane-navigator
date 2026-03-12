@@ -2884,6 +2884,7 @@ serve(async (req) => {
       "build_narrative_obligations",
       "validate_narrative_obligations",
       "evaluate_structural_load",
+      "plan_narrative_repairs",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -11515,6 +11516,197 @@ Return ONLY valid JSON:
         diagnostics,
         diagnostics_count: diagnostics.length,
         by_source:         bySource,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // RP1 — plan_narrative_repairs
+    //
+    // Planning-only. No repair execution. No mutation of narrative state.
+    //
+    // Converts get_narrative_diagnostics output into structured repair plans stored
+    // in narrative_repairs. Idempotent: UNIQUE(project_id, source_diagnostic_id)
+    // prevents duplicates — repeat calls return 0 newly created if plans exist.
+    //
+    // Flow:
+    //   1. Call get_narrative_diagnostics (self-call via internal fetch — single
+    //      source of truth, no logic duplication)
+    //   2. Map each repairable diagnostic to a repair_type via DIAGNOSTIC_TO_REPAIR
+    //   3. Skip: repairability=unknown, or diagnostic_type not in mapping
+    //   4. INSERT ... ON CONFLICT DO NOTHING (idempotent)
+    //   5. Return { ok, repair_plans_created, plans }
+    //
+    // Output plans array contains all pending plans for the project (full picture),
+    // regardless of whether they were created this run or already existed.
+    //
+    if (action === "plan_narrative_repairs") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({
+          ok: false, error: "projectId required",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Diagnostic type → repair type mapping ─────────────────────────────
+      // Deterministic. All unknown diagnostic_types are skipped (fail-closed).
+      const DIAGNOSTIC_TO_REPAIR: Record<string, string> = {
+        // obligation_validator findings
+        obligation_violated:        "repair_relation_graph",
+        obligation_unresolved:      "repair_relation_graph",
+        obligation_registry_empty:  "build_obligation_registry",
+        // soul_drift findings
+        soul_drift_summary:         "repair_seed_sync",
+        premise_drift:              "repair_seed_sync",
+        beat_structure_changed:     "repair_seed_sync",
+        theme_vector_loss:          "repair_seed_sync",
+        emotional_promise_shift:    "repair_seed_sync",
+        relationship_core_missing:  "repair_relation_graph",
+        // narrative_monitor findings
+        unit_stale:                 "regenerate_units",
+        // simulation_engine findings
+        simulation_risk:            "run_simulation",
+        // diagnostics_layer findings
+        subsystem_unavailable:      "check_subsystem",
+      };
+
+      // ── Step 1: Fetch diagnostics via internal self-call ───────────────────
+      // Uses service role key — AUTH_OPTIONAL_ACTIONS allows unauthenticated
+      // get_narrative_diagnostics, so this is safe regardless.
+      let diagnosticsForPlanning: any[] = [];
+      let dxError: string | null = null;
+      try {
+        const dxRes = await fetch(
+          `${supabaseUrl}/functions/v1/dev-engine-v2`,
+          {
+            method:  "POST",
+            headers: {
+              "Content-Type":  "application/json",
+              "Authorization": `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify({ action: "get_narrative_diagnostics", projectId }),
+          }
+        );
+        const dxData = await dxRes.json();
+        if (!dxData.ok) {
+          dxError = dxData.error ?? "get_narrative_diagnostics returned ok=false";
+        } else {
+          diagnosticsForPlanning = dxData.diagnostics ?? [];
+        }
+      } catch (e: any) {
+        dxError = "get_narrative_diagnostics fetch failed: " + (e?.message ?? "unknown");
+      }
+
+      if (dxError) {
+        return new Response(JSON.stringify({
+          ok:    false,
+          error: dxError,
+          action: "plan_narrative_repairs",
+          project_id: projectId,
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 2: Map diagnostics to repair plans ────────────────────────────
+      // Skip rules:
+      //   (a) repairability === "unknown" — cannot plan a repair
+      //   (b) diagnostic_type not in DIAGNOSTIC_TO_REPAIR — no known repair path
+      // All other diagnostics get a pending plan.
+      const nowIso = new Date().toISOString();
+      const plansToInsert: Array<{
+        project_id:           string;
+        source_diagnostic_id: string;
+        repair_type:          string;
+        scope_type:           string;
+        scope_key:            string | null;
+        strategy:             string;
+        priority_score:       number;
+        repairability:        string;
+        status:               string;
+        created_at:           string;
+      }> = [];
+
+      for (const dx of diagnosticsForPlanning) {
+        // Skip rule (a): unknown repairability
+        if (dx.repairability === "unknown") continue;
+        // Skip rule (b): no repair path mapped
+        const repairType = DIAGNOSTIC_TO_REPAIR[dx.diagnostic_type];
+        if (!repairType) continue;
+
+        plansToInsert.push({
+          project_id:           projectId,
+          source_diagnostic_id: dx.diagnostic_id,
+          repair_type:          repairType,
+          scope_type:           dx.scope_level ?? "project",
+          scope_key:            dx.scope_key ?? null,
+          strategy:             dx.repairability,   // auto|guided|manual
+          priority_score:       dx.priority_score ?? 0,
+          repairability:        dx.repairability,
+          status:               "pending",
+          created_at:           nowIso,
+        });
+      }
+
+      // ── Step 3: Upsert repair plans (idempotent) ───────────────────────────
+      // ON CONFLICT (project_id, source_diagnostic_id) DO NOTHING:
+      // - Duplicate plans (C5: repeat call) are silently skipped
+      // - Existing plans in any status are preserved unchanged
+      let repairPlansCreated = 0;
+      if (plansToInsert.length > 0) {
+        // Upsert with ignoreDuplicates=true implements ON CONFLICT DO NOTHING.
+        // Supabase JS v2 doesn't reliably return a count of new-vs-skipped rows,
+        // so we count newly inserted plans by checking what exists before and after.
+        //
+        // Pre-count: how many of these diagnostic_ids already have plans?
+        const diagnosticIds = plansToInsert.map(p => p.source_diagnostic_id);
+        const { data: existing } = await (supabase as any)
+          .from("narrative_repairs")
+          .select("source_diagnostic_id")
+          .eq("project_id", projectId)
+          .in("source_diagnostic_id", diagnosticIds);
+        const existingIds = new Set((existing ?? []).map((r: any) => r.source_diagnostic_id));
+
+        // Upsert (ignoreDuplicates silently skips conflicts)
+        const BATCH = 50;
+        for (let i = 0; i < plansToInsert.length; i += BATCH) {
+          const batch = plansToInsert.slice(i, i + BATCH);
+          const { error: upsertErr } = await (supabase as any)
+            .from("narrative_repairs")
+            .upsert(batch, { onConflict: "project_id,source_diagnostic_id", ignoreDuplicates: true });
+          if (upsertErr) throw upsertErr;
+        }
+
+        // Count: plans in this batch that didn't previously exist
+        repairPlansCreated = plansToInsert.filter(
+          p => !existingIds.has(p.source_diagnostic_id)
+        ).length;
+      }
+
+      // ── Step 4: Read all pending plans for this project (full picture) ─────
+      const { data: allPendingPlans, error: readErr } = await (supabase as any)
+        .from("narrative_repairs")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("status", "pending")
+        .order("priority_score", { ascending: false })
+        .order("created_at",     { ascending: true });
+      if (readErr) throw readErr;
+
+      console.log("[dev-engine-v2] plan_narrative_repairs", {
+        project_id:           projectId,
+        diagnostics_received: diagnosticsForPlanning.length,
+        plans_to_insert:      plansToInsert.length,
+        repair_plans_created: repairPlansCreated,
+        pending_total:        allPendingPlans?.length ?? 0,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                   true,
+        action:               "plan_narrative_repairs",
+        project_id:           projectId,
+        repair_plans_created: repairPlansCreated,
+        diagnostics_received: diagnosticsForPlanning.length,
+        plans_skipped:        diagnosticsForPlanning.length - plansToInsert.length,
+        plans:                allPendingPlans ?? [],
+        plans_total:          allPendingPlans?.length ?? 0,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
