@@ -356,6 +356,26 @@ export function getDocTypeTemplate(docType: string, ctx: TemplateContext = {}): 
 3. **[Pillar 3 — e.g. Redemption]:** [How this theme is dramatised in the story]`;
 
     // ─────────────────────────────────────────────────────────────────────────────
+    case "episode_grid":
+    case "vertical_episode_grid":
+      return `# EPISODE GRID: ${title}
+*${epCount} Episodes — Each entry uses the standardised format below*
+
+**Format per episode:**
+\`\`\`
+## EPISODE N: [Active specific title — e.g. "Leila Finds the Burner Phone"]
+PREMISE: [Who does what, specifically, and what changes as a result]
+HOOK: [Specific opening image or line that demands the viewer keep watching]
+CORE MOVE: [The one new story fact that is true after this episode]
+CHARACTER COST: [What this episode extracts from the focal character]
+CLIFFHANGER: [Specific final beat — unresolved, pulling to next episode]
+ARC POSITION: [COLD OPEN WORLD | INCITING DISRUPTION | ESCALATION | COMPLICATION | MIDPOINT TURN | DARK SPIRAL | PRE-CLIMAX | CLIMAX | RESOLUTION | AFTERMATH]
+TONE: [Dominant emotional register]
+\`\`\`
+
+Every episode must have a unique CORE MOVE and CLIFFHANGER. No two episodes may feel structurally identical.`;
+
+    // ─────────────────────────────────────────────────────────────────────────────
     default:
       return null; // No template — generation proceeds as normal
   }

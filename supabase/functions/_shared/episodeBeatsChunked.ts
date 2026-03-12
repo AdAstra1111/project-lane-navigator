@@ -63,26 +63,41 @@ const BATCH_SYSTEM_PROMPT_GRID = `You output ONLY valid JSON. No markdown fences
 JSON schema:
 {"episodes": {"1": "<FULL EPISODE 1 GRID ENTRY>", "2": "<FULL EPISODE 2 GRID ENTRY>", ...}}
 
-EPISODE GRID — what each entry MUST contain (in this exact format):
-## EPISODE N: <SPECIFIC EPISODE TITLE>
-PREMISE: <one sentence — what specifically happens in THIS episode>
-HOOK: <what pulls the viewer in within the first 15 seconds>
-CORE MOVE: <the single most important story change or revelation in this episode>
-CHARACTER FOCUS: <whose arc or decision drives this episode>
-CLIFFHANGER: <how this episode ends to pull the viewer to the next>
-ARC POSITION: <which season arc function: setup / escalation / midpoint / complication / pre-climax / climax / resolution>
-TONE: <the emotional register of this episode: e.g. tense, tender, explosive, melancholy>
+═══════════════════════════════════════
+EPISODE GRID — MANDATORY FORMAT
+═══════════════════════════════════════
 
-Rules:
-- Only output the requested episode numbers.
-- Each episode value MUST start with "## EPISODE N: <title>"
-- Every field (PREMISE, HOOK, CORE MOVE, CHARACTER FOCUS, CLIFFHANGER, ARC POSITION, TONE) is MANDATORY.
-- PREMISE must describe THIS episode's specific events — not a template or generic placeholder.
-- NEVER collapse multiple episodes into one entry.
-- NEVER write ranges like "Eps 1–7" or "Episodes 2-5 follow same structure".
-- NEVER use placeholders, "template", "follow established structure", or abbreviations.
-- Do NOT include detailed beat breakdowns or sub-beats — those belong in Episode Beats, not the Grid.
-- Every requested episode MUST appear as its own key in the JSON object.`;
+Each episode value MUST follow this EXACT structure (copy the field labels verbatim):
+
+## EPISODE N: [SPECIFIC TITLE — an active phrase describing what THIS episode does, e.g. "Leila Finds the Burner Phone" not "Escape"]
+
+PREMISE: [One sentence. Name the characters involved, the specific action or revelation, and the consequence. No generics. Wrong: "Leila and Gabriel grow closer." Right: "Gabriel reveals he was paid by Leila's father to fake her kidnapping, upending everything Leila thought she knew about her rescue."]
+
+HOOK: [The specific image, line of dialogue, or action that opens this episode and demands the viewer keep watching. Concrete. No abstract descriptions.]
+
+CORE MOVE: [The single most important story change in this episode. A fact that is true AFTER this episode that was not true before. Must advance the season arc.]
+
+CHARACTER COST: [What does this episode cost the focal character emotionally, relationally, or practically? Every episode must extract a price.]
+
+CLIFFHANGER: [The final image or revelation — unresolved, specific, and calibrated to pull the viewer to the next episode. Not a summary — a beat.]
+
+ARC POSITION: [One of: COLD OPEN WORLD | INCITING DISRUPTION | ESCALATION | COMPLICATION | MIDPOINT TURN | DARK SPIRAL | PRE-CLIMAX | CLIMAX | RESOLUTION | AFTERMATH. Map to the season arc.]
+
+TONE: [The dominant emotional register: e.g. paranoid dread, charged chemistry, comic relief, devastating grief, mounting dread, exhilarating reversal]
+
+═══════════════════════════════════════
+QUALITY RULES — VIOLATIONS CAUSE REJECTION
+═══════════════════════════════════════
+1. Every episode title MUST be a specific active phrase — no single generic words ("Escape", "Betrayal", "Truth")
+2. PREMISE must name specific characters and specific events — no passive summaries
+3. CORE MOVE must be a concrete new story fact — not a feeling or a vague development
+4. CLIFFHANGER must be a specific image or revelation — not "leaves the audience wondering"
+5. No two episodes may have the same CORE MOVE or CLIFFHANGER
+6. NEVER write "continues from", "follows on from", "same as", "establishes", "explores" without specifics
+7. NEVER use placeholders, ellipsis, or "and so on"
+8. Every requested episode MUST appear as its own key in the JSON object
+9. Only output the specifically requested episode numbers — no others`;
+
 
 // Episode SCRIPT mode: full screenplay per episode (plain text, not JSON)
 // Used for season_script doc type in vertical drama.
@@ -138,23 +153,41 @@ function buildBatchUserPrompt(
   outputMode: 'grid' | 'beats' | 'script' = 'beats',
 ): string {
   const outputInstruction = outputMode === 'grid'
-    ? `You MUST output JSON with a key for EVERY episode listed above. Each value is the full episode grid entry using the EPISODE GRID format (PREMISE / HOOK / CORE MOVE / CHARACTER FOCUS / CLIFFHANGER / ARC POSITION / TONE).`
+    ? `You MUST output JSON with a key for EVERY episode listed above. Each value is the full episode grid entry using the EPISODE GRID format (PREMISE / HOOK / CORE MOVE / CHARACTER COST / CLIFFHANGER / ARC POSITION / TONE). Every field is mandatory. Every episode must be unique — different CORE MOVE, different CLIFFHANGER, specific title.`
     : outputMode === 'script'
     ? `You MUST output JSON with a key for EVERY episode listed above. Each value is the FULL SCREENPLAY for that episode: COLD OPEN + minimum 3 SCENES with actual dialogue + EPISODE END cliffhanger. Write real scripted content — no summaries, no placeholders.`
     : `You MUST output JSON with a key for EVERY episode listed above. Each value is the full episode block text starting with "## EPISODE N:" heading and 5–8 numbered beats.`;
+
+  // Compute rough arc position for this batch
+  const firstEp = episodes[0];
+  const lastEp = episodes[episodes.length - 1];
+  const pct = (firstEp / totalEpisodes) * 100;
+  const arcHint = pct < 15 ? "COLD OPEN WORLD / INCITING DISRUPTION (establish world, characters, central conflict)"
+    : pct < 35 ? "ESCALATION (complications multiply, stakes rise, relationships tested)"
+    : pct < 50 ? "MIDPOINT ZONE (false victory or devastating reversal that reorients the story)"
+    : pct < 65 ? "DARK SPIRAL (protagonist at lowest ebb, plan collapsed, cost mounting)"
+    : pct < 80 ? "PRE-CLIMAX BUILD (final pieces in place, point of no return)"
+    : pct < 95 ? "CLIMAX (decisive confrontation, central question answered)"
+    : "RESOLUTION / AFTERMATH (consequences land, arcs close, world transformed)";
 
   return `${contextPrompt}
 
 PROJECT: "${projectTitle}" (${totalEpisodes} total episodes in season)
 
-UPSTREAM CONTEXT:
+UPSTREAM CONTEXT (Season Arc, Character Bible, Format Rules):
 ${upstreamContent}
+
+BATCH POSITION: Episodes ${firstEp}–${lastEp} of ${totalEpisodes}
+ARC ZONE FOR THIS BATCH: ${arcHint}
+Use the upstream Season Arc to place each episode precisely within the story's act structure.
+Each episode must feel distinctly different from the others in this batch.
 
 REQUESTED EPISODES: ${episodes.join(', ')}
 
 ${outputInstruction}
 
-IMPORTANT: If you include ANY sentence referencing another episode range (e.g., "Eps 1–7…"), your response will be rejected and retried.
+CRITICAL: Every PREMISE must name specific characters and specific events. Every CLIFFHANGER must be a concrete beat, not a vague description. Titles must be active specific phrases.
+If you include ANY sentence referencing another episode range (e.g., "Eps 1–7…"), your response will be rejected and retried.
 
 OUTPUT JSON ONLY.`;
 }
