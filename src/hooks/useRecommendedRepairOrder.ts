@@ -10,17 +10,27 @@ import { supabase } from '@/integrations/supabase/client';
 const FUNC_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`;
 
 export interface RepairRecommendation {
-  rank: number;
+  priority_rank: number;
   repair_id: string;
   repair_type: string;
-  summary: string;
+  repairability: string;
+  summary: string | null;
+  source_system: string | null;
+  severity: string | null;
+  load_class: string | null;
+  resolution_state: string;
   recommendation_label: string;
   net_priority_score: number;
   expected_stability_gain: number;
-  blast_risk: number;
-  execution_friction: number;
-  urgency: number;
+  blast_risk_score: number;
+  execution_friction_score: number;
+  urgency_score: number;
   proposal_required: boolean;
+  proposal_id: string | null;
+  proposal_status: string | null;
+  projected_effect: string | null;
+  affected_axes: string[];
+  notes: string[];
 }
 
 export interface BlockedRepair {
