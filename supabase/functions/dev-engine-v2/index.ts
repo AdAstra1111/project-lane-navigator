@@ -11474,7 +11474,9 @@ Return ONLY valid JSON:
         // Live canonical state
         (supabase as any).from("narrative_units").select("unit_key, unit_type, status").eq("project_id", projectId),
         (supabase as any).from("narrative_entities").select("entity_key, entity_type").eq("project_id", projectId),
-        (supabase as any).from("narrative_entity_relations").select("source_entity_key, relation_type, target_entity_key").eq("project_id", projectId),
+        // narrative_entity_relations uses entity UUIDs (source_entity_id / target_entity_id),
+        // not entity_key strings. Select id+relation_type to check presence only.
+        (supabase as any).from("narrative_entity_relations").select("id, source_entity_id, target_entity_id, relation_type").eq("project_id", projectId),
       ]);
 
       const premise         = premiseRes.data        ?? null;
@@ -11485,7 +11487,8 @@ Return ONLY valid JSON:
       const genIntent       = genIntentRes.data      ?? null;
       const liveUnits       = (liveUnitsRes.data     ?? []) as Array<{ unit_key: string; unit_type: string; status: string }>;
       const liveEntities    = (liveEntitiesRes.data  ?? []) as Array<{ entity_key: string; entity_type: string }>;
-      const liveRelations   = (liveRelationsRes.data ?? []) as Array<{ source_entity_key: string; relation_type: string; target_entity_key: string }>;
+      // narrative_entity_relations uses UUID FKs not entity_key strings — presence check only
+      const liveRelations   = (liveRelationsRes.data ?? []) as Array<{ id: string; source_entity_id: string; target_entity_id: string; relation_type: string }>;
 
       const hasSeed      = !!authoredSeedId;
       const hasBeats     = seedBeats.length > 0;
@@ -11501,11 +11504,21 @@ Return ONLY valid JSON:
       };
 
       // Helper: find entity by partial key match (case-insensitive)
+      // Also recognises canonical entity_type="conflict" with story_critical_flag as antagonist-equivalent.
       const entityExists = (keyFragment: string, entities: Array<{ entity_key: string; entity_type: string }>): boolean =>
         entities.some(e =>
           e.entity_key.toUpperCase().includes(keyFragment.toUpperCase()) ||
           (e.entity_type ?? "").toUpperCase().includes(keyFragment.toUpperCase())
         );
+      // Canonical antagonist check: ANTAGONIST in key/type OR entity_type="conflict" with story_critical_flag
+      const antagonistExists = (
+        seedEnts: Array<{ entity_key: string; entity_type: string; narrative_role: string | null; story_critical_flag: boolean }>,
+        liveEnts: Array<{ entity_key: string; entity_type: string }>,
+      ): boolean =>
+        entityExists("ANTAGONIST", seedEnts) ||
+        entityExists("ANTAGONIST", liveEnts) ||
+        seedEnts.some(e => e.entity_type === "conflict" && e.story_critical_flag === true) ||
+        liveEnts.some(e => e.entity_type === "conflict");
 
       // NC2 validation results
       type ObligationStatus = "fulfilled" | "unresolved" | "violated" | "unavailable";
@@ -11581,14 +11594,14 @@ Return ONLY valid JSON:
               status = "unavailable"; summary = "No entities found to evaluate antagonist arc";
               details = "Neither seed entities nor live entities contain an antagonist signal.";
               recommended_action = "Author antagonist entities in the Dev Seed v2.";
-            } else if (entityExists("ANTAGONIST", seedEntities) || entityExists("ANTAGONIST", liveEntities)) {
+            } else if (antagonistExists(seedEntities, liveEntities)) {
               status = "fulfilled"; summary = "Antagonist entity is present";
-              details = "At least one entity with ANTAGONIST in key or type is present in seed or live state.";
+              details = "At least one entity matching antagonist criteria (ANTAGONIST key/type, or entity_type=conflict with story_critical_flag) is present.";
               recommended_action = "None. Verify antagonist resolution during scene generation.";
             } else {
               status = "unresolved"; summary = "No antagonist entity found";
-              details = "No entity with ANTAGONIST in entity_key or entity_type was found in seed or live state.";
-              recommended_action = "Author an antagonist entity or verify entity_type is set correctly.";
+              details = "No entity with ANTAGONIST in key/type, or entity_type=conflict+story_critical_flag, found in seed or live state.";
+              recommended_action = "Author an antagonist entity or set entity_type=conflict with story_critical_flag=true.";
             }
             break;
 
