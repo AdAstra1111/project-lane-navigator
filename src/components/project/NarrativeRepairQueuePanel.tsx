@@ -12,6 +12,7 @@ import { useExecuteNarrativeRepair } from '@/hooks/useExecuteNarrativeRepair';
 import { usePatchProposalsByRepair, type NarrativePatchProposal } from '@/hooks/usePatchProposalsByRepair';
 import { useGeneratePatchProposal } from '@/hooks/useGeneratePatchProposal';
 import { useApplyPatchProposal } from '@/hooks/useApplyPatchProposal';
+import { useSimulateNarrativePatch, type SimulateNarrativePatchResult } from '@/hooks/useSimulateNarrativePatch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +32,7 @@ import {
   ListChecks,
   FileText,
   ArrowRight,
+  Zap,
 } from 'lucide-react';
 
 interface Props {
@@ -73,6 +75,7 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
   const execHook = useExecuteNarrativeRepair(projectId);
   const generateHook = useGeneratePatchProposal(projectId);
   const applyHook = useApplyPatchProposal(projectId);
+  const simulateHook = useSimulateNarrativePatch(projectId);
   const lastPlanRefreshRef = useRef<number>(0);
 
   // Auto plan on mount with TTL guard
@@ -238,6 +241,7 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
                 execResult={execHook.result?.repair_id === r.repair_id ? execHook.result : null}
                 generateHook={generateHook}
                 applyHook={applyHook}
+                simulateHook={simulateHook}
               />
             ))}
           </div>
@@ -248,7 +252,7 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
           <CollapsibleSection title={`Other (system-managed) · ${reserved.length}`} defaultOpen={false}>
             <div className="space-y-2">
               {reserved.map(r => (
-                <RepairCard key={r.repair_id} repair={r} projectId={projectId} onExecute={handleExecute} isExecuting={false} execResult={null} noActions generateHook={generateHook} applyHook={applyHook} />
+                <RepairCard key={r.repair_id} repair={r} projectId={projectId} onExecute={handleExecute} isExecuting={false} execResult={null} noActions generateHook={generateHook} applyHook={applyHook} simulateHook={simulateHook} />
               ))}
             </div>
           </CollapsibleSection>
@@ -259,7 +263,7 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
           <CollapsibleSection title={`History · ${history.length}`} defaultOpen={false}>
             <div className="space-y-2">
               {history.map(r => (
-                <RepairCard key={r.repair_id} repair={r} projectId={projectId} onExecute={handleExecute} isExecuting={false} execResult={null} noActions generateHook={generateHook} applyHook={applyHook} />
+                <RepairCard key={r.repair_id} repair={r} projectId={projectId} onExecute={handleExecute} isExecuting={false} execResult={null} noActions generateHook={generateHook} applyHook={applyHook} simulateHook={simulateHook} />
               ))}
               {(repairs ?? []).filter(r => (HISTORY_STATUSES as readonly string[]).includes(r.status)).length > HISTORY_CAP && (
                 <p className="text-[10px] text-muted-foreground">Showing 50 most recent — older plans not displayed.</p>
@@ -293,7 +297,7 @@ function CollapsibleSection({ title, defaultOpen, children }: { title: string; d
 
 /* ── Repair Card ── */
 
-function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noActions, generateHook, applyHook }: {
+function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noActions, generateHook, applyHook, simulateHook }: {
   repair: NarrativeRepair;
   projectId: string;
   onExecute: (id: string, approved?: boolean) => void;
@@ -302,6 +306,7 @@ function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noA
   noActions?: boolean;
   generateHook: ReturnType<typeof useGeneratePatchProposal>;
   applyHook: ReturnType<typeof useApplyPatchProposal>;
+  simulateHook: ReturnType<typeof useSimulateNarrativePatch>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const repStyle = REPAIRABILITY_STYLE[repair.repairability] ?? REPAIRABILITY_STYLE.unknown;
@@ -385,6 +390,7 @@ function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noA
                 projectId={projectId}
                 generateHook={generateHook}
                 applyHook={applyHook}
+                simulateHook={simulateHook}
               />
             )}
 
@@ -416,11 +422,12 @@ function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noA
 
 /* ── Proposal Panel (RP5) ── */
 
-function ProposalPanel({ repair, projectId, generateHook, applyHook }: {
+function ProposalPanel({ repair, projectId, generateHook, applyHook, simulateHook }: {
   repair: NarrativeRepair;
   projectId: string;
   generateHook: ReturnType<typeof useGeneratePatchProposal>;
   applyHook: ReturnType<typeof useApplyPatchProposal>;
+  simulateHook: ReturnType<typeof useSimulateNarrativePatch>;
 }) {
   const { data: proposal, isLoading: proposalLoading, error: proposalError, refetch: refetchProposal } = usePatchProposalsByRepair(repair.repair_id);
   const [confirmMode, setConfirmMode] = useState(false);
@@ -533,6 +540,23 @@ function ProposalPanel({ repair, projectId, generateHook, applyHook }: {
             {isGeneratingThis ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             Regenerate Proposal
           </Button>
+          <PatchPreview proposal={proposal} />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs gap-1.5 text-muted-foreground"
+            onClick={() => simulateHook.preview(proposal.proposal_id)}
+            disabled={simulateHook.isPreviewing}
+          >
+            {simulateHook.isPreviewing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+            {simulateHook.isPreviewing ? 'Previewing...' : 'Preview Impact'}
+          </Button>
+          {simulateHook.result?.proposal_id === proposal.proposal_id && (
+            <ImpactPreviewBlock result={simulateHook.result} />
+          )}
+          {simulateHook.error && !simulateHook.isPreviewing && (
+            <p className="text-xs text-muted-foreground">Impact preview unavailable: {simulateHook.error}</p>
+          )}
         </div>
       )}
 
@@ -541,6 +565,23 @@ function ProposalPanel({ repair, projectId, generateHook, applyHook }: {
         <div className="space-y-2.5">
           <PatchPreview proposal={proposal} />
 
+          {/* Impact preview */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs gap-1.5 text-muted-foreground"
+            onClick={() => simulateHook.preview(proposal.proposal_id)}
+            disabled={simulateHook.isPreviewing}
+          >
+            {simulateHook.isPreviewing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+            {simulateHook.isPreviewing ? 'Previewing...' : 'Preview Impact'}
+          </Button>
+          {simulateHook.result?.proposal_id === proposal.proposal_id && (
+            <ImpactPreviewBlock result={simulateHook.result} />
+          )}
+          {simulateHook.error && !simulateHook.isPreviewing && (
+            <p className="text-xs text-muted-foreground">Impact preview unavailable: {simulateHook.error}</p>
+          )}
           {/* Apply feedback */}
           {applyHook.result && applyHook.result.repair_id === repair.repair_id && (
             <div className={`rounded border px-2.5 py-2 text-xs ${
@@ -688,6 +729,83 @@ function PatchPreview({ proposal }: { proposal: NarrativePatchProposal }) {
 
   // Fallback for unknown patch structure
   return <p className="text-xs text-muted-foreground italic">Unable to display proposal contents.</p>;
+}
+
+/* ── Impact Preview Block ── */
+
+const IMPACT_BAND_STYLE: Record<string, string> = {
+  none: 'text-muted-foreground border-border/40',
+  limited: 'text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+  moderate: 'text-amber-600 dark:text-amber-400 border-amber-500/30',
+  broad: 'text-orange-600 dark:text-orange-400 border-orange-500/30',
+  systemic: 'text-destructive border-destructive/30',
+};
+
+function getBlastStyle(score: number): string {
+  if (score <= 25) return 'text-emerald-600 dark:text-emerald-400';
+  if (score <= 50) return 'text-amber-600 dark:text-amber-400';
+  if (score <= 75) return 'text-orange-600 dark:text-orange-400';
+  return 'text-destructive';
+}
+
+function ImpactPreviewBlock({ result }: { result: SimulateNarrativePatchResult }) {
+  const bandStyle = IMPACT_BAND_STYLE[result.impact_band] ?? IMPACT_BAND_STYLE.none;
+  const blastStyle = getBlastStyle(result.blast_radius_score);
+
+  if (result.simulation_state === 'no_impact' || result.impact_band === 'none') {
+    return (
+      <div className="rounded border border-border/30 bg-muted/20 px-3 py-2">
+        <p className="text-xs text-muted-foreground">No impact detected for current project state.</p>
+      </div>
+    );
+  }
+
+  const axes = result.affected_axes_enriched?.slice(0, 6) ?? [];
+
+  return (
+    <div className="rounded border border-border/30 bg-muted/20 px-3 py-2.5 space-y-2">
+      {/* Header */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Zap className="h-3 w-3 text-muted-foreground" />
+        <span className="text-xs font-medium text-foreground">Impact Preview</span>
+        <Badge variant="outline" className={`text-[10px] ${bandStyle}`}>{result.impact_band}</Badge>
+        <span className={`text-[10px] font-semibold ${blastStyle}`}>Blast: {result.blast_radius_score}</span>
+      </div>
+
+      {/* Scene summary */}
+      <p className="text-xs text-muted-foreground">
+        Impacted scenes: {result.impacted_scene_count} ({result.direct_scene_count} direct, {result.propagated_scene_count} propagated)
+        {result.entity_link_scene_count > 0 && ` + ${result.entity_link_scene_count} entity-linked`}
+      </p>
+
+      {/* Affected axes */}
+      {axes.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {axes.map((ax) => (
+            <div key={ax.axis} className="flex items-center gap-1">
+              <Badge variant="outline" className="text-[10px]">{ax.label}</Badge>
+              <span className="text-[10px] text-muted-foreground">{ax.class}</span>
+              <span className="text-[10px] text-muted-foreground">{ax.severity}</span>
+              {ax.is_direct && <Badge variant="secondary" className="text-[9px] px-1 py-0 text-sky-600 dark:text-sky-400">direct</Badge>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Confidence + notes */}
+      <div className="space-y-0.5">
+        {result.simulation_confidence != null && (
+          <p className="text-[10px] text-muted-foreground">Confidence: {result.simulation_confidence}%</p>
+        )}
+        {result.simulation_note && (
+          <p className="text-[10px] text-muted-foreground">{result.simulation_note}</p>
+        )}
+        {result.structural_uncertainty_reason && (
+          <p className="text-[10px] text-amber-600 dark:text-amber-400">{result.structural_uncertainty_reason}</p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /* ── Action Button ── */
