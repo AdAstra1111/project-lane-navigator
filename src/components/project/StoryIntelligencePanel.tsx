@@ -243,34 +243,34 @@ function FragilitySection({ entries }: { entries: FragilityEntry[] }) {
 /* ── Evidence Summary ── */
 function EvidenceSummarySection({ summary }: { summary: EvidenceSummary }) {
   const [open, setOpen] = useState(false);
-  const total = summary.total_diagnostics ?? 0;
+  const dc = summary.diagnostic_counts ?? { critical: 0, high: 0, warning: 0, info: 0, total: 0 };
+  const rq = summary.repair_queue_summary ?? { pending: 0, completed: 0, failed: 0, skipped: 0 };
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground w-full">
         <ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
-        Evidence — {total} diagnostics
+        Evidence — {dc.total} diagnostics
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-1.5 text-[9px] text-muted-foreground">
-          {/* Severity counts */}
-          {summary.severity_counts && Object.entries(summary.severity_counts).map(([k, v]) => (
-            <div key={`sev-${k}`} className="flex justify-between">
-              <span>{k}</span><span className="font-medium text-foreground">{v}</span>
-            </div>
-          ))}
+          {/* Diagnostic counts */}
+          <div className="flex justify-between"><span>critical</span><span className="font-medium text-foreground">{dc.critical}</span></div>
+          <div className="flex justify-between"><span>high</span><span className="font-medium text-foreground">{dc.high}</span></div>
+          <div className="flex justify-between"><span>warning</span><span className="font-medium text-foreground">{dc.warning}</span></div>
+          <div className="flex justify-between"><span>info</span><span className="font-medium text-foreground">{dc.info}</span></div>
+          <div className="flex justify-between"><span>total</span><span className="font-medium text-foreground">{dc.total}</span></div>
           {/* Resolution state counts */}
           {summary.resolution_state_counts && Object.entries(summary.resolution_state_counts).map(([k, v]) => (
             <div key={`res-${k}`} className="flex justify-between">
               <span>{k.replace(/_/g, ' ')}</span><span className="font-medium text-foreground">{v}</span>
             </div>
           ))}
-          {/* Queue summary */}
-          {summary.repair_queue_summary && Object.entries(summary.repair_queue_summary).map(([k, v]) => (
-            <div key={`rq-${k}`} className="flex justify-between">
-              <span>queue {k}</span><span className="font-medium text-foreground">{v}</span>
-            </div>
-          ))}
+          {/* Repair queue summary */}
+          <div className="flex justify-between"><span>queue pending</span><span className="font-medium text-foreground">{rq.pending}</span></div>
+          <div className="flex justify-between"><span>queue completed</span><span className="font-medium text-foreground">{rq.completed}</span></div>
+          <div className="flex justify-between"><span>queue failed</span><span className="font-medium text-foreground">{rq.failed}</span></div>
+          <div className="flex justify-between"><span>queue skipped</span><span className="font-medium text-foreground">{rq.skipped}</span></div>
           {/* Extra counts */}
           <div className="flex justify-between"><span>core issues</span><span className="font-medium text-foreground">{summary.core_issue_count ?? 0}</span></div>
           <div className="flex justify-between"><span>failed repairs</span><span className="font-medium text-foreground">{summary.failed_repair_count ?? 0}</span></div>
