@@ -125,21 +125,60 @@ serve(async (req) => {
 
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-    // Fetch script text
+    // ── Fetch script text — multi-fallback chain ─────────────────────────
+    //
+    // Priority:
+    //   1. Explicit script_version_id → project_document_versions.plaintext
+    //   2. project_documents.latest_version_id → project_document_versions.plaintext
+    //   3. project_documents.plaintext (inline cache)
+    //
+    // Rationale: fresh uploads store content exclusively in project_document_versions.
+    // project_documents.plaintext may be empty or stale until a pipeline doc is stored.
+
     let scriptText = "";
+
+    // Path 1: explicit version ID (passed by UI if available)
     if (script_version_id) {
       const { data: v } = await sb.from("project_document_versions")
-        .select("plaintext").eq("id", script_version_id).single();
+        .select("plaintext").eq("id", script_version_id).maybeSingle();
       scriptText = v?.plaintext || "";
     }
+
+    // Path 2: latest_version_id on the document record
     if (!scriptText) {
       const { data: doc } = await sb.from("project_documents")
-        .select("plaintext").eq("id", script_document_id).single();
-      scriptText = doc?.plaintext || "";
+        .select("plaintext, latest_version_id").eq("id", script_document_id).maybeSingle();
+
+      if (doc?.latest_version_id) {
+        const { data: latestVer } = await sb.from("project_document_versions")
+          .select("plaintext").eq("id", doc.latest_version_id).maybeSingle();
+        scriptText = latestVer?.plaintext || "";
+      }
+
+      // Path 3: inline plaintext on the document itself (fallback)
+      if (!scriptText && doc?.plaintext) {
+        scriptText = doc.plaintext;
+      }
     }
-    if (!scriptText || scriptText.length < 100)
-      return new Response(JSON.stringify({ error: "Script text not found" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    // Path 4: most recent version by version_number if all else empty
+    if (!scriptText) {
+      const { data: latestVer } = await sb.from("project_document_versions")
+        .select("plaintext")
+        .eq("document_id", script_document_id)
+        .order("version_number", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      scriptText = latestVer?.plaintext || "";
+    }
+
+    if (!scriptText || scriptText.length < 100) {
+      return new Response(JSON.stringify({
+        error: "Script text not found",
+        detail: "No readable script text found in project_documents or project_document_versions for this document. Ensure the script has been uploaded and saved.",
+        script_document_id,
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     const isTV = /\b(episode|ep\.\s*\d|season \d|series \d|int\.\s+\w.*?—\s*ep)/i.test(scriptText.slice(0, 3000));
     const format = isTV ? "tv-series" : "film";
@@ -363,8 +402,11 @@ Be thorough and specific to THIS script. Use dialogue and scenes as evidence.`, 
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err: any) {
-    console.error(err);
-    return new Response(JSON.stringify({ error: err.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    console.error("[reverse-engineer-script] Fatal error:", err?.message ?? err);
+    // Return structured error — client shows err.message in toast
+    return new Response(JSON.stringify({
+      error: err?.message ?? "Unexpected error in pipeline generation",
+      stage: "pipeline_generation",
+    }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
