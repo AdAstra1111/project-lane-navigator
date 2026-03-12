@@ -2892,6 +2892,7 @@ serve(async (req) => {
       "apply_narrative_patch",
       "get_story_intelligence",
       "get_narrative_stability",
+      "simulate_narrative_patch",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -9873,6 +9874,385 @@ Return ONLY valid JSON:
           simulationBasis === "axis_keys"
             ? `axis_keys resolved to ${resolvedUnitKeys.length} unit(s): [${resolvedUnitKeys.join(", ")}]`
             : null,
+        ].filter(Boolean),
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // SIM3 — simulate_narrative_patch
+    //
+    // Proposal impact preview. Current-state approximation only.
+    // Read-only. Deterministic. Never modifies project state.
+    //
+    // Flow:
+    //   1. Load narrative_patch_proposals row
+    //   2. Derive axis_keys from proposal content (patch-type-specific logic)
+    //   3. Run simulation via computeSelectiveRegenerationPlanHelper (simulationMode=true)
+    //   4. Apply SIM2 enrichment layer
+    //   5. Return SIM2-style output + proposal metadata
+    //
+    // Input: projectId + proposal_id
+    // Supported patch_type: repair_relation_graph, repair_structural_beats
+    //
+    if (action === "simulate_narrative_patch") {
+      const { projectId, proposal_id } = body;
+
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!proposal_id) {
+        return new Response(JSON.stringify({ ok: false, error: "proposal_id required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 1: Load proposal ─────────────────────────────────────────
+      const { data: proposal, error: propErr } = await (supabase as any)
+        .from("narrative_patch_proposals")
+        .select("proposal_id,project_id,repair_id,patch_type,proposed_patch,seed_context_snapshot,status")
+        .eq("proposal_id", proposal_id)
+        .maybeSingle();
+
+      if (propErr) throw propErr;
+      if (!proposal) {
+        return new Response(JSON.stringify({ ok: false, error: "Proposal not found", proposal_id }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (proposal.project_id !== projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "proposal_id does not belong to projectId", proposal_id }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Status gate ───────────────────────────────────────────────────
+      const proposalStatus = proposal.status as string;
+      if (proposalStatus === "applied") {
+        return new Response(JSON.stringify({
+          ok: false, error: "proposal_already_applied",
+          proposal_id, status: proposalStatus,
+          note: "This proposal has already been applied. Re-run propose_narrative_patch to generate a new proposal.",
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (proposalStatus === "rejected") {
+        return new Response(JSON.stringify({
+          ok: false, error: "proposal_rejected",
+          proposal_id, status: proposalStatus,
+          note: "This proposal has been rejected and cannot be simulated.",
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      // "proposed" and "stale" are allowed; anything else is unsupported
+      if (proposalStatus !== "proposed" && proposalStatus !== "stale") {
+        return new Response(JSON.stringify({
+          ok: false, error: "unsupported_proposal_status",
+          proposal_id, status: proposalStatus,
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const patchType     = proposal.patch_type as string;
+      const proposedPatch = proposal.proposed_patch as any;
+      const SIM3_SUPPORTED_PATCH_TYPES = new Set(["repair_relation_graph", "repair_structural_beats"]);
+      if (!SIM3_SUPPORTED_PATCH_TYPES.has(patchType)) {
+        return new Response(JSON.stringify({
+          ok: false, error: "unsupported_patch_type",
+          patch_type: patchType,
+          supported: [...SIM3_SUPPORTED_PATCH_TYPES],
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 2: Derive axis_keys ──────────────────────────────────────
+      let derivedAxes:     string[]    = [];
+      let derivationMethod: string     = "beat_axis_reference";
+      let axisDerivationNote: string | null = null;
+
+      if (patchType === "repair_structural_beats") {
+        // Beat derivation: read narrative_axis_reference directly from proposed beats
+        const beats = Array.isArray(proposedPatch?.beats) ? (proposedPatch.beats as any[]) : [];
+        const rawAxes = beats
+          .map((b: any) => b.narrative_axis_reference)
+          .filter((ax: any): ax is string => typeof ax === "string" && ax.length > 0);
+        derivedAxes      = [...new Set(rawAxes)];
+        derivationMethod = "beat_axis_reference";
+
+        if (derivedAxes.length === 0) {
+          return new Response(JSON.stringify({
+            ok: false, error: "no_derivable_axes",
+            patch_type: patchType,
+            note: "No narrative_axis_reference values found in proposed beats. Cannot simulate.",
+          }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      } else {
+        // Relation derivation: infer axes from entity_type + relation_type
+        const snapshotEntities: any[] = (proposal.seed_context_snapshot as any)?.entities ?? [];
+        const entityTypeMap = new Map<string, string>();
+        for (const e of snapshotEntities) {
+          if (e.entity_key && e.entity_type) entityTypeMap.set(e.entity_key as string, e.entity_type as string);
+        }
+
+        const relations = Array.isArray(proposedPatch?.entity_relations)
+          ? (proposedPatch.entity_relations as any[]) : [];
+
+        const axisSet = new Set<string>();
+        for (const rel of relations) {
+          const src = rel.source_entity_key ?? rel.source_entity;
+          const tgt = rel.target_entity_key ?? rel.target_entity;
+          const relType = rel.relation_type as string;
+
+          // Relation-type overrides (most explicit signal)
+          if (relType === "drives_arc")           axisSet.add("protagonist_arc");
+          if (relType === "subject_of_conflict")  axisSet.add("central_conflict");
+
+          // Entity-type inspection
+          const srcType = entityTypeMap.get(src);
+          const tgtType = entityTypeMap.get(tgt);
+          if (srcType === "arc"      || tgtType === "arc")      axisSet.add("protagonist_arc");
+          if (srcType === "conflict" || tgtType === "conflict") axisSet.add("central_conflict");
+        }
+
+        if (axisSet.size > 0) {
+          derivedAxes      = [...axisSet];
+          derivationMethod = "entity_type_lookup";
+        } else {
+          // Fallback: no direct entity-grounded axes derivable
+          derivedAxes      = ["protagonist_arc", "central_conflict"];
+          derivationMethod = "entity_type_fallback";
+          axisDerivationNote = "Axis derivation used fallback axes [protagonist_arc, central_conflict] because no direct entity-grounded axes were derivable.";
+        }
+      }
+
+      // ── Validate derived axes against VALID_SPINE_AXES ────────────────
+      const invalidDerived = derivedAxes.filter(ax => !VALID_SPINE_AXES.has(ax));
+      if (invalidDerived.length > 0) {
+        return new Response(JSON.stringify({
+          ok: false, error: "derived_axes_invalid",
+          invalid_axes: invalidDerived,
+          valid_axes: [...VALID_SPINE_AXES],
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 3: Resolve axis_keys → unit_keys via DB ─────────────────
+      const evaluatedAt          = new Date().toISOString();
+      let   structuralUncertainty = false;
+      let   resolvedUnitKeys:    string[] = [];
+
+      const { data: allProjectUnits, error: unitLookupErr } = await (supabase as any)
+        .from("narrative_units")
+        .select("unit_key")
+        .eq("project_id", projectId);
+
+      if (unitLookupErr) {
+        return new Response(JSON.stringify({
+          ok: false, error: "Failed to resolve axis_keys: " + unitLookupErr.message,
+          simulation_state: "unavailable",
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const allUnitKeys = ((allProjectUnits || []) as any[]).map((u: any) => u.unit_key as string);
+      const matched = allUnitKeys.filter((key: string) => {
+        const parts  = key.split("::");
+        const axHalf = parts.length >= 2 ? parts[parts.length - 1] : null;
+        return axHalf && derivedAxes.includes(axHalf);
+      });
+
+      if (matched.length === 0) {
+        return new Response(JSON.stringify({
+          ok: false, error: `Derived axes [${derivedAxes.join(", ")}] did not resolve to any narrative_units for this project`,
+          simulation_state: "invalid_input",
+          derived_simulation_axes: derivedAxes,
+          derivation_method:       derivationMethod,
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      resolvedUnitKeys = [...new Set(matched)];
+
+      // ── Step 4: Run simulation ────────────────────────────────────────
+      let plan: Awaited<ReturnType<typeof computeSelectiveRegenerationPlanHelper>> | null = null;
+      try {
+        plan = await computeSelectiveRegenerationPlanHelper(
+          supabase, projectId, resolvedUnitKeys, "balanced", true /* simulationMode */
+        );
+      } catch (simErr: any) {
+        console.warn("[simulate_narrative_patch] planner failed:", simErr?.message);
+        structuralUncertainty = true;
+      }
+
+      if (!plan) {
+        return new Response(JSON.stringify({
+          ok: false, project_id: projectId, action: "simulate_narrative_patch",
+          proposal_id, simulation_state: "unavailable",
+          structural_uncertainty: true, evaluated_at: evaluatedAt,
+          error: "Simulation engine failed — structural inputs incomplete",
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      if (plan.recommended_scope === "no_scene_links") structuralUncertainty = true;
+
+      // ── Step 5: SIM2 enrichment layer ─────────────────────────────────
+      const simulationState =
+        plan.recommended_scope === "no_risk"        ? "no_impact" :
+        plan.recommended_scope === "no_scene_links" ? "unavailable" :
+        plan.impacted_scene_count > 0 || plan.entity_impacted_scene_count > 0
+          ? "impact_found" : "no_impact";
+
+      const resolvedSourceAxes:    SpineAxis[] = (plan.direct_axes ?? []) as SpineAxis[];
+      const propagatedAxesArray:   SpineAxis[] = (plan.propagated_axes ?? []) as SpineAxis[];
+      const totalScenes = plan.impacted_scene_count + plan.entity_impacted_scene_count;
+
+      // blast_radius_score
+      const blastRadiusScore = simulationState === "no_impact" ? 0 : Math.min(
+        100,
+        Math.round(
+          resolvedSourceAxes.reduce(
+            (acc: number, ax: SpineAxis) => acc + computeRewritePriorityScore(ax), 0
+          ) * 2 +
+          plan.direct_scene_count      * 3 +
+          plan.propagated_scene_count  * 1.5 +
+          plan.entity_impacted_scene_count * 0.5
+        )
+      );
+
+      // impact_band
+      let impactBand: string;
+      if (simulationState === "no_impact") {
+        impactBand = "none";
+      } else if (totalScenes >= 1 && totalScenes <= 5) {
+        impactBand = "limited";
+      } else if (totalScenes >= 6 && totalScenes <= 15 || plan.recommended_scope === "propagated_only") {
+        impactBand = "moderate";
+      } else if ((totalScenes >= 16 && totalScenes <= 30) || (plan.recommended_scope === "broad_impact" && totalScenes <= 30)) {
+        impactBand = "broad";
+      } else if (totalScenes > 30 || (plan.recommended_scope === "broad_impact" && totalScenes > 30)) {
+        impactBand = "systemic";
+      } else {
+        impactBand = "none";
+      }
+
+      // dependency_risk_scores
+      const dependencyRiskScores = resolvedSourceAxes.flatMap((ax: SpineAxis) =>
+        computeDownstreamRiskScores(ax, new Map())
+      ).sort((a, b) => b.risk_score - a.risk_score).slice(0, 9);
+
+      // affected_axes_enriched
+      const allAffectedAxes = [...new Set([...resolvedSourceAxes, ...propagatedAxesArray])];
+      const affectedAxesEnriched = allAffectedAxes
+        .filter((ax: SpineAxis) => AXIS_METADATA[ax])
+        .map((ax: SpineAxis) => ({
+          axis:      ax,
+          label:     AXIS_METADATA[ax].label,
+          class:     AXIS_METADATA[ax].class,
+          severity:  AXIS_METADATA[ax].severity,
+          is_direct: resolvedSourceAxes.includes(ax),
+          chain_length: resolvedSourceAxes.includes(ax)
+            ? 0
+            : (getDependencyChain(resolvedSourceAxes[0], ax)?.length ?? 1) - 1,
+        }));
+
+      // simulation_confidence
+      let simulationConfidence: number;
+      if (structuralUncertainty) {
+        simulationConfidence = 40;
+      } else if (plan.recommended_scope === "no_scene_links") {
+        simulationConfidence = 25;
+      } else if (derivationMethod === "entity_type_fallback") {
+        simulationConfidence = 50;  // Fallback: cap at 50 per spec
+      } else if (derivationMethod === "beat_axis_reference" && plan.source_units.length > 0) {
+        simulationConfidence = 75;  // Beat axis_reference is most explicit
+      } else if (plan.source_units.length > 0) {
+        simulationConfidence = 80;
+      } else {
+        simulationConfidence = 65;
+      }
+
+      // structural_uncertainty_reason
+      let structuralUncertaintyReason: string | null = null;
+      if (plan.recommended_scope === "no_scene_links") {
+        structuralUncertaintyReason = "No scene_spine_links exist for this project — run scene enrichment first to enable scene-level simulation";
+      } else if (structuralUncertainty) {
+        structuralUncertaintyReason = "Simulation engine encountered structural uncertainty";
+      }
+
+      // strategy_effect
+      const SIM3_STRATEGY_EFFECT = {
+        strategy:         "balanced",
+        description:      "Includes direct + propagated + entity link scenes. Adaptive batch policy applies.",
+        scope:            plan.recommended_scope,
+        direct_count:     plan.direct_scene_count,
+        propagated_count: plan.propagated_scene_count,
+        entity_link_count: plan.entity_impacted_scene_count,
+        entity_propagation_count: plan.entity_propagated_scene_count,
+        note: "entity_propagation is advisory only and never executes regardless of strategy",
+      };
+
+      // ── Step 6: simulation_note ───────────────────────────────────────
+      const simNoteParts: string[] = [
+        "Current-state approximation — simulates the impact of the affected axes at time of call, not the fully projected post-apply state.",
+      ];
+      if (proposalStatus === "stale") {
+        simNoteParts.push("Proposal is stale — simulation may not reflect the current seed state.");
+      }
+      if (axisDerivationNote) {
+        simNoteParts.push(axisDerivationNote);
+      }
+      const simulationNote = simNoteParts.join(" ");
+
+      console.log("[dev-engine-v2] simulate_narrative_patch", {
+        project_id:              projectId,
+        proposal_id,
+        patch_type:              patchType,
+        proposal_status:         proposalStatus,
+        derivation_method:       derivationMethod,
+        derived_simulation_axes: derivedAxes,
+        simulation_state:        simulationState,
+        blast_radius_score:      blastRadiusScore,
+        impact_band:             impactBand,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                      true,
+        action:                  "simulate_narrative_patch",
+        project_id:              projectId,
+        // ── Proposal metadata ──────────────────────────────────────────
+        proposal_id,
+        repair_id:               proposal.repair_id,
+        patch_type:              patchType,
+        proposal_status:         proposalStatus,
+        derived_simulation_axes: derivedAxes,
+        derivation_method:       derivationMethod,
+        simulation_basis:        "proposal_patch",
+        simulation_note:         simulationNote,
+        // ── Simulation metadata ────────────────────────────────────────
+        simulation_state:        simulationState,
+        derived_live:            true,
+        evaluated_at:            evaluatedAt,
+        structural_uncertainty:  structuralUncertainty,
+        // ── Source context ─────────────────────────────────────────────
+        source_units:            plan.source_units,
+        source_axes:             plan.direct_axes,
+        propagated_axes:         plan.propagated_axes,
+        // ── Impact breakdown ───────────────────────────────────────────
+        impacted_scene_count:            plan.impacted_scene_count + plan.entity_impacted_scene_count,
+        direct_scene_count:              plan.direct_scene_count,
+        propagated_scene_count:          plan.propagated_scene_count,
+        entity_link_scene_count:         plan.entity_impacted_scene_count,
+        entity_propagation_scene_count:  plan.entity_propagated_scene_count,
+        recommended_scope:               plan.recommended_scope,
+        rationale:                       plan.rationale,
+        // ── Scenes by category ─────────────────────────────────────────
+        direct_scenes:            plan.impacted_scenes.filter((s: any) => s.risk_source === "direct"),
+        propagated_scenes:        plan.impacted_scenes.filter((s: any) => s.risk_source === "propagated"),
+        entity_link_scenes:       plan.entity_impacted_scenes,
+        entity_propagation_scenes: plan.entity_propagated_scenes,
+        // ── SIM2: Enriched interpretation ──────────────────────────────
+        blast_radius_score:             blastRadiusScore,
+        impact_band:                    impactBand,
+        dependency_risk_scores:         dependencyRiskScores,
+        affected_axes_enriched:         affectedAxesEnriched,
+        simulation_confidence:          simulationConfidence,
+        structural_uncertainty_reason:  structuralUncertaintyReason,
+        // ── Strategy analysis ──────────────────────────────────────────
+        strategy_effect: SIM3_STRATEGY_EFFECT,
+        // ── Advisory notes ─────────────────────────────────────────────
+        advisory: [
+          "entity_propagation scenes are advisory only — they will never be selected for execution",
+          "simulation does not modify project state",
+          `axis_keys [${derivedAxes.join(", ")}] resolved to ${resolvedUnitKeys.length} unit(s): [${resolvedUnitKeys.join(", ")}]`,
         ].filter(Boolean),
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
