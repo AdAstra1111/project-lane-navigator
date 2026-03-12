@@ -10114,11 +10114,11 @@ Return ONLY valid JSON:
           .select("relation_type,source_kind")
           .eq("project_id", projectId)
           .neq("source_kind", "dev_seed_v2"),
-        // project_documents: concept_brief, story_outline, treatment for Layer 2
+        // project_documents: core docs for Layer 2 premise enrichment (DS2I)
         (supabase as any).from("project_documents")
           .select("doc_type,plaintext,title,updated_at")
           .eq("project_id", projectId)
-          .in("doc_type", ["concept_brief", "story_outline", "treatment", "series_bible", "beat_sheet"])
+          .in("doc_type", ["concept_brief", "story_outline", "treatment", "series_bible", "beat_sheet", "market_sheet", "idea"])
           .not("plaintext", "is", null)
           .order("updated_at", { ascending: false }),
       ]);
@@ -10172,23 +10172,218 @@ Return ONLY valid JSON:
         market_hook:     proj.comparable_titles ?? null,
       };
 
-      // ── Step 4: Build Layer 2 — Premise Kernel ─────────────────────────
-      // Source priority: project_canon.canon_json.premise → concept_brief doc
+      // ── Step 4: Build Layer 2 — Premise Kernel (DS2G + DS2I enrichment) ──────
+      //
+      // DS2G: premise from canon_json.premise or concept_brief
+      // DS2I: deterministic heuristic extraction for all remaining L2 fields.
+      //       No LLM. Pattern-match on structured source text only.
+      //       Fails closed: field stays null when signal is insufficient.
+      //
+      // Source priority (per field): canon_json → concept_brief → idea → market_sheet
+      //                              → narrative_spine_json
+      // ────────────────────────────────────────────────────────────────────────────
+
+      // Source prep
+      const loglineText   = typeof canonJson?.logline   === "string" ? (canonJson.logline as string)   : null;
+      const toneStyleText = typeof canonJson?.tone_style === "string" ? (canonJson.tone_style as string) : null;
+      const worldRules    = Array.isArray(canonJson?.world_rules) ? (canonJson.world_rules as string[]) : [];
+      const genreStack    = Array.isArray(proj?.genres)   ? (proj.genres as string[])  : [];
+      const assignedLane  = typeof proj?.assigned_lane === "string" ? proj.assigned_lane : "";
+
+      const docText = (type: string): string | null =>
+        docs.find((d: any) => d.doc_type === type && d.plaintext)?.plaintext ?? null;
+      const conceptBriefText = docText("concept_brief");
+      const ideaText         = docText("idea");
+      const marketSheetText  = docText("market_sheet");
+
+      // Rich text: spine values as flat string for keyword scanning
+      const spineText = Object.values(spineJson ?? {} as Record<string, string>).join(" ");
+
+      // ── DS2I helper: deriveQuestion ───────────────────────────────────
+      // Builds a single interrogative sentence from logline/premise/protagonist_arc.
+      const deriveQuestion = (): string | null => {
+        const src = loglineText ?? conceptBriefText?.slice(0, 600) ?? ideaText?.slice(0, 600) ?? null;
+        if (!src) return null;
+
+        // Pattern A: "must [verb phrase]" e.g. "must choose between…"
+        const mustM = src.match(/([A-Z][^,.\n]*?)\s+must\s+([^,.\n]+)/i);
+        if (mustM) {
+          const subj   = mustM[1].trim().replace(/^(and|but|who|which)\s+/i, "");
+          const action = mustM[2].trim().replace(/\s*[.!?]$/, "");
+          return `Can ${subj} ${action}?`;
+        }
+
+        // Pattern B: "forcing [pronoun] to [verb]"
+        const forcingM = src.match(/forcing\s+(?:him|her|them|the \w+)\s+to\s+([^,.\n]+)/i);
+        if (forcingM) {
+          const action = forcingM[1].trim().replace(/\s*[.!?]$/, "");
+          // Derive subject from spineJson.protagonist_arc subject
+          const arcSubj = (() => {
+            const arc = String((spineJson as any)?.protagonist_arc ?? "");
+            const m = arc.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/);
+            return m ? m[1] : "the protagonist";
+          })();
+          return `Can ${arcSubj} ${action}?`;
+        }
+
+        // Pattern C: protagonist_arc "X moves from A to B"
+        const arc = String((spineJson as any)?.protagonist_arc ?? "");
+        const movesM = arc.match(/^([^,]+?)\s+moves?\s+from\s+(.+?)\s+to\s+(.+?)(?:\s*[—\-]|\s*$)/i);
+        if (movesM) {
+          const subj = movesM[1].trim();
+          const from_ = movesM[2].trim();
+          const to_   = movesM[3].split(/[—\-]/)[0].trim();
+          return `Can ${subj} move from ${from_} to ${to_}?`;
+        }
+
+        // Pattern D: central_conflict "X vs Y" → "Can X overcome Y?"
+        const conflict = String((spineJson as any)?.central_conflict ?? "");
+        const vsM = conflict.match(/^(.+?)\s+vs\.?\s+(.+)$/i);
+        if (vsM) {
+          return `Can ${vsM[1].trim()} overcome ${vsM[2].trim()}?`;
+        }
+
+        return null;
+      };
+
+      // ── DS2I helper: deriveCentralIrony ──────────────────────────────
+      // Detects narrative mismatch — expects/reality gap — from structured signals.
+      const deriveCentralIrony = (): string | null => {
+        const engine = String((spineJson as any)?.story_engine ?? "");
+        const arc    = String((spineJson as any)?.protagonist_arc ?? "");
+
+        // Pattern A: "self/life/identity she/he abandoned/repressed/rejected/buried"
+        const selfM = engine.match(/(self|life|identity|truth)\s+(she|he|they)\s+(abandoned|repressed|rejected|buried|suppressed|sealed)/i);
+        if (selfM) return `A ${selfM[1]} that was ${selfM[3]} becomes the only path to freedom.`;
+
+        // Pattern B: "sealed [adjective] isolation" → suppressor must embrace what they sealed
+        const sealedM = arc.match(/from\s+(\w+\s+\w+)\s+isolation\s+to/i);
+        if (sealedM) return `The protagonist escapes isolation only by fully surrendering to the very thing they sealed themselves from.`;
+
+        // Pattern C: world_rules mention "alternate self" / "switch places" / "aware of"
+        for (const rule of worldRules) {
+          if (/alternate|other self|switch places/i.test(rule)) return `The protagonist's greatest threat is a mirror image of themselves.`;
+        }
+
+        // Pattern D: central_conflict "X vs [him/her/them]self"
+        const conflict = String((spineJson as any)?.central_conflict ?? "");
+        if (/vs\.?\s+(him|her|them)self/i.test(conflict)) return `The protagonist's core conflict is internal — they are simultaneously the hero and the obstacle.`;
+
+        // Pattern E: story_engine role-reversal keywords
+        if (/\brestorer\b/i.test(engine) && /\bself\b/i.test(engine)) {
+          return `The restorer cannot restore the world until they restore themselves.`;
+        }
+
+        // Pattern F: pressure_system or stakes_class inversion
+        const pressure = String((spineJson as any)?.pressure_system ?? "");
+        if (/mirror/i.test(pressure)) return `The instrument of exposure becomes the instrument of destruction.`;
+
+        return null;
+      };
+
+      // ── DS2I helper: deriveEmotionalPromise ──────────────────────────
+      // Identifies the primary emotional payoff arc from premise/engine/arc text.
+      const EMOTIONAL_TYPES: [string, RegExp][] = [
+        ["Identity integration through confronting a suppressed self",  /identity|integrate|alternate self|repressed self|abandoned self/i],
+        ["Redemption through facing what was left unfinished",          /redemption|redeem|atonement|atone|forgiv/i],
+        ["Grief and acceptance of irreversible loss",                   /grief|mourning|mourn|loss|widow|bereavement/i],
+        ["Survival against a reality-threatening force",                /survive|survival|sanity|reality|lose herself/i],
+        ["Justice served through personal sacrifice",                   /justice|expose|avenge|revenge/i],
+        ["Love found through vulnerability",                            /love|romance|heart|connection|romantic/i],
+      ];
+      const deriveEmotionalPromise = (): string | null => {
+        const corpus = [
+          typeof canonJson?.premise === "string" ? (canonJson.premise as string) : "",
+          spineText, conceptBriefText ?? "", ideaText ?? "",
+        ].join(" ").slice(0, 2000);
+        for (const [label, pattern] of EMOTIONAL_TYPES) {
+          if (pattern.test(corpus)) return label;
+        }
+        return null;
+      };
+
+      // ── DS2I helper: deriveAudienceFantasy ───────────────────────────
+      // Maps genre stack / assigned lane to the dominant fantasy type.
+      const FANTASY_MAP: [RegExp, string][] = [
+        [/psychological horror|existential thriller|dread/i,  "survival fantasy — facing the darkest version of yourself"],
+        [/horror/i,                                           "survival fantasy — overcoming terrifying forces"],
+        [/thriller|mystery|conspiracy/i,                     "discovery fantasy — uncovering hidden truth"],
+        [/sci[\s-]?fi|science fiction|speculative/i,         "discovery fantasy — exploring the unknown"],
+        [/action|adventure/i,                                "power fantasy — overcoming overwhelming odds"],
+        [/romance|romantic/i,                                "romantic fantasy — love against the odds"],
+        [/crime|heist/i,                                     "power fantasy — outsmarting the system"],
+        [/drama/i,                                           "emotional fantasy — finding meaning through crisis"],
+        [/comedy/i,                                          "wish-fulfilment fantasy — life working out"],
+      ];
+      const deriveAudienceFantasy = (): string | null => {
+        const src = [assignedLane, ...genreStack, conceptBriefText ?? "", marketSheetText ?? ""].join(" ");
+        for (const [pattern, label] of FANTASY_MAP) {
+          if (pattern.test(src)) return label;
+        }
+        return null;
+      };
+
+      // ── DS2I helper: deriveAudienceFear ──────────────────────────────
+      // Extracts dominant narrative threat from stakes + world_rules.
+      const FEAR_MAP: [RegExp, string][] = [
+        [/identity|who (she|he|they) (is|are)|selfhood|lose (herself|himself|themselves)/i, "loss of identity and selfhood"],
+        [/sanity|reality|madness|sane|blurring|losing grip/i,                               "loss of sanity and grasp on reality"],
+        [/alone|isolation|abandon|left behind/i,                                            "permanent isolation and abandonment"],
+        [/death|die\b|killed|murder|mortal/i,                                               "death or total destruction"],
+        [/betray|betrayal|trust broken/i,                                                   "betrayal by those closest"],
+        [/exposed|exposure|humiliat/i,                                                      "exposure and public humiliation"],
+        [/corrupt|moral|monster|become what/i,                                              "moral corruption — becoming what we hate"],
+        [/overtak|replaced|overtaken|takeover/i,                                            "being replaced or erased by another self"],
+      ];
+      const deriveAudienceFear = (): string | null => {
+        const stakesAxis = String((spineJson as any)?.stakes_class ?? "");
+        const src = [stakesAxis, ...worldRules, spineText].join(" ");
+        for (const [pattern, label] of FEAR_MAP) {
+          if (pattern.test(src)) return label;
+        }
+        return null;
+      };
+
+      // ── DS2I helper: deriveThemeVector ────────────────────────────────
+      // Returns 2–4 theme keywords from pattern scanning across world_rules + spine.
+      const THEME_MAP: [RegExp, string][] = [
+        [/identity|self|who (she|he|they) is|alternate self/i,    "identity vs duality"],
+        [/reality|sanity|illusion|blur|what is real/i,            "reality vs illusion"],
+        [/grief|loss|mourn|what was lost/i,                       "grief and acceptance"],
+        [/truth|reveal|expose|hidden/i,                           "truth vs deception"],
+        [/integrat|whole|accept|embrace/i,                        "suppression vs integration"],
+        [/seal|contain|control|locked away/i,                     "control vs surrender"],
+        [/power|corrupt|dominance/i,                              "power vs corruption"],
+        [/connect|isolation|alone|belonging/i,                    "connection vs isolation"],
+        [/past|regret|memory|what could have been/i,              "past vs present self"],
+      ];
+      const deriveThemeVector = (): string[] | null => {
+        const src = [...worldRules, spineText, typeof canonJson?.premise === "string" ? canonJson.premise : ""].join(" ");
+        const themes: string[] = [];
+        for (const [pattern, theme] of THEME_MAP) {
+          if (pattern.test(src)) {
+            themes.push(theme);
+            if (themes.length >= 4) break;
+          }
+        }
+        return themes.length > 0 ? themes : null;
+      };
+
+      // ── Build Layer 2 ─────────────────────────────────────────────────
       let layer2: any | null = null;
-      const premiseText = (canonJson && typeof canonJson.premise === "string")
-        ? canonJson.premise
-        : docs.find((d: any) => d.doc_type === "concept_brief")?.plaintext?.slice(0, 1500) ?? null;
+      const premiseText = typeof canonJson?.premise === "string"
+        ? (canonJson.premise as string)
+        : conceptBriefText?.slice(0, 1500) ?? null;
 
       if (premiseText) {
         layer2 = {
           premise:           premiseText,
-          dramatic_question: null,    // requires LLM extraction — not available here
-          central_irony:     null,
-          emotional_promise: null,
-          audience_fantasy:  null,
-          audience_fear:     null,
-          theme_vector:      (canonJson && typeof canonJson.tone_style === "string")
-                               ? canonJson.tone_style : null,
+          dramatic_question: deriveQuestion(),
+          central_irony:     deriveCentralIrony(),
+          emotional_promise: deriveEmotionalPromise(),
+          audience_fantasy:  deriveAudienceFantasy(),
+          audience_fear:     deriveAudienceFear(),
+          theme_vector:      deriveThemeVector() ?? (toneStyleText ? [toneStyleText] : null),
         };
       }
 
