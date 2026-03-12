@@ -889,7 +889,6 @@ function ImpactPreviewBlock({ result, stabilityData, stabilityLoading, stability
     </div>
   );
 }
-}
 
 /* ── Action Button ── */
 
