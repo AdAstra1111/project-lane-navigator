@@ -2896,6 +2896,7 @@ serve(async (req) => {
       "project_narrative_stability",
       "recommend_repair_order",
       "recommend_repair_paths",
+      "evaluate_repair_paths",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -11391,6 +11392,408 @@ Return ONLY valid JSON:
           version:              "arp3",
         },
         computed_at: arp3ComputedAt,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // CSP1 — evaluate_repair_paths
+    //
+    // Counterfactual Sequential Path Evaluator.
+    // Loads bounded ARP3 path outputs and applies deterministic sequential
+    // interaction modifiers between steps.
+    //
+    // Architecture:
+    //   1. Self-call recommend_repair_paths (ARP3) — inherits candidate pool + scoring
+    //   2. For each path, compute per-step sequential adjustments (gain/blast/friction)
+    //   3. Re-score each path using adjusted component values
+    //   4. Assign sequential_effect_label based on interaction type and delta
+    //   5. Re-sort paths by adjusted_path_score desc
+    //   6. Return both baseline and adjusted scores for full transparency
+    //
+    // Adjustment rules (per consecutive step pair):
+    //   Gain:    axis overlap attenuation ±20, scope_key attenuation ±20,
+    //            stabilizing upstream boost +5
+    //   Blast:   investigate step −15, high-blast shared-axis clearance −10,
+    //            destabilizing upstream +10 / likely_destabilizing +5
+    //   Friction: obligation_registry→obligation_repair −15,
+    //             seed_alignment→runtime/relation −10,
+    //             stabilizing upstream −5
+    //
+    // Sequential effect labels:
+    //   prerequisite_aligned | de_risked_by_investigation | strengthened_by_sequence
+    //   redundant_sequence | proposal_friction_constrained | neutral_sequence
+    //
+    // No DB writes. No NSI3/SIM3 calls. No new tables. Deterministic.
+    // Degrades to ARP3 behaviour when no preview data is available.
+    //
+    if (action === "evaluate_repair_paths") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const csp1ComputedAt  = new Date().toISOString();
+      const supabaseUrlStr  = Deno.env.get("SUPABASE_URL") ?? "";
+      const serviceKeyStr   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      const selfCallHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` };
+
+      // ── Step 1: Load ARP3 baseline paths ─────────────────────────────────
+      let arp3Data: any;
+      try {
+        const arp3Resp = await fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
+          method: "POST", headers: selfCallHeaders,
+          body: JSON.stringify({ action: "recommend_repair_paths", projectId }),
+        });
+        if (!arp3Resp.ok) throw new Error(`ARP3 responded ${arp3Resp.status}`);
+        const arp3Json = await arp3Resp.json();
+        if (!arp3Json?.ok) throw new Error(`ARP3 returned ok=false: ${arp3Json?.error ?? "unknown"}`);
+        arp3Data = arp3Json;
+      } catch (e: any) {
+        return new Response(JSON.stringify({
+          ok: false, error: `evaluate_repair_paths: failed to load ARP3 paths — ${e?.message ?? "ARP3 call failed"}`,
+        }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const baselinePaths: any[] = arp3Data.paths ?? [];
+
+      // ── Empty path fast return ────────────────────────────────────────────
+      if (baselinePaths.length === 0) {
+        return new Response(JSON.stringify({
+          ok:                     true,
+          action:                 "evaluate_repair_paths",
+          project_id:             projectId,
+          current_nsi:            arp3Data.current_nsi ?? null,
+          current_stability_band: arp3Data.current_stability_band ?? null,
+          path_count:             0,
+          paths:                  [],
+          excluded_repairs:       arp3Data.excluded_repairs ?? [],
+          scoring_notes: {
+            version:              "csp1",
+            arp3_version:         arp3Data.scoring_notes?.version ?? "arp3",
+            note:                 "No ARP3 paths to evaluate",
+            approximation_note:   "CSP1 applies deterministic sequential interaction modifiers to ARP3 path scores. Step 2 is not re-evaluated against a true post-execution state. Scores reflect bounded counterfactual reasoning, not synthetic world simulation.",
+          },
+          computed_at: csp1ComputedAt,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 2: Sequential adjustment helpers ─────────────────────────────
+
+      const clampAdj = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+      // Compute per-pair sequential adjustments for step[i+1] given step[i]
+      function computeStepAdjustments(
+        stepI: any,
+        stepNext: any,
+      ): { gainDelta: number; blastDelta: number; frictionDelta: number; reasons: string[] } {
+        let gainDelta    = 0;
+        let blastDelta   = 0;
+        let frictionDelta = 0;
+        const reasons: string[] = [];
+
+        const axesI    = Array.isArray(stepI.affected_axes)    ? stepI.affected_axes    : [];
+        const axesNext = Array.isArray(stepNext.affected_axes) ? stepNext.affected_axes : [];
+
+        // ── Axis overlap ──────────────────────────────────────────────────
+        const sharedAxes  = axesI.filter((a: string) => axesNext.includes(a));
+        const overlapRatio = axesNext.length > 0 ? sharedAxes.length / axesNext.length : 0;
+
+        if (overlapRatio > 0) {
+          const preview   = !!stepI.preview_available;
+          const delta     = typeof stepI.projected_delta === "number" ? stepI.projected_delta : 0;
+          if (preview && delta > 0) {
+            const cut = clampAdj(Math.round(delta * 0.3 * overlapRatio), 0, 15);
+            gainDelta -= cut;
+            reasons.push(`axis overlap (${sharedAxes.join(", ")}) reduces residual gain by ${cut}`);
+          } else {
+            const cut = clampAdj(Math.round(5 * overlapRatio), 0, 8);
+            gainDelta -= cut;
+            reasons.push(`axis overlap (${sharedAxes.join(", ")}) reduces residual gain by ${cut} (heuristic)`);
+          }
+        }
+
+        // ── Same scope_key attenuation ────────────────────────────────────
+        if (stepI.scope_key && stepI.scope_key === stepNext.scope_key) {
+          const preview = !!stepI.preview_available;
+          const delta   = typeof stepI.projected_delta === "number" ? stepI.projected_delta : 0;
+          if (preview && delta > 0) {
+            const cut = clampAdj(Math.round(delta * 0.5), 0, 20);
+            gainDelta -= cut;
+            reasons.push(`same scope (${stepI.scope_key}) reduces residual gain by ${cut}`);
+          } else {
+            gainDelta -= 8;
+            reasons.push(`same scope (${stepI.scope_key}) reduces residual gain by 8 (heuristic)`);
+          }
+        }
+
+        // ── Stabilizing upstream → slight gain boost on shared axes ───────
+        if (stepI.projected_effect === "stabilizing" && sharedAxes.length > 0) {
+          gainDelta += 5;
+          reasons.push("upstream stabilization provides improved context (+5 gain)");
+        }
+
+        // ── Blast: investigate step de-risks downstream ───────────────────
+        if (stepI.repair_type === "investigate_simulation_impact") {
+          blastDelta -= 15;
+          reasons.push("investigation step reduces blast uncertainty (−15 blast)");
+        }
+
+        // ── Blast: high-blast step partially clears systemic risk on shared axes ──
+        if ((stepI.blast_risk_score ?? 0) >= 70 && sharedAxes.length > 0) {
+          blastDelta -= 10;
+          reasons.push("high-blast step clears systemic risk on shared axes (−10 blast)");
+        }
+
+        // ── Blast: destabilizing upstream raises residual blast ───────────
+        if (stepI.projected_effect === "destabilizing") {
+          blastDelta += 10;
+          reasons.push("destabilizing upstream effect increases residual blast (+10)");
+        } else if (stepI.projected_effect === "likely_destabilizing") {
+          blastDelta += 5;
+          reasons.push("likely-destabilizing upstream effect increases residual blast (+5)");
+        }
+
+        // ── Friction: obligation_registry clears prerequisite gate ────────
+        if (stepI.repair_type === "build_obligation_registry" &&
+            ["repair_relation_graph", "repair_structural_beats"].includes(stepNext.repair_type)) {
+          frictionDelta -= 15;
+          reasons.push("obligation registry clears prerequisite gate (−15 friction)");
+        }
+
+        // ── Friction: seed alignment → runtime/relation ───────────────────
+        if (stepI.repair_type === "repair_seed_alignment" &&
+            ["refresh_runtime_alignment", "repair_relation_graph"].includes(stepNext.repair_type)) {
+          frictionDelta -= 10;
+          reasons.push("seed alignment stabilizes context for downstream repair (−10 friction)");
+        }
+
+        // ── Friction: stabilizing upstream reduces execution resistance ───
+        if (stepI.projected_effect === "stabilizing") {
+          frictionDelta -= 5;
+          reasons.push("stabilized narrative context reduces execution friction (−5)");
+        }
+
+        return {
+          gainDelta:    clampAdj(gainDelta,    -20, 20),
+          blastDelta:   clampAdj(blastDelta,   -15, 15),
+          frictionDelta: clampAdj(frictionDelta, -20, 20),
+          reasons,
+        };
+      }
+
+      // ── Sequential effect label ───────────────────────────────────────────
+      function sequentialEffectLabel(
+        adjustmentDelta: number,
+        allReasons: string[],
+        steps: any[],
+      ): string {
+        const hasInvestigate    = allReasons.some(r => r.includes("investigation step"));
+        const hasPrerequisite   = allReasons.some(r => r.includes("prerequisite gate") || r.includes("seed alignment stabilizes"));
+        const hasRedundancy     = allReasons.some(r => r.includes("reduces residual gain")) && adjustmentDelta <= -5;
+        const proposalGapSteps  = steps.filter(s => s.proposal_required && !s.proposal_status);
+        const proposalConstrained = proposalGapSteps.length >= 2 && adjustmentDelta <= 0;
+
+        if (adjustmentDelta >= 8 && hasPrerequisite)  return "prerequisite_aligned";
+        if (hasInvestigate)                            return "de_risked_by_investigation";
+        if (adjustmentDelta >= 5)                      return "strengthened_by_sequence";
+        if (proposalConstrained)                       return "proposal_friction_constrained";
+        if (hasRedundancy)                             return "redundant_sequence";
+        return "neutral_sequence";
+      }
+
+      // ── Confidence: based on preview data coverage ────────────────────────
+      function pathConfidence(steps: any[]): "high" | "medium" | "low" {
+        const previewCount = steps.filter(s => !!s.preview_available).length;
+        if (previewCount === steps.length && steps.length > 0) return "high";
+        if (previewCount >= 1)                                  return "medium";
+        return "low";
+      }
+
+      // ── Adjusted path score formula (same weights as ARP3) ───────────────
+      function computeAdjustedScore(steps: any[], effectiveValues: Array<{ gain: number; blast: number; friction: number }>, depBonus: number, redPenalty: number): number {
+        const gainWeights  = [1.0, 0.75, 0.5];
+        const blastWeights = [1.0, 0.80, 0.60];
+        const stepCount    = steps.length;
+
+        const cumGain     = effectiveValues.reduce((acc, v, i) => acc + v.gain     * gainWeights[i],  0);
+        const cumUrgency  = steps.reduce((acc: number, s: any, i: number) => acc + (s.urgency_score ?? 0) * gainWeights[i], 0);
+        const cumFriction = effectiveValues.reduce((acc, v, i) => acc + v.friction * gainWeights[i], 0);
+
+        const blastNum = effectiveValues.reduce((acc, v, i) => acc + v.blast * blastWeights[i], 0);
+        const blastDen = blastWeights.slice(0, stepCount).reduce((a, b) => a + b, 0);
+        const cumBlast  = blastNum / (blastDen || 1);
+
+        return Math.round(
+          cumGain      * 0.40 +
+          cumUrgency   * 0.25 -
+          cumBlast     * 0.15 -
+          cumFriction  * 0.10 +
+          depBonus     * 0.10 -
+          redPenalty   * 0.10
+        );
+      }
+
+      // ── Step 3: Evaluate each path ────────────────────────────────────────
+      const evaluatedPaths = baselinePaths.map((path: any) => {
+        const steps: any[]    = path.steps ?? [];
+        const stepCount        = steps.length;
+        const allReasons: string[] = [];
+
+        // Effective values start at raw ARP1 values; chained: each step uses prior step's effective values
+        const effectiveValues: Array<{ gain: number; blast: number; friction: number }> = steps.map((s: any) => ({
+          gain:     s.expected_stability_gain  ?? 0,
+          blast:    s.blast_risk_score         ?? 0,
+          friction: s.execution_friction_score ?? 0,
+        }));
+
+        const stepAdjustments: Array<{
+          effective_gain: number;
+          effective_blast: number;
+          effective_friction: number;
+          gain_delta: number;
+          blast_delta: number;
+          friction_delta: number;
+          reasons: string[];
+        }> = [];
+
+        // Step 1 has no prior step — zero adjustments
+        stepAdjustments.push({
+          effective_gain:     effectiveValues[0].gain,
+          effective_blast:    effectiveValues[0].blast,
+          effective_friction: effectiveValues[0].friction,
+          gain_delta:         0,
+          blast_delta:        0,
+          friction_delta:     0,
+          reasons:            [],
+        });
+
+        // For each subsequent step, compute adjustments based on prior step's EFFECTIVE values
+        for (let i = 1; i < stepCount; i++) {
+          // Use already-adjusted effective values for prior step (chained)
+          const priorEffective = effectiveValues[i - 1];
+          const priorStepRich  = {
+            ...steps[i - 1],
+            // Override blast_risk_score with prior step's effective blast for chain accuracy
+            blast_risk_score: priorEffective.blast,
+          };
+
+          const adj = computeStepAdjustments(priorStepRich, steps[i]);
+
+          // Apply adjustments to effective values (chained)
+          effectiveValues[i] = {
+            gain:     Math.max(0, Math.min(100, effectiveValues[i].gain     + adj.gainDelta)),
+            blast:    Math.max(0, Math.min(100, effectiveValues[i].blast    + adj.blastDelta)),
+            friction: Math.max(0, Math.min(100, effectiveValues[i].friction + adj.frictionDelta)),
+          };
+
+          stepAdjustments.push({
+            effective_gain:     effectiveValues[i].gain,
+            effective_blast:    effectiveValues[i].blast,
+            effective_friction: effectiveValues[i].friction,
+            gain_delta:         adj.gainDelta,
+            blast_delta:        adj.blastDelta,
+            friction_delta:     adj.frictionDelta,
+            reasons:            adj.reasons,
+          });
+
+          allReasons.push(...adj.reasons);
+        }
+
+        // Re-score with effective values
+        const depBonus   = path.dependency_bonus  ?? 0;
+        const redPenalty = path.redundancy_penalty ?? 0;
+        const adjustedScore = computeAdjustedScore(steps, effectiveValues, depBonus, redPenalty);
+        const baselineScore = path.path_score ?? 0;
+        const adjustmentDelta = adjustedScore - baselineScore;
+
+        // Build enriched steps (passthrough + sequential_adjustments)
+        const enrichedSteps = steps.map((s: any, i: number) => ({
+          ...s,
+          sequential_adjustments: stepAdjustments[i],
+        }));
+
+        // Interaction notes: unique reasons across all steps
+        const interactionNotes = [...new Set(allReasons)];
+
+        // Adjusted stability range: if step 1 has projected_nsi_range, shift by adjustment_delta
+        let adjustedStabilityRange: { low: number; high: number } | null = null;
+        const step1Range = steps[0]?.projected_nsi_range ?? null;
+        if (step1Range && typeof adjustmentDelta === "number") {
+          adjustedStabilityRange = {
+            low:  Math.max(0, Math.min(100, step1Range.low  + adjustmentDelta)),
+            high: Math.max(0, Math.min(100, step1Range.high + adjustmentDelta)),
+          };
+        }
+
+        return {
+          // ARP3 passthrough
+          path_id:                     path.path_id,
+          path_label:                  path.path_label,                // ARP3 character label — preserved
+          steps:                       enrichedSteps,
+          cumulative_expected_gain:    path.cumulative_expected_gain,
+          cumulative_blast_risk:       path.cumulative_blast_risk,
+          cumulative_friction:         path.cumulative_friction,
+          cumulative_urgency:          path.cumulative_urgency,
+          dependency_bonus:            depBonus,
+          redundancy_penalty:          redPenalty,
+          projected_effect_summary:    path.projected_effect_summary ?? null,
+          rationale_summary:           path.rationale_summary,
+          notes:                       path.notes ?? [],
+          // CSP1 additions
+          sequential_effect_label:     sequentialEffectLabel(adjustmentDelta, allReasons, steps),
+          baseline_path_score:         baselineScore,
+          adjusted_path_score:         adjustedScore,
+          adjustment_delta:            adjustmentDelta,
+          adjusted_stability_range:    adjustedStabilityRange,
+          confidence:                  pathConfidence(steps),
+          interaction_notes:           interactionNotes,
+        };
+      });
+
+      // ── Step 4: Re-sort by adjusted_path_score desc ───────────────────────
+      evaluatedPaths.sort((a: any, b: any) => b.adjusted_path_score - a.adjusted_path_score);
+
+      // ── Step 5: Response ──────────────────────────────────────────────────
+      const topAdjusted  = evaluatedPaths[0];
+      const totalDelta   = evaluatedPaths.reduce((acc: number, p: any) => acc + Math.abs(p.adjustment_delta), 0);
+      const reranked     = baselinePaths.some((bp: any, i: number) => evaluatedPaths[i]?.path_id !== bp.path_id);
+
+      console.log("[dev-engine-v2] evaluate_repair_paths", {
+        project_id:             projectId,
+        path_count:             evaluatedPaths.length,
+        top_label:              topAdjusted?.path_label ?? null,
+        top_sequential_label:   topAdjusted?.sequential_effect_label ?? null,
+        top_baseline_score:     topAdjusted?.baseline_path_score ?? null,
+        top_adjusted_score:     topAdjusted?.adjusted_path_score ?? null,
+        ranking_changed:        reranked,
+        total_abs_delta:        totalDelta,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                      true,
+        action:                  "evaluate_repair_paths",
+        project_id:              projectId,
+        current_nsi:             arp3Data.current_nsi ?? null,
+        current_stability_band:  arp3Data.current_stability_band ?? null,
+        path_count:              evaluatedPaths.length,
+        ranking_changed:         reranked,
+        paths:                   evaluatedPaths,
+        excluded_repairs:        arp3Data.excluded_repairs ?? [],
+        scoring_notes: {
+          formula:               "adjusted_score = gain*0.40 + urgency*0.25 - blast*0.15 - friction*0.10 + dep_bonus*0.10 - red_penalty*0.10 (using effective values)",
+          gain_adjustment_rules: "axis_overlap_attenuation ±20; scope_key_attenuation ±20; stabilizing_upstream +5",
+          blast_adjustment_rules: "investigate_step −15; high_blast_shared_axes −10; destabilizing +10; likely_destabilizing +5",
+          friction_adjustment_rules: "obligation_registry_gate −15; seed_alignment −10; stabilizing_upstream −5",
+          chaining:              "3-step paths chain: step 3 uses step 2 effective values, not raw ARP1 values",
+          confidence_model:      "high=all_steps_preview; medium=step1_preview; low=no_preview",
+          sort_order:            "adjusted_path_score desc",
+          arp3_baseline_preserved: "baseline_path_score carries ARP3 score; path_label carries ARP3 character label",
+          approximation_note:    "CSP1 applies deterministic sequential interaction modifiers to ARP3 path scores. Step 2 is not re-evaluated against a true post-execution state. Scores reflect bounded counterfactual reasoning, not synthetic world simulation.",
+          version:               "csp1",
+          arp3_version:          arp3Data.scoring_notes?.version ?? "arp3",
+        },
+        computed_at: csp1ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
