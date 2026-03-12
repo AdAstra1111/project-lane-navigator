@@ -11894,10 +11894,10 @@ Return ONLY valid JSON:
         constitutional: 5, severe: 4, severe_moderate: 3, moderate: 2, light: 1,
       };
 
-      // ── Step 1: Load unresolved repairs + diagnostics directly ─────────────
-      // Direct DB retrieval — no HTTP self-fetch to ARP1.
-      // NRF1 needs only raw repair rows and diagnostic affected_axes, not
-      // the full ARP1 enrichment pipeline (gain/blast/friction/urgency).
+      // ── Step 1: Load unresolved repairs directly ──────────────────────────
+      // NRF1.3: Direct DB retrieval only — no HTTP self-fetch to ARP1 or DX.
+      // NRF1 needs only raw repair rows; affected_axes are derived
+      // deterministically from scope_type + scope_key in Step 2.
       const NRF1_PENDING       = "pending";
       const NRF1_BLOCKED       = ["failed", "skipped", "dismissed"];
 
