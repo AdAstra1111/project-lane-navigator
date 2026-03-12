@@ -5575,14 +5575,59 @@ MATERIAL:\n${version.plaintext}`;
         documentId: slot.documentId,
         docType: resolvedDocType,
         plaintext: (() => {
+          // ── JSON→Markdown safety net ──
+          // The LLM sometimes returns document content wrapped in JSON (e.g. {"FORMAT_RULES":{...}}
+          // or {"converted_text": "{\"FORMAT_RULES\":{...}}"}) instead of plain markdown text.
+          // This function recursively flattens any JSON object into readable ## heading / content markdown.
+          function jsonToMarkdown(obj: any, depth = 0): string {
+            if (typeof obj === "string") return obj;
+            if (Array.isArray(obj)) return obj.map((item: any) => `- ${typeof item === "string" ? item : jsonToMarkdown(item, depth + 1)}`).join("\n");
+            if (typeof obj === "object" && obj !== null) {
+              return Object.entries(obj).map(([key, val]: [string, any]) => {
+                const hashes = "#".repeat(Math.min(depth + 2, 4));
+                const label = key.replace(/_/g, " ").toUpperCase();
+                if (typeof val === "string") return `${hashes} ${label}\n\n${val}`;
+                if (Array.isArray(val)) return `${hashes} ${label}\n\n${val.map((v: any) => `- ${typeof v === "string" ? v : JSON.stringify(v)}`).join("\n")}`;
+                if (typeof val === "object" && val !== null) return `${hashes} ${label}\n\n${jsonToMarkdown(val, depth + 1)}`;
+                return `${hashes} ${label}\n\n${val}`;
+              }).join("\n\n");
+            }
+            return String(obj);
+          }
+
+          function extractAndConvert(ct: string): string {
+            const trimmed = ct.trim();
+            // Strip code fences
+            const stripped = trimmed.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\n?```\s*$/, "").trim();
+            if (!stripped.startsWith("{") && !stripped.startsWith("[")) return ct;
+            try {
+              const parsed2 = JSON.parse(stripped);
+              // Prefer explicit converted_text / rewritten_text / text keys
+              const explicit = parsed2?.converted_text || parsed2?.rewritten_text || parsed2?.text;
+              if (typeof explicit === "string" && explicit.trim().length > 50) {
+                // Recurse — the explicit value might itself be JSON
+                return extractAndConvert(explicit);
+              }
+              // No explicit key — flatten whole object to markdown
+              const md = jsonToMarkdown(parsed2);
+              if (md && md.length > 50) return md;
+            } catch { /* not valid JSON — return as-is */ }
+            return ct;
+          }
+
           let ct = parsed.converted_text || "";
           // FIX 6: Defensive coercion — prevent "[object Object]" from malformed AI output
           if (typeof ct === 'object' && ct !== null) {
             ct = (ct as any).converted_text || (ct as any).rewritten_text || (ct as any).text || JSON.stringify(ct);
           }
           ct = String(ct);
-          if (ct.trim().startsWith("```") || ct.trim().startsWith("{")) {
-            try { const i = JSON.parse(extractJSON(ct)); ct = i?.converted_text || i?.rewritten_text || i?.text || ct; } catch { /* ok */ }
+          // If content looks like JSON, extract and convert to markdown
+          if (ct.trim().startsWith("{") || ct.trim().startsWith("[") || ct.trim().startsWith("```")) {
+            ct = extractAndConvert(ct);
+          }
+          // Final safety: if still looks like JSON after all extraction attempts, force-flatten
+          if (ct.trim().startsWith("{") || ct.trim().startsWith("[")) {
+            try { ct = jsonToMarkdown(JSON.parse(ct)); } catch { /* leave as-is */ }
           }
           return ct;
         })(),
