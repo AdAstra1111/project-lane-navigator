@@ -2879,6 +2879,7 @@ serve(async (req) => {
       "update_dev_seed_v2",
       "delete_dev_seed_v2",
       "create_derived_dev_seed_v2",
+      "compare_dev_seed_v2",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -10719,6 +10720,296 @@ Return ONLY valid JSON:
           error:      derivErr?.message ?? "Unknown derivation error",
         }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+    }
+
+    // ── Dev Seed v2: compare_dev_seed_v2 (DS2J-A) ────────────────────────────────
+    //
+    // Deterministic authored-vs-derived diff engine.
+    // Measures narrative essence drift across 6 dimensions without LLM inference.
+    // Purely analytical — no mutations, no schema changes.
+    //
+    // Six dimensions (with weights):
+    //   D1 Premise Kernel       25% — premise, dramatic_question, central_irony
+    //   D2 Emotional Promise    25% — emotional_promise, audience_fantasy, audience_fear
+    //   D3 Theme Vector         15% — theme_vector array Jaccard similarity
+    //   D4 Structural Beats     10% — beat_key presence + description overlap
+    //   D5 Axis / Unit          10% — axis_key + unit_type set overlap
+    //   D6 Relationship Core    15% — arc entity relations Jaccard
+    //
+    // Overall soul drift score = weighted sum; drift_band: LOW/MODERATE/HIGH/CRITICAL
+    //
+    if (action === "compare_dev_seed_v2") {
+      const { projectId, authored_seed_id: authoredId, derived_seed_id: derivedId } = body;
+      if (!projectId || !authoredId || !derivedId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId, authored_seed_id, and derived_seed_id required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Load both seeds in parallel ─────────────────────────────────────
+      const loadSeed = async (seedId: string) => {
+        const [premRes, axesRes, unitsRes, beatsRes, relRes] = await Promise.all([
+          (supabase as any).from("dev_seed_v2_premise").select("*").eq("seed_id", seedId).maybeSingle(),
+          (supabase as any).from("dev_seed_v2_axes").select("axis_key,axis_statement").eq("seed_id", seedId),
+          (supabase as any).from("dev_seed_v2_units").select("unit_type,unit_statement").eq("seed_id", seedId),
+          (supabase as any).from("dev_seed_v2_beats").select("beat_key,beat_description").eq("seed_id", seedId),
+          (supabase as any).from("dev_seed_v2_entity_relations").select("source_entity_key,relation_type,target_entity_key").eq("seed_id", seedId),
+        ]);
+        return {
+          premise:   premRes.data   ?? null,
+          axes:      (axesRes.data  ?? []) as Array<{ axis_key: string; axis_statement: string | null }>,
+          units:     (unitsRes.data ?? []) as Array<{ unit_type: string; unit_statement: string | null }>,
+          beats:     (beatsRes.data ?? []) as Array<{ beat_key: string; beat_description: string | null }>,
+          relations: (relRes.data   ?? []) as Array<{ source_entity_key: string; relation_type: string; target_entity_key: string }>,
+        };
+      };
+
+      const [authored, derived] = await Promise.all([
+        loadSeed(authoredId),
+        loadSeed(derivedId),
+      ]);
+
+      // Verify both seeds belong to the project
+      const seedCheck = await (supabase as any)
+        .from("dev_seed_v2_projects")
+        .select("id,derived")
+        .eq("project_id", projectId)
+        .in("id", [authoredId, derivedId]);
+      const foundIds = new Set((seedCheck.data ?? []).map((r: any) => r.id as string));
+      if (!foundIds.has(authoredId) || !foundIds.has(derivedId)) {
+        return new Response(JSON.stringify({ ok: false, error: "One or both seed IDs not found for this project" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Shared helpers ───────────────────────────────────────────────────
+
+      /** Normalised token set for a string (words ≥ 3 chars, lowercased) */
+      const tokens = (s: string | null | undefined): Set<string> => {
+        if (!s) return new Set();
+        return new Set(s.toLowerCase().split(/\W+/).filter(t => t.length >= 3));
+      };
+
+      /** Jaccard similarity between two token sets */
+      const jaccard = (a: Set<string>, b: Set<string>): number => {
+        if (a.size === 0 && b.size === 0) return 1;
+        if (a.size === 0 || b.size === 0) return 0;
+        const inter = [...a].filter(t => b.has(t)).length;
+        const union = new Set([...a, ...b]).size;
+        return inter / union;
+      };
+
+      /** Token overlap score for two nullable strings → 0 / 0.5 / 1.0 */
+      const textScore = (a: string | null | undefined, b: string | null | undefined): number => {
+        if (!a && !b) return 0;                  // both absent → aligned
+        if (!a || !b) return 1.0;                // one absent  → major drift
+        if (a.trim() === b.trim()) return 0;     // exact match → aligned
+        const j = jaccard(tokens(a), tokens(b));
+        return j >= 0.6 ? 0.5 : 1.0;
+      };
+
+      // ── D1: Premise Kernel (25%) ──────────────────────────────────────
+      const computePremiseDrift = () => {
+        const ap = authored.premise, dp = derived.premise;
+        const scores = [
+          textScore(ap?.premise,           dp?.premise),
+          textScore(ap?.dramatic_question, dp?.dramatic_question),
+          textScore(ap?.central_irony,     dp?.central_irony),
+        ];
+        const score = scores.reduce((s, x) => s + x, 0) / scores.length;
+        const details: string[] = [];
+        if (scores[0] > 0) details.push("premise_text_drift");
+        if (scores[1] > 0) details.push("dramatic_question_shift");
+        if (scores[2] > 0) details.push("central_irony_loss");
+        return { score, details };
+      };
+
+      // ── D2: Emotional Promise (25%) ───────────────────────────────────
+      // Category detection: extract primary keyword from phrase
+      const EMOTIONAL_CATS = ["redemption","revenge","love","justice","survival","identity","grief","discovery","power"];
+      const detectCat = (s: string | null | undefined): string | null => {
+        if (!s) return null;
+        const lower = s.toLowerCase();
+        return EMOTIONAL_CATS.find(c => lower.includes(c)) ?? null;
+      };
+      const catScore = (a: string | null | undefined, b: string | null | undefined): number => {
+        if (!a && !b) return 0;
+        if (!a || !b) return 1.0;
+        if (a.trim() === b.trim()) return 0;
+        const ca = detectCat(a), cb = detectCat(b);
+        if (!ca || !cb) return textScore(a, b);    // fall back to text overlap
+        return ca === cb ? 0.5 : 1.0;
+      };
+      const computeEmotionalDrift = () => {
+        const ap = authored.premise, dp = derived.premise;
+        const scores = [
+          catScore(ap?.emotional_promise, dp?.emotional_promise),
+          catScore(ap?.audience_fantasy,  dp?.audience_fantasy),
+          catScore(ap?.audience_fear,     dp?.audience_fear),
+        ];
+        const score = scores.reduce((s, x) => s + x, 0) / scores.length;
+        const details: string[] = [];
+        if (scores[0] > 0) details.push("emotional_promise_shift");
+        if (scores[1] > 0) details.push("audience_fantasy_shift");
+        if (scores[2] > 0) details.push("audience_fear_shift");
+        return { score, details };
+      };
+
+      // ── D3: Theme Vector (15%) ────────────────────────────────────────
+      const computeThemeDrift = () => {
+        const at = authored.premise?.theme_vector ?? null;
+        const dt = derived.premise?.theme_vector  ?? null;
+        const setA = new Set<string>(Array.isArray(at) ? at.map((s: string) => s.toLowerCase()) : []);
+        const setB = new Set<string>(Array.isArray(dt) ? dt.map((s: string) => s.toLowerCase()) : []);
+        const j = jaccard(setA, setB);
+        const score = j >= 0.7 ? 0 : j >= 0.3 ? 0.5 : 1.0;
+        return { score, overlap_ratio: j, details: score > 0 ? ["theme_vector_loss"] : [] };
+      };
+
+      // ── D4: Structural Beats (10%) ────────────────────────────────────
+      const STANDARD_BEATS = new Set([
+        "opening_state","inciting_event_seed","first_escalation","midpoint_type",
+        "crisis_shape","climax_promise","ending_condition",
+      ]);
+      const computeBeatDrift = () => {
+        const aMap = new Map(authored.beats.map(b => [b.beat_key, b.beat_description]));
+        const dMap = new Map(derived.beats.map(b => [b.beat_key, b.beat_description]));
+        const allKeys = new Set([...aMap.keys(), ...dMap.keys(), ...STANDARD_BEATS]);
+        let mismatches = 0;
+        const details: string[] = [];
+        for (const key of allKeys) {
+          const aDesc = aMap.get(key) ?? null;
+          const dDesc = dMap.get(key) ?? null;
+          const s = textScore(aDesc, dDesc);
+          if (s > 0) {
+            mismatches++;
+            details.push(`beat_drift_${key}`);
+          }
+        }
+        const score = allKeys.size > 0 ? mismatches / allKeys.size : 0;
+        return { score, drift_ratio: score, details };
+      };
+
+      // ── D5: Axis / Unit Structure (10%) ───────────────────────────────
+      const computeAxisUnitDrift = () => {
+        const axA = new Set(authored.axes.map(a => a.axis_key));
+        const axD = new Set(derived.axes.map(a => a.axis_key));
+        const utA = new Set(authored.units.map(u => u.unit_type));
+        const utD = new Set(derived.units.map(u => u.unit_type));
+        const axJ = jaccard(axA, axD);
+        const utJ = jaccard(utA, utD);
+        const combined = (axJ + utJ) / 2;
+        const score = combined >= 0.8 ? 0 : combined >= 0.5 ? 0.5 : 1.0;
+        const details: string[] = [];
+        if (axJ < 0.8) details.push("axis_overlap_low");
+        if (utJ < 0.8) details.push("unit_overlap_low");
+        return { score, axis_overlap: axJ, unit_overlap: utJ, details };
+      };
+
+      // ── D6: Relationship Core (15%) ───────────────────────────────────
+      const ARC_ENTITY_PREFIXES = ["ARC_", "PROTAGONIST", "ANTAGONIST", "RELATIONSHIP"];
+      const isArcEntity = (key: string) =>
+        ARC_ENTITY_PREFIXES.some(p => key.toUpperCase().includes(p));
+
+      const relKey = (r: { source_entity_key: string; relation_type: string; target_entity_key: string }) =>
+        `${r.source_entity_key}::${r.relation_type}::${r.target_entity_key}`;
+
+      const computeRelationshipDrift = () => {
+        const arcRels = (rels: typeof authored.relations) =>
+          rels.filter(r => isArcEntity(r.source_entity_key) || isArcEntity(r.target_entity_key));
+
+        const aRels = new Set(arcRels(authored.relations).map(relKey));
+        const dRels = new Set(arcRels(derived.relations).map(relKey));
+
+        // If both empty → aligned (no relation info in either)
+        if (aRels.size === 0 && dRels.size === 0) {
+          return { score: 0, shared_ratio: 1.0, details: [] };
+        }
+        const j = jaccard(aRels, dRels);
+        const score = j >= 0.7 ? 0 : j >= 0.3 ? 0.5 : 1.0;
+        return { score, shared_ratio: j, details: score > 0 ? ["relationship_core_missing"] : [] };
+      };
+
+      // ── Aggregate ─────────────────────────────────────────────────────
+      const d1 = computePremiseDrift();
+      const d2 = computeEmotionalDrift();
+      const d3 = computeThemeDrift();
+      const d4 = computeBeatDrift();
+      const d5 = computeAxisUnitDrift();
+      const d6 = computeRelationshipDrift();
+
+      const overallRaw = d1.score * 0.25 + d2.score * 0.25 + d3.score * 0.15
+                       + d4.score * 0.10 + d5.score * 0.10 + d6.score * 0.15;
+      const overallScore = Math.round(overallRaw * 1000) / 1000;
+
+      const driftBand = overallScore < 0.2 ? "LOW"
+        : overallScore < 0.45 ? "MODERATE"
+        : overallScore < 0.70 ? "HIGH"
+        : "CRITICAL";
+
+      // ── Explanation arrays ────────────────────────────────────────────
+      const CAUSE_THRESHOLD = 0.5;
+      const primaryDriftCauses: string[] = [
+        ...(d1.score >= CAUSE_THRESHOLD ? d1.details : []),
+        ...(d2.score >= CAUSE_THRESHOLD ? d2.details : []),
+        ...(d3.score >= CAUSE_THRESHOLD ? d3.details : []),
+        ...(d4.score >= CAUSE_THRESHOLD ? d4.details : []),
+        ...(d5.score >= CAUSE_THRESHOLD ? d5.details : []),
+        ...(d6.score >= CAUSE_THRESHOLD ? d6.details : []),
+      ];
+
+      const RESTORATION_MAP: Record<string, string> = {
+        premise_text_drift:        "Realign premise text with authored intent",
+        dramatic_question_shift:   "Restore the dramatic question",
+        central_irony_loss:        "Restore the central irony",
+        emotional_promise_shift:   "Restore emotional promise category",
+        audience_fantasy_shift:    "Realign audience fantasy type",
+        audience_fear_shift:       "Realign audience fear statement",
+        theme_vector_loss:         "Reintroduce missing theme vector elements",
+        beat_drift_opening_state:          "Restore opening state beat",
+        beat_drift_inciting_event_seed:    "Restore inciting event seed beat",
+        beat_drift_first_escalation:       "Restore first escalation beat",
+        beat_drift_midpoint_type:          "Restore midpoint reversal beat",
+        beat_drift_crisis_shape:           "Restore crisis shape beat",
+        beat_drift_climax_promise:         "Restore climax promise beat",
+        beat_drift_ending_condition:       "Restore ending condition beat",
+        axis_overlap_low:          "Realign narrative axes with authored spine",
+        unit_overlap_low:          "Restore missing narrative units",
+        relationship_core_missing: "Restore core arc entity relationships",
+      };
+
+      const restorationTargets = [...new Set(primaryDriftCauses)]
+        .map(cause => RESTORATION_MAP[cause] ?? cause)
+        .filter(Boolean);
+
+      console.log("[dev-engine-v2] compare_dev_seed_v2", {
+        project_id: projectId, authored_seed_id: authoredId, derived_seed_id: derivedId,
+        overall_score: overallScore, drift_band: driftBand,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                    true,
+        action:                "compare_dev_seed_v2",
+        project_id:            projectId,
+        authored_seed_id:      authoredId,
+        derived_seed_id:       derivedId,
+        premise_drift_score:      d1.score,
+        emotional_drift_score:    d2.score,
+        theme_drift_score:        d3.score,
+        beat_drift_score:         d4.score,
+        axis_unit_drift_score:    d5.score,
+        relationship_drift_score: d6.score,
+        overall_soul_drift_score: overallScore,
+        drift_band:            driftBand,
+        primary_drift_causes:  primaryDriftCauses,
+        restoration_targets:   restorationTargets,
+        dimension_detail: {
+          premise_kernel:    { score: d1.score, details: d1.details },
+          emotional_promise: { score: d2.score, details: d2.details },
+          theme_vector:      { score: d3.score, overlap_ratio: d3.overlap_ratio, details: d3.details },
+          structural_beats:  { score: d4.score, drift_ratio: d4.drift_ratio,   details: d4.details },
+          axis_unit:         { score: d5.score, axis_overlap: d5.axis_overlap, unit_overlap: d5.unit_overlap, details: d5.details },
+          relationship_core: { score: d6.score, shared_ratio: d6.shared_ratio, details: d6.details },
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ── Dev Seed v2: get_dev_seed_v2 ─────────────────────────────────────────────
