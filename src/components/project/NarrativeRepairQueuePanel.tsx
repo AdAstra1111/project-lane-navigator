@@ -241,6 +241,7 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
                 execResult={execHook.result?.repair_id === r.repair_id ? execHook.result : null}
                 generateHook={generateHook}
                 applyHook={applyHook}
+                simulateHook={simulateHook}
               />
             ))}
           </div>
