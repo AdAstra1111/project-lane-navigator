@@ -754,6 +754,23 @@ export default function ProjectDevelopmentEngine() {
     runAnalysisWithContext();
   };
 
+  const [isGeneratingDocument, setIsGeneratingDocument] = useState(false);
+
+  const handleGenerateDocument = async () => {
+    if (!selectedDoc?.doc_type || !projectId || isGeneratingDocument) return;
+    setIsGeneratingDocument(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.functions.invoke('generate-document', {
+        body: { projectId, docType: selectedDoc.doc_type, userId: user?.id, mode: 'draft' },
+      });
+      qc.invalidateQueries({ queryKey: ['versions', projectId, selectedDoc.doc_type] });
+      qc.invalidateQueries({ queryKey: ['documents', projectId] });
+    } finally {
+      setIsGeneratingDocument(false);
+    }
+  };
+
   const handleStaleRegenerate = async () => {
     if (!selectedDoc?.doc_type || !projectId) return;
     const { data: { user } } = await supabase.auth.getUser();
