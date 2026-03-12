@@ -248,6 +248,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
           repairStrategy={repairStrategy}
           onStrategyChange={setRepairStrategy}
         />
+        {/* ═══ NARRATIVE DIAGNOSTICS ═══ */}
+        {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
         {/* ═══ SIMULATION PREVIEW ═══ */}
         <NarrativeSimulationPanel projectId={projectId} />
         {/* ═══ NARRATIVE DRIFT ═══ */}
