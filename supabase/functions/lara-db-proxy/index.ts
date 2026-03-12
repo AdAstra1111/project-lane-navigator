@@ -1722,6 +1722,94 @@ Deno.serve(async (req) => {
         break;
       }
 
+      case "fix_json_plaintext": {
+        // One-shot repair: find every version for a project whose plaintext is raw JSON,
+        // convert it to readable markdown, and update in-place.
+        // Preserves version numbers, approval_status, is_current — no new versions created.
+        const { project_id: fjpId } = params;
+        if (!fjpId) throw new Error("fix_json_plaintext requires project_id");
+
+        // Recursive JSON → markdown flattener (matches the one in dev-engine-v2 + generate-document)
+        function jsonToMd(obj: any, depth = 0): string {
+          if (typeof obj === "string") return obj;
+          if (Array.isArray(obj)) return (obj as any[]).map((item: any) =>
+            `- ${typeof item === "string" ? item : jsonToMd(item, depth + 1)}`).join("\n");
+          if (typeof obj === "object" && obj !== null) {
+            return Object.entries(obj).map(([key, val]: [string, any]) => {
+              const hashes = "#".repeat(Math.min(depth + 2, 4));
+              const label = key.replace(/_/g, " ").toUpperCase();
+              if (typeof val === "string") return `${hashes} ${label}\n\n${val}`;
+              if (Array.isArray(val)) return `${hashes} ${label}\n\n${(val as any[]).map((v: any) => `- ${typeof v === "string" ? v : JSON.stringify(v)}`).join("\n")}`;
+              if (typeof val === "object" && val !== null) return `${hashes} ${label}\n\n${jsonToMd(val, depth + 1)}`;
+              return `${hashes} ${label}\n\n${val}`;
+            }).join("\n\n");
+          }
+          return String(obj);
+        }
+
+        function fixContent(ct: string): { fixed: string; wasJson: boolean } {
+          const trimmed = ct.trim();
+          if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && !trimmed.startsWith("```json") && !trimmed.startsWith("```\n{")) {
+            return { fixed: ct, wasJson: false };
+          }
+          try {
+            const stripped = trimmed.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/\n?```\s*$/, "").trim();
+            const parsed = JSON.parse(stripped);
+            // Prefer explicit converted_text key (recurse in case it's also JSON)
+            const explicit = parsed?.converted_text || parsed?.rewritten_text || parsed?.text;
+            if (typeof explicit === "string" && explicit.trim().length > 50) {
+              const inner = fixContent(explicit);
+              return { fixed: inner.fixed, wasJson: true };
+            }
+            // Flatten whole object to markdown
+            const md = jsonToMd(parsed);
+            if (md && md.length > 50) return { fixed: md, wasJson: true };
+          } catch { /* not JSON */ }
+          return { fixed: ct, wasJson: false };
+        }
+
+        // Get all document IDs for this project
+        const { data: projDocs } = await supabase
+          .from("project_documents")
+          .select("id, doc_type")
+          .eq("project_id", fjpId);
+        if (!projDocs || projDocs.length === 0) { result = { fixed: 0, skipped: 0, docs: [] }; break; }
+
+        const docIds = projDocs.map((d: any) => d.id);
+        const docTypeMap: Record<string, string> = {};
+        projDocs.forEach((d: any) => { docTypeMap[d.id] = d.doc_type; });
+
+        // Fetch all versions with plaintext for this project
+        const { data: versions } = await supabase
+          .from("project_document_versions")
+          .select("id, document_id, plaintext, version_number, approval_status")
+          .in("document_id", docIds)
+          .not("plaintext", "is", null);
+
+        let fixedCount = 0;
+        let skippedCount = 0;
+        const fixedDocs: string[] = [];
+
+        for (const ver of (versions || [])) {
+          const pt = ver.plaintext || "";
+          if (!pt.trim()) { skippedCount++; continue; }
+          const { fixed, wasJson } = fixContent(pt);
+          if (!wasJson) { skippedCount++; continue; }
+          // Update in-place
+          const { error: upErr } = await supabase
+            .from("project_document_versions")
+            .update({ plaintext: fixed })
+            .eq("id", ver.id);
+          if (!upErr) {
+            fixedCount++;
+            fixedDocs.push(`${docTypeMap[ver.document_id] || ver.document_id} v${ver.version_number} (${ver.approval_status})`);
+          }
+        }
+
+        result = { fixed: fixedCount, skipped: skippedCount, docs: fixedDocs };
+        break;
+      }
+
       case "patch_project": {
         // Update specific fields on the projects table (Lara-internal use only).
         // Allowed fields: season_episode_count, guardrails_config
