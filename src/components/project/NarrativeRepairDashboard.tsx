@@ -6,6 +6,7 @@
  */
 
 import { useState, useMemo, useCallback } from 'react';
+import { RepairStrategyPanel } from '@/components/project/RepairStrategyPanel';
 import { useSelectiveRegenerationPlan, type RepairStrategy, type RecommendedScope, type SourceUnit, type ImpactedScene } from '@/hooks/useSelectiveRegenerationPlan';
 import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/hooks/useExecuteSelectiveRegeneration';
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
@@ -91,6 +92,7 @@ function sceneLabelFromImpacted(scene: ImpactedScene, slugMap: SluglineMap): str
 /* ── Main Dashboard ── */
 
 export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSeedId }: Props) {
+  const [dashTab, setDashTab] = useState<'repairs' | 'strategy'>('repairs');
   const [repairStrategy, setRepairStrategy] = useState<RepairStrategy>('balanced');
   const { data: plan, isLoading: planLoading, refetch: refetchPlan } = useSelectiveRegenerationPlan(projectId, repairStrategy);
   const { execute, isExecuting, result, error, reset } = useExecuteSelectiveRegeneration(projectId);
@@ -174,12 +176,19 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
     return (
       <Card className="border-border/50">
         <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base font-semibold">
-            <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
-            Narrative Repair
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
+              Narrative Repair
+            </CardTitle>
+            <DashTabSwitcher active={dashTab} onChange={setDashTab} />
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {dashTab === 'strategy' ? (
+            <RepairStrategyPanel projectId={projectId} />
+          ) : (
+          <>
           {/* Autopilot Status */}
           <AutopilotRepairPanel
             data={monitorData}
@@ -219,6 +228,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
           )}
           {/* Run History even in calm state */}
           <RunHistorySection runs={runHistory ?? []} loading={historyLoading} slugMap={slugMap} onViewDiff={handleViewChanges} />
+          </>
+          )}
         </CardContent>
       </Card>
     );
@@ -236,14 +247,21 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
             <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
             Narrative Repair
           </CardTitle>
-          <Badge variant={scopeCfg.variant} className="gap-1 text-xs">
-            <ScopeIcon className="h-3 w-3" />
-            {scopeCfg.label}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <DashTabSwitcher active={dashTab} onChange={setDashTab} />
+            <Badge variant={scopeCfg.variant} className="gap-1 text-xs">
+              <ScopeIcon className="h-3 w-3" />
+              {scopeCfg.label}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-6">
+        {dashTab === 'strategy' ? (
+          <RepairStrategyPanel projectId={projectId} />
+        ) : (
+        <>
         {/* ═══ AUTOPILOT STATUS ═══ */}
         <AutopilotRepairPanel
           data={monitorData}
@@ -319,6 +337,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
         {plan.diagnostics && (
           <p className="text-xs text-muted-foreground border-t border-border/30 pt-2">{plan.diagnostics}</p>
         )}
+        </>
+        )}
       </CardContent>
 
       {/* Confirmation Dialog */}
@@ -342,6 +362,26 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
         onNavigate={handleDiffNavigate}
       />
     </Card>
+  );
+}
+
+/* ── Tab Switcher ── */
+function DashTabSwitcher({ active, onChange }: { active: 'repairs' | 'strategy'; onChange: (v: 'repairs' | 'strategy') => void }) {
+  return (
+    <div className="inline-flex items-center rounded-md bg-muted p-0.5 text-xs">
+      <button
+        onClick={() => onChange('repairs')}
+        className={`px-2.5 py-1 rounded-sm font-medium transition-colors ${active === 'repairs' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+      >
+        Repairs
+      </button>
+      <button
+        onClick={() => onChange('strategy')}
+        className={`px-2.5 py-1 rounded-sm font-medium transition-colors ${active === 'strategy' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+      >
+        Strategy
+      </button>
+    </div>
   );
 }
 

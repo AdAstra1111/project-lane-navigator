@@ -1,0 +1,447 @@
+/**
+ * RepairStrategyPanel — Surfaces PRP1 preventive repair prioritization
+ * and NRF1 axis debt context. Read-only UI. No mutations.
+ */
+
+import { useState, useMemo } from 'react';
+import { usePreventiveRepairPrioritization, type PRP1Repair, type AxisDebtEntry } from '@/hooks/usePreventiveRepairPrioritization';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { InfoTooltip } from '@/components/InfoTooltip';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
+import {
+  ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle, RefreshCw,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+
+interface Props {
+  projectId: string | undefined;
+}
+
+/* ── Pressure color helpers ── */
+function pressureColor(v: number): string {
+  if (v <= 30) return 'text-emerald-400';
+  if (v <= 60) return 'text-amber-400';
+  if (v <= 80) return 'text-orange-400';
+  return 'text-red-400';
+}
+
+function pressureBg(v: number): string {
+  if (v <= 30) return 'bg-emerald-500';
+  if (v <= 60) return 'bg-amber-500';
+  if (v <= 80) return 'bg-orange-500';
+  return 'bg-red-500';
+}
+
+function riskBadgeVariant(level: string): 'destructive' | 'default' | 'secondary' {
+  const l = level.toLowerCase();
+  if (l === 'high') return 'destructive';
+  if (l === 'medium') return 'default';
+  return 'secondary';
+}
+
+const RISK_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+type SortKey = 'preventive_rank' | 'baseline_rank' | 'preventive_score' | 'rank_delta' | 'root_cause_signal' | 'preventive_confidence_signal';
+
+export function RepairStrategyPanel({ projectId }: Props) {
+  const { prp1, nrf1, isLoading, error, refresh } = usePreventiveRepairPrioritization(projectId);
+  const [selectedRepair, setSelectedRepair] = useState<PRP1Repair | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('preventive_rank');
+  const [sortAsc, setSortAsc] = useState(true);
+
+  const prioritization = prp1?.prp1_prioritization;
+  const axisDebtMap: AxisDebtEntry[] = useMemo(() => {
+    if (nrf1?.axis_debt_map) return nrf1.axis_debt_map;
+    return [];
+  }, [nrf1]);
+
+  const sortedRepairs = useMemo(() => {
+    if (!prioritization?.prioritized_repairs) return [];
+    const list = [...prioritization.prioritized_repairs];
+    list.sort((a, b) => {
+      const av = a[sortKey] ?? 0;
+      const bv = b[sortKey] ?? 0;
+      return sortAsc ? (av as number) - (bv as number) : (bv as number) - (av as number);
+    });
+    return list;
+  }, [prioritization?.prioritized_repairs, sortKey, sortAsc]);
+
+  const sortedAxes = useMemo(() => {
+    return [...axisDebtMap].sort((a, b) => {
+      const ra = RISK_ORDER[a.risk_level.toLowerCase()] ?? 9;
+      const rb = RISK_ORDER[b.risk_level.toLowerCase()] ?? 9;
+      if (ra !== rb) return ra - rb;
+      return b.source_repair_count - a.source_repair_count;
+    });
+  }, [axisDebtMap]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortAsc(!sortAsc);
+    else { setSortKey(key); setSortAsc(true); }
+  };
+
+  const SortHeader = ({ label, field }: { label: string; field: SortKey }) => (
+    <button
+      onClick={() => handleSort(field)}
+      className="flex items-center gap-1 text-left hover:text-foreground transition-colors"
+    >
+      {label}
+      {sortKey === field && (
+        sortAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+      )}
+    </button>
+  );
+
+  /* ── Loading ── */
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-24 w-full rounded-md" />
+        <Skeleton className="h-48 w-full rounded-md" />
+      </div>
+    );
+  }
+
+  /* ── Error ── */
+  if (error || !prioritization) {
+    return (
+      <Card className="border-border/50">
+        <CardContent className="py-8 text-center">
+          <AlertTriangle className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Repair prioritization unavailable.</p>
+          <Button variant="ghost" size="sm" className="mt-2" onClick={refresh}>
+            <RefreshCw className="h-3.5 w-3.5 mr-1" /> Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const pressure = prioritization.project_repair_pressure;
+  const highestUpliftRepair = prioritization.highest_preventive_uplift_repair_id
+    ? prioritization.prioritized_repairs.find(r => r.repair_id === prioritization.highest_preventive_uplift_repair_id)
+    : null;
+
+  return (
+    <div className="space-y-5">
+      {/* NRF1 degraded banner */}
+      {prp1?.nrf1_degraded && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+          <span className="text-xs text-amber-400">Preventive forecasts unavailable — baseline ranking only.</span>
+        </div>
+      )}
+
+      {/* ═══ TOP SUMMARY ROW ═══ */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Card 1: Pressure Gauge */}
+        <Card className="border-border/50">
+          <CardContent className="p-4 flex flex-col items-center gap-2">
+            <div className="relative w-16 h-16">
+              <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="hsl(var(--muted))" strokeWidth="3" />
+                <circle
+                  cx="18" cy="18" r="15.9" fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeDasharray={`${pressure} ${100 - pressure}`}
+                  strokeLinecap="round"
+                  className={pressureColor(pressure)}
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className={cn('text-sm font-mono font-bold', pressureColor(pressure))}>
+                  {Math.round(pressure)}
+                </span>
+              </div>
+            </div>
+            <span className="text-[11px] text-muted-foreground text-center">Forecasted narrative repair pressure</span>
+          </CardContent>
+        </Card>
+
+        {/* Card 2: Uplift Count */}
+        <Card className="border-border/50">
+          <CardContent className="p-4 flex flex-col items-center justify-center gap-1">
+            <div className="flex items-baseline gap-1">
+              <span className="text-2xl font-mono font-bold text-foreground">
+                {prioritization.repairs_with_preventive_uplift}
+              </span>
+              <span className="text-sm text-muted-foreground font-mono">
+                / {prioritization.total_repairs_considered}
+              </span>
+            </div>
+            <span className="text-[11px] text-muted-foreground text-center">
+              Repairs with preventive uplift
+            </span>
+          </CardContent>
+        </Card>
+
+        {/* Card 3: Highest Preventive Repair */}
+        <Card className="border-border/50">
+          <CardContent className="p-4 flex flex-col items-center justify-center gap-1">
+            <TrendingUp className="h-4 w-4 text-primary mb-1" />
+            <span className="text-xs font-mono font-medium text-foreground text-center truncate max-w-full">
+              {highestUpliftRepair?.repair_type ?? '—'}
+            </span>
+            <span className="text-[11px] text-muted-foreground text-center">
+              Highest preventive uplift
+            </span>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ═══ SECTION 1: PREVENTIVE REPAIR RANKING ═══ */}
+      <Card className="border-border/50">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Gauge className="h-4 w-4 text-muted-foreground" />
+              Preventive Repair Ranking
+            </CardTitle>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={refresh}>
+              <RefreshCw className="h-3 w-3 mr-1" /> Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {sortedRepairs.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">No repairs to prioritize.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs w-[140px]">Repair</TableHead>
+                    <TableHead className="text-xs w-[70px]">Status</TableHead>
+                    <TableHead className="text-xs w-[50px]"><SortHeader label="Base" field="baseline_rank" /></TableHead>
+                    <TableHead className="text-xs w-[50px]"><SortHeader label="Prev" field="preventive_rank" /></TableHead>
+                    <TableHead className="text-xs w-[50px]"><SortHeader label="Δ" field="rank_delta" /></TableHead>
+                    <TableHead className="text-xs w-[70px]"><SortHeader label="Score" field="preventive_score" /></TableHead>
+                    <TableHead className="text-xs w-[70px]">Friction</TableHead>
+                    <TableHead className="text-xs w-[80px]"><SortHeader label="Root Cause" field="root_cause_signal" /></TableHead>
+                    <TableHead className="text-xs w-[80px]"><SortHeader label="Confidence" field="preventive_confidence_signal" /></TableHead>
+                    <TableHead className="text-xs">Explanation</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortedRepairs.map((r) => (
+                    <TableRow
+                      key={r.repair_id}
+                      className="cursor-pointer hover:bg-muted/30 transition-colors"
+                      onClick={() => setSelectedRepair(r)}
+                    >
+                      <TableCell className="font-mono text-xs truncate max-w-[140px]">{r.repair_type}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-[10px] capitalize">{r.status}</Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-center">{r.baseline_rank}</TableCell>
+                      <TableCell className="font-mono text-xs text-center">{r.preventive_rank}</TableCell>
+                      <TableCell className="text-center">
+                        <RankDelta delta={r.rank_delta} />
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-center">{r.preventive_score.toFixed(1)}</TableCell>
+                      <TableCell className="font-mono text-xs text-center">{r.execution_friction_signal.toFixed(1)}</TableCell>
+                      <TableCell>
+                        <div className="w-16">
+                          <Progress value={r.root_cause_signal * 100} className="h-1.5" />
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-center">
+                        {Math.round(r.preventive_confidence_signal * 100)}%
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {r.explanation_tags.slice(0, 3).map((tag) => (
+                            <Badge key={tag} variant="secondary" className="text-[9px] px-1.5 py-0 h-4">
+                              {tag}
+                            </Badge>
+                          ))}
+                          {r.explanation_tags.length > 3 && (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">
+                              +{r.explanation_tags.length - 3}
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ═══ SECTION 2: AXIS DEBT MAP ═══ */}
+      {sortedAxes.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+            <ShieldAlert className="h-3.5 w-3.5" />
+            Axis Debt Map
+            <InfoTooltip text="Shows narrative axes under repair pressure, ranked by risk level and source repair count." />
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {sortedAxes.map((ax) => (
+              <Card key={ax.axis} className="border-border/50">
+                <CardContent className="p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-medium text-foreground">{ax.axis}</span>
+                    <Badge variant={riskBadgeVariant(ax.risk_level)} className="text-[10px] uppercase">
+                      {ax.risk_level}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 text-[11px] text-muted-foreground">
+                    <span>Source repairs: <span className="font-mono text-foreground">{ax.source_repair_count}</span></span>
+                    <span>Max confidence: <span className="font-mono text-foreground">{(ax.max_forecast_confidence * 100).toFixed(0)}%</span></span>
+                  </div>
+                  {ax.forecast_repair_families.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {ax.forecast_repair_families.map((f) => (
+                        <Badge key={f} variant="outline" className="text-[9px] px-1.5 py-0 h-4 font-mono">{f}</Badge>
+                      ))}
+                    </div>
+                  )}
+                  {ax.notes.length > 0 && (
+                    <div className="space-y-0.5">
+                      {ax.notes.map((n, i) => (
+                        <p key={i} className="text-[10px] text-muted-foreground italic">{n}</p>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ SECTION 3: NARRATIVE PRESSURE BAR ═══ */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Narrative Pressure
+          </h3>
+          <InfoTooltip text="Estimated future repair pressure derived from NDG dependency propagation." />
+        </div>
+        <div className="relative h-3 rounded-full overflow-hidden bg-muted">
+          {/* Segmented background */}
+          <div className="absolute inset-0 flex">
+            <div className="w-[30%] bg-emerald-500/20" />
+            <div className="w-[30%] bg-amber-500/20" />
+            <div className="w-[20%] bg-orange-500/20" />
+            <div className="w-[20%] bg-red-500/20" />
+          </div>
+          {/* Actual value bar */}
+          <div
+            className={cn('h-full rounded-full transition-all duration-500', pressureBg(pressure))}
+            style={{ width: `${Math.min(pressure, 100)}%` }}
+          />
+        </div>
+        <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
+          <span>0</span>
+          <span>30</span>
+          <span>60</span>
+          <span>80</span>
+          <span>100</span>
+        </div>
+      </div>
+
+      {/* ═══ DISCLAIMER ═══ */}
+      {prioritization.prioritization_disclaimer && (
+        <p className="text-[10px] text-muted-foreground/70 border-t border-border/30 pt-2">
+          {prioritization.prioritization_disclaimer}
+        </p>
+      )}
+
+      {/* ═══ REPAIR DETAIL MODAL ═══ */}
+      <Dialog open={!!selectedRepair} onOpenChange={(open) => !open && setSelectedRepair(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-sm">{selectedRepair?.repair_type}</DialogTitle>
+            <DialogDescription className="text-xs">Repair detail — preventive ranking context</DialogDescription>
+          </DialogHeader>
+          {selectedRepair && (
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <Detail label="Status" value={selectedRepair.status} />
+                <Detail label="Baseline Rank" value={String(selectedRepair.baseline_rank)} />
+                <Detail label="Preventive Rank" value={String(selectedRepair.preventive_rank)} />
+                <Detail label="Rank Delta" value={`${selectedRepair.rank_delta > 0 ? '+' : ''}${selectedRepair.rank_delta}`} />
+                <Detail label="Baseline Score" value={selectedRepair.baseline_score.toFixed(2)} />
+                <Detail label="Preventive Score" value={selectedRepair.preventive_score.toFixed(2)} />
+                <Detail label="Uplift" value={selectedRepair.uplift_amount.toFixed(2)} />
+                <Detail label="Root Cause" value={selectedRepair.root_cause_signal.toFixed(3)} />
+                <Detail label="Confidence" value={`${(selectedRepair.preventive_confidence_signal * 100).toFixed(0)}%`} />
+                <Detail label="Friction" value={selectedRepair.execution_friction_signal.toFixed(1)} />
+              </div>
+
+              {selectedRepair.forecasted_repair_families.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-muted-foreground font-medium">Forecast Families</span>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedRepair.forecasted_repair_families.map((f) => (
+                      <Badge key={f} variant="outline" className="text-[10px] font-mono">{f}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedRepair.explanation_tags.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-muted-foreground font-medium">Explanation Tags</span>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedRepair.explanation_tags.map((t) => (
+                      <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ── Sub-components ── */
+
+function RankDelta({ delta }: { delta: number }) {
+  if (delta > 0) {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-emerald-400 font-mono text-xs">
+        <ArrowUp className="h-3 w-3" />+{delta}
+      </span>
+    );
+  }
+  if (delta < 0) {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-red-400 font-mono text-xs">
+        <ArrowDown className="h-3 w-3" />{delta}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-0.5 text-muted-foreground font-mono text-xs">
+      <Minus className="h-3 w-3" />0
+    </span>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span className="text-muted-foreground">{label}</span>
+      <p className="font-mono font-medium text-foreground">{value}</p>
+    </div>
+  );
+}
