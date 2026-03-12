@@ -235,7 +235,10 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
           </div>
         )}
 
-        {/* Recommended Repair Order */}
+        {/* Recommended Repair Strategies (ARP4) */}
+        <RecommendedRepairStrategiesSection data={repairPaths.data} isLoading={repairPaths.isLoading} error={repairPaths.error} />
+
+        {/* Recommended Repair Order (ARP2) */}
         <RecommendedRepairOrderSection data={repairOrder.data} isLoading={repairOrder.isLoading} error={repairOrder.error} />
 
         {/* Active repairs */}
