@@ -11961,7 +11961,7 @@ Return ONLY valid JSON:
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── Step 3: Per-repair forecast computation ────────────────────────────
+      // ── Step 4: Per-repair forecast computation ────────────────────────────
       const registryByAxis = new Map(NRF1_REVERSE_FORECAST_REGISTRY.map(r => [r.axis, r]));
       const projectForecastFamilies = new Set<string>();
 
