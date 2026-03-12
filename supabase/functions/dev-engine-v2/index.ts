@@ -11802,19 +11802,21 @@ Return ONLY valid JSON:
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // NRF1 — forecast_repair_pressure
+    // NRF1 — forecast_repair_pressure (NRF1.3)
     //
     // NDG-Driven Repair Forecasting. Preventive narrative intelligence layer.
     // Estimates downstream repair pressure from current unresolved repairs
     // using the existing NDG and repair metadata.
     //
-    // Architecture:
-    //   1. Self-call recommend_repair_order (ARP1) for enriched repair pool
-    //   2. For each unresolved repair with affected_axes:
+    // Architecture (NRF1.3 — fully direct, no self-calls):
+    //   1. Direct DB retrieval of unresolved repairs from narrative_repairs
+    //   2. Deterministic affected_axes derivation from repair scope_type + scope_key
+    //      (no DX self-call, no ARP1 self-call)
+    //   3. For each unresolved repair with affected_axes:
     //      a. Compute downstream/upstream axes via NDG
     //      b. Map downstream axes → likely diagnostic families → forecast repair families
     //      c. Score: forecast_confidence, repair_preventive_value, root_cause_score, symptom_score
-    //   3. Aggregate project-level repair pressure
+    //   4. Aggregate project-level repair pressure
     //
     // No state mutation. No schema changes. No LLM. Deterministic for identical DB state.
     // Safe for repeated execution. All outputs explainable from current state only.
