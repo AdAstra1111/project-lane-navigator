@@ -911,6 +911,155 @@ const LABEL_STYLE: Record<string, string> = {
   'Standard Priority': 'bg-muted text-muted-foreground border-border/40',
 };
 
+/* ─── ARP4: Path label styling ─── */
+const PATH_LABEL_STYLE: Record<string, string> = {
+  'Highest Gain': 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+  'Safest Path': 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30',
+  'Fastest Path': 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30',
+  'Balanced Path': 'bg-muted text-muted-foreground border-border/40',
+  'Proposal-Led Path': 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
+  'Investigate Then Repair': 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30',
+};
+
+/* ─── ARP4: Recommended Repair Strategies Section ─── */
+function RecommendedRepairStrategiesSection({ data, isLoading, error }: {
+  data: import('@/hooks/useRecommendedRepairPaths').RecommendedRepairPathsData | null;
+  isLoading: boolean;
+  error: string | null;
+}) {
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 px-1 py-1">
+        <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">Repair strategy planner unavailable.</span>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">Recommended Repair Strategies</p>
+          <p className="text-xs text-muted-foreground">Multi-step repair paths optimized for narrative stability.</p>
+        </div>
+        <div className="space-y-2">
+          {[1, 2, 3].map(i => <Skeleton key={i} className="h-28 w-full rounded-md" />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (!data || data.paths.length === 0) {
+    return (
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-foreground">Recommended Repair Strategies</p>
+        <p className="text-xs text-muted-foreground">No repair strategies available for the current project state.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-foreground">Recommended Repair Strategies</p>
+        <p className="text-xs text-muted-foreground">Multi-step repair paths optimized for narrative stability.</p>
+      </div>
+
+      <div className="space-y-2">
+        {data.paths.map((path, idx) => (
+          <RepairPathCard key={idx} path={path} />
+        ))}
+      </div>
+
+      {data.excluded_repairs.length > 0 && (
+        <Collapsible>
+          <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <ChevronDown className="h-3 w-3" />
+            Excluded Repairs ({data.excluded_repairs.length})
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2 space-y-1.5">
+            {data.excluded_repairs.map((er, i) => (
+              <div key={i} className="flex items-start gap-2 rounded border border-border/40 bg-muted/20 px-2.5 py-2">
+                <Ban className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                <div className="space-y-0.5">
+                  <p className="text-xs font-medium text-foreground">{er.repair_type}</p>
+                  <p className="text-xs text-muted-foreground">{er.reason}</p>
+                </div>
+              </div>
+            ))}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+    </div>
+  );
+}
+
+function RepairPathCard({ path }: { path: RepairPath }) {
+  const labelStyle = PATH_LABEL_STYLE[path.path_label] ?? 'bg-muted text-muted-foreground border-border/40';
+
+  const handleStepClick = (repairId: string) => {
+    const el = document.getElementById(`repair-card-${repairId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-primary/50');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-primary/50'), 2000);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-border/50 bg-card/50 p-3 space-y-2">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-2">
+        <Badge variant="outline" className={`text-[10px] px-2 py-0 ${labelStyle}`}>
+          {path.path_label}
+        </Badge>
+        <span className="text-xs font-semibold text-foreground tabular-nums">Score {path.path_score}</span>
+      </div>
+
+      {/* Steps */}
+      <div className="space-y-1">
+        {path.steps.map((step, si) => (
+          <button
+            key={si}
+            onClick={() => handleStepClick(step.repair_id)}
+            className="w-full flex items-start gap-2 text-left rounded px-1.5 py-1 hover:bg-muted/40 transition-colors"
+          >
+            <span className="text-[10px] font-semibold text-muted-foreground mt-0.5 shrink-0 w-4 text-right">{si + 1}</span>
+            <ArrowRight className="h-3 w-3 text-muted-foreground mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0 space-y-0.5">
+              <p className="text-xs text-foreground truncate">{step.summary || step.repair_type}</p>
+              {step.scope_key && (
+                <p className="text-[10px] text-muted-foreground">scope: {step.scope_key}</p>
+              )}
+              {step.proposal_required && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30">
+                  Proposal Required
+                </Badge>
+              )}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Metrics */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground pt-1 border-t border-border/30">
+        <span>Gain: <span className="font-semibold text-foreground">{path.expected_stability_gain}</span></span>
+        <span>Risk: <span className="font-semibold text-foreground">{path.blast_risk}</span></span>
+        <span>Friction: <span className="font-semibold text-foreground">{path.execution_friction}</span></span>
+        <span>Urgency: <span className="font-semibold text-foreground">{path.urgency}</span></span>
+      </div>
+
+      {/* Notes */}
+      {path.notes && path.notes.length > 0 && (
+        <div className="text-[10px] text-muted-foreground space-y-0.5 pt-1">
+          {path.notes.map((n, ni) => <p key={ni}>• {n}</p>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RecommendedRepairOrderSection({ data, isLoading, error }: {
   data: import('@/hooks/useRecommendedRepairOrder').RecommendedRepairOrderData | null;
   isLoading: boolean;
