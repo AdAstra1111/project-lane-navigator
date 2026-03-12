@@ -1,0 +1,150 @@
+/**
+ * usePreventiveRepairPrioritization — Fetches PRP1 + NRF1 data.
+ * Read-only. TanStack Query pattern.
+ */
+import { useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+
+const FUNC_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`;
+
+export interface PRP1Repair {
+  repair_id: string;
+  repair_type: string;
+  status: string;
+  baseline_rank: number;
+  preventive_rank: number;
+  rank_delta: number;
+  baseline_score: number;
+  preventive_score: number;
+  uplift_amount: number;
+  current_priority_signal: number;
+  preventive_value_signal: number;
+  preventive_confidence_signal: number;
+  root_cause_signal: number;
+  execution_friction_signal: number;
+  explanation_tags: string[];
+  forecasted_repair_families: string[];
+}
+
+export interface PRP1Data {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  current_nsi?: number;
+  current_stability_band?: string;
+  prp1_prioritization: {
+    project_repair_pressure: number;
+    project_repair_pressure_raw: number;
+    total_repairs_considered: number;
+    repairs_with_preventive_uplift: number;
+    highest_preventive_uplift_repair_id: string | null;
+    prioritized_repairs: PRP1Repair[];
+    prioritization_disclaimer: string;
+  };
+  scoring_notes: Record<string, string>;
+  computed_at: string;
+  nrf1_degraded?: boolean;
+}
+
+export interface AxisDebtEntry {
+  axis: string;
+  risk_level: string;
+  source_repair_count: number;
+  max_forecast_confidence: number;
+  forecast_repair_families: string[];
+  notes: string[];
+}
+
+export interface NRF1Data {
+  ok: boolean;
+  nrf1_forecast: {
+    project_repair_pressure: number;
+    project_repair_pressure_raw: number;
+    forecasted_repair_families: string[];
+    per_repair_forecasts: any[];
+  };
+  axis_debt_map: AxisDebtEntry[];
+}
+
+async function fetchPRP1(projectId: string): Promise<PRP1Data> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'preventive_repair_prioritization',
+      projectId,
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`PRP1 failed: ${resp.status}${body ? ` — ${body}` : ''}`);
+  }
+
+  const json = await resp.json();
+  if (!json?.ok) throw new Error(json?.error ?? 'Invalid PRP1 response');
+  return json as PRP1Data;
+}
+
+async function fetchNRF1(projectId: string): Promise<NRF1Data> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'forecast_repair_pressure',
+      projectId,
+    }),
+  });
+
+  if (!resp.ok) return null as any;
+  const json = await resp.json();
+  if (!json?.ok) return null as any;
+  return json as NRF1Data;
+}
+
+export function usePreventiveRepairPrioritization(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  const prp1Key = ['prp1-prioritization', projectId];
+  const nrf1Key = ['nrf1-forecast-strategy', projectId];
+
+  const prp1Query = useQuery({
+    queryKey: prp1Key,
+    queryFn: () => fetchPRP1(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
+  const nrf1Query = useQuery({
+    queryKey: nrf1Key,
+    queryFn: () => fetchNRF1(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
+  const refresh = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: prp1Key });
+    queryClient.invalidateQueries({ queryKey: nrf1Key });
+  }, [queryClient]);
+
+  return {
+    prp1: prp1Query.data ?? null,
+    nrf1: nrf1Query.data ?? null,
+    isLoading: prp1Query.isLoading,
+    nrf1Loading: nrf1Query.isLoading,
+    error: prp1Query.error?.message ?? null,
+    refresh,
+  };
+}
