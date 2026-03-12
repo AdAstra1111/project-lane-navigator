@@ -11892,30 +11892,48 @@ Return ONLY valid JSON:
         constitutional: 5, severe: 4, severe_moderate: 3, moderate: 2, light: 1,
       };
 
-      // ── Step 1: Load ARP1 enriched repairs ─────────────────────────────────
-      const supabaseUrlStr = Deno.env.get("SUPABASE_URL") ?? "";
-      const serviceKeyStr  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-      const selfCallHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` };
+      // ── Step 1: Load unresolved repairs + diagnostics directly ─────────────
+      // Direct DB retrieval — no HTTP self-fetch to ARP1.
+      // NRF1 needs only raw repair rows and diagnostic affected_axes, not
+      // the full ARP1 enrichment pipeline (gain/blast/friction/urgency).
+      const NRF1_PENDING       = "pending";
+      const NRF1_BLOCKED       = ["failed", "skipped", "dismissed"];
 
-      let arp1Data: any = null;
-      try {
-        const arp1Resp = await fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
-          method: "POST", headers: selfCallHeaders,
-          body: JSON.stringify({ action: "recommend_repair_order", projectId }),
-        });
-        if (!arp1Resp.ok) throw new Error(`ARP1 responded ${arp1Resp.status}`);
-        arp1Data = await arp1Resp.json();
-        if (!arp1Data?.ok) throw new Error(arp1Data?.error ?? "ARP1 returned ok=false");
-      } catch (e: any) {
+      const repairsRes = await (supabase as any)
+        .from("narrative_repairs")
+        .select("repair_id,source_diagnostic_id,source_system,diagnostic_type,repair_type,scope_type,scope_key,strategy,priority_score,repairability,status,summary,recommended_action,skipped_reason,created_at")
+        .eq("project_id", projectId)
+        .in("status", [NRF1_PENDING, ...NRF1_BLOCKED])
+        .order("priority_score", { ascending: false });
+
+      if (repairsRes.error) {
         return new Response(JSON.stringify({
-          ok: false, error: `forecast_repair_pressure: failed to load ARP1 — ${e?.message ?? "unknown"}`,
+          ok: false, error: `forecast_repair_pressure: failed to load repairs — ${repairsRes.error.message}`,
         }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const repairs: any[] = arp1Data.repairs ?? [];
-      const unresolvedRepairs = repairs.filter((r: any) =>
+      const allRepairs: any[] = repairsRes.data ?? [];
+      const unresolvedRepairs = allRepairs.filter((r: any) =>
         r.status === "pending" || r.status === "failed" || r.status === "skipped"
       );
+
+      // Load diagnostics for affected_axes mapping (non-fatal — degrades gracefully)
+      const dxMap = new Map<string, any>();
+      try {
+        const supabaseUrlStr = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKeyStr  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const dxResp = await fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` },
+          body: JSON.stringify({ action: "get_narrative_diagnostics", projectId }),
+        });
+        if (dxResp.ok) {
+          const dxJson = await dxResp.json();
+          for (const dx of (dxJson?.diagnostics ?? [])) {
+            dxMap.set(dx.diagnostic_id, dx);
+          }
+        }
+      } catch { /* degrade — affected_axes will be empty for unmatched repairs */ }
 
       // ── Step 2: Empty guard ────────────────────────────────────────────────
       if (unresolvedRepairs.length === 0) {
@@ -11939,7 +11957,10 @@ Return ONLY valid JSON:
       const projectForecastFamilies = new Set<string>();
 
       const perRepairForecasts = unresolvedRepairs.map((repair: any) => {
-        const affectedAxes: SpineAxis[] = (repair.affected_axes ?? []).filter(
+        // Resolve affected_axes from diagnostic if available
+        const dx = dxMap.get(repair.source_diagnostic_id);
+        const rawAxes: string[] = dx?.affected_axes ?? [];
+        const affectedAxes: SpineAxis[] = rawAxes.filter(
           (a: string) => AXIS_METADATA[a as SpineAxis] !== undefined
         ) as SpineAxis[];
 
@@ -11973,18 +11994,37 @@ Return ONLY valid JSON:
 
         const forecastedRepairFamilies = Array.from(forecastedFamilies).sort();
 
-        // ── Forecast confidence ──────────────────────────────────────────
-        // Based on: dependency distance (closer=higher), strength_class, axis breadth dilution
-        const avgStrength  = strengthCount > 0 ? totalStrength / strengthCount : 0;
+        // ── Forecast confidence (NRF1.2: distance-aware) ─────────────────
+        // For each (affected_axis → downstream_axis) pair, compute shortest
+        // dependency path via getDependencyChain. Closer = higher confidence.
+        // Weight: strength / distance. Final: weighted avg × dilution × has_axes.
+        let distanceWeightedSum = 0;
+        let distanceWeightCount = 0;
+
+        for (const srcAxis of affectedAxes) {
+          for (const dAxis of downstreamAxes) {
+            const chain = getDependencyChain(srcAxis, dAxis);
+            if (!chain) continue;
+            const distance = chain.length - 1; // edges, not nodes
+            if (distance <= 0) continue;
+            const entry = registryByAxis.get(dAxis);
+            const sw = STRENGTH_WEIGHTS[entry?.strength_class ?? "low"] ?? 0.3;
+            distanceWeightedSum += sw / distance;
+            distanceWeightCount++;
+          }
+        }
+
+        const avgDistanceWeight = distanceWeightCount > 0
+          ? distanceWeightedSum / distanceWeightCount
+          : 0;
         const axisBreadth  = affectedAxes.length;
         const dilution     = axisBreadth > 1 ? Math.max(0.5, 1 - (axisBreadth - 1) * 0.1) : 1;
         const hasAxes      = affectedAxes.length > 0 ? 1 : 0;
         const forecastConfidence = Math.round(
-          Math.min(1, avgStrength * dilution * hasAxes) * 100
+          Math.min(1, avgDistanceWeight * dilution * hasAxes) * 100
         ) / 100;
 
         // ── Repair preventive value ──────────────────────────────────────
-        // downstream reach × axis constitutional importance × forecast confidence
         const downstreamReach = downstreamAxes.length;
         const maxSeverity = affectedAxes.reduce((max, ax) => {
           const sev = SEVERITY_WEIGHTS_NRF[AXIS_METADATA[ax]?.severity ?? "moderate"] ?? 2;
@@ -11994,16 +12034,30 @@ Return ONLY valid JSON:
           downstreamReach * maxSeverity * forecastConfidence * 10
         ) / 10;
 
-        // ── Root cause score (upstream position) ─────────────────────────
-        // Higher when repair sits upstream in NDG (few upstream, many downstream)
+        // ── Root cause score (NRF1.2: de-collapsed) ──────────────────────
+        // Measures origin-likeness: graph position + severity + downstream reach.
+        const changedSet = new Set<SpineAxis>(affectedAxes);
+        const positions = affectedAxes.map(ax => getDependencyPosition(ax, changedSet));
+        const NRF_POSITION_WEIGHTS: Record<string, number> = {
+          root: 1.0, upstream: 0.7, propagated: 0.3, terminal: 0.1,
+        };
+        const positionFactor = affectedAxes.length > 0
+          ? positions.reduce((s, p) => s + (NRF_POSITION_WEIGHTS[p] ?? 0.1), 0) / affectedAxes.length
+          : 0;
+        const severityFactor = maxSeverity / 5;
+        const reachFactor = Math.min(1, downstreamReach / 8);
         const rootCauseScore = Math.round(
-          (downstreamReach / Math.max(1, downstreamReach + upstreamAxes.length)) * 100
+          Math.min(1, 0.5 * positionFactor + 0.3 * severityFactor + 0.2 * reachFactor) * 100
         ) / 100;
 
-        // ── Symptom score (downstream position) ─────────────────────────
-        // Higher when repair sits downstream in NDG
+        // ── Symptom score (NRF1.2: de-collapsed) ─────────────────────────
+        // Measures consequence-likeness: upstream load + propagated position + low reach.
+        const upstreamLoad = Math.min(1, upstreamAxes.length / 8);
+        const propagatedCount = positions.filter(p => p === "propagated" || p === "terminal").length;
+        const propagatedFraction = affectedAxes.length > 0 ? propagatedCount / affectedAxes.length : 0;
+        const inverseReach = 1 - reachFactor;
         const symptomScore = Math.round(
-          (upstreamAxes.length / Math.max(1, downstreamReach + upstreamAxes.length)) * 100
+          Math.min(1, 0.4 * upstreamLoad + 0.4 * propagatedFraction + 0.2 * inverseReach) * 100
         ) / 100;
 
         return {
@@ -12023,19 +12077,13 @@ Return ONLY valid JSON:
       });
 
       // ── Step 4: Project-level repair pressure ──────────────────────────────
-      // Raw: unbounded aggregate pressure mass = Σ(preventive_value × confidence)
       const projectRepairPressureRaw = Math.round(
         perRepairForecasts.reduce((sum: number, f: any) =>
           sum + f.repair_preventive_value * f.forecast_confidence, 0
         ) * 10
       ) / 10;
 
-      // Normalized: canonical bounded 0–100 score using asymptotic saturation.
-      // Uses: score = 100 × (1 − e^(−raw / k)) where k is a normalization
-      // constant calibrated so that moderate pressure (~30 raw) maps to ~50.
-      // Properties: deterministic, monotonic, bounded [0,100], asymptotic.
-      // k = 30 / ln(2) ≈ 43.3 ensures raw=30 → score≈50.
-      const NRF1_NORM_K = 30 / Math.LN2; // ≈ 43.3
+      const NRF1_NORM_K = 30 / Math.LN2;
       const projectRepairPressure = Math.round(
         100 * (1 - Math.exp(-projectRepairPressureRaw / NRF1_NORM_K))
       );
@@ -12053,8 +12101,6 @@ Return ONLY valid JSON:
         ok:                      true,
         action:                  "forecast_repair_pressure",
         project_id:              projectId,
-        current_nsi:             arp1Data.current_nsi ?? null,
-        current_stability_band:  arp1Data.current_stability_band ?? null,
         nrf1_forecast: {
           project_repair_pressure_raw: projectRepairPressureRaw,
           project_repair_pressure:     projectRepairPressure,
@@ -12063,14 +12109,15 @@ Return ONLY valid JSON:
           forecast_disclaimer:         "Forecasts represent dependency-based projections derived from current unresolved repairs and NDG structure. They do not represent guaranteed future diagnostics or repairs.",
         },
         scoring_notes: {
-          confidence_model:           "avg_strength * axis_dilution * has_axes",
-          preventive_value_model:     "downstream_reach * max_severity * confidence * 10",
-          root_cause_model:           "downstream / (downstream + upstream)",
-          symptom_model:              "upstream / (downstream + upstream)",
-          pressure_raw_model:         "Σ(preventive_value * confidence) — unbounded aggregate pressure mass",
-          pressure_normalized_model:  "100 * (1 - e^(-raw / k)), k = 30/ln2 ≈ 43.3 — bounded 0–100 asymptotic score; raw=30 → ~50, monotonic, deterministic",
+          confidence_model:           "distance-weighted: Σ(strength/path_distance) / pair_count × breadth_dilution × has_axes — closer NDG paths yield higher confidence",
+          preventive_value_model:     "downstream_reach × max_severity × confidence × 10",
+          root_cause_model:           "0.5×position(root=1,upstream=0.7,propagated=0.3,terminal=0.1) + 0.3×severity(constitutional=1..light=0.2) + 0.2×reach(downstream/8) — origin-likeness",
+          symptom_model:              "0.4×upstream_load(count/8) + 0.4×propagated_fraction + 0.2×inverse_reach — consequence-likeness",
+          pressure_raw_model:         "Σ(preventive_value × confidence) — unbounded aggregate",
+          pressure_normalized_model:  "100×(1−e^(−raw/k)), k=30/ln2≈43.3 — bounded 0–100 asymptotic",
           registry_source:            "NRF1_REVERSE_FORECAST_REGISTRY (deterministic, NDG-seeded)",
-          version:                    "nrf1.1",
+          data_source:                "direct DB retrieval + DX self-call for affected_axes (no ARP1 self-fetch)",
+          version:                    "nrf1.2",
         },
         computed_at: nrf1ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
