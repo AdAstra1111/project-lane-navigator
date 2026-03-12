@@ -87,7 +87,7 @@ function sceneLabelFromImpacted(scene: ImpactedScene, slugMap: SluglineMap): str
 
 /* ── Main Dashboard ── */
 
-export function NarrativeRepairDashboard({ projectId }: Props) {
+export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSeedId }: Props) {
   const [repairStrategy, setRepairStrategy] = useState<RepairStrategy>('balanced');
   const { data: plan, isLoading: planLoading, refetch: refetchPlan } = useSelectiveRegenerationPlan(projectId, repairStrategy);
   const { execute, isExecuting, result, error, reset } = useExecuteSelectiveRegeneration(projectId);
