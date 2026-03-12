@@ -2901,6 +2901,7 @@ serve(async (req) => {
       "recommend_repair_paths",
       "evaluate_repair_paths",
       "forecast_repair_pressure",
+      "preventive_repair_prioritization",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -12125,6 +12126,273 @@ Return ONLY valid JSON:
           version:                    "nrf1.3",
         },
         computed_at: nrf1ComputedAt,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // PRP1 — preventive_repair_prioritization
+    //
+    // Preventive Repair Prioritization Engine.
+    // Composes ARP1 (current-state repair ordering) with NRF1 (preventive
+    // pressure forecasting) to produce a unified priority ranking that
+    // accounts for both present importance and future downstream pressure
+    // reduction potential.
+    //
+    // Architecture:
+    //   1. Load ARP1 current-order data via internal self-call
+    //   2. Load NRF1 per-repair forecasts via internal self-call
+    //   3. Merge on repair_id
+    //   4. Compute preventive_priority_score using calibrated formula
+    //   5. Rank, assign deltas, generate explanation tags
+    //
+    // No state mutation. No schema changes. No LLM. Deterministic for identical DB state.
+    // Safe for repeated execution. Composes existing layers only.
+    //
+    if (action === "preventive_repair_prioritization") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const prp1ComputedAt = new Date().toISOString();
+      const supabaseUrlStr = Deno.env.get("SUPABASE_URL") ?? "";
+      const serviceKeyStr  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      const selfCallHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` };
+
+      // ── Step 1: Parallel fetch of ARP1 + NRF1 ──────────────────────────────
+      const [arp1Resp, nrf1Resp] = await Promise.all([
+        fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
+          method: "POST", headers: selfCallHeaders,
+          body: JSON.stringify({ action: "recommend_repair_order", projectId }),
+        }),
+        fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
+          method: "POST", headers: selfCallHeaders,
+          body: JSON.stringify({ action: "forecast_repair_pressure", projectId }),
+        }),
+      ]);
+
+      if (!arp1Resp.ok) {
+        return new Response(JSON.stringify({ ok: false, error: `PRP1: ARP1 fetch failed (${arp1Resp.status})` }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const arp1Json = await arp1Resp.json();
+      if (!arp1Json?.ok) {
+        return new Response(JSON.stringify({ ok: false, error: `PRP1: ARP1 returned error — ${arp1Json?.error ?? "unknown"}` }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // NRF1 failure is non-fatal — PRP1 degrades to baseline-only ordering
+      let nrf1Json: any = null;
+      let nrf1Degraded = false;
+      try {
+        if (nrf1Resp.ok) {
+          const parsed = await nrf1Resp.json();
+          if (parsed?.ok) nrf1Json = parsed;
+          else nrf1Degraded = true;
+        } else {
+          nrf1Degraded = true;
+        }
+      } catch {
+        nrf1Degraded = true;
+      }
+
+      // ── Step 2: Build NRF1 lookup ────────────────────────────────────────────
+      const nrf1Forecast = nrf1Json?.nrf1_forecast ?? {};
+      const perRepairForecasts: any[] = nrf1Forecast.per_repair_forecasts ?? [];
+      const nrf1Map = new Map<string, any>();
+      for (const f of perRepairForecasts) nrf1Map.set(f.repair_id, f);
+
+      const projectRepairPressure    = nrf1Forecast.project_repair_pressure ?? 0;
+      const projectRepairPressureRaw = nrf1Forecast.project_repair_pressure_raw ?? 0;
+
+      // ── Step 3: Extract ARP1 recommendations ─────────────────────────────────
+      const arp1Recs: any[] = arp1Json.recommendations ?? [];
+
+      // Empty guard
+      if (arp1Recs.length === 0) {
+        return new Response(JSON.stringify({
+          ok:                      true,
+          action:                  "preventive_repair_prioritization",
+          project_id:              projectId,
+          current_nsi:             arp1Json.current_nsi ?? null,
+          current_stability_band:  arp1Json.current_stability_band ?? null,
+          prp1_prioritization: {
+            project_repair_pressure:     projectRepairPressure,
+            project_repair_pressure_raw: projectRepairPressureRaw,
+            total_repairs_considered:    0,
+            repairs_with_preventive_uplift: 0,
+            prioritized_repairs:         [],
+            prioritization_disclaimer:   "PRP1 combines current-state repair importance (ARP1) with dependency-based preventive pressure projections (NRF1). Preventive uplift reflects forecasted downstream pressure reduction potential, not guaranteed future failures.",
+          },
+          scoring_notes: {
+            version: "prp1",
+            nrf1_degraded: nrf1Degraded,
+          },
+          computed_at: prp1ComputedAt,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 4: Merge + Score ──────────────────────────────────────────────────
+      //
+      // PRP1 scoring formula:
+      //   preventive_score = current_anchor
+      //     + (preventive_value × confidence × UPLIFT_W)
+      //     + (root_cause_score × ROOT_W)
+      //     − (execution_friction × FRICTION_W)
+      //
+      // Calibration notes:
+      //   - ARP1 net_priority_score range: roughly -30 to +80 (gain*0.4+urgency*0.3-blast*0.15-friction*0.15)
+      //   - NRF1 preventive_value: unbounded but typically 0-50, confidence: 0-1, root_cause: 0-1
+      //   - Uplift weight scaled so max practical uplift (~50*1.0*0.3 = 15) is meaningful
+      //     but cannot exceed a full severity tier difference (~20-30 pts in ARP1)
+      //   - Root cause bonus capped at ~5 pts (0.3*1.0*5 = 1.5 typical, max 5)
+      //   - Friction already in ARP1's net score; PRP1 applies a small additional
+      //     preventive-specific dampening for very high friction repairs
+      //
+      const PRP1_UPLIFT_W   = 0.3;   // preventive_value × confidence weight
+      const PRP1_ROOT_W     = 5;     // root_cause_score bonus weight (0-1 input → 0-5 output)
+      const PRP1_FRICTION_W = 0.02;  // additional friction dampening (0-100 input → 0-2 output)
+
+      interface PRP1ScoredRepair {
+        repair_id:                   string;
+        repair_type:                 string;
+        status:                      string;
+        baseline_rank:               number;
+        preventive_rank:             number;
+        rank_delta:                  number;
+        baseline_score:              number;
+        preventive_score:            number;
+        current_priority_signal:     number;
+        preventive_value_signal:     number;
+        preventive_confidence_signal: number;
+        root_cause_signal:           number;
+        execution_friction_signal:   number;
+        uplift_amount:               number;
+        explanation_tags:            string[];
+        forecasted_repair_families:  string[];
+      }
+
+      const merged: PRP1ScoredRepair[] = arp1Recs.map((rec: any) => {
+        const nrf = nrf1Map.get(rec.repair_id);
+
+        const currentPriority     = rec.net_priority_score ?? 0;
+        const preventiveValue     = nrf?.repair_preventive_value ?? 0;
+        const confidence          = nrf?.forecast_confidence ?? 0;
+        const rootCause           = nrf?.root_cause_score ?? 0;
+        const friction            = rec.execution_friction_score ?? 0;
+        const forecastFamilies    = nrf?.forecasted_repair_families ?? [];
+
+        // Compute uplift
+        const preventiveUplift = preventiveValue * confidence * PRP1_UPLIFT_W;
+        const rootCauseBonus   = rootCause * PRP1_ROOT_W;
+        const frictionDampen   = friction * PRP1_FRICTION_W;
+        const upliftAmount     = Math.round((preventiveUplift + rootCauseBonus - frictionDampen) * 100) / 100;
+
+        const preventiveScore  = Math.round((currentPriority + upliftAmount) * 100) / 100;
+
+        // Explanation tags
+        const tags: string[] = [];
+        if (preventiveUplift >= 5)       tags.push("high preventive value");
+        else if (preventiveUplift >= 2)  tags.push("moderate preventive value");
+        else if (preventiveUplift > 0)   tags.push("low preventive value");
+
+        if (rootCause >= 0.7)            tags.push("high root-cause position");
+        else if (rootCause >= 0.4)       tags.push("moderate root-cause position");
+
+        if (confidence < 0.2 && preventiveValue > 0)
+          tags.push("low preventive confidence");
+
+        if (friction >= 75 && upliftAmount > 0)
+          tags.push("high execution friction dampened uplift");
+
+        if (Math.abs(upliftAmount) < 0.5)
+          tags.push("little preventive uplift; remained near baseline");
+
+        if (nrf1Degraded)
+          tags.push("NRF1 unavailable; baseline-only");
+
+        if (!nrf)
+          tags.push("no NRF1 forecast data for this repair");
+
+        return {
+          repair_id:                    rec.repair_id,
+          repair_type:                  rec.repair_type,
+          status:                       rec.status,
+          baseline_rank:                rec.priority_rank,
+          preventive_rank:              0, // filled post-sort
+          rank_delta:                   0, // filled post-sort
+          baseline_score:               currentPriority,
+          preventive_score:             preventiveScore,
+          current_priority_signal:      currentPriority,
+          preventive_value_signal:      preventiveValue,
+          preventive_confidence_signal: confidence,
+          root_cause_signal:            rootCause,
+          execution_friction_signal:    friction,
+          uplift_amount:                upliftAmount,
+          explanation_tags:             tags,
+          forecasted_repair_families:   forecastFamilies,
+        };
+      });
+
+      // ── Step 5: Sort + Rank ──────────────────────────────────────────────────
+      // Tie-break: preventive_score desc → baseline_score desc → confidence desc → repair_id asc
+      merged.sort((a, b) => {
+        if (b.preventive_score !== a.preventive_score) return b.preventive_score - a.preventive_score;
+        if (b.baseline_score !== a.baseline_score)     return b.baseline_score - a.baseline_score;
+        if (b.preventive_confidence_signal !== a.preventive_confidence_signal)
+          return b.preventive_confidence_signal - a.preventive_confidence_signal;
+        return a.repair_id < b.repair_id ? -1 : a.repair_id > b.repair_id ? 1 : 0;
+      });
+
+      merged.forEach((r, i) => {
+        r.preventive_rank = i + 1;
+        r.rank_delta = r.baseline_rank - r.preventive_rank; // positive = moved up
+      });
+
+      const repairsWithUplift = merged.filter(r => r.uplift_amount > 0.5).length;
+      const highestUplift = merged.reduce((best, r) =>
+        r.uplift_amount > (best?.uplift_amount ?? -Infinity) ? r : best, merged[0]);
+
+      // ── Step 6: Response ──────────────────────────────────────────────────────
+      console.log("[dev-engine-v2] preventive_repair_prioritization", {
+        project_id:      projectId,
+        total_repairs:   merged.length,
+        with_uplift:     repairsWithUplift,
+        highest_uplift:  highestUplift?.repair_id ?? null,
+        nrf1_degraded:   nrf1Degraded,
+      });
+
+      return new Response(JSON.stringify({
+        ok:                      true,
+        action:                  "preventive_repair_prioritization",
+        project_id:              projectId,
+        current_nsi:             arp1Json.current_nsi ?? null,
+        current_stability_band:  arp1Json.current_stability_band ?? null,
+        prp1_prioritization: {
+          project_repair_pressure:        projectRepairPressure,
+          project_repair_pressure_raw:    projectRepairPressureRaw,
+          total_repairs_considered:       merged.length,
+          repairs_with_preventive_uplift: repairsWithUplift,
+          highest_preventive_uplift_repair_id: highestUplift?.repair_id ?? null,
+          prioritized_repairs:            merged,
+          prioritization_disclaimer:      "PRP1 combines current-state repair importance (ARP1) with dependency-based preventive pressure projections (NRF1). Preventive uplift reflects forecasted downstream pressure reduction potential, not guaranteed future failures.",
+        },
+        scoring_notes: {
+          baseline_source:           "ARP1 net_priority_score (gain*0.40 + urgency*0.30 - blast*0.15 - friction*0.15)",
+          preventive_source:         "NRF1.3 per_repair_forecasts (preventive_value, confidence, root_cause_score)",
+          merge_formula:             "preventive_score = baseline + (preventive_value × confidence × 0.3) + (root_cause × 5) − (friction × 0.02)",
+          uplift_weight:             PRP1_UPLIFT_W,
+          root_weight:               PRP1_ROOT_W,
+          friction_weight:           PRP1_FRICTION_W,
+          attenuation:               "preventive uplift is multiplied by forecast_confidence — low-confidence projections contribute proportionally less",
+          dampening:                 "execution_friction_score provides a small additional dampener (0.02× friction) on top of ARP1's built-in friction penalty",
+          tie_break:                 "preventive_score desc → baseline_score desc → confidence desc → repair_id lexical asc",
+          ranking_method:            "stable sort with deterministic tie-break; rank 1 = highest preventive priority",
+          nrf1_degraded:             nrf1Degraded,
+          version:                   "prp1",
+        },
+        computed_at: prp1ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
