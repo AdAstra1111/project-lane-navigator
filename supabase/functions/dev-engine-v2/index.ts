@@ -11919,25 +11919,32 @@ Return ONLY valid JSON:
         r.status === "pending" || r.status === "failed" || r.status === "skipped"
       );
 
-      // Load diagnostics for affected_axes mapping (non-fatal — degrades gracefully)
-      const dxMap = new Map<string, any>();
-      try {
-        const supabaseUrlStr = Deno.env.get("SUPABASE_URL") ?? "";
-        const serviceKeyStr  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-        const dxResp = await fetch(`${supabaseUrlStr}/functions/v1/dev-engine-v2`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyStr}` },
-          body: JSON.stringify({ action: "get_narrative_diagnostics", projectId }),
-        });
-        if (dxResp.ok) {
-          const dxJson = await dxResp.json();
-          for (const dx of (dxJson?.diagnostics ?? [])) {
-            dxMap.set(dx.diagnostic_id, dx);
-          }
-        }
-      } catch { /* degrade — affected_axes will be empty for unmatched repairs */ }
+      // ── Step 2: Deterministic affected_axes derivation ─────────────────────
+      // NRF1.3: Derives affected_axes directly from repair metadata (scope_type,
+      // scope_key, diagnostic_type) — no DX self-call, no ARP1 self-call.
+      //
+      // Derivation rules (match diagnostic collector semantics):
+      //   scope_type = "unit" or "axis" → scope_key is the axis name → [scope_key]
+      //   scope_type = "beat"/"relationship"/"project" → no axis-level resolution → []
+      //   Exception: if scope_key is a valid SpineAxis regardless of scope_type → [scope_key]
+      //
+      // This is deterministic and consistent with how plan_narrative_repairs stores
+      // scope_type (from dx.scope_level) and scope_key (from dx.scope_key).
+      const nrf1DeriveAffectedAxes = (repair: any): SpineAxis[] => {
+        const scopeKey = repair.scope_key as string | null;
+        const scopeType = repair.scope_type as string | null;
 
-      // ── Step 2: Empty guard ────────────────────────────────────────────────
+        // If scope_key is a valid spine axis, it's always an affected axis
+        if (scopeKey && AXIS_METADATA[scopeKey as SpineAxis] !== undefined) {
+          return [scopeKey as SpineAxis];
+        }
+
+        // For unit/axis scope types, scope_key should be the axis (handled above)
+        // For other scope types, no axis-level info available from repair metadata
+        return [];
+      };
+
+      // ── Step 3: Empty guard ────────────────────────────────────────────────
       if (unresolvedRepairs.length === 0) {
         return new Response(JSON.stringify({
           ok:                      true,
