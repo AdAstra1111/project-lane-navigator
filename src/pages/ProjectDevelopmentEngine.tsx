@@ -2265,8 +2265,8 @@ export default function ProjectDevelopmentEngine() {
                       episode_target_duration_max_seconds: resolvedQuals.episode_target_duration_max_seconds,
                       format: resolvedQuals.format,
                     } : null}
-                    onRegenerate={handleRunEngine}
-                    isRegenerating={analyze.isPending}
+                    onRegenerate={handleStaleRegenerate}
+                    isRegenerating={false}
                   />
                 </CardContent>
               </Card>
