@@ -1538,15 +1538,15 @@ async function nextUnsatisfiedStage(
   if (allDocIds.length > 0) {
     const { data: vers } = await supabase
       .from("project_document_versions")
-      .select("document_id, plaintext, approval_status, label")
+      .select("document_id, plaintext, approval_status, label, status")
       .in("document_id", allDocIds)
       .eq("is_current", true);
     currentVersions = vers || [];
   }
 
-  const versionByDocId = new Map<string, { plaintext: string | null; approval_status: string; label: string | null }>();
+  const versionByDocId = new Map<string, { plaintext: string | null; approval_status: string; label: string | null; status?: string }>();
   for (const v of currentVersions) {
-    versionByDocId.set(v.document_id, { plaintext: v.plaintext, approval_status: v.approval_status, label: v.label || null });
+    versionByDocId.set(v.document_id, { plaintext: v.plaintext, approval_status: v.approval_status, label: v.label || null, status: v.status || null });
   }
 
   // ── REVIEWED-IN-JOB GATE: batch-fetch all reviewed stages for this job in one query ──
@@ -1584,6 +1584,18 @@ async function nextUnsatisfiedStage(
     if (isSeed && !reviewedSet.has(stage)) {
       console.log(`[auto-run] stage ${stage} has initial_baseline_seed label and NOT reviewed in job (${jobId}). Routing for evaluation.`);
       return stage;
+    }
+
+    // ── Background generation guard: if any doc for this stage has status='generating',
+    // treat it as pending (not unsatisfied). Return a special sentinel so the caller
+    // can yield and wait for the background task rather than re-triggering generate.
+    const hasGenerating = docIds.some(id => {
+      const ver = versionByDocId.get(id);
+      return ver?.status === "generating";
+    });
+    if (hasGenerating) {
+      console.log(`[auto-run] stage ${stage} has a background generation in progress — yielding`);
+      return `__generating__:${stage}`;
     }
 
     // Check sufficiency: at least one doc must have a sufficient current version
@@ -1656,10 +1668,22 @@ function resolveTargetForFormat(targetDoc: string, format: string): string {
 }
 
 function isStageAtOrBeforeTarget(stage: string, targetDoc: string, format: string): boolean {
+  // Generating sentinel: background task in progress — treat as "still in range" so the job keeps running
+  if (isGeneratingSentinel(stage)) return true;
   if (!isOnLadder(stage, format)) return false;
   const stageIdx = ladderIndexOf(stage, format);
   const targetIdx = ladderIndexOf(resolveTargetForFormat(targetDoc, format), format);
   return stageIdx >= 0 && stageIdx <= targetIdx;
+}
+
+/** Returns true if nextUnsatisfiedStage returned a background-generation-pending sentinel. */
+function isGeneratingSentinel(stage: string | null): boolean {
+  return typeof stage === "string" && stage.startsWith("__generating__:");
+}
+
+/** Extracts the real stage name from a generating sentinel. */
+function stageFromSentinel(stage: string): string {
+  return stage.replace(/^__generating__:/, "");
 }
 
 // ── Mode Config ──
@@ -7136,6 +7160,24 @@ Deno.serve(async (req) => {
               sourceVersionId: prevVersion.id,
             }, token);
 
+            // ── Background generation: if generate-document returned generating:true, the doc
+            // is being built in a background task (e.g. episode_beats for 30+ episodes).
+            // Log the step and yield — auto-run will re-enter on the next cron tick and check
+            // whether the version content has arrived before attempting analysis.
+            if (genResult?.generating === true) {
+              const bgVersionId = genResult?.version_id || genResult?.versionId || null;
+              const bgDocId = genResult?.document_id || genResult?.documentId || null;
+              const newStep = stepCount + 1;
+              await logStep(supabase, jobId, newStep, currentDoc, "generate",
+                `Background generation started for ${currentDoc} (${genResult?.episode_count ?? "?"} episodes) — waiting for completion`,
+                {}, bgDocId ? `Doc ${bgDocId}` : undefined,
+                bgDocId ? { docId: bgDocId, versionId: bgVersionId, generating: true } : undefined
+              );
+              await updateJob(supabase, jobId, { step_count: newStep, stage_loop_count: (job.stage_loop_count || 0) });
+              // Yield — next cron tick will re-enter and check version status
+              return respondWithJob(supabase, jobId);
+            }
+
             convertedDocId = genResult?.documentId || genResult?.document_id || null;
             convertedVersionId = genResult?.versionId || genResult?.version_id || null;
 
@@ -7669,6 +7711,25 @@ Deno.serve(async (req) => {
       // Resolve the actual text being fed into analysis (version plaintext > doc extracted_text > doc plaintext)
       let reviewText = latestVersion?.plaintext || doc?.extracted_text || doc?.plaintext || "";
       let reviewCharCount = reviewText.length;
+
+      // ── C0) Background generation guard: if current version status='generating', yield and wait ──
+      // A 'generating' version was created by a background task (e.g. episode_beats for 30+ episodes).
+      // Do NOT attempt auto-regen or analysis — just yield and let the background task finish.
+      if (reviewCharCount === 0 && latestVersion?.id) {
+        const { data: versionStatusRow } = await supabase.from("project_document_versions")
+          .select("status")
+          .eq("id", latestVersion.id)
+          .maybeSingle();
+        if (versionStatusRow?.status === "generating") {
+          const newStep = stepCount + 1;
+          await logStep(supabase, jobId, newStep, currentDoc, "generate",
+            `Background generation in progress for ${currentDoc} — yielding until complete`,
+            {}, undefined, { versionId: latestVersion.id, status: "generating" }
+          );
+          await updateJob(supabase, jobId, { step_count: newStep, stage_loop_count: (job.stage_loop_count || 0) });
+          return respondWithJob(supabase, jobId);
+        }
+      }
 
       // ── C) AUTO-REGEN if current doc is stub or empty ──
       const docIsStub = reviewCharCount === 0 || !isDownstreamDocSufficient(currentDoc, reviewText);

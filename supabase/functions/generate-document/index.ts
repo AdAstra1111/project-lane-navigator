@@ -917,9 +917,146 @@ If you find yourself describing what happens in the story, which characters appe
         }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // episode_grid = structural overview (PREMISE/HOOK/CORE MOVE/CLIFFHANGER/ARC POSITION)
-      // vertical_episode_beats / episode_beats = full micro-beat breakdown (5-8 beats)
+      // episode_grid = structural overview — fast (single-pass JSON, ~10–30s). Keep synchronous.
+      // episode_beats / vertical_episode_beats = full micro-beat breakdown — slow (BATCH_SIZE=6,
+      // 30-ep vertical-drama = 5 batches × ~40s = ~200s >> 150s edge function limit).
+      // For beats mode, use background generation: create placeholder version first, fire in background,
+      // return immediately. This pattern extends naturally to any doc that grows beyond timeout budget.
       const epOutputMode = docType === 'episode_grid' ? 'grid' : 'beats';
+
+      // ── BEATS MODE: background generation ──────────────────────────────────────────────────────
+      if (epOutputMode === 'beats') {
+        // 1. Ensure doc row exists
+        let { data: epDocRecord } = await supabase.from("project_documents")
+          .select("id").eq("project_id", projectId).eq("doc_type", docType).maybeSingle();
+        if (!epDocRecord) {
+          const { data: newEpDoc, error: epDocErr } = await supabase.from("project_documents")
+            .insert({
+              project_id: projectId, doc_type: docType, user_id: actorUserId,
+              file_name: `${docType}.md`, file_path: `${projectId}/${docType}.md`,
+              extraction_status: "complete",
+            }).select("id").single();
+          if (epDocErr) throw new Error(`Failed to create episode beats doc record: ${epDocErr.message}`);
+          epDocRecord = newEpDoc;
+        }
+
+        // 2. Guard: if a 'generating' version was created <30 min ago, return it — don't start a second task
+        const { data: inProgressVer } = await supabase.from("project_document_versions")
+          .select("id, version_number, created_at")
+          .eq("document_id", epDocRecord!.id)
+          .eq("status", "generating")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (inProgressVer) {
+          const ageMs = Date.now() - new Date(inProgressVer.created_at).getTime();
+          if (ageMs < 30 * 60 * 1000) {
+            console.log(`[generate-document] Episode beats generation already in progress for ${docType} (version ${inProgressVer.version_number}, age ${Math.round(ageMs/1000)}s). Returning existing version.`);
+            return new Response(JSON.stringify({
+              success: true,
+              document_id: epDocRecord!.id,
+              version_id: inProgressVer.id,
+              version_number: inProgressVer.version_number,
+              generating: true,
+              generating_since: inProgressVer.created_at,
+              message: "Episode beats generation already in progress — poll for completion",
+            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          // Stale (>30 min) — fall through and start a fresh generation
+          console.log(`[generate-document] Stale generating version found for ${docType} (age ${Math.round(ageMs/60000)} min) — starting fresh generation`);
+          await supabase.from("project_document_versions")
+            .update({ status: "failed", is_current: false })
+            .eq("id", inProgressVer.id);
+        }
+
+        // 3. Create placeholder version (is_current=true so UI can find the slot)
+        const { count: epVerCount } = await supabase.from("project_document_versions")
+          .select("id", { count: "exact", head: true }).eq("document_id", epDocRecord!.id);
+        const epVersionNum = (epVerCount || 0) + 1;
+        const epDependsOn = DOC_DEPENDENCY_MAP[docType] || [];
+
+        const { data: epVersion, error: epVerErr } = await supabase.from("project_document_versions")
+          .insert({
+            document_id: epDocRecord!.id,
+            version_number: epVersionNum,
+            status: "generating",
+            plaintext: "",
+            created_by: actorUserId,
+            is_current: true,
+            depends_on: epDependsOn,
+            depends_on_resolver_hash: currentHash,
+            inputs_used: inputsUsed,
+            is_stale: false,
+            stale_reason: null,
+          }).select("id").single();
+        if (epVerErr) throw new Error(`Failed to create episode beats version placeholder: ${epVerErr.message}`);
+
+        // Mark all older versions as not-current
+        await supabase.from("project_document_versions")
+          .update({ is_current: false })
+          .eq("document_id", epDocRecord!.id)
+          .neq("id", epVersion!.id);
+
+        // Update latest_version_id on doc row
+        await supabase.from("project_documents")
+          .update({ latest_version_id: epVersion!.id, updated_at: new Date().toISOString() })
+          .eq("id", epDocRecord!.id);
+
+        console.log(`[generate-document] Episode beats background generation starting: ${docType} v${epVersionNum} episodeCount=${finalEpisodeCount}`);
+
+        // 4. Fire generation as background task (up to 2h via EdgeRuntime.waitUntil)
+        const bgEpTask = (async () => {
+          try {
+            const genContent = await generateEpisodeBeatsChunked({
+              apiKey,
+              episodeCount: finalEpisodeCount,
+              systemPrompt: system,
+              upstreamContent,
+              projectTitle: project.title || "Untitled",
+              requestId,
+              outputMode: epOutputMode,
+            });
+
+            // Update version with completed content
+            await supabase.from("project_document_versions")
+              .update({ plaintext: genContent, status: "draft", is_current: true })
+              .eq("id", epVersion!.id);
+
+            await supabase.from("project_documents")
+              .update({ updated_at: new Date().toISOString() })
+              .eq("id", epDocRecord!.id);
+
+            console.log(`[generate-document] Episode beats background generation COMPLETE: ${docType} v${epVersionNum} chars=${genContent.length}`);
+          } catch (bgErr: any) {
+            console.error(`[generate-document] Episode beats background generation FAILED: ${bgErr?.message}`);
+            await supabase.from("project_document_versions")
+              .update({ status: "failed", is_current: false })
+              .eq("id", epVersion!.id);
+          }
+        })();
+
+        // @ts-ignore — EdgeRuntime available in Supabase edge function context
+        if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+          EdgeRuntime.waitUntil(bgEpTask);
+        }
+
+        // 5. Return immediately — auto-run will poll on next loop
+        return new Response(JSON.stringify({
+          success: true,
+          document_id: epDocRecord!.id,
+          version_id: epVersion!.id,
+          version_number: epVersionNum,
+          mode,
+          resolver_hash: currentHash,
+          inputs_used: inputsUsed,
+          depends_on: epDependsOn,
+          generating: true,
+          episode_count: finalEpisodeCount,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── GRID MODE: synchronous (fast enough, <30s for up to 30 eps) ──
       content = await generateEpisodeBeatsChunked({
         apiKey,
         episodeCount: finalEpisodeCount,
