@@ -233,6 +233,9 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
           </div>
         )}
 
+        {/* Recommended Repair Order */}
+        <RecommendedRepairOrderSection data={repairOrder.data} isLoading={repairOrder.isLoading} error={repairOrder.error} />
+
         {/* Active repairs */}
         {active.length > 0 && (
           <div className="space-y-2">
