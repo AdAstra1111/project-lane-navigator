@@ -46,6 +46,7 @@ export function usePlanNarrativeRepairs(projectId: string | undefined) {
 
       setResult(json);
       queryClient.invalidateQueries({ queryKey: ['narrative-repairs', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['narrative-diagnostics', projectId] });
     } catch (e: any) {
       setError(e?.message ?? 'Plan request failed');
     } finally {

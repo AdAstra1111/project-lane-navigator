@@ -1,4 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+/**
+ * useStoryIntelligence — Fetches story intelligence synthesis via TanStack Query.
+ */
+
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 const FUNC_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`;
@@ -56,56 +61,55 @@ export interface StoryIntelligenceData {
   scoring_note: string;
 }
 
+async function fetchStoryIntelligence(projectId: string): Promise<StoryIntelligenceData> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const res = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ action: 'get_story_intelligence', projectId }),
+  });
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Story intelligence request failed');
+
+  return {
+    computed_at: json.computed_at,
+    narrative_health_score: json.narrative_health_score,
+    narrative_health_band: json.narrative_health_band,
+    story_risk_score: json.story_risk_score,
+    story_risk_band: json.story_risk_band,
+    repair_readiness: json.repair_readiness,
+    blocker_count: json.blocker_count,
+    top_blockers: json.top_blockers ?? [],
+    structural_fragility: json.structural_fragility ?? [],
+    recommended_next_moves: json.recommended_next_moves ?? [],
+    evidence_summary: json.evidence_summary ?? {},
+    scoring_note: json.scoring_note ?? '',
+  };
+}
+
 export function useStoryIntelligence(projectId: string | undefined) {
-  const [data, setData] = useState<StoryIntelligenceData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasLoaded, setHasLoaded] = useState(false);
+  const queryClient = useQueryClient();
+  const queryKey = ['story-intelligence', projectId];
 
-  const refresh = useCallback(async () => {
-    if (!projectId) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(FUNC_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token ?? ''}`,
-        },
-        body: JSON.stringify({ action: 'get_story_intelligence', projectId }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || 'Story intelligence request failed');
-      setData({
-        computed_at: json.computed_at,
-        narrative_health_score: json.narrative_health_score,
-        narrative_health_band: json.narrative_health_band,
-        story_risk_score: json.story_risk_score,
-        story_risk_band: json.story_risk_band,
-        repair_readiness: json.repair_readiness,
-        blocker_count: json.blocker_count,
-        top_blockers: json.top_blockers ?? [],
-        structural_fragility: json.structural_fragility ?? [],
-        recommended_next_moves: json.recommended_next_moves ?? [],
-        evidence_summary: json.evidence_summary ?? {},
-        scoring_note: json.scoring_note ?? '',
-      });
-    } catch (e: any) {
-      setError(e?.message || 'Unknown error');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [projectId]);
+  const { data = null, isLoading, error: queryError } = useQuery({
+    queryKey,
+    queryFn: () => fetchStoryIntelligence(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
 
-  useEffect(() => {
-    if (!hasLoaded && projectId && !isLoading && !data && !error) {
-      setHasLoaded(true);
-      refresh();
-    }
-  }, [hasLoaded, projectId, isLoading, data, error, refresh]);
+  const error = queryError ? (queryError as Error).message : null;
+
+  const refresh = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey });
+  }, [queryClient, queryKey[1]]);
 
   return { data, isLoading, error, refresh };
 }

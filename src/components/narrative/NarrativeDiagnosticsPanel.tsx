@@ -3,7 +3,7 @@
  * Renders backend diagnostics only. Fail-closed.
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNarrativeDiagnostics, type NarrativeDiagnostic } from '@/hooks/useNarrativeDiagnostics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -36,15 +36,6 @@ const FILTER_OPTIONS = ['all', ...SEVERITY_ORDER] as const;
 export function NarrativeDiagnosticsPanel({ projectId }: Props) {
   const { data, isLoading, error, refresh } = useNarrativeDiagnostics(projectId);
   const [filter, setFilter] = useState<string>('all');
-  const [hasLoaded, setHasLoaded] = useState(false);
-
-  // Auto-load on mount
-  useEffect(() => {
-    if (!hasLoaded && projectId && !isLoading && !data && !error) {
-      setHasLoaded(true);
-      refresh();
-    }
-  }, [hasLoaded, projectId, isLoading, data, error, refresh]);
 
   // Loading state
   if (isLoading && !data) {
@@ -80,7 +71,7 @@ export function NarrativeDiagnosticsPanel({ projectId }: Props) {
               <p className="text-xs text-muted-foreground">Unable to retrieve diagnostics from backend.</p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" className="mt-2 gap-1.5" onClick={() => { setHasLoaded(false); }}>
+          <Button variant="ghost" size="sm" className="mt-2 gap-1.5" onClick={refresh}>
             <RefreshCw className="h-3 w-3" /> Retry
           </Button>
         </CardContent>
