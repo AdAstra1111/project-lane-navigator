@@ -247,14 +247,21 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
             <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
             Narrative Repair
           </CardTitle>
-          <Badge variant={scopeCfg.variant} className="gap-1 text-xs">
-            <ScopeIcon className="h-3 w-3" />
-            {scopeCfg.label}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <DashTabSwitcher active={dashTab} onChange={setDashTab} />
+            <Badge variant={scopeCfg.variant} className="gap-1 text-xs">
+              <ScopeIcon className="h-3 w-3" />
+              {scopeCfg.label}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-6">
+        {dashTab === 'strategy' ? (
+          <RepairStrategyPanel projectId={projectId} />
+        ) : (
+        <>
         {/* ═══ AUTOPILOT STATUS ═══ */}
         <AutopilotRepairPanel
           data={monitorData}
@@ -329,6 +336,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
         {/* Diagnostics */}
         {plan.diagnostics && (
           <p className="text-xs text-muted-foreground border-t border-border/30 pt-2">{plan.diagnostics}</p>
+        )}
+        </>
         )}
       </CardContent>
 
