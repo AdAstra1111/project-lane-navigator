@@ -10854,11 +10854,17 @@ Return ONLY valid JSON:
       };
 
       // ── D3: Theme Vector (15%) ────────────────────────────────────────
+      // theme_vector is stored as text (JSON-encoded string array) or JS array
+      const parseThemes = (v: any): Set<string> => {
+        const arr = Array.isArray(v) ? v
+          : (typeof v === "string" ? (() => { try { return JSON.parse(v); } catch { return []; } })() : []);
+        return new Set((Array.isArray(arr) ? arr : []).map((s: unknown) => String(s).toLowerCase().trim()).filter(Boolean));
+      };
       const computeThemeDrift = () => {
         const at = authored.premise?.theme_vector ?? null;
         const dt = derived.premise?.theme_vector  ?? null;
-        const setA = new Set<string>(Array.isArray(at) ? at.map((s: string) => s.toLowerCase()) : []);
-        const setB = new Set<string>(Array.isArray(dt) ? dt.map((s: string) => s.toLowerCase()) : []);
+        const setA = parseThemes(at);
+        const setB = parseThemes(dt);
         const j = jaccard(setA, setB);
         const score = j >= 0.7 ? 0 : j >= 0.3 ? 0.5 : 1.0;
         return { score, overlap_ratio: j, details: score > 0 ? ["theme_vector_loss"] : [] };
