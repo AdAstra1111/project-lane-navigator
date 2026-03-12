@@ -422,11 +422,12 @@ function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noA
 
 /* ── Proposal Panel (RP5) ── */
 
-function ProposalPanel({ repair, projectId, generateHook, applyHook }: {
+function ProposalPanel({ repair, projectId, generateHook, applyHook, simulateHook }: {
   repair: NarrativeRepair;
   projectId: string;
   generateHook: ReturnType<typeof useGeneratePatchProposal>;
   applyHook: ReturnType<typeof useApplyPatchProposal>;
+  simulateHook: ReturnType<typeof useSimulateNarrativePatch>;
 }) {
   const { data: proposal, isLoading: proposalLoading, error: proposalError, refetch: refetchProposal } = usePatchProposalsByRepair(repair.repair_id);
   const [confirmMode, setConfirmMode] = useState(false);
