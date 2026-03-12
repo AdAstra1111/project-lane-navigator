@@ -51,6 +51,8 @@ import {
 
 interface Props {
   projectId: string | undefined;
+  authoredSeedId?: string;
+  derivedSeedId?: string;
 }
 
 /* ── Config ── */
