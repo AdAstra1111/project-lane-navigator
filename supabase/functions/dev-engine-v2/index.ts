@@ -33,6 +33,9 @@ import {
   sequenceRewriteTargets,
   buildSceneImpactIndex,
   getAffectedScenesForAxes,
+  getDownstreamAxes,
+  getUpstreamAxes,
+  NARRATIVE_DEPENDENCY_EDGES,
   type RewriteTargetForSequencing,
 } from "../_shared/narrativeDependencyGraph.ts";
 import { buildNDGProjectGraph, summariseNDGGraph, type NDGInputData } from "../_shared/ndgProjectGraph.ts";
