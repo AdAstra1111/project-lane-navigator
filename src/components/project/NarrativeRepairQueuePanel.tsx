@@ -390,6 +390,7 @@ function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noA
                 projectId={projectId}
                 generateHook={generateHook}
                 applyHook={applyHook}
+                simulateHook={simulateHook}
               />
             )}
 
