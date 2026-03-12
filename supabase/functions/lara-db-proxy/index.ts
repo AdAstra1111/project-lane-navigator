@@ -563,6 +563,47 @@ Deno.serve(async (req) => {
             END; $$;
           `,
 
+          "narrative_obligations_v1": `
+            -- Narrative Obligation Registry (NC1)
+            -- Additive: new table only, no existing tables modified.
+            CREATE TABLE IF NOT EXISTS public.narrative_obligations (
+              id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+              project_id       UUID        NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+              obligation_id    TEXT        NOT NULL,
+              obligation_type  TEXT        NOT NULL CHECK (obligation_type IN (
+                'promise_of_premise','protagonist_arc_resolution','antagonist_arc_resolution',
+                'relationship_arc_bridge','mystery_payoff','theme_confirmation',
+                'tonal_contract','genre_contract','climax_payoff','ending_condition_fulfillment'
+              )),
+              source_layer     TEXT        NOT NULL,
+              source_key       TEXT        NOT NULL,
+              description      TEXT,
+              required_by      TEXT,
+              severity_default TEXT        NOT NULL DEFAULT 'warning'
+                               CHECK (severity_default IN ('info','warning','high','critical')),
+              provenance       JSONB       NOT NULL DEFAULT '{}',
+              created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+              UNIQUE(project_id, obligation_id)
+            );
+            CREATE INDEX IF NOT EXISTS narrative_obligations_project_id_idx ON public.narrative_obligations(project_id);
+            CREATE INDEX IF NOT EXISTS narrative_obligations_type_idx ON public.narrative_obligations(project_id, obligation_type);
+            ALTER TABLE public.narrative_obligations ENABLE ROW LEVEL SECURITY;
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='narrative_obligations' AND policyname='narrative_obligations_select') THEN
+                CREATE POLICY "narrative_obligations_select" ON public.narrative_obligations FOR SELECT TO authenticated USING (has_project_access(auth.uid(), project_id));
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='narrative_obligations' AND policyname='narrative_obligations_insert') THEN
+                CREATE POLICY "narrative_obligations_insert" ON public.narrative_obligations FOR INSERT TO authenticated WITH CHECK (has_project_access(auth.uid(), project_id));
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='narrative_obligations' AND policyname='narrative_obligations_update') THEN
+                CREATE POLICY "narrative_obligations_update" ON public.narrative_obligations FOR UPDATE TO authenticated USING (has_project_access(auth.uid(), project_id));
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='narrative_obligations' AND policyname='narrative_obligations_delete') THEN
+                CREATE POLICY "narrative_obligations_delete" ON public.narrative_obligations FOR DELETE TO authenticated USING (has_project_access(auth.uid(), project_id));
+              END IF;
+            END $$;
+          `,
+
           "inject_running_regen_row_obsidian_mirror": `
             -- VALIDATION-ONLY: insert a fake 'running' row for concurrency guard testing.
             -- Paired with cleanup_test_running_regen_row for teardown.

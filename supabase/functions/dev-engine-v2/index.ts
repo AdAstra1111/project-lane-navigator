@@ -2881,6 +2881,9 @@ serve(async (req) => {
       "create_derived_dev_seed_v2",
       "compare_dev_seed_v2",
       "get_narrative_diagnostics",
+      "build_narrative_obligations",
+      "validate_narrative_obligations",
+      "evaluate_structural_load",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -11199,6 +11202,864 @@ Return ONLY valid JSON:
         diagnostics,
         diagnostics_count: diagnostics.length,
         ...(collectorErrors.length > 0 ? { collector_errors: collectorErrors } : {}),
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // NC1 — build_narrative_obligations
+    //
+    // Deterministic obligation registry builder.
+    // Reads the authored Dev Seed v2 for a project and creates/upserts 10 canonical
+    // narrative obligation records into narrative_obligations.
+    //
+    // Rules:
+    //  • All 10 obligation types are always created for any project with an authored seed.
+    //  • source_layer/source_key record which seed layer anchors each obligation.
+    //  • Idempotent: repeat calls produce deterministic output via UPSERT ON CONFLICT.
+    //  • No mutation of story/runtime data.
+    //  • Fail closed: if no authored seed exists, returns ok:true with empty obligations
+    //    and reason:no_authored_seed (not an error — project simply has no seed yet).
+    // ══════════════════════════════════════════════════════════════════════════════
+    if (action === "build_narrative_obligations") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Find authored seed (derived=false, most recent)
+      const { data: seedRoot, error: seedRootErr } = await (supabase as any)
+        .from("dev_seed_v2_projects")
+        .select("id, project_id, created_at")
+        .eq("project_id", projectId)
+        .eq("derived", false)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (seedRootErr) {
+        return new Response(JSON.stringify({ ok: false, error: "seed lookup failed: " + seedRootErr.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Case 2: No authored seed → fail closed with clear reasoning
+      if (!seedRoot) {
+        return new Response(JSON.stringify({
+          ok: true,
+          project_id: projectId,
+          obligations: [],
+          count: 0,
+          reason: "no_authored_seed",
+          note: "No authored Dev Seed v2 found for this project. Obligations cannot be derived without a seed.",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const seedId = seedRoot.id as string;
+      const builtAt = new Date().toISOString();
+
+      // Canonical obligation specifications (deterministic, order-stable)
+      const NC1_OBLIGATION_SPECS: Array<{
+        obligation_type: string;
+        source_layer: string;
+        source_key: string;
+        description: string;
+        required_by: string;
+        severity_default: string;
+      }> = [
+        {
+          obligation_type: "promise_of_premise",
+          source_layer: "premise",
+          source_key: "premise",
+          description: "The story must fulfill the central premise promise established at the seed layer.",
+          required_by: "narrative_contract",
+          severity_default: "critical",
+        },
+        {
+          obligation_type: "protagonist_arc_resolution",
+          source_layer: "units",
+          source_key: "protagonist_arc",
+          description: "The protagonist's arc must reach meaningful resolution by the story's end.",
+          required_by: "arc_completion",
+          severity_default: "critical",
+        },
+        {
+          obligation_type: "antagonist_arc_resolution",
+          source_layer: "entities",
+          source_key: "antagonist",
+          description: "The antagonist's narrative function must be resolved before the story closes.",
+          required_by: "arc_completion",
+          severity_default: "high",
+        },
+        {
+          obligation_type: "relationship_arc_bridge",
+          source_layer: "relations",
+          source_key: "entity_relations",
+          description: "Core character relationships must be established and tracked across the narrative arc.",
+          required_by: "relationship_completion",
+          severity_default: "high",
+        },
+        {
+          obligation_type: "mystery_payoff",
+          source_layer: "generation_intent",
+          source_key: "mystery_opacity",
+          description: "Mystery elements seeded in generation intent must receive meaningful payoff.",
+          required_by: "mystery_payoff",
+          severity_default: "high",
+        },
+        {
+          obligation_type: "theme_confirmation",
+          source_layer: "premise",
+          source_key: "theme_vector",
+          description: "The thematic vector must be confirmed and reinforced through the story's resolution.",
+          required_by: "thematic_confirmation",
+          severity_default: "high",
+        },
+        {
+          obligation_type: "tonal_contract",
+          source_layer: "premise",
+          source_key: "emotional_promise",
+          description: "The emotional tone and promise made to the audience must be sustained throughout.",
+          required_by: "tonal_contract",
+          severity_default: "high",
+        },
+        {
+          obligation_type: "genre_contract",
+          source_layer: "generation_intent",
+          source_key: "projection_targets",
+          description: "Genre expectations and conventions established in the seed must be honored.",
+          required_by: "genre_contract",
+          severity_default: "warning",
+        },
+        {
+          obligation_type: "climax_payoff",
+          source_layer: "beats",
+          source_key: "climax_promise",
+          description: "The climax promise seeded in Layer 7 must be structurally supported and delivered.",
+          required_by: "climax_payoff",
+          severity_default: "critical",
+        },
+        {
+          obligation_type: "ending_condition_fulfillment",
+          source_layer: "beats",
+          source_key: "ending_condition",
+          description: "The ending condition established in the beat seed must be fulfilled by the story's close.",
+          required_by: "ending_condition_fulfillment",
+          severity_default: "critical",
+        },
+      ];
+
+      // Build obligation rows — deterministic obligation_id per type
+      const obligationRows = NC1_OBLIGATION_SPECS.map((spec) => ({
+        project_id:       projectId,
+        obligation_id:    `nc1::${spec.obligation_type}`,
+        obligation_type:  spec.obligation_type,
+        source_layer:     spec.source_layer,
+        source_key:       spec.source_key,
+        description:      spec.description,
+        required_by:      spec.required_by,
+        severity_default: spec.severity_default,
+        provenance: JSON.stringify({
+          seed_id:   seedId,
+          seed_type: "authored",
+          built_at:  builtAt,
+        }),
+      }));
+
+      // UPSERT — idempotent, repeat builds overwrite provenance/description with current values
+      const { data: upserted, error: upsertErr } = await (supabase as any)
+        .from("narrative_obligations")
+        .upsert(obligationRows, { onConflict: "project_id,obligation_id" })
+        .select("obligation_id, obligation_type, source_layer, source_key, severity_default");
+
+      if (upsertErr) {
+        return new Response(JSON.stringify({ ok: false, error: "obligation upsert failed: " + upsertErr.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      console.log("[dev-engine-v2] build_narrative_obligations", {
+        project_id: projectId, seed_id: seedId, count: obligationRows.length,
+      });
+
+      return new Response(JSON.stringify({
+        ok:         true,
+        action:     "build_narrative_obligations",
+        project_id: projectId,
+        seed_id:    seedId,
+        obligations: upserted ?? obligationRows.map(r => ({
+          obligation_id: r.obligation_id,
+          obligation_type: r.obligation_type,
+          source_layer: r.source_layer,
+          source_key: r.source_key,
+          severity_default: r.severity_default,
+        })),
+        count:      obligationRows.length,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // NC2 — validate_narrative_obligations
+    //
+    // Deterministic obligation validator. Checks whether each registered obligation
+    // is fulfilled, unresolved, violated, or unavailable based on current project state.
+    //
+    // Rules:
+    //  • Analytical only — no story/runtime mutation.
+    //  • Fail closed: if registry missing → fail clearly.
+    //  • Missing signals → unavailable or unresolved, never fabricated as fulfilled.
+    //  • Ambiguous signals → prefer unresolved/unavailable over fulfilled.
+    //  • Deterministic: identical DB state → identical output.
+    //  • Output shape maps directly into the DX diagnostics layer.
+    // ══════════════════════════════════════════════════════════════════════════════
+    if (action === "validate_narrative_obligations") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // 1. Load obligation registry — fail clearly if missing
+      const { data: obligations, error: oblErr } = await (supabase as any)
+        .from("narrative_obligations")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("obligation_type");
+
+      if (oblErr) {
+        return new Response(JSON.stringify({ ok: false, error: "obligation registry load failed: " + oblErr.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!obligations || obligations.length === 0) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: "obligation_registry_not_built",
+          note: "Call build_narrative_obligations first to populate the registry for this project.",
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // 2. Load authored seed (source of truth for what was promised)
+      const { data: authoredRoot } = await (supabase as any)
+        .from("dev_seed_v2_projects")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("derived", false)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const authoredSeedId = authoredRoot?.id ?? null;
+
+      // 3. Parallel load of all signal sources
+      const [
+        premiseRes, beatsRes, unitsRes, entitiesRes, relationsRes, genIntentRes,
+        liveUnitsRes, liveEntitiesRes, liveRelationsRes,
+      ] = await Promise.all([
+        authoredSeedId
+          ? (supabase as any).from("dev_seed_v2_premise").select("*").eq("seed_id", authoredSeedId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        authoredSeedId
+          ? (supabase as any).from("dev_seed_v2_beats").select("beat_key, beat_description, expected_turn").eq("seed_id", authoredSeedId)
+          : Promise.resolve({ data: [] }),
+        authoredSeedId
+          ? (supabase as any).from("dev_seed_v2_units").select("unit_type, unit_statement").eq("seed_id", authoredSeedId)
+          : Promise.resolve({ data: [] }),
+        authoredSeedId
+          ? (supabase as any).from("dev_seed_v2_entities").select("entity_key, entity_type, narrative_role, story_critical_flag").eq("seed_id", authoredSeedId)
+          : Promise.resolve({ data: [] }),
+        authoredSeedId
+          ? (supabase as any).from("dev_seed_v2_entity_relations").select("source_entity_key, relation_type, target_entity_key").eq("seed_id", authoredSeedId)
+          : Promise.resolve({ data: [] }),
+        authoredSeedId
+          ? (supabase as any).from("dev_seed_v2_generation_intent").select("*").eq("seed_id", authoredSeedId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        // Live canonical state
+        (supabase as any).from("narrative_units").select("unit_key, unit_type, status").eq("project_id", projectId),
+        (supabase as any).from("narrative_entities").select("entity_key, entity_type").eq("project_id", projectId),
+        (supabase as any).from("narrative_entity_relations").select("source_entity_key, relation_type, target_entity_key").eq("project_id", projectId),
+      ]);
+
+      const premise         = premiseRes.data        ?? null;
+      const seedBeats       = (beatsRes.data         ?? []) as Array<{ beat_key: string; beat_description: string | null; expected_turn: string | null }>;
+      const seedUnits       = (unitsRes.data         ?? []) as Array<{ unit_type: string; unit_statement: string | null }>;
+      const seedEntities    = (entitiesRes.data      ?? []) as Array<{ entity_key: string; entity_type: string; narrative_role: string | null; story_critical_flag: boolean }>;
+      const seedRelations   = (relationsRes.data     ?? []) as Array<{ source_entity_key: string; relation_type: string; target_entity_key: string }>;
+      const genIntent       = genIntentRes.data      ?? null;
+      const liveUnits       = (liveUnitsRes.data     ?? []) as Array<{ unit_key: string; unit_type: string; status: string }>;
+      const liveEntities    = (liveEntitiesRes.data  ?? []) as Array<{ entity_key: string; entity_type: string }>;
+      const liveRelations   = (liveRelationsRes.data ?? []) as Array<{ source_entity_key: string; relation_type: string; target_entity_key: string }>;
+
+      const hasSeed      = !!authoredSeedId;
+      const hasBeats     = seedBeats.length > 0;
+      const hasEntities  = seedEntities.length > 0 || liveEntities.length > 0;
+      const hasGenIntent = !!genIntent;
+      const hasPremise   = !!premise;
+
+      // Helper: find beat by key
+      const getBeat = (key: string) => seedBeats.find(b => b.beat_key === key) ?? null;
+      const beatHasContent = (key: string): boolean => {
+        const b = getBeat(key);
+        return !!b && !!b.beat_description && b.beat_description.trim().length > 0;
+      };
+
+      // Helper: find entity by partial key match (case-insensitive)
+      const entityExists = (keyFragment: string, entities: Array<{ entity_key: string; entity_type: string }>): boolean =>
+        entities.some(e =>
+          e.entity_key.toUpperCase().includes(keyFragment.toUpperCase()) ||
+          (e.entity_type ?? "").toUpperCase().includes(keyFragment.toUpperCase())
+        );
+
+      // NC2 validation results
+      type ObligationStatus = "fulfilled" | "unresolved" | "violated" | "unavailable";
+      interface ValidationResult {
+        obligation_type: string;
+        status: ObligationStatus;
+        severity: string;
+        source_key: string;
+        summary: string;
+        details: string;
+        recommended_action: string;
+      }
+
+      const results: ValidationResult[] = [];
+
+      for (const obl of (obligations as any[])) {
+        const type     = obl.obligation_type as string;
+        const severity = obl.severity_default as string;
+        const srcKey   = obl.source_key as string;
+        let status: ObligationStatus;
+        let summary: string;
+        let details: string;
+        let recommended_action: string;
+
+        switch (type) {
+          // ── promise_of_premise ───────────────────────────────────────────
+          case "promise_of_premise":
+            if (!hasSeed || !hasPremise) {
+              status = "unavailable"; summary = "No authored premise found";
+              details = "Authored seed or premise layer is missing.";
+              recommended_action = "Create an authored Dev Seed v2 with a premise layer.";
+            } else if (premise.premise && premise.premise.trim().length > 20) {
+              status = "fulfilled"; summary = "Premise promise is present and non-trivial";
+              details = `Premise text (${premise.premise.length} chars) is authored and available.`;
+              recommended_action = "None. Monitor for soul drift.";
+            } else {
+              status = "unresolved"; summary = "Premise text is missing or too sparse";
+              details = "Premise field exists but has insufficient content to validate the promise.";
+              recommended_action = "Flesh out the premise in the Dev Seed v2 premise layer.";
+            }
+            break;
+
+          // ── protagonist_arc_resolution ───────────────────────────────────
+          case "protagonist_arc_resolution":
+            if (!hasSeed) {
+              status = "unavailable"; summary = "No authored seed";
+              details = "Cannot evaluate protagonist arc without an authored seed.";
+              recommended_action = "Build a Dev Seed v2 with protagonist units and beat seeds.";
+            } else if (!hasBeats) {
+              status = "unavailable"; summary = "No beat seeds found";
+              details = "Layer 7 beat seeds are not present; cannot verify arc closure.";
+              recommended_action = "Run create_derived_dev_seed_v2 or author beat seeds (Layer 7).";
+            } else {
+              const climaxBeat = beatHasContent("climax_promise");
+              const endingBeat = beatHasContent("ending_condition");
+              const protUnit   = seedUnits.find(u => u.unit_type === "protagonist_arc") ??
+                                 liveUnits.find(u => u.unit_type === "protagonist_arc") ?? null;
+              if (climaxBeat && (endingBeat || !!protUnit)) {
+                status = "fulfilled"; summary = "Protagonist arc has climax support and closure signal";
+                details = `climax_promise beat present. ${endingBeat ? "ending_condition beat present." : "protagonist_arc unit present as closure anchor."}`;
+                recommended_action = "None. Verify during generation.";
+              } else {
+                status = "unresolved"; summary = "Protagonist arc resolution is not fully supported";
+                details = `climax_promise: ${climaxBeat ? "present" : "missing"}. ending_condition: ${endingBeat ? "present" : "missing"}. protagonist_arc unit: ${!!protUnit ? "present" : "missing"}.`;
+                recommended_action = "Ensure climax_promise and ending_condition beat seeds are present, and protagonist_arc unit is authored.";
+              }
+            }
+            break;
+
+          // ── antagonist_arc_resolution ────────────────────────────────────
+          case "antagonist_arc_resolution":
+            if (!hasSeed || !hasEntities) {
+              status = "unavailable"; summary = "No entities found to evaluate antagonist arc";
+              details = "Neither seed entities nor live entities contain an antagonist signal.";
+              recommended_action = "Author antagonist entities in the Dev Seed v2.";
+            } else if (entityExists("ANTAGONIST", seedEntities) || entityExists("ANTAGONIST", liveEntities)) {
+              status = "fulfilled"; summary = "Antagonist entity is present";
+              details = "At least one entity with ANTAGONIST in key or type is present in seed or live state.";
+              recommended_action = "None. Verify antagonist resolution during scene generation.";
+            } else {
+              status = "unresolved"; summary = "No antagonist entity found";
+              details = "No entity with ANTAGONIST in entity_key or entity_type was found in seed or live state.";
+              recommended_action = "Author an antagonist entity or verify entity_type is set correctly.";
+            }
+            break;
+
+          // ── relationship_arc_bridge ──────────────────────────────────────
+          case "relationship_arc_bridge":
+            if (!hasSeed) {
+              status = "unavailable"; summary = "No authored seed";
+              details = "Cannot evaluate relationship arc without an authored seed.";
+              recommended_action = "Build a Dev Seed v2 with entity relations.";
+            } else if (seedRelations.length > 0 && liveRelations.length === 0) {
+              status = "violated"; summary = "Authored relations exist but live relation state is empty";
+              details = `Authored seed has ${seedRelations.length} relation(s) but narrative_entity_relations is empty for this project.`;
+              recommended_action = "Run sync_dev_seed_v2_to_canon to promote seed relations into canonical state.";
+            } else if (seedRelations.length === 0 && liveRelations.length === 0) {
+              status = "unresolved"; summary = "No relationship arc authored or present";
+              details = "No entity relations found in seed or live state.";
+              recommended_action = "Author entity relations in the Dev Seed v2 if this is a relationship-driven story.";
+            } else {
+              status = "fulfilled"; summary = "Relationship arc is present";
+              details = `${seedRelations.length} authored relation(s), ${liveRelations.length} live relation(s).`;
+              recommended_action = "None. Verify relationship arcs are tracked in scene generation.";
+            }
+            break;
+
+          // ── mystery_payoff ───────────────────────────────────────────────
+          case "mystery_payoff":
+            if (!hasSeed || !hasGenIntent) {
+              status = "unavailable"; summary = "No generation intent found";
+              details = "mystery_opacity signal requires dev_seed_v2_generation_intent (Layer 8).";
+              recommended_action = "Author generation intent in the Dev Seed v2 (Layer 8).";
+            } else {
+              const mystOpacity = genIntent?.mystery_opacity ?? null;
+              if (!mystOpacity || mystOpacity === 0) {
+                status = "unavailable"; summary = "Not a mystery project (mystery_opacity not set)";
+                details = "mystery_opacity is null or 0. Mystery payoff obligation is not applicable.";
+                recommended_action = "None. If mystery elements are intended, set mystery_opacity in generation intent.";
+              } else if (beatHasContent("ending_condition")) {
+                status = "fulfilled"; summary = "Mystery payoff is signalled in the ending condition";
+                details = `mystery_opacity=${mystOpacity}. ending_condition beat is present with content.`;
+                recommended_action = "None. Verify mystery resolution during generation.";
+              } else {
+                status = "unresolved"; summary = "Mystery elements present but no ending condition beat";
+                details = `mystery_opacity=${mystOpacity} but ending_condition beat is missing or empty.`;
+                recommended_action = "Author an ending_condition beat seed that signals mystery resolution.";
+              }
+            }
+            break;
+
+          // ── theme_confirmation ───────────────────────────────────────────
+          case "theme_confirmation":
+            if (!hasSeed || !hasPremise) {
+              status = "unavailable"; summary = "No premise for theme vector";
+              details = "theme_vector is in the premise layer; no premise found.";
+              recommended_action = "Build a Dev Seed v2 with a premise layer.";
+            } else if (!premise.theme_vector || (Array.isArray(premise.theme_vector) && premise.theme_vector.length === 0)) {
+              status = "unavailable"; summary = "No theme vector authored";
+              details = "premise.theme_vector is null or empty.";
+              recommended_action = "Author a theme_vector in the premise layer.";
+            } else if (beatHasContent("ending_condition")) {
+              status = "fulfilled"; summary = "Theme vector present and ending condition supports confirmation";
+              details = `theme_vector present. ending_condition beat is present with content.`;
+              recommended_action = "None. Verify thematic resolution during generation.";
+            } else {
+              status = "unresolved"; summary = "Theme vector present but no ending condition to confirm it";
+              details = `theme_vector is present but ending_condition beat is missing or empty.`;
+              recommended_action = "Author an ending_condition beat seed that confirms the thematic vector.";
+            }
+            break;
+
+          // ── tonal_contract ───────────────────────────────────────────────
+          case "tonal_contract":
+            if (!hasSeed || !hasPremise) {
+              status = "unavailable"; summary = "No premise for tonal contract";
+              details = "emotional_promise is in the premise layer; no premise found.";
+              recommended_action = "Build a Dev Seed v2 with a premise layer.";
+            } else if (premise.emotional_promise && (typeof premise.emotional_promise === "string"
+                ? premise.emotional_promise.trim().length > 0
+                : true)) {
+              status = "fulfilled"; summary = "Emotional promise is authored and present";
+              details = `emotional_promise: "${String(premise.emotional_promise).slice(0, 100)}"`;
+              recommended_action = "None. Monitor for tonal drift during generation.";
+            } else {
+              status = "unresolved"; summary = "No emotional promise authored";
+              details = "premise.emotional_promise is null or empty.";
+              recommended_action = "Author an emotional_promise in the premise layer.";
+            }
+            break;
+
+          // ── genre_contract ───────────────────────────────────────────────
+          case "genre_contract":
+            if (!hasSeed || !hasGenIntent) {
+              status = "unavailable"; summary = "No generation intent for genre contract";
+              details = "projection_targets is in Layer 8; no generation intent found.";
+              recommended_action = "Build a Dev Seed v2 with generation intent (Layer 8).";
+            } else {
+              const targets = Array.isArray(genIntent?.projection_targets) ? genIntent.projection_targets : [];
+              if (targets.length > 0) {
+                status = "fulfilled"; summary = "Genre contract is defined via projection targets";
+                details = `projection_targets: [${targets.slice(0, 5).join(", ")}]`;
+                recommended_action = "None. Verify genre conventions during generation.";
+              } else {
+                status = "unresolved"; summary = "No projection targets authored";
+                details = "generation_intent.projection_targets is empty.";
+                recommended_action = "Author projection_targets in generation intent (Layer 8).";
+              }
+            }
+            break;
+
+          // ── climax_payoff ────────────────────────────────────────────────
+          case "climax_payoff":
+            if (!hasSeed) {
+              status = "unavailable"; summary = "No authored seed";
+              details = "Cannot evaluate climax_promise without an authored seed.";
+              recommended_action = "Build a Dev Seed v2 and derive beat seeds (Layer 7).";
+            } else if (!hasBeats) {
+              status = "unavailable"; summary = "No beat seeds found";
+              details = "Layer 7 beat seeds are not present; climax_promise cannot be evaluated.";
+              recommended_action = "Run create_derived_dev_seed_v2 to derive beat seeds.";
+            } else if (beatHasContent("climax_promise")) {
+              status = "fulfilled"; summary = "Climax promise is present and has content";
+              const b = getBeat("climax_promise");
+              details = `climax_promise: "${(b?.beat_description ?? "").slice(0, 120)}"`;
+              recommended_action = "None. Verify climax delivery during scene generation.";
+            } else {
+              status = "unresolved"; summary = "Climax promise beat is missing or empty";
+              details = `Beat key 'climax_promise' was ${getBeat("climax_promise") ? "found but has no content" : "not found"} in Layer 7.`;
+              recommended_action = "Author or derive a climax_promise beat seed in Layer 7.";
+            }
+            break;
+
+          // ── ending_condition_fulfillment ─────────────────────────────────
+          case "ending_condition_fulfillment":
+            if (!hasSeed) {
+              status = "unavailable"; summary = "No authored seed";
+              details = "Cannot evaluate ending_condition without an authored seed.";
+              recommended_action = "Build a Dev Seed v2 and derive beat seeds (Layer 7).";
+            } else if (!hasBeats) {
+              status = "unavailable"; summary = "No beat seeds found";
+              details = "Layer 7 beat seeds are not present; ending_condition cannot be evaluated.";
+              recommended_action = "Run create_derived_dev_seed_v2 to derive beat seeds.";
+            } else if (beatHasContent("ending_condition")) {
+              status = "fulfilled"; summary = "Ending condition is present and has content";
+              const b = getBeat("ending_condition");
+              details = `ending_condition: "${(b?.beat_description ?? "").slice(0, 120)}"`;
+              recommended_action = "None. Verify ending delivery during scene generation.";
+            } else {
+              status = "unresolved"; summary = "Ending condition beat is missing or empty";
+              details = `Beat key 'ending_condition' was ${getBeat("ending_condition") ? "found but has no content" : "not found"} in Layer 7.`;
+              recommended_action = "Author or derive an ending_condition beat seed in Layer 7.";
+            }
+            break;
+
+          default:
+            status = "unavailable"; summary = "Unknown obligation type";
+            details = `Obligation type '${type}' has no validation rule.`;
+            recommended_action = "Check obligation registry for data integrity.";
+        }
+
+        results.push({
+          obligation_type:    type,
+          status,
+          severity,
+          source_key:         srcKey,
+          summary,
+          details,
+          recommended_action,
+        });
+      }
+
+      // Sort: violated → unresolved → unavailable → fulfilled
+      const NC2_STATUS_ORDER: Record<string, number> = {
+        violated: 0, unresolved: 1, unavailable: 2, fulfilled: 3,
+      };
+      results.sort((a, b) =>
+        (NC2_STATUS_ORDER[a.status] ?? 9) - (NC2_STATUS_ORDER[b.status] ?? 9)
+      );
+
+      console.log("[dev-engine-v2] validate_narrative_obligations", {
+        project_id: projectId,
+        total: results.length,
+        fulfilled:   results.filter(r => r.status === "fulfilled").length,
+        unresolved:  results.filter(r => r.status === "unresolved").length,
+        violated:    results.filter(r => r.status === "violated").length,
+        unavailable: results.filter(r => r.status === "unavailable").length,
+      });
+
+      return new Response(JSON.stringify({
+        ok:         true,
+        action:     "validate_narrative_obligations",
+        project_id: projectId,
+        obligations: results,
+        summary: {
+          total:       results.length,
+          fulfilled:   results.filter(r => r.status === "fulfilled").length,
+          unresolved:  results.filter(r => r.status === "unresolved").length,
+          violated:    results.filter(r => r.status === "violated").length,
+          unavailable: results.filter(r => r.status === "unavailable").length,
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // SL1 — evaluate_structural_load
+    //
+    // Deterministic structural load-bearing map.
+    // Classifies narrative elements (axes, units, beats, entities, relations) by
+    // how essential they are to the story's structural functioning.
+    //
+    // Classification: core | primary | supporting | decorative
+    //
+    // Rules:
+    //  • Analytical only — no mutation.
+    //  • Fail closed: insufficient evidence → conservative classification or unavailable.
+    //  • Do NOT mark decorative just because evidence is missing.
+    //  • Core classification must be explicitly justified.
+    //  • Deterministic: identical DB state → identical output.
+    // ══════════════════════════════════════════════════════════════════════════════
+    if (action === "evaluate_structural_load") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Load authored seed root
+      const { data: slSeedRoot } = await (supabase as any)
+        .from("dev_seed_v2_projects")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("derived", false)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const slSeedId = slSeedRoot?.id ?? null;
+
+      // Load all signal sources in parallel
+      const [
+        slAxesRes, slUnitsRes, slBeatsRes, slEntitiesRes, slRelationsRes,
+        slObligationsRes, slDiagnosticsRes, slLiveUnitsRes,
+      ] = await Promise.all([
+        slSeedId
+          ? (supabase as any).from("dev_seed_v2_axes").select("axis_key, axis_statement, axis_role, axis_priority").eq("seed_id", slSeedId).order("axis_priority")
+          : Promise.resolve({ data: [] }),
+        slSeedId
+          ? (supabase as any).from("dev_seed_v2_units").select("unit_type, unit_key, unit_statement, success_state, failure_mode").eq("seed_id", slSeedId)
+          : Promise.resolve({ data: [] }),
+        slSeedId
+          ? (supabase as any).from("dev_seed_v2_beats").select("beat_key, beat_description, expected_turn").eq("seed_id", slSeedId)
+          : Promise.resolve({ data: [] }),
+        slSeedId
+          ? (supabase as any).from("dev_seed_v2_entities").select("entity_key, entity_type, narrative_role, story_critical_flag").eq("seed_id", slSeedId)
+          : Promise.resolve({ data: [] }),
+        slSeedId
+          ? (supabase as any).from("dev_seed_v2_entity_relations").select("source_entity_key, relation_type, target_entity_key").eq("seed_id", slSeedId)
+          : Promise.resolve({ data: [] }),
+        // Obligations (NC1) — linked_obligations_count
+        (supabase as any).from("narrative_obligations").select("obligation_type, source_key, source_layer").eq("project_id", projectId),
+        // Diagnostics (DX) — linked_diagnostics_count (approximate: count stale narrative_units)
+        (supabase as any).from("narrative_units").select("unit_type, status, stale_reason").eq("project_id", projectId).neq("status", "aligned"),
+        (supabase as any).from("narrative_units").select("unit_type, unit_key, status").eq("project_id", projectId),
+      ]);
+
+      const slAxes       = (slAxesRes.data      ?? []) as Array<{ axis_key: string; axis_statement: string | null; axis_role: string | null; axis_priority: number }>;
+      const slUnits      = (slUnitsRes.data     ?? []) as Array<{ unit_type: string; unit_key: string; unit_statement: string | null }>;
+      const slBeats      = (slBeatsRes.data     ?? []) as Array<{ beat_key: string; beat_description: string | null; expected_turn: string | null }>;
+      const slEntities   = (slEntitiesRes.data  ?? []) as Array<{ entity_key: string; entity_type: string; narrative_role: string | null; story_critical_flag: boolean }>;
+      const slRelations  = (slRelationsRes.data ?? []) as Array<{ source_entity_key: string; relation_type: string; target_entity_key: string }>;
+      const slObligations= (slObligationsRes.data ?? []) as Array<{ obligation_type: string; source_key: string; source_layer: string }>;
+      const slStaleDx    = (slDiagnosticsRes.data ?? []) as Array<{ unit_type: string; status: string }>;
+      const slLiveUnits  = (slLiveUnitsRes.data   ?? []) as Array<{ unit_type: string; unit_key: string; status: string }>;
+
+      // ── Classification helpers ─────────────────────────────────────────────
+      type LoadClass = "core" | "primary" | "supporting" | "decorative";
+
+      // Obligation linkage: count how many obligations reference this element
+      const obligationCountForKey = (key: string): number =>
+        slObligations.filter(o => o.source_key === key || o.source_key.includes(key)).length;
+
+      const obligationCountForLayer = (layer: string): number =>
+        slObligations.filter(o => o.source_layer === layer).length;
+
+      // Diagnostic linkage: count stale/misaligned units referencing this element
+      const diagnosticCountForUnitType = (unitType: string): number =>
+        slStaleDx.filter(d => d.unit_type === unitType).length;
+
+      // Conservative scoring → class
+      const scoreToClass = (score: number): LoadClass => {
+        if (score >= 3) return "core";
+        if (score >= 2) return "primary";
+        if (score >= 1) return "supporting";
+        return "decorative";
+      };
+
+      // Core axis keys (directly tied to premise/resolution/climax)
+      const CORE_AXIS_KEYS = new Set(["story_engine", "resolution_type", "inciting_incident"]);
+      const PRIMARY_AXIS_KEYS = new Set(["protagonist_arc", "midpoint_reversal", "stakes_class", "pressure_system"]);
+      // Core beat keys
+      const CORE_BEAT_KEYS = new Set(["climax_promise", "ending_condition"]);
+      const PRIMARY_BEAT_KEYS = new Set(["inciting_event_seed", "opening_state"]);
+
+      // ── Classify axes ──────────────────────────────────────────────────────
+      const axesMap: Array<{
+        key: string; class: LoadClass; rationale: string;
+        linked_obligations_count: number; linked_diagnostics_count: number;
+      }> = slAxes.map(ax => {
+        const oblCount = obligationCountForKey(ax.axis_key);
+        const dxCount  = diagnosticCountForUnitType(ax.axis_key);
+        let score = 0;
+        const reasons: string[] = [];
+        if (CORE_AXIS_KEYS.has(ax.axis_key)) { score += 3; reasons.push("directly tied to premise/resolution/inciting incident"); }
+        else if (PRIMARY_AXIS_KEYS.has(ax.axis_key)) { score += 2; reasons.push("primary structural axis"); }
+        if (oblCount >= 2) { score += 2; reasons.push(`${oblCount} obligation(s) reference this axis`); }
+        else if (oblCount === 1) { score += 1; reasons.push("1 obligation references this axis"); }
+        if (dxCount > 0) { score += 1; reasons.push(`${dxCount} active diagnostic(s) on this axis`); }
+        if (score === 0) reasons.push("no strong obligation or diagnostic linkage found");
+        // Fail closed: if no justification for core, downgrade
+        const cls = scoreToClass(score);
+        return {
+          key: ax.axis_key,
+          class: cls,
+          rationale: reasons.join("; ") || "insufficient evidence — conservative classification applied",
+          linked_obligations_count: oblCount,
+          linked_diagnostics_count: dxCount,
+        };
+      });
+
+      // ── Classify units ─────────────────────────────────────────────────────
+      const unitsMap: Array<{
+        key: string; class: LoadClass; rationale: string;
+        linked_obligations_count: number; linked_diagnostics_count: number;
+      }> = slUnits.map(u => {
+        const oblCount = obligationCountForKey(u.unit_type);
+        const dxCount  = diagnosticCountForUnitType(u.unit_type);
+        let score = 0;
+        const reasons: string[] = [];
+        // Protagonist arc and central conflict are premise-critical
+        if (["protagonist_arc", "central_conflict", "resolution_type"].includes(u.unit_type)) {
+          score += 3; reasons.push("premise-critical unit type");
+        } else if (["pressure_system", "stakes_class", "midpoint_reversal"].includes(u.unit_type)) {
+          score += 2; reasons.push("primary structural unit");
+        }
+        if (oblCount >= 2) { score += 2; reasons.push(`${oblCount} obligation(s) link to this unit`); }
+        else if (oblCount === 1) { score += 1; reasons.push("1 obligation links to this unit"); }
+        if (dxCount > 0) { score += 1; reasons.push(`${dxCount} diagnostic(s) active on this unit`); }
+        if (score === 0) reasons.push("no strong obligation or diagnostic linkage found");
+        return {
+          key: u.unit_type,
+          class: scoreToClass(score),
+          rationale: reasons.join("; ") || "insufficient evidence — conservative classification applied",
+          linked_obligations_count: oblCount,
+          linked_diagnostics_count: dxCount,
+        };
+      });
+
+      // ── Classify beats ─────────────────────────────────────────────────────
+      const beatsMap: Array<{
+        key: string; class: LoadClass; rationale: string;
+        linked_obligations_count: number; linked_diagnostics_count: number;
+        expected_turn: string | null;
+      }> = slBeats.map(b => {
+        const oblCount = obligationCountForKey(b.beat_key);
+        let score = 0;
+        const reasons: string[] = [];
+        if (CORE_BEAT_KEYS.has(b.beat_key)) { score += 3; reasons.push("directly tied to climax/ending — always core"); }
+        else if (PRIMARY_BEAT_KEYS.has(b.beat_key)) { score += 2; reasons.push("primary structural beat"); }
+        if (oblCount >= 2) { score += 2; reasons.push(`${oblCount} obligation(s) reference this beat`); }
+        else if (oblCount === 1) { score += 1; reasons.push("1 obligation references this beat"); }
+        if (score === 0) reasons.push("no strong obligation linkage; default to supporting");
+        // Conservative: beats without signals should not be decorative
+        const cls = scoreToClass(Math.max(score, 1)); // floor at supporting (1)
+        return {
+          key: b.beat_key,
+          class: cls,
+          rationale: reasons.join("; "),
+          linked_obligations_count: oblCount,
+          linked_diagnostics_count: 0,
+          expected_turn: b.expected_turn ?? null,
+        };
+      });
+
+      // ── Classify entities ──────────────────────────────────────────────────
+      const entitiesMap: Array<{
+        key: string; class: LoadClass; rationale: string;
+        linked_obligations_count: number; linked_diagnostics_count: number;
+      }> = slEntities.map(e => {
+        const oblCount = obligationCountForKey(e.entity_key);
+        let score = 0;
+        const reasons: string[] = [];
+        const keyUpper = e.entity_key.toUpperCase();
+        const typeUpper = (e.entity_type ?? "").toUpperCase();
+        if (keyUpper.includes("PROTAGONIST") || typeUpper.includes("PROTAGONIST") ||
+            keyUpper.includes("ARC_PROTAGONIST")) {
+          score += 3; reasons.push("protagonist entity — premise-critical");
+        } else if (keyUpper.includes("ANTAGONIST") || typeUpper.includes("ANTAGONIST")) {
+          score += 3; reasons.push("antagonist entity — arc-critical");
+        } else if (e.story_critical_flag) {
+          score += 2; reasons.push("story_critical_flag is set");
+        }
+        if (oblCount >= 2) { score += 2; reasons.push(`${oblCount} obligation(s) reference this entity`); }
+        else if (oblCount === 1) { score += 1; reasons.push("1 obligation references this entity"); }
+        // Count how many relations involve this entity
+        const relCount = slRelations.filter(r =>
+          r.source_entity_key === e.entity_key || r.target_entity_key === e.entity_key
+        ).length;
+        if (relCount >= 2) { score += 1; reasons.push(`${relCount} relation(s) involve this entity`); }
+        if (score === 0) reasons.push("no strong classification signal — supporting by default");
+        // Conservative: entities with no evidence get supporting (not decorative)
+        const cls = scoreToClass(Math.max(score, 1));
+        return {
+          key: e.entity_key,
+          class: cls,
+          rationale: reasons.join("; "),
+          linked_obligations_count: oblCount,
+          linked_diagnostics_count: 0,
+        };
+      });
+
+      // ── Classify relations ─────────────────────────────────────────────────
+      const relationsMap: Array<{
+        key: string; class: LoadClass; rationale: string;
+        linked_obligations_count: number; linked_diagnostics_count: number;
+      }> = slRelations.map(r => {
+        const relKey = `${r.source_entity_key}::${r.relation_type}::${r.target_entity_key}`;
+        const oblCount = obligationCountForKey("entity_relations") +
+                         obligationCountForKey(r.source_entity_key) +
+                         obligationCountForKey(r.target_entity_key);
+        let score = 0;
+        const reasons: string[] = [];
+        const srcUpper = r.source_entity_key.toUpperCase();
+        const tgtUpper = r.target_entity_key.toUpperCase();
+        if (srcUpper.includes("PROTAGONIST") || tgtUpper.includes("PROTAGONIST") ||
+            srcUpper.includes("ANTAGONIST")  || tgtUpper.includes("ANTAGONIST")) {
+          score += 2; reasons.push("involves protagonist or antagonist entity");
+        }
+        if (oblCount >= 1) { score += 1; reasons.push(`${oblCount} obligation(s) involve this relation's parties`); }
+        if (score === 0) reasons.push("supporting relation — no protagonist/antagonist linkage");
+        return {
+          key: relKey,
+          class: scoreToClass(Math.max(score, 1)),
+          rationale: reasons.join("; "),
+          linked_obligations_count: oblCount,
+          linked_diagnostics_count: 0,
+        };
+      });
+
+      console.log("[dev-engine-v2] evaluate_structural_load", {
+        project_id: projectId,
+        axes: axesMap.length, units: unitsMap.length, beats: beatsMap.length,
+        entities: entitiesMap.length, relations: relationsMap.length,
+        core_count: [...axesMap, ...unitsMap, ...beatsMap, ...entitiesMap, ...relationsMap].filter(x => x.class === "core").length,
+      });
+
+      return new Response(JSON.stringify({
+        ok:         true,
+        action:     "evaluate_structural_load",
+        project_id: projectId,
+        load_map: {
+          axes:      axesMap,
+          units:     unitsMap,
+          beats:     beatsMap,
+          entities:  entitiesMap,
+          relations: relationsMap,
+        },
+        summary: {
+          axes_core:      axesMap.filter(x => x.class === "core").length,
+          units_core:     unitsMap.filter(x => x.class === "core").length,
+          beats_core:     beatsMap.filter(x => x.class === "core").length,
+          entities_core:  entitiesMap.filter(x => x.class === "core").length,
+          relations_core: relationsMap.filter(x => x.class === "core").length,
+        },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
