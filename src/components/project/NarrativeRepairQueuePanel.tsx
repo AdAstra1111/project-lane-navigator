@@ -325,7 +325,7 @@ function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noA
 
   return (
     <Collapsible open={expanded} onOpenChange={setExpanded}>
-      <div className="rounded-md border border-border/50 bg-card p-3 space-y-2">
+      <div id={`repair-card-${repair.repair_id}`} className="rounded-md border border-border/50 bg-card p-3 space-y-2 transition-all">
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1.5 min-w-0 flex-1">
             {/* Badges */}
