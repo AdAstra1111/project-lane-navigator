@@ -73,6 +73,9 @@ interface ActionToolbarProps {
   format?: string | null;
   /** Project assigned lane — gates conversions */
   assignedLane?: string | null;
+  /** Generate document on demand */
+  onGenerateDocument?: () => void;
+  generateDocumentPending?: boolean;
 }
 
 export function ActionToolbar({
@@ -95,6 +98,8 @@ export function ActionToolbar({
   selectedVersionId,
   format,
   assignedLane,
+  onGenerateDocument,
+  generateDocumentPending,
 }: ActionToolbarProps) {
   const navigate = useNavigate();
   const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
@@ -120,6 +125,14 @@ export function ActionToolbar({
           {analyzePending ? <Loader2 className="h-3 w-3 animate-spin" /> : hasAnalysis ? <RefreshCw className="h-3 w-3" /> : <Play className="h-3 w-3" />}
           {hasAnalysis ? 'Re-review' : 'Run Review'}
         </Button>
+
+        {/* Generate document */}
+        {onGenerateDocument && (
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={onGenerateDocument} disabled={anyPending || generateDocumentPending}>
+            {generateDocumentPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Generate
+          </Button>
+        )}
 
         {/* Auto-review on content-change toggle */}
         {onAutoReviewToggle && (

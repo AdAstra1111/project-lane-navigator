@@ -1161,7 +1161,7 @@ function RecommendationCard({ recommendation }: { recommendation: RepairRecommen
       className="w-full text-left rounded-md border border-border/50 bg-card hover:bg-accent/30 transition-colors px-3 py-2 space-y-1.5"
     >
       <div className="flex items-start gap-2">
-        <Badge variant="secondary" className="text-[10px] shrink-0 mt-0.5">#{recommendation.rank}</Badge>
+        <Badge variant="secondary" className="text-[10px] shrink-0 mt-0.5">#{recommendation.priority_rank}</Badge>
         <div className="min-w-0 flex-1 space-y-1">
           <p className="text-xs text-foreground line-clamp-2">{recommendation.summary}</p>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -1179,9 +1179,9 @@ function RecommendationCard({ recommendation }: { recommendation: RepairRecommen
           </div>
           <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground">
             <span>Gain: <span className="font-medium text-foreground">{recommendation.expected_stability_gain}</span></span>
-            <span>Risk: <span className="font-medium text-foreground">{recommendation.blast_risk}</span></span>
-            <span>Friction: <span className="font-medium text-foreground">{recommendation.execution_friction}</span></span>
-            <span>Urgency: <span className="font-medium text-foreground">{recommendation.urgency}</span></span>
+            <span>Risk: <span className="font-medium text-foreground">{recommendation.blast_risk_score}</span></span>
+            <span>Friction: <span className="font-medium text-foreground">{recommendation.execution_friction_score}</span></span>
+            <span>Urgency: <span className="font-medium text-foreground">{recommendation.urgency_score}</span></span>
           </div>
         </div>
       </div>
