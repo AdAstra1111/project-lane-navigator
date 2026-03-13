@@ -33,6 +33,10 @@ export interface EpisodeBeatsOpts {
   upstreamContent: string;
   projectTitle: string;
   requestId?: string;
+  /** Optional: Supabase client + ids for writing per-episode progress chunks during season_script generation */
+  supabase?: any;
+  versionId?: string;
+  documentId?: string;
 }
 
 // ─── JSON Batch Contract ───
@@ -353,7 +357,7 @@ RULES:
 - Do NOT include JSON, metadata, or scene numbers outside headings`;
 
 async function generateSeasonScriptSequential(opts: EpisodeBeatsOpts): Promise<string> {
-  const { apiKey, episodeCount, systemPrompt, upstreamContent, projectTitle } = opts;
+  const { apiKey, episodeCount, systemPrompt, upstreamContent, projectTitle, supabase: sb, versionId, documentId } = opts;
   const requestId = opts.requestId || crypto.randomUUID();
 
   // Build batches of SCRIPT_BATCH_SIZE episodes
@@ -423,6 +427,26 @@ ${contextBlock}${sysCtx}`;
 
     batchTexts.push(batchText);
     console.error(JSON.stringify({ diag: "SCRIPT_BATCH_DONE", requestId, batchIndex: bi, start, end, chars: batchText.length }));
+
+    // Write per-episode chunk rows for progress tracking
+    if (sb && versionId && documentId) {
+      const chunkRows = batch.map((epNum) => {
+        const epRe = new RegExp(`## EPISODE ${epNum}:?[\\s\\S]*?(?=## EPISODE ${epNum + 1}:|$)`);
+        const match = batchText.match(epRe);
+        const epText = match ? match[0].trim() : '';
+        return {
+          document_id: documentId,
+          version_id: versionId,
+          chunk_index: epNum - 1,
+          chunk_key: `episode_${epNum}`,
+          status: epText.length > 50 ? 'done' : 'failed',
+          attempts: 1,
+          char_count: epText.length,
+          meta_json: { label: `Episode ${epNum}`, episodeStart: epNum, episodeEnd: epNum, strategy: 'season_script_sequential' },
+        };
+      });
+      await sb.from('project_document_chunks').upsert(chunkRows, { onConflict: 'version_id,chunk_index' });
+    }
 
     // Brief pause between batches to avoid rate limiting
     if (bi < batches.length - 1) await new Promise(r => setTimeout(r, 500));

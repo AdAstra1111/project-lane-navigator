@@ -1042,6 +1042,9 @@ If you find yourself describing what happens in the story, which characters appe
               projectTitle: project.title || "Untitled",
               requestId,
               outputMode: epOutputMode,
+              supabase,
+              versionId: epVersion!.id,
+              documentId: epDocRecord!.id,
             });
 
             // Update version with completed content
