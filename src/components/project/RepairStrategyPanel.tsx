@@ -479,6 +479,12 @@ export function RepairStrategyPanel({ projectId }: Props) {
                     </div>
                   </div>
                 )}
+                {/* Pointer to Strategic Analysis */}
+                <div className="border-t border-border/30 pt-2">
+                  <p className="text-[10px] text-muted-foreground/70 italic">
+                    Detailed comparative strategy rankings and advisory ROI are shown in Strategic Analysis below.
+                  </p>
+                </div>
               </CardContent>
             </Card>
 
