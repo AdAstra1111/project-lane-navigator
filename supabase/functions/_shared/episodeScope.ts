@@ -42,7 +42,8 @@ export const EPISODE_DOC_TYPES = new Set([
   'episode_grid',
   'episode_beats',
   'vertical_episode_beats',
-  'season_script',  // vertical-drama per-episode screenplay generation
+  // 'season_script' removed — routed through largeRiskRouter EPISODIC_DOC_TYPES
+  //   with batchSize=1 (one chunk per episode) for crash-safe persistent generation
 ]);
 
 /**
