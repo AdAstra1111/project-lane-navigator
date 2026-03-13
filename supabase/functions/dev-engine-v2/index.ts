@@ -13368,7 +13368,7 @@ Return ONLY valid JSON:
     // ROI Model:
     //   intervention_roi_score =
     //     prevented_downstream_pressure       (NRF1: preventive_value × confidence, ×100)
-    //     + projected_stability_gain           (ARP1: net_priority_score, capped 0–100)
+    //     + projected_stability_gain           (ARP1: expected_stability_gain, gain-only, capped 0–100)
     //     − execution_friction                 (ARP1: execution_friction_score, 0–100)
     //     − blast_radius                       (ARP1: blast_risk_score, 0–100)
     //
@@ -13398,14 +13398,17 @@ Return ONLY valid JSON:
       for (const f of (nrf1Ok ? nrf1Result.perRepairForecasts : [])) {
         nrf1ForecastMap.set(f.repair_id, f);
       }
-      const ROI_VERSION = "roi-1.0";
+      const ROI_VERSION = "roi-1.1";
       const roiEntries = arp1Result.scoredRepairs.map((rec: any) => {
         const nrf = nrf1ForecastMap.get(rec.repair_id) ?? null;
         const preventiveValue = nrf?.repair_preventive_value ?? 0;
         const forecastConfidence = nrf?.forecast_confidence ?? 0;
         const pdp = Math.min(100, Math.round(preventiveValue * forecastConfidence * 100 * 100) / 100);
-        const netPriority = rec.net_priority_score ?? 0;
-        const psg = Math.min(100, Math.max(0, Math.round(netPriority * 100) / 100));
+        // Use expected_stability_gain (gain-only signal) NOT net_priority_score
+        // net_priority_score already subtracts blast×0.15 and friction×0.15 internally,
+        // so using it here would double-count those penalties.
+        const stabilityGain = rec.expected_stability_gain ?? 0;
+        const psg = Math.min(100, Math.max(0, Math.round(stabilityGain * 100) / 100));
         const ef = Math.min(100, Math.max(0, Math.round((rec.execution_friction_score ?? 0) * 100) / 100));
         const br = Math.min(100, Math.max(0, Math.round((rec.blast_risk_score ?? 0) * 100) / 100));
         const rawRoi = pdp + psg - ef - br;
@@ -13426,7 +13429,8 @@ Return ONLY valid JSON:
           supporting_signals: {
             repair_preventive_value: Math.round(preventiveValue * 1000) / 1000,
             forecast_confidence: Math.round(forecastConfidence * 1000) / 1000,
-            net_priority_score: netPriority,
+            net_priority_score: rec.net_priority_score ?? 0,
+            expected_stability_gain: stabilityGain,
             execution_friction_score: rec.execution_friction_score ?? 0,
             root_cause_score: Math.round((nrf?.root_cause_score ?? 0) * 1000) / 1000,
             blast_risk_score: rec.blast_risk_score ?? 0,
@@ -13447,10 +13451,10 @@ Return ONLY valid JSON:
         computed_at: roiComputedAt, roi_version: ROI_VERSION, blast_radius_available: true,
         roi_formula_notes: {
           prevented_downstream_pressure: "NRF1 repair_preventive_value × forecast_confidence × 100, clamped 0–100",
-          projected_stability_gain: "ARP1 net_priority_score (stability_gain×0.40 + urgency×0.30 − blast×0.15 − friction×0.15), clamped 0–100",
+          projected_stability_gain: "ARP1 expected_stability_gain (gain-only signal, NOT net_priority_score which already includes blast/friction penalties), clamped 0–100",
           execution_friction: "ARP1 execution_friction_score (repairability base + proposal/status modifiers), 0–100",
           blast_radius: "ARP1 blast_risk_score (DX4 simulation blast_radius_score when available, else severity+load_class deterministic fallback), 0–100",
-          overall_formula: "intervention_roi_score = prevented_downstream_pressure + projected_stability_gain − execution_friction − blast_radius, clamped [-100, 200]",
+          overall_formula: "intervention_roi_score = prevented_downstream_pressure + projected_stability_gain − execution_friction − blast_radius, clamped [-100, 200]. No double-counting: each signal is independent.",
         },
         project_context: { candidate_repair_count: roiEntries.length, project_repair_pressure: nrf1Ok ? nrf1Result.projectRepairPressure : 0 },
         ranked_repairs: roiEntries,
