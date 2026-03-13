@@ -514,6 +514,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
         </CollapsibleContent>
       </Collapsible>
 
+      {/* ═══ SECTION 6: ROOT CAUSE CLUSTERS ═══ */}
+      <RootCauseClustersSection rcc={rcc} rccLoading={rccLoading} />
+
       {/* ═══ DISCLAIMER ═══ */}
       {prioritization?.prioritization_disclaimer && (
         <p className="text-[10px] text-muted-foreground/70 border-t border-border/30 pt-2">
