@@ -375,7 +375,10 @@ export function useDevEngineV2(projectId: string | undefined) {
       return callEngineV2('convert', { projectId, documentId: selectedDocId, versionId: vid, ...params });
     },
     onSuccess: (data) => {
-      toast.success(`Converted to ${data.newDoc?.doc_type || 'new format'}`);
+      const isBackgroundGen = data.generating === true;
+      toast.success(isBackgroundGen
+        ? `Generating ${data.newDoc?.doc_type || 'document'} in background — content will appear when ready`
+        : `Converted to ${data.newDoc?.doc_type || 'new format'}`);
       if (data.newDoc) {
         selectDocument(data.newDoc.id);
         if (data.newVersion) setSelectedVersionId(data.newVersion.id);
