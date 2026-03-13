@@ -282,6 +282,26 @@ export default function ProjectDevelopmentEngine() {
   const isBgGenerating = (selectedVersion as any)?.meta_json?.bg_generating === true;
   const isSeasonScript = selectedDoc?.doc_type === 'season_script';
 
+  // Auto-poll versions every 20s while bg_generating — refresh content when done
+  const { data: _polledVersions } = useQuery({
+    queryKey: ['dev-v2-bg-poll', selectedVersionId],
+    queryFn: async () => {
+      if (!selectedVersionId) return null;
+      const { data } = await (supabase as any)
+        .from('project_document_versions')
+        .select('id, plaintext, meta_json')
+        .eq('id', selectedVersionId)
+        .maybeSingle();
+      // When generation completes, refresh the main version list so content appears
+      if (data && data.plaintext && data.meta_json?.bg_generating !== true) {
+        qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+      }
+      return data;
+    },
+    enabled: !!selectedVersionId && isBgGenerating,
+    refetchInterval: isBgGenerating ? 20_000 : false,
+  });
+
   const pipeline = useScriptPipeline(projectId);
   const promotionIntel = usePromotionIntelligence();
   const rewritePipeline = useRewritePipeline(projectId);
