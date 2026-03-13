@@ -71,6 +71,7 @@ const ScriptIntakePage = lazy(() => import("./pages/ScriptIntakePage"));
 const Processing = lazy(() => import("./pages/Processing"));
 // QuickReview / DeepReview kept as thin redirects to canonical workspace analysis
 const NotFound = lazy(() => import("./pages/NotFound"));
+const Pitch = lazy(() => import("./pages/Pitch"));
 const NotesInbox = lazy(() => import("./pages/NotesInbox"));
 // AiTrailerBuilder removed — canonical Trailer Intelligence pipeline only
 const VisualUnits = lazy(() => import("./pages/VisualUnits"));
@@ -224,6 +225,7 @@ const AnimatedRoutes = () => {
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="/share/pack/:token" element={<SharePackView />} />
           
+          <Route path="/pitch" element={<Suspense fallback={null}><Pitch /></Suspense>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
