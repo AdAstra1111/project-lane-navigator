@@ -13886,7 +13886,7 @@ Return ONLY valid JSON:
           strategy_disclaimer:           stratDisclaimer,
         },
         scoring_notes: {
-          arp1_source:      "runARP1Core() — net_priority_score, priority_rank, execution_friction_score",
+          arp1_source:      "runARP1Core() — net_priority_score, priority_rank, execution_friction_score, expected_stability_gain, blast_risk_score",
           nrf1_source:      "runNRF1Core() — repair_preventive_value, forecast_confidence, root_cause_score, axisDebtMap, forecasted_repair_families, affected_axes",
           csp1_source:      csp1Degraded3
             ? "CSP1 unavailable (degraded) — path_quality_signal=0, path_interaction_signal=0 for all candidates"
@@ -13900,7 +13900,11 @@ Return ONLY valid JSON:
           ranked_options:   `top ${Math.min(options.length, 10)} of ${options.length} candidates returned`,
           csp1_degraded:    csp1Degraded3,
           nrf1_degraded:    !nrf1Ok3,
-          version:          "prp2s",
+          roi_integration_mode: "advisory_only",
+          roi_version:      ROI_VERSION,
+          roi_formula_reference: "intervention_roi_score = prevented_downstream_pressure + projected_stability_gain − execution_friction − blast_radius. Uses independent gain-only signals (expected_stability_gain, not net_priority_score). See compute_intervention_roi for full documentation.",
+          anti_double_counting_notes: "ROI is advisory-only and does NOT affect strategic_priority_score. PRP2S strategic formula uses net_priority_score (which internally includes blast×0.15 and friction×0.15 penalties) and separately subtracts friction×0.02. ROI uses independent signals (expected_stability_gain, raw execution_friction_score, raw blast_risk_score). Because PRP2S and ROI source overlapping penalty terms through different formulas, ROI is kept strictly non-binding to avoid double-counting. roi_rank provides an independent ROI-based ordering for diagnostic comparison.",
+          version:          "prp2s-roi-1.0",
         },
         computed_at: prp2sAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
