@@ -227,6 +227,30 @@ export interface InterventionROIData {
   ranked_repairs: ROIRepairEntry[];
 }
 
+// ── Root Cause Cluster types (compute_root_cause_clusters response contract) ──
+
+export interface RootCauseCluster {
+  cluster_id: string;
+  primary_axis: string;
+  involved_repairs: string[];
+  repair_count: number;
+  shared_axes: string[];
+  repair_families: string[];
+  combined_pressure: number;
+  cluster_confidence: number;
+}
+
+export interface RootCauseAnalysisResult {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  cluster_count: number;
+  clusters: RootCauseCluster[];
+  unclustered_repairs: string[];
+  computed_at: string;
+  version: string;
+}
+
 async function fetchPRP1(projectId: string): Promise<PRP1Data> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Authentication required');
@@ -339,6 +363,28 @@ async function fetchPRP2S(projectId: string): Promise<PRP2SData | null> {
   const json = await resp.json();
   if (!json?.ok) return null;
   return json as PRP2SData;
+}
+
+async function fetchRootCauseClusters(projectId: string): Promise<RootCauseAnalysisResult | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'compute_root_cause_clusters',
+      projectId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as RootCauseAnalysisResult;
 }
 
 export function usePreventiveRepairPrioritization(projectId: string | undefined) {
