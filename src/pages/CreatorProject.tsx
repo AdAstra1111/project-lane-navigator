@@ -8,11 +8,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MoreHorizontal } from 'lucide-react';
 import { PipelineTimeline } from '@/components/creator/PipelineTimeline';
 import { IntelPanel } from '@/components/creator/IntelPanel';
+import { DocumentViewer } from '@/components/creator/DocumentViewer';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { STAGE_LABELS } from '@/components/creator/stageLabels';
 
 const FORMAT_BADGES: Record<string, string> = {
   'vertical-drama': 'Vertical Drama',
@@ -29,7 +29,6 @@ export default function CreatorProject() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { project, isLoading: projectLoading } = useProject(id);
-  const { documents } = useProjectDocuments(id);
 
   const [activeStage, setActiveStage] = useState<string | undefined>();
   const [autoRun, setAutoRun] = useState(false);
@@ -37,8 +36,6 @@ export default function CreatorProject() {
 
   const format = (project as any)?.deliverable_type || (project as any)?.format || '';
   const episodeCount = (project as any)?.season_episode_count;
-
-  const activeDoc = documents?.find((d: any) => d.doc_type === activeStage);
 
   if (projectLoading) {
     return (
@@ -105,11 +102,14 @@ export default function CreatorProject() {
 
         {/* CENTRE: Document view */}
         <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          {activeStage && activeDoc ? (
-            <DocumentView
-              stage={activeStage}
-              document={activeDoc}
+          {activeStage ? (
+            <DocumentViewer
               projectId={id!}
+              stage={activeStage}
+              episodeCount={episodeCount}
+              onApproved={() => {
+                // Move to the next stage automatically after approval
+              }}
             />
           ) : (
             <EmptyState
@@ -126,60 +126,6 @@ export default function CreatorProject() {
           collapsed={intelCollapsed}
           onToggle={() => setIntelCollapsed(v => !v)}
         />
-      </div>
-    </div>
-  );
-}
-
-// ── Document View ────────────────────────────────────────────────────────────
-
-function DocumentView({
-  stage,
-  document,
-  projectId,
-}: {
-  stage: string;
-  document: any;
-  projectId: string;
-}) {
-  const label = STAGE_LABELS[stage] ?? stage.replace(/_/g, ' ');
-
-  // Get the latest version content
-  const content = document.plaintext || document.content || '';
-
-  return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
-      {/* Doc header */}
-      <div className="px-6 py-4 border-b border-border/20 flex items-center justify-between shrink-0">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            {label}
-          </h2>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-7 text-xs">
-            Regenerate
-          </Button>
-          <Button variant="outline" size="sm" className="h-7 text-xs">
-            Export
-          </Button>
-          <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white border-0">
-            Approve & continue →
-          </Button>
-        </div>
-      </div>
-
-      {/* Doc content */}
-      <div className="flex-1 overflow-y-auto px-8 py-6">
-        <div className="max-w-3xl mx-auto">
-          {content ? (
-            <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-foreground/90">
-              {content}
-            </pre>
-          ) : (
-            <p className="text-muted-foreground text-sm">No content yet.</p>
-          )}
-        </div>
       </div>
     </div>
   );
