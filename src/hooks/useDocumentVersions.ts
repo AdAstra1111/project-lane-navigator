@@ -23,7 +23,7 @@ export function useDocumentVersions(documentId: string | undefined) {
       if (!documentId) return [];
       const { data, error } = await (supabase as any)
         .from('project_document_versions')
-        .select('id, document_id, version_number, is_current, status, approval_status, change_summary, created_at, meta_json')
+        .select('id, document_id, version_number, is_current, status, approval_status, change_summary, created_at')
         .eq('document_id', documentId)
         .order('version_number', { ascending: false });
       if (error) throw error;

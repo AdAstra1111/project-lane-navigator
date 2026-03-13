@@ -7,7 +7,7 @@ import { useState, useMemo } from 'react';
 import { useProjectDocuments } from '@/hooks/useProjects';
 import { useDocumentVersions, useSetCurrentVersion } from '@/hooks/useDocumentVersions';
 import { cn } from '@/lib/utils';
-import { Check, Loader2, FileText, Star, ArrowUp, Clock } from 'lucide-react';
+import { Check, Loader2, FileText, Star, ArrowUp } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { useDocTypeScopedBest } from '@/hooks/useRunSnapshot';
@@ -129,21 +129,14 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
                       {format(new Date(v.created_at), 'MMM d, HH:mm')}
                     </span>
                   </div>
-                  {(v as any).meta_json?.bg_generating === true ? (
-                    <p className="text-blue-400 mt-0.5 flex items-center gap-1">
-                      <Clock className="h-3 w-3 animate-pulse" />
-                      ⏳ Generating…
-                    </p>
-                  ) : (
-                    <>
-                      {(v as any).label && (
-                        <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{(v as any).label}</p>
-                      )}
-                      {v.change_summary && (
-                        <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{v.change_summary}</p>
-                      )}
-                    </>
-                  )}
+                  <>
+                    {(v as any).label && (
+                      <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{(v as any).label}</p>
+                    )}
+                    {v.change_summary && (
+                      <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{v.change_summary}</p>
+                    )}
+                  </>
                   {v.approval_status && v.approval_status !== 'none' && (
                     <span className={cn(
                       'inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full',
