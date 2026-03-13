@@ -894,9 +894,6 @@ function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData 
   if (roiLoading) {
     return (
       <div className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <Activity className="h-3.5 w-3.5" /> Intervention ROI
-        </h3>
         <Skeleton className="h-32 w-full rounded-md" />
       </div>
     );
@@ -904,17 +901,12 @@ function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData 
 
   if (!roi) {
     return (
-      <div className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <Activity className="h-3.5 w-3.5" /> Intervention ROI
-        </h3>
-        <Card className="border-border/50">
-          <CardContent className="py-6 text-center">
-            <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
-            <p className="text-xs text-muted-foreground">Intervention ROI analysis unavailable.</p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="border-border/50">
+        <CardContent className="py-6 text-center">
+          <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+          <p className="text-xs text-muted-foreground">Intervention ROI analysis unavailable.</p>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -922,10 +914,6 @@ function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData 
 
   return (
     <div className="space-y-3">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-        <Activity className="h-3.5 w-3.5" /> Intervention ROI
-      </h3>
-
       {/* Summary header */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Card className="border-border/50">
