@@ -585,34 +585,6 @@ export function RepairStrategyPanel({ projectId }: Props) {
           )}
         </DialogContent>
       </Dialog>
-
-      {/* ═══ STRATEGY OPTION DETAIL MODAL ═══ */}
-      <Dialog open={!!selectedStrategyOption} onOpenChange={(open) => !open && setSelectedStrategyOption(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-mono text-sm">{selectedStrategyOption?.repair_type}</DialogTitle>
-            <DialogDescription className="text-xs">Strategy option detail</DialogDescription>
-          </DialogHeader>
-          {selectedStrategyOption && (
-            <div className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                <Detail label="Strategic Score" value={selectedStrategyOption.strategic_priority_score.toFixed(2)} />
-                <Detail label="Confidence" value={`${Math.round(selectedStrategyOption.recommendation_confidence * 100)}%`} />
-              </div>
-              {(selectedStrategyOption.primary_signals ?? []).length > 0 && (
-                <div className="space-y-1.5">
-                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Primary Signals</h4>
-                  <div className="flex flex-wrap gap-1">
-                    {selectedStrategyOption.primary_signals.map(s => (
-                      <Badge key={s} variant="secondary" className="text-[10px]">{s}</Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
