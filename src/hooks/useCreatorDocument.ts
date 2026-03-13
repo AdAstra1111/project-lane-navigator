@@ -1,9 +1,9 @@
 /**
- * useCreatorDocument — fetches document content + version for the Creator UI.
- * Finds the document by doc_type within a project, loads the current version's
- * plaintext, and exposes approve/regenerate actions.
+ * useCreatorDocument — fetches document content + approval state for the Creator UI.
+ * Uses useProjectDocuments (already cached) to find the doc, then fetches the
+ * approved version's plaintext directly.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { approveAndActivate } from '@/lib/active-folder/approveAndActivate';
@@ -31,56 +31,62 @@ export function useCreatorDocument(
 ): CreatorDocumentState {
   const queryClient = useQueryClient();
 
-  // 1. Find document using the same hook that powers the pipeline timeline (already cached)
-  const { documents, isLoading: docLoading } = useProjectDocuments(projectId);
-  const document = (documents || []).find((d: any) => {
-    if (!d.doc_type) return false;
-    // Exact match first
-    if (d.doc_type === docType) return true;
-    // Stage mapping fallback
-    return mapDocTypeToLadderStage(d.doc_type) === docType;
-  }) ?? null;
+  // Use the cached project documents (same query that powers the pipeline timeline)
+  const { documents, isLoading: docsLoading } = useProjectDocuments(projectId);
 
-  // 2. Fetch the best version — priority: approved > is_current > latest_version_id > highest number
-  const { data: version, isLoading: versionLoading } = useQuery({
-    queryKey: ['creator-version', document?.id],
+  // Find this document by stage key or doc_type
+  const document = useMemo(() => {
+    if (!documents || !docType) return null;
+    return (documents as any[]).find(d => {
+      if (!d.doc_type) return false;
+      if (d.doc_type === docType) return true;
+      return mapDocTypeToLadderStage(d.doc_type) === docType;
+    }) ?? null;
+  }, [documents, docType]);
+
+  // Fetch all versions to find the approved one (for content + approval state)
+  const { data: versions, isLoading: versionsLoading } = useQuery({
+    queryKey: ['creator-versions', document?.id],
     queryFn: async () => {
-      if (!document?.id) return null;
-
-      // Fetch all versions for this document
-      const { data: allVersions, error } = await (supabase as any)
+      if (!document?.id) return [];
+      const { data, error } = await (supabase as any)
         .from('project_document_versions')
         .select('id, version_number, plaintext, is_current, approval_status, meta_json, bg_generating, created_at')
         .eq('document_id', document.id)
         .order('version_number', { ascending: false });
-
-      if (error) throw error;
-      if (!allVersions || allVersions.length === 0) return null;
-
-      // 1. Prefer approved version (the converged one)
-      const approved = allVersions.find((v: any) => v.approval_status === 'approved');
-      if (approved) return approved;
-
-      // 2. Prefer is_current
-      const current = allVersions.find((v: any) => v.is_current === true);
-      if (current) return current;
-
-      // 3. Match latest_version_id if set on document
-      if (document.latest_version_id) {
-        const pinned = allVersions.find((v: any) => v.id === document.latest_version_id);
-        if (pinned) return pinned;
+      if (error) {
+        console.warn('[useCreatorDocument] version fetch error:', error);
+        return [];
       }
-
-      // 4. Highest version_number (first in desc-sorted list)
-      return allVersions[0];
+      return data || [];
     },
     enabled: !!document?.id,
-    refetchInterval: (query) => {
-      return query.state.data?.bg_generating ? 8000 : false;
-    },
+    staleTime: 30_000,
   });
 
-  // 3. Approve mutation
+  // Pick best version: approved > is_current > highest version number
+  const version = useMemo(() => {
+    if (!versions || versions.length === 0) return null;
+    return (
+      versions.find((v: any) => v.approval_status === 'approved') ||
+      versions.find((v: any) => v.is_current === true) ||
+      versions[0]
+    );
+  }, [versions]);
+
+  // Content: version plaintext > doc.version_plaintext (pre-fetched) > doc.extracted_text
+  const content = useMemo(() => {
+    if (version?.plaintext) return version.plaintext;
+    if ((document as any)?.version_plaintext) return (document as any).version_plaintext;
+    if ((document as any)?.extracted_text) return (document as any).extracted_text;
+    return null;
+  }, [version, document]);
+
+  // Approval state
+  const isApproved = version?.approval_status === 'approved';
+  const isGenerating = version?.bg_generating === true || (document as any)?.bg_generating === true;
+
+  // Approve action
   const [isApproving, setIsApproving] = useState(false);
 
   const approve = useCallback(async () => {
@@ -96,9 +102,7 @@ export function useCreatorDocument(
         sourceFlow: 'creator-ui',
       });
       toast.success('Approved ✓');
-      // Invalidate pipeline state + document caches
-      queryClient.invalidateQueries({ queryKey: ['creator-doc', projectId, docType] });
-      queryClient.invalidateQueries({ queryKey: ['creator-version', document?.id] });
+      queryClient.invalidateQueries({ queryKey: ['creator-versions', document?.id] });
       queryClient.invalidateQueries({ queryKey: ['pipeline-approved', projectId] });
       queryClient.invalidateQueries({ queryKey: ['project-documents', projectId] });
     } catch (e: any) {
@@ -106,19 +110,16 @@ export function useCreatorDocument(
     } finally {
       setIsApproving(false);
     }
-  }, [projectId, version?.id, document?.id, docType, queryClient]);
-
-  const isGenerating =
-    document?.bg_generating === true || version?.bg_generating === true;
+  }, [projectId, version?.id, document?.id, queryClient]);
 
   return {
     documentId: document?.id ?? null,
     versionId: version?.id ?? null,
-    content: version?.plaintext ?? document?.plaintext ?? null,
+    content,
     versionNumber: version?.version_number ?? null,
-    isApproved: version?.approval_status === 'approved',
+    isApproved,
     isGenerating,
-    isLoading: docLoading || versionLoading,
+    isLoading: docsLoading || versionsLoading,
     error: null,
     approve,
     isApproving,
