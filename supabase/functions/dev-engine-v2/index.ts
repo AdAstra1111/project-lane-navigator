@@ -7372,13 +7372,15 @@ MATERIAL:\n${version.plaintext}${convertTemplateBlock}`;
       // ── EPISODE DOC TYPES: Redirect to generate-document chunked pipeline ──
       // Single-shot LLM calls truncate at high episode counts (e.g., 35 episodes).
       // Route through the chunked generator which batches episodes in groups of 6.
-      const EPISODE_REDIRECT_SET = new Set(["episode_grid", "vertical_episode_beats", "episode_beats"]);
+      const EPISODE_REDIRECT_SET = new Set(["episode_grid", "vertical_episode_beats", "episode_beats", "season_script", "season_master_script"]);
       const resolvedTargetForRedirect = (() => {
         const docTypeMap_local: Record<string, string> = {
           EPISODE_GRID: "episode_grid", "EPISODE GRID": "episode_grid",
           VERTICAL_EPISODE_BEATS: "vertical_episode_beats", "VERTICAL EPISODE BEATS": "vertical_episode_beats",
           EPISODE_BEATS: "episode_beats", "EPISODE BEATS": "episode_beats",
           EPISODE_BEAT_SHEET: "vertical_episode_beats", "EPISODE BEAT SHEET": "vertical_episode_beats",
+          SEASON_SCRIPT: "season_script", "SEASON SCRIPT": "season_script",
+          SEASON_MASTER_SCRIPT: "season_master_script", "SEASON MASTER SCRIPT": "season_master_script",
         };
         return docTypeMap_local[normalizedTarget] || docTypeMap_local[targetOutput?.toUpperCase()] || null;
       })();
@@ -7411,10 +7413,15 @@ MATERIAL:\n${version.plaintext}${convertTemplateBlock}`;
           newVersionId = vers?.[0]?.id || null;
         }
 
+        const isBackgroundGen = !!(genResult.generating || genResult.bg_generating);
+        const changeSummary = isBackgroundGen
+          ? `${resolvedTargetForRedirect} generation started in background — refresh in a few minutes to see content`
+          : "Generated via chunked episode pipeline";
         return new Response(JSON.stringify({
           newDoc: { id: newDocId, doc_type: resolvedTargetForRedirect },
           newVersion: { id: newVersionId },
-          convert: { converted_text: genResult.content || "", format: resolvedTargetForRedirect, change_summary: "Generated via chunked episode pipeline" },
+          generating: isBackgroundGen,
+          convert: { converted_text: genResult.content || "", format: resolvedTargetForRedirect, change_summary: changeSummary },
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
