@@ -561,6 +561,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
         )}
       </div>
 
+      {/* ═══ SECTION 4b: PRP2S STRATEGIC STRATEGY WITH ROI ADVISORY ═══ */}
+      <PRP2SAdvisorySection prp2s={prp2s} prp2sLoading={prp2sLoading} />
+
       {/* ═══ SECTION 5: INTERVENTION ROI (READ-ONLY DIAGNOSTIC) ═══ */}
       <InterventionROISection roi={roi} roiLoading={roiLoading} />
 
