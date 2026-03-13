@@ -22,10 +22,13 @@ import {
 import { Progress } from '@/components/ui/progress';
 import {
   ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle,
-  RefreshCw, Info, Star, Unlock, Shield, Target,
+  RefreshCw, Info, Star, Unlock, Shield, Target, Activity, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import {
+  Collapsible, CollapsibleContent, CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 
 interface Props {
   projectId: string | undefined;
