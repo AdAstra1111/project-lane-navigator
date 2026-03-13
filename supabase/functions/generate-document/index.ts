@@ -58,6 +58,7 @@ const UPSTREAM_DEPS: Record<string, string[]> = {
   format_rules: ["idea_brief", "concept_brief"],
   vertical_market_sheet: ["idea_brief", "concept_brief"],
   season_scripts_bundle: ["episode_grid", "vertical_episode_beats", "character_bible"],
+  season_script: ["vertical_episode_beats", "character_bible", "season_arc", "episode_grid"],
   future_seasons_map: ["season_arc", "series_overview"],
   topline_narrative: ["idea", "idea_brief", "concept_brief", "market_sheet", "vertical_market_sheet", "blueprint"],
   budget_topline: ["treatment"],
