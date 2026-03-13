@@ -68,6 +68,35 @@ export interface NRF1Data {
   axis_debt_map: AxisDebtEntry[];
 }
 
+export interface PRP2StrategyOption {
+  repair_id: string;
+  repair_type: string;
+  strategic_priority_score: number;
+  recommendation_confidence: number;
+  primary_signals: string[];
+}
+
+export interface PRP2AxisHotspot {
+  axis: string;
+  risk_level: string;
+  source_repair_count: number;
+}
+
+export interface PRP2Data {
+  ok: boolean;
+  selected_repair_id: string;
+  selected_repair_type: string;
+  strategic_priority_score: number;
+  recommendation_confidence: number;
+  selection_rationale: string;
+  reduced_axis_debt: string[];
+  prevented_repair_families: string[];
+  unlocks_repairs: string[];
+  ranked_strategy_options: PRP2StrategyOption[];
+  axis_debt_hotspots?: PRP2AxisHotspot[];
+  scoring_notes?: Record<string, string>;
+}
+
 async function fetchPRP1(projectId: string): Promise<PRP1Data> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Authentication required');
@@ -116,10 +145,33 @@ async function fetchNRF1(projectId: string): Promise<NRF1Data | null> {
   return json as NRF1Data;
 }
 
+async function fetchPRP2(projectId: string): Promise<PRP2Data | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'select_preventive_strategy',
+      projectId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PRP2Data;
+}
+
 export function usePreventiveRepairPrioritization(projectId: string | undefined) {
   const queryClient = useQueryClient();
   const prp1Key = ['prp1-prioritization', projectId];
   const nrf1Key = ['nrf1-forecast-strategy', projectId];
+  const prp2Key = ['prp2-strategy', projectId];
 
   const prp1Query = useQuery({
     queryKey: prp1Key,
@@ -128,8 +180,6 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     staleTime: 60_000,
   });
 
-  // Only fetch NRF1 when PRP1 succeeded but is degraded (no preventive data)
-  // or when we need axis_debt_map which PRP1 doesn't include
   const needsNrf1 = !!projectId && !!prp1Query.data && !prp1Query.data.nrf1_degraded;
 
   const nrf1Query = useQuery({
@@ -139,16 +189,26 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     staleTime: 60_000,
   });
 
+  const prp2Query = useQuery({
+    queryKey: prp2Key,
+    queryFn: () => fetchPRP2(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
   const refresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: prp1Key });
     queryClient.invalidateQueries({ queryKey: nrf1Key });
+    queryClient.invalidateQueries({ queryKey: prp2Key });
   }, [queryClient]);
 
   return {
     prp1: prp1Query.data ?? null,
     nrf1: nrf1Query.data ?? null,
+    prp2: prp2Query.data ?? null,
     isLoading: prp1Query.isLoading,
     nrf1Loading: nrf1Query.isLoading,
+    prp2Loading: prp2Query.isLoading,
     error: prp1Query.error?.message ?? null,
     refresh,
   };

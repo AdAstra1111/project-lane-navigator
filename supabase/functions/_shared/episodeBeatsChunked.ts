@@ -42,34 +42,20 @@ const BATCH_SYSTEM_PROMPT_BEATS = `You output ONLY valid JSON. No markdown fence
 JSON schema:
 {"episodes": {"1": "<FULL EPISODE 1 BLOCK>", "2": "<FULL EPISODE 2 BLOCK>", ...}}
 
-Each episode value is a text string using this EXACT format:
-
-## EPISODE N: <specific active title>
-*Duration: 120–180 seconds*
-
-1. [HOOK] <What specifically happens in the opening seconds — a concrete action or image that demands attention>
-2. [ESCALATION] <How tension or stakes increase — what new pressure or complication arrives>
-3. [REVERSAL or REVELATION] <An unexpected turn, new information, or shift in power/understanding>
-4. [CHARACTER DECISION] <A choice or action the focal character makes under pressure>
-5. [CLIFFHANGER] <The final unresolved beat — specific image or revelation that pulls to the next episode>
-
-Add beats 6–7 if the episode duration or complexity warrants them (max 8 beats).
-
-BEAT FORMAT: Each beat must follow this exact structure:
-  N. [BEAT_TYPE] description
-  Where BEAT_TYPE is one of: HOOK / ESCALATION / REVERSAL / REVELATION / CLIMAX / CHARACTER DECISION / CLIFFHANGER
-  The description must state WHAT HAPPENS — a specific story event, character action, or revealed fact.
-
 Rules:
-- All episodes must start with "## EPISODE N:" heading.
-- Every episode must have beat 1 as HOOK and final beat as CLIFFHANGER.
-- Beats must be specific story events — not mood descriptions, not summaries.
+- Only output the requested episode numbers.
+- Each episode value MUST start with a heading line: "## EPISODE N: <title>"
+- Each episode MUST include 5–8 numbered beats.
 - NEVER collapse multiple episodes into one entry.
 - NEVER write ranges like "Eps 1–7" or "Episodes 2-5 follow same structure".
 - NEVER use placeholders, "template", "follow established structure", or abbreviations.
 - Every requested episode MUST appear as its own key in the JSON object.
-- Do NOT reference other episodes. Each episode is written fully on its own.
-- NEVER write "PHASE", "ANCHORS", or "PRESERVED".`;
+- Do NOT reference other episodes by range or shorthand (e.g., "Eps 1–7…") anywhere inside an episode block.
+- Do NOT include meta commentary about the season structure.
+- NEVER write "PHASE", "ANCHORS", or "PRESERVED".
+- NEVER describe other episodes (no "episodes 1–8 preserved", "earlier episodes", etc).
+- Each requested episode must be written fully as its own episode.
+- Every beat must describe THIS episode's unique events — no "same as above" or "continues the pattern".`;
 
 // Episode GRID mode: structural overview per episode (not full beat breakdown)
 const BATCH_SYSTEM_PROMPT_GRID = `You output ONLY valid JSON. No markdown fences, no commentary, no preamble.

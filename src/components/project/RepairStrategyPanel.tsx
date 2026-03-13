@@ -1,10 +1,13 @@
 /**
- * RepairStrategyPanel — Surfaces PRP1 preventive repair prioritization
- * and NRF1 axis debt context. Read-only UI. No mutations.
+ * RepairStrategyPanel — Surfaces PRP1 preventive repair prioritization,
+ * NRF1 axis debt context, and PRP2 strategic recommendation. Read-only UI.
  */
 
 import { useState, useMemo } from 'react';
-import { usePreventiveRepairPrioritization, type PRP1Repair, type AxisDebtEntry } from '@/hooks/usePreventiveRepairPrioritization';
+import {
+  usePreventiveRepairPrioritization,
+  type PRP1Repair, type AxisDebtEntry, type PRP2Data, type PRP2StrategyOption,
+} from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -17,7 +20,8 @@ import {
 } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import {
-  ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle, RefreshCw, Info,
+  ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle,
+  RefreshCw, Info, Star, Unlock, Shield, Target,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -53,8 +57,9 @@ const RISK_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 type SortKey = 'preventive_rank' | 'baseline_rank' | 'preventive_score' | 'rank_delta' | 'root_cause_signal' | 'preventive_confidence_signal';
 
 export function RepairStrategyPanel({ projectId }: Props) {
-  const { prp1, nrf1, isLoading, nrf1Loading, error, refresh } = usePreventiveRepairPrioritization(projectId);
+  const { prp1, nrf1, prp2, isLoading, nrf1Loading, prp2Loading, error, refresh } = usePreventiveRepairPrioritization(projectId);
   const [selectedRepair, setSelectedRepair] = useState<PRP1Repair | null>(null);
+  const [selectedStrategyOption, setSelectedStrategyOption] = useState<PRP2StrategyOption | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('preventive_rank');
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -384,8 +389,175 @@ export function RepairStrategyPanel({ projectId }: Props) {
         </div>
       </div>
 
+      {/* ═══ SECTION 4: PRP2 STRATEGIC REPAIR RECOMMENDATION ═══ */}
+      <div className="space-y-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <Target className="h-3.5 w-3.5" />
+          Strategic Repair Recommendation
+        </h3>
+
+        {prp2Loading ? (
+          <Skeleton className="h-32 w-full rounded-md" />
+        ) : !prp2 ? (
+          <Card className="border-border/50">
+            <CardContent className="py-6 text-center">
+              <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+              <p className="text-xs text-muted-foreground">No strategic repair required.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {/* Top Recommendation Card */}
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Star className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-semibold text-foreground">Recommended Repair</span>
+                    </div>
+                    <p className="font-mono text-xs text-foreground">{prp2.selected_repair_type}</p>
+                  </div>
+                  <div className="flex gap-3 text-right shrink-0">
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block">Strategic Score</span>
+                      <span className="font-mono text-sm font-bold text-foreground">{prp2.strategic_priority_score.toFixed(1)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block">Confidence</span>
+                      <span className="font-mono text-sm font-bold text-foreground">{Math.round(prp2.recommendation_confidence * 100)}%</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Rationale */}
+                {prp2.selection_rationale && (
+                  <div className="border-t border-border/30 pt-2">
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">{prp2.selection_rationale}</p>
+                  </div>
+                )}
+
+                {/* Chips row */}
+                <div className="flex flex-wrap gap-3">
+                  {prp2.prevented_repair_families.length > 0 && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Prevents</span>
+                      <div className="flex flex-wrap gap-1">
+                        {prp2.prevented_repair_families.map(f => (
+                          <Badge key={f} variant="secondary" className="text-[9px] font-mono px-1.5 py-0 h-4">{f}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {prp2.reduced_axis_debt.length > 0 && (
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Reduces Debt On</span>
+                      <div className="flex flex-wrap gap-1">
+                        {prp2.reduced_axis_debt.map(a => (
+                          <Badge key={a} variant="outline" className="text-[9px] font-mono px-1.5 py-0 h-4">{a}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Unlocked repairs */}
+                {prp2.unlocks_repairs.length > 0 && (
+                  <div className="border-t border-border/30 pt-2 space-y-1">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                      <Unlock className="h-3 w-3" /> Unlocks
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {prp2.unlocks_repairs.map(r => (
+                        <Badge key={r} variant="outline" className="text-[9px] font-mono px-1.5 py-0 h-4">{r}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Ranked Strategy Options Table */}
+            {prp2.ranked_strategy_options.length > 0 && (
+              <Card className="border-border/50">
+                <CardHeader className="pb-2 px-4 pt-4">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <Gauge className="h-4 w-4 text-muted-foreground" />
+                    Ranked Strategy Options
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border/50">
+                          <TableHead className="text-xs w-[40px]">Rank</TableHead>
+                          <TableHead className="text-xs">Repair Type</TableHead>
+                          <TableHead className="text-xs w-[80px]">Score</TableHead>
+                          <TableHead className="text-xs w-[80px]">Confidence</TableHead>
+                          <TableHead className="text-xs">Primary Signals</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {prp2.ranked_strategy_options.map((opt, idx) => (
+                          <TableRow
+                            key={opt.repair_id}
+                            className={cn(
+                              'cursor-pointer hover:bg-muted/30 transition-colors border-border/30',
+                              opt.repair_id === prp2.selected_repair_id && 'bg-primary/5'
+                            )}
+                            onClick={() => setSelectedStrategyOption(opt)}
+                          >
+                            <TableCell className="font-mono text-xs text-center">{idx + 1}</TableCell>
+                            <TableCell className="font-mono text-xs">{opt.repair_type}</TableCell>
+                            <TableCell className="font-mono text-xs text-center">{opt.strategic_priority_score.toFixed(1)}</TableCell>
+                            <TableCell className="font-mono text-xs text-center">{Math.round(opt.recommendation_confidence * 100)}%</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {(opt.primary_signals ?? []).slice(0, 3).map(s => (
+                                  <Badge key={s} variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{s}</Badge>
+                                ))}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Axis Debt Hotspots (PRP2) */}
+            {prp2.axis_debt_hotspots && prp2.axis_debt_hotspots.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Shield className="h-3 w-3" />
+                  Axis Debt Hotspots
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {prp2.axis_debt_hotspots.map(h => (
+                    <Card key={h.axis} className="border-border/50">
+                      <CardContent className="p-3 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-mono font-medium text-foreground">{h.axis}</span>
+                          <Badge variant={riskBadgeVariant(h.risk_level)} className="text-[10px] uppercase">{h.risk_level}</Badge>
+                        </div>
+                        <span className="text-[11px] text-muted-foreground">
+                          Source repairs: <span className="font-mono text-foreground">{h.source_repair_count}</span>
+                        </span>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* ═══ DISCLAIMER ═══ */}
-      {prioritization.prioritization_disclaimer && (
+      {prioritization?.prioritization_disclaimer && (
         <p className="text-[10px] text-muted-foreground/70 border-t border-border/30 pt-2">
           {prioritization.prioritization_disclaimer}
         </p>
@@ -400,7 +572,6 @@ export function RepairStrategyPanel({ projectId }: Props) {
           </DialogHeader>
           {selectedRepair && (
             <div className="space-y-4 text-xs">
-              {/* Section: Ranking */}
               <div className="space-y-1.5">
                 <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Ranking</h4>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pl-1">
@@ -416,8 +587,6 @@ export function RepairStrategyPanel({ projectId }: Props) {
                   <Detail label="Friction" value={selectedRepair.execution_friction_signal.toFixed(1)} />
                 </div>
               </div>
-
-              {/* Section: Forecast Families */}
               {selectedRepair.forecasted_repair_families.length > 0 && (
                 <div className="space-y-1.5">
                   <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Forecast Families</h4>
@@ -428,14 +597,40 @@ export function RepairStrategyPanel({ projectId }: Props) {
                   </div>
                 </div>
               )}
-
-              {/* Section: Explanation Tags */}
               {selectedRepair.explanation_tags.length > 0 && (
                 <div className="space-y-1.5">
                   <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Explanation Tags</h4>
                   <div className="flex flex-wrap gap-1 pl-1">
                     {selectedRepair.explanation_tags.map((t) => (
                       <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ STRATEGY OPTION DETAIL MODAL ═══ */}
+      <Dialog open={!!selectedStrategyOption} onOpenChange={(open) => !open && setSelectedStrategyOption(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-sm">{selectedStrategyOption?.repair_type}</DialogTitle>
+            <DialogDescription className="text-xs">Strategy option detail</DialogDescription>
+          </DialogHeader>
+          {selectedStrategyOption && (
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                <Detail label="Strategic Score" value={selectedStrategyOption.strategic_priority_score.toFixed(2)} />
+                <Detail label="Confidence" value={`${Math.round(selectedStrategyOption.recommendation_confidence * 100)}%`} />
+              </div>
+              {(selectedStrategyOption.primary_signals ?? []).length > 0 && (
+                <div className="space-y-1.5">
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Primary Signals</h4>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedStrategyOption.primary_signals.map(s => (
+                      <Badge key={s} variant="secondary" className="text-[10px]">{s}</Badge>
                     ))}
                   </div>
                 </div>

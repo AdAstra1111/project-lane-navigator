@@ -566,14 +566,11 @@ const DOC_TYPE_GATE_OVERRIDES: Record<string, { ci: number; gp: number }> = {
   market_sheet:          { ci: 50, gp: 72 },
   vertical_market_sheet: { ci: 50, gp: 72 },
   format_rules:          { ci: 55, gp: 65 },
-  // Episode grid: structural document — completeness, uniqueness, arc coverage.
-  // CI:70/GP:75: a complete, specific grid passes. High targets cause score thrash.
+  // Episode grid is a STRUCTURAL document — scored on completeness, uniqueness,
+  // arc coverage, and hook/cliffhanger quality. NOT on narrative prose craft.
+  // CI:70 = all fields present and specific; GP:75 = escalation logic sound.
+  // High CI targets (95+) are meaningless and cause score thrash on this doc type.
   episode_grid:          { ci: 70, gp: 75 },
-  // Episode beats: structural document — beat density, hook/cliffhanger per episode.
-  // CI:72/GP:76: a complete beats doc with typed beats and correct structure passes.
-  // NOT a narrative prose document — CI:95 would be meaningless and cause thrash.
-  vertical_episode_beats: { ci: 72, gp: 76 },
-  episode_beats:          { ci: 72, gp: 76 },
 };
 
 /** Returns the effective CI+GP gate thresholds for a given doc type and job. */
