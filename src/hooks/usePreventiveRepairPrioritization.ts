@@ -145,6 +145,48 @@ async function fetchNRF1(projectId: string): Promise<NRF1Data | null> {
   return json as NRF1Data;
 }
 
+async function fetchPRP2(projectId: string): Promise<PRP2Data | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'select_preventive_strategy',
+      projectId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PRP2Data;
+}
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'forecast_repair_pressure',
+      projectId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as NRF1Data;
+}
+
 export function usePreventiveRepairPrioritization(projectId: string | undefined) {
   const queryClient = useQueryClient();
   const prp1Key = ['prp1-prioritization', projectId];
