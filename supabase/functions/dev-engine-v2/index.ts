@@ -13265,6 +13265,8 @@ Return ONLY valid JSON:
           axis_debt_reduction:     { axes_addressed: [], axis_debt_before: {}, highest_debt_axis: null },
           downstream_prevention:   { forecasted_families_cleared: [], forecast_confidence: 0, repair_preventive_value: 0 },
           likely_next_repairs:     [],
+          intervention_roi:        0,
+          roi_components:          { prevented_downstream_pressure: 0, projected_stability_gain: 0, execution_friction: 0, blast_radius: 0 },
           path_context:            null,
           project_context: {
             current_nsi:             arp1Result.currentNSI ?? null,
