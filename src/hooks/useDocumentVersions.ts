@@ -3,7 +3,6 @@
  * Supports bg_generating polling: when any version has meta_json.bg_generating === true,
  * auto-refetches every 20s until generation completes.
  */
-import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -24,7 +23,7 @@ export interface DocumentVersion {
 }
 
 export function useDocumentVersions(documentId: string | undefined) {
-  const query = useQuery({
+  return useQuery({
     queryKey: ['document-versions', documentId],
     queryFn: async () => {
       if (!documentId) return [];
@@ -42,27 +41,13 @@ export function useDocumentVersions(documentId: string | undefined) {
       }));
     },
     enabled: !!documentId,
-  });
-
-  // If any version is generating, poll every 20s
-  const hasGenerating = useMemo(
-    () => (query.data ?? []).some(v => v.bg_generating),
-    [query.data],
-  );
-
-  // Re-run query with interval when generating
-  useQuery({
-    queryKey: ['document-versions-poll', documentId],
-    queryFn: async () => {
-      // This triggers a refetch of the main query
-      query.refetch();
-      return null;
+    // Poll every 20s when any version is still generating
+    refetchInterval: (query) => {
+      const vers = query.state.data as DocumentVersion[] | undefined;
+      if (vers?.some(v => v.bg_generating)) return 20_000;
+      return false;
     },
-    enabled: hasGenerating,
-    refetchInterval: hasGenerating ? 20_000 : false,
   });
-
-  return query;
 }
 
 export function useSetCurrentVersion() {
