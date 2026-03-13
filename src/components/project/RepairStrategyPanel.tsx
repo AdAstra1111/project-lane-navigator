@@ -671,7 +671,7 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
     return (
       <div className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <Target className="h-3.5 w-3.5" /> Enhanced Strategy (PRP2S)
+          <Target className="h-3.5 w-3.5" /> Strategic Analysis
         </h3>
         <Skeleton className="h-32 w-full rounded-md" />
       </div>
