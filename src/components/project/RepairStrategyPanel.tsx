@@ -61,7 +61,7 @@ const RISK_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 type SortKey = 'preventive_rank' | 'baseline_rank' | 'preventive_score' | 'rank_delta' | 'root_cause_signal' | 'preventive_confidence_signal';
 
 export function RepairStrategyPanel({ projectId }: Props) {
-  const { prp1, nrf1, prp2, isLoading, nrf1Loading, prp2Loading, error, refresh } = usePreventiveRepairPrioritization(projectId);
+  const { prp1, nrf1, prp2, roi, isLoading, nrf1Loading, prp2Loading, roiLoading, error, refresh } = usePreventiveRepairPrioritization(projectId);
   const [selectedRepair, setSelectedRepair] = useState<PRP1Repair | null>(null);
   const [selectedStrategyOption, setSelectedStrategyOption] = useState<PRP2StrategyOption | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('preventive_rank');
