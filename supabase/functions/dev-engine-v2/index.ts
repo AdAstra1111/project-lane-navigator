@@ -13402,6 +13402,8 @@ Return ONLY valid JSON:
           repair_preventive_value:     repairPreventiveValue,
         },
         likely_next_repairs:    likelyNextRepairs,
+        intervention_roi:      selectedROI.intervention_roi_score,
+        roi_components:        selectedROI.roi_components,
         path_context: selectedPath ? {
           path_id:                 selectedPath.path_id,
           path_label:              selectedPath.path_label ?? null,
@@ -13423,9 +13425,11 @@ Return ONLY valid JSON:
           csp1_source:         csp1Degraded ? "CSP1 unavailable — path_context degraded, repair selection from inline PRP2 scoring only" : "CSP1 evaluate_repair_paths — adjusted_path_score, sequential_effect_label",
           inline_formula:      "preventive_score = net_priority_score + (preventive_value × confidence × 0.30) + (root_cause × 5) − (friction × 0.02)",
           composite_formula:   "prp2_composite = preventive_score + adjusted_path_score × 0.10",
+          roi_formula:         "intervention_roi = prevented_downstream_pressure + projected_stability_gain − execution_friction − blast_radius",
+          roi_component_sources: "prevented_downstream_pressure: NRF1(preventive_value × confidence × 100); projected_stability_gain: ARP1(min(net_priority,80) + root_cause×20); execution_friction: ARP1(execution_friction_score); blast_radius: affected_axes×12 + forecast_families×8",
           tie_break:           "preventive_score desc → net_priority_score desc → repair_id asc",
           csp1_degraded:       csp1Degraded,
-          version:             "prp2",
+          version:             "prp2+roi",
         },
         computed_at: prp2ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
