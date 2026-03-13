@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { SeasonScriptProgress } from '@/components/devengine/SeasonScriptProgress';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
@@ -763,16 +762,11 @@ export default function ProjectDevelopmentEngine() {
     setIsGeneratingDocument(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const { data: genResp } = await supabase.functions.invoke('generate-document', {
+      await supabase.functions.invoke('generate-document', {
         body: { projectId, docType: selectedDoc.doc_type, userId: user?.id, mode: 'draft' },
       });
-      // Invalidate using the correct query keys from useDevEngineV2
-      qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+      qc.invalidateQueries({ queryKey: ['versions', projectId, selectedDoc.doc_type] });
       qc.invalidateQueries({ queryKey: ['documents', projectId] });
-      // If background generation started, switch to the new placeholder version immediately
-      if (genResp?.generating === true && genResp?.version_id) {
-        setSelectedVersionId(genResp.version_id);
-      }
     } finally {
       setIsGeneratingDocument(false);
     }
@@ -1772,7 +1766,7 @@ export default function ProjectDevelopmentEngine() {
                                </Button>
                              </div>
                            )}
-                          </>)}
+                          </>
                      </CardContent>
                    </Card>
 

@@ -194,13 +194,6 @@ export function useDevEngineV2(projectId: string | undefined) {
       return rows;
     },
     enabled: !!selectedDocId,
-    // Poll every 8s when a bg_generating version exists (season_script generation in progress)
-    refetchInterval: (query: any) => {
-      const vers = query.state.data as DevVersion[] | undefined;
-      if (!vers?.length) return false;
-      const hasBgGen = vers.some((v: any) => v.meta_json?.bg_generating === true);
-      return hasBgGen ? 8000 : false;
-    },
   });
 
   // Derive the "current" version: prefer is_current flag, fallback to highest version_number
