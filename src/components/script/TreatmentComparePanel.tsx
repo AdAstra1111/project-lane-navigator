@@ -120,8 +120,8 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
   const selectedTreatment = treatments.find(t => t.id === selectedId);
   const treatmentText = selectedTreatment?.extracted_text || '';
 
-  const scriptWords = scriptText.split(/\s+/).length;
-  const treatmentWords = treatmentText.split(/\s+/).length;
+  const scriptWords = (scriptText ?? '').split(/\s+/).length;
+  const treatmentWords = (treatmentText ?? '').split(/\s+/).length;
 
   const runDeepCompare = async () => {
     if (!treatmentText || !scriptText) return;
