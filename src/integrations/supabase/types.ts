@@ -15630,6 +15630,7 @@ export type Database = {
           id: string
           project_id: string
           provenance: Json
+          scene_key: string | null
           scene_kind: string
         }
         Insert: {
@@ -15639,6 +15640,7 @@ export type Database = {
           id?: string
           project_id: string
           provenance?: Json
+          scene_key?: string | null
           scene_kind?: string
         }
         Update: {
@@ -15648,6 +15650,7 @@ export type Database = {
           id?: string
           project_id?: string
           provenance?: Json
+          scene_key?: string | null
           scene_kind?: string
         }
         Relationships: [

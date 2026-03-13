@@ -1,0 +1,1 @@
+ALTER TABLE public.scene_graph_scenes ADD COLUMN IF NOT EXISTS scene_key TEXT;

@@ -967,7 +967,7 @@ function CounterfactualRepairStrategiesSection({ data, isLoading, error }: {
     );
   }
 
-  if (!data || data.evaluated_paths.length === 0) {
+  if (!data || !data.evaluated_paths || data.evaluated_paths.length === 0) {
     return (
       <div className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/30 px-3 py-2.5">
         <Info className="h-3.5 w-3.5 text-muted-foreground" />
