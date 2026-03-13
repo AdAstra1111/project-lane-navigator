@@ -6,7 +6,7 @@
 import { useState, useMemo, Fragment } from 'react';
 import {
   usePreventiveRepairPrioritization,
-  type PRP1Repair, type AxisDebtEntry, type PRP2Data, type PRP2StrategyOption,
+  type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type PRP2SData, type PRP2SStrategyOption, type PRP2SROIAdvisory,
 } from '@/hooks/usePreventiveRepairPrioritization';
@@ -64,7 +64,7 @@ type SortKey = 'preventive_rank' | 'baseline_rank' | 'preventive_score' | 'rank_
 export function RepairStrategyPanel({ projectId }: Props) {
   const { prp1, nrf1, prp2, roi, prp2s, isLoading, nrf1Loading, prp2Loading, roiLoading, prp2sLoading, error, refresh } = usePreventiveRepairPrioritization(projectId);
   const [selectedRepair, setSelectedRepair] = useState<PRP1Repair | null>(null);
-  const [selectedStrategyOption, setSelectedStrategyOption] = useState<PRP2StrategyOption | null>(null);
+  
   const [sortKey, setSortKey] = useState<SortKey>('preventive_rank');
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -479,66 +479,15 @@ export function RepairStrategyPanel({ projectId }: Props) {
                     </div>
                   </div>
                 )}
+                {/* Pointer to Strategic Analysis */}
+                <div className="border-t border-border/30 pt-2">
+                  <p className="text-[10px] text-muted-foreground/70 italic">
+                    Detailed comparative strategy rankings and advisory ROI are shown in Strategic Analysis below.
+                  </p>
+                </div>
               </CardContent>
             </Card>
 
-            {/* Ranked Strategy Options Table (PRP2 simplified — collapsed by default, PRP2S supersedes) */}
-            {prp2.ranked_strategy_options.length > 0 && (
-              <Collapsible>
-                <CollapsibleTrigger asChild>
-                  <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
-                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
-                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
-                    <Gauge className="h-3.5 w-3.5" />
-                    <span className="uppercase tracking-wider font-semibold">Simplified Rankings (PRP2)</span>
-                    <span className="text-[9px] font-normal ml-1">— see Enhanced Strategy below for full analysis</span>
-                  </button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="mt-2">
-                  <Card className="border-border/50">
-                    <CardContent className="p-0">
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow className="border-border/50">
-                              <TableHead className="text-xs w-[40px]">Rank</TableHead>
-                              <TableHead className="text-xs">Repair Type</TableHead>
-                              <TableHead className="text-xs w-[80px]">Score</TableHead>
-                              <TableHead className="text-xs w-[80px]">Confidence</TableHead>
-                              <TableHead className="text-xs">Primary Signals</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {prp2.ranked_strategy_options.map((opt, idx) => (
-                              <TableRow
-                                key={opt.repair_id}
-                                className={cn(
-                                  'cursor-pointer hover:bg-muted/30 transition-colors border-border/30',
-                                  opt.repair_id === prp2.selected_repair_id && 'bg-primary/5'
-                                )}
-                                onClick={() => setSelectedStrategyOption(opt)}
-                              >
-                                <TableCell className="font-mono text-xs text-center">{idx + 1}</TableCell>
-                                <TableCell className="font-mono text-xs">{opt.repair_type}</TableCell>
-                                <TableCell className="font-mono text-xs text-center">{opt.strategic_priority_score.toFixed(1)}</TableCell>
-                                <TableCell className="font-mono text-xs text-center">{Math.round(opt.recommendation_confidence * 100)}%</TableCell>
-                                <TableCell>
-                                  <div className="flex flex-wrap gap-1">
-                                    {(opt.primary_signals ?? []).slice(0, 3).map(s => (
-                                      <Badge key={s} variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{s}</Badge>
-                                    ))}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </CollapsibleContent>
-              </Collapsible>
-            )}
 
             {/* Axis Debt Hotspots (PRP2) */}
             {prp2.axis_debt_hotspots && prp2.axis_debt_hotspots.length > 0 && (
@@ -634,34 +583,6 @@ export function RepairStrategyPanel({ projectId }: Props) {
                   <div className="flex flex-wrap gap-1 pl-1">
                     {selectedRepair.explanation_tags.map((t) => (
                       <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* ═══ STRATEGY OPTION DETAIL MODAL ═══ */}
-      <Dialog open={!!selectedStrategyOption} onOpenChange={(open) => !open && setSelectedStrategyOption(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-mono text-sm">{selectedStrategyOption?.repair_type}</DialogTitle>
-            <DialogDescription className="text-xs">Strategy option detail</DialogDescription>
-          </DialogHeader>
-          {selectedStrategyOption && (
-            <div className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                <Detail label="Strategic Score" value={selectedStrategyOption.strategic_priority_score.toFixed(2)} />
-                <Detail label="Confidence" value={`${Math.round(selectedStrategyOption.recommendation_confidence * 100)}%`} />
-              </div>
-              {(selectedStrategyOption.primary_signals ?? []).length > 0 && (
-                <div className="space-y-1.5">
-                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Primary Signals</h4>
-                  <div className="flex flex-wrap gap-1">
-                    {selectedStrategyOption.primary_signals.map(s => (
-                      <Badge key={s} variant="secondary" className="text-[10px]">{s}</Badge>
                     ))}
                   </div>
                 </div>
