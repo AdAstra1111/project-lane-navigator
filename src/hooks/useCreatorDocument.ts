@@ -67,41 +67,38 @@ export function useCreatorDocument(
     },
   });
 
-  // 2. Fetch the current version's content
+  // 2. Fetch the best version — priority: approved > is_current > latest_version_id > highest number
   const { data: version, isLoading: versionLoading } = useQuery({
     queryKey: ['creator-version', document?.id],
     queryFn: async () => {
       if (!document?.id) return null;
 
-      // Prefer latest_version_id, then is_current, then highest version_number
-      let query = (supabase as any)
+      // Fetch all versions for this document
+      const { data: allVersions, error } = await (supabase as any)
         .from('project_document_versions')
         .select('id, version_number, plaintext, is_current, approval_status, meta_json, bg_generating, created_at')
-        .eq('document_id', document.id);
+        .eq('document_id', document.id)
+        .order('version_number', { ascending: false });
 
-      if (document.latest_version_id) {
-        const { data } = await query.eq('id', document.latest_version_id).maybeSingle();
-        if (data) return data;
-      }
-
-      // Fallback: current version
-      const { data, error } = await query
-        .eq('is_current', true)
-        .maybeSingle();
       if (error) throw error;
+      if (!allVersions || allVersions.length === 0) return null;
 
-      // Last fallback: highest version
-      if (!data) {
-        const { data: last } = await (supabase as any)
-          .from('project_document_versions')
-          .select('id, version_number, plaintext, is_current, approval_status, meta_json, bg_generating, created_at')
-          .eq('document_id', document.id)
-          .order('version_number', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        return last;
+      // 1. Prefer approved version (the converged one)
+      const approved = allVersions.find((v: any) => v.approval_status === 'approved');
+      if (approved) return approved;
+
+      // 2. Prefer is_current
+      const current = allVersions.find((v: any) => v.is_current === true);
+      if (current) return current;
+
+      // 3. Match latest_version_id if set on document
+      if (document.latest_version_id) {
+        const pinned = allVersions.find((v: any) => v.id === document.latest_version_id);
+        if (pinned) return pinned;
       }
-      return data;
+
+      // 4. Highest version_number (first in desc-sorted list)
+      return allVersions[0];
     },
     enabled: !!document?.id,
     refetchInterval: (query) => {
