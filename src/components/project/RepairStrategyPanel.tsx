@@ -482,55 +482,62 @@ export function RepairStrategyPanel({ projectId }: Props) {
               </CardContent>
             </Card>
 
-            {/* Ranked Strategy Options Table */}
+            {/* Ranked Strategy Options Table (PRP2 simplified — collapsed by default, PRP2S supersedes) */}
             {prp2.ranked_strategy_options.length > 0 && (
-              <Card className="border-border/50">
-                <CardHeader className="pb-2 px-4 pt-4">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <Gauge className="h-4 w-4 text-muted-foreground" />
-                    Ranked Strategy Options
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="border-border/50">
-                          <TableHead className="text-xs w-[40px]">Rank</TableHead>
-                          <TableHead className="text-xs">Repair Type</TableHead>
-                          <TableHead className="text-xs w-[80px]">Score</TableHead>
-                          <TableHead className="text-xs w-[80px]">Confidence</TableHead>
-                          <TableHead className="text-xs">Primary Signals</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {prp2.ranked_strategy_options.map((opt, idx) => (
-                          <TableRow
-                            key={opt.repair_id}
-                            className={cn(
-                              'cursor-pointer hover:bg-muted/30 transition-colors border-border/30',
-                              opt.repair_id === prp2.selected_repair_id && 'bg-primary/5'
-                            )}
-                            onClick={() => setSelectedStrategyOption(opt)}
-                          >
-                            <TableCell className="font-mono text-xs text-center">{idx + 1}</TableCell>
-                            <TableCell className="font-mono text-xs">{opt.repair_type}</TableCell>
-                            <TableCell className="font-mono text-xs text-center">{opt.strategic_priority_score.toFixed(1)}</TableCell>
-                            <TableCell className="font-mono text-xs text-center">{Math.round(opt.recommendation_confidence * 100)}%</TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {(opt.primary_signals ?? []).slice(0, 3).map(s => (
-                                  <Badge key={s} variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{s}</Badge>
-                                ))}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <Gauge className="h-3.5 w-3.5" />
+                    <span className="uppercase tracking-wider font-semibold">Simplified Rankings (PRP2)</span>
+                    <span className="text-[9px] font-normal ml-1">— see Enhanced Strategy below for full analysis</span>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2">
+                  <Card className="border-border/50">
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="border-border/50">
+                              <TableHead className="text-xs w-[40px]">Rank</TableHead>
+                              <TableHead className="text-xs">Repair Type</TableHead>
+                              <TableHead className="text-xs w-[80px]">Score</TableHead>
+                              <TableHead className="text-xs w-[80px]">Confidence</TableHead>
+                              <TableHead className="text-xs">Primary Signals</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {prp2.ranked_strategy_options.map((opt, idx) => (
+                              <TableRow
+                                key={opt.repair_id}
+                                className={cn(
+                                  'cursor-pointer hover:bg-muted/30 transition-colors border-border/30',
+                                  opt.repair_id === prp2.selected_repair_id && 'bg-primary/5'
+                                )}
+                                onClick={() => setSelectedStrategyOption(opt)}
+                              >
+                                <TableCell className="font-mono text-xs text-center">{idx + 1}</TableCell>
+                                <TableCell className="font-mono text-xs">{opt.repair_type}</TableCell>
+                                <TableCell className="font-mono text-xs text-center">{opt.strategic_priority_score.toFixed(1)}</TableCell>
+                                <TableCell className="font-mono text-xs text-center">{Math.round(opt.recommendation_confidence * 100)}%</TableCell>
+                                <TableCell>
+                                  <div className="flex flex-wrap gap-1">
+                                    {(opt.primary_signals ?? []).slice(0, 3).map(s => (
+                                      <Badge key={s} variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{s}</Badge>
+                                    ))}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </CollapsibleContent>
+              </Collapsible>
             )}
 
             {/* Axis Debt Hotspots (PRP2) */}
