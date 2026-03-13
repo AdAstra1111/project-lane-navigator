@@ -1751,28 +1751,37 @@ export default function ProjectDevelopmentEngine() {
                     />
                   )}
 
-                  {/* Document content — editable */}
-                  <Card>
-                    <CardContent className="p-4">
-                      <textarea
-                        className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
-                        value={editableText}
-                        onChange={(e) => setEditableText(e.target.value)}
-                        placeholder="Start writing your idea here…"
-                      />
-                      {editableText !== versionText && (
-                        <div className="flex justify-end mt-2">
-                          <Button size="sm" variant="outline" className="mr-2 text-xs" onClick={() => setEditableText(versionText)}>
-                            Discard
-                          </Button>
-                          <Button size="sm" className="text-xs" onClick={saveEditedText} disabled={isSavingText}>
-                            {isSavingText ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                            Save
-                          </Button>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                   {/* Document content — editable (or season script progress) */}
+                   <Card>
+                     <CardContent className="p-4">
+                       {isSeasonScriptBgGenerating && selectedVersionId ? (
+                         <SeasonScriptProgress
+                           versionId={selectedVersionId}
+                           episodeCount={seasonScriptEpisodeCount}
+                         />
+                       ) : (
+                         <>
+                           <textarea
+                             className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
+                             value={editableText}
+                             onChange={(e) => setEditableText(e.target.value)}
+                             placeholder="Start writing your idea here…"
+                           />
+                           {editableText !== versionText && (
+                             <div className="flex justify-end mt-2">
+                               <Button size="sm" variant="outline" className="mr-2 text-xs" onClick={() => setEditableText(versionText)}>
+                                 Discard
+                               </Button>
+                               <Button size="sm" className="text-xs" onClick={saveEditedText} disabled={isSavingText}>
+                                 {isSavingText ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                                 Save
+                               </Button>
+                             </div>
+                           )}
+                         </>
+                       )}
+                     </CardContent>
+                   </Card>
 
                   {versionText && (
                     <div className="flex flex-wrap items-center justify-end gap-2">
