@@ -43,7 +43,6 @@ const EPISODIC_DOC_TYPES = new Set([
   "episode_script",
   "season_scripts_bundle",
   "season_master_script",
-  "season_script",   // episodic_indexed, batchSize=1 — one episode per chunk
 ]);
 
 const SECTIONED_DOC_TYPES = new Set([

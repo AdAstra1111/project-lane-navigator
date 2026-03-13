@@ -1097,6 +1097,7 @@ export default function ProjectDevelopmentEngine() {
   };
 
   const versionText = selectedVersion?.plaintext || selectedDoc?.plaintext || selectedDoc?.extracted_text || '';
+  const isBgGenerating = !!(selectedVersion as any)?.meta_json?.bg_generating && !selectedVersion?.plaintext;
 
   const [editableText, setEditableText] = useState(versionText);
   const [isSavingText, setIsSavingText] = useState(false);
@@ -1317,6 +1318,7 @@ export default function ProjectDevelopmentEngine() {
           selectedDocId={selectedDocId}
           selectedVersionId={selectedVersionId}
           versionText={versionText}
+          isBgGenerating={isBgGenerating}
           selectDocument={selectDocument}
           setSelectedVersionId={setSelectedVersionId}
           autoRunJob={autoRun.job}
@@ -1744,25 +1746,36 @@ export default function ProjectDevelopmentEngine() {
                     />
                   )}
 
-                  {/* Document content — editable */}
+                  {/* Document content — editable or generating */}
                   <Card>
                     <CardContent className="p-4">
-                      <textarea
-                        className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
-                        value={editableText}
-                        onChange={(e) => setEditableText(e.target.value)}
-                        placeholder="Start writing your idea here…"
-                      />
-                      {editableText !== versionText && (
-                        <div className="flex justify-end mt-2">
-                          <Button size="sm" variant="outline" className="mr-2 text-xs" onClick={() => setEditableText(versionText)}>
-                            Discard
-                          </Button>
-                          <Button size="sm" className="text-xs" onClick={saveEditedText} disabled={isSavingText}>
-                            {isSavingText ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                            Save
-                          </Button>
+                      {isBgGenerating ? (
+                        <div className="flex flex-col items-center justify-center h-[300px] gap-3">
+                          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                          <p className="text-sm text-muted-foreground text-center max-w-sm">
+                            Generating content — this may take a few minutes for large documents like Season Script. The page will update automatically when ready.
+                          </p>
                         </div>
+                      ) : (
+                        <>
+                          <textarea
+                            className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
+                            value={editableText}
+                            onChange={(e) => setEditableText(e.target.value)}
+                            placeholder="Start writing your idea here…"
+                          />
+                          {editableText !== versionText && (
+                            <div className="flex justify-end mt-2">
+                              <Button size="sm" variant="outline" className="mr-2 text-xs" onClick={() => setEditableText(versionText)}>
+                                Discard
+                              </Button>
+                              <Button size="sm" className="text-xs" onClick={saveEditedText} disabled={isSavingText}>
+                                {isSavingText ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                                Save
+                              </Button>
+                            </div>
+                          )}
+                        </>
                       )}
                     </CardContent>
                   </Card>

@@ -21,10 +21,13 @@ export function usePromoteIdea() {
       if (data?.error) throw new Error(data.error);
       return data as { projectId: string };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['pitch-ideas'] });
       qc.invalidateQueries({ queryKey: ['projects'] });
-      toast.success('Project created with Concept Lock attached');
+      const msg = (data as any)?.generating
+        ? 'Project created — documents are generating in background'
+        : 'Project created with Concept Lock attached';
+      toast.success(msg);
     },
     onError: (e: any) => toast.error(e.message || 'Promotion failed'),
   });

@@ -312,56 +312,6 @@ Generate the "${sectionLabel}" section now. Write to the full page target specif
 ${upstreamContent}`;
   }
 
-  // ── Season script: one episode per chunk, plain-text screenplay ──────────
-  // JSON transport is unreliable for screenplay content — quotes and colons in
-  // dialogue break JSON parsers. Each chunk is one episode (batchSize=1),
-  // generated as raw screenplay markdown and stored directly to DB.
-  if (docType === "season_script" && chunk.episodeStart != null && chunk.episodeStart === chunk.episodeEnd) {
-    const epNum = chunk.episodeStart;
-    const totalEps = opts.episodeCount ?? epNum;
-    const SEASON_SCRIPT_SYSTEM = `You are writing ONE EPISODE of a vertical drama screenplay.
-Output ONLY the raw screenplay text — no JSON, no markdown code blocks, no preamble.
-
-Format exactly:
-## EPISODE [N]: [EPISODE TITLE]
-*Duration: 120–180 seconds*
-
-COLD OPEN
-[Action line: scroll-stopping hook — 2-3 lines max]
-
-SCENE 1 — [SCENE HEADING]
-[Action line]
-CHARACTER NAME
-(parenthetical if needed)
-Dialogue line.
-[Action / reaction]
-CHARACTER NAME
-Dialogue line.
-
-[Repeat for 2-4 more scenes]
-
-EPISODE END
-[Final image + micro-cliffhanger pulling viewer to next episode]
-
----
-
-Rules:
-- Use ONLY characters, story events, and locations from the upstream documents below
-- Write REAL dialogue — character-specific, subtext-loaded, personality-revealing
-- Every scene must have a clear dramatic function
-- End on an unresolved micro-cliffhanger that pulls to the next episode
-- 400–600 words of scripted content per episode
-- Do NOT include character descriptions, beat summaries, or metadata`;
-    const epPrompt = `Write Episode ${epNum} of ${totalEps} for "${projectTitle}".
-
-UPSTREAM CONTEXT (episode beats, character bible, season arc — use these as canon):
-${upstreamContent.slice(0, 9000)}
-
-${previousChunkEnding ? `PREVIOUS EPISODE ENDING (for continuity):\n...${previousChunkEnding}\n\n` : ""}Write Episode ${epNum} now. Start directly with "## EPISODE ${epNum}:".`;
-    const raw = await callChunkLLM(apiKey, SEASON_SCRIPT_SYSTEM, epPrompt, "google/gemini-2.5-pro", 4000);
-    return raw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
-  }
-
   return await callChunkLLM(apiKey, systemPrompt, chunkPrompt, model || "google/gemini-2.5-flash", tokenBudget);
 }
 
