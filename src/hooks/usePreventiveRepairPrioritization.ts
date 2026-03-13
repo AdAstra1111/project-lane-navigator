@@ -97,6 +97,81 @@ export interface PRP2Data {
   scoring_notes?: Record<string, string>;
 }
 
+// ── PRP2S types (select_preventive_repair_strategy response contract) ──
+
+export interface PRP2SROIAdvisory {
+  intervention_roi_score: number;
+  roi_components: {
+    prevented_downstream_pressure: number;
+    projected_stability_gain: number;
+    execution_friction: number;
+    blast_radius: number;
+  };
+  rationale: string;
+}
+
+export interface PRP2SStrategyOption {
+  repair_id: string;
+  repair_type: string;
+  status: string;
+  path_id: string | null;
+  path_label: string | null;
+  baseline_rank: number;
+  preventive_rank: number;
+  strategic_rank: number;
+  baseline_score: number;
+  preventive_score: number;
+  strategic_priority_score: number;
+  current_importance_signal: number;
+  preventive_uplift_signal: number;
+  root_cause_signal: number;
+  path_quality_signal: number;
+  path_interaction_signal: number;
+  axis_debt_reduction_signal: number;
+  execution_friction_signal: number;
+  recommendation_confidence: string;
+  rationale_tags: string[];
+  prevented_repair_families: string[];
+  reduced_axis_debt: string[];
+  unlocks_repairs: string[];
+  roi_advisory: PRP2SROIAdvisory | null;
+  roi_rank: number;
+}
+
+export interface PRP2SAxisHotspot {
+  axis: string;
+  risk_level: string;
+  source_repair_count: number;
+}
+
+export interface PRP2SData {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  current_nsi: number | null;
+  current_stability_band: string | null;
+  prp2_strategy: {
+    project_repair_pressure: number;
+    project_repair_pressure_raw: number | null;
+    total_repairs_considered: number;
+    total_paths_considered: number;
+    axis_debt_hotspots: PRP2SAxisHotspot[];
+    recommended_first_repair_id: string | null;
+    recommended_first_repair_type: string | null;
+    recommended_path_id: string | null;
+    strategic_priority_score: number | null;
+    recommendation_confidence: string;
+    rationale_tags: string[];
+    reduced_axis_debt: string[];
+    prevented_repair_families: string[];
+    unlocks_repairs: string[];
+    ranked_strategy_options: PRP2SStrategyOption[];
+    strategy_disclaimer: string;
+  };
+  scoring_notes: Record<string, string | boolean | number>;
+  computed_at: string;
+}
+
 // ── Intervention ROI types (compute_intervention_roi response contract) ──
 
 export interface ROIComponents {
@@ -244,12 +319,35 @@ async function fetchInterventionROI(projectId: string): Promise<InterventionROID
   return json as InterventionROIData;
 }
 
+async function fetchPRP2S(projectId: string): Promise<PRP2SData | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'select_preventive_repair_strategy',
+      projectId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PRP2SData;
+}
+
 export function usePreventiveRepairPrioritization(projectId: string | undefined) {
   const queryClient = useQueryClient();
   const prp1Key = ['prp1-prioritization', projectId];
   const nrf1Key = ['nrf1-forecast-strategy', projectId];
   const prp2Key = ['prp2-strategy', projectId];
   const roiKey = ['intervention-roi', projectId];
+  const prp2sKey = ['prp2s-strategy', projectId];
 
   const prp1Query = useQuery({
     queryKey: prp1Key,
@@ -281,11 +379,19 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     staleTime: 60_000,
   });
 
+  const prp2sQuery = useQuery({
+    queryKey: prp2sKey,
+    queryFn: () => fetchPRP2S(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
   const refresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: prp1Key });
     queryClient.invalidateQueries({ queryKey: nrf1Key });
     queryClient.invalidateQueries({ queryKey: prp2Key });
     queryClient.invalidateQueries({ queryKey: roiKey });
+    queryClient.invalidateQueries({ queryKey: prp2sKey });
   }, [queryClient]);
 
   return {
@@ -293,10 +399,12 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     nrf1: nrf1Query.data ?? null,
     prp2: prp2Query.data ?? null,
     roi: roiQuery.data ?? null,
+    prp2s: prp2sQuery.data ?? null,
     isLoading: prp1Query.isLoading,
     nrf1Loading: nrf1Query.isLoading,
     prp2Loading: prp2Query.isLoading,
     roiLoading: roiQuery.isLoading,
+    prp2sLoading: prp2sQuery.isLoading,
     error: prp1Query.error?.message ?? null,
     refresh,
   };

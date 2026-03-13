@@ -8,6 +8,7 @@ import {
   usePreventiveRepairPrioritization,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data, type PRP2StrategyOption,
   type InterventionROIData, type ROIRepairEntry,
+  type PRP2SData, type PRP2SStrategyOption, type PRP2SROIAdvisory,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -61,7 +62,7 @@ const RISK_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 type SortKey = 'preventive_rank' | 'baseline_rank' | 'preventive_score' | 'rank_delta' | 'root_cause_signal' | 'preventive_confidence_signal';
 
 export function RepairStrategyPanel({ projectId }: Props) {
-  const { prp1, nrf1, prp2, roi, isLoading, nrf1Loading, prp2Loading, roiLoading, error, refresh } = usePreventiveRepairPrioritization(projectId);
+  const { prp1, nrf1, prp2, roi, prp2s, isLoading, nrf1Loading, prp2Loading, roiLoading, prp2sLoading, error, refresh } = usePreventiveRepairPrioritization(projectId);
   const [selectedRepair, setSelectedRepair] = useState<PRP1Repair | null>(null);
   const [selectedStrategyOption, setSelectedStrategyOption] = useState<PRP2StrategyOption | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('preventive_rank');
@@ -560,6 +561,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
         )}
       </div>
 
+      {/* ═══ SECTION 4b: PRP2S STRATEGIC STRATEGY WITH ROI ADVISORY ═══ */}
+      <PRP2SAdvisorySection prp2s={prp2s} prp2sLoading={prp2sLoading} />
+
       {/* ═══ SECTION 5: INTERVENTION ROI (READ-ONLY DIAGNOSTIC) ═══ */}
       <InterventionROISection roi={roi} roiLoading={roiLoading} />
 
@@ -651,6 +655,217 @@ export function RepairStrategyPanel({ projectId }: Props) {
 }
 
 /* ── Sub-components ── */
+
+function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null; prp2sLoading: boolean }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showNotes, setShowNotes] = useState(false);
+
+  if (prp2sLoading) {
+    return (
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <Target className="h-3.5 w-3.5" /> Enhanced Strategy (PRP2S)
+        </h3>
+        <Skeleton className="h-32 w-full rounded-md" />
+      </div>
+    );
+  }
+
+  if (!prp2s) {
+    return (
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <Target className="h-3.5 w-3.5" /> Enhanced Strategy (PRP2S)
+        </h3>
+        <Card className="border-border/50">
+          <CardContent className="py-6 text-center">
+            <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+            <p className="text-xs text-muted-foreground">Enhanced strategy analysis unavailable.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const strat = prp2s.prp2_strategy;
+  const options = strat.ranked_strategy_options;
+  const notes = prp2s.scoring_notes;
+  const roiMode = notes.roi_integration_mode as string | undefined;
+  const roiVersion = notes.roi_version as string | undefined;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <Target className="h-3.5 w-3.5" /> Enhanced Strategy (PRP2S)
+        </h3>
+        <div className="flex items-center gap-2">
+          {roiMode && (
+            <Badge variant="outline" className="text-[9px] font-mono uppercase">
+              ROI: {roiMode}
+            </Badge>
+          )}
+          {roiVersion && (
+            <Badge variant="secondary" className="text-[9px] font-mono">
+              {roiVersion}
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Advisory notice */}
+      <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+        <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="text-[10px] text-muted-foreground">
+          Advisory ROI is shown for diagnostic comparison only. It does <strong>not</strong> affect the strategic priority score.
+        </span>
+      </div>
+
+      {/* Ranked options with ROI advisory columns */}
+      {options.length === 0 ? (
+        <Card className="border-border/50">
+          <CardContent className="py-6 text-center">
+            <p className="text-xs text-muted-foreground">No strategy candidates.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-border/50">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-border/50">
+                    <TableHead className="text-xs w-[55px]">Strat #</TableHead>
+                    <TableHead className="text-xs w-[55px]">ROI #</TableHead>
+                    <TableHead className="text-xs">Repair</TableHead>
+                    <TableHead className="text-xs w-[70px]">Strat Score</TableHead>
+                    <TableHead className="text-xs w-[70px]">Adv. ROI</TableHead>
+                    <TableHead className="text-xs w-[70px]">Confidence</TableHead>
+                    <TableHead className="text-xs w-[30px]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {options.map((opt) => {
+                    const isExpanded = expandedId === opt.repair_id;
+                    const isTop = opt.repair_id === strat.recommended_first_repair_id;
+                    return (
+                      <Fragment key={opt.repair_id}>
+                        <TableRow
+                          className={cn(
+                            'cursor-pointer hover:bg-muted/30 transition-colors border-border/30',
+                            isTop && 'bg-primary/5'
+                          )}
+                          onClick={() => setExpandedId(isExpanded ? null : opt.repair_id)}
+                        >
+                          <TableCell className="font-mono text-xs text-center">{opt.strategic_rank}</TableCell>
+                          <TableCell className="font-mono text-xs text-center text-muted-foreground">
+                            {opt.roi_rank != null ? opt.roi_rank : '—'}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs truncate max-w-[140px]">
+                            {opt.repair_type}
+                            {isTop && <Star className="h-3 w-3 text-primary inline ml-1" />}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-center font-bold">{opt.strategic_priority_score.toFixed(1)}</TableCell>
+                          <TableCell className="text-center">
+                            {opt.roi_advisory ? (
+                              <ROIScoreBadge score={opt.roi_advisory.intervention_roi_score} />
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-center capitalize">{opt.recommendation_confidence}</TableCell>
+                          <TableCell className="text-center">
+                            {isExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded && (
+                          <TableRow key={`${opt.repair_id}-detail`} className="border-border/30 bg-muted/10">
+                            <TableCell colSpan={7} className="p-3">
+                              <PRP2SOptionDetail opt={opt} />
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Scoring notes (collapsible) */}
+      {notes.anti_double_counting_notes && (
+        <Collapsible open={showNotes} onOpenChange={setShowNotes}>
+          <CollapsibleTrigger asChild>
+            <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+              {showNotes ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              <span className="uppercase tracking-wider font-semibold">Anti-Double-Counting Notes</span>
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-2">
+            <Card className="border-border/50">
+              <CardContent className="p-3">
+                <p className="text-[10px] text-muted-foreground leading-relaxed">{String(notes.anti_double_counting_notes)}</p>
+                {notes.roi_formula_reference && (
+                  <p className="text-[10px] text-muted-foreground leading-relaxed mt-2 font-mono">{String(notes.roi_formula_reference)}</p>
+                )}
+              </CardContent>
+            </Card>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+    </div>
+  );
+}
+
+function PRP2SOptionDetail({ opt }: { opt: PRP2SStrategyOption }) {
+  return (
+    <div className="space-y-4 text-[11px]">
+      {/* Signals grid */}
+      <div className="space-y-1.5">
+        <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Strategic Signals</h5>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 pl-1">
+          <Detail label="Importance" value={opt.current_importance_signal.toFixed(1)} />
+          <Detail label="Prev. Uplift" value={opt.preventive_uplift_signal.toFixed(3)} />
+          <Detail label="Root Cause" value={opt.root_cause_signal.toFixed(3)} />
+          <Detail label="Path Quality" value={opt.path_quality_signal.toFixed(2)} />
+          <Detail label="Path Interaction" value={opt.path_interaction_signal.toFixed(2)} />
+          <Detail label="Axis Debt Reduct." value={opt.axis_debt_reduction_signal.toFixed(3)} />
+          <Detail label="Friction" value={opt.execution_friction_signal.toFixed(1)} />
+        </div>
+      </div>
+
+      {/* ROI Advisory detail */}
+      {opt.roi_advisory && (
+        <div className="space-y-1.5 border-t border-border/30 pt-3">
+          <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            Advisory ROI Components
+            <Badge variant="outline" className="text-[8px] font-normal">Does not affect strategic score</Badge>
+          </h5>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 pl-1">
+            <Detail label="Prevented Downstream" value={opt.roi_advisory.roi_components.prevented_downstream_pressure.toFixed(1)} />
+            <Detail label="Stability Gain" value={opt.roi_advisory.roi_components.projected_stability_gain.toFixed(1)} />
+            <Detail label="Execution Friction" value={opt.roi_advisory.roi_components.execution_friction.toFixed(1)} />
+            <Detail label="Blast Radius" value={opt.roi_advisory.roi_components.blast_radius.toFixed(1)} />
+          </div>
+          <p className="text-[10px] text-muted-foreground italic pl-1">{opt.roi_advisory.rationale}</p>
+        </div>
+      )}
+
+      {/* Tags */}
+      {opt.rationale_tags.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {opt.rationale_tags.map(t => (
+            <Badge key={t} variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{t}</Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData | null; roiLoading: boolean }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
