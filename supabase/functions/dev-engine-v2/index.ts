@@ -1213,7 +1213,36 @@ CRITICAL BLOCKERS (only flag these):
 
 Do NOT raise notes about field naming if the correct 8-field format is present.
 Do NOT penalise for lacking narrative prose depth — this is a structural planning document.`,
-  vertical_episode_beats: `Evaluate as EPISODE BEATS for vertical drama. Score beat density per episode duration, scroll-stop hook design, micro-cliffhanger endings, escalation intensity, and character agency. CRITICAL STRUCTURAL RULES: (1) HOOK-FIRST MANDATE — Beat 1 of EVERY episode must be a new, self-contained hook for THIS episode. It must NOT resolve or re-explain the previous episode's cliffhanger. The cliffhanger from the prior episode creates carry-in tension; the viewer brings that tension with them. Beat 1 exploits that tension with something NEW, not resolution. Resolving the prior cliffhanger as Beat 1 is a blocker. (2) CLIFFHANGER MANDATE — Every episode must end with a forward-pulling micro-cliffhanger that creates urgency for the next episode. (3) BEAT DENSITY — Each episode must have minimum 4 beats within its duration window. Each beat must be a story change (new information, decision, reversal, or emotional shift) — not a line of dialogue. SCOPE: Episode Beats MUST contain: numbered beats per episode (minimum 4), beat type for each beat (hook/escalation/reversal/revelation/climax/cliffhanger), character action driving each beat, emotional shift per beat. Episode Beats MUST NOT contain: full dialogue/scripted scenes (belongs in Season Script), episode-level structural overview (belongs in Episode Grid), character descriptions (belongs in Character Bible). BLOCKERS: any episode opening by resolving the previous episode's cliffhanger, any episode without a micro-cliffhanger ending, any episode with fewer than 4 beats, any beat that describes season structure rather than this specific episode's events.`,
+  vertical_episode_beats: `Evaluate as EPISODE BEATS for vertical drama.
+
+CANONICAL BEAT FORMAT (do NOT flag correctly-formatted beats as issues):
+Each episode uses this structure:
+  ## EPISODE N: [title]
+  *Duration: 120–180 seconds*
+  1. [HOOK] specific opening action or image
+  2. [ESCALATION] how tension or stakes increase
+  3. [REVERSAL or REVELATION] unexpected turn or new information
+  4. [CHARACTER DECISION] what focal character chooses under pressure
+  5. [CLIFFHANGER] final unresolved beat
+  Additional beats (6-7) are optional. Maximum 8 beats.
+
+Beat type labels in [brackets] are REQUIRED. Do NOT flag their presence as wrong.
+Episodes may have beat types in any order EXCEPT: beat 1 must be HOOK, final beat must be CLIFFHANGER.
+
+SCORING CRITERIA:
+- CI: Beat specificity (does each beat describe a concrete story event?), typed beat labels present, hook-first mandate obeyed
+- GP: Cliffhanger quality + forward pull, escalation logic per episode, beat density within duration
+
+CRITICAL BLOCKERS (only flag these):
+  (a) Any episode opening with resolution of prior episode's cliffhanger (HOOK-FIRST mandate violation)
+  (b) Any episode without a CLIFFHANGER as the final beat
+  (c) Any episode with fewer than 4 beats
+  (d) Missing beat type labels [in brackets]
+  (e) Beats that describe season structure rather than this specific episode's events
+  (f) Beats that are dialogue lines rather than story events
+
+SCOPE GUARD: Episode Beats MUST NOT contain screenplay scenes, character backstory, or season arc structure.
+Do NOT penalise for lacking narrative prose depth — this is a structural planning document.`,
   series_writer: `Evaluate as a SERIES WRITER episode script for vertical drama. Score canon consistency (characters, relationships must match Character Bible), emotional escalation from previous episode, immediate hook in opening lines, cliffhanger ending, location limit (max 3 primary), and season arc alignment per Episode Grid. Do NOT allow feature-film pacing. Do NOT introduce characters not in canon.`,
 };
 
@@ -1553,6 +1582,28 @@ function buildRewriteSystem(deliverable: string, format: string, behavior: strin
 - The rewritten_text field must contain a full screenplay, not a summary.`;
   }
 
+  // Episode beats format enforcement — mandatory when rewriting beats docs
+  let episodeBeatsEnforcement = "";
+  if (deliverable === "vertical_episode_beats" || deliverable === "episode_beats") {
+    episodeBeatsEnforcement = `\n\nEPISODE BEATS FORMAT (MANDATORY — violations cause rejection):
+Output the COMPLETE episode beats document. Every episode must follow this EXACT structure:
+
+## EPISODE N: [specific active title]
+*Duration: 120–180 seconds*
+
+1. [HOOK] [specific opening action or image — what physically happens first]
+2. [ESCALATION] [how tension or stakes increase]
+3. [REVERSAL or REVELATION] [unexpected turn or new information]
+4. [CHARACTER DECISION] [what the focal character chooses or does under pressure]
+5. [CLIFFHANGER] [final unresolved beat — specific image or revelation]
+
+Beat type labels (in brackets) are MANDATORY on every beat.
+Beat 1 must always be HOOK. Final beat must always be CLIFFHANGER.
+Do NOT output prose narrative, screenplay scenes, or dialogue blocks.
+Apply the approved notes by changing only the specific episodes those notes affect.
+Preserve all episodes not mentioned in the notes exactly as they are.`;
+  }
+
   // Episode grid format enforcement — mandatory when rewriting a grid doc
   let episodeGridEnforcement = "";
   if (deliverable === "episode_grid" || deliverable === "vertical_episode_grid") {
@@ -1588,7 +1639,7 @@ Rules:
 - Match the target deliverable type format expectations.
 - OUTPUT THE FULL REWRITTEN MATERIAL — do NOT summarize or truncate.
 - If repositioning (lane/format) appears in APPROVED STRATEGIC NOTES, reflect it. Otherwise do not stealth-reposition.
-${docGuard}${formatRules}${scriptEnforcement}${episodeGridEnforcement}
+${docGuard}${formatRules}${scriptEnforcement}${episodeBeatsEnforcement}${episodeGridEnforcement}
 
 Return ONLY valid JSON:
 {
@@ -1642,6 +1693,38 @@ CRITICAL:
 - You may tighten within moments, but do not reduce the film's overall scope or runtime.
 
 Output ONLY the rewritten screenplay text. No JSON, no commentary, no markdown.`;
+
+const REWRITE_CHUNK_SYSTEM_BEATS = `You are rewriting EPISODE BEATS for a vertical drama series.
+
+Episode beats are a STRUCTURED PLANNING DOCUMENT — not a screenplay, not prose narrative.
+Every episode MUST be output using the exact beats format below. No prose summaries. No exceptions.
+
+MANDATORY FORMAT PER EPISODE:
+## EPISODE N: [specific active title]
+*Duration: 120–180 seconds*
+
+1. [HOOK] [What specifically happens in the opening seconds — concrete action or image]
+2. [ESCALATION] [How tension or stakes increase]
+3. [REVERSAL or REVELATION] [Unexpected turn or new information]
+4. [CHARACTER DECISION] [What the focal character chooses or does under pressure]
+5. [CLIFFHANGER] [Final unresolved beat — specific image or revelation]
+
+Add beats 6–7 if episode complexity warrants it (max 8 beats).
+
+BEAT FORMAT: N. [BEAT_TYPE] description — where BEAT_TYPE is one of:
+  HOOK / ESCALATION / REVERSAL / REVELATION / CLIMAX / CHARACTER DECISION / CLIFFHANGER
+
+GOALS:
+- Apply the approved notes to the relevant episodes.
+- Preserve episodes not affected by the notes exactly as they are.
+- Every episode must have HOOK as beat 1 and CLIFFHANGER as the final beat.
+- Beats must describe specific story events — not moods, not summaries.
+
+CRITICAL:
+- Output ONLY episode beats entries. No prose narrative. No screenplay format. No INT./EXT. sluglines.
+- Do NOT output dialogue as a scene. Dialogue can appear inline in a beat description only.
+- Do NOT summarize ranges ("Episodes 3-7 follow same pattern").
+- Output ONLY the episodes in the requested range.`;
 
 const REWRITE_CHUNK_SYSTEM_GRID = `You are rewriting an EPISODE GRID for a vertical drama series.
 
@@ -4979,6 +5062,63 @@ Format: ${rq.format}.${episodeLengthBlock}`;
         }
       } catch (e) { /* non-fatal */ }
 
+      // ── Episode beats: structural pre-analysis + sampled scoring ──
+      // Same problem as episode_grid: 30-60 episodes of beats is too large for reliable holistic scoring.
+      const isBeatsDeliverable = effectiveDeliverable === "vertical_episode_beats" || effectiveDeliverable === "episode_beats";
+      if (isBeatsDeliverable && version.plaintext.length > 1000) {
+        try {
+          const { parseEpisodeBlocks: parseGridBlocks } = await import("../_shared/surgicalEpisodeRewrite.ts");
+          const bBlocks = parseGridBlocks(version.plaintext);
+          const bTotalParsed = bBlocks.size;
+          const bExpected = effectiveSeasonCount || bTotalParsed;
+
+          // Count beats per episode, check HOOK and CLIFFHANGER presence
+          let episodesMissingHook = 0;
+          let episodesMissingCliffhanger = 0;
+          let episodesLowBeatCount = 0;
+          let totalBeats = 0;
+
+          for (const [, block] of bBlocks) {
+            const txt = block.content;
+            const beatLines = txt.match(/^\d+\.\s*\[/gm) || [];
+            totalBeats += beatLines.length;
+            if (beatLines.length < 4) episodesLowBeatCount++;
+            if (!/\[HOOK\]/i.test(txt)) episodesMissingHook++;
+            if (!/\[CLIFFHANGER\]/i.test(txt)) episodesMissingCliffhanger++;
+          }
+
+          const avgBeats = bTotalParsed > 0 ? (totalBeats / bTotalParsed).toFixed(1) : "0";
+          const bMissing = Math.max(0, bExpected - bTotalParsed);
+
+          // Sample 10 episodes
+          const bAllNums = Array.from(bBlocks.keys()).sort((a, b) => a - b);
+          const bSampleSize = Math.min(10, bAllNums.length);
+          const bSampleIndices = bSampleSize > 0
+            ? Array.from({ length: bSampleSize }, (_, i) => Math.floor((i / (bSampleSize - 1 || 1)) * (bAllNums.length - 1)))
+              .map(idx => bAllNums[idx])
+            : bAllNums.slice(0, bSampleSize);
+          const bSampledBlocks = bSampleIndices.map(n => bBlocks.get(n)?.content || "").join("\n\n---\n\n");
+
+          episodeGridStructuralBlock = `\nEPISODE BEATS STRUCTURAL ANALYSIS (computed — do not override):
+Episodes parsed: ${bTotalParsed} / ${bExpected} expected${bMissing > 0 ? ` — ${bMissing} MISSING (blocker)` : " ✓"}
+Average beats per episode: ${avgBeats}${Number(avgBeats) < 4 ? " — BELOW MINIMUM of 4 (blocker)" : " ✓"}
+Episodes with low beat count (<4): ${episodesLowBeatCount}${episodesLowBeatCount > 0 ? " (blocker)" : " ✓"}
+Episodes missing [HOOK] label: ${episodesMissingHook}${episodesMissingHook > 0 ? " (blocker)" : " ✓"}
+Episodes missing [CLIFFHANGER] label: ${episodesMissingCliffhanger}${episodesMissingCliffhanger > 0 ? " (blocker)" : " ✓"}
+
+SCORING INSTRUCTION: Score the SAMPLE below (10 representative episodes).
+CI = beat specificity + typed beat labels (HOOK/ESCALATION/REVERSAL/CLIFFHANGER present) + hook-first mandate.
+GP = cliffhanger quality + escalation logic + beat density within episode duration.
+Structural blockers above are ALREADY COMPUTED — accept them as-is.
+A complete beats doc with typed beats and correct structure should score CI 75–82.`;
+
+          docTextForScoring = bSampledBlocks.slice(0, maxContextChars);
+          console.log(`[dev-engine-v2] ${effectiveDeliverable} beats scoring: sampled ${bSampleIndices.length} of ${bTotalParsed} episodes, avgBeats=${avgBeats}, missing=${bMissing}`);
+        } catch (bErr) {
+          console.warn("[dev-engine-v2] beats structural analysis failed:", bErr);
+        }
+      }
+
       // ── Episode grid: structural pre-analysis + sampled scoring ──
       // Episode grids with 30–60 episodes are too large for reliable holistic LLM scoring.
       // Holistic scoring produces large CI/GP swings because the LLM's impression varies
@@ -6555,9 +6695,11 @@ MATERIAL:\n${version.plaintext}`;
         }
       }
 
-      // For episode grid: remind model of required output format just before the material
+      // Remind model of required output format just before the material (format-specific)
       const episodeGridFormatReminder = (effectiveDeliverable === "episode_grid" || effectiveDeliverable === "vertical_episode_grid")
-        ? `\nOUTPUT FORMAT REQUIRED: Episode grid — each episode as ## EPISODE N: block with PREMISE / HOOK / CORE MOVE / CHARACTER COST / CLIFFHANGER / ARC POSITION / TONE fields. No prose. No summaries.\n`
+        ? `\nOUTPUT FORMAT REQUIRED: Episode grid — each episode as ## EPISODE N: block with all 8 fields: PREMISE / HOOK / CORE MOVE / CHARACTER COST / CLIFFHANGER / ARC POSITION / TONE. No prose. No summaries.\n`
+        : (effectiveDeliverable === "vertical_episode_beats" || effectiveDeliverable === "episode_beats")
+        ? `\nOUTPUT FORMAT REQUIRED: Episode beats — each episode as ## EPISODE N: block with numbered beats. Beat format: N. [BEAT_TYPE] description. Beat 1 = HOOK, final beat = CLIFFHANGER. No prose. No screenplay.\n`
         : "";
 
       const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
@@ -6955,10 +7097,13 @@ MATERIAL TO REWRITE:\n${fullText}`;
       console.log(`[dev-engine-v2] rewrite-chunk: docType="${docType}" (plan.doc_type="${rawChunkDocType || "null"}", plan.format="${plan?.format || "null"}")`);
 
       // Build augmented system prompt with narrative context
-      // For episode_grid, use the grid-specific system prompt (not the screenplay prompt)
-      // NOTE: docType must be declared BEFORE this line (temporal dead zone guard)
+      // Route to format-specific chunk system — NEVER use the screenplay prompt for non-script docs.
+      // NOTE: docType must be declared BEFORE this block (temporal dead zone guard)
       const isGridDocType = docType === "episode_grid" || docType === "vertical_episode_grid";
-      const baseChunkSystem = isGridDocType ? REWRITE_CHUNK_SYSTEM_GRID : REWRITE_CHUNK_SYSTEM;
+      const isBeatsDocType = docType === "vertical_episode_beats" || docType === "episode_beats";
+      const baseChunkSystem = isGridDocType ? REWRITE_CHUNK_SYSTEM_GRID
+        : isBeatsDocType ? REWRITE_CHUNK_SYSTEM_BEATS
+        : REWRITE_CHUNK_SYSTEM; // screenplay — correct for season_script, episode_script, etc.
       const augmentedChunkSystem = contextInjection
         ? `${baseChunkSystem}\n\n${contextInjection}`
         : baseChunkSystem;
@@ -6974,11 +7119,13 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
         let repairDirective = "";
         for (let attempt = 0; attempt < 3; attempt++) {
-          const gridFieldReminder = isGridDocType
-            ? `\n\nEACH EPISODE MUST HAVE ALL 8 FIELDS: PREMISE / HOOK / CORE MOVE / CHARACTER COST / CLIFFHANGER / ARC POSITION / TONE\nNo prose. No screenplay format. Grid entries only.`
-            : "";
+          const formatReminder = isGridDocType
+            ? `\n\nOUTPUT FORMAT: Episode grid — each episode as ## EPISODE N: block with all 8 fields: PREMISE / HOOK / CORE MOVE / CHARACTER COST / CLIFFHANGER / ARC POSITION / TONE. No prose. No screenplay.`
+            : isBeatsDocType
+            ? `\n\nOUTPUT FORMAT: Episode beats — each episode as ## EPISODE N: block with numbered beats. Each beat: N. [BEAT_TYPE] description. First beat = HOOK, last beat = CLIFFHANGER. No prose. No screenplay.`
+            : `\n\nOUTPUT FORMAT: Screenplay — maintain INT./EXT. sluglines, action lines, character names in CAPS, dialogue. Do NOT output prose summaries or beat lists.`;
 
-          const episodicPrompt = `${notesContext}${prevContext}${repairDirective}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite Episodes ${start}-${end} ONLY.\n\nCRITICAL RULES:\n- Output exactly Episodes ${start} through ${end}.\n- Each episode starts with heading \"## EPISODE N: [title]\".\n- Do NOT omit, merge, summarize, or renumber episodes.\n- Do NOT use summary language (\"remaining episodes\", \"and so on\", \"etc\").${gridFieldReminder}\n\nSOURCE EPISODES TO REWRITE:\n${chunkText || "(No source text for this range. Regenerate all episodes in-range fully.)"}`;
+          const episodicPrompt = `${notesContext}${prevContext}${repairDirective}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite Episodes ${start}-${end} ONLY.\n\nCRITICAL RULES:\n- Output exactly Episodes ${start} through ${end}.\n- Each episode starts with heading \"## EPISODE N: [title]\".\n- Do NOT omit, merge, summarize, or renumber episodes.\n- Do NOT use summary language (\"remaining episodes\", \"and so on\", \"etc\").${formatReminder}\n\nSOURCE EPISODES TO REWRITE:\n${chunkText || "(No source text for this range. Regenerate all episodes in-range fully.)"}`;
 
           console.log(`Rewrite episodic chunk ${chunkIndex + 1}/${plan.total_chunks} (episodes ${start}-${end})`);
           rewrittenChunk = await callAI(
