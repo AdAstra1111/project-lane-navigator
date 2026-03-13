@@ -13404,8 +13404,11 @@ Return ONLY valid JSON:
         const preventiveValue = nrf?.repair_preventive_value ?? 0;
         const forecastConfidence = nrf?.forecast_confidence ?? 0;
         const pdp = Math.min(100, Math.round(preventiveValue * forecastConfidence * 100 * 100) / 100);
-        const netPriority = rec.net_priority_score ?? 0;
-        const psg = Math.min(100, Math.max(0, Math.round(netPriority * 100) / 100));
+        // Use expected_stability_gain (gain-only signal) NOT net_priority_score
+        // net_priority_score already subtracts blast×0.15 and friction×0.15 internally,
+        // so using it here would double-count those penalties.
+        const stabilityGain = rec.expected_stability_gain ?? 0;
+        const psg = Math.min(100, Math.max(0, Math.round(stabilityGain * 100) / 100));
         const ef = Math.min(100, Math.max(0, Math.round((rec.execution_friction_score ?? 0) * 100) / 100));
         const br = Math.min(100, Math.max(0, Math.round((rec.blast_risk_score ?? 0) * 100) / 100));
         const rawRoi = pdp + psg - ef - br;
