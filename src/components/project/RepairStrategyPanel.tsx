@@ -560,6 +560,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
         )}
       </div>
 
+      {/* ═══ SECTION 5: INTERVENTION ROI (READ-ONLY DIAGNOSTIC) ═══ */}
+      <InterventionROISection roi={roi} roiLoading={roiLoading} />
+
       {/* ═══ DISCLAIMER ═══ */}
       {prioritization?.prioritization_disclaimer && (
         <p className="text-[10px] text-muted-foreground/70 border-t border-border/30 pt-2">
