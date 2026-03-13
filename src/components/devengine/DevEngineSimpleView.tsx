@@ -41,6 +41,7 @@ export interface DevEngineSimpleViewProps {
   selectedDocId: string | null;
   selectedVersionId: string | null;
   versionText: string;
+  isBgGenerating?: boolean;
   selectDocument: (docId: string) => void;
   setSelectedVersionId: (versionId: string) => void;
   // Auto-run

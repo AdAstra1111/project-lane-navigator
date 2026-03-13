@@ -1318,6 +1318,7 @@ export default function ProjectDevelopmentEngine() {
           selectedDocId={selectedDocId}
           selectedVersionId={selectedVersionId}
           versionText={versionText}
+          isBgGenerating={isBgGenerating}
           selectDocument={selectDocument}
           setSelectedVersionId={setSelectedVersionId}
           autoRunJob={autoRun.job}
