@@ -222,11 +222,34 @@ async function fetchPRP2(projectId: string): Promise<PRP2Data | null> {
   return json as PRP2Data;
 }
 
+async function fetchInterventionROI(projectId: string): Promise<InterventionROIData | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'compute_intervention_roi',
+      projectId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as InterventionROIData;
+}
+
 export function usePreventiveRepairPrioritization(projectId: string | undefined) {
   const queryClient = useQueryClient();
   const prp1Key = ['prp1-prioritization', projectId];
   const nrf1Key = ['nrf1-forecast-strategy', projectId];
   const prp2Key = ['prp2-strategy', projectId];
+  const roiKey = ['intervention-roi', projectId];
 
   const prp1Query = useQuery({
     queryKey: prp1Key,
@@ -251,19 +274,29 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     staleTime: 60_000,
   });
 
+  const roiQuery = useQuery({
+    queryKey: roiKey,
+    queryFn: () => fetchInterventionROI(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
   const refresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: prp1Key });
     queryClient.invalidateQueries({ queryKey: nrf1Key });
     queryClient.invalidateQueries({ queryKey: prp2Key });
+    queryClient.invalidateQueries({ queryKey: roiKey });
   }, [queryClient]);
 
   return {
     prp1: prp1Query.data ?? null,
     nrf1: nrf1Query.data ?? null,
     prp2: prp2Query.data ?? null,
+    roi: roiQuery.data ?? null,
     isLoading: prp1Query.isLoading,
     nrf1Loading: nrf1Query.isLoading,
     prp2Loading: prp2Query.isLoading,
+    roiLoading: roiQuery.isLoading,
     error: prp1Query.error?.message ?? null,
     refresh,
   };
