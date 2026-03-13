@@ -2914,6 +2914,37 @@ async function computeSelectiveRegenerationPlanHelper(
 // ═══════════════════════════════════════════════════════════════
 
 
+
+/**
+ * ARP1_REPAIR_TYPE_AXIS_MAP — Deterministic repair_type → SpineAxis[] fallback
+ * ARP1.2 / NRF1.5: Used when dx.affected_axes is empty and scope_key is not a
+ * valid SpineAxis. Maps each canonical repair_type to the narrative axes it most
+ * directly addresses, derived from repair semantics and the SPINE_AXES registry.
+ *
+ * Tier priority in both ARP1 and NRF1:
+ *   1. dx.affected_axes (ARP1) / scope_key as SpineAxis (NRF1) — primary source
+ *   2. repair.scope_key as SpineAxis                           — axis-scoped repairs
+ *   3. ARP1_REPAIR_TYPE_AXIS_MAP[repair.repair_type]          — this table
+ *
+ * Mapping rationale:
+ *   repair_seed_alignment         → seed defines foundational narrative identity
+ *   repair_relation_graph         → entity/relation structure drives conflict topology
+ *   repair_structural_beats       → beat scaffolding defines structural pivot axes
+ *   investigate_simulation_impact → simulation probes pressure/story-engine health
+ *   build_obligation_registry     → obligations anchor conflict + pressure grammar
+ *   refresh_runtime_alignment     → runtime currency spans story_engine + protagonist
+ *   inspect_subsystem             → proxy for systemic narrative health (story_engine)
+ */
+const ARP1_REPAIR_TYPE_AXIS_MAP: Readonly<Record<string, SpineAxis[]>> = {
+  repair_seed_alignment:         ["story_engine", "protagonist_arc"],
+  repair_relation_graph:         ["central_conflict", "protagonist_arc"],
+  repair_structural_beats:       ["midpoint_reversal", "inciting_incident", "pressure_system"],
+  investigate_simulation_impact: ["pressure_system", "story_engine"],
+  build_obligation_registry:     ["central_conflict", "pressure_system"],
+  refresh_runtime_alignment:     ["story_engine", "protagonist_arc"],
+  inspect_subsystem:             ["story_engine"],
+};
+
 // ══ PRP1.1 shared cores — single source of truth for ARP1 + NRF1 computations ══
 // runARP1Core / runNRF1Core: expose computed internal data before response wrapping.
 // Called by: action wrappers (thin) AND preventive_repair_prioritization (PRP1).
@@ -3186,7 +3217,16 @@ async function runARP1Core(
 
   for (const ps of preScored) {
     const { repair, proposal, dx, severity, loadClass, resState } = ps;
-    const affectedAxes: string[] = dx?.affected_axes ?? [];
+    // ARP1.2: Three-tier axis derivation
+    //   Tier 1: dx.affected_axes when populated (primary — diagnostic collector output)
+    //   Tier 2: repair.scope_key is a valid SpineAxis (axis-scoped repairs e.g. investigate_*)
+    //   Tier 3: ARP1_REPAIR_TYPE_AXIS_MAP deterministic fallback by repair_type
+    const _dxAxes: string[]    = dx?.affected_axes ?? [];
+    const affectedAxes: string[] = _dxAxes.length > 0
+      ? _dxAxes
+      : repair.scope_key && AXIS_METADATA[repair.scope_key as SpineAxis] !== undefined
+        ? [repair.scope_key as SpineAxis]
+        : (ARP1_REPAIR_TYPE_AXIS_MAP[repair.repair_type] ?? []);
     const notes: string[] = [];
 
     if (!dx) notes.push("Source diagnostic not found in current DX — scoring uses defaults");
@@ -3514,17 +3554,22 @@ async function runNRF1Core(
   //
   // This is deterministic and consistent with how plan_narrative_repairs stores
   // scope_type (from dx.scope_level) and scope_key (from dx.scope_key).
+  // NRF1.5: Three-tier axis derivation (mirrors ARP1.2)
+  //   Tier 1: scope_key is a valid SpineAxis (axis-scoped repairs)
+  //   Tier 2: ARP1_REPAIR_TYPE_AXIS_MAP deterministic fallback by repair_type
   const nrf1DeriveAffectedAxes = (repair: any): SpineAxis[] => {
     const scopeKey = repair.scope_key as string | null;
-    const scopeType = repair.scope_type as string | null;
 
-    // If scope_key is a valid spine axis, it's always an affected axis
+    // Tier 1: scope_key is a canonical SpineAxis (covers axis-scoped repairs
+    // such as investigate_simulation_impact with scope_key=protagonist_arc)
     if (scopeKey && AXIS_METADATA[scopeKey as SpineAxis] !== undefined) {
       return [scopeKey as SpineAxis];
     }
 
-    // For unit/axis scope types, scope_key should be the axis (handled above)
-    // For other scope types, no axis-level info available from repair metadata
+    // Tier 2: deterministic repair_type fallback (ARP1.2 / NRF1.5)
+    const mapped = ARP1_REPAIR_TYPE_AXIS_MAP[repair.repair_type as string] ?? [];
+    if (mapped.length > 0) return mapped;
+
     return [];
   };
 
