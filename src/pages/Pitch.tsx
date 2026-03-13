@@ -55,8 +55,11 @@ export default function Pitch() {
           pointerEvents: 'none',
         }} />
         <img src={iffyLogo} alt="IFFY" style={{ height: 56, width: 56, marginBottom: '1.5rem', opacity: 0.95 }} />
-        <div style={{ color: fgMuted, fontSize: '0.7rem', letterSpacing: '0.25em', textTransform: 'uppercase', marginBottom: '1.25rem' }}>
-          Film Intelligence
+        <div style={{ color: fgMuted, fontSize: '0.7rem', letterSpacing: '0.25em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+          Intelligent Film Flow and Yield
+        </div>
+        <div style={{ color: fgMuted, fontSize: '0.65rem', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '1.25rem', opacity: 0.5 }}>
+          I · F · F · Y
         </div>
         <h1 style={{
           fontFamily: 'Fraunces, Georgia, serif', fontSize: 'clamp(2.5rem, 6vw, 4.5rem)',
