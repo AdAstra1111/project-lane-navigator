@@ -44,6 +44,23 @@ export function useCreatorDocument(
     }) ?? null;
   }, [documents, docType]);
 
+  // Fetch document row directly including plaintext (project_documents.plaintext is always readable)
+  const { data: docWithContent, isLoading: docContentLoading } = useQuery({
+    queryKey: ['creator-doc-content', document?.id],
+    queryFn: async () => {
+      if (!document?.id) return null;
+      const { data, error } = await (supabase as any)
+        .from('project_documents')
+        .select('id, plaintext, extracted_text, latest_version_id')
+        .eq('id', document.id)
+        .maybeSingle();
+      if (error) { console.warn('[useCreatorDocument] doc content fetch error:', error); return null; }
+      return data;
+    },
+    enabled: !!document?.id,
+    staleTime: 60_000,
+  });
+
   // Fetch all versions to find the approved one (for content + approval state)
   const { data: versions, isLoading: versionsLoading } = useQuery({
     queryKey: ['creator-versions', document?.id],
@@ -74,13 +91,15 @@ export function useCreatorDocument(
     );
   }, [versions]);
 
-  // Content: version plaintext > doc.version_plaintext (pre-fetched) > doc.extracted_text
+  // Content priority: version plaintext > project_documents.plaintext > version_plaintext cache > extracted_text
   const content = useMemo(() => {
     if (version?.plaintext) return version.plaintext;
+    if (docWithContent?.plaintext) return docWithContent.plaintext;
     if ((document as any)?.version_plaintext) return (document as any).version_plaintext;
+    if (docWithContent?.extracted_text) return docWithContent.extracted_text;
     if ((document as any)?.extracted_text) return (document as any).extracted_text;
     return null;
-  }, [version, document]);
+  }, [version, docWithContent, document]);
 
   // Approval state
   const isApproved = version?.approval_status === 'approved';
@@ -119,7 +138,7 @@ export function useCreatorDocument(
     versionNumber: version?.version_number ?? null,
     isApproved,
     isGenerating,
-    isLoading: docsLoading || versionsLoading,
+    isLoading: docsLoading || versionsLoading || docContentLoading,
     error: null,
     approve,
     isApproving,
