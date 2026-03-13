@@ -14,6 +14,7 @@ export interface DocumentVersion {
   approval_status: string | null;
   change_summary: string | null;
   created_at: string;
+  meta_json?: Record<string, any> | null;
 }
 
 export function useDocumentVersions(documentId: string | undefined) {
