@@ -97,6 +97,61 @@ export interface PRP2Data {
   scoring_notes?: Record<string, string>;
 }
 
+// ── Intervention ROI types (compute_intervention_roi response contract) ──
+
+export interface ROIComponents {
+  prevented_downstream_pressure: number;
+  projected_stability_gain: number;
+  execution_friction: number;
+  blast_radius: number | null;
+}
+
+export interface ROISupportingSignals {
+  repair_preventive_value: number;
+  forecast_confidence: number;
+  net_priority_score: number;
+  expected_stability_gain: number;
+  execution_friction_score: number;
+  root_cause_score: number;
+  blast_risk_score: number;
+}
+
+export interface ROIRepairEntry {
+  repair_id: string;
+  repair_type: string;
+  scope_type: string | null;
+  scope_key: string | null;
+  intervention_roi_score: number;
+  roi_components: ROIComponents;
+  supporting_signals: ROISupportingSignals;
+  rationale: string;
+}
+
+export interface ROIFormulaNotes {
+  prevented_downstream_pressure: string;
+  projected_stability_gain: string;
+  execution_friction: string;
+  blast_radius: string;
+  overall_formula: string;
+}
+
+export interface ROIProjectContext {
+  candidate_repair_count: number;
+  project_repair_pressure?: number;
+}
+
+export interface InterventionROIData {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  computed_at: string;
+  roi_version: string;
+  blast_radius_available: boolean;
+  roi_formula_notes: ROIFormulaNotes;
+  project_context: ROIProjectContext;
+  ranked_repairs: ROIRepairEntry[];
+}
+
 async function fetchPRP1(projectId: string): Promise<PRP1Data> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Authentication required');
