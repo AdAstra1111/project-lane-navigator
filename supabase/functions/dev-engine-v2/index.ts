@@ -13429,7 +13429,8 @@ Return ONLY valid JSON:
           supporting_signals: {
             repair_preventive_value: Math.round(preventiveValue * 1000) / 1000,
             forecast_confidence: Math.round(forecastConfidence * 1000) / 1000,
-            net_priority_score: netPriority,
+            net_priority_score: rec.net_priority_score ?? 0,
+            expected_stability_gain: stabilityGain,
             execution_friction_score: rec.execution_friction_score ?? 0,
             root_cause_score: Math.round((nrf?.root_cause_score ?? 0) * 1000) / 1000,
             blast_risk_score: rec.blast_risk_score ?? 0,
