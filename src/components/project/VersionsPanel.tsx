@@ -7,7 +7,7 @@ import { useState, useMemo } from 'react';
 import { useProjectDocuments } from '@/hooks/useProjects';
 import { useDocumentVersions, useSetCurrentVersion } from '@/hooks/useDocumentVersions';
 import { cn } from '@/lib/utils';
-import { Check, Loader2, FileText, Star, ArrowUp } from 'lucide-react';
+import { Check, Loader2, FileText, Star, ArrowUp, Clock } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { useDocTypeScopedBest } from '@/hooks/useRunSnapshot';
