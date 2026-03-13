@@ -13076,80 +13076,6 @@ Return ONLY valid JSON:
 
       const prp2ComputedAt  = new Date().toISOString();
 
-    // ══════════════════════════════════════════════════════════════════════════════
-    // Intervention Intelligence Layer — computeInterventionROI
-    //
-    // Deterministic composition function that measures repair intervention leverage.
-    // Operates entirely on existing ARP1/NRF1/CSP1 signals — no new DB queries.
-    // Read-only diagnostic; does NOT affect PRP2 ranking or selection.
-    //
-    // Model:
-    //   intervention_roi_score =
-    //     prevented_downstream_pressure
-    //     + projected_stability_gain
-    //     - execution_friction
-    //     - blast_radius
-    //
-    // All components normalized to 0–100; final score clamped to [-100, 200].
-    // ══════════════════════════════════════════════════════════════════════════════
-    function computeInterventionROI(repair: {
-      net_priority_score: number;
-      affected_axes: string[];
-      nrf_forecast: any | null;
-      preventive_score: number;
-    }, friction: number, pathScore: number | null): {
-      intervention_roi_score: number;
-      roi_components: {
-        prevented_downstream_pressure: number;
-        projected_stability_gain: number;
-        execution_friction: number;
-        blast_radius: number;
-      };
-    } {
-      const nrf = repair.nrf_forecast;
-
-      // Component 1: Prevented Downstream Pressure (0–100)
-      // NRF1 preventive_value × forecast_confidence, scaled to 0–100
-      const preventiveValue   = nrf?.repair_preventive_value ?? 0;
-      const forecastConfidence = nrf?.forecast_confidence ?? 0;
-      const prevented_downstream_pressure = Math.min(100, Math.round(
-        preventiveValue * forecastConfidence * 100 * 100
-      ) / 100);
-
-      // Component 2: Projected Stability Gain (0–100)
-      // ARP1 net_priority_score (importance anchor) + root_cause bonus, capped at 100
-      const rootCause = nrf?.root_cause_score ?? 0;
-      const projected_stability_gain = Math.min(100, Math.round(
-        (Math.min(repair.net_priority_score, 80) + rootCause * 20) * 100
-      ) / 100);
-
-      // Component 3: Execution Friction (0–100)
-      // Direct from ARP1 execution_friction_score, capped
-      const execution_friction = Math.min(100, Math.round(friction * 100) / 100);
-
-      // Component 4: Blast Radius (0–100)
-      // Proxy: affected_axes count + forecasted_repair_families count
-      // More axes/families = broader impact = higher blast radius
-      const axisCount    = repair.affected_axes?.length ?? 0;
-      const familyCount  = nrf?.forecasted_repair_families?.length ?? 0;
-      const blast_radius = Math.min(100, Math.round(
-        (axisCount * 12 + familyCount * 8) * 100
-      ) / 100);
-
-      // Composite: sum of gains minus costs, clamped to [-100, 200]
-      const raw = prevented_downstream_pressure + projected_stability_gain - execution_friction - blast_radius;
-      const intervention_roi_score = Math.round(Math.max(-100, Math.min(200, raw)) * 100) / 100;
-
-      return {
-        intervention_roi_score,
-        roi_components: {
-          prevented_downstream_pressure,
-          projected_stability_gain,
-          execution_friction,
-          blast_radius,
-        },
-      };
-    }
 
 
       // ── Step 1: Load ARP1 + NRF1 via direct cores ────────────────────────────
@@ -13265,8 +13191,6 @@ Return ONLY valid JSON:
           axis_debt_reduction:     { axes_addressed: [], axis_debt_before: {}, highest_debt_axis: null },
           downstream_prevention:   { forecasted_families_cleared: [], forecast_confidence: 0, repair_preventive_value: 0 },
           likely_next_repairs:     [],
-          intervention_roi:        0,
-          roi_components:          { prevented_downstream_pressure: 0, projected_stability_gain: 0, execution_friction: 0, blast_radius: 0 },
           path_context:            null,
           project_context: {
             current_nsi:             arp1Result.currentNSI ?? null,
@@ -13404,8 +13328,6 @@ Return ONLY valid JSON:
           repair_preventive_value:     repairPreventiveValue,
         },
         likely_next_repairs:    likelyNextRepairs,
-        intervention_roi:      selectedROI.intervention_roi_score,
-        roi_components:        selectedROI.roi_components,
         path_context: selectedPath ? {
           path_id:                 selectedPath.path_id,
           path_label:              selectedPath.path_label ?? null,
@@ -13427,11 +13349,9 @@ Return ONLY valid JSON:
           csp1_source:         csp1Degraded ? "CSP1 unavailable — path_context degraded, repair selection from inline PRP2 scoring only" : "CSP1 evaluate_repair_paths — adjusted_path_score, sequential_effect_label",
           inline_formula:      "preventive_score = net_priority_score + (preventive_value × confidence × 0.30) + (root_cause × 5) − (friction × 0.02)",
           composite_formula:   "prp2_composite = preventive_score + adjusted_path_score × 0.10",
-          roi_formula:         "intervention_roi = prevented_downstream_pressure + projected_stability_gain − execution_friction − blast_radius",
-          roi_component_sources: "prevented_downstream_pressure: NRF1(preventive_value × confidence × 100); projected_stability_gain: ARP1(min(net_priority,80) + root_cause×20); execution_friction: ARP1(execution_friction_score); blast_radius: affected_axes×12 + forecast_families×8",
           tie_break:           "preventive_score desc → net_priority_score desc → repair_id asc",
           csp1_degraded:       csp1Degraded,
-          version:             "prp2+roi",
+          version:             "prp2",
         },
         computed_at: prp2ComputedAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -13470,12 +13390,6 @@ Return ONLY valid JSON:
 
       const prp2sAt     = new Date().toISOString();
 
-      // ── Step 4b: Compute Intervention ROI for selected repair ─────────────────
-      const selectedROI = computeInterventionROI(
-        selectedRepair,
-        selectedRepair.execution_friction_score,
-        selectedPath?.adjusted_path_score ?? null,
-      );
 
 
       // ── 1. Load ARP1 + NRF1 direct cores ────────────────────────────────────
