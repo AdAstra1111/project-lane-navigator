@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { SeasonScriptProgress } from '@/components/devengine/SeasonScriptProgress';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
@@ -1766,7 +1767,7 @@ export default function ProjectDevelopmentEngine() {
                                </Button>
                              </div>
                            )}
-                          </>
+                          </>)}
                      </CardContent>
                    </Card>
 
