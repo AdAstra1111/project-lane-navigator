@@ -6860,14 +6860,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
         }
       }
 
-      // Build augmented system prompt with narrative context
-      // For episode_grid, use the grid-specific system prompt (not the screenplay prompt)
-      const isGridDocType = docType === "episode_grid" || docType === "vertical_episode_grid";
-      const baseChunkSystem = isGridDocType ? REWRITE_CHUNK_SYSTEM_GRID : REWRITE_CHUNK_SYSTEM;
       const contextInjection = [chunkNarrativeBlock, chunkConstraintBlock].filter(Boolean).join("\n");
-      const augmentedChunkSystem = contextInjection
-        ? `${baseChunkSystem}\n\n${contextInjection}`
-        : baseChunkSystem;
 
       console.log(`[dev-engine-v2] rewrite-chunk: injected_context_pack resolver_hash=${plan?.narrative_resolver_hash || "none"} narrative_chars=${chunkNarrativeBlock.length} constraint_chars=${chunkConstraintBlock.length} has_nec=${chunkNarrativeBlock.includes("NEC_GUARDRAIL")} has_canon=${chunkNarrativeBlock.includes("CANON OS")} signals=${plan?.narrative_counts?.signals ?? "?"} decisions=${plan?.narrative_counts?.decisions ?? "?"} fallback_resolve=${fallbackResolve}`);
 
@@ -6883,6 +6876,16 @@ MATERIAL TO REWRITE:\n${fullText}`;
         ? rawChunkDocType
         : resolveScriptTypeForFormat(plan?.format || null);
       console.log(`[dev-engine-v2] rewrite-chunk: docType="${docType}" (plan.doc_type="${rawChunkDocType || "null"}", plan.format="${plan?.format || "null"}")`);
+
+      // Build augmented system prompt with narrative context
+      // For episode_grid, use the grid-specific system prompt (not the screenplay prompt)
+      // NOTE: docType must be declared BEFORE this line (temporal dead zone guard)
+      const isGridDocType = docType === "episode_grid" || docType === "vertical_episode_grid";
+      const baseChunkSystem = isGridDocType ? REWRITE_CHUNK_SYSTEM_GRID : REWRITE_CHUNK_SYSTEM;
+      const augmentedChunkSystem = contextInjection
+        ? `${baseChunkSystem}\n\n${contextInjection}`
+        : baseChunkSystem;
+
       const chunkMeta = Array.isArray(plan?.chunk_meta) ? plan.chunk_meta[chunkIndex] : null;
 
       let rewrittenChunk = "";
