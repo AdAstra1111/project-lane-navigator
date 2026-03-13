@@ -1553,6 +1553,26 @@ function buildRewriteSystem(deliverable: string, format: string, behavior: strin
 - The rewritten_text field must contain a full screenplay, not a summary.`;
   }
 
+  // Episode beats format enforcement — mandatory when rewriting beats docs
+  let episodeBeatsEnforcement = "";
+  if (deliverable === "vertical_episode_beats" || deliverable === "episode_beats") {
+    episodeBeatsEnforcement = `\n\nEPISODE BEATS FORMAT (MANDATORY — violations cause rejection):
+Output the COMPLETE episode beats document. Every episode must follow this EXACT structure:
+
+## EPISODE N: [specific active title]
+*Duration: 120–180 seconds*
+
+1. [HOOK] [specific opening action or image — an event, not a mood]
+2. [ESCALATION] [how tension or stakes increase]
+3. [REVERSAL or REVELATION] [unexpected turn or new information]
+4. [CHARACTER DECISION] [what the focal character chooses under pressure]
+5. [CLIFFHANGER] [final unresolved beat — specific image or revelation]
+
+Beat type labels in [brackets] are MANDATORY. Beat 1 = HOOK. Final beat = CLIFFHANGER.
+Do NOT output prose narrative, screenplay scenes, or dialogue blocks.
+Apply notes only to the specific affected episodes. Preserve all others exactly.`;
+  }
+
   // Episode grid format enforcement — mandatory when rewriting a grid doc
   let episodeGridEnforcement = "";
   if (deliverable === "episode_grid" || deliverable === "vertical_episode_grid") {
@@ -1588,7 +1608,7 @@ Rules:
 - Match the target deliverable type format expectations.
 - OUTPUT THE FULL REWRITTEN MATERIAL — do NOT summarize or truncate.
 - If repositioning (lane/format) appears in APPROVED STRATEGIC NOTES, reflect it. Otherwise do not stealth-reposition.
-${docGuard}${formatRules}${scriptEnforcement}${episodeGridEnforcement}
+${docGuard}${formatRules}${scriptEnforcement}${episodeBeatsEnforcement}${episodeGridEnforcement}
 
 Return ONLY valid JSON:
 {
@@ -1673,6 +1693,36 @@ CRITICAL:
 - Do NOT summarize ranges ("Episodes 3-7 establish...").
 - Output ONLY the episodes in the requested range.`;
 
+
+const REWRITE_CHUNK_SYSTEM_BEATS = `You are rewriting EPISODE BEATS for a vertical drama series.
+
+Episode beats are a STRUCTURED PLANNING DOCUMENT — not a screenplay, not prose narrative.
+Every episode MUST be output using the exact beats format below. No prose summaries. No exceptions.
+
+MANDATORY FORMAT PER EPISODE:
+## EPISODE N: [specific active title]
+*Duration: 120–180 seconds*
+
+1. [HOOK] [What specifically happens in the opening seconds — concrete action or image]
+2. [ESCALATION] [How tension or stakes increase]
+3. [REVERSAL or REVELATION] [Unexpected turn or new information]
+4. [CHARACTER DECISION] [What the focal character chooses or does under pressure]
+5. [CLIFFHANGER] [Final unresolved beat — specific image or revelation]
+
+Beat type labels (in brackets) are MANDATORY on every beat.
+Beat 1 must always be HOOK. Final beat must always be CLIFFHANGER.
+Add beats 6–7 if episode complexity warrants it (max 8).
+
+GOALS:
+- Apply the approved notes to the relevant episodes.
+- Preserve episodes not affected by the notes exactly as they are.
+- Every episode must have HOOK as beat 1 and CLIFFHANGER as the final beat.
+- Beats must describe specific story events — not moods or prose summaries.
+
+CRITICAL:
+- Output ONLY episode beats entries. No prose narrative. No screenplay format. No INT./EXT. sluglines.
+- Do NOT summarize ranges ("Episodes 3-7 follow same pattern").
+- Output ONLY the episodes in the requested range.`;
 
 const CONVERT_SYSTEM = `You are IFFY. Convert the source material into the specified target format.
 Preserve the creative DNA (protect items). Adapt structure and detail level to the target format.
@@ -4979,6 +5029,63 @@ Format: ${rq.format}.${episodeLengthBlock}`;
         }
       } catch (e) { /* non-fatal */ }
 
+      // ── Episode beats: structural pre-analysis + sampled scoring ──
+      const isBeatsDeliverable = effectiveDeliverable === "vertical_episode_beats" || effectiveDeliverable === "episode_beats";
+      if (isBeatsDeliverable && version.plaintext.length > 1000) {
+        try {
+          const { parseEpisodeBlocks: parseBeatBlocks } = await import("../_shared/surgicalEpisodeRewrite.ts");
+          const bBlocks = parseBeatBlocks(version.plaintext);
+          const bTotalParsed = bBlocks.size;
+          const bExpected = effectiveSeasonCount || bTotalParsed;
+
+          let episodesMissingHook = 0, episodesMissingCliffhanger = 0, episodesLowBeatCount = 0, totalBeats = 0;
+          // Detect format: new bracket-label format vs legacy inline (Character Action: ...)
+          const sampleContent = Array.from(bBlocks.values()).slice(0, 5).map(b => b.content).join("\n");
+          const usesNewBracketFormat = /\[HOOK\]|\[ESCALATION\]|\[CLIFFHANGER\]/i.test(sampleContent);
+
+          for (const [, block] of bBlocks) {
+            const txt = block.content;
+            const beatLines = txt.match(/^\d+\.\s+\S/gm) || [];
+            totalBeats += beatLines.length;
+            if (beatLines.length < 4) episodesLowBeatCount++;
+            if (usesNewBracketFormat) {
+              if (!/\[HOOK\]/i.test(txt)) episodesMissingHook++;
+              if (!/\[CLIFFHANGER\]/i.test(txt)) episodesMissingCliffhanger++;
+            }
+          }
+
+          const avgBeats = bTotalParsed > 0 ? (totalBeats / bTotalParsed).toFixed(1) : "0";
+          const bMissing = Math.max(0, bExpected - bTotalParsed);
+          const bAllNums = Array.from(bBlocks.keys()).sort((a, b) => a - b);
+          const bSampleSize = Math.min(10, bAllNums.length);
+          const bSampleIndices = bSampleSize > 0
+            ? Array.from({ length: bSampleSize }, (_, i) => Math.floor((i / (bSampleSize - 1 || 1)) * (bAllNums.length - 1))).map(idx => bAllNums[idx])
+            : bAllNums.slice(0, bSampleSize);
+          const bSampledBlocks = bSampleIndices.map(n => bBlocks.get(n)?.content || "").join("\n\n---\n\n");
+
+          const hookCliffNote = usesNewBracketFormat
+            ? `Episodes missing [HOOK] label: ${episodesMissingHook}${episodesMissingHook > 0 ? " (blocker)" : " ✓"}\nEpisodes missing [CLIFFHANGER] label: ${episodesMissingCliffhanger}${episodesMissingCliffhanger > 0 ? " (blocker)" : " ✓"}`
+            : `Beat format: legacy inline style — do NOT flag as missing labels. This is a valid pre-existing format.`;
+
+          episodeGridStructuralBlock = `\nEPISODE BEATS STRUCTURAL ANALYSIS (computed — do not override):
+Episodes parsed: ${bTotalParsed} / ${bExpected} expected${bMissing > 0 ? ` — ${bMissing} MISSING (blocker)` : " ✓"}
+Average beats per episode: ${avgBeats}${Number(avgBeats) < 4 ? " — BELOW MINIMUM (blocker)" : " ✓"}
+Low beat count episodes (<4): ${episodesLowBeatCount}${episodesLowBeatCount > 0 ? " (blocker)" : " ✓"}
+${hookCliffNote}
+
+SCORING INSTRUCTION: Score the SAMPLE (10 representative episodes).
+CI = beat specificity, hook-first mandate, beat structure present.
+GP = cliffhanger quality, escalation logic, beat density within duration.
+Do NOT penalise for using the legacy inline beat format. Both formats are valid.
+A complete beats doc should score CI 75–85.`;
+
+          docTextForScoring = bSampledBlocks.slice(0, maxContextChars);
+          console.log(`[dev-engine-v2] ${effectiveDeliverable} beats scoring: sampled ${bSampleIndices.length}/${bTotalParsed}, avgBeats=${avgBeats}, missing=${bMissing}`);
+        } catch (bErr) {
+          console.warn("[dev-engine-v2] beats structural analysis failed:", bErr);
+        }
+      }
+
       // ── Episode grid: structural pre-analysis + sampled scoring ──
       // Episode grids with 30–60 episodes are too large for reliable holistic LLM scoring.
       // Holistic scoring produces large CI/GP swings because the LLM's impression varies
@@ -6555,9 +6662,11 @@ MATERIAL:\n${version.plaintext}`;
         }
       }
 
-      // For episode grid: remind model of required output format just before the material
+      // Format reminder injected just before material — model weights recent context more heavily
       const episodeGridFormatReminder = (effectiveDeliverable === "episode_grid" || effectiveDeliverable === "vertical_episode_grid")
-        ? `\nOUTPUT FORMAT REQUIRED: Episode grid — each episode as ## EPISODE N: block with PREMISE / HOOK / CORE MOVE / CHARACTER COST / CLIFFHANGER / ARC POSITION / TONE fields. No prose. No summaries.\n`
+        ? `\nOUTPUT FORMAT REQUIRED: Episode grid — each episode as ## EPISODE N: block with all 8 fields: PREMISE / HOOK / CORE MOVE / CHARACTER COST / CLIFFHANGER / ARC POSITION / TONE. No prose. No summaries.\n`
+        : (effectiveDeliverable === "vertical_episode_beats" || effectiveDeliverable === "episode_beats")
+        ? `\nOUTPUT FORMAT REQUIRED: Episode beats — each episode as ## EPISODE N: block with numbered beats. Beat format: N. [BEAT_TYPE] description. Beat 1 = HOOK, final beat = CLIFFHANGER. No prose. No screenplay.\n`
         : "";
 
       const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
@@ -6958,7 +7067,10 @@ MATERIAL TO REWRITE:\n${fullText}`;
       // For episode_grid, use the grid-specific system prompt (not the screenplay prompt)
       // NOTE: docType must be declared BEFORE this line (temporal dead zone guard)
       const isGridDocType = docType === "episode_grid" || docType === "vertical_episode_grid";
-      const baseChunkSystem = isGridDocType ? REWRITE_CHUNK_SYSTEM_GRID : REWRITE_CHUNK_SYSTEM;
+      const isBeatsDocType = docType === "vertical_episode_beats" || docType === "episode_beats";
+      const baseChunkSystem = isGridDocType ? REWRITE_CHUNK_SYSTEM_GRID
+        : isBeatsDocType ? REWRITE_CHUNK_SYSTEM_BEATS
+        : REWRITE_CHUNK_SYSTEM; // screenplay — correct for season_script, episode_script
       const augmentedChunkSystem = contextInjection
         ? `${baseChunkSystem}\n\n${contextInjection}`
         : baseChunkSystem;
@@ -6974,11 +7086,13 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
         let repairDirective = "";
         for (let attempt = 0; attempt < 3; attempt++) {
-          const gridFieldReminder = isGridDocType
-            ? `\n\nEACH EPISODE MUST HAVE ALL 8 FIELDS: PREMISE / HOOK / CORE MOVE / CHARACTER COST / CLIFFHANGER / ARC POSITION / TONE\nNo prose. No screenplay format. Grid entries only.`
-            : "";
+          const formatReminder = isGridDocType
+            ? `\n\nOUTPUT FORMAT: Episode grid — ## EPISODE N: block with 8 fields: PREMISE / HOOK / CORE MOVE / CHARACTER COST / CLIFFHANGER / ARC POSITION / TONE. No prose. No screenplay.`
+            : isBeatsDocType
+            ? `\n\nOUTPUT FORMAT: Episode beats — ## EPISODE N: block with numbered beats. Beat format: N. [BEAT_TYPE] description. Beat 1 = HOOK, final beat = CLIFFHANGER. No prose. No screenplay.`
+            : `\n\nOUTPUT FORMAT: Screenplay — maintain INT./EXT. sluglines, action lines, character names in CAPS, dialogue.`;
 
-          const episodicPrompt = `${notesContext}${prevContext}${repairDirective}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite Episodes ${start}-${end} ONLY.\n\nCRITICAL RULES:\n- Output exactly Episodes ${start} through ${end}.\n- Each episode starts with heading \"## EPISODE N: [title]\".\n- Do NOT omit, merge, summarize, or renumber episodes.\n- Do NOT use summary language (\"remaining episodes\", \"and so on\", \"etc\").${gridFieldReminder}\n\nSOURCE EPISODES TO REWRITE:\n${chunkText || "(No source text for this range. Regenerate all episodes in-range fully.)"}`;
+          const episodicPrompt = `${notesContext}${prevContext}${repairDirective}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite Episodes ${start}-${end} ONLY.\n\nCRITICAL RULES:\n- Output exactly Episodes ${start} through ${end}.\n- Each episode starts with heading \"## EPISODE N: [title]\".\n- Do NOT omit, merge, summarize, or renumber episodes.\n- Do NOT use summary language (\"remaining episodes\", \"and so on\", \"etc\").${formatReminder}\n\nSOURCE EPISODES TO REWRITE:\n${chunkText || "(No source text for this range. Regenerate all episodes in-range fully.)"}`;
 
           console.log(`Rewrite episodic chunk ${chunkIndex + 1}/${plan.total_chunks} (episodes ${start}-${end})`);
           rewrittenChunk = await callAI(
