@@ -639,6 +639,31 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
         </span>
       </div>
 
+      {/* Axis Debt Hotspots (from PRP2S) */}
+      {strat.axis_debt_hotspots && strat.axis_debt_hotspots.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <Shield className="h-3 w-3" />
+            Axis Debt Hotspots
+          </h4>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {strat.axis_debt_hotspots.map(h => (
+              <Card key={h.axis} className="border-border/50">
+                <CardContent className="p-3 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-medium text-foreground">{h.axis}</span>
+                    <Badge variant={riskBadgeVariant(h.risk_level)} className="text-[10px] uppercase">{h.risk_level}</Badge>
+                  </div>
+                  <span className="text-[11px] text-muted-foreground">
+                    Source repairs: <span className="font-mono text-foreground">{h.source_repair_count}</span>
+                  </span>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Ranked options with ROI advisory columns */}
       {options.length === 0 ? (
         <Card className="border-border/50">
