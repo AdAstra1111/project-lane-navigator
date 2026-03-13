@@ -13451,10 +13451,10 @@ Return ONLY valid JSON:
         computed_at: roiComputedAt, roi_version: ROI_VERSION, blast_radius_available: true,
         roi_formula_notes: {
           prevented_downstream_pressure: "NRF1 repair_preventive_value × forecast_confidence × 100, clamped 0–100",
-          projected_stability_gain: "ARP1 net_priority_score (stability_gain×0.40 + urgency×0.30 − blast×0.15 − friction×0.15), clamped 0–100",
+          projected_stability_gain: "ARP1 expected_stability_gain (gain-only signal, NOT net_priority_score which already includes blast/friction penalties), clamped 0–100",
           execution_friction: "ARP1 execution_friction_score (repairability base + proposal/status modifiers), 0–100",
           blast_radius: "ARP1 blast_risk_score (DX4 simulation blast_radius_score when available, else severity+load_class deterministic fallback), 0–100",
-          overall_formula: "intervention_roi_score = prevented_downstream_pressure + projected_stability_gain − execution_friction − blast_radius, clamped [-100, 200]",
+          overall_formula: "intervention_roi_score = prevented_downstream_pressure + projected_stability_gain − execution_friction − blast_radius, clamped [-100, 200]. No double-counting: each signal is independent.",
         },
         project_context: { candidate_repair_count: roiEntries.length, project_repair_pressure: nrf1Ok ? nrf1Result.projectRepairPressure : 0 },
         ranked_repairs: roiEntries,
