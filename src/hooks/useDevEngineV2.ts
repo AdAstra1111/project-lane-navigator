@@ -191,10 +191,15 @@ export function useDevEngineV2(projectId: string | undefined) {
         .order('version_number', { ascending: true });
       if (error) throw error;
       const rows = (data || []) as DevVersion[];
-      // If any version has is_current=true, use that; otherwise fallback to latest by version_number
       return rows;
     },
     enabled: !!selectedDocId,
+    // Poll every 20s when any version has bg_generating (content still being written)
+    refetchInterval: (query) => {
+      const vers = query.state.data as DevVersion[] | undefined;
+      if (vers?.some((v: any) => v.meta_json?.bg_generating && !v.plaintext)) return 20_000;
+      return false;
+    },
   });
 
   // Derive the "current" version: prefer is_current flag, fallback to highest version_number
