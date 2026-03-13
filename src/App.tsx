@@ -87,6 +87,8 @@ const AIContentPage = lazy(() => import("./pages/AIContentPage"));
 const AICastLibrary = lazy(() => import("./pages/AICastLibrary"));
 const ProjectCasting = lazy(() => import("./pages/ProjectCasting"));
 const DemoDashboard = lazy(() => import("./pages/DemoDashboard"));
+const CreatorDashboard = lazy(() => import("./pages/CreatorDashboard"));
+const CreatorProject = lazy(() => import("./pages/CreatorProject"));
 const IntelDashboard = lazy(() => import("./pages/IntelDashboard"));
 const IntelPolicies = lazy(() => import("./pages/IntelPolicies"));
 const IntelEvents = lazy(() => import("./pages/IntelEvents"));
@@ -217,6 +219,9 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/ai-content" element={<ProtectedRoute><ProjectShell><AIContentPage /></ProjectShell></ProtectedRoute>} />
           <Route path="/projects/:id/casting" element={<ProtectedRoute><ProjectShell><ProjectCasting /></ProjectShell></ProtectedRoute>} />
           <Route path="/showcase" element={<ProtectedRoute><Showcase /></ProtectedRoute>} />
+          {/* Creator UI — siloed new experience */}
+          <Route path="/creator" element={<ProtectedRoute><CreatorDashboard /></ProtectedRoute>} />
+          <Route path="/creator/projects/:id" element={<ProtectedRoute><CreatorProject /></ProtectedRoute>} />
 
           <Route path="/processing" element={<Processing />} />
           {/* Quick/Deep review: preserve projectId context when present */}
