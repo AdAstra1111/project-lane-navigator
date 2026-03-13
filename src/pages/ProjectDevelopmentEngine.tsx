@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { BgGenBanner } from '@/components/devengine/BgGenBanner';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
@@ -277,6 +278,9 @@ export default function ProjectDevelopmentEngine() {
     driftEvents, latestDrift, acknowledgeDrift, resolveDrift,
     approvedVersionMap,
   } = useDevEngineV2(projectId);
+
+  const isBgGenerating = (selectedVersion as any)?.meta_json?.bg_generating === true;
+  const isSeasonScript = selectedDoc?.doc_type === 'season_script';
 
   const pipeline = useScriptPipeline(projectId);
   const promotionIntel = usePromotionIntelligence();
@@ -762,11 +766,14 @@ export default function ProjectDevelopmentEngine() {
     setIsGeneratingDocument(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      await supabase.functions.invoke('generate-document', {
+      const { data: genResp } = await supabase.functions.invoke('generate-document', {
         body: { projectId, docType: selectedDoc.doc_type, userId: user?.id, mode: 'draft' },
       });
-      qc.invalidateQueries({ queryKey: ['versions', projectId, selectedDoc.doc_type] });
+      qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
       qc.invalidateQueries({ queryKey: ['documents', projectId] });
+      if ((genResp as any)?.generating === true && (genResp as any)?.version_id) {
+        setSelectedVersionId((genResp as any).version_id);
+      }
     } finally {
       setIsGeneratingDocument(false);
     }
@@ -1748,7 +1755,12 @@ export default function ProjectDevelopmentEngine() {
                    {/* Document content — editable */}
                    <Card>
                      <CardContent className="p-4">
-                         <>
+                         {isBgGenerating && isSeasonScript && selectedVersionId ? (
+                           <BgGenBanner
+                             versionId={selectedVersionId}
+                             episodeCount={(selectedVersion as any)?.meta_json?.episode_count}
+                           />
+                         ) : (<>
                            <textarea
                              className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
                              value={editableText}
@@ -1766,7 +1778,7 @@ export default function ProjectDevelopmentEngine() {
                                </Button>
                              </div>
                            )}
-                          </>
+                          </>)}
                      </CardContent>
                    </Card>
 

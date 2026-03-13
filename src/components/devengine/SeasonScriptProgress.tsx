@@ -2,7 +2,8 @@
  * SeasonScriptProgress — Episode-level progress view for season_script background generation.
  * Shows per-episode status from project_document_chunks, polls every 8s while bg_generating.
  */
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -17,80 +18,73 @@ interface ChunkRow {
   char_count: number | null;
 }
 
-const STATUS_CONFIG: Record<string, { icon: React.ReactNode; label: string; badge: string }> = {
-  done: {
-    icon: <CheckCircle className="h-4 w-4 text-emerald-500" />,
-    label: 'Done',
-    badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-  },
-  running: {
-    icon: <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />,
-    label: 'Generating',
-    badge: 'bg-blue-500/15 text-blue-400 border-blue-500/30 animate-pulse',
-  },
-  pending: {
-    icon: <Clock className="h-4 w-4 text-muted-foreground/50" />,
-    label: 'Pending',
-    badge: 'bg-muted text-muted-foreground border-border/30',
-  },
-  failed: {
-    icon: <XCircle className="h-4 w-4 text-destructive" />,
-    label: 'Failed',
-    badge: 'bg-destructive/15 text-destructive border-destructive/30',
-  },
-};
-
-function getStatusConfig(status: string) {
-  return STATUS_CONFIG[status] || STATUS_CONFIG.pending;
-}
-
 interface SeasonScriptProgressProps {
   versionId: string;
   episodeCount?: number;
 }
 
-export function SeasonScriptProgress({ versionId, episodeCount }: SeasonScriptProgressProps) {
-  const queryClient = useQueryClient();
+function getStatusIcon(status: string): React.ReactElement {
+  if (status === 'done') return <CheckCircle className="h-4 w-4 text-emerald-500" />;
+  if (status === 'running') return <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />;
+  if (status === 'failed') return <XCircle className="h-4 w-4 text-destructive" />;
+  return <Clock className="h-4 w-4 text-muted-foreground/50" />;
+}
 
+function getStatusBadgeClass(status: string): string {
+  if (status === 'done') return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+  if (status === 'running') return 'bg-blue-500/15 text-blue-400 border-blue-500/30 animate-pulse';
+  if (status === 'failed') return 'bg-destructive/15 text-destructive border-destructive/30';
+  return 'bg-muted text-muted-foreground border-border/30';
+}
+
+function getStatusLabel(status: string): string {
+  if (status === 'done') return 'Done';
+  if (status === 'running') return 'Generating';
+  if (status === 'failed') return 'Failed';
+  return 'Pending';
+}
+
+export function SeasonScriptProgress({ versionId, episodeCount }: SeasonScriptProgressProps) {
   const { data: chunks = [], isLoading } = useQuery<ChunkRow[]>({
     queryKey: ['season-script-chunks', versionId],
     queryFn: async () => {
+      if (!versionId) return [];
       const { data, error } = await (supabase as any)
         .from('project_document_chunks')
         .select('id, chunk_index, chunk_key, status, char_count')
         .eq('version_id', versionId)
         .order('chunk_index', { ascending: true });
       if (error) throw error;
-      return data || [];
+      return (data ?? []) as ChunkRow[];
     },
     enabled: !!versionId,
     refetchInterval: 8000,
   });
 
-  const total = episodeCount || chunks.length || 0;
-  const doneCount = chunks.filter(c => c.status === 'done').length;
-  const failedCount = chunks.filter(c => c.status === 'failed').length;
+  const safeChunks = Array.isArray(chunks) ? chunks : [];
+  const total = (typeof episodeCount === 'number' && episodeCount > 0)
+    ? episodeCount
+    : safeChunks.length;
+  const doneCount = safeChunks.filter(c => c.status === 'done').length;
+  const failedCount = safeChunks.filter(c => c.status === 'failed').length;
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
-  // Build episode rows — use chunks if available, pad to episodeCount
-  const rows = Array.from({ length: total }, (_, i) => {
-    const chunk = chunks.find(c => c.chunk_index === i);
+  const rows = Array.from({ length: Math.max(total, 0) }, (_, i) => {
+    const chunk = safeChunks.find(c => c.chunk_index === i);
     return {
       index: i,
-      status: chunk?.status || 'pending',
+      status: chunk?.status ?? 'pending',
       charCount: chunk?.char_count ?? null,
-      key: chunk?.chunk_key || null,
     };
   });
 
   return (
     <div className="flex flex-col items-center justify-center h-[300px] w-full space-y-4">
-      {/* Header */}
       <div className="w-full max-w-md space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium text-foreground">Generating Season Script</span>
           <span className="text-muted-foreground font-mono text-xs">
-            {doneCount} / {total} episodes complete
+            {doneCount} / {total || '?'} episodes
           </span>
         </div>
         <Progress value={pct} className="h-2" />
@@ -101,50 +95,51 @@ export function SeasonScriptProgress({ versionId, episodeCount }: SeasonScriptPr
         )}
       </div>
 
-      {/* Episode list */}
       {isLoading ? (
         <div className="flex items-center gap-2 text-muted-foreground text-sm">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading episode status…
         </div>
+      ) : rows.length === 0 ? (
+        <div className="flex items-center gap-2 text-muted-foreground text-sm">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Starting generation…
+        </div>
       ) : (
         <ScrollArea className="w-full max-w-md h-[180px] rounded-lg border border-border/30 bg-muted/20">
           <div className="divide-y divide-border/10">
-            {rows.map((row) => {
-              const cfg = getStatusConfig(row.status);
-              return (
-                <div
-                  key={row.index}
-                  className="flex items-center justify-between px-3 py-2 text-xs"
-                >
-                  <div className="flex items-center gap-2">
-                    {cfg.icon}
-                    <span className="text-foreground font-medium">
-                      Episode {String(row.index + 1).padStart(2, '0')}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {row.status === 'done' && row.charCount != null && (
-                      <span className="text-muted-foreground/60 font-mono text-[10px]">
-                        {row.charCount.toLocaleString()} chars
-                      </span>
-                    )}
-                    <Badge
-                      variant="outline"
-                      className={`text-[9px] px-1.5 py-0 ${cfg.badge}`}
-                    >
-                      {cfg.label}
-                    </Badge>
-                  </div>
+            {rows.map((row) => (
+              <div
+                key={row.index}
+                className="flex items-center justify-between px-3 py-2 text-xs"
+              >
+                <div className="flex items-center gap-2">
+                  {getStatusIcon(row.status)}
+                  <span className="text-foreground font-medium">
+                    Episode {String(row.index + 1).padStart(2, '0')}
+                  </span>
                 </div>
-              );
-            })}
+                <div className="flex items-center gap-2">
+                  {row.status === 'done' && row.charCount != null && (
+                    <span className="text-muted-foreground/60 font-mono text-[10px]">
+                      {row.charCount.toLocaleString()} chars
+                    </span>
+                  )}
+                  <Badge
+                    variant="outline"
+                    className={`text-[9px] px-1.5 py-0 ${getStatusBadgeClass(row.status)}`}
+                  >
+                    {getStatusLabel(row.status)}
+                  </Badge>
+                </div>
+              </div>
+            ))}
           </div>
         </ScrollArea>
       )}
 
       <p className="text-[11px] text-muted-foreground/60 text-center max-w-sm">
-        This may take a few minutes for large seasons. The page will update automatically when ready.
+        This may take a few minutes. The page will update automatically when ready.
       </p>
     </div>
   );
