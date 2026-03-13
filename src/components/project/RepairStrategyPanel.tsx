@@ -64,7 +64,7 @@ type SortKey = 'preventive_rank' | 'baseline_rank' | 'preventive_score' | 'rank_
 export function RepairStrategyPanel({ projectId }: Props) {
   const { prp1, nrf1, prp2, roi, prp2s, isLoading, nrf1Loading, prp2Loading, roiLoading, prp2sLoading, error, refresh } = usePreventiveRepairPrioritization(projectId);
   const [selectedRepair, setSelectedRepair] = useState<PRP1Repair | null>(null);
-  const [selectedStrategyOption, setSelectedStrategyOption] = useState<PRP2StrategyOption | null>(null);
+  const [selectedStrategyOption, setSelectedStrategyOption] = useState<PRP2StrategyOption | null>(null); // retained for type safety, modal removed
   const [sortKey, setSortKey] = useState<SortKey>('preventive_rank');
   const [sortAsc, setSortAsc] = useState(true);
 
