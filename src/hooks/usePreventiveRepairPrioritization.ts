@@ -227,6 +227,30 @@ export interface InterventionROIData {
   ranked_repairs: ROIRepairEntry[];
 }
 
+// ── Root Cause Cluster types (compute_root_cause_clusters response contract) ──
+
+export interface RootCauseCluster {
+  cluster_id: string;
+  primary_axis: string;
+  involved_repairs: string[];
+  repair_count: number;
+  shared_axes: string[];
+  repair_families: string[];
+  combined_pressure: number;
+  cluster_confidence: number;
+}
+
+export interface RootCauseAnalysisResult {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  cluster_count: number;
+  clusters: RootCauseCluster[];
+  unclustered_repairs: string[];
+  computed_at: string;
+  version: string;
+}
+
 async function fetchPRP1(projectId: string): Promise<PRP1Data> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Authentication required');
@@ -341,6 +365,28 @@ async function fetchPRP2S(projectId: string): Promise<PRP2SData | null> {
   return json as PRP2SData;
 }
 
+async function fetchRootCauseClusters(projectId: string): Promise<RootCauseAnalysisResult | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'compute_root_cause_clusters',
+      projectId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as RootCauseAnalysisResult;
+}
+
 export function usePreventiveRepairPrioritization(projectId: string | undefined) {
   const queryClient = useQueryClient();
   const prp1Key = ['prp1-prioritization', projectId];
@@ -348,6 +394,7 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
   const prp2Key = ['prp2-strategy', projectId];
   const roiKey = ['intervention-roi', projectId];
   const prp2sKey = ['prp2s-strategy', projectId];
+  const rccKey = ['root-cause-clusters', projectId];
 
   const prp1Query = useQuery({
     queryKey: prp1Key,
@@ -386,12 +433,20 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     staleTime: 60_000,
   });
 
+  const rccQuery = useQuery({
+    queryKey: rccKey,
+    queryFn: () => fetchRootCauseClusters(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
   const refresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: prp1Key });
     queryClient.invalidateQueries({ queryKey: nrf1Key });
     queryClient.invalidateQueries({ queryKey: prp2Key });
     queryClient.invalidateQueries({ queryKey: roiKey });
     queryClient.invalidateQueries({ queryKey: prp2sKey });
+    queryClient.invalidateQueries({ queryKey: rccKey });
   }, [queryClient]);
 
   return {
@@ -400,11 +455,13 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     prp2: prp2Query.data ?? null,
     roi: roiQuery.data ?? null,
     prp2s: prp2sQuery.data ?? null,
+    rcc: rccQuery.data ?? null,
     isLoading: prp1Query.isLoading,
     nrf1Loading: nrf1Query.isLoading,
     prp2Loading: prp2Query.isLoading,
     roiLoading: roiQuery.isLoading,
     prp2sLoading: prp2sQuery.isLoading,
+    rccLoading: rccQuery.isLoading,
     error: prp1Query.error?.message ?? null,
     refresh,
   };
