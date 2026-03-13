@@ -13239,6 +13239,7 @@ Return ONLY valid JSON:
           explanation_tags:   tags,
           prp2_rank:          0,
           nrf_forecast:       nrf,
+          execution_friction_score: friction,
         };
       });
 
