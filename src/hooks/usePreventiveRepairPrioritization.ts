@@ -191,6 +191,7 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
   const queryClient = useQueryClient();
   const prp1Key = ['prp1-prioritization', projectId];
   const nrf1Key = ['nrf1-forecast-strategy', projectId];
+  const prp2Key = ['prp2-strategy', projectId];
 
   const prp1Query = useQuery({
     queryKey: prp1Key,
@@ -199,8 +200,6 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     staleTime: 60_000,
   });
 
-  // Only fetch NRF1 when PRP1 succeeded but is degraded (no preventive data)
-  // or when we need axis_debt_map which PRP1 doesn't include
   const needsNrf1 = !!projectId && !!prp1Query.data && !prp1Query.data.nrf1_degraded;
 
   const nrf1Query = useQuery({
@@ -210,16 +209,26 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     staleTime: 60_000,
   });
 
+  const prp2Query = useQuery({
+    queryKey: prp2Key,
+    queryFn: () => fetchPRP2(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
   const refresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: prp1Key });
     queryClient.invalidateQueries({ queryKey: nrf1Key });
+    queryClient.invalidateQueries({ queryKey: prp2Key });
   }, [queryClient]);
 
   return {
     prp1: prp1Query.data ?? null,
     nrf1: nrf1Query.data ?? null,
+    prp2: prp2Query.data ?? null,
     isLoading: prp1Query.isLoading,
     nrf1Loading: nrf1Query.isLoading,
+    prp2Loading: prp2Query.isLoading,
     error: prp1Query.error?.message ?? null,
     refresh,
   };
