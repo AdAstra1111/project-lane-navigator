@@ -13368,7 +13368,7 @@ Return ONLY valid JSON:
     // ROI Model:
     //   intervention_roi_score =
     //     prevented_downstream_pressure       (NRF1: preventive_value × confidence, ×100)
-    //     + projected_stability_gain           (ARP1: net_priority_score, capped 0–100)
+    //     + projected_stability_gain           (ARP1: expected_stability_gain, gain-only, capped 0–100)
     //     − execution_friction                 (ARP1: execution_friction_score, 0–100)
     //     − blast_radius                       (ARP1: blast_risk_score, 0–100)
     //
