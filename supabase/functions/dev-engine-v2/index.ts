@@ -13706,6 +13706,9 @@ Return ONLY valid JSON:
 
         const prv = prvMap3.get(rec.repair_id);
 
+        // ROI advisory: compute via shared pure helper (non-binding, does not affect strategic_priority_score)
+        const roiAdvisory = computeROIForCandidate(rec, nrf ?? null);
+
         return {
           repair_id:                  rec.repair_id,
           repair_type:                rec.repair_type,
@@ -13730,6 +13733,8 @@ Return ONLY valid JSON:
           prevented_repair_families:  nrf?.forecasted_repair_families ?? [],
           reduced_axis_debt:          reducedAxes,
           unlocks_repairs:            unlocks,
+          roi_advisory:              roiAdvisory,
+          roi_rank:                  0,   // filled post-sort
           _rootCause:   rc,
           _fc:          fc,
           _frictionRaw: fr,
