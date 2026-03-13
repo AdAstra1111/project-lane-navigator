@@ -13328,8 +13328,6 @@ Return ONLY valid JSON:
           repair_preventive_value:     repairPreventiveValue,
         },
         likely_next_repairs:    likelyNextRepairs,
-        intervention_roi:      selectedROI.intervention_roi_score,
-        roi_components:        selectedROI.roi_components,
         path_context: selectedPath ? {
           path_id:                 selectedPath.path_id,
           path_label:              selectedPath.path_label ?? null,
