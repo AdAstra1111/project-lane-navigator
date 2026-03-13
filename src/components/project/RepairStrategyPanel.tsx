@@ -704,7 +704,7 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <Target className="h-3.5 w-3.5" /> Enhanced Strategy (PRP2S)
+          <Target className="h-3.5 w-3.5" /> Strategic Analysis
         </h3>
         <div className="flex items-center gap-2">
           {roiMode && (
