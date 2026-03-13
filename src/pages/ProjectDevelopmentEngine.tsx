@@ -1745,15 +1745,9 @@ export default function ProjectDevelopmentEngine() {
                     />
                   )}
 
-                   {/* Document content — editable (or season script progress) */}
+                   {/* Document content — editable */}
                    <Card>
                      <CardContent className="p-4">
-                       {isSeasonScriptBgGenerating && selectedVersionId ? (
-                         <SeasonScriptProgress
-                           versionId={selectedVersionId}
-                           episodeCount={seasonScriptEpisodeCount}
-                         />
-                       ) : (
                          <>
                            <textarea
                              className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"

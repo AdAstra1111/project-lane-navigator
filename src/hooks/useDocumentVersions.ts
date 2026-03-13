@@ -30,13 +30,6 @@ export function useDocumentVersions(documentId: string | undefined) {
       return (data ?? []) as DocumentVersion[];
     },
     enabled: !!documentId,
-    // Poll every 8s if any version is bg_generating
-    refetchInterval: (query) => {
-      const vers = query.state.data as DocumentVersion[] | undefined;
-      if (!vers) return false;
-      const hasBgGen = vers.some((v: any) => v.meta_json?.bg_generating === true);
-      return hasBgGen ? 8000 : false;
-    },
   });
 }
 
