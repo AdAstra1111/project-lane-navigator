@@ -105,6 +105,7 @@ import { useUIMode } from '@/hooks/useUIMode';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
 import { normalizeDecisionsForUI } from '@/lib/decisions/normalizeDecisionUI';
 import { useEnrichedPendingDecisions } from '@/hooks/useEnrichedPendingDecisions';
+import { FormattedDocContent } from '@/components/devengine/FormattedDocContent';
 
 
 // ── Main Page ──
@@ -1790,11 +1791,11 @@ export default function ProjectDevelopmentEngine() {
                               </div>
                             )
                           ) : (<>
-                            <textarea
+                            <FormattedDocContent
+                              text={editableText}
+                              editable={true}
+                              onChange={setEditableText}
                               className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
-                              value={editableText}
-                              onChange={(e) => setEditableText(e.target.value)}
-                              placeholder="Start writing your idea here…"
                             />
                             {editableText !== versionText && (
                               <div className="flex justify-end mt-2">
