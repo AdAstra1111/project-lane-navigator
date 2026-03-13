@@ -109,7 +109,8 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
   const handoffInFlightRef = useRef(false);
 
   // Full Autopilot mode — auto-approve all gates + decisions
-  const [fullAutopilot, setFullAutopilot] = useState(true);
+  // Default OFF — only enabled when a running job has allow_defaults=true, or user explicitly toggles
+  const [fullAutopilot, setFullAutopilot] = useState(false);
   const autoApprovedGateRef = useRef<string | null>(null);
   const runNextInFlightRef = useRef(false);
   const lastRunNextKickRef = useRef(0);
