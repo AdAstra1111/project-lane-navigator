@@ -1182,7 +1182,37 @@ These checks prevent downstream repair loops. Evaluate them NOW at idea stage. D
   documentary_outline: `Evaluate as a DOCUMENTARY OUTLINE. Score narrative structure, subject access, thematic coherence, editorial approach. Do NOT invent characters, fabricate scenes, or generate INT./EXT. sluglines. Use [PLACEHOLDER] for missing information.`,
   format_rules: `Evaluate as FORMAT RULES. This is a STRUCTURAL / PRODUCTION document — GP (Green Potential / production feasibility and commercial viability) should be weighted alongside CI, which reflects rule clarity and internal consistency rather than narrative craft. Score on: (1) Episode duration compliance — are min/max durations specified and consistent with canonical qualifications? (2) Episode count alignment — does the rule set match the project's season_episode_count? (3) Structural episode template — is there a clear hook duration, act count, cliffhanger position, and beat density specification? (4) Platform / distribution specs — are format constraints tied to a specific delivery platform or exhibition context? (5) Production constraints — location limits, cast size per episode, shot complexity. (6) Vertical drama specifics (if applicable) — scroll-optimised pacing, mobile-first shot framing, in-episode hook rules. GP should reflect how well the format rules enable efficient, commercially viable production. SCOPE GUARD: Format Rules MUST NOT contain season arc, character descriptions, episode story content, or market data. Flag any out-of-scope content as a BLOCKER. Do NOT penalise format_rules for lacking narrative depth — they are intentionally non-narrative.`,
   season_arc: `Evaluate as a SEASON ARC. Score arc architecture, escalation logic, episode count alignment with canonical qualifications, and thematic spine. SCOPE: Season Arc MUST contain: series arc (central dramatic question + resolution), act structure with locked turning-point episode numbers, character arcs (internal + external transformation for each principal), relationship arc (central romantic progression beat by beat), antagonist arc, thematic arc, key episode anchors (inciting incident, midpoint, climax, finale episode numbers), tone map (when tension peaks/breathes). Season Arc MUST NOT contain: format/production rules (belongs in Format Rules), episode-by-episode breakdowns (belongs in Episode Grid), character descriptions or backstory (belongs in Character Bible), episode scripts or dialogue (belongs in Season Script), vertical beat structure or episode templates (belongs in Format Rules/Episode Beats). Flag any out-of-scope content as a BLOCKER.`,
-  episode_grid: `Evaluate as an EPISODE GRID. Score grid completeness, hook design, escalation curve, and emotional engine distribution. SCOPE: Episode Grid MUST contain — for EVERY episode from 1 to the canonical episode count: (1) episode number and title, (2) one-line premise describing what happens in THIS episode specifically, (3) hook type (what pulls the viewer in at the start), (4) core dramatic move (what changes or is revealed), (5) character focus (whose arc this episode centres), (6) cliffhanger type (how it ends to pull to the next episode), (7) season arc position (which structural function this episode serves: setup / escalation / midpoint / complication / pre-climax / climax / resolution). Episode Grid MUST NOT contain: full scene breakdowns or detailed beat sequences (belongs in Episode Beats), character backstory or arc descriptions (belongs in Character Bible), season-wide arc structure or act breakdowns (belongs in Season Arc), dialogue or scripted content (belongs in Season Script). CRITICAL BLOCKERS: (a) any episode number missing from the grid is an immediate blocker, (b) repeated or templated entries ("follows established pattern", "same structure as above") are blockers, (c) range summaries ("Episodes 1–7 establish...") are blockers, (d) entries that describe season structure rather than the specific episode's events are blockers.`,
+  episode_grid: `Evaluate as an EPISODE GRID. Score structural completeness, hook specificity, escalation curve, and cliffhanger quality.
+
+CANONICAL 8-FIELD FORMAT (do NOT flag correctly-formatted fields as issues):
+Each episode must have exactly these 8 fields in order:
+  ## EPISODE N: [title]
+  PREMISE: one sentence — specific characters, event, consequence
+  HOOK: the specific OPENING IMAGE or LINE that starts the episode (action/event — NOT a mood description)
+  CORE MOVE: the single new story fact true after this episode
+  CHARACTER COST: what this episode extracts from the focal character (loss/sacrifice/damage)
+  CLIFFHANGER: the specific final beat — image or revelation, unresolved
+  ARC POSITION: one zone label (COLD OPEN WORLD / INCITING DISRUPTION / ESCALATION / COMPLICATION / MIDPOINT TURN / DARK SPIRAL / PRE-CLIMAX / CLIMAX / RESOLUTION / AFTERMATH)
+  TONE: the dominant emotional register for the whole episode (adjective/feeling — NOT an action)
+
+FIELD DISTINCTION (critical — do not confuse these):
+  HOOK = what happens in the opening seconds (active event, specific image, line of dialogue)
+  TONE = the emotional atmosphere of the episode as a whole (e.g. paranoid dread, charged chemistry, devastating grief)
+  These are fundamentally different fields. Never flag a correctly-labelled HOOK as needing to be TONE or vice versa.
+  Never flag a correctly-labelled CHARACTER COST as "should be CHARACTER FOCUS" — CHARACTER COST is the correct field name.
+
+SCOPE GUARD: Episode Grid MUST NOT contain scene breakdowns, dialogue, character backstory, or season-wide arc descriptions.
+
+CRITICAL BLOCKERS (only flag these):
+  (a) Missing episode numbers — any gap in episode count
+  (b) Templated/generic entries ("follows established pattern", "same structure as above")
+  (c) Range summaries ("Episodes 1–7 establish...")
+  (d) Missing required fields (any of the 8 not present)
+  (e) HOOK field contains a mood/feeling description instead of a specific opening action
+  (f) TONE field contains a specific action/event instead of an emotional register word/phrase
+
+Do NOT raise notes about field naming if the correct 8-field format is present.
+Do NOT penalise for lacking narrative prose depth — this is a structural planning document.`,
   vertical_episode_beats: `Evaluate as EPISODE BEATS for vertical drama. Score beat density per episode duration, scroll-stop hook design, micro-cliffhanger endings, escalation intensity, and character agency. CRITICAL STRUCTURAL RULES: (1) HOOK-FIRST MANDATE — Beat 1 of EVERY episode must be a new, self-contained hook for THIS episode. It must NOT resolve or re-explain the previous episode's cliffhanger. The cliffhanger from the prior episode creates carry-in tension; the viewer brings that tension with them. Beat 1 exploits that tension with something NEW, not resolution. Resolving the prior cliffhanger as Beat 1 is a blocker. (2) CLIFFHANGER MANDATE — Every episode must end with a forward-pulling micro-cliffhanger that creates urgency for the next episode. (3) BEAT DENSITY — Each episode must have minimum 4 beats within its duration window. Each beat must be a story change (new information, decision, reversal, or emotional shift) — not a line of dialogue. SCOPE: Episode Beats MUST contain: numbered beats per episode (minimum 4), beat type for each beat (hook/escalation/reversal/revelation/climax/cliffhanger), character action driving each beat, emotional shift per beat. Episode Beats MUST NOT contain: full dialogue/scripted scenes (belongs in Season Script), episode-level structural overview (belongs in Episode Grid), character descriptions (belongs in Character Bible). BLOCKERS: any episode opening by resolving the previous episode's cliffhanger, any episode without a micro-cliffhanger ending, any episode with fewer than 4 beats, any beat that describes season structure rather than this specific episode's events.`,
   series_writer: `Evaluate as a SERIES WRITER episode script for vertical drama. Score canon consistency (characters, relationships must match Character Bible), emotional escalation from previous episode, immediate hook in opening lines, cliffhanger ending, location limit (max 3 primary), and season arc alignment per Episode Grid. Do NOT allow feature-film pacing. Do NOT introduce characters not in canon.`,
 };
@@ -1621,12 +1651,14 @@ Every episode MUST be output in the exact grid format below. No prose. No summar
 MANDATORY FORMAT PER EPISODE:
 ## EPISODE N: [specific active title — e.g. "Leila Finds the Burner Phone"]
 PREMISE: [one sentence — name the characters, state the specific event and consequence]
-HOOK: [specific opening image or line that demands the viewer keep watching]
+HOOK: [specific OPENING ACTION or IMAGE — what physically happens in the first 10 seconds. An EVENT, not a mood. e.g. "Leila tears open the mattress and finds a burner phone"]
 CORE MOVE: [the single new story fact true after this episode that was not true before]
-CHARACTER COST: [what this episode extracts from the focal character]
+CHARACTER COST: [what this episode takes from the focal character — a specific loss, sacrifice, or damage]
 CLIFFHANGER: [specific final beat — image or revelation, unresolved]
 ARC POSITION: [one of: COLD OPEN WORLD / INCITING DISRUPTION / ESCALATION / COMPLICATION / MIDPOINT TURN / DARK SPIRAL / PRE-CLIMAX / CLIMAX / RESOLUTION / AFTERMATH]
-TONE: [dominant emotional register]
+TONE: [EMOTIONAL ATMOSPHERE of the episode — an adjective or short phrase for how it FEELS, not what happens. e.g. "paranoid dread" or "charged chemistry"]
+
+HOOK is an opening event. TONE is an emotional register. Never swap these.
 
 GOALS:
 - Apply the approved notes to the relevant episodes.

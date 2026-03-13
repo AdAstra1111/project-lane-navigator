@@ -63,16 +63,20 @@ const BATCH_SYSTEM_PROMPT_GRID = `You output ONLY valid JSON. No markdown fences
 JSON schema:
 {"episodes": {"1": "<FULL EPISODE 1 GRID ENTRY>", "2": "<FULL EPISODE 2 GRID ENTRY>", ...}}
 
-Each episode value is a text string containing these fields in order, separated by newlines:
+Each episode value is a text string containing these EIGHT fields in this EXACT order:
 
 ## EPISODE N: <episode title — a specific active phrase, e.g. "Leila Tears the Tracker From Her Wrist">
 PREMISE: <one sentence — name the characters, state the specific event and its consequence>
-HOOK: <concrete opening image or line of dialogue that demands the viewer keep watching>
+HOOK: <the OPENING ACTION or IMAGE — what physically happens in the first 10 seconds. Must be a specific event, not a mood description. e.g. "Leila finds a burner phone hidden in the mattress seam" or "Gabriel slams the door open, soaking wet, holding an evidence file">
 CORE MOVE: <the single new story fact that is true AFTER this episode that was not true before>
-CHARACTER COST: <what this episode extracts from the focal character — emotional, relational, or practical>
+CHARACTER COST: <what this episode takes from the focal character — a specific loss, sacrifice, or damage. e.g. "Leila discovers Gabriel knew her location from day one" or "Gabriel burns the only photo that could prove his innocence">
 CLIFFHANGER: <the specific final beat — an image or revelation, unresolved, pulling to the next episode>
-ARC POSITION: <one of: COLD OPEN WORLD / INCITING DISRUPTION / ESCALATION / COMPLICATION / MIDPOINT TURN / DARK SPIRAL / PRE-CLIMAX / CLIMAX / RESOLUTION / AFTERMATH>
-TONE: <dominant emotional register, e.g. paranoid dread, charged chemistry, devastating grief>
+ARC POSITION: <one zone label — COLD OPEN WORLD / INCITING DISRUPTION / ESCALATION / COMPLICATION / MIDPOINT TURN / DARK SPIRAL / PRE-CLIMAX / CLIMAX / RESOLUTION / AFTERMATH>
+TONE: <the EMOTIONAL ATMOSPHERE of the whole episode — an adjective or short phrase describing HOW IT FEELS, not what happens. e.g. "paranoid dread" or "charged chemistry" or "devastating grief" or "dark comic relief">
+
+HOOK vs TONE — these are different fields, never confuse them:
+  HOOK = specific OPENING EVENT (action, image, line) — answers "what happens first?"
+  TONE = EMOTIONAL REGISTER for the whole episode — answers "how does this episode feel?"
 
 Rules:
 - All 8 fields are mandatory for every episode.
