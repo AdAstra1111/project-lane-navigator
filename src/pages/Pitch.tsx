@@ -167,35 +167,49 @@ export default function Pitch() {
               maxWidth: 700,
               margin: '0 auto 1.5rem',
             }}>
-              IFFY is the development intelligence<br />
-              <span style={{ color: gold }}>the industry has been waiting for.</span>
+              IFFY is the operating system<br />
+              <span style={{ color: gold }}>for content development.</span>
             </h2>
-            <p style={{ color: fgMuted, fontSize: '1rem', lineHeight: 1.7, maxWidth: 600, margin: '0 auto' }}>
-              Not an AI that replaces writers. A system that thinks like your best
-              development executive — available at any hour, for any project.
+            <p style={{ color: fgMuted, fontSize: '1rem', lineHeight: 1.7, maxWidth: 640, margin: '0 auto' }}>
+              Not a script generator. A complete intelligence layer — from the first idea
+              to greenlight, production handoff, and beyond. Every stage. Every decision.
+              One system.
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+          {/* Capability categories */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
             {capability(
               '🧠',
-              'Story Intelligence',
-              'Analyses narrative structure in real time. Identifies gaps in arc, character logic, and dramatic pressure — before you\'ve spent a penny on production.'
+              'Narrative Intelligence',
+              'Analyses story structure in real time — arc logic, character pressure, dramatic tension, narrative health. Identifies gaps and risks before they cost money. CI + GP scoring on every document, every version.'
+            )}
+            {capability(
+              '🚀',
+              'Autonomous Development Pipeline',
+              'Auto-Run: a fully autonomous pipeline that develops a project from idea to complete series bible and screenplay — without human intervention. 418 steps. 9 stages. Overnight.'
             )}
             {capability(
               '📖',
-              'Series Bible Generation',
-              'Complete character documentation, world-building, season arc, and episode logic. The full development package, in hours.'
+              'Complete Series Bible',
+              'Season arc, episode grid, character bible, episode beats, season script — the full development package. Every document linked, scored, and coherent. What a room takes months to build, IFFY delivers in hours.'
             )}
-            {capability(
-              '🎬',
-              'Script Generation',
-              'Full-length episode screenplays with character voice, scene structure, and cinematic precision. Dialogue that reads like it was written by the room.'
-            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
             {capability(
               '📊',
               'Greenlight Intelligence',
-              'Confidence Index scoring, narrative health metrics, and risk assessment. Data-driven development decisions, not gut instinct alone.'
+              'Confidence Index scoring, Greenlight Probability, narrative risk flags, and repair recommendations. Data-driven decisions at every stage — not gut instinct alone. Know before you commit.'
+            )}
+            {capability(
+              '🌍',
+              'Slate & Market Intelligence',
+              'Cross-project intelligence across your entire slate. Market trend analysis, audience targeting, co-production planning, and international format intelligence. See your portfolio, not just your project.'
+            )}
+            {capability(
+              '💼',
+              'Production & Distribution Tools',
+              'Buyer CRM, festival calendar, incentive finder, co-production cashflow modelling, production calendar. The full pipeline from development through to distribution — in one place.'
             )}
           </div>
         </div>
