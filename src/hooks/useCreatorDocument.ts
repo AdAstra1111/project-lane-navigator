@@ -4,9 +4,10 @@
  * plaintext, and exposes approve/regenerate actions.
  */
 import { useState, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { approveAndActivate } from '@/lib/active-folder/approveAndActivate';
+import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 import { toast } from 'sonner';
 
 export interface CreatorDocumentState {
@@ -29,23 +30,39 @@ export function useCreatorDocument(
 ): CreatorDocumentState {
   const queryClient = useQueryClient();
 
-  // 1. Find the document row by doc_type
+  // 1. Find the document row by stage — doc_type in DB may differ from stage key,
+  //    so fetch all project docs and find the one whose mapped stage matches.
   const { data: document, isLoading: docLoading } = useQuery({
     queryKey: ['creator-doc', projectId, docType],
     queryFn: async () => {
       if (!projectId || !docType) return null;
-      const { data, error } = await (supabase as any)
+
+      // First try exact match
+      const { data: exact } = await (supabase as any)
         .from('project_documents')
         .select('id, doc_type, title, plaintext, latest_version_id, bg_generating')
         .eq('project_id', projectId)
         .eq('doc_type', docType)
         .maybeSingle();
+
+      if (exact) return exact;
+
+      // Fallback: fetch all docs and find by stage mapping
+      const { data: allDocs, error } = await (supabase as any)
+        .from('project_documents')
+        .select('id, doc_type, title, plaintext, latest_version_id, bg_generating')
+        .eq('project_id', projectId);
+
       if (error) throw error;
-      return data;
+
+      const match = (allDocs || []).find(
+        (d: any) => d.doc_type && mapDocTypeToLadderStage(d.doc_type) === docType
+      );
+
+      return match ?? null;
     },
     enabled: !!projectId && !!docType,
     refetchInterval: (query) => {
-      // Poll while generating
       return query.state.data?.bg_generating ? 8000 : false;
     },
   });
