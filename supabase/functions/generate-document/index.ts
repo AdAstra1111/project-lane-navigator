@@ -996,6 +996,11 @@ If you find yourself describing what happens in the story, which characters appe
         }
 
         // 3. Create placeholder version (is_current=true so UI can find the slot)
+        // MUST clear existing is_current=true versions first to avoid pdv_one_current_per_doc constraint
+        await supabase.from("project_document_versions")
+          .update({ is_current: false })
+          .eq("document_id", epDocRecord!.id)
+          .eq("is_current", true);
         const { count: epVerCount } = await supabase.from("project_document_versions")
           .select("id", { count: "exact", head: true }).eq("document_id", epDocRecord!.id);
         const epVersionNum = (epVerCount || 0) + 1;
@@ -1179,6 +1184,11 @@ If you find yourself describing what happens in the story, which characters appe
       }
 
       // Create placeholder version
+      // MUST clear existing is_current=true versions first to avoid pdv_one_current_per_doc constraint
+      await supabase.from("project_document_versions")
+        .update({ is_current: false })
+        .eq("document_id", chunkDocRecord!.id)
+        .eq("is_current", true);
       const { count: chunkVerCount } = await supabase.from("project_document_versions")
         .select("id", { count: "exact", head: true }).eq("document_id", chunkDocRecord!.id);
       const chunkVersionNum = (chunkVerCount || 0) + 1;
