@@ -13359,6 +13359,105 @@ Return ONLY valid JSON:
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
+    // INTERVENTION ROI — compute_intervention_roi
+    //
+    // Standalone read-only composition layer.
+    // Computes a deterministic Intervention ROI score for each repair candidate
+    // by composing existing ARP1 and NRF1 signals. No state mutation. No LLM.
+    //
+    // ROI Model:
+    //   intervention_roi_score =
+    //     prevented_downstream_pressure       (NRF1: preventive_value × confidence, ×100)
+    //     + projected_stability_gain           (ARP1: net_priority_score, capped 0–100)
+    //     − execution_friction                 (ARP1: execution_friction_score, 0–100)
+    //     − blast_radius                       (ARP1: blast_risk_score, 0–100)
+    //
+    // blast_risk_score is a real ARP1 signal derived from DX4 simulation
+    // blast_radius_score or severity+load_class deterministic fallback.
+    //
+    // Safe for repeated execution. Does not alter PRP2, ARP1, or NRF1 behavior.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "compute_intervention_roi") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const roiComputedAt = new Date().toISOString();
+      const [arp1Result, nrf1Result] = await Promise.all([
+        runARP1Core(supabase, projectId),
+        runNRF1Core(supabase, projectId),
+      ]);
+      if (!arp1Result.ok) {
+        return new Response(JSON.stringify({ ok: false, error: `ROI: ARP1 core failed — ${arp1Result.error ?? "unknown"}` }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const nrf1Ok = nrf1Result.ok;
+      const nrf1ForecastMap = new Map<string, any>();
+      for (const f of (nrf1Ok ? nrf1Result.perRepairForecasts : [])) {
+        nrf1ForecastMap.set(f.repair_id, f);
+      }
+      const ROI_VERSION = "roi-1.0";
+      const roiEntries = arp1Result.scoredRepairs.map((rec: any) => {
+        const nrf = nrf1ForecastMap.get(rec.repair_id) ?? null;
+        const preventiveValue = nrf?.repair_preventive_value ?? 0;
+        const forecastConfidence = nrf?.forecast_confidence ?? 0;
+        const pdp = Math.min(100, Math.round(preventiveValue * forecastConfidence * 100 * 100) / 100);
+        const netPriority = rec.net_priority_score ?? 0;
+        const psg = Math.min(100, Math.max(0, Math.round(netPriority * 100) / 100));
+        const ef = Math.min(100, Math.max(0, Math.round((rec.execution_friction_score ?? 0) * 100) / 100));
+        const br = Math.min(100, Math.max(0, Math.round((rec.blast_risk_score ?? 0) * 100) / 100));
+        const rawRoi = pdp + psg - ef - br;
+        const roiScore = Math.round(Math.max(-100, Math.min(200, rawRoi)) * 100) / 100;
+        const parts: string[] = [];
+        if (pdp >= 20) parts.push(`high downstream prevention (${pdp})`);
+        else if (pdp >= 5) parts.push(`moderate downstream prevention (${pdp})`);
+        else parts.push(`low downstream prevention (${pdp})`);
+        if (psg >= 50) parts.push(`strong stability gain (${psg})`);
+        else if (psg >= 20) parts.push(`moderate stability gain (${psg})`);
+        if (ef >= 60) parts.push(`high friction dampens ROI (${ef})`);
+        if (br >= 60) parts.push(`high blast risk reduces ROI (${br})`);
+        return {
+          repair_id: rec.repair_id, repair_type: rec.repair_type,
+          scope_type: rec.scope_type ?? null, scope_key: rec.scope_key ?? null,
+          intervention_roi_score: roiScore,
+          roi_components: { prevented_downstream_pressure: pdp, projected_stability_gain: psg, execution_friction: ef, blast_radius: br },
+          supporting_signals: {
+            repair_preventive_value: Math.round(preventiveValue * 1000) / 1000,
+            forecast_confidence: Math.round(forecastConfidence * 1000) / 1000,
+            net_priority_score: netPriority,
+            execution_friction_score: rec.execution_friction_score ?? 0,
+            root_cause_score: Math.round((nrf?.root_cause_score ?? 0) * 1000) / 1000,
+            blast_risk_score: rec.blast_risk_score ?? 0,
+          },
+          rationale: parts.join("; "),
+        };
+      });
+      roiEntries.sort((a: any, b: any) => {
+        if (b.intervention_roi_score !== a.intervention_roi_score) return b.intervention_roi_score - a.intervention_roi_score;
+        return a.repair_id < b.repair_id ? -1 : 1;
+      });
+      console.log("[dev-engine-v2] compute_intervention_roi", {
+        project_id: projectId, candidate_count: roiEntries.length,
+        top_repair: roiEntries[0]?.repair_id ?? null, top_roi: roiEntries[0]?.intervention_roi_score ?? null,
+      });
+      return new Response(JSON.stringify({
+        ok: true, action: "compute_intervention_roi", project_id: projectId,
+        computed_at: roiComputedAt, roi_version: ROI_VERSION, blast_radius_available: true,
+        roi_formula_notes: {
+          prevented_downstream_pressure: "NRF1 repair_preventive_value × forecast_confidence × 100, clamped 0–100",
+          projected_stability_gain: "ARP1 net_priority_score (stability_gain×0.40 + urgency×0.30 − blast×0.15 − friction×0.15), clamped 0–100",
+          execution_friction: "ARP1 execution_friction_score (repairability base + proposal/status modifiers), 0–100",
+          blast_radius: "ARP1 blast_risk_score (DX4 simulation blast_radius_score when available, else severity+load_class deterministic fallback), 0–100",
+          overall_formula: "intervention_roi_score = prevented_downstream_pressure + projected_stability_gain − execution_friction − blast_radius, clamped [-100, 200]",
+        },
+        project_context: { candidate_repair_count: roiEntries.length, project_repair_pressure: nrf1Ok ? nrf1Result.projectRepairPressure : 0 },
+        ranked_repairs: roiEntries,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
     // PRP2S — select_preventive_repair_strategy
     //
     // Preventive Repair Strategy Selection Engine (full-spec implementation).
@@ -13390,177 +13489,6 @@ Return ONLY valid JSON:
       }
 
       const prp2sAt     = new Date().toISOString();
-
-    // ══════════════════════════════════════════════════════════════════════════════
-    // INTERVENTION ROI — compute_intervention_roi
-    //
-    // Standalone read-only composition layer.
-    // Computes a deterministic Intervention ROI score for each repair candidate
-    // by composing existing ARP1 and NRF1 signals. No state mutation. No LLM.
-    //
-    // ROI Model:
-    //   intervention_roi_score =
-    //     prevented_downstream_pressure       (NRF1: preventive_value × confidence, ×100)
-    //     + projected_stability_gain           (ARP1: net_priority_score, capped 0–100)
-    //     − execution_friction                 (ARP1: execution_friction_score, 0–100)
-    //     − blast_radius                       (ARP1: blast_risk_score, 0–100)
-    //
-    // All components sourced from live existing signals. No invented proxies.
-    // blast_risk_score is a real ARP1 signal derived from DX4 simulation
-    // blast_radius_score or severity+load_class deterministic fallback.
-    //
-    // Safe for repeated execution. Does not alter PRP2, ARP1, or NRF1 behavior.
-    // ══════════════════════════════════════════════════════════════════════════════
-
-    if (action === "compute_intervention_roi") {
-      const { projectId } = body;
-      if (!projectId) {
-        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      const roiComputedAt = new Date().toISOString();
-
-      // ── Load ARP1 + NRF1 via direct cores ──────────────────────────────────
-      const [arp1Result, nrf1Result] = await Promise.all([
-        runARP1Core(supabase, projectId),
-        runNRF1Core(supabase, projectId),
-      ]);
-
-      if (!arp1Result.ok) {
-        return new Response(JSON.stringify({ ok: false, error: `ROI: ARP1 core failed — ${arp1Result.error ?? "unknown"}` }),
-          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      const nrf1Ok = nrf1Result.ok;
-      const nrf1ForecastMap = new Map<string, any>();
-      for (const f of (nrf1Ok ? nrf1Result.perRepairForecasts : [])) {
-        nrf1ForecastMap.set(f.repair_id, f);
-      }
-
-      // ── Compute per-repair ROI ─────────────────────────────────────────────
-      const ROI_VERSION = "roi-1.0";
-
-      interface ROIEntry {
-        repair_id: string;
-        repair_type: string;
-        scope_type: string | null;
-        scope_key: string | null;
-        intervention_roi_score: number;
-        roi_components: {
-          prevented_downstream_pressure: number;
-          projected_stability_gain: number;
-          execution_friction: number;
-          blast_radius: number;
-        };
-        supporting_signals: {
-          repair_preventive_value: number;
-          forecast_confidence: number;
-          net_priority_score: number;
-          execution_friction_score: number;
-          root_cause_score: number;
-          blast_risk_score: number;
-        };
-        rationale: string;
-      }
-
-      const roiEntries: ROIEntry[] = arp1Result.scoredRepairs.map((rec: any) => {
-        const nrf = nrf1ForecastMap.get(rec.repair_id) ?? null;
-
-        // Component 1: Prevented Downstream Pressure (0–100)
-        // NRF1 repair_preventive_value × forecast_confidence, scaled ×100
-        const preventiveValue = nrf?.repair_preventive_value ?? 0;
-        const forecastConfidence = nrf?.forecast_confidence ?? 0;
-        const pdp = Math.min(100, Math.round(preventiveValue * forecastConfidence * 100 * 100) / 100);
-
-        // Component 2: Projected Stability Gain (0–100)
-        // ARP1 net_priority_score — already a weighted composite, capped at 100
-        const netPriority = rec.net_priority_score ?? 0;
-        const psg = Math.min(100, Math.max(0, Math.round(netPriority * 100) / 100));
-
-        // Component 3: Execution Friction (0–100)
-        // ARP1 execution_friction_score — direct, already 0–100
-        const ef = Math.min(100, Math.max(0, Math.round((rec.execution_friction_score ?? 0) * 100) / 100));
-
-        // Component 4: Blast Radius (0–100)
-        // ARP1 blast_risk_score — real signal from DX4 simulation or severity/load heuristic
-        const br = Math.min(100, Math.max(0, Math.round((rec.blast_risk_score ?? 0) * 100) / 100));
-
-        // ROI = gains − costs, clamped to [-100, 200]
-        const rawRoi = pdp + psg - ef - br;
-        const roiScore = Math.round(Math.max(-100, Math.min(200, rawRoi)) * 100) / 100;
-
-        // Rationale
-        const parts: string[] = [];
-        if (pdp >= 20) parts.push(`high downstream prevention (${pdp})`);
-        else if (pdp >= 5) parts.push(`moderate downstream prevention (${pdp})`);
-        else parts.push(`low downstream prevention (${pdp})`);
-
-        if (psg >= 50) parts.push(`strong stability gain (${psg})`);
-        else if (psg >= 20) parts.push(`moderate stability gain (${psg})`);
-
-        if (ef >= 60) parts.push(`high friction dampens ROI (${ef})`);
-        if (br >= 60) parts.push(`high blast risk reduces ROI (${br})`);
-
-        return {
-          repair_id: rec.repair_id,
-          repair_type: rec.repair_type,
-          scope_type: rec.scope_type ?? null,
-          scope_key: rec.scope_key ?? null,
-          intervention_roi_score: roiScore,
-          roi_components: {
-            prevented_downstream_pressure: pdp,
-            projected_stability_gain: psg,
-            execution_friction: ef,
-            blast_radius: br,
-          },
-          supporting_signals: {
-            repair_preventive_value: Math.round(preventiveValue * 1000) / 1000,
-            forecast_confidence: Math.round(forecastConfidence * 1000) / 1000,
-            net_priority_score: netPriority,
-            execution_friction_score: rec.execution_friction_score ?? 0,
-            root_cause_score: Math.round((nrf?.root_cause_score ?? 0) * 1000) / 1000,
-            blast_risk_score: rec.blast_risk_score ?? 0,
-          },
-          rationale: parts.join("; "),
-        };
-      });
-
-      // Sort by ROI score descending, tie-break on repair_id
-      roiEntries.sort((a, b) => {
-        if (b.intervention_roi_score !== a.intervention_roi_score) return b.intervention_roi_score - a.intervention_roi_score;
-        return a.repair_id < b.repair_id ? -1 : 1;
-      });
-
-      console.log("[dev-engine-v2] compute_intervention_roi", {
-        project_id: projectId,
-        candidate_count: roiEntries.length,
-        top_repair: roiEntries[0]?.repair_id ?? null,
-        top_roi: roiEntries[0]?.intervention_roi_score ?? null,
-      });
-
-      return new Response(JSON.stringify({
-        ok: true,
-        action: "compute_intervention_roi",
-        project_id: projectId,
-        computed_at: roiComputedAt,
-        roi_version: ROI_VERSION,
-        blast_radius_available: true,
-        roi_formula_notes: {
-          prevented_downstream_pressure: "NRF1 repair_preventive_value × forecast_confidence × 100, clamped 0–100",
-          projected_stability_gain: "ARP1 net_priority_score (weighted composite of stability_gain×0.40 + urgency×0.30 − blast×0.15 − friction×0.15), clamped 0–100",
-          execution_friction: "ARP1 execution_friction_score (repairability base + proposal/status modifiers), 0–100",
-          blast_radius: "ARP1 blast_risk_score (DX4 simulation blast_radius_score when available, else severity+load_class deterministic fallback), 0–100",
-          overall_formula: "intervention_roi_score = prevented_downstream_pressure + projected_stability_gain − execution_friction − blast_radius, clamped [-100, 200]",
-        },
-        project_context: {
-          candidate_repair_count: roiEntries.length,
-          project_repair_pressure: nrf1Ok ? nrf1Result.projectRepairPressure : 0,
-        },
-        ranked_repairs: roiEntries,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
 
 
       // ── 1. Load ARP1 + NRF1 direct cores ────────────────────────────────────
