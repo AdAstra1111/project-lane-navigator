@@ -13390,12 +13390,6 @@ Return ONLY valid JSON:
 
       const prp2sAt     = new Date().toISOString();
 
-      // ── Step 4b: Compute Intervention ROI for selected repair ─────────────────
-      const selectedROI = computeInterventionROI(
-        selectedRepair,
-        selectedRepair.execution_friction_score,
-        selectedPath?.adjusted_path_score ?? null,
-      );
 
 
       // ── 1. Load ARP1 + NRF1 direct cores ────────────────────────────────────
