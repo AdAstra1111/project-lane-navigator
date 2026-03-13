@@ -1125,10 +1125,13 @@ If you find yourself describing what happens in the story, which characters appe
         }));
       }
     } else if (isLargeRiskDocType(docType) && !isTopline) {
-      // ── Non-episodic large-risk doc: use chunked generation ──
-      console.log(`[generate-document] Large-risk doc type "${docType}" — routing through chunk runner`);
+      // ── Non-episodic large-risk doc: background chunked generation ──
+      // runChunkedGeneration can take 2–10 min (4 acts × 30–60s each).
+      // Use the same placeholder-version + EdgeRuntime.waitUntil pattern
+      // as episodic beats — return immediately, write content in background.
+      console.log(`[generate-document] Large-risk doc type "${docType}" — starting background chunked generation`);
 
-      // Ensure doc record exists first
+      // Ensure doc record exists
       let { data: chunkDocRecord } = await supabase.from("project_documents")
         .select("id").eq("project_id", projectId).eq("doc_type", docType).single();
       if (!chunkDocRecord) {
@@ -1142,7 +1145,36 @@ If you find yourself describing what happens in the story, which characters appe
         chunkDocRecord = newDoc;
       }
 
-      // Create version placeholder for chunks
+      // In-progress guard: don't double-start if already generating (<60 min)
+      const { data: inProgressChunkVer } = await supabase.from("project_document_versions")
+        .select("id, version_number, created_at")
+        .eq("document_id", chunkDocRecord!.id)
+        .eq("status", "draft")
+        .eq("meta_json->>bg_generating", "true")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (inProgressChunkVer) {
+        const ageMs = Date.now() - new Date(inProgressChunkVer.created_at).getTime();
+        if (ageMs < 60 * 60 * 1000) {
+          console.log(`[generate-document] Chunked generation already in progress for ${docType} (age ${Math.round(ageMs/1000)}s) — returning existing version`);
+          return new Response(JSON.stringify({
+            success: true,
+            document_id: chunkDocRecord!.id,
+            version_id: inProgressChunkVer.id,
+            version_number: inProgressChunkVer.version_number,
+            generating: true,
+            message: "Chunked generation already in progress — poll for completion",
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        // Stale flag (>60 min) — clear and restart
+        console.log(`[generate-document] Stale bg_generating=true for ${docType} (${Math.round(ageMs/60000)} min) — clearing and restarting`);
+        await supabase.from("project_document_versions")
+          .update({ meta_json: { bg_generating: false, bg_stale: true } })
+          .eq("id", inProgressChunkVer.id);
+      }
+
+      // Create placeholder version
       const { count: chunkVerCount } = await supabase.from("project_document_versions")
         .select("id", { count: "exact", head: true }).eq("document_id", chunkDocRecord!.id);
       const chunkVersionNum = (chunkVerCount || 0) + 1;
@@ -1153,34 +1185,63 @@ If you find yourself describing what happens in the story, which characters appe
           status: "draft", plaintext: "", created_by: actorUserId,
           depends_on: dependsOnFields, depends_on_resolver_hash: currentHash,
           inputs_used: inputsUsed,
+          meta_json: { bg_generating: true, bg_started_at: new Date().toISOString(), doc_type: docType },
         }).select("id").single();
       if (chunkVerErr) throw new Error(`Failed to create chunk version: ${chunkVerErr.message}`);
+
+      // Mark all older versions as not-current
+      await supabase.from("project_document_versions")
+        .update({ is_current: false })
+        .eq("document_id", chunkDocRecord!.id)
+        .neq("id", chunkVersion!.id);
+
+      // Update latest_version_id now so UI can find the slot
+      await supabase.from("project_documents")
+        .update({ latest_version_id: chunkVersion!.id, updated_at: new Date().toISOString() })
+        .eq("id", chunkDocRecord!.id);
 
       const plan = chunkPlanFor(docType, {
         episodeCount: resolvedQuals?.season_episode_count,
         sceneCount: null,
       });
 
-      const chunkResult = await runChunkedGeneration({
-        supabase, apiKey, projectId,
-        documentId: chunkDocRecord!.id, versionId: chunkVersion!.id,
-        docType, plan, systemPrompt: system, upstreamContent,
-        projectTitle: project.title || "Untitled",
-        additionalContext, model: "google/gemini-2.5-flash",
-        episodeCount: resolvedQuals?.season_episode_count,
-        requestId,
-      });
+      console.log(`[generate-document] Chunked background generation starting: ${docType} v${chunkVersionNum}, ${plan.totalChunks} chunks`);
 
-      content = chunkResult.assembledContent;
+      // Fire generation as background task
+      const bgChunkTask = (async () => {
+        try {
+          const chunkResult = await runChunkedGeneration({
+            supabase, apiKey, projectId,
+            documentId: chunkDocRecord!.id, versionId: chunkVersion!.id,
+            docType, plan, systemPrompt: system, upstreamContent,
+            projectTitle: project.title || "Untitled",
+            additionalContext, model: "google/gemini-2.5-flash",
+            episodeCount: resolvedQuals?.season_episode_count,
+            requestId,
+          });
+          // runChunkedGeneration already writes plaintext to the version — just clear the bg flag
+          await supabase.from("project_document_versions")
+            .update({ is_current: true, meta_json: { bg_generating: false, bg_completed_at: new Date().toISOString(), chunks_total: chunkResult.totalChunks, chunks_completed: chunkResult.completedChunks } })
+            .eq("id", chunkVersion!.id);
+          await supabase.from("project_documents")
+            .update({ updated_at: new Date().toISOString() })
+            .eq("id", chunkDocRecord!.id);
+          console.log(`[generate-document] Chunked background generation COMPLETE: ${docType} v${chunkVersionNum} chunks=${chunkResult.completedChunks}/${chunkResult.totalChunks}`);
+        } catch (bgErr: any) {
+          console.error(`[generate-document] Chunked background generation FAILED: ${docType} — ${bgErr?.message}`);
+          await supabase.from("project_document_versions")
+            .update({ meta_json: { bg_generating: false, bg_failed: true, bg_failed_at: new Date().toISOString() } })
+            .eq("id", chunkVersion!.id);
+        }
+      })();
 
-      // Update latest_version_id
-      await supabase.from("project_documents")
-        .update({ latest_version_id: chunkVersion!.id, updated_at: new Date().toISOString() })
-        .eq("id", chunkDocRecord!.id);
+      // @ts-ignore — EdgeRuntime available in Supabase edge function context
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+        EdgeRuntime.waitUntil(bgChunkTask);
+      }
 
-      // Return early with chunk result
       return new Response(JSON.stringify({
-        success: chunkResult.success,
+        success: true,
         document_id: chunkDocRecord!.id,
         version_id: chunkVersion!.id,
         version_number: chunkVersionNum,
@@ -1188,14 +1249,10 @@ If you find yourself describing what happens in the story, which characters appe
         resolver_hash: currentHash,
         inputs_used: inputsUsed,
         depends_on: dependsOnFields,
+        generating: true,
         chunked: true,
-        chunk_stats: {
-          total: chunkResult.totalChunks,
-          completed: chunkResult.completedChunks,
-          failed: chunkResult.failedChunks,
-          validation: chunkResult.validationResult,
-        },
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        chunk_plan: { total_chunks: plan.totalChunks, strategy: plan.strategy },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } })
     } else {
       content = await callLLM(apiKey, system, userPrompt);
 
