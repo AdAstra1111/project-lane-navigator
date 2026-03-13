@@ -1016,3 +1016,144 @@ function Detail({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+/* ── Root Cause Clusters Section ── */
+
+function RootCauseClustersSection({ rcc, rccLoading }: { rcc: RootCauseAnalysisResult | null; rccLoading: boolean }) {
+  const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+          <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+          <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+          <Target className="h-3.5 w-3.5" />
+          <span className="uppercase tracking-wider font-semibold">Root Cause Clusters</span>
+          {rcc && (
+            <Badge variant="secondary" className="text-[9px] font-mono ml-1">
+              {rcc.cluster_count} cluster{rcc.cluster_count !== 1 ? 's' : ''}
+            </Badge>
+          )}
+          <span className="text-[9px] font-normal ml-1">— repairs grouped by shared upstream cause</span>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-2 space-y-3">
+        {rccLoading ? (
+          <Skeleton className="h-24 w-full rounded-md" />
+        ) : !rcc ? (
+          <Card className="border-border/50">
+            <CardContent className="py-6 text-center">
+              <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+              <p className="text-xs text-muted-foreground">Root cause analysis unavailable.</p>
+            </CardContent>
+          </Card>
+        ) : rcc.clusters.length === 0 ? (
+          <Card className="border-border/50">
+            <CardContent className="py-6 text-center">
+              <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+              <p className="text-xs text-muted-foreground">No root cause clusters detected — repairs appear independent.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+              <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-[10px] text-muted-foreground">
+                Clusters identify repairs sharing upstream causes. Addressing the root cause may resolve multiple repairs simultaneously.
+                <span className="ml-1 font-mono">{rcc.version}</span>
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {rcc.clusters.map((cluster) => {
+                const isExpanded = expandedCluster === cluster.cluster_id;
+                return (
+                  <Card key={cluster.cluster_id} className="border-border/50">
+                    <CardContent className="p-0">
+                      <button
+                        className="w-full p-3 flex items-center justify-between text-left hover:bg-muted/20 transition-colors"
+                        onClick={() => setExpandedCluster(isExpanded ? null : cluster.cluster_id)}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {isExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" /> : <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-mono font-semibold text-foreground">{cluster.primary_axis}</span>
+                              <Badge variant="outline" className="text-[9px] font-mono">{cluster.repair_count} repairs</Badge>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {cluster.shared_axes.slice(0, 3).map(ax => (
+                                <Badge key={ax} variant="secondary" className="text-[8px] font-mono px-1 py-0 h-3.5">{ax}</Badge>
+                              ))}
+                              {cluster.shared_axes.length > 3 && (
+                                <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5">+{cluster.shared_axes.length - 3}</Badge>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 shrink-0">
+                          <div className="text-right">
+                            <span className="text-[10px] text-muted-foreground block">Pressure</span>
+                            <span className={cn('font-mono text-xs font-bold', pressureColor(Math.min(100, cluster.combined_pressure * 10)))}>{cluster.combined_pressure.toFixed(1)}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] text-muted-foreground block">Confidence</span>
+                            <span className="font-mono text-xs font-bold text-foreground">{Math.round(cluster.cluster_confidence * 100)}%</span>
+                          </div>
+                        </div>
+                      </button>
+                      {isExpanded && (
+                        <div className="px-3 pb-3 pt-0 border-t border-border/30 space-y-2">
+                          <div className="space-y-1">
+                            <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Involved Repairs</h5>
+                            <div className="flex flex-wrap gap-1">
+                              {cluster.involved_repairs.map(id => (
+                                <Badge key={id} variant="outline" className="text-[9px] font-mono px-1.5 py-0 h-4">{id}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                          {cluster.repair_families.length > 0 && (
+                            <div className="space-y-1">
+                              <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Repair Families</h5>
+                              <div className="flex flex-wrap gap-1">
+                                {cluster.repair_families.map(fam => (
+                                  <Badge key={fam} variant="secondary" className="text-[9px] font-mono px-1.5 py-0 h-4">{fam}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {cluster.shared_axes.length > 0 && (
+                            <div className="space-y-1">
+                              <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Shared Axes</h5>
+                              <div className="flex flex-wrap gap-1">
+                                {cluster.shared_axes.map(ax => (
+                                  <Badge key={ax} variant="outline" className="text-[9px] font-mono px-1.5 py-0 h-4">{ax}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {rcc.unclustered_repairs.length > 0 && (
+              <div className="space-y-1">
+                <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Unclustered Repairs ({rcc.unclustered_repairs.length})</h5>
+                <div className="flex flex-wrap gap-1">
+                  {rcc.unclustered_repairs.map(id => (
+                    <Badge key={id} variant="outline" className="text-[9px] font-mono px-1.5 py-0 h-4 text-muted-foreground">{id}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
