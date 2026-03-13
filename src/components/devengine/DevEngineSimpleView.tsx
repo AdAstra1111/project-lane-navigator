@@ -347,7 +347,14 @@ export function DevEngineSimpleView({
                   )}
 
                   {/* Document content */}
-                  {isViewingCurrentDoc && versionText ? (
+                  {isViewingCurrentDoc && isBgGenerating ? (
+                    <div className="flex flex-col items-center justify-center py-12 gap-3">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                      <p className="text-[10px] text-muted-foreground text-center max-w-xs">
+                        Generating content — this may take a few minutes for large documents like Season Script. The page will update automatically when ready.
+                      </p>
+                    </div>
+                  ) : isViewingCurrentDoc && versionText ? (
                     <div className="rounded border border-border/50 bg-muted/20 overflow-y-auto" style={{ maxHeight: '60vh' }}>
                       <pre className="p-4 text-[11px] leading-relaxed whitespace-pre-wrap font-body text-foreground">
                         {versionText}
