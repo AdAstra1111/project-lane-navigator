@@ -84,7 +84,7 @@ function BundleCard({ bundleKey, bundleName, run, onRun, isRunning }: {
           {(output.risk_flags?.length || 0) > 0 && (
             <div className="mt-2 flex items-center gap-1 text-xs text-amber-400">
               <AlertTriangle className="h-3 w-3" />
-              {output.risk_flags.length} risk flag{output.risk_flags.length !== 1 ? 's' : ''}
+              {output.risk_flags?.length ?? 0} risk flag{(output.risk_flags?.length ?? 0) !== 1 ? 's' : ''}
             </div>
           )}
 

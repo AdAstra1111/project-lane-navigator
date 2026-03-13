@@ -673,7 +673,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
       }
 
       // Detect binary/garbage text (PDF not properly extracted)
-      const printableRatio = (scriptText.slice(0, 2000).match(/[a-zA-Z0-9\s.,!?;:'"()\-]/g) || []).length / Math.min(scriptText.length, 2000);
+      const printableRatio = ((scriptText ?? '').slice(0, 2000).match(/[a-zA-Z0-9\s.,!?;:'"()\-]/g) || []).length / Math.min((scriptText ?? '').length, 2000);
       if (printableRatio < 0.3) {
         toast.error('The extracted text appears to be corrupted (raw PDF data). Please re-upload the script as a plain text or Word file, or re-extract the document.');
         return;

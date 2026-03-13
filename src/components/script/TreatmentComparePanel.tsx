@@ -418,8 +418,8 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
             </div>
             <div className="max-h-[400px] overflow-y-auto">
               <pre className="p-3 text-xs text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed">
-                {scriptText.slice(0, 15000)}
-                {scriptText.length > 15000 && '\n\n[...truncated for display]'}
+                {(scriptText ?? '').slice(0, 15000)}
+                {(scriptText ?? '').length > 15000 && '\n\n[...truncated for display]'}
               </pre>
             </div>
           </div>
