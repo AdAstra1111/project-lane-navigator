@@ -8,6 +8,33 @@ import { toast } from 'sonner';
 import { ArrowRight, Sparkles, ChevronDown } from 'lucide-react';
 import { lazy, Suspense, Component, ReactNode } from 'react';
 
+function TourLoader() {
+  const [loaded, setLoaded] = useState(false);
+  if (!loaded) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <button
+          onClick={() => setLoaded(true)}
+          className="px-8 py-3 rounded-full border border-primary/40 text-primary text-sm font-medium tracking-wide hover:bg-primary/10 transition-colors"
+        >
+          Load tour
+        </button>
+      </div>
+    );
+  }
+  return (
+    <TourErrorBoundary>
+      <Suspense fallback={
+        <div className="flex items-center justify-center py-24">
+          <div className="h-8 w-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+        </div>
+      }>
+        <CinematicDemo />
+      </Suspense>
+    </TourErrorBoundary>
+  );
+}
+
 class TourErrorBoundary extends Component<{ children: ReactNode }, { error: boolean }> {
   state = { error: false };
   static getDerivedStateFromError() { return { error: true }; }
@@ -232,15 +259,7 @@ const Landing = () => {
             Watch the full pipeline run — from idea to storyboard, finance model to shot list.
           </p>
         </div>
-        <TourErrorBoundary>
-          <Suspense fallback={
-            <div className="flex items-center justify-center py-24">
-              <div className="h-8 w-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
-            </div>
-          }>
-            <CinematicDemo />
-          </Suspense>
-        </TourErrorBoundary>
+        <TourLoader />
       </div>
 
     </div>
