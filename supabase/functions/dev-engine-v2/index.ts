@@ -1613,6 +1613,35 @@ CRITICAL:
 
 Output ONLY the rewritten screenplay text. No JSON, no commentary, no markdown.`;
 
+const REWRITE_CHUNK_SYSTEM_GRID = `You are rewriting an EPISODE GRID for a vertical drama series.
+
+An episode grid is a STRUCTURED PLANNING DOCUMENT — not a screenplay, not prose narrative.
+Every episode MUST be output in the exact grid format below. No prose. No summaries. No exceptions.
+
+MANDATORY FORMAT PER EPISODE:
+## EPISODE N: [specific active title — e.g. "Leila Finds the Burner Phone"]
+PREMISE: [one sentence — name the characters, state the specific event and consequence]
+HOOK: [specific opening image or line that demands the viewer keep watching]
+CORE MOVE: [the single new story fact true after this episode that was not true before]
+CHARACTER COST: [what this episode extracts from the focal character]
+CLIFFHANGER: [specific final beat — image or revelation, unresolved]
+ARC POSITION: [one of: COLD OPEN WORLD / INCITING DISRUPTION / ESCALATION / COMPLICATION / MIDPOINT TURN / DARK SPIRAL / PRE-CLIMAX / CLIMAX / RESOLUTION / AFTERMATH]
+TONE: [dominant emotional register]
+
+GOALS:
+- Apply the approved notes to the relevant episodes.
+- Preserve episodes not affected by the notes exactly as they are.
+- Every episode in this chunk must have all 8 fields.
+- Titles must be specific active phrases — no single generic nouns.
+- No two episodes may share the same CORE MOVE or CLIFFHANGER text.
+
+CRITICAL:
+- Output ONLY episode grid entries. No prose narrative. No screenplay format.
+- Do NOT output INT./EXT. sluglines. Do NOT output dialogue.
+- Do NOT summarize ranges ("Episodes 3-7 establish...").
+- Output ONLY the episodes in the requested range.`;
+
+
 const CONVERT_SYSTEM = `You are IFFY. Convert the source material into the specified target format.
 Preserve the creative DNA (protect items). Adapt structure and detail level to the target format.
 Creative direction in the user prompt (PROTECT items, APPROVED NOTES, SELECTED DECISION OPTIONS) must be honoured — implement the intent with full craft. Never ignore, dilute, or reinterpret creative direction away from what was asked.
@@ -6832,10 +6861,13 @@ MATERIAL TO REWRITE:\n${fullText}`;
       }
 
       // Build augmented system prompt with narrative context
+      // For episode_grid, use the grid-specific system prompt (not the screenplay prompt)
+      const isGridDocType = docType === "episode_grid" || docType === "vertical_episode_grid";
+      const baseChunkSystem = isGridDocType ? REWRITE_CHUNK_SYSTEM_GRID : REWRITE_CHUNK_SYSTEM;
       const contextInjection = [chunkNarrativeBlock, chunkConstraintBlock].filter(Boolean).join("\n");
       const augmentedChunkSystem = contextInjection
-        ? `${REWRITE_CHUNK_SYSTEM}\n\n${contextInjection}`
-        : REWRITE_CHUNK_SYSTEM;
+        ? `${baseChunkSystem}\n\n${contextInjection}`
+        : baseChunkSystem;
 
       console.log(`[dev-engine-v2] rewrite-chunk: injected_context_pack resolver_hash=${plan?.narrative_resolver_hash || "none"} narrative_chars=${chunkNarrativeBlock.length} constraint_chars=${chunkConstraintBlock.length} has_nec=${chunkNarrativeBlock.includes("NEC_GUARDRAIL")} has_canon=${chunkNarrativeBlock.includes("CANON OS")} signals=${plan?.narrative_counts?.signals ?? "?"} decisions=${plan?.narrative_counts?.decisions ?? "?"} fallback_resolve=${fallbackResolve}`);
 
@@ -6862,7 +6894,11 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
         let repairDirective = "";
         for (let attempt = 0; attempt < 3; attempt++) {
-          const episodicPrompt = `${notesContext}${prevContext}${repairDirective}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite Episodes ${start}-${end} ONLY.\n\nCRITICAL RULES:\n- Output exactly Episodes ${start} through ${end}.\n- Include explicit headings like \"## EPISODE N\" for each episode.\n- Do NOT omit, merge, summarize, or renumber episodes.\n- Do NOT use summary language (\"remaining episodes\", \"and so on\", \"etc\").\n\nSOURCE EPISODES TO REWRITE:\n${chunkText || "(No source text for this range. Regenerate all episodes in-range fully.)"}`;
+          const gridFieldReminder = isGridDocType
+            ? `\n\nEACH EPISODE MUST HAVE ALL 8 FIELDS: PREMISE / HOOK / CORE MOVE / CHARACTER COST / CLIFFHANGER / ARC POSITION / TONE\nNo prose. No screenplay format. Grid entries only.`
+            : "";
+
+          const episodicPrompt = `${notesContext}${prevContext}${repairDirective}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite Episodes ${start}-${end} ONLY.\n\nCRITICAL RULES:\n- Output exactly Episodes ${start} through ${end}.\n- Each episode starts with heading \"## EPISODE N: [title]\".\n- Do NOT omit, merge, summarize, or renumber episodes.\n- Do NOT use summary language (\"remaining episodes\", \"and so on\", \"etc\").${gridFieldReminder}\n\nSOURCE EPISODES TO REWRITE:\n${chunkText || "(No source text for this range. Regenerate all episodes in-range fully.)"}`;
 
           console.log(`Rewrite episodic chunk ${chunkIndex + 1}/${plan.total_chunks} (episodes ${start}-${end})`);
           rewrittenChunk = await callAI(
