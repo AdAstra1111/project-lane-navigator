@@ -323,6 +323,12 @@ Deno.serve(async (req) => {
         const APPROVED_MIGRATIONS: Record<string, string> = {
           // Clears stale bg_generating=true flags for a project's season_script versions
           // (run when background generation timed out without writing content)
+          "add_narrative_units_status_columns": `
+            ALTER TABLE public.narrative_units
+              ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active',
+              ADD COLUMN IF NOT EXISTS stale_reason jsonb;
+          `,
+
           "clear_stale_bg_generating_season_script": `
             UPDATE project_document_versions
             SET is_current = false,
