@@ -24,6 +24,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('ErrorBoundary caught:', error, errorInfo);
+    console.error('Component stack:', errorInfo.componentStack);
+    // Store component stack so the UI can show it
+    (this as any)._componentStack = errorInfo.componentStack;
   }
 
   handleReset = () => {
@@ -47,6 +50,11 @@ export class ErrorBoundary extends Component<Props, State> {
               <p className="text-sm text-muted-foreground">
                 {this.state.error?.message || 'An unexpected error occurred.'}
               </p>
+              {(this as any)._componentStack && (
+                <pre className="mt-3 text-left text-[10px] text-muted-foreground bg-muted/40 rounded p-3 overflow-auto max-h-40 whitespace-pre-wrap">
+                  {(this as any)._componentStack}
+                </pre>
+              )}
             </div>
             <div className="flex gap-3 justify-center">
               <Button onClick={this.handleReset} variant="outline">
