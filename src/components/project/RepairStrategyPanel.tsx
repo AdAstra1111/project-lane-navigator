@@ -482,55 +482,62 @@ export function RepairStrategyPanel({ projectId }: Props) {
               </CardContent>
             </Card>
 
-            {/* Ranked Strategy Options Table */}
+            {/* Ranked Strategy Options Table (PRP2 simplified — collapsed by default, PRP2S supersedes) */}
             {prp2.ranked_strategy_options.length > 0 && (
-              <Card className="border-border/50">
-                <CardHeader className="pb-2 px-4 pt-4">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <Gauge className="h-4 w-4 text-muted-foreground" />
-                    Ranked Strategy Options
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="border-border/50">
-                          <TableHead className="text-xs w-[40px]">Rank</TableHead>
-                          <TableHead className="text-xs">Repair Type</TableHead>
-                          <TableHead className="text-xs w-[80px]">Score</TableHead>
-                          <TableHead className="text-xs w-[80px]">Confidence</TableHead>
-                          <TableHead className="text-xs">Primary Signals</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {prp2.ranked_strategy_options.map((opt, idx) => (
-                          <TableRow
-                            key={opt.repair_id}
-                            className={cn(
-                              'cursor-pointer hover:bg-muted/30 transition-colors border-border/30',
-                              opt.repair_id === prp2.selected_repair_id && 'bg-primary/5'
-                            )}
-                            onClick={() => setSelectedStrategyOption(opt)}
-                          >
-                            <TableCell className="font-mono text-xs text-center">{idx + 1}</TableCell>
-                            <TableCell className="font-mono text-xs">{opt.repair_type}</TableCell>
-                            <TableCell className="font-mono text-xs text-center">{opt.strategic_priority_score.toFixed(1)}</TableCell>
-                            <TableCell className="font-mono text-xs text-center">{Math.round(opt.recommendation_confidence * 100)}%</TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {(opt.primary_signals ?? []).slice(0, 3).map(s => (
-                                  <Badge key={s} variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{s}</Badge>
-                                ))}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <Gauge className="h-3.5 w-3.5" />
+                    <span className="uppercase tracking-wider font-semibold">Simplified Rankings (PRP2)</span>
+                    <span className="text-[9px] font-normal ml-1">— see Enhanced Strategy below for full analysis</span>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2">
+                  <Card className="border-border/50">
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="border-border/50">
+                              <TableHead className="text-xs w-[40px]">Rank</TableHead>
+                              <TableHead className="text-xs">Repair Type</TableHead>
+                              <TableHead className="text-xs w-[80px]">Score</TableHead>
+                              <TableHead className="text-xs w-[80px]">Confidence</TableHead>
+                              <TableHead className="text-xs">Primary Signals</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {prp2.ranked_strategy_options.map((opt, idx) => (
+                              <TableRow
+                                key={opt.repair_id}
+                                className={cn(
+                                  'cursor-pointer hover:bg-muted/30 transition-colors border-border/30',
+                                  opt.repair_id === prp2.selected_repair_id && 'bg-primary/5'
+                                )}
+                                onClick={() => setSelectedStrategyOption(opt)}
+                              >
+                                <TableCell className="font-mono text-xs text-center">{idx + 1}</TableCell>
+                                <TableCell className="font-mono text-xs">{opt.repair_type}</TableCell>
+                                <TableCell className="font-mono text-xs text-center">{opt.strategic_priority_score.toFixed(1)}</TableCell>
+                                <TableCell className="font-mono text-xs text-center">{Math.round(opt.recommendation_confidence * 100)}%</TableCell>
+                                <TableCell>
+                                  <div className="flex flex-wrap gap-1">
+                                    {(opt.primary_signals ?? []).slice(0, 3).map(s => (
+                                      <Badge key={s} variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{s}</Badge>
+                                    ))}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </CollapsibleContent>
+              </Collapsible>
             )}
 
             {/* Axis Debt Hotspots (PRP2) */}
@@ -564,8 +571,21 @@ export function RepairStrategyPanel({ projectId }: Props) {
       {/* ═══ SECTION 4b: PRP2S STRATEGIC STRATEGY WITH ROI ADVISORY ═══ */}
       <PRP2SAdvisorySection prp2s={prp2s} prp2sLoading={prp2sLoading} />
 
-      {/* ═══ SECTION 5: INTERVENTION ROI (READ-ONLY DIAGNOSTIC) ═══ */}
-      <InterventionROISection roi={roi} roiLoading={roiLoading} />
+      {/* ═══ SECTION 5: INTERVENTION ROI (READ-ONLY DIAGNOSTIC, collapsed by default) ═══ */}
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+            <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+            <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+            <Activity className="h-3.5 w-3.5" />
+            <span className="uppercase tracking-wider font-semibold">Diagnostic: Raw ROI Composition</span>
+            <span className="text-[9px] font-normal ml-1">— standalone ROI decomposition per repair</span>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2">
+          <InterventionROISection roi={roi} roiLoading={roiLoading} />
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* ═══ DISCLAIMER ═══ */}
       {prioritization?.prioritization_disclaimer && (
@@ -664,7 +684,7 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
     return (
       <div className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <Target className="h-3.5 w-3.5" /> Enhanced Strategy (PRP2S)
+          <Target className="h-3.5 w-3.5" /> Strategic Analysis
         </h3>
         <Skeleton className="h-32 w-full rounded-md" />
       </div>
@@ -675,7 +695,7 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
     return (
       <div className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <Target className="h-3.5 w-3.5" /> Enhanced Strategy (PRP2S)
+          <Target className="h-3.5 w-3.5" /> Strategic Analysis
         </h3>
         <Card className="border-border/50">
           <CardContent className="py-6 text-center">
@@ -697,7 +717,7 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <Target className="h-3.5 w-3.5" /> Enhanced Strategy (PRP2S)
+          <Target className="h-3.5 w-3.5" /> Strategic Analysis
         </h3>
         <div className="flex items-center gap-2">
           {roiMode && (
@@ -874,9 +894,6 @@ function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData 
   if (roiLoading) {
     return (
       <div className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <Activity className="h-3.5 w-3.5" /> Intervention ROI
-        </h3>
         <Skeleton className="h-32 w-full rounded-md" />
       </div>
     );
@@ -884,17 +901,12 @@ function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData 
 
   if (!roi) {
     return (
-      <div className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-          <Activity className="h-3.5 w-3.5" /> Intervention ROI
-        </h3>
-        <Card className="border-border/50">
-          <CardContent className="py-6 text-center">
-            <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
-            <p className="text-xs text-muted-foreground">Intervention ROI analysis unavailable.</p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="border-border/50">
+        <CardContent className="py-6 text-center">
+          <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+          <p className="text-xs text-muted-foreground">Intervention ROI analysis unavailable.</p>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -902,10 +914,6 @@ function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData 
 
   return (
     <div className="space-y-3">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-        <Activity className="h-3.5 w-3.5" /> Intervention ROI
-      </h3>
-
       {/* Summary header */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Card className="border-border/50">
