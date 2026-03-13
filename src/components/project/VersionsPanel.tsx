@@ -129,11 +129,20 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
                       {format(new Date(v.created_at), 'MMM d, HH:mm')}
                     </span>
                   </div>
-                  {(v as any).label && (
-                    <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{(v as any).label}</p>
-                  )}
-                  {v.change_summary && (
-                    <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{v.change_summary}</p>
+                  {(v as any).meta_json?.bg_generating === true ? (
+                    <p className="text-blue-400 mt-0.5 flex items-center gap-1">
+                      <Clock className="h-3 w-3 animate-pulse" />
+                      ⏳ Generating…
+                    </p>
+                  ) : (
+                    <>
+                      {(v as any).label && (
+                        <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{(v as any).label}</p>
+                      )}
+                      {v.change_summary && (
+                        <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{v.change_summary}</p>
+                      )}
+                    </>
                   )}
                   {v.approval_status && v.approval_status !== 'none' && (
                     <span className={cn(
