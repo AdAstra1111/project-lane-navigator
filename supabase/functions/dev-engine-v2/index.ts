@@ -5580,8 +5580,19 @@ ${docTextForScoring}`;
     // NOTES — tiered structured notes with tracking
     // ══════════════════════════════════════════════
     if (action === "notes") {
-      const { projectId, documentId, versionId, analysisJson, deliverableType } = body;
+      const { projectId, documentId, versionId, analysisJson } = body;
+      let { deliverableType } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
+
+      // Resolve deliverableType from actual document doc_type — never assume script
+      if (!deliverableType) {
+        const { data: notesDocRow } = await supabase.from("project_documents")
+          .select("doc_type").eq("id", documentId).maybeSingle();
+        if (notesDocRow?.doc_type) {
+          deliverableType = notesDocRow.doc_type;
+          console.log(`[dev-engine-v2] notes: resolved deliverableType from doc_type="${deliverableType}"`);
+        }
+      }
 
       const { data: version } = await supabase.from("project_document_versions")
         .select("plaintext").eq("id", versionId).single();
@@ -5695,7 +5706,41 @@ GENERAL RULES:
 - polish_notes: Optional refinements. Max 5.
 - Sort within each tier by structural importance.
 - Do NOT re-raise previously resolved issues as blockers.
-- If an existing note_key persists, use the same key — do NOT rephrase under a new key.${antiRepeatRule}`;
+- If an existing note_key persists, use the same key — do NOT rephrase under a new key.${antiRepeatRule}
+
+${(() => {
+  const docTypeNoteScopes: Record<string, string> = {
+    character_bible: `DOCUMENT TYPE: CHARACTER BIBLE
+- Evaluate character completeness, arc design, voice distinctiveness, relationship dynamics, thematic integration, and backstory depth.
+- Valid note categories: "character_depth|arc_clarity|voice_distinctiveness|relationship_dynamics|backstory_consistency|thematic_integration|missing_character|cast_balance"
+- Do NOT raise notes about scene structure, pacing, dialogue craft, act breaks, hooks, or cliffhangers — those are script concerns.
+- Flag missing characters, underdeveloped arcs, or characters who lack distinct voice as blockers.`,
+    season_arc: `DOCUMENT TYPE: SEASON ARC
+- Evaluate arc architecture, escalation logic, turning-point placement, thematic spine, and character arc integration.
+- Valid note categories: "arc_structure|escalation|turning_points|character_arc_integration|thematic_spine|series_engine|season_resolution"
+- Do NOT raise dialogue or scene-level notes.`,
+    episode_grid: `DOCUMENT TYPE: EPISODE GRID
+- Evaluate structural completeness, hook specificity, escalation curve, cliffhanger quality, and episode-count alignment.
+- Valid note categories: "hook_quality|cliffhanger_strength|escalation_curve|arc_position|episode_count_alignment|core_move_clarity"`,
+    format_rules: `DOCUMENT TYPE: FORMAT RULES
+- Evaluate structural rule clarity, duration compliance, episode template completeness, and production constraint specificity.
+- Valid note categories: "duration_spec|episode_template|structural_rules|platform_spec|production_constraints"
+- Do NOT raise narrative or character notes.`,
+    market_sheet: `DOCUMENT TYPE: MARKET SHEET
+- Evaluate commercial viability, comp titles, audience targeting, platform strategy, and revenue model.
+- Valid note categories: "comp_quality|audience_specificity|market_gap|platform_strategy|revenue_model|budget_alignment"
+- Do NOT raise creative or narrative notes.`,
+    concept_brief: `DOCUMENT TYPE: CONCEPT BRIEF
+- Evaluate premise strength, theme clarity, genre positioning, tonal consistency, and logline impact.
+- Valid note categories: "premise_strength|theme_clarity|genre_positioning|tonal_consistency|logline_impact|hook_strength"`,
+    idea: `DOCUMENT TYPE: IDEA
+- Evaluate concept originality, core hook, commercial potential, and development viability.
+- Valid note categories: "concept_originality|hook_strength|commercial_potential|development_clarity"`,
+  };
+  return docTypeNoteScopes[deliverableType as string] || `DOCUMENT TYPE: ${(deliverableType || "unknown").toUpperCase()}
+- Evaluate relative to the document's stated purpose. Use appropriate categories for this document type.
+- Do NOT apply script/screenplay evaluation criteria unless this is a script document.`;
+})()}`;
 
       // ── Canon OS injection for notes (full canon fields) ──
       let notesCanonBlock = "";
