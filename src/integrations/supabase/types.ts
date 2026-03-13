@@ -7377,6 +7377,8 @@ export type Database = {
           project_id: string
           source_doc_type: string
           source_doc_version_id: string | null
+          stale_reason: Json | null
+          status: string
           unit_key: string
           unit_type: string
           updated_at: string
@@ -7390,6 +7392,8 @@ export type Database = {
           project_id: string
           source_doc_type: string
           source_doc_version_id?: string | null
+          stale_reason?: Json | null
+          status?: string
           unit_key: string
           unit_type: string
           updated_at?: string
@@ -7403,6 +7407,8 @@ export type Database = {
           project_id?: string
           source_doc_type?: string
           source_doc_version_id?: string | null
+          stale_reason?: Json | null
+          status?: string
           unit_key?: string
           unit_type?: string
           updated_at?: string
