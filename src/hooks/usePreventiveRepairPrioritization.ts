@@ -82,13 +82,6 @@ export interface PRP2AxisHotspot {
   source_repair_count: number;
 }
 
-export interface ROIComponents {
-  prevented_downstream_pressure: number;
-  projected_stability_gain: number;
-  execution_friction: number;
-  blast_radius: number;
-}
-
 export interface PRP2Data {
   ok: boolean;
   selected_repair_id: string;
@@ -102,8 +95,6 @@ export interface PRP2Data {
   ranked_strategy_options: PRP2StrategyOption[];
   axis_debt_hotspots?: PRP2AxisHotspot[];
   scoring_notes?: Record<string, string>;
-  intervention_roi?: number;
-  roi_components?: ROIComponents;
 }
 
 async function fetchPRP1(projectId: string): Promise<PRP1Data> {
