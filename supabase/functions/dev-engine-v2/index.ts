@@ -4207,16 +4207,98 @@ Format: ${rq.format}.${episodeLengthBlock}`;
         }
       } catch (e) { /* non-fatal */ }
 
+      // ── Episode grid: structural pre-analysis + sampled scoring ──
+      // Episode grids with 30–60 episodes are too large for reliable holistic LLM scoring.
+      // Holistic scoring produces large CI/GP swings because the LLM's impression varies
+      // depending on which episodes it attends to. Instead:
+      //   1. Compute a structural pre-analysis deterministically (field completeness, uniqueness)
+      //   2. Sample 10 representative episodes spread across the arc for qualitative scoring
+      //   3. Inject the structural context so the scorer evaluates episode quality not doc length
+      let episodeGridStructuralBlock = "";
+      let docTextForScoring = version.plaintext.slice(0, maxContextChars);
+
+      if (effectiveDeliverable === "episode_grid" && version.plaintext.length > 1000) {
+        try {
+          const { parseEpisodeBlocks } = await import("../_shared/surgicalEpisodeRewrite.ts");
+          const blocks = parseEpisodeBlocks(version.plaintext);
+          const totalParsed = blocks.size;
+          const expectedCount = effectiveSeasonCount || totalParsed;
+
+          // Structural completeness metrics
+          const REQUIRED_FIELDS = ["PREMISE", "HOOK", "CORE MOVE", "CLIFFHANGER", "ARC POSITION", "TONE"];
+          let fieldsMissing = 0;
+          let genericEntries = 0;
+          const cliffhangers = new Set<string>();
+          const coreMoves = new Set<string>();
+          let duplicateCliffhangers = 0;
+          let duplicateCoreMoves = 0;
+
+          for (const [, block] of blocks) {
+            const txt = block.content;
+            for (const field of REQUIRED_FIELDS) {
+              if (!txt.includes(field + ":")) fieldsMissing++;
+            }
+            if (/follows established|same structure|same as above|template|same pattern/i.test(txt)) genericEntries++;
+            const cfMatch = txt.match(/CLIFFHANGER:\s*(.+)/i);
+            const cmMatch = txt.match(/CORE MOVE:\s*(.+)/i);
+            if (cfMatch?.[1]) {
+              const key = cfMatch[1].trim().toLowerCase().slice(0, 60);
+              if (cliffhangers.has(key)) duplicateCliffhangers++;
+              cliffhangers.add(key);
+            }
+            if (cmMatch?.[1]) {
+              const key = cmMatch[1].trim().toLowerCase().slice(0, 60);
+              if (coreMoves.has(key)) duplicateCoreMoves++;
+              coreMoves.add(key);
+            }
+          }
+
+          const missingEpisodes = Math.max(0, expectedCount - totalParsed);
+          const completenessScore = totalParsed > 0
+            ? Math.round(100 - (fieldsMissing / (totalParsed * REQUIRED_FIELDS.length)) * 100)
+            : 0;
+
+          // Sample 10 episodes spread across the arc
+          const allNums = Array.from(blocks.keys()).sort((a, b) => a - b);
+          const sampleSize = Math.min(10, allNums.length);
+          const sampleIndices = sampleSize > 0
+            ? Array.from({ length: sampleSize }, (_, i) => Math.floor((i / (sampleSize - 1 || 1)) * (allNums.length - 1)))
+              .map(idx => allNums[idx])
+            : allNums.slice(0, sampleSize);
+          const sampledBlocks = sampleIndices.map(n => blocks.get(n)?.content || "").join("\n\n---\n\n");
+
+          episodeGridStructuralBlock = `\nEPISODE GRID STRUCTURAL ANALYSIS (computed — do not override):
+Episodes parsed: ${totalParsed} / ${expectedCount} expected${missingEpisodes > 0 ? ` — ${missingEpisodes} MISSING (blocker)` : " ✓"}
+Field completeness: ${completenessScore}% (all 6 fields present across episodes)${fieldsMissing > 0 ? ` — ${fieldsMissing} missing field instances` : " ✓"}
+Generic/templated entries: ${genericEntries}${genericEntries > 0 ? " (blocker)" : " ✓"}
+Duplicate cliffhangers: ${duplicateCliffhangers}${duplicateCliffhangers > 0 ? " (blocker)" : " ✓"}
+Duplicate core moves: ${duplicateCoreMoves}${duplicateCoreMoves > 0 ? " (blocker)" : " ✓"}
+
+SCORING INSTRUCTION: Base your CI/GP score primarily on the SAMPLE below (10 representative episodes).
+Do NOT attempt to evaluate all ${totalParsed} episodes — score the sample quality.
+Structural blockers above are ALREADY COMPUTED — if any exist, flag them as-is.
+CI = field specificity + title quality + escalation logic in the sample.
+GP = cliffhanger effectiveness + arc position accuracy + hook quality in the sample.
+A fully complete grid with specific, unique entries should score CI 75–85. Reserve 85+ for exceptional escalation design.`;
+
+          // Replace doc text with sampled version for scoring stability
+          docTextForScoring = sampledBlocks.slice(0, maxContextChars);
+          console.log(`[dev-engine-v2] episode_grid scoring: sampled ${sampleIndices.length} of ${totalParsed} episodes, completeness=${completenessScore}%, missing=${missingEpisodes}`);
+        } catch (gridErr) {
+          console.warn("[dev-engine-v2] episode_grid structural analysis failed:", gridErr);
+        }
+      }
+
       const userPrompt = `${analyzeNecBlock}
 PRODUCTION TYPE: ${effectiveProductionType}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 PROJECT: ${project?.title || "Unknown"}
 LANE: ${analyzeLane} | BUDGET: ${project?.budget_range || "Unknown"}
-${prevContext}${seasonContext}${qualBinding}${canonOSContext}${effectiveProfileContext}${signalContext}${lockedDecisionsContext}${teamVoiceBlock}${supportingContext}${spineAlignmentBlock}${analyzeCompBlock}
+${prevContext}${seasonContext}${qualBinding}${canonOSContext}${effectiveProfileContext}${signalContext}${lockedDecisionsContext}${teamVoiceBlock}${supportingContext}${spineAlignmentBlock}${analyzeCompBlock}${episodeGridStructuralBlock}
 
-MATERIAL (${version.plaintext.length} chars):
-${version.plaintext.slice(0, maxContextChars)}`;
+MATERIAL (${version.plaintext.length} chars total${episodeGridStructuralBlock ? " — sampled for scoring stability" : ""}):
+${docTextForScoring}`;
 
       // ── Cost optimisation: tiered model selection for ANALYZE ──
       // Pro is only needed when the document is close to target CI (≥80) — fine-grained
