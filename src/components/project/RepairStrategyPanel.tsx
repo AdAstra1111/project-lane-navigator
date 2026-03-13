@@ -652,6 +652,191 @@ export function RepairStrategyPanel({ projectId }: Props) {
 
 /* ── Sub-components ── */
 
+function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData | null; roiLoading: boolean }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showFormula, setShowFormula] = useState(false);
+
+  if (roiLoading) {
+    return (
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <Activity className="h-3.5 w-3.5" /> Intervention ROI
+        </h3>
+        <Skeleton className="h-32 w-full rounded-md" />
+      </div>
+    );
+  }
+
+  if (!roi) {
+    return (
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <Activity className="h-3.5 w-3.5" /> Intervention ROI
+        </h3>
+        <Card className="border-border/50">
+          <CardContent className="py-6 text-center">
+            <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+            <p className="text-xs text-muted-foreground">Intervention ROI analysis unavailable.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const repairs = roi.ranked_repairs;
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+        <Activity className="h-3.5 w-3.5" /> Intervention ROI
+      </h3>
+
+      {/* Summary header */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Card className="border-border/50">
+          <CardContent className="p-3 flex flex-col items-center gap-1">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Version</span>
+            <span className="font-mono text-sm font-medium text-foreground">{roi.roi_version}</span>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardContent className="p-3 flex flex-col items-center gap-1">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Candidates</span>
+            <span className="font-mono text-sm font-bold text-foreground">{roi.project_context.candidate_repair_count}</span>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardContent className="p-3 flex flex-col items-center gap-1">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Blast Radius</span>
+            <Badge variant={roi.blast_radius_available ? 'default' : 'secondary'} className="text-[10px]">
+              {roi.blast_radius_available ? 'Available' : 'Unavailable'}
+            </Badge>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Formula notes (collapsible) */}
+      <Collapsible open={showFormula} onOpenChange={setShowFormula}>
+        <CollapsibleTrigger asChild>
+          <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+            {showFormula ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            <span className="uppercase tracking-wider font-semibold">Formula Notes</span>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2">
+          <Card className="border-border/50">
+            <CardContent className="p-3 space-y-1.5">
+              {Object.entries(roi.roi_formula_notes).map(([key, desc]) => (
+                <div key={key}>
+                  <span className="text-[10px] font-mono font-medium text-foreground">{key}</span>
+                  <p className="text-[10px] text-muted-foreground leading-snug">{desc}</p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Ranked repairs */}
+      {repairs.length === 0 ? (
+        <Card className="border-border/50">
+          <CardContent className="py-6 text-center">
+            <p className="text-xs text-muted-foreground">No repair candidates for ROI analysis.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-border/50">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-border/50">
+                    <TableHead className="text-xs w-[40px]">Rank</TableHead>
+                    <TableHead className="text-xs">Repair</TableHead>
+                    <TableHead className="text-xs w-[60px]">Scope</TableHead>
+                    <TableHead className="text-xs w-[70px]">ROI</TableHead>
+                    <TableHead className="text-xs">Rationale</TableHead>
+                    <TableHead className="text-xs w-[30px]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {repairs.map((r, idx) => {
+                    const isExpanded = expandedId === r.repair_id;
+                    return (
+                      <>
+                        <TableRow
+                          key={r.repair_id}
+                          className="cursor-pointer hover:bg-muted/30 transition-colors border-border/30"
+                          onClick={() => setExpandedId(isExpanded ? null : r.repair_id)}
+                        >
+                          <TableCell className="font-mono text-xs text-center">{idx + 1}</TableCell>
+                          <TableCell className="font-mono text-xs truncate max-w-[140px]">{r.repair_type}</TableCell>
+                          <TableCell className="text-[10px] text-muted-foreground font-mono">
+                            {r.scope_key ?? '—'}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <ROIScoreBadge score={r.intervention_roi_score} />
+                          </TableCell>
+                          <TableCell className="text-[10px] text-muted-foreground max-w-[200px] truncate">{r.rationale}</TableCell>
+                          <TableCell className="text-center">
+                            {isExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded && (
+                          <TableRow key={`${r.repair_id}-detail`} className="border-border/30 bg-muted/10">
+                            <TableCell colSpan={6} className="p-3">
+                              <ROIDetailBlock entry={r} />
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ROIScoreBadge({ score }: { score: number }) {
+  const color = score >= 40 ? 'text-emerald-400' : score >= 10 ? 'text-amber-400' : score >= -10 ? 'text-muted-foreground' : 'text-red-400';
+  return <span className={cn('font-mono text-xs font-bold', color)}>{score.toFixed(1)}</span>;
+}
+
+function ROIDetailBlock({ entry }: { entry: ROIRepairEntry }) {
+  const c = entry.roi_components;
+  const s = entry.supporting_signals;
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[11px]">
+      <div className="space-y-1.5">
+        <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">ROI Components</h5>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 pl-1">
+          <Detail label="Prevented Downstream" value={c.prevented_downstream_pressure.toFixed(1)} />
+          <Detail label="Stability Gain" value={c.projected_stability_gain.toFixed(1)} />
+          <Detail label="Execution Friction" value={c.execution_friction.toFixed(1)} />
+          <Detail label="Blast Radius" value={c.blast_radius != null ? c.blast_radius.toFixed(1) : 'N/A'} />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supporting Signals</h5>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 pl-1">
+          <Detail label="Preventive Value" value={s.repair_preventive_value.toFixed(3)} />
+          <Detail label="Forecast Confidence" value={s.forecast_confidence.toFixed(3)} />
+          <Detail label="Stability Gain (raw)" value={s.expected_stability_gain.toFixed(1)} />
+          <Detail label="Net Priority" value={s.net_priority_score.toFixed(1)} />
+          <Detail label="Friction (raw)" value={s.execution_friction_score.toFixed(1)} />
+          <Detail label="Root Cause" value={s.root_cause_score.toFixed(3)} />
+          <Detail label="Blast Risk" value={s.blast_risk_score.toFixed(1)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RankDelta({ delta }: { delta: number }) {
   if (delta > 0) {
     return (
