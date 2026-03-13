@@ -118,12 +118,12 @@ export default function Pitch() {
             </p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
-            {capability('🧠', 'Narrative Intelligence', 'Analyses story structure in real time — arc logic, character pressure, dramatic tension. CI + GP scoring on every document. Identifies gaps and risks before they cost money.')}
+            {capability('🧠', 'Narrative Intelligence', 'Analyses story structure in real time — arc logic, character pressure, dramatic tension. Every document is scored against two proprietary metrics: CI (Confidence Index — narrative readiness) and GP (Greenlight Probability — commercial viability). Identifies gaps and risks before they cost money.')}
             {capability('🚀', 'Autonomous Pipeline', 'Auto-Run develops a project from idea to complete series package without human intervention. 418 steps across 9 stages. Overnight.')}
             {capability('📋', 'Concept & Format Intelligence', 'Generates detailed concept briefs, format rules, production constraints, and market positioning — not just scripts. Every production parameter defined and enforced.')}
             {capability('📖', 'Complete Series Bible', 'Season arc, episode grid, character bible, episode beats, season script. The full development package — every document linked, scored, and ready to go.')}
             {capability('🎬', 'Full Production Management', 'Shot lists, storyboards, scheduling, costumes, props, locations — all managed within the same system. Change one thing and everything downstream updates automatically. One source of truth from script to screen.')}
-            {capability('📊', 'Greenlight Intelligence', 'Confidence Index scoring, Greenlight Probability, narrative risk flags, and repair recommendations. Know before you commit.')}
+            {capability('📊', 'Greenlight Intelligence', 'Two proprietary scores on every project: Confidence Index (CI) — how narratively sound and production-ready the material is — and Greenlight Probability (GP) — the likelihood of commercial success based on format, market, and structural criteria. Know before you commit.')}
             {capability('🌍', 'Slate & Market Intelligence', 'Cross-project intelligence across your entire slate. Market trend analysis, co-production planning, buyer CRM, festival calendar, incentive finder.')}
             {capability('🤖', 'Future-Proof for AI Production', 'The granularity of the IFFY pipeline — every beat, every shot, every costume note — is exactly what high-quality scripted AI content generation requires. Built for today\'s live productions. Ready for tomorrow\'s AI-native ones.')}
           </div>
