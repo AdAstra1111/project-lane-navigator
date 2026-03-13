@@ -122,8 +122,10 @@ export default function Pitch() {
             {capability('🚀', 'Autonomous Pipeline', 'Auto-Run develops a project from idea to complete series package without human intervention. 418 steps across 9 stages. Overnight.')}
             {capability('📋', 'Concept & Format Intelligence', 'Generates detailed concept briefs, format rules, production constraints, and market positioning — not just scripts. Every production parameter defined and enforced.')}
             {capability('📖', 'Complete Series Bible', 'Season arc, episode grid, character bible, episode beats, season script. The full development package — every document linked, scored, and ready to go.')}
+            {capability('🎬', 'Full Production Management', 'Shot lists, storyboards, scheduling, costumes, props, locations — all managed within the same system. Change one thing and everything downstream updates automatically. One source of truth from script to screen.')}
             {capability('📊', 'Greenlight Intelligence', 'Confidence Index scoring, Greenlight Probability, narrative risk flags, and repair recommendations. Know before you commit.')}
             {capability('🌍', 'Slate & Market Intelligence', 'Cross-project intelligence across your entire slate. Market trend analysis, co-production planning, buyer CRM, festival calendar, incentive finder.')}
+            {capability('🤖', 'Future-Proof for AI Production', 'The granularity of the IFFY pipeline — every beat, every shot, every costume note — is exactly what high-quality scripted AI content generation requires. Built for today\'s live productions. Ready for tomorrow\'s AI-native ones.')}
           </div>
         </div>
       </section>
@@ -220,8 +222,10 @@ export default function Pitch() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', textAlign: 'left' }}>
             {[
               { icon: '📱', title: 'Vertical Drama', body: 'The fastest-growing format globally. Short-form mobile-first serialised drama is consuming billions of viewing hours. IFFY was built for this format from day one — with format rule enforcement and platform-specific production constraints built in.' },
-              { icon: '🌍', title: 'International Co-Production', body: 'IFFY creates a common development language for cross-border projects. Series bibles, character documentation, format rules, and scripts in a format any partner anywhere can use — immediately.' },
-              { icon: '🏗️', title: 'Pipeline Infrastructure', body: 'Not a tool — an operating system. Every major studio, streamer, and production company will need this infrastructure. The question is who builds it first and who owns the standard.' },
+              { icon: '🌍', title: 'International Co-Production', body: 'IFFY creates a common development language for cross-border projects. Series bibles, format rules, shot lists, and scheduling — every document consistent and ready for any partner, anywhere.' },
+              { icon: '🎬', title: 'Live Production Efficiency', body: 'Shot lists, storyboards, scheduling, costumes, props — all living inside the same system. Change one element and everything downstream updates automatically. The most efficient production pipeline ever built.' },
+              { icon: '🤖', title: 'Future-Proof for AI Content', body: 'The granularity IFFY builds into every project — every beat, every shot, every costume note — is precisely what high-quality scripted AI content generation requires. Built for today\'s productions. Ready for tomorrow\'s AI-native studio.' },
+              { icon: '🏗️', title: 'Pipeline Infrastructure', body: 'Not a tool — an operating system. Every major studio, streamer, and production company will need this infrastructure. The question is whether British companies build the standard first.' },
             ].map(({ icon, title, body }) => (
               <div key={title} style={{ background: bgCard, borderRadius: 10, padding: '1.75rem', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>{icon}</div>
