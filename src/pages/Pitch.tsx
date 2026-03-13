@@ -207,7 +207,73 @@ export default function Pitch() {
         </div>
       </section>
 
-      {/* ── 5. THE OPPORTUNITY ──────────────────────────────────── */}
+      {/* ── 5. UNDER THE HOOD ──────────────────────────────────── */}
+      <section style={{ padding: '6rem 2rem', maxWidth: 960, margin: '0 auto' }} className="print:py-12 print:break-before-page">
+        <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
+          <div style={{ color: fgMuted, fontSize: '0.7rem', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '1rem' }}>The Technology</div>
+          <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 'clamp(1.8rem, 4vw, 2.8rem)', fontWeight: 600, lineHeight: 1.2, marginBottom: '1.25rem' }}>
+            This is not a chatbot.<br /><span style={{ color: gold }}>This is infrastructure.</span>
+          </h2>
+          <p style={{ color: fgMuted, fontSize: '1rem', lineHeight: 1.7, maxWidth: 660, margin: '0 auto' }}>
+            Anyone can wrap an LLM with a prompt and call it AI. IFFY is something fundamentally different —
+            a proprietary orchestration system built on a production-grade data architecture,
+            with compounding intelligence that gets harder to replicate with every project it processes.
+          </p>
+        </div>
+
+        {/* Architecture overview */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
+          {[
+            {
+              icon: '⚙️',
+              title: 'Proprietary Orchestration Engine',
+              body: 'Not prompts — a 418-step autonomous pipeline with a custom execution graph. Each stage validates, scores, and gates the next. The system refuses to advance a project until the narrative intelligence confirms it\'s ready.',
+            },
+            {
+              icon: '🗄️',
+              title: 'Living Document Graph',
+              body: 'Every document — concept brief, format rules, character bible, scripts — is a node in a relational graph. Change a character\'s motivation and the system identifies every downstream document that needs updating and cascades the change automatically.',
+            },
+            {
+              icon: '📐',
+              title: 'Proprietary Scoring Models',
+              body: 'Confidence Index (CI) and Greenlight Probability (GP) are not off-the-shelf metrics. They are IFFY-native models trained on narrative structure, format rules, and market criteria — producing scores no other system can replicate.',
+            },
+            {
+              icon: '🔗',
+              title: 'Multi-Model Intelligence Layer',
+              body: 'IFFY orchestrates multiple frontier AI models simultaneously — routing tasks to the right model for the right job. Narrative analysis, script generation, market intelligence, and scoring each use different optimised pipelines.',
+            },
+            {
+              icon: '🔒',
+              title: 'The Moat',
+              body: 'The architecture is complex enough that replication requires years, not months. But the deeper moat is data: every project processed refines the scoring models, the pipeline logic, and the format intelligence. The system compounds.',
+            },
+            {
+              icon: '📈',
+              title: 'Platform, Not Product',
+              body: 'Built on enterprise-grade cloud infrastructure with real-time collaborative document versioning, role-based access, and a full API layer. This is designed to be licensed to studios and streamers — not sold as a consumer app.',
+            },
+          ].map(({ icon, title, body }) => (
+            <div key={title} style={{ background: bgCard, border: `1px solid rgba(196,154,61,0.12)`, borderRadius: 12, padding: '1.75rem' }}>
+              <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>{icon}</div>
+              <div style={{ color: fg, fontFamily: 'Fraunces, Georgia, serif', fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>{title}</div>
+              <div style={{ color: fgMuted, fontSize: '0.82rem', lineHeight: 1.65 }}>{body}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* The key differentiator callout */}
+        <div style={{ background: bgCardAlt, border: `1px solid rgba(196,154,61,0.25)`, borderRadius: 12, padding: '2rem 2.5rem', textAlign: 'center' }}>
+          <p style={{ color: fgMuted, fontSize: '0.82rem', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '0.75rem' }}>The key distinction</p>
+          <p style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 'clamp(1.1rem, 2.5vw, 1.4rem)', color: fg, lineHeight: 1.55, maxWidth: 720, margin: '0 auto' }}>
+            "An LLM generates content. IFFY <em style={{ color: gold }}>manages a production</em> — from the first creative decision to the last
+            schedule change, with every element interconnected and every update cascading intelligently through the entire project."
+          </p>
+        </div>
+      </section>
+
+      {/* ── 6. THE OPPORTUNITY ──────────────────────────────────── */}
       <section style={{ padding: '6rem 2rem', background: bgCardAlt }} className="print:py-12 print:break-before-page">
         <div style={{ maxWidth: 900, margin: '0 auto', textAlign: 'center' }}>
           <div style={{ color: fgMuted, fontSize: '0.7rem', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '1rem' }}>The Opportunity</div>
