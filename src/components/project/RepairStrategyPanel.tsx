@@ -571,8 +571,21 @@ export function RepairStrategyPanel({ projectId }: Props) {
       {/* ═══ SECTION 4b: PRP2S STRATEGIC STRATEGY WITH ROI ADVISORY ═══ */}
       <PRP2SAdvisorySection prp2s={prp2s} prp2sLoading={prp2sLoading} />
 
-      {/* ═══ SECTION 5: INTERVENTION ROI (READ-ONLY DIAGNOSTIC) ═══ */}
-      <InterventionROISection roi={roi} roiLoading={roiLoading} />
+      {/* ═══ SECTION 5: INTERVENTION ROI (READ-ONLY DIAGNOSTIC, collapsed by default) ═══ */}
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+            <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+            <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+            <Activity className="h-3.5 w-3.5" />
+            <span className="uppercase tracking-wider font-semibold">Diagnostic: Raw ROI Composition</span>
+            <span className="text-[9px] font-normal ml-1">— standalone ROI decomposition per repair</span>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2">
+          <InterventionROISection roi={roi} roiLoading={roiLoading} />
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* ═══ DISCLAIMER ═══ */}
       {prioritization?.prioritization_disclaimer && (
