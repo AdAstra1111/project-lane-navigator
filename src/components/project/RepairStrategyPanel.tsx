@@ -1,10 +1,13 @@
 /**
- * RepairStrategyPanel — Surfaces PRP1 preventive repair prioritization
- * and NRF1 axis debt context. Read-only UI. No mutations.
+ * RepairStrategyPanel — Surfaces PRP1 preventive repair prioritization,
+ * NRF1 axis debt context, and PRP2 strategic recommendation. Read-only UI.
  */
 
 import { useState, useMemo } from 'react';
-import { usePreventiveRepairPrioritization, type PRP1Repair, type AxisDebtEntry } from '@/hooks/usePreventiveRepairPrioritization';
+import {
+  usePreventiveRepairPrioritization,
+  type PRP1Repair, type AxisDebtEntry, type PRP2Data, type PRP2StrategyOption,
+} from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
