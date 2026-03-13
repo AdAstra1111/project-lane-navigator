@@ -6396,7 +6396,7 @@ MATERIAL:\n${version.plaintext}`;
                   plaintext: surgResult.rewrittenText,
                   status: "draft",
                   is_current: true,
-                  created_by: actorId || actorUserId,
+                  created_by: user.id,
                   parent_version_id: version.id,
                   change_summary: `Surgical rewrite: episodes [${surgResult.affectedEpisodes.join(",")}] updated`,
                   meta_json: {
