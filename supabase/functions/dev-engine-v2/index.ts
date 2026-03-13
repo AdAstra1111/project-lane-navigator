@@ -13815,7 +13815,7 @@ Return ONLY valid JSON:
         "which may change as repairs are resolved. " +
         "All signals reflect the current database state at time of computation.";
 
-      // Shape ranked_strategy_options (strip internal fields)
+      // Shape ranked_strategy_options (strip internal fields, include ROI advisory)
       const toShape = (o: PRP2SOption) => ({
         repair_id:                  o.repair_id,
         repair_type:                o.repair_type,
@@ -13840,6 +13840,13 @@ Return ONLY valid JSON:
         prevented_repair_families:  o.prevented_repair_families,
         reduced_axis_debt:          o.reduced_axis_debt,
         unlocks_repairs:            o.unlocks_repairs,
+        // ROI advisory (non-binding, does not affect strategic_priority_score)
+        roi_advisory: o.roi_advisory ? {
+          intervention_roi_score: o.roi_advisory.intervention_roi_score,
+          roi_components:         o.roi_advisory.roi_components,
+          rationale:              o.roi_advisory.rationale,
+        } : null,
+        roi_rank:                   o.roi_rank,
       });
 
       // ── 11. Log + respond ─────────────────────────────────────────────────────
