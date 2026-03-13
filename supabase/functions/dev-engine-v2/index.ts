@@ -13643,6 +13643,9 @@ Return ONLY valid JSON:
         prevented_repair_families: string[];
         reduced_axis_debt: string[];
         unlocks_repairs: { repair_id: string; repair_type: string; path_step: number }[];
+        // ROI advisory (non-binding, computed via shared pure helper)
+        roi_advisory: ROICandidateResult | null;
+        roi_rank: number;
         // internals for tie-break and tagging
         _rootCause: number; _fc: number; _frictionRaw: number; _upliftAmount: number;
         _axisHighRisk: boolean;
