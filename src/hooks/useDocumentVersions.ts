@@ -24,13 +24,20 @@ export function useDocumentVersions(documentId: string | undefined) {
       if (!documentId) return [];
       const { data, error } = await (supabase as any)
         .from('project_document_versions')
-        .select('id, document_id, version_number, is_current, status, approval_status, change_summary, created_at')
+        .select('id, document_id, version_number, is_current, status, approval_status, change_summary, created_at, meta_json')
         .eq('document_id', documentId)
         .order('version_number', { ascending: false });
       if (error) throw error;
       return (data ?? []) as DocumentVersion[];
     },
     enabled: !!documentId,
+    // Poll every 20s when any version is bg_generating — stops once all are done
+    refetchInterval: (query) => {
+      const versions = query.state.data;
+      if (!versions) return false;
+      const anyGenerating = versions.some(v => v.meta_json?.bg_generating === true);
+      return anyGenerating ? 20_000 : false;
+    },
   });
 }
 
