@@ -763,11 +763,16 @@ export default function ProjectDevelopmentEngine() {
     setIsGeneratingDocument(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      await supabase.functions.invoke('generate-document', {
+      const { data: genResp } = await supabase.functions.invoke('generate-document', {
         body: { projectId, docType: selectedDoc.doc_type, userId: user?.id, mode: 'draft' },
       });
-      qc.invalidateQueries({ queryKey: ['versions', projectId, selectedDoc.doc_type] });
+      // Invalidate using the correct query keys from useDevEngineV2
+      qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
       qc.invalidateQueries({ queryKey: ['documents', projectId] });
+      // If background generation started, switch to the new placeholder version immediately
+      if (genResp?.generating === true && genResp?.version_id) {
+        setSelectedVersionId(genResp.version_id);
+      }
     } finally {
       setIsGeneratingDocument(false);
     }
