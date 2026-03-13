@@ -104,7 +104,7 @@ import { useUIMode } from '@/hooks/useUIMode';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
 import { normalizeDecisionsForUI } from '@/lib/decisions/normalizeDecisionUI';
 import { useEnrichedPendingDecisions } from '@/hooks/useEnrichedPendingDecisions';
-import { SeasonScriptProgress } from '@/components/devengine/SeasonScriptProgress';
+
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -1099,12 +1099,6 @@ export default function ProjectDevelopmentEngine() {
 
   const versionText = selectedVersion?.plaintext || selectedDoc?.plaintext || selectedDoc?.extracted_text || '';
 
-  // Season script background generation state
-  const isSeasonScriptBgGenerating = selectedDoc?.doc_type === 'season_script'
-    && !!(selectedVersion as any)?.meta_json?.bg_generating === true
-    && !versionText;
-  const seasonScriptEpisodeCount = (selectedVersion as any)?.meta_json?.episode_count as number | undefined;
-
   const [editableText, setEditableText] = useState(versionText);
   const [isSavingText, setIsSavingText] = useState(false);
   useEffect(() => { setEditableText(versionText); }, [versionText]);
@@ -1751,15 +1745,9 @@ export default function ProjectDevelopmentEngine() {
                     />
                   )}
 
-                   {/* Document content — editable (or season script progress) */}
+                   {/* Document content — editable */}
                    <Card>
                      <CardContent className="p-4">
-                       {isSeasonScriptBgGenerating && selectedVersionId ? (
-                         <SeasonScriptProgress
-                           versionId={selectedVersionId}
-                           episodeCount={seasonScriptEpisodeCount}
-                         />
-                       ) : (
                          <>
                            <textarea
                              className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
@@ -1778,8 +1766,7 @@ export default function ProjectDevelopmentEngine() {
                                </Button>
                              </div>
                            )}
-                         </>
-                       )}
+                          </>
                      </CardContent>
                    </Card>
 

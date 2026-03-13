@@ -180,9 +180,6 @@ export function useDevEngineV2(projectId: string | undefined) {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
 
-  // Check if selected doc is a season_script with bg_generating version (for polling)
-  const selectedDocType = documents.find(d => d.id === selectedDocId)?.doc_type;
-
   const { data: versions = [], isLoading: versionsLoading } = useQuery({
     queryKey: ['dev-v2-versions', selectedDocId],
     queryFn: async () => {
@@ -197,14 +194,6 @@ export function useDevEngineV2(projectId: string | undefined) {
       return rows;
     },
     enabled: !!selectedDocId,
-    // Poll every 8s when a season_script version is bg_generating
-    refetchInterval: (query) => {
-      if (selectedDocType !== 'season_script') return false;
-      const vers = query.state.data as DevVersion[] | undefined;
-      if (!vers) return false;
-      const hasBgGen = vers.some((v: any) => v.meta_json?.bg_generating === true);
-      return hasBgGen ? 8000 : false;
-    },
   });
 
   // Derive the "current" version: prefer is_current flag, fallback to highest version_number
