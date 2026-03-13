@@ -13758,6 +13758,14 @@ Return ONLY valid JSON:
       });
       options.forEach((o, i) => { o.strategic_rank = i + 1; });
 
+      // ── 6b. Assign ROI rank (by intervention_roi_score desc, independent of strategic sort) ─
+      const roiSorted = [...options].sort((a, b) => {
+        const aRoi = a.roi_advisory?.intervention_roi_score ?? -Infinity;
+        const bRoi = b.roi_advisory?.intervention_roi_score ?? -Infinity;
+        if (bRoi !== aRoi) return bRoi - aRoi;
+        return a.repair_id < b.repair_id ? -1 : 1;
+      });
+      roiSorted.forEach((o, i) => { o.roi_rank = i + 1; });
       // ── 7. Compute maxima for rationale tagging ───────────────────────────────
       const maxUplift3   = Math.max(0, ...options.map(o => o.preventive_uplift_signal));
       const maxPathQ3    = Math.max(0, ...options.map(o => o.path_quality_signal));
