@@ -68,6 +68,35 @@ export interface NRF1Data {
   axis_debt_map: AxisDebtEntry[];
 }
 
+export interface PRP2StrategyOption {
+  repair_id: string;
+  repair_type: string;
+  strategic_priority_score: number;
+  recommendation_confidence: number;
+  primary_signals: string[];
+}
+
+export interface PRP2AxisHotspot {
+  axis: string;
+  risk_level: string;
+  source_repair_count: number;
+}
+
+export interface PRP2Data {
+  ok: boolean;
+  selected_repair_id: string;
+  selected_repair_type: string;
+  strategic_priority_score: number;
+  recommendation_confidence: number;
+  selection_rationale: string;
+  reduced_axis_debt: string[];
+  prevented_repair_families: string[];
+  unlocks_repairs: string[];
+  ranked_strategy_options: PRP2StrategyOption[];
+  axis_debt_hotspots?: PRP2AxisHotspot[];
+  scoring_notes?: Record<string, string>;
+}
+
 async function fetchPRP1(projectId: string): Promise<PRP1Data> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Authentication required');
