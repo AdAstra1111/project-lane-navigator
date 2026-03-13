@@ -1523,6 +1523,27 @@ function buildRewriteSystem(deliverable: string, format: string, behavior: strin
 - The rewritten_text field must contain a full screenplay, not a summary.`;
   }
 
+  // Episode grid format enforcement — mandatory when rewriting a grid doc
+  let episodeGridEnforcement = "";
+  if (deliverable === "episode_grid" || deliverable === "vertical_episode_grid") {
+    episodeGridEnforcement = `\n\nEPISODE GRID FORMAT (MANDATORY — violations cause rejection):
+Output the COMPLETE episode grid. Every episode must follow this EXACT structure:
+
+## EPISODE N: [specific active title — NOT a generic noun]
+PREMISE: [one sentence — name characters, state the specific event and consequence]
+HOOK: [specific opening image or line that demands the viewer keep watching]
+CORE MOVE: [the single new story fact true after this episode that was not true before]
+CHARACTER COST: [what this episode extracts from the focal character]
+CLIFFHANGER: [specific final beat — image or revelation, unresolved]
+ARC POSITION: [one of: COLD OPEN WORLD / INCITING DISRUPTION / ESCALATION / COMPLICATION / MIDPOINT TURN / DARK SPIRAL / PRE-CLIMAX / CLIMAX / RESOLUTION / AFTERMATH]
+TONE: [dominant emotional register]
+
+Do NOT output prose narrative. Do NOT output prose summaries. Do NOT collapse episodes into ranges.
+Every episode gets its own ## EPISODE N: block. All 8 fields are mandatory for every episode.
+Apply the approved notes by changing only the specific episodes those notes affect.
+Preserve all episodes not mentioned in the notes exactly as they are.`;
+  }
+
   return `You are IFFY. Rewrite the material applying the approved strategic notes.
 DELIVERABLE TYPE: ${deliverable}
 FORMAT: ${format}
@@ -1537,7 +1558,7 @@ Rules:
 - Match the target deliverable type format expectations.
 - OUTPUT THE FULL REWRITTEN MATERIAL — do NOT summarize or truncate.
 - If repositioning (lane/format) appears in APPROVED STRATEGIC NOTES, reflect it. Otherwise do not stealth-reposition.
-${docGuard}${formatRules}${scriptEnforcement}
+${docGuard}${formatRules}${scriptEnforcement}${episodeGridEnforcement}
 
 Return ONLY valid JSON:
 {
@@ -6428,12 +6449,17 @@ MATERIAL:\n${version.plaintext}`;
         }
       }
 
+      // For episode grid: remind model of required output format just before the material
+      const episodeGridFormatReminder = (effectiveDeliverable === "episode_grid" || effectiveDeliverable === "vertical_episode_grid")
+        ? `\nOUTPUT FORMAT REQUIRED: Episode grid — each episode as ## EPISODE N: block with PREMISE / HOOK / CORE MOVE / CHARACTER COST / CLIFFHANGER / ARC POSITION / TONE fields. No prose. No summaries.\n`
+        : "";
+
       const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
 
 APPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}${decisionDirectives}${globalDirContext}${upstreamNoteBlock}
 ${narrativeBlock}
 TARGET FORMAT: ${targetDocType || "same as source"}
-
+${episodeGridFormatReminder}
 MATERIAL TO REWRITE:\n${fullText}`;
 
       const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, rewriteSystemPrompt, userPrompt, 0.4, 32000);
