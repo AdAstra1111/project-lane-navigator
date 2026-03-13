@@ -4635,6 +4635,7 @@ serve(async (req) => {
       "preventive_repair_prioritization",
       "select_preventive_strategy",
       "select_preventive_repair_strategy",
+      "compute_intervention_roi",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
