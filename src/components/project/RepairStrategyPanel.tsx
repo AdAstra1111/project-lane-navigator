@@ -763,9 +763,8 @@ function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData 
                   {repairs.map((r, idx) => {
                     const isExpanded = expandedId === r.repair_id;
                     return (
-                      <>
+                      <Fragment key={r.repair_id}>
                         <TableRow
-                          key={r.repair_id}
                           className="cursor-pointer hover:bg-muted/30 transition-colors border-border/30"
                           onClick={() => setExpandedId(isExpanded ? null : r.repair_id)}
                         >
@@ -789,7 +788,7 @@ function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData 
                             </TableCell>
                           </TableRow>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })}
                 </TableBody>
