@@ -13198,6 +13198,7 @@ Return ONLY valid JSON:
         explanation_tags:   string[];
         prp2_rank:          number;
         nrf_forecast:       any | null;
+        execution_friction_score: number;
       }
 
       const prp2Repairs: PRP2Repair[] = arp1Result.scoredRepairs.map((rec: any) => {
