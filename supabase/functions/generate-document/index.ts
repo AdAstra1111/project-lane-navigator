@@ -1185,6 +1185,9 @@ If you find yourself describing what happens in the story, which characters appe
           status: "draft", plaintext: "", created_by: actorUserId,
           depends_on: dependsOnFields, depends_on_resolver_hash: currentHash,
           inputs_used: inputsUsed,
+          is_current: true,
+          is_stale: false,
+          stale_reason: null,
           meta_json: { bg_generating: true, bg_started_at: new Date().toISOString(), doc_type: docType },
         }).select("id").single();
       if (chunkVerErr) throw new Error(`Failed to create chunk version: ${chunkVerErr.message}`);
