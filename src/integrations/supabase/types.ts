@@ -7367,6 +7367,258 @@ export type Database = {
         }
         Relationships: []
       }
+      narrative_entities: {
+        Row: {
+          canonical_name: string
+          created_at: string
+          entity_key: string
+          entity_type: string
+          id: string
+          meta_json: Json
+          project_id: string
+          source_key: string | null
+          source_kind: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          canonical_name?: string
+          created_at?: string
+          entity_key: string
+          entity_type?: string
+          id?: string
+          meta_json?: Json
+          project_id: string
+          source_key?: string | null
+          source_kind?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          canonical_name?: string
+          created_at?: string
+          entity_key?: string
+          entity_type?: string
+          id?: string
+          meta_json?: Json
+          project_id?: string
+          source_key?: string | null
+          source_kind?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "narrative_entities_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "narrative_entities_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      narrative_entity_relations: {
+        Row: {
+          confidence: number
+          created_at: string
+          id: string
+          project_id: string
+          relation_type: string
+          source_entity_id: string
+          source_kind: string
+          target_entity_id: string
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          id?: string
+          project_id: string
+          relation_type?: string
+          source_entity_id: string
+          source_kind?: string
+          target_entity_id: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          id?: string
+          project_id?: string
+          relation_type?: string
+          source_entity_id?: string
+          source_kind?: string
+          target_entity_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "narrative_entity_relations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "narrative_entity_relations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "narrative_entity_relations_source_entity_id_fkey"
+            columns: ["source_entity_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_entities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "narrative_entity_relations_target_entity_id_fkey"
+            columns: ["target_entity_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_entities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      narrative_repairs: {
+        Row: {
+          created_at: string
+          diagnostic_type: string
+          executed_at: string | null
+          priority_score: number
+          project_id: string
+          recommended_action: string | null
+          repair_id: string
+          repair_type: string
+          repairability: string
+          scope_key: string | null
+          scope_type: string
+          skipped_reason: string | null
+          source_diagnostic_id: string
+          source_system: string
+          status: string
+          strategy: string
+          summary: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          diagnostic_type?: string
+          executed_at?: string | null
+          priority_score?: number
+          project_id: string
+          recommended_action?: string | null
+          repair_id?: string
+          repair_type?: string
+          repairability?: string
+          scope_key?: string | null
+          scope_type?: string
+          skipped_reason?: string | null
+          source_diagnostic_id: string
+          source_system?: string
+          status?: string
+          strategy?: string
+          summary?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          diagnostic_type?: string
+          executed_at?: string | null
+          priority_score?: number
+          project_id?: string
+          recommended_action?: string | null
+          repair_id?: string
+          repair_type?: string
+          repairability?: string
+          scope_key?: string | null
+          scope_type?: string
+          skipped_reason?: string | null
+          source_diagnostic_id?: string
+          source_system?: string
+          status?: string
+          strategy?: string
+          summary?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "narrative_repairs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "narrative_repairs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      narrative_scene_entity_links: {
+        Row: {
+          confidence: number
+          created_at: string
+          entity_id: string
+          id: string
+          project_id: string
+          relation_type: string
+          scene_id: string
+          source_kind: string
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          entity_id: string
+          id?: string
+          project_id: string
+          relation_type?: string
+          scene_id: string
+          source_kind?: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          entity_id?: string
+          id?: string
+          project_id?: string
+          relation_type?: string
+          scene_id?: string
+          source_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "narrative_scene_entity_links_entity_id_fkey"
+            columns: ["entity_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_entities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "narrative_scene_entity_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "narrative_scene_entity_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       narrative_units: {
         Row: {
           confidence: number
