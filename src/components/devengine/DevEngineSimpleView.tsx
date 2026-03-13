@@ -85,7 +85,7 @@ function formatDocType(dt: string) {
 export function DevEngineSimpleView({
   projectId, projectTitle, format,
   documents, docsLoading, approvedVersionMap,
-  selectedDocId, selectedVersionId, versionText,
+  selectedDocId, selectedVersionId, versionText, isBgGenerating,
   selectDocument, setSelectedVersionId,
   autoRunJob, autoRunSteps, autoRunIsRunning, autoRunConnectionState, autoRunError, autoRunActivated,
   seedDocs, seedLoading,
