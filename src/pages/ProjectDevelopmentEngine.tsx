@@ -104,6 +104,7 @@ import { useUIMode } from '@/hooks/useUIMode';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
 import { normalizeDecisionsForUI } from '@/lib/decisions/normalizeDecisionUI';
 import { useEnrichedPendingDecisions } from '@/hooks/useEnrichedPendingDecisions';
+import { SeasonScriptProgress } from '@/components/devengine/SeasonScriptProgress';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
