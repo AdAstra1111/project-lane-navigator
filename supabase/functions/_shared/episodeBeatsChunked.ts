@@ -311,99 +311,128 @@ async function generateBatch(
  * and multi-line action blocks cause frequent JSON parse failures. Instead, generate
  * each episode sequentially as raw markdown text and concatenate.
  */
-async function generateSeasonScriptSequential(opts: EpisodeBeatsOpts): Promise<string> {
-  const { apiKey, episodeCount, systemPrompt, upstreamContent, projectTitle } = opts;
-  const requestId = opts.requestId || crypto.randomUUID();
+// Script batch size: 5 episodes per LLM call.
+// Each ep ~500 words → 5 eps = ~3500 tokens output. 30 eps / 5 = 6 calls × ~20s = ~120s.
+// Plain text output avoids JSON serialisation failures (quotes, colons, newlines in dialogue).
+const SCRIPT_BATCH_SIZE = 5;
 
-  const SCRIPT_EPISODE_SYSTEM = `You are writing ONE EPISODE of a vertical drama screenplay. Output ONLY the raw screenplay text — no JSON, no markdown code blocks, no preamble.
+const SCRIPT_BATCH_SYSTEM = `You are writing multiple consecutive episodes of a vertical drama screenplay.
+Output ONLY raw screenplay text — no JSON, no markdown code blocks, no preamble, no meta commentary.
 
-Format:
-## EPISODE [N]: [EPISODE TITLE]
+For EACH episode requested, use this EXACT format:
+
+## EPISODE [N]: [SPECIFIC ACTIVE TITLE — verb phrase, e.g. "Leila Finds the Burner Phone"]
 *Duration: 120–180 seconds*
 
 COLD OPEN
-[Action line: scroll-stopping hook — 2-3 lines max]
+[2–3 action lines — scroll-stopping opening image. An EVENT, not a mood.]
 
 SCENE 1 — [SCENE HEADING]
 [Action line]
 CHARACTER NAME
 (parenthetical if needed)
-Dialogue line.
-[Action / reaction]
+Dialogue that reveals character. Subtext. Personality.
+[Action / reaction / beat]
 CHARACTER NAME
-Dialogue line.
+Counter-dialogue.
 
-[Repeat for 2-4 more scenes]
+[Continue with SCENE 2, SCENE 3 as needed — 2–4 scenes per episode]
 
 EPISODE END
-[Final image + micro-cliffhanger pulling viewer to next episode]
+[Final image + unresolved micro-cliffhanger that pulls viewer to next episode]
 
 ---
 
-Rules:
-- Write REAL dialogue — character-specific, subtext-loaded, personality-revealing
-- Every scene has a clear dramatic function
-- End on an unresolved micro-cliffhanger
-- 400–600 words of scripted content per episode
-- Do NOT include character descriptions, beat summaries, or project metadata`;
+RULES:
+- Write REAL scripted dialogue — character names in CAPS, actual spoken words, not summaries
+- 400–600 words of scripted content per episode (action + dialogue combined)
+- Every scene has one clear dramatic function
+- Every episode ends on an unresolved cliffhanger
+- Output ALL requested episodes in order, each ending with ---
+- Do NOT summarise or skip episodes ("episodes 3-5 follow same pattern")
+- Do NOT include JSON, metadata, or scene numbers outside headings`;
 
+async function generateSeasonScriptSequential(opts: EpisodeBeatsOpts): Promise<string> {
+  const { apiKey, episodeCount, systemPrompt, upstreamContent, projectTitle } = opts;
+  const requestId = opts.requestId || crypto.randomUUID();
+
+  // Build batches of SCRIPT_BATCH_SIZE episodes
   const allEpisodes = Array.from({ length: episodeCount }, (_, i) => i + 1);
-  const episodeTexts: string[] = [];
+  const batches: number[][] = [];
+  for (let i = 0; i < allEpisodes.length; i += SCRIPT_BATCH_SIZE) {
+    batches.push(allEpisodes.slice(i, i + SCRIPT_BATCH_SIZE));
+  }
+
+  const contextBlock = upstreamContent.slice(0, 8000);
+  const sysCtx = systemPrompt ? `\n\nADDITIONAL PROJECT CONTEXT:\n${systemPrompt.slice(0, 2000)}` : "";
 
   console.error(JSON.stringify({
-    diag: "SEASON_SCRIPT_SEQUENTIAL_START",
-    requestId, episodeCount, mode: "sequential_plaintext",
+    diag: "SEASON_SCRIPT_BATCH_START",
+    requestId, episodeCount, batches: batches.length, batchSize: SCRIPT_BATCH_SIZE,
   }));
 
-  for (const epNum of allEpisodes) {
-    const userPrompt = `Write Episode ${epNum} of ${episodeCount} for the vertical drama series "${projectTitle}".
+  const batchTexts: string[] = [];
 
-UPSTREAM CONTEXT (season arc, character bible, episode beats):
-${upstreamContent.slice(0, 8000)}
+  for (let bi = 0; bi < batches.length; bi++) {
+    const batch = batches[bi];
+    const start = batch[0], end = batch[batch.length - 1];
+    const userPrompt = `Write Episodes ${start} to ${end} of ${episodeCount} for the vertical drama series "${projectTitle}".
+Output ${batch.length} complete episodes in order. Start directly with ## EPISODE ${start}:.
 
-${systemPrompt ? `ADDITIONAL PROJECT CONTEXT:\n${systemPrompt.slice(0, 2000)}` : ""}
+UPSTREAM CONTEXT (season arc, character bible, episode beats — use for character names, story facts, arc beats):
+${contextBlock}${sysCtx}`;
 
-Write Episode ${epNum} now. Start directly with "## EPISODE ${epNum}:".`;
-
-    let episodeText = "";
-    for (let attempt = 0; attempt < 2; attempt++) {
+    let batchText = "";
+    let success = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const result = await callLLM({
           apiKey,
-          model: MODELS.PRO,
-          system: SCRIPT_EPISODE_SYSTEM,
+          model: MODELS.FAST,
+          system: SCRIPT_BATCH_SYSTEM,
           user: userPrompt,
-          temperature: 0.6,
-          maxTokens: 4000,
+          temperature: 0.65,
+          maxTokens: 8000,
         });
-        // Strip any accidental code fences
-        const cleaned = result.content.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
-        if (cleaned.includes(`## EPISODE ${epNum}`) || cleaned.includes(`## EP ${epNum}`)) {
-          episodeText = cleaned;
+        // Strip accidental code fences
+        const cleaned = result.content
+          .replace(/^```(?:markdown|text)?\s*\n?/, "")
+          .replace(/\n?```\s*$/, "")
+          .trim();
+        if (cleaned.includes(`## EPISODE ${start}`)) {
+          batchText = cleaned;
+          success = true;
           break;
         }
-        // Header missing — prepend it
-        episodeText = `## EPISODE ${epNum}: (Episode ${epNum})\n\n${cleaned}`;
+        // Header missing — prepend first episode marker
+        batchText = `## EPISODE ${start}: (Episode ${start})\n\n${cleaned}`;
+        success = true;
         break;
       } catch (err: any) {
-        console.error(JSON.stringify({ diag: "SCRIPT_EP_FAIL", requestId, epNum, attempt, error: err?.message }));
-        if (attempt === 1) {
-          episodeText = `## EPISODE ${epNum}: (Generation failed — retry needed)\n\n*This episode could not be generated. Please regenerate the Season Script.*\n\n---`;
-        }
-        // Brief backoff before retry
-        if (attempt === 0) await new Promise(r => setTimeout(r, 2000));
+        console.error(JSON.stringify({ diag: "SCRIPT_BATCH_FAIL", requestId, start, end, attempt, error: err?.message }));
+        if (attempt < 2) await new Promise(r => setTimeout(r, 3000));
       }
     }
 
-    episodeTexts.push(episodeText);
-    console.error(JSON.stringify({ diag: "SCRIPT_EP_DONE", requestId, epNum, chars: episodeText.length }));
+    if (!success) {
+      // Fallback: placeholder for failed batch
+      batchText = batch.map(n =>
+        `## EPISODE ${n}: (Generation failed — retry needed)\n\n*This episode could not be generated. Please click Regenerate to retry.*\n\n---`
+      ).join("\n\n");
+    }
+
+    batchTexts.push(batchText);
+    console.error(JSON.stringify({ diag: "SCRIPT_BATCH_DONE", requestId, batchIndex: bi, start, end, chars: batchText.length }));
+
+    // Brief pause between batches to avoid rate limiting
+    if (bi < batches.length - 1) await new Promise(r => setTimeout(r, 500));
   }
 
-  const assembled = `# ${projectTitle} — SEASON SCRIPT\n\n${episodeTexts.join("\n\n---\n\n")}`;
+  const assembled = `# ${projectTitle} — SEASON SCRIPT\n\n${batchTexts.join("\n\n")}`;
 
   console.error(JSON.stringify({
-    diag: "SEASON_SCRIPT_SEQUENTIAL_COMPLETE",
-    requestId, episodeCount, totalChars: assembled.length,
+    diag: "SEASON_SCRIPT_BATCH_COMPLETE",
+    requestId, episodeCount, totalBatches: batches.length, totalChars: assembled.length,
   }));
 
   return assembled;

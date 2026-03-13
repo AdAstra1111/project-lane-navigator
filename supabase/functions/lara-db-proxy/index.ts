@@ -321,6 +321,22 @@ Deno.serve(async (req) => {
         // Uses SUPABASE_DB_URL (direct pooler connection) for DDL execution.
         const { migration_key } = params;
         const APPROVED_MIGRATIONS: Record<string, string> = {
+          // Clears stale bg_generating=true flags for a project's season_script versions
+          // (run when background generation timed out without writing content)
+          "clear_stale_bg_generating_season_script": `
+            UPDATE project_document_versions
+            SET is_current = false,
+                meta_json   = jsonb_set(COALESCE(meta_json, '{}'::jsonb), '{bg_generating}', 'false'::jsonb)
+            WHERE document_id IN (
+              SELECT pdv.document_id FROM project_document_versions pdv
+              JOIN project_documents pd ON pd.id = pdv.document_id
+              WHERE pd.project_id = '998f8ae7-b855-4670-9dfd-e6265d94b230'
+                AND pd.doc_type   = 'season_script'
+            )
+            AND (meta_json->>'bg_generating') = 'true'
+            AND plaintext = '';
+          `,
+
           "create_scene_blueprint_bindings": `
             CREATE TABLE IF NOT EXISTS public.scene_blueprint_bindings (
               id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
