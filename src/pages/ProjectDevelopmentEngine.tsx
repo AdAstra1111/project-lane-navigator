@@ -1097,6 +1097,7 @@ export default function ProjectDevelopmentEngine() {
   };
 
   const versionText = selectedVersion?.plaintext || selectedDoc?.plaintext || selectedDoc?.extracted_text || '';
+  const isBgGenerating = !!(selectedVersion as any)?.meta_json?.bg_generating && !selectedVersion?.plaintext;
 
   const [editableText, setEditableText] = useState(versionText);
   const [isSavingText, setIsSavingText] = useState(false);
