@@ -946,7 +946,7 @@ If you find yourself describing what happens in the story, which characters appe
       const epOutputMode = docType === 'episode_grid' ? 'grid' : docType === 'season_script' ? 'script' : 'beats';
 
       // ── BEATS MODE: background generation ──────────────────────────────────────────────────────
-      if (epOutputMode === 'beats') {
+      if (epOutputMode === 'beats' || epOutputMode === 'script') {
         // 1. Ensure doc row exists
         let { data: epDocRecord } = await supabase.from("project_documents")
           .select("id").eq("project_id", projectId).eq("doc_type", docType).maybeSingle();
@@ -984,7 +984,7 @@ If you find yourself describing what happens in the story, which characters appe
               version_number: inProgressVer.version_number,
               generating: true,
               generating_since: inProgressVer.created_at,
-              message: "Episode beats generation already in progress — poll for completion",
+              message: "Episode doc generation already in progress — poll for completion",
             }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
           }
           // Stale active flag (>30 min) — clear and start fresh
@@ -1081,7 +1081,7 @@ If you find yourself describing what happens in the story, which characters appe
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── GRID MODE: synchronous (fast enough, <30s for up to 30 eps) ──
+      // ── GRID MODE: synchronous (fast enough for episode_grid, <30s) ──
       content = await generateEpisodeBeatsChunked({
         apiKey,
         episodeCount: finalEpisodeCount,
