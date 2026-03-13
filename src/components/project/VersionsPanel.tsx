@@ -2,13 +2,12 @@
  * VersionsPanel — document version list inside ProjectShell drawer.
  * Select a document, see versions, switch current.
  * Shows "★ BEST" badge when a version matches the auto-run job's best_version_id.
- * Shows "⏳ Generating…" when a version has bg_generating === true.
  */
 import { useState, useMemo } from 'react';
 import { useProjectDocuments } from '@/hooks/useProjects';
 import { useDocumentVersions, useSetCurrentVersion } from '@/hooks/useDocumentVersions';
 import { cn } from '@/lib/utils';
-import { Check, Loader2, FileText, Star, ArrowUp } from 'lucide-react';
+import { Check, Loader2, FileText, Star, ArrowUp, Clock } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { useDocTypeScopedBest } from '@/hooks/useRunSnapshot';
@@ -97,32 +96,25 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
           <div className="divide-y divide-border/10">
             {versions.map(v => {
               const isBest = bestVersionId === v.id;
-              const isGenerating = v.bg_generating;
               return (
                 <button
                   key={v.id}
                   onClick={() => {
-                    if (!v.is_current && !isGenerating && effectiveDocId) {
+                    if (!v.is_current && effectiveDocId) {
                       setCurrentVersion.mutate({ documentId: effectiveDocId, versionId: v.id });
                     }
                   }}
-                  disabled={v.is_current || isGenerating || setCurrentVersion.isPending}
+                  disabled={v.is_current || setCurrentVersion.isPending}
                   className={cn(
                     'w-full text-left px-3 py-2.5 text-xs transition-colors hover:bg-muted/30',
                     v.is_current && 'bg-primary/5',
                     isBest && !v.is_current && 'bg-amber-500/5',
-                    isGenerating && 'opacity-70',
                   )}
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-medium">
                       v{v.version_number}
-                      {isGenerating && (
-                        <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] text-amber-400">
-                          <Loader2 className="h-2.5 w-2.5 animate-spin" /> ⏳ Generating…
-                        </span>
-                      )}
-                      {!isGenerating && v.is_current && (
+                      {v.is_current && (
                         <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-primary">
                           <Check className="h-3 w-3" /> current
                         </span>
@@ -137,9 +129,10 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
                       {format(new Date(v.created_at), 'MMM d, HH:mm')}
                     </span>
                   </div>
-                  {isGenerating ? (
-                    <p className="text-muted-foreground/60 mt-0.5 text-[10px]">
-                      Content is being generated…
+                  {(v as any).meta_json?.bg_generating === true ? (
+                    <p className="text-blue-400 mt-0.5 flex items-center gap-1">
+                      <Clock className="h-3 w-3 animate-pulse" />
+                      ⏳ Generating…
                     </p>
                   ) : (
                     <>
@@ -151,7 +144,7 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
                       )}
                     </>
                   )}
-                  {!isGenerating && v.approval_status && v.approval_status !== 'none' && (
+                  {v.approval_status && v.approval_status !== 'none' && (
                     <span className={cn(
                       'inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full',
                       v.approval_status === 'approved'
@@ -161,7 +154,7 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
                       {v.approval_status}
                     </span>
                   )}
-                  {!isGenerating && isBest && !v.is_current && (
+                  {isBest && !v.is_current && (
                     <span
                       className="mt-1.5 inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium hover:bg-amber-500/25 transition-colors cursor-pointer"
                       onClick={(e) => {

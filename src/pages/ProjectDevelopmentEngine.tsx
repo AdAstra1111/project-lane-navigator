@@ -104,6 +104,7 @@ import { useUIMode } from '@/hooks/useUIMode';
 import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
 import { normalizeDecisionsForUI } from '@/lib/decisions/normalizeDecisionUI';
 import { useEnrichedPendingDecisions } from '@/hooks/useEnrichedPendingDecisions';
+import { SeasonScriptProgress } from '@/components/devengine/SeasonScriptProgress';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -1097,7 +1098,12 @@ export default function ProjectDevelopmentEngine() {
   };
 
   const versionText = selectedVersion?.plaintext || selectedDoc?.plaintext || selectedDoc?.extracted_text || '';
-  const isBgGenerating = !!(selectedVersion as any)?.meta_json?.bg_generating && !selectedVersion?.plaintext;
+
+  // Season script background generation state
+  const isSeasonScriptBgGenerating = selectedDoc?.doc_type === 'season_script'
+    && !!(selectedVersion as any)?.meta_json?.bg_generating === true
+    && !versionText;
+  const seasonScriptEpisodeCount = (selectedVersion as any)?.meta_json?.episode_count as number | undefined;
 
   const [editableText, setEditableText] = useState(versionText);
   const [isSavingText, setIsSavingText] = useState(false);
@@ -1318,7 +1324,6 @@ export default function ProjectDevelopmentEngine() {
           selectedDocId={selectedDocId}
           selectedVersionId={selectedVersionId}
           versionText={versionText}
-          isBgGenerating={isBgGenerating}
           selectDocument={selectDocument}
           setSelectedVersionId={setSelectedVersionId}
           autoRunJob={autoRun.job}
@@ -1746,39 +1751,37 @@ export default function ProjectDevelopmentEngine() {
                     />
                   )}
 
-                  {/* Document content — editable or generating */}
-                  <Card>
-                    <CardContent className="p-4">
-                      {isBgGenerating ? (
-                        <div className="flex flex-col items-center justify-center h-[300px] gap-3">
-                          <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                          <p className="text-sm text-muted-foreground text-center max-w-sm">
-                            Generating content — this may take a few minutes for large documents like Season Script. The page will update automatically when ready.
-                          </p>
-                        </div>
-                      ) : (
-                        <>
-                          <textarea
-                            className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
-                            value={editableText}
-                            onChange={(e) => setEditableText(e.target.value)}
-                            placeholder="Start writing your idea here…"
-                          />
-                          {editableText !== versionText && (
-                            <div className="flex justify-end mt-2">
-                              <Button size="sm" variant="outline" className="mr-2 text-xs" onClick={() => setEditableText(versionText)}>
-                                Discard
-                              </Button>
-                              <Button size="sm" className="text-xs" onClick={saveEditedText} disabled={isSavingText}>
-                                {isSavingText ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                                Save
-                              </Button>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
+                   {/* Document content — editable (or season script progress) */}
+                   <Card>
+                     <CardContent className="p-4">
+                       {isSeasonScriptBgGenerating && selectedVersionId ? (
+                         <SeasonScriptProgress
+                           versionId={selectedVersionId}
+                           episodeCount={seasonScriptEpisodeCount}
+                         />
+                       ) : (
+                         <>
+                           <textarea
+                             className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
+                             value={editableText}
+                             onChange={(e) => setEditableText(e.target.value)}
+                             placeholder="Start writing your idea here…"
+                           />
+                           {editableText !== versionText && (
+                             <div className="flex justify-end mt-2">
+                               <Button size="sm" variant="outline" className="mr-2 text-xs" onClick={() => setEditableText(versionText)}>
+                                 Discard
+                               </Button>
+                               <Button size="sm" className="text-xs" onClick={saveEditedText} disabled={isSavingText}>
+                                 {isSavingText ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                                 Save
+                               </Button>
+                             </div>
+                           )}
+                         </>
+                       )}
+                     </CardContent>
+                   </Card>
 
                   {versionText && (
                     <div className="flex flex-wrap items-center justify-end gap-2">
