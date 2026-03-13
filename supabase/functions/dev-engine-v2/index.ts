@@ -38,6 +38,7 @@ import {
   getUpstreamAxes,
   NARRATIVE_DEPENDENCY_EDGES,
   type RewriteTargetForSequencing,
+  SEVERITY_WEIGHTS,
 } from "../_shared/narrativeDependencyGraph.ts";
 import { buildNDGProjectGraph, summariseNDGGraph, type NDGInputData } from "../_shared/ndgProjectGraph.ts";
 import { classifySceneRoles, type SceneForClassification } from "../_shared/sceneRoleClassifier.ts";
@@ -3601,12 +3602,26 @@ async function runNRF1Core(
       forecasted_repair_families: ["repair_structural_beats"],
       strength_class: "low",
     },
+    // ── tonal_gravity (Class C — intentional zero-forecast entry) ──────────────
+    // tonal_gravity is a terminal axis with zero outgoing NDG edges (excluded from
+    // NARRATIVE_DEPENDENCY_EDGES by design — class C / expressive, not structural).
+    // getDownstreamAxes("tonal_gravity") returns [] in all cases.
+    // Consequence: forecast_confidence=0, repair_preventive_value=0 for all tonal_gravity repairs.
+    // This entry exists to make the intentional exclusion explicit and auditable rather than
+    // silent. The NRF1_REVERSE_FORECAST_REGISTRY is now complete across all 9 canonical axes.
+    // forecasted_repair_families: [] — tonal repairs have no downstream structural pressure.
+    {
+      axis: "tonal_gravity",
+      likely_diagnostic_families: ["tonal_contract"],
+      forecasted_repair_families: [],
+      strength_class: "low",
+    },
   ];
 
   const STRENGTH_WEIGHTS: Record<string, number> = { high: 1.0, medium: 0.6, low: 0.3 };
-  const SEVERITY_WEIGHTS_NRF: Record<string, number> = {
-    constitutional: 5, severe: 4, severe_moderate: 3, moderate: 2, light: 1,
-  };
+  // NRF1.5: Use shared SEVERITY_WEIGHTS from narrativeDependencyGraph.ts (identical values,
+  // unified source of truth). Previously inline as SEVERITY_WEIGHTS_NRF — no value changes.
+  // constitutional=5, severe=4, severe_moderate=3, moderate=2, light=1
 
   // ── Step 1: Load unresolved repairs directly ──────────────────────────
   // NRF1.3: Direct DB retrieval only — no HTTP self-fetch to ARP1 or DX.
@@ -3680,6 +3695,8 @@ async function runNRF1Core(
     const mapped = ARP1_REPAIR_TYPE_AXIS_MAP[repair.repair_type as string] ?? [];
     if (mapped.length > 0) return mapped;
 
+    // Tier 3: no axis derivable — repair contributes zero forecast pressure.
+    // Recorded in scoringNotes as tier3_zero_axis_repairs for transparency.
     return [];
   };
 
@@ -3695,17 +3712,23 @@ async function runNRF1Core(
       axisDebtMap:              {},
       unitStaleActive:          false,
       unresolvedCount:          0,
-      scoringNotes:             { version: "nrf1.4", data_source: "direct" },
+      scoringNotes:             { version: "nrf1.5", data_source: "direct" },
     };
   }
 
   // ── Step 4: Per-repair forecast computation ────────────────────────────
   const registryByAxis = new Map(NRF1_REVERSE_FORECAST_REGISTRY.map(r => [r.axis, r]));
   const projectForecastFamilies = new Set<string>();
+  // NRF1.5 transparency counters — recorded in scoringNotes
+  let tier3ZeroAxisCount     = 0;
+  let tonalGravityCount      = 0;
+  let registryMissCount      = 0;
 
   const perRepairForecasts = unresolvedRepairs.map((repair: any) => {
     // NRF1.3: Derive affected_axes deterministically from repair metadata
     const affectedAxes: SpineAxis[] = nrf1DeriveAffectedAxes(repair);
+    if (affectedAxes.length === 0) tier3ZeroAxisCount++;
+    if (affectedAxes.includes("tonal_gravity")) tonalGravityCount++;
 
     // Compute downstream and upstream axes
     const downstreamSet = new Set<SpineAxis>();
@@ -3725,7 +3748,7 @@ async function runNRF1Core(
 
     for (const dAxis of downstreamAxes) {
       const entry = registryByAxis.get(dAxis);
-      if (!entry) continue;
+      if (!entry) { registryMissCount++; continue; }
       for (const fam of entry.forecasted_repair_families) {
         forecastedFamilies.add(fam);
         projectForecastFamilies.add(fam);
@@ -3776,7 +3799,7 @@ async function runNRF1Core(
     // ── Repair preventive value ──────────────────────────────────────
     const downstreamReach = downstreamAxes.length;
     const maxSeverity = affectedAxes.reduce((max, ax) => {
-      const sev = SEVERITY_WEIGHTS_NRF[AXIS_METADATA[ax]?.severity ?? "moderate"] ?? 2;
+      const sev = SEVERITY_WEIGHTS[AXIS_METADATA[ax]?.severity ?? "moderate"] ?? 2;
       return Math.max(max, sev);
     }, 0);
     const preventiveValue = Math.round(
@@ -3914,9 +3937,14 @@ async function runNRF1Core(
       pressure_normalized_model:  "100×(1−e^(−raw/k)), k=30/ln2≈43.3 — bounded 0–100 asymptotic",
       status_weights:             "pending=1.0, failed=0.8, skipped=0.6, dismissed=0.3",
       unit_stale_signal:          unitStaleActive ? "active: refresh_runtime_alignment added to forecast families" : "inactive",
-      registry_source:            "NRF1_REVERSE_FORECAST_REGISTRY (deterministic, NDG-seeded)",
+      registry_source:            "NRF1_REVERSE_FORECAST_REGISTRY (deterministic, NDG-seeded, all 9 axes covered)",
+      registry_completeness:      "9/9 canonical axes represented (tonal_gravity: intentional zero-forecast — class C terminal, no NDG outgoing edges)",
+      severity_weights_source:    "SEVERITY_WEIGHTS from narrativeDependencyGraph.ts (shared, canonical)",
       data_source:                "fully direct: repairs from narrative_repairs DB query, affected_axes derived deterministically from repair scope_type+scope_key",
-      version:                    "nrf1.4",
+      tier3_zero_axis_repairs:    tier3ZeroAxisCount > 0 ? `${tier3ZeroAxisCount} repair(s) yielded no derivable axes (scope_key not a SpineAxis, repair_type not in ARP1_REPAIR_TYPE_AXIS_MAP) — these contribute zero forecast pressure` : "none",
+      tonal_gravity_repairs:      tonalGravityCount > 0 ? `${tonalGravityCount} repair(s) scoped to tonal_gravity — intentional zero downstream forecast (class C terminal axis, no NDG outgoing edges)` : "none",
+      registry_miss_count:        registryMissCount > 0 ? `${registryMissCount} downstream axis lookup(s) found no registry entry — these axes contribute no forecast families` : "none",
+      version:                    "nrf1.5",
     },
   };
 }
