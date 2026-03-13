@@ -13398,7 +13398,7 @@ Return ONLY valid JSON:
       for (const f of (nrf1Ok ? nrf1Result.perRepairForecasts : [])) {
         nrf1ForecastMap.set(f.repair_id, f);
       }
-      const ROI_VERSION = "roi-1.0";
+      const ROI_VERSION = "roi-1.1";
       const roiEntries = arp1Result.scoredRepairs.map((rec: any) => {
         const nrf = nrf1ForecastMap.get(rec.repair_id) ?? null;
         const preventiveValue = nrf?.repair_preventive_value ?? 0;
