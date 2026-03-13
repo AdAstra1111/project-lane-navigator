@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>IFFY — Intelligent Film Flow and Yield</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,700;1,300&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --gold: #c49a3d;
+    --gold-light: #e8c870;
+    --bg: #090c14;
+    --bg-card: #0f1420;
+    --bg-card-alt: #0c1018;
+    --fg: #e2e0dc;
+    --fg-muted: #8a8880;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-weight: 300;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  section {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 6rem 2rem;
+  }
+
+  /* HERO */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 4rem 2rem;
+    position: relative;
+    max-width: 100%;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 70% 60% at 50% 40%, rgba(196,154,61,0.06) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .hero-eyebrow {
+    color: var(--fg-muted);
+    font-size: 0.65rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    margin-bottom: 0.4rem;
+  }
+
+  .hero-acronym {
+    color: var(--fg-muted);
+    font-size: 0.6rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 2rem;
+    opacity: 0.5;
+  }
+
+  .hero h1 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: clamp(2.8rem, 7vw, 5rem);
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin-bottom: 2rem;
+    max-width: 700px;
+  }
+
+  .hero h1 span { color: var(--gold); }
+
+  .hero-pitch {
+    color: var(--fg-muted);
+    font-size: 1.05rem;
+    max-width: 580px;
+    line-height: 1.75;
+    margin-bottom: 3rem;
+  }
+
+  .hero-divider {
+    width: 40px;
+    height: 1px;
+    background: var(--gold);
+    opacity: 0.4;
+    margin: 0 auto;
+  }
+
+  /* SECTION LABEL */
+  .label {
+    color: var(--fg-muted);
+    font-size: 0.65rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    margin-bottom: 1.5rem;
+  }
+
+  h2 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: clamp(1.8rem, 4vw, 2.6rem);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin-bottom: 1.5rem;
+  }
+
+  h2 span { color: var(--gold); }
+
+  p {
+    color: var(--fg-muted);
+    font-size: 1rem;
+    line-height: 1.8;
+    margin-bottom: 1.2rem;
+  }
+
+  /* PIPELINE VISUAL */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 3rem 0;
+  }
+
+  .pipeline-stage {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.5rem;
+    padding: 1.25rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .pipeline-stage:last-child { border-bottom: none; }
+
+  .pipeline-num {
+    color: var(--gold);
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 0.8rem;
+    font-weight: 700;
+    min-width: 24px;
+    margin-top: 3px;
+    opacity: 0.8;
+  }
+
+  .pipeline-content { flex: 1; }
+
+  .pipeline-title {
+    color: var(--fg);
+    font-size: 0.9rem;
+    font-weight: 500;
+    margin-bottom: 0.2rem;
+  }
+
+  .pipeline-desc {
+    color: var(--fg-muted);
+    font-size: 0.8rem;
+    line-height: 1.55;
+  }
+
+  .pipeline-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--gold);
+    opacity: 0.5;
+    margin-top: 6px;
+    flex-shrink: 0;
+  }
+
+  /* PROOF STATS */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 2rem;
+    margin: 3rem 0;
+    padding: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(196,154,61,0.12);
+    border-radius: 16px;
+  }
+
+  .stat { text-align: center; }
+
+  .stat-n {
+    color: var(--gold);
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 2.5rem;
+    font-weight: 700;
+    line-height: 1;
+    display: block;
+    margin-bottom: 0.4rem;
+  }
+
+  .stat-label {
+    color: var(--fg-muted);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* TRACKS */
+  .tracks {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin: 2.5rem 0;
+  }
+
+  @media (max-width: 600px) {
+    .tracks { grid-template-columns: 1fr; }
+  }
+
+  .track {
+    background: var(--bg-card);
+    border: 1px solid rgba(196,154,61,0.12);
+    border-radius: 14px;
+    padding: 2rem;
+  }
+
+  .track-icon {
+    font-size: 1.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .track-title {
+    color: var(--fg);
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+
+  .track-tag {
+    display: inline-block;
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--gold);
+    background: rgba(196,154,61,0.1);
+    border: 1px solid rgba(196,154,61,0.2);
+    border-radius: 4px;
+    padding: 2px 8px;
+    margin-bottom: 0.75rem;
+  }
+
+  .track p {
+    font-size: 0.85rem;
+    line-height: 1.65;
+  }
+
+  /* DIVIDER */
+  .section-rule {
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(196,154,61,0.2), transparent);
+    border: none;
+    margin: 0;
+  }
+
+  /* CLOSING */
+  .closing {
+    text-align: center;
+    padding: 7rem 2rem;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+
+  .closing h2 {
+    margin-bottom: 1.5rem;
+  }
+
+  .closing p {
+    font-size: 1.05rem;
+    margin-bottom: 0;
+  }
+
+  /* FOOTER */
+  footer {
+    text-align: center;
+    padding: 2.5rem;
+    color: var(--fg-muted);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    border-top: 1px solid rgba(255,255,255,0.04);
+  }
+
+  /* QUOTE BLOCK */
+  .pull-quote {
+    border-left: 2px solid var(--gold);
+    padding: 1rem 0 1rem 1.75rem;
+    margin: 2.5rem 0;
+  }
+
+  .pull-quote p {
+    color: var(--fg);
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 1.2rem;
+    font-weight: 300;
+    font-style: italic;
+    line-height: 1.6;
+    margin: 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-eyebrow">Intelligent Film Flow and Yield</div>
+  <div class="hero-acronym">I &nbsp;·&nbsp; F &nbsp;·&nbsp; F &nbsp;·&nbsp; Y</div>
+  <h1>The operating system<br /><span>for content.</span></h1>
+  <p class="hero-pitch">
+    From a single idea to a complete, production-ready world. Every script, every character, every financial model, every decision — one autonomous system.
+  </p>
+  <div class="hero-divider"></div>
+</div>
+
+<hr class="section-rule" />
+
+<!-- THE PROBLEM -->
+<section>
+  <div class="label">The Problem</div>
+  <h2>Content development<br /><span>is broken.</span></h2>
+  <p>
+    The best ideas in the world die waiting. Waiting for a writers room to assemble, for a development executive to find time, for a script to go through twelve drafts before anyone knows if the market wants it. The process is slow, expensive, inconsistent and entirely dependent on who happens to be in the room.
+  </p>
+  <p>
+    Studios spend millions developing projects that never get made. Streamers are drowning in submissions with no reliable way to filter signal from noise. Producers spend years on a single project that a smarter system could have validated in hours.
+  </p>
+  <div class="pull-quote">
+    <p>"The infrastructure for content creation has not changed in a hundred years. IFFY changes it."</p>
+  </div>
+</section>
+
+<hr class="section-rule" />
+
+<!-- WHAT IFFY DOES -->
+<section>
+  <div class="label">The Solution</div>
+  <h2>One idea.<br /><span>Everything else, built.</span></h2>
+  <p>
+    Give IFFY a single sentence. It generates the complete development package — autonomously, in sequence, with creative integrity enforced at every stage. Not a chatbot. Not a prompt wrapper. A full pipeline engine with proprietary scoring, cascade logic, and market intelligence built in.
+  </p>
+
+  <div class="pipeline">
+    <div class="pipeline-stage">
+      <div class="pipeline-dot"></div>
+      <div class="pipeline-num">01</div>
+      <div class="pipeline-content">
+        <div class="pipeline-title">Idea</div>
+        <div class="pipeline-desc">A sentence. A concept. A title. That is all IFFY needs to begin.</div>
+      </div>
+    </div>
+    <div class="pipeline-stage">
+      <div class="pipeline-dot"></div>
+      <div class="pipeline-num">02</div>
+      <div class="pipeline-content">
+        <div class="pipeline-title">Concept Brief</div>
+        <div class="pipeline-desc">Premise, logline, emotional core, comparable titles, development notes. Fully authored.</div>
+      </div>
+    </div>
+    <div class="pipeline-stage">
+      <div class="pipeline-dot"></div>
+      <div class="pipeline-num">03</div>
+      <div class="pipeline-content">
+        <div class="pipeline-title">Market Positioning</div>
+        <div class="pipeline-desc">Target platforms, audience demographics, international appeal, awards potential, competitive positioning.</div>
+      </div>
+    </div>
+    <div class="pipeline-stage">
+      <div class="pipeline-dot"></div>
+      <div class="pipeline-num">04</div>
+      <div class="pipeline-content">
+        <div class="pipeline-title">Format Rules</div>
+        <div class="pipeline-desc">Episode structure, tone, pacing, format constraints, genre rules — locked as canon for every downstream document.</div>
+      </div>
+    </div>
+    <div class="pipeline-stage">
+      <div class="pipeline-dot"></div>
+      <div class="pipeline-num">05</div>
+      <div class="pipeline-content">
+        <div class="pipeline-title">Character Bible</div>
+        <div class="pipeline-desc">Full cast with arcs, relationships, voice profiles, motivations, and evolution across the season.</div>
+      </div>
+    </div>
+    <div class="pipeline-stage">
+      <div class="pipeline-dot"></div>
+      <div class="pipeline-num">06</div>
+      <div class="pipeline-content">
+        <div class="pipeline-title">Season Arc</div>
+        <div class="pipeline-desc">The complete narrative spine. Act structure, theme, character journeys, turning points, finale.</div>
+      </div>
+    </div>
+    <div class="pipeline-stage">
+      <div class="pipeline-dot"></div>
+      <div class="pipeline-num">07</div>
+      <div class="pipeline-content">
+        <div class="pipeline-title">Episode Grid</div>
+        <div class="pipeline-desc">Every episode titled, outlined, with cold opens, cliffhangers, and thematic beats mapped.</div>
+      </div>
+    </div>
+    <div class="pipeline-stage">
+      <div class="pipeline-dot"></div>
+      <div class="pipeline-num">08</div>
+      <div class="pipeline-content">
+        <div class="pipeline-title">Episode Beats</div>
+        <div class="pipeline-desc">Scene-by-scene beat sheets. Narrative flags, CI scoring, gap analysis. Every episode health-checked.</div>
+      </div>
+    </div>
+    <div class="pipeline-stage">
+      <div class="pipeline-dot"></div>
+      <div class="pipeline-num">09</div>
+      <div class="pipeline-content">
+        <div class="pipeline-title">Season Script</div>
+        <div class="pipeline-desc">Full screenplay. Every episode. Production-ready. Canon-consistent from first scene to last.</div>
+      </div>
+    </div>
+  </div>
+
+  <p>Change anything — a character name, a location, a plot point — and IFFY cascades the update through every document automatically. Nothing falls out of sync. Nothing contradicts itself.</p>
+</section>
+
+<hr class="section-rule" />
+
+<!-- PROOF -->
+<section>
+  <div class="label">Proof</div>
+  <h2>It already<br /><span>works.</span></h2>
+  <p>
+    <em>My Fiancé Paid the Ransom</em> — a 60-episode vertical drama series — was taken from concept to complete, production-ready package using IFFY. Every document authored, scored, and cross-referenced overnight.
+  </p>
+
+  <div class="stats">
+    <div class="stat">
+      <span class="stat-n">60</span>
+      <span class="stat-label">Episodes scripted</span>
+    </div>
+    <div class="stat">
+      <span class="stat-n">22</span>
+      <span class="stat-label">Documents generated</span>
+    </div>
+    <div class="stat">
+      <span class="stat-n">418</span>
+      <span class="stat-label">Pipeline steps</span>
+    </div>
+    <div class="stat">
+      <span class="stat-n">12×</span>
+      <span class="stat-label">Faster than a writers room</span>
+    </div>
+  </div>
+
+  <p>
+    CI (Creative Integrity) scored at 95. GP (Greenlight Probability) at 94. Every episode health-checked, every character arc verified against the season spine. This is not a prototype. It is a working system running real projects today.
+  </p>
+</section>
+
+<hr class="section-rule" />
+
+<!-- TWO TRACKS -->
+<section>
+  <div class="label">The Vision</div>
+  <h2>One engine.<br /><span>Two futures.</span></h2>
+  <p>
+    IFFY is not built for one kind of production. It is built for what content creation is becoming — which means it has to work for both the world as it is and the world that is arriving.
+  </p>
+
+  <div class="tracks">
+    <div class="track">
+      <div class="track-icon">🎬</div>
+      <div class="track-tag">Track 1</div>
+      <div class="track-title">Real Life Production</div>
+      <p>IFFY develops the complete package. Human cast and crew bring it to life. Same process studios use today, compressed from years into days.</p>
+    </div>
+    <div class="track">
+      <div class="track-icon">⚡</div>
+      <div class="track-tag">Track 2</div>
+      <div class="track-title">AI Output Pipeline</div>
+      <p>The same IFFY engine feeds directly into AI performance, synthetic voice, video generation, and AI music. A fully realised production without a single camera rolling.</p>
+    </div>
+  </div>
+
+  <p>
+    Both tracks are fed by the same creative engine. The content is identical. What changes is who — or what — brings it to life.
+  </p>
+</section>
+
+<hr class="section-rule" />
+
+<!-- INFRASTRUCTURE ARGUMENT -->
+<section>
+  <div class="label">The Opportunity</div>
+  <h2>This is<br /><span>infrastructure.</span></h2>
+  <p>
+    Every studio, streamer, and production company on earth will need a system like this. The question is not whether AI transforms content creation — it is who builds the standard, and where.
+  </p>
+  <p>
+    IFFY is being built in Britain. We intend to make sure the infrastructure for the next century of storytelling is owned here, not in California. The platform is proprietary, the pipeline architecture is ours, and the creative intelligence it encodes has been built from the ground up.
+  </p>
+  <div class="pull-quote">
+    <p>"An LLM generates content. IFFY manages a production."</p>
+  </div>
+  <p>
+    This is not a tool that sits alongside existing workflows. It is the operating system that existing workflows will eventually run inside.
+  </p>
+</section>
+
+<hr class="section-rule" />
+
+<!-- CLOSING -->
+<div class="closing">
+  <div class="label">Next</div>
+  <h2>We would<br /><span>love to talk.</span></h2>
+  <p>
+    IFFY is live, operational, and generating real projects today. We are at an early and exciting moment — the right conversations now will shape what this becomes. If you see what we see, we would love to find the time.
+  </p>
+</div>
+
+<footer>
+  IFFY &nbsp;·&nbsp; Intelligent Film Flow and Yield &nbsp;·&nbsp; Paradox House &nbsp;·&nbsp; Built in Britain
+</footer>
+
+</body>
+</html>
