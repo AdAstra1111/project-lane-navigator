@@ -1099,6 +1099,12 @@ export default function ProjectDevelopmentEngine() {
 
   const versionText = selectedVersion?.plaintext || selectedDoc?.plaintext || selectedDoc?.extracted_text || '';
 
+  // Season script background generation state
+  const isSeasonScriptBgGenerating = selectedDoc?.doc_type === 'season_script'
+    && !!(selectedVersion as any)?.meta_json?.bg_generating === true
+    && !versionText;
+  const seasonScriptEpisodeCount = (selectedVersion as any)?.meta_json?.episode_count as number | undefined;
+
   const [editableText, setEditableText] = useState(versionText);
   const [isSavingText, setIsSavingText] = useState(false);
   useEffect(() => { setEditableText(versionText); }, [versionText]);
