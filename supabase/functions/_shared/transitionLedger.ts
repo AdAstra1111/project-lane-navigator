@@ -86,6 +86,9 @@ export const TRANSITION_EVENTS = {
   VALIDATION_PLANNING_HANDOFF_BLOCKED: "validation_planning_handoff_blocked",
   VALIDATION_PLANNING_REQUEST_CREATED: "validation_planning_request_created",
   VALIDATION_PLANNING_DUPLICATE_SUPPRESSED: "validation_planning_duplicate_suppressed",
+
+  // Patch Execution Replay
+  PATCH_EXECUTION_COMPLETED: "patch_execution_completed",
 } as const;
 
 export type TransitionEventType = typeof TRANSITION_EVENTS[keyof typeof TRANSITION_EVENTS];

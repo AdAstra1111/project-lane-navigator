@@ -10,6 +10,7 @@ import {
   fetchPatchPlan,
   fetchPatchPlanValidation,
   fetchPatchExecution,
+  fetchPatchExecutionReplay,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type InterventionAnalysisResult, type InterventionCandidate,
@@ -22,6 +23,7 @@ import {
   type PostExecutionGovernance, type PostExecutionRevalidationTarget,
   type RevalidationExecution, type RevalidationExecutionTarget,
   type ExecutionObservability, type ExecutionObservabilityDocTimeline, type ExecutionObservabilityEvent,
+  type ExecutionReplayResponse, type ExecutionReplaySnapshot,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,7 +39,7 @@ import { Progress } from '@/components/ui/progress';
 import {
   ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle,
   RefreshCw, Info, Star, Unlock, Shield, Target, Activity, ChevronDown, ChevronRight,
-  CheckCircle, XCircle, Play, Zap,
+  CheckCircle, XCircle, Play, Zap, History,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -510,6 +512,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
 
       {/* ═══ SECTION 4g: PATCH EXECUTION (section-only, fail-closed) ═══ */}
       <PatchExecutionSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
+
+      {/* ═══ SECTION 4h: EXECUTION REPLAY (read-only historical audit) ═══ */}
+      <ExecutionReplaySection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
 
           </div>
         )}
@@ -2568,6 +2573,299 @@ function PatchExecutionSection({
                 </CollapsibleContent>
               </Collapsible>
             )}
+          </>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ── ExecutionReplaySection — read-only historical execution audit replay ──
+
+function ExecutionReplaySection({
+  projectId,
+  iv,
+  prp2s,
+  prp2,
+}: {
+  projectId: string | undefined;
+  iv: InterventionAnalysisResult | null;
+  prp2s: PRP2SData | null;
+  prp2: PRP2Data | null;
+}) {
+  const [replayResult, setReplayResult] = useState<ExecutionReplayResponse | null>(null);
+  const [replayLoading, setReplayLoading] = useState(false);
+  const [lastPlanId, setLastPlanId] = useState<string | null>(null);
+
+  // Resolve the plan_id from the latest available execution context
+  const resolvedPlanId = useMemo(() => {
+    // In a real flow, the plan_id comes from the latest execution response.
+    // For replay, the user needs to have a known plan_id. We try the latest known execution.
+    return lastPlanId;
+  }, [lastPlanId]);
+
+  const handleLoadReplay = async () => {
+    if (!projectId || !resolvedPlanId) return;
+    setReplayLoading(true);
+    try {
+      const result = await fetchPatchExecutionReplay(projectId, resolvedPlanId);
+      setReplayResult(result);
+    } catch {
+      setReplayResult(null);
+    } finally {
+      setReplayLoading(false);
+    }
+  };
+
+  const replay = replayResult?.execution_replay;
+  const replayExec = replay?.execution;
+  const obs = replayExec?.execution_observability;
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+          <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+          <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+          <History className="h-3 w-3" />
+          <span className="font-semibold uppercase tracking-wider">Execution Replay</span>
+          {replayResult?.replay_found && (
+            <Badge variant="outline" className="text-[9px] ml-1 font-mono text-emerald-400 border-emerald-500/30">REPLAY FOUND</Badge>
+          )}
+          {replayResult && !replayResult.replay_found && (
+            <Badge variant="outline" className="text-[9px] ml-1 font-mono text-muted-foreground border-border/50">NO REPLAY</Badge>
+          )}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-2">
+        <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+          <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-[10px] text-muted-foreground">
+            Read-only replay of a previously persisted execution snapshot. Source: <strong>pipeline_transitions</strong>.
+          </span>
+        </div>
+
+        {/* Plan ID input */}
+        <div className="flex gap-2 items-end">
+          <div className="flex-1">
+            <label className="text-[9px] text-muted-foreground uppercase font-semibold block mb-1">Plan ID</label>
+            <input
+              type="text"
+              className="w-full rounded-md border border-border/50 bg-background px-2 py-1 text-[10px] font-mono text-foreground placeholder:text-muted-foreground/50"
+              placeholder="Enter plan_id from a previous execution"
+              value={lastPlanId || ''}
+              onChange={(e) => setLastPlanId(e.target.value || null)}
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleLoadReplay}
+            disabled={!resolvedPlanId || !projectId || replayLoading}
+            className="text-xs"
+          >
+            <History className="h-3 w-3 mr-1" />
+            {replayLoading ? 'Loading…' : 'Load Replay'}
+          </Button>
+        </div>
+
+        {replayLoading && <Skeleton className="h-20 w-full rounded-md" />}
+
+        {/* Empty state */}
+        {!replayResult && !replayLoading && (
+          <Card className="border-border/50">
+            <CardContent className="py-6 text-center">
+              <History className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+              <p className="text-xs text-muted-foreground">Enter a plan ID and load to replay a previous execution.</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Not found state */}
+        {replayResult && !replayResult.replay_found && !replayLoading && (
+          <Card className="border-border/50">
+            <CardContent className="py-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <XCircle className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs font-semibold text-muted-foreground">No Replay Found</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                No persisted execution snapshot exists for this plan ID. Only non-dry-run executions that performed writes are persisted.
+              </p>
+              {replayResult.replay_notes.fallback_reason && (
+                <div className="text-[9px] font-mono text-muted-foreground">
+                  Reason: {replayResult.replay_notes.fallback_reason}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Replay found — render observability */}
+        {replayResult && replayResult.replay_found && replay && replayExec && !replayLoading && (
+          <>
+            {/* Replay metadata */}
+            <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground">
+              <Badge variant="outline" className="text-[8px] font-mono text-blue-400 border-blue-500/30">
+                PERSISTED REPLAY
+              </Badge>
+              <span>Source: <span className="font-mono text-foreground">{replayResult.replay_source}</span></span>
+              <span>Match: <span className="font-mono text-foreground">{replayResult.replay_notes.exact_match ? 'exact' : 'fallback'}</span></span>
+              <span>Version: <span className="font-mono text-foreground">{replay.execution_replay_version}</span></span>
+              <span>Computed: <span className="font-mono text-foreground">{new Date(replay.computed_at).toLocaleString()}</span></span>
+            </div>
+
+            {/* Replay status grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  {replayExec.execution_allowed ? (
+                    <CheckCircle className="h-5 w-5 mx-auto text-emerald-400" />
+                  ) : (
+                    <XCircle className="h-5 w-5 mx-auto text-red-400" />
+                  )}
+                  <div className="text-[9px] text-muted-foreground uppercase mt-1">
+                    {replayExec.execution_allowed ? 'Allowed' : 'Blocked'}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{replayExec.direct_targets_executed}/{replayExec.direct_targets_attempted}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Sections</div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">
+                    {replayExec.documents_executed != null ? `${replayExec.documents_executed}/${replayExec.documents_attempted}` : '—'}
+                  </div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Documents</div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{replayExec.dry_run ? 'Yes' : 'No'}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Dry Run</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Observability timeline from replay */}
+            {obs && (
+              <div className="space-y-2">
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase flex items-center gap-1.5">
+                  <Activity className="h-3 w-3" />
+                  Replay Timeline
+                  <Badge variant="outline" className="text-[8px] font-mono ml-1 text-muted-foreground border-border/50">
+                    {obs.total_duration_ms}ms
+                  </Badge>
+                </div>
+
+                {/* Phase duration chips */}
+                <div className="flex flex-wrap gap-1.5">
+                  {(Object.entries(obs.phase_durations_ms) as [string, number | null][]).map(([phase, ms]) => (
+                    ms != null && (
+                      <Badge key={phase} variant="outline" className="text-[8px] font-mono px-1.5 py-0 h-4 text-muted-foreground border-border/50">
+                        {phase.replace(/_/g, ' ')}: {ms}ms
+                      </Badge>
+                    )
+                  ))}
+                </div>
+
+                {/* Document timeline */}
+                {obs.document_timeline.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[9px] font-semibold text-muted-foreground uppercase">Document Timeline</div>
+                    {obs.document_timeline.map((dt, i) => (
+                      <div key={`replay-doc-${i}`} className="rounded-md border border-border/30 px-2.5 py-1.5 space-y-0.5">
+                        <div className="flex items-center gap-2 text-[10px]">
+                          <span className="font-mono text-muted-foreground w-4 text-right">{dt.order_index + 1}.</span>
+                          <span className="font-mono text-foreground font-semibold">{dt.doc_type}</span>
+                          <Badge
+                            variant={dt.status === 'executed' ? 'outline' : dt.status === 'failed' ? 'destructive' : dt.status === 'blocked' ? 'secondary' : 'outline'}
+                            className={cn(
+                              "text-[8px] font-mono px-1 py-0 h-3.5",
+                              dt.status === 'executed' && "text-emerald-400 border-emerald-500/30",
+                              dt.status === 'dry_run' && "text-blue-400 border-blue-500/30",
+                              dt.status === 'blocked' && "text-amber-400 border-amber-500/30",
+                            )}
+                          >
+                            {dt.status.replace(/_/g, ' ')}
+                          </Badge>
+                          <Badge variant="outline" className={cn(
+                            "text-[8px] font-mono px-1 py-0 h-3.5",
+                            dt.ordering_basis === "dependency_registry" ? "text-blue-400 border-blue-500/30" :
+                            dt.ordering_basis === "lane_ladder" ? "text-amber-400 border-amber-500/30" :
+                            "text-muted-foreground border-border/50"
+                          )}>
+                            {dt.ordering_basis.replace(/_/g, ' ')}
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground pl-6">
+                          <span>Sections: {dt.section_targets_executed}/{dt.section_targets_total}</span>
+                          {dt.section_targets_failed > 0 && <span className="text-destructive">{dt.section_targets_failed} failed</span>}
+                          {dt.version_id_after && <span className="font-mono">→ {dt.version_id_after.slice(0, 8)}</span>}
+                          {dt.blocked_by_doc_type && <span className="text-amber-400">blocked by: {dt.blocked_by_doc_type}</span>}
+                          {dt.governance_status && dt.governance_status !== "skipped" && (
+                            <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">
+                              gov: {dt.governance_status}
+                            </Badge>
+                          )}
+                          {dt.revalidation_status && dt.revalidation_status !== "skipped" && (
+                            <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">
+                              reval: {dt.revalidation_status}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-[9px] text-muted-foreground pl-6">{dt.execution_message}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Event trace */}
+                {obs.event_trace.length > 0 && (
+                  <Collapsible>
+                    <CollapsibleTrigger asChild>
+                      <button className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors">
+                        <ChevronRight className="h-2.5 w-2.5 [[data-state=open]>&]:hidden" />
+                        <ChevronDown className="h-2.5 w-2.5 hidden [[data-state=open]>&]:block" />
+                        Event Trace ({obs.event_trace.length})
+                      </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-0.5 mt-1 max-h-40 overflow-y-auto">
+                        {obs.event_trace.map((ev, i) => (
+                          <div key={`replay-ev-${i}`} className="flex items-center gap-1.5 text-[9px]">
+                            <span className="font-mono text-muted-foreground w-4 text-right shrink-0">{ev.seq}</span>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-[7px] font-mono px-1 py-0 h-3 shrink-0",
+                                ev.status === 'completed' && "text-emerald-400 border-emerald-500/30",
+                                ev.status === 'failed' && "text-destructive border-destructive/30",
+                                ev.status === 'blocked' && "text-amber-400 border-amber-500/30",
+                                ev.status === 'started' && "text-blue-400 border-blue-500/30",
+                              )}
+                            >
+                              {ev.status}
+                            </Badge>
+                            <span className="font-mono text-muted-foreground shrink-0">[{ev.phase}]</span>
+                            <span className="text-foreground truncate">{ev.message}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
+              </div>
+            )}
+
+            {/* Plan ID for reference */}
+            <div className="text-[9px] text-muted-foreground font-mono border-t border-border/30 pt-1.5">
+              plan_id: {replay.plan_id}
+            </div>
           </>
         )}
       </CollapsibleContent>

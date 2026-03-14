@@ -31469,42 +31469,175 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         total_duration_ms: obsTotalMs,
       });
 
+      const finalExecution = {
+        plan_id: execPlan.plan_id,
+        execution_allowed: true,
+        executed: executedCount > 0 || dryRun,
+        dry_run: dryRun,
+        direct_targets_attempted: sectionTargets.length,
+        direct_targets_executed: executedCount,
+        direct_targets_failed: failedCount,
+        documents_attempted: documentsAttempted,
+        documents_executed: documentsExecuted,
+        document_sequences_failed: documentSequencesFailed,
+        documents_skipped_due_to_upstream_failure: documentsSkippedDueToUpstreamFailure,
+        blocked_document_ids: blockedDocumentIds.length > 0 ? blockedDocumentIds : undefined,
+        blocked_doc_types: blockedDocTypes.length > 0 ? blockedDocTypes : undefined,
+        document_execution_order: documentExecutionOrder,
+        document_execution_metadata: documentExecutionMetadata,
+        target_results: targetResults,
+        execution_notes: {
+          validation_passed: true,
+          stale_blocked: false,
+          unsupported_target_types_blocked: false,
+          write_performed: writePerformed,
+          downstream_execution_deferred: !postExecution || (postExecution?.governance_notes as any)?.dry_run_no_governance_writes === true,
+        },
+        post_execution: postExecution,
+        revalidation_execution: revalidationExecution,
+        execution_observability: executionObservability,
+      };
+
+      // ── PERSIST EXECUTION REPLAY SNAPSHOT (non-dry-run only) ──
+      // Store the full execution response in pipeline_transitions for deterministic replay.
+      // Uses resulting_state (JSONB) as the durable snapshot surface. Non-critical: failure
+      // does not block the execution response.
+      if (!dryRun && writePerformed) {
+        try {
+          const { emitTransition, TRANSITION_EVENTS } = await import("../_shared/transitionLedger.ts");
+          await emitTransition(supabase, {
+            projectId,
+            eventType: TRANSITION_EVENTS.PATCH_EXECUTION_COMPLETED,
+            eventDomain: "patch_execution",
+            status: "completed",
+            trigger: "execute_patch_plan",
+            runId: execPlan.plan_id,
+            resultingState: {
+              execution_replay_version: "execution-replay-v1",
+              plan_id: execPlan.plan_id,
+              project_id: projectId,
+              computed_at: execAt,
+              patch_plan: execPlan,
+              validation: execValidation,
+              execution: finalExecution,
+            } as Record<string, unknown>,
+            createdBy: execUserId,
+          }, { critical: false });
+          console.log("[dev-engine-v2] execution replay snapshot persisted", { plan_id: execPlan.plan_id });
+        } catch (replayErr: any) {
+          console.warn("[dev-engine-v2] execution replay snapshot persist failed (non-blocking):", replayErr?.message);
+        }
+      }
+
       return new Response(JSON.stringify({
         ok: true,
         action: "execute_patch_plan",
         project_id: projectId,
         patch_plan: execPlan,
         validation: execValidation,
-        execution: {
-          plan_id: execPlan.plan_id,
-          execution_allowed: true,
-          executed: executedCount > 0 || dryRun,
-          dry_run: dryRun,
-          direct_targets_attempted: sectionTargets.length,
-          direct_targets_executed: executedCount,
-          direct_targets_failed: failedCount,
-          documents_attempted: documentsAttempted,
-          documents_executed: documentsExecuted,
-          document_sequences_failed: documentSequencesFailed,
-          documents_skipped_due_to_upstream_failure: documentsSkippedDueToUpstreamFailure,
-          blocked_document_ids: blockedDocumentIds.length > 0 ? blockedDocumentIds : undefined,
-          blocked_doc_types: blockedDocTypes.length > 0 ? blockedDocTypes : undefined,
-          document_execution_order: documentExecutionOrder,
-          document_execution_metadata: documentExecutionMetadata,
-          target_results: targetResults,
-          execution_notes: {
-            validation_passed: true,
-            stale_blocked: false,
-            unsupported_target_types_blocked: false,
-            write_performed: writePerformed,
-            downstream_execution_deferred: !postExecution || (postExecution?.governance_notes as any)?.dry_run_no_governance_writes === true,
-          },
-          post_execution: postExecution,
-          revalidation_execution: revalidationExecution,
-          execution_observability: executionObservability,
-        },
+        execution: finalExecution,
         computed_at: execAt,
         version: "patch-execution-v1.2",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // EXECUTION REPLAY v1 — get_patch_execution_replay (READ-ONLY)
+    //
+    // Retrieves a previously persisted execution snapshot from pipeline_transitions.
+    // No recomputation, no mutation. Exact recorded payload or honest failure.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "get_patch_execution_replay") {
+      const { projectId, planId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!planId) {
+        return new Response(JSON.stringify({ ok: false, error: "planId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const replayAt = new Date().toISOString();
+
+      // Deterministic lookup: exact match on event_type + project_id + run_id (= plan_id)
+      const { data: replayRows, error: replayErr } = await supabase
+        .from("pipeline_transitions")
+        .select("id, resulting_state, created_at")
+        .eq("project_id", projectId)
+        .eq("event_type", "patch_execution_completed")
+        .eq("run_id", planId)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (replayErr) {
+        console.warn("[dev-engine-v2] get_patch_execution_replay query error:", replayErr.message);
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "get_patch_execution_replay",
+          project_id: projectId,
+          replay_found: false,
+          replay_source: "pipeline_transitions",
+          execution_replay: null,
+          replay_notes: {
+            exact_match: false,
+            fallback_used: false,
+            fallback_reason: `query_error:${replayErr.message}`,
+          },
+          computed_at: replayAt,
+          version: "execution-replay-v1",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const replayRow = replayRows && replayRows.length > 0 ? replayRows[0] : null;
+      const replaySnapshot = replayRow?.resulting_state;
+
+      // Validate replay snapshot has expected structure
+      const isValidSnapshot = replaySnapshot
+        && typeof replaySnapshot === "object"
+        && (replaySnapshot as any).execution_replay_version === "execution-replay-v1"
+        && (replaySnapshot as any).plan_id === planId;
+
+      if (!replayRow || !isValidSnapshot) {
+        // No fallback — fail honestly
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "get_patch_execution_replay",
+          project_id: projectId,
+          replay_found: false,
+          replay_source: "pipeline_transitions",
+          execution_replay: null,
+          replay_notes: {
+            exact_match: false,
+            fallback_used: false,
+            fallback_reason: replayRow ? "snapshot_structure_invalid" : "no_matching_transition_found",
+          },
+          computed_at: replayAt,
+          version: "execution-replay-v1",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      console.log("[dev-engine-v2] get_patch_execution_replay found", {
+        project_id: projectId,
+        plan_id: planId,
+        transition_id: replayRow.id,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "get_patch_execution_replay",
+        project_id: projectId,
+        replay_found: true,
+        replay_source: "pipeline_transitions",
+        execution_replay: replaySnapshot,
+        replay_notes: {
+          exact_match: true,
+          fallback_used: false,
+          fallback_reason: null,
+        },
+        computed_at: replayAt,
+        version: "execution-replay-v1",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

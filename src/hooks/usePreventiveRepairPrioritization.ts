@@ -680,6 +680,34 @@ export interface PatchExecutionResponse {
   version: string;
 }
 
+// ── Execution Replay Types ──
+
+export interface ExecutionReplaySnapshot {
+  execution_replay_version: string;
+  plan_id: string;
+  project_id: string;
+  computed_at: string;
+  patch_plan: PatchPlan;
+  validation: PatchPlanValidationResult;
+  execution: PatchExecutionResult;
+}
+
+export interface ExecutionReplayResponse {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  replay_found: boolean;
+  replay_source: string;
+  execution_replay: ExecutionReplaySnapshot | null;
+  replay_notes: {
+    exact_match: boolean;
+    fallback_used: boolean;
+    fallback_reason: string | null;
+  };
+  computed_at: string;
+  version: string;
+}
+
 export async function fetchPatchExecution(
   projectId: string,
   repairId?: string,
@@ -714,6 +742,32 @@ export async function fetchPatchExecution(
   const json = await resp.json();
   if (!json?.ok) return null;
   return json as PatchExecutionResponse;
+}
+
+export async function fetchPatchExecutionReplay(
+  projectId: string,
+  planId: string,
+): Promise<ExecutionReplayResponse | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'get_patch_execution_replay',
+      projectId,
+      planId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as ExecutionReplayResponse;
 }
 
 export async function fetchPatchPlanValidation(
