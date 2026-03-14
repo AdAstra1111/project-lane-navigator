@@ -30659,6 +30659,185 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const executedCount = targetResults.filter(r => r.status === "executed").length;
       const failedCount = targetResults.filter(r => r.status === "failed").length;
 
+      // ── POST-EXECUTION GOVERNANCE ──
+      // Compute downstream invalidation and immediate revalidation targets
+      // Only perform writes on real (non-dry-run) successful executions.
+      let postExecution: Record<string, unknown> | null = null;
+
+      const executedTargets = targetResults.filter(r => r.status === "executed" && r.version_id_after);
+      const shouldRunGovernance = executedTargets.length > 0;
+
+      if (shouldRunGovernance) {
+        try {
+          const { invalidateDescendants } = await import("../_shared/unifiedNoteControl.ts");
+          const { getLaneLadder, type LaneKey } = await import("../_shared/documentLadders.ts");
+          const { getInvalidationPlan } = await import("../_shared/deliverableDependencyRegistry.ts");
+          const { emitTransition } = await import("../_shared/transitionLedger.ts");
+
+          // Resolve project lane
+          const { data: govProject } = await supabase.from("projects").select("format, assigned_lane").eq("id", projectId).maybeSingle();
+          const govLane: string = govProject?.assigned_lane || govProject?.format || "unspecified";
+          const govLadder = getLaneLadder(govLane);
+
+          const patchedDocumentIds = [...new Set(executedTargets.map(t => t.document_id))];
+          const patchedVersionIds = executedTargets.map(t => t.version_id_after!);
+
+          // Collect unique doc types that were patched
+          const patchedDocTypes = [...new Set(executedTargets.map(t => t.doc_type))];
+
+          let totalSurfacesConsidered = 0;
+          let totalSurfacesStale = 0;
+          let totalSurfacesReview = 0;
+          const deferredSurfaces: string[] = [];
+          const revalidationTargets: Array<{
+            document_id: string;
+            doc_type: string;
+            version_id: string | null;
+            revalidation_type: string;
+            status: string;
+          }> = [];
+
+          for (const execTarget of executedTargets) {
+            const docType = execTarget.doc_type;
+            const newVersionId = execTarget.version_id_after!;
+
+            // Compute invalidation plan (read-only)
+            const invPlan = getInvalidationPlan(govLane as any, docType);
+            totalSurfacesConsidered += invPlan.entries.length + invPlan.skipped_doc_types.length;
+
+            if (!dryRun) {
+              // Perform actual downstream invalidation via canonical path
+              const invResult = await invalidateDescendants(
+                supabase, projectId, docType, govLadder, newVersionId, govLane as any,
+              );
+              totalSurfacesStale += invResult.invalidatedDocs.filter(d =>
+                invPlan.entries.find(e => e.doc_type === d && e.invalidation_policy === "stale")
+              ).length;
+              totalSurfacesReview += invResult.invalidatedDocs.filter(d =>
+                invPlan.entries.find(e => e.doc_type === d && e.invalidation_policy === "review_only")
+              ).length;
+
+              // Emit transition ledger event for audit
+              await emitTransition(supabase, {
+                projectId,
+                eventType: "patch_execution_completed",
+                eventDomain: "rewrite",
+                status: "completed",
+                docType,
+                lane: govLane,
+                sourceVersionId: execTarget.version_id_before,
+                resultingVersionId: newVersionId,
+                trigger: "patch_execution_v1",
+                generatorId: "patch-execution-v1",
+                createdBy: execUserId,
+                resultingState: {
+                  plan_id: execPlan.plan_id,
+                  section_key: execTarget.target_id,
+                  repair_type: execCore.resolved_repair_type || repairType || null,
+                  invalidated_docs: invResult.invalidatedDocs,
+                  affected_jobs: invResult.affectedJobIds,
+                },
+              }, { critical: false });
+            } else {
+              // Dry run — report what would happen without writing
+              for (const entry of invPlan.entries) {
+                if (entry.invalidation_policy === "stale") totalSurfacesStale++;
+                else if (entry.invalidation_policy === "review_only") totalSurfacesReview++;
+              }
+            }
+
+            // Compute immediate revalidation targets from invalidation plan
+            for (const entry of invPlan.entries) {
+              if (entry.revalidation_policy === "must_reanalyze" || entry.revalidation_policy === "optional_review") {
+                // Look up current version for that doc type
+                const { data: revalDocs } = await supabase
+                  .from("project_documents")
+                  .select("id, doc_type")
+                  .eq("project_id", projectId)
+                  .eq("doc_type", entry.doc_type);
+
+                if (revalDocs && revalDocs.length > 0) {
+                  for (const rd of revalDocs) {
+                    const { data: curVer } = await supabase
+                      .from("project_document_versions")
+                      .select("id")
+                      .eq("document_id", rd.id)
+                      .eq("is_current", true)
+                      .maybeSingle();
+
+                    revalidationTargets.push({
+                      document_id: rd.id,
+                      doc_type: entry.doc_type,
+                      version_id: curVer?.id || null,
+                      revalidation_type: entry.revalidation_policy === "must_reanalyze" ? "full_reanalysis" : "section_recheck",
+                      status: dryRun ? "deferred" : "recorded",
+                    });
+                  }
+                }
+              }
+            }
+
+            // Add the patched document itself as an immediate revalidation target
+            revalidationTargets.push({
+              document_id: execTarget.document_id,
+              doc_type: docType,
+              version_id: newVersionId,
+              revalidation_type: "full_reanalysis",
+              status: dryRun ? "deferred" : "recorded",
+            });
+
+            deferredSurfaces.push(...invPlan.skipped_doc_types);
+          }
+
+          postExecution = {
+            patched_document_ids: patchedDocumentIds,
+            patched_version_ids: patchedVersionIds,
+            downstream_invalidation: {
+              surfaces_considered: totalSurfacesConsidered,
+              surfaces_marked_stale: totalSurfacesStale,
+              surfaces_marked_review: totalSurfacesReview,
+              deferred_surfaces: [...new Set(deferredSurfaces)],
+            },
+            immediate_revalidation: {
+              targets: revalidationTargets,
+            },
+            governance_notes: {
+              invalidation_performed: !dryRun && totalSurfacesStale + totalSurfacesReview > 0,
+              revalidation_handoff_performed: !dryRun && revalidationTargets.length > 0,
+              dry_run_no_governance_writes: dryRun,
+            },
+          };
+
+          console.log("[dev-engine-v2] execute_patch_plan post_execution_governance", {
+            project_id: projectId,
+            dry_run: dryRun,
+            surfaces_stale: totalSurfacesStale,
+            surfaces_review: totalSurfacesReview,
+            revalidation_targets: revalidationTargets.length,
+          });
+        } catch (govErr: any) {
+          // Governance failure does NOT block the successful execution result
+          console.warn("[dev-engine-v2] execute_patch_plan governance error (non-blocking):", govErr?.message);
+          postExecution = {
+            patched_document_ids: executedTargets.map(t => t.document_id),
+            patched_version_ids: executedTargets.map(t => t.version_id_after),
+            downstream_invalidation: {
+              surfaces_considered: 0,
+              surfaces_marked_stale: 0,
+              surfaces_marked_review: 0,
+              deferred_surfaces: [],
+            },
+            immediate_revalidation: { targets: [] },
+            governance_notes: {
+              invalidation_performed: false,
+              revalidation_handoff_performed: false,
+              dry_run_no_governance_writes: dryRun,
+              governance_error: govErr?.message?.slice(0, 200) || "unknown",
+            },
+          };
+        }
+      }
+
       console.log("[dev-engine-v2] execute_patch_plan", {
         project_id: projectId,
         plan_id: execPlan.plan_id,
@@ -30667,6 +30846,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         executed: executedCount,
         failed: failedCount,
         write_performed: writePerformed,
+        has_governance: !!postExecution,
       });
 
       return new Response(JSON.stringify({
@@ -30689,8 +30869,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             stale_blocked: false,
             unsupported_target_types_blocked: false,
             write_performed: writePerformed,
-            downstream_execution_deferred: true,
+            downstream_execution_deferred: !postExecution || (postExecution?.governance_notes as any)?.dry_run_no_governance_writes === true,
           },
+          post_execution: postExecution,
         },
         computed_at: execAt,
         version: "patch-execution-v1",

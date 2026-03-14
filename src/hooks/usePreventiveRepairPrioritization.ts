@@ -541,6 +541,34 @@ export interface PatchExecutionTargetResult {
   message: string;
 }
 
+export interface PostExecutionRevalidationTarget {
+  document_id: string;
+  doc_type: string;
+  version_id: string | null;
+  revalidation_type: "full_reanalysis" | "spine_check_only" | "canon_alignment_only" | "section_recheck";
+  status: "queued" | "recorded" | "deferred";
+}
+
+export interface PostExecutionGovernance {
+  patched_document_ids: string[];
+  patched_version_ids: string[];
+  downstream_invalidation: {
+    surfaces_considered: number;
+    surfaces_marked_stale: number;
+    surfaces_marked_review: number;
+    deferred_surfaces: string[];
+  };
+  immediate_revalidation: {
+    targets: PostExecutionRevalidationTarget[];
+  };
+  governance_notes: {
+    invalidation_performed: boolean;
+    revalidation_handoff_performed: boolean;
+    dry_run_no_governance_writes: boolean;
+    governance_error?: string;
+  };
+}
+
 export interface PatchExecutionResult {
   plan_id: string;
   execution_allowed: boolean;
@@ -558,6 +586,7 @@ export interface PatchExecutionResult {
     downstream_execution_deferred: boolean;
     block_reasons?: string[];
   };
+  post_execution?: PostExecutionGovernance | null;
 }
 
 export interface PatchExecutionResponse {
