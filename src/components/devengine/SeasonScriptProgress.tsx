@@ -21,6 +21,7 @@ interface ChunkRow {
 interface SeasonScriptProgressProps {
   versionId: string;
   episodeCount?: number;
+  onAllChunksDone?: (assembledContent: string) => void;
 }
 
 function getStatusIcon(status: string): React.ReactElement {
