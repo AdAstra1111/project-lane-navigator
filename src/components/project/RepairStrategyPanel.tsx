@@ -4506,9 +4506,9 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
             </Collapsible>
 
             {/* Governance trends */}
-            <Collapsible>
+            <Collapsible open={forcedOpenSubs.has("governance_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("governance_trends", o)}>
               <CollapsibleTrigger asChild>
-                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("governance_trends") && highlightClass)}>
                   <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                   <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                   <span className="font-semibold">Governance</span>
@@ -4525,9 +4525,9 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
             </Collapsible>
 
             {/* Revalidation trends */}
-            <Collapsible>
+            <Collapsible open={forcedOpenSubs.has("revalidation_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("revalidation_trends", o)}>
               <CollapsibleTrigger asChild>
-                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("revalidation_trends") && highlightClass)}>
                   <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                   <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                   <span className="font-semibold">Revalidation</span>
@@ -4546,9 +4546,9 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
 
             {/* Blocker code trends */}
             {trends.blocker_code_trends.length > 0 && (
-              <Collapsible>
+              <Collapsible open={forcedOpenSubs.has("blocker_code_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("blocker_code_trends", o)}>
                 <CollapsibleTrigger asChild>
-                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                  <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("blocker_code_trends") && !highlightedEntity?.entity && highlightClass)}>
                     <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                     <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                     <span className="font-semibold">Blocker Codes</span>
@@ -4566,7 +4566,7 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
                     <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Δ</span>
                   </div>
                   {trends.blocker_code_trends.slice(0, 10).map(b => (
-                    <div key={b.blocker_code} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0">
+                    <div key={b.blocker_code} className={cn("grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0", isRowHighlighted("blocker_code_trends", b.blocker_code) && highlightClass)}>
                       <span className="text-[8px] font-mono text-muted-foreground truncate">{b.blocker_code}</span>
                       <span className="text-[8px] font-mono text-muted-foreground/50 w-8 text-right">{b.prior_count}</span>
                       <span className="text-[8px] font-mono text-foreground/80 w-8 text-right">{b.recent_count}</span>
@@ -4581,9 +4581,9 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
 
             {/* Repair type trends */}
             {trends.repair_type_trends.length > 0 && (
-              <Collapsible>
+              <Collapsible open={forcedOpenSubs.has("repair_type_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("repair_type_trends", o)}>
                 <CollapsibleTrigger asChild>
-                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                  <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("repair_type_trends") && !highlightedEntity?.entity && highlightClass)}>
                     <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                     <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                     <span className="font-semibold">Repair Type Issue Rates</span>
@@ -4598,7 +4598,7 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
                     <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Δ</span>
                   </div>
                   {trends.repair_type_trends.slice(0, 8).map(r => (
-                    <div key={r.repair_type} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0">
+                    <div key={r.repair_type} className={cn("grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0", isRowHighlighted("repair_type_trends", r.repair_type) && highlightClass)}>
                       <span className="text-[8px] font-mono text-muted-foreground truncate" title={`prior n=${r.sample_prior} recent n=${r.sample_recent}`}>{r.repair_type}</span>
                       <span className="text-[8px] font-mono text-muted-foreground/50 w-10 text-right">{r.prior_bad_rate_pct != null ? `${r.prior_bad_rate_pct}%` : "—"}</span>
                       <span className="text-[8px] font-mono text-foreground/80 w-10 text-right">{r.recent_bad_rate_pct != null ? `${r.recent_bad_rate_pct}%` : "—"}</span>
@@ -4613,9 +4613,9 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
 
             {/* Document type trends */}
             {trends.document_type_trends.length > 0 && (
-              <Collapsible>
+              <Collapsible open={forcedOpenSubs.has("document_type_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("document_type_trends", o)}>
                 <CollapsibleTrigger asChild>
-                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                  <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("document_type_trends") && !highlightedEntity?.entity && highlightClass)}>
                     <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                     <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                     <span className="font-semibold">Document Type Stability</span>
@@ -4630,7 +4630,7 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
                     <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Δ</span>
                   </div>
                   {trends.document_type_trends.slice(0, 8).map(d => (
-                    <div key={d.doc_type} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0">
+                    <div key={d.doc_type} className={cn("grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0", isRowHighlighted("document_type_trends", d.doc_type) && highlightClass)}>
                       <span className="text-[8px] font-mono text-muted-foreground truncate" title={`prior n=${d.sample_prior} recent n=${d.sample_recent}`}>{d.doc_type}</span>
                       <span className="text-[8px] font-mono text-muted-foreground/50 w-10 text-right">{d.prior_instability_rate_pct != null ? `${d.prior_instability_rate_pct}%` : "—"}</span>
                       <span className="text-[8px] font-mono text-foreground/80 w-10 text-right">{d.recent_instability_rate_pct != null ? `${d.recent_instability_rate_pct}%` : "—"}</span>
