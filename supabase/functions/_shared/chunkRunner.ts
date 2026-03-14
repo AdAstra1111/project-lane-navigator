@@ -12,7 +12,7 @@
  */
 
 import { type ChunkPlan, type ChunkPlanEntry, chunkPlanFor, isEpisodicDocType } from "./largeRiskRouter.ts";
-import { validateEpisodicChunk, validateEpisodicContent, validateSectionedContent, hasBannedSummarizationLanguage } from "./chunkValidator.ts";
+import { validateEpisodicChunk, validateEpisodicContent, validateSectionedContent, hasBannedSummarizationLanguage, hasScreenplayFormat } from "./chunkValidator.ts";
 
 // ── Types ──
 
@@ -142,7 +142,8 @@ async function generateSingleChunk(
   chunk: ChunkPlanEntry,
   previousChunkEnding?: string
 ): Promise<string> {
-  const { apiKey, systemPrompt, upstreamContent, projectTitle, docType, additionalContext, model, plan } = opts;
+  const { apiKey, upstreamContent, projectTitle, docType, additionalContext, model, plan } = opts;
+  let systemPrompt = opts.systemPrompt;
   const tokenBudget = maxTokensForChunk(plan.strategy, docType);
 
   let chunkPrompt: string;
@@ -449,9 +450,19 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
           }
           chunkPassed = validation.pass;
         } else {
-          chunkPassed = !hasBannedSummarizationLanguage(content);
+          // Check for banned summarization language
+          const hasBanned = hasBannedSummarizationLanguage(content);
+          // Check for screenplay format in prose-only doc types
+          const hasScript = hasScreenplayFormat(content, docType);
+          chunkPassed = !hasBanned && !hasScript;
           if (!chunkPassed && attempt < maxChunkRepairs) {
-            console.warn(`[chunkRunner] Chunk ${chunk.chunkKey} contains banned language, retrying`);
+            if (hasScript) {
+              console.warn(`[chunkRunner] Chunk ${chunk.chunkKey} contains screenplay format (INT./EXT. sluglines) in prose doc type "${docType}" — retrying with stronger instruction`);
+              // Inject a stronger instruction on retry to override screenplay habit
+              systemPrompt = systemPrompt + `\n\nCRITICAL RETRY INSTRUCTION: Your previous attempt used INT./EXT. scene headings (screenplay format). This is STRICTLY FORBIDDEN for a ${docType}. Write ONLY in prose narrative paragraphs. No sluglines. No character cues. No dialogue blocks. Start directly with descriptive prose.`;
+            } else {
+              console.warn(`[chunkRunner] Chunk ${chunk.chunkKey} contains banned language, retrying`);
+            }
             continue;
           }
         }

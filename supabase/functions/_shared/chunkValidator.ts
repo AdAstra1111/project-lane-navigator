@@ -59,6 +59,23 @@ const BANNED_PATTERNS = [
   /\(episodes?\s+\d+[\s–\-—]+\d+\s+(omitted|skipped|summarized)\)/i,
 ];
 
+// ── Screenplay Format Detection (for non-script doc types) ──
+// Matches: INT./EXT. sluglines, character cues (NAME on own line before dialogue)
+const SCREENPLAY_SLUGLINE_RE = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s+[A-Z]/m;
+const SCREENPLAY_CHARACTER_CUE_RE = /^[A-Z][A-Z\s'()]+\n[A-Za-z"'(]/m; // ALL-CAPS name followed by dialogue line
+
+const PROSE_ONLY_DOC_TYPES = new Set([
+  "story_outline", "architecture", "treatment", "beat_sheet",
+  "concept_brief", "market_sheet", "character_bible", "deck",
+]);
+
+export function hasScreenplayFormat(content: string, docType: string): boolean {
+  if (!PROSE_ONLY_DOC_TYPES.has(docType)) return false;
+  const sluglineCount = (content.match(/^(INT\.|EXT\.)\s+/mg) || []).length;
+  // Trigger if 2+ sluglines found (one might be a quote or example)
+  return sluglineCount >= 2;
+}
+
 // ── Topline Content Detection ──
 
 const TOPLINE_MARKERS = [
