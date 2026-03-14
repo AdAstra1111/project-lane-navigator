@@ -4041,18 +4041,29 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
         const runId = recsRes.computed_at || new Date().toISOString();
         const displayModel = dedupeAndSuppressRecommendations(recsRes.recommendations);
         if (displayModel) {
-          // Build minimal snapshot for storage — includes comparison_key for stable identity
+          // Build minimal snapshot for storage — includes comparison_key + entity evidence for stable identity
           const snapshotItems: SnapshotItem[] = displayModel.all_display
             .filter(r => !r.suppressed)
-            .map(r => ({
-              recommendation_id: r.recommendation_id,
-              comparison_key: deriveComparisonKey(r),
-              severity: r.severity,
-              rule_id: r.rule_id,
-              category: r.category,
-              suppressed: false,
-              title: r.title,
-            }));
+            .map(r => {
+              // Extract only canonical entity fields from evidence for snapshot (not full evidence blob)
+              const ev = r.evidence as Record<string, unknown> | undefined;
+              const entityEvidence: Record<string, unknown> = {};
+              if (ev) {
+                for (const k of ['blocker_code', 'blocker', 'repair_type', 'source_type', 'doc_type']) {
+                  if (ev[k] != null) entityEvidence[k] = ev[k];
+                }
+              }
+              return {
+                recommendation_id: r.recommendation_id,
+                comparison_key: deriveComparisonKey(r),
+                severity: r.severity,
+                rule_id: r.rule_id,
+                category: r.category,
+                suppressed: false,
+                title: r.title,
+                evidence: Object.keys(entityEvidence).length > 0 ? entityEvidence : undefined,
+              };
+            });
 
           // Fetch previous snapshot — EXCLUDE current run_id to prevent self-comparison
           const { data: prevRows } = await supabase
