@@ -13963,6 +13963,10 @@ Return ONLY valid JSON:
           roi_formula_reference: "intervention_roi_score = prevented_downstream_pressure + projected_stability_gain − execution_friction − blast_radius. Uses independent gain-only signals (expected_stability_gain, not net_priority_score). See compute_intervention_roi for full documentation.",
           anti_double_counting_notes: "ROI is advisory-only and does NOT affect strategic_priority_score. PRP2S strategic formula uses net_priority_score (which internally includes blast×0.15 and friction×0.15 penalties) and separately subtracts friction×0.02. ROI uses independent signals (expected_stability_gain, raw execution_friction_score, raw blast_risk_score). Because PRP2S and ROI source overlapping penalty terms through different formulas, ROI is kept strictly non-binding to avoid double-counting. roi_rank provides an independent ROI-based ordering for diagnostic comparison.",
           version:          "prp2s-roi-1.0",
+          root_cause_integration_mode: "advisory_only",
+          root_cause_formula_reference: "root_cause_leverage_score = (combined_pressure / max_combined_pressure * 100) × 0.50 + (cluster_confidence × 100) × 0.30 + (min(repair_count, 10) / 10 × 100) × 0.20. Clamped [0, 100]. Labels: ≥60=high, ≥30=medium, <30=low.",
+          root_cause_rank_definition: "Independent rank by root_cause_leverage_score desc, repair_id asc. Does not affect strategic_priority_score.",
+          root_cause_version: "rca-prp2s-1.0",
         },
         computed_at: prp2sAt,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
