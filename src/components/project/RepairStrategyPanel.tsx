@@ -11,6 +11,7 @@ import {
   type PRP2SData, type PRP2SStrategyOption, type PRP2SROIAdvisory,
   type PRP2SRootCauseAdvisory,
   type RootCauseAnalysisResult, type RootCauseCluster,
+  type InterventionAnalysisResult, type InterventionCandidate,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
