@@ -106,6 +106,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
   const [diffOpen, setDiffOpen] = useState(false);
   const [diffSceneIndex, setDiffSceneIndex] = useState(0);
   const [diffSceneKeys, setDiffSceneKeys] = useState<string[]>([]);
+  const [repairLandingContext, setRepairLandingContext] = useState<RepairLandingContext | null>(null);
+  const landingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Scene groups from plan
   const allScenes = plan?.impacted_scenes || [];
