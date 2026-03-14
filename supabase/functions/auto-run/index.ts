@@ -1464,8 +1464,8 @@ const DEFAULT_MIN_CHARS = 600;
 // that the Feature Length Guardrail would flag as "Below Floor".
 // Does NOT apply to episodic scripts (episode_script, season_script) — different runtime targets.
 const FEATURE_MIN_WORDS: Record<string, number> = {
-  feature_script: 15400,   // 70 min hard floor at 220 wpm
-  production_draft: 15400, // same — inherits from script
+  feature_script: 19800,   // 90 min hard floor at 220 wpm (raised from 15400/70min)
+  production_draft: 19800, // same — inherits from script
 };
 
 function isDownstreamDocSufficient(docType: string, plaintext: string | null | undefined, _approvalStatus?: string): boolean {
