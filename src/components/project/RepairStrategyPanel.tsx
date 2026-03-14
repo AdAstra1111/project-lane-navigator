@@ -3864,7 +3864,10 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
         fetchPatchExecutionRecommendations(projectId, { limit: 100 }),
         fetchPatchExecutionRecommendationTrends(projectId, { recent_limit: 25, prior_limit: 25 }),
       ]);
-      if (recsRes?.ok) setData(recsRes);
+      if (recsRes?.ok) {
+        setData(recsRes);
+        if (recsRes.recommendations) cleanTriageMap(recsRes.recommendations);
+      }
       if (trendsRes?.ok) setTrendsData(trendsRes);
     } finally {
       setLoading(false);
