@@ -17,6 +17,7 @@ import { useProjectedNarrativeStability, type ProjectedEffect } from '@/hooks/us
 import { useRecommendedRepairOrder, type RepairRecommendation, type BlockedRepair } from '@/hooks/useRecommendedRepairOrder';
 import { useRecommendedRepairPaths, type RepairPath, type ExcludedRepair } from '@/hooks/useRecommendedRepairPaths';
 import { useEvaluatedRepairPaths, type EvaluatedPath, type EvaluatedStep } from '@/hooks/useEvaluatedRepairPaths';
+import type { RepairLandingContext } from '@/components/project/RepairStrategyPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -40,10 +41,13 @@ import {
   TrendingUp,
   Ban,
   Info,
+  X,
 } from 'lucide-react';
 
 interface Props {
   projectId: string;
+  landingContext?: RepairLandingContext | null;
+  onDismissLandingContext?: () => void;
 }
 
 const ACTIVE_STATUSES = ['pending', 'failed'] as const;
