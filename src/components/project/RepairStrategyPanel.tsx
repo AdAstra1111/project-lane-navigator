@@ -9,6 +9,7 @@ import {
   fetchPatchTargets,
   fetchPatchPlan,
   fetchPatchPlanValidation,
+  fetchPatchExecution,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type PRP2SData, type PRP2SStrategyOption, type PRP2SROIAdvisory,
@@ -18,6 +19,7 @@ import {
   type PatchTarget, type PatchTargetResolutionResult,
   type PatchPlanBuildResult, type PatchPlan, type PatchImpactSurface, type PatchRevalidationTarget,
   type PatchPlanValidationResponse, type PatchPlanValidationResult, type PatchPlanValidationIssue,
+  type PatchExecutionResponse, type PatchExecutionResult, type PatchExecutionTargetResult,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -33,7 +35,7 @@ import { Progress } from '@/components/ui/progress';
 import {
   ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle,
   RefreshCw, Info, Star, Unlock, Shield, Target, Activity, ChevronDown, ChevronRight,
-  CheckCircle, XCircle,
+  CheckCircle, XCircle, Play, Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -503,6 +505,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
 
       {/* ═══ SECTION 4f: PATCH PLAN VALIDATION (read-only gate) ═══ */}
       <PatchValidationSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
+
+      {/* ═══ SECTION 4g: PATCH EXECUTION (section-only, fail-closed) ═══ */}
+      <PatchExecutionSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
 
           </div>
         )}
@@ -1971,6 +1976,259 @@ function PatchValidationSection({
               <span>Lock: <span className="font-mono text-foreground">{validation.validation_notes.lock_check_performed ? '✓' : '—'}</span></span>
               {validation.validation_notes.fallback_used && (
                 <Badge variant="outline" className="text-[9px] font-mono text-amber-400 border-amber-500/30">fallback: {validation.validation_notes.fallback_reason}</Badge>
+              )}
+            </div>
+          </>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ── PatchExecutionSection — section-only patch execution with dry-run support ──
+
+function PatchExecutionSection({
+  projectId,
+  iv,
+  prp2s,
+  prp2,
+}: {
+  projectId: string | undefined;
+  iv: InterventionAnalysisResult | null;
+  prp2s: PRP2SData | null;
+  prp2: PRP2Data | null;
+}) {
+  const [execResult, setExecResult] = useState<PatchExecutionResponse | null>(null);
+  const [execLoading, setExecLoading] = useState(false);
+  const [execSource, setExecSource] = useState<string>("none");
+
+  // Resolve recommended repair using same priority as other sections
+  const resolvedRepair = useMemo(() => {
+    let repairId: string | null = null;
+    let sourceType: "intervention" | "prp2s" | "arp1" | "manual" = "manual";
+    let sourceLabel = "none";
+
+    if (iv?.recommended_intervention_repair_id) {
+      repairId = iv.recommended_intervention_repair_id;
+      sourceType = "intervention";
+      sourceLabel = "Intervention Engine";
+    } else if (prp2s?.prp2_strategy?.recommended_first_repair_id) {
+      repairId = prp2s.prp2_strategy.recommended_first_repair_id;
+      sourceType = "prp2s";
+      sourceLabel = "PRP2S Strategy";
+    } else if (prp2?.selected_repair_id) {
+      repairId = prp2.selected_repair_id;
+      sourceType = "arp1";
+      sourceLabel = "PRP2 Strategy";
+    }
+
+    return { repairId, sourceType, sourceLabel };
+  }, [iv, prp2s, prp2]);
+
+  const handleDryRun = async () => {
+    if (!projectId || !resolvedRepair.repairId) return;
+    setExecLoading(true);
+    setExecSource(resolvedRepair.sourceLabel);
+    try {
+      const result = await fetchPatchExecution(
+        projectId,
+        resolvedRepair.repairId,
+        undefined,
+        resolvedRepair.sourceType,
+        undefined,
+        true, // dryRun
+      );
+      setExecResult(result);
+    } catch {
+      setExecResult(null);
+    } finally {
+      setExecLoading(false);
+    }
+  };
+
+  const handleExecute = async () => {
+    if (!projectId || !resolvedRepair.repairId) return;
+    setExecLoading(true);
+    setExecSource(resolvedRepair.sourceLabel);
+    try {
+      const result = await fetchPatchExecution(
+        projectId,
+        resolvedRepair.repairId,
+        undefined,
+        resolvedRepair.sourceType,
+        undefined,
+        false, // real execution
+      );
+      setExecResult(result);
+    } catch {
+      setExecResult(null);
+    } finally {
+      setExecLoading(false);
+    }
+  };
+
+  const execution = execResult?.execution;
+  const hasRepair = !!resolvedRepair.repairId;
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+          <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+          <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+          <Zap className="h-3 w-3" />
+          <span className="font-semibold uppercase tracking-wider">Patch Execution</span>
+          {execution && (
+            execution.executed && !execution.dry_run ? (
+              <Badge variant="outline" className="text-[9px] ml-1 font-mono text-emerald-400 border-emerald-500/30">EXECUTED</Badge>
+            ) : execution.dry_run ? (
+              <Badge variant="outline" className="text-[9px] ml-1 font-mono text-blue-400 border-blue-500/30">DRY RUN</Badge>
+            ) : !execution.execution_allowed ? (
+              <Badge variant="destructive" className="text-[9px] ml-1 font-mono">BLOCKED</Badge>
+            ) : null
+          )}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-2">
+        <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+          <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-[10px] text-muted-foreground">
+            Section-only execution engine v1. Source: <strong>{execSource !== "none" ? execSource : resolvedRepair.sourceLabel}</strong>.
+          </span>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDryRun}
+            disabled={!hasRepair || execLoading}
+            className="text-xs"
+          >
+            <Play className="h-3 w-3 mr-1" />
+            {execLoading ? 'Running…' : 'Dry Run Patch'}
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleExecute}
+            disabled={!hasRepair || execLoading}
+            className="text-xs"
+          >
+            <Zap className="h-3 w-3 mr-1" />
+            {execLoading ? 'Executing…' : 'Execute Patch'}
+          </Button>
+        </div>
+
+        {!hasRepair && !execution && (
+          <Card className="border-border/50">
+            <CardContent className="py-6 text-center">
+              <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+              <p className="text-xs text-muted-foreground">No recommended repair available for execution.</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {execLoading && <Skeleton className="h-20 w-full rounded-md" />}
+
+        {execution && !execLoading && (
+          <>
+            {/* Status grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  {execution.execution_allowed ? (
+                    <CheckCircle className="h-5 w-5 mx-auto text-emerald-400" />
+                  ) : (
+                    <XCircle className="h-5 w-5 mx-auto text-red-400" />
+                  )}
+                  <div className="text-[9px] text-muted-foreground uppercase mt-1">
+                    {execution.execution_allowed ? 'Allowed' : 'Blocked'}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{execution.direct_targets_executed}/{execution.direct_targets_attempted}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Executed</div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{execution.direct_targets_failed}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Failed</div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{execution.dry_run ? 'Yes' : 'No'}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Dry Run</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Block reasons */}
+            {!execution.execution_allowed && execution.execution_notes.block_reasons && execution.execution_notes.block_reasons.length > 0 && (
+              <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" />
+                <div className="text-[10px] text-red-400 space-y-0.5">
+                  {execution.execution_notes.block_reasons.map((r, i) => (
+                    <div key={i} className="font-mono">{r}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Target results */}
+            {execution.target_results.length > 0 && (
+              <Card className="border-border/50">
+                <CardHeader className="pb-1 pt-3 px-3">
+                  <CardTitle className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Target Results</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border/50">
+                          <TableHead className="text-xs w-[70px]">Status</TableHead>
+                          <TableHead className="text-xs">Target</TableHead>
+                          <TableHead className="text-xs w-[100px]">Doc Type</TableHead>
+                          <TableHead className="text-xs">Message</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {execution.target_results.map((tr, idx) => (
+                          <TableRow key={`${tr.target_id}-${idx}`} className="border-border/30">
+                            <TableCell>
+                              <Badge
+                                variant={tr.status === 'executed' ? 'outline' : tr.status === 'failed' ? 'destructive' : 'secondary'}
+                                className={cn(
+                                  "text-[9px] font-mono px-1.5 py-0 h-4",
+                                  tr.status === 'executed' && "text-emerald-400 border-emerald-500/30"
+                                )}
+                              >
+                                {tr.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-[10px] font-mono text-foreground truncate max-w-[200px]">{tr.target_id}</TableCell>
+                            <TableCell className="text-xs font-mono text-muted-foreground">{tr.doc_type}</TableCell>
+                            <TableCell className="text-[10px] text-muted-foreground">{tr.message}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Execution notes */}
+            <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground">
+              <span>Validation: <span className="font-mono text-foreground">{execution.execution_notes.validation_passed ? '✓' : '✗'}</span></span>
+              <span>Write: <span className="font-mono text-foreground">{execution.execution_notes.write_performed ? '✓' : '—'}</span></span>
+              {execution.execution_notes.downstream_execution_deferred && (
+                <Badge variant="outline" className="text-[9px] font-mono text-amber-400 border-amber-500/30">downstream deferred</Badge>
               )}
             </div>
           </>
