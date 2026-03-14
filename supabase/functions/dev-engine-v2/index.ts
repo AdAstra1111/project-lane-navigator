@@ -30397,19 +30397,17 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const unsupportedBlocked = unsupportedTypes.length > 0;
       const sectionTargets = execCore.direct_targets.filter(t => t.target_type === "section");
 
-      // v1 safety: allow only a single section target per document to avoid complex multi-section edits
-      const docGroups = new Map<string, CorePatchTarget[]>();
+      // v1.1: Group section targets by document for consolidated execution
+      const docGroups = new Map<string, typeof sectionTargets>();
       for (const st of sectionTargets) {
         const list = docGroups.get(st.document_id) || [];
         list.push(st);
         docGroups.set(st.document_id, list);
       }
-      const multiSectionDoc = [...docGroups.values()].some(g => g.length > 1);
 
       const executionAllowed = execValidation.plan_valid
         && !execValidation.stale
         && !unsupportedBlocked
-        && !multiSectionDoc
         && sectionTargets.length > 0;
 
       if (!executionAllowed) {
@@ -30417,7 +30415,6 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         if (!execValidation.plan_valid) blockReasons.push("plan_invalid");
         if (execValidation.stale) blockReasons.push("plan_stale");
         if (unsupportedBlocked) blockReasons.push(`unsupported_target_types: ${unsupportedTypes.map(t => t.target_type).join(",")}`);
-        if (multiSectionDoc) blockReasons.push("multiple_section_targets_same_document_unsupported_in_v1");
         if (sectionTargets.length === 0) blockReasons.push("no_section_targets");
 
         console.log("[dev-engine-v2] execute_patch_plan BLOCKED", { project_id: projectId, reasons: blockReasons });
@@ -30447,12 +30444,13 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             },
           },
           computed_at: execAt,
-          version: "patch-execution-v1",
+          version: "patch-execution-v1.1",
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── STEP 4: Execute section targets ──
+      // ── STEP 4: Execute section targets per document (consolidated) ──
       const { replaceSection: execReplaceSection, extractSection: execExtractSection } = await import("../_shared/sectionRepairEngine.ts");
+      const { getSectionKeys } = await import("../_shared/deliverableSectionRegistry.ts");
 
       interface ExecTargetResult {
         target_id: string;
@@ -30467,6 +30465,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
 
       const targetResults: ExecTargetResult[] = [];
       let writePerformed = false;
+      let documentsAttempted = 0;
+      let documentsExecuted = 0;
+      let documentSequencesFailed = 0;
 
       // Get userId for version creation
       const { data: { user: execUser } } = await supabase.auth.getUser();
@@ -30476,183 +30477,272 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const { data: execProject } = await supabase.from("projects").select("format").eq("id", projectId).maybeSingle();
       const execFormat = execProject?.format || null;
 
-      for (const target of sectionTargets) {
-        try {
-          // Load current version content
-          const { data: currentVer } = await supabase
-            .from("project_document_versions")
-            .select("id, plaintext, version_number")
-            .eq("id", target.version_id)
-            .maybeSingle();
+      // Process each document group
+      for (const [documentId, docTargets] of docGroups.entries()) {
+        documentsAttempted++;
 
-          if (!currentVer || !currentVer.plaintext) {
+        // ── Determine deterministic execution order ──
+        // Priority: section registry order > lexical section_key > target_id
+        const registryKeys = getSectionKeys(docTargets[0].doc_type);
+        const registryOrder = new Map(registryKeys.map((k, i) => [k, i]));
+
+        const orderedTargets = [...docTargets].sort((a, b) => {
+          const aIdx = registryOrder.get(a.section_key || "") ?? 99999;
+          const bIdx = registryOrder.get(b.section_key || "") ?? 99999;
+          if (aIdx !== bIdx) return aIdx - bIdx;
+          // Lexical section_key fallback
+          const keyCompare = (a.section_key || "").localeCompare(b.section_key || "");
+          if (keyCompare !== 0) return keyCompare;
+          // Stable fallback
+          return a.target_id.localeCompare(b.target_id);
+        });
+
+        // Load source version content ONCE for the document
+        const sourceVersionId = orderedTargets[0].version_id;
+        const { data: currentVer } = await supabase
+          .from("project_document_versions")
+          .select("id, plaintext, version_number")
+          .eq("id", sourceVersionId)
+          .maybeSingle();
+
+        if (!currentVer || !currentVer.plaintext) {
+          // Fail the entire document sequence
+          documentSequencesFailed++;
+          for (const target of orderedTargets) {
             targetResults.push({
               target_id: target.target_id,
               target_type: "section",
               document_id: target.document_id,
               doc_type: target.doc_type,
-              version_id_before: target.version_id,
+              version_id_before: sourceVersionId,
               version_id_after: null,
               status: "failed",
               message: "version_content_unavailable",
             });
-            continue;
           }
+          continue;
+        }
 
-          // Confirm section still resolves
-          const sectionExtract = execExtractSection(currentVer.plaintext, target.doc_type, target.section_key!);
-          if (!sectionExtract) {
-            targetResults.push({
+        // ── Sequential section patching within this document ──
+        let runningContent = currentVer.plaintext;
+        let docSequenceFailed = false;
+        const docTargetResults: ExecTargetResult[] = [];
+        const appliedSectionKeys: string[] = [];
+
+        for (const target of orderedTargets) {
+          if (docSequenceFailed) {
+            docTargetResults.push({
               target_id: target.target_id,
               target_type: "section",
               document_id: target.document_id,
               doc_type: target.doc_type,
-              version_id_before: target.version_id,
+              version_id_before: sourceVersionId,
               version_id_after: null,
               status: "failed",
-              message: `section_not_resolvable_at_execution_time:${target.section_key}`,
+              message: "document_sequence_failed_earlier_section",
             });
             continue;
           }
 
-          // Generate repair instruction from repair context
-          const repairInstruction = `Rewrite the ${target.section_key} section to address the identified narrative repair issue (${execCore.resolved_repair_type || repairType || "general improvement"}). Preserve the existing structure, tone, and all narrative elements not directly related to the repair. Maintain consistency with the rest of the document.`;
+          try {
+            // Confirm section resolves in current running content
+            const sectionExtract = execExtractSection(runningContent, target.doc_type, target.section_key!);
+            if (!sectionExtract) {
+              docSequenceFailed = true;
+              docTargetResults.push({
+                target_id: target.target_id,
+                target_type: "section",
+                document_id: target.document_id,
+                doc_type: target.doc_type,
+                version_id_before: sourceVersionId,
+                version_id_after: null,
+                status: "failed",
+                message: `section_not_resolvable_at_execution_time:${target.section_key}`,
+              });
+              continue;
+            }
 
-          // Use canonical callAI for section rewrite (existing LLM path)
-          const execApiKey = Deno.env.get("LOVABLE_API_KEY") || "";
-          if (!execApiKey) {
-            targetResults.push({
+            // Generate repair instruction
+            const repairInstruction = `Rewrite the ${target.section_key} section to address the identified narrative repair issue (${execCore.resolved_repair_type || repairType || "general improvement"}). Preserve the existing structure, tone, and all narrative elements not directly related to the repair. Maintain consistency with the rest of the document.`;
+
+            // Use canonical callAI for section rewrite
+            const execApiKey = Deno.env.get("LOVABLE_API_KEY") || "";
+            if (!execApiKey) {
+              docSequenceFailed = true;
+              docTargetResults.push({
+                target_id: target.target_id,
+                target_type: "section",
+                document_id: target.document_id,
+                doc_type: target.doc_type,
+                version_id_before: sourceVersionId,
+                version_id_after: null,
+                status: "failed",
+                message: "canonical_rewrite_path_unavailable:no_api_key",
+              });
+              continue;
+            }
+
+            const sectionRewriteSystem = "You are a professional script and document repair engine. Output only the requested section content. No preamble, no commentary.";
+            const sectionRewriteUser = [
+              `You are rewriting a single section of a ${target.doc_type} document.`,
+              ``,
+              `SECTION KEY: ${target.section_key}`,
+              `REPAIR OBJECTIVE: ${repairInstruction}`,
+              ``,
+              `CURRENT SECTION CONTENT:`,
+              `---`,
+              sectionExtract.content,
+              `---`,
+              ``,
+              `RULES:`,
+              `- Output ONLY the rewritten section content`,
+              `- Preserve the section heading if present`,
+              `- Do NOT add content from other sections`,
+              `- Do NOT summarize or compress — maintain similar length`,
+              `- Maintain the same formatting style (markdown headings, bullet points, etc.)`,
+              `- Address the repair objective while preserving narrative voice`,
+            ].join("\n");
+
+            const newSectionContent = await callAI(execApiKey, FAST_MODEL, sectionRewriteSystem, sectionRewriteUser, 0.3, 8000);
+
+            if (!newSectionContent || newSectionContent.trim().length < 10) {
+              docSequenceFailed = true;
+              docTargetResults.push({
+                target_id: target.target_id,
+                target_type: "section",
+                document_id: target.document_id,
+                doc_type: target.doc_type,
+                version_id_before: sourceVersionId,
+                version_id_after: null,
+                status: "failed",
+                message: "llm_rewrite_empty_or_too_short",
+              });
+              continue;
+            }
+
+            // Apply section replacement to running content
+            const replaceResult = execReplaceSection(runningContent, target.doc_type, target.section_key!, newSectionContent);
+
+            if (!replaceResult.success) {
+              docSequenceFailed = true;
+              docTargetResults.push({
+                target_id: target.target_id,
+                target_type: "section",
+                document_id: target.document_id,
+                doc_type: target.doc_type,
+                version_id_before: sourceVersionId,
+                version_id_after: null,
+                status: "failed",
+                message: `section_replace_failed:${replaceResult.reason}`,
+              });
+              continue;
+            }
+
+            // Update running content for next section
+            runningContent = replaceResult.new_content;
+            appliedSectionKeys.push(target.section_key!);
+
+            // Record success (version_id_after filled after consolidated write)
+            docTargetResults.push({
               target_id: target.target_id,
               target_type: "section",
               document_id: target.document_id,
               doc_type: target.doc_type,
-              version_id_before: target.version_id,
+              version_id_before: sourceVersionId,
+              version_id_after: null, // populated after write
+              status: dryRun ? "skipped" : "executed",
+              message: dryRun ? "dry_run_no_write" : `section_${target.section_key}_replaced_successfully`,
+            });
+          } catch (execErr: any) {
+            docSequenceFailed = true;
+            docTargetResults.push({
+              target_id: target.target_id,
+              target_type: "section",
+              document_id: target.document_id,
+              doc_type: target.doc_type,
+              version_id_before: sourceVersionId,
               version_id_after: null,
               status: "failed",
-              message: "canonical_rewrite_path_unavailable:no_api_key",
+              message: `execution_error:${execErr?.message?.slice(0, 200) || "unknown"}`,
             });
-            continue;
           }
+        }
 
-          const sectionRewriteSystem = "You are a professional script and document repair engine. Output only the requested section content. No preamble, no commentary.";
-          const sectionRewriteUser = [
-            `You are rewriting a single section of a ${target.doc_type} document.`,
-            ``,
-            `SECTION KEY: ${target.section_key}`,
-            `REPAIR OBJECTIVE: ${repairInstruction}`,
-            ``,
-            `CURRENT SECTION CONTENT:`,
-            `---`,
-            sectionExtract.content,
-            `---`,
-            ``,
-            `RULES:`,
-            `- Output ONLY the rewritten section content`,
-            `- Preserve the section heading if present`,
-            `- Do NOT add content from other sections`,
-            `- Do NOT summarize or compress — maintain similar length`,
-            `- Maintain the same formatting style (markdown headings, bullet points, etc.)`,
-            `- Address the repair objective while preserving narrative voice`,
-          ].join("\n");
+        // ── Consolidated write: ONE version per document ──
+        const successfulResults = docTargetResults.filter(r => r.status === "executed");
 
-          const newSectionContent = await callAI(execApiKey, FAST_MODEL, sectionRewriteSystem, sectionRewriteUser, 0.3, 8000);
-
-          if (!newSectionContent || newSectionContent.trim().length < 10) {
-            targetResults.push({
-              target_id: target.target_id,
-              target_type: "section",
-              document_id: target.document_id,
-              doc_type: target.doc_type,
-              version_id_before: target.version_id,
-              version_id_after: null,
-              status: "failed",
-              message: "llm_rewrite_empty_or_too_short",
+        if (docSequenceFailed) {
+          // Fail entire document — no version write, mark all as failed
+          documentSequencesFailed++;
+          for (const r of docTargetResults) {
+            if (r.status === "executed") {
+              r.status = "failed";
+              r.message = "document_sequence_failed_no_version_written";
+            }
+            targetResults.push(r);
+          }
+        } else if (dryRun) {
+          // Dry run — report all as skipped
+          for (const r of docTargetResults) {
+            r.message = `dry_run_sequence:${appliedSectionKeys.join("+")}`;
+            targetResults.push(r);
+          }
+        } else if (successfulResults.length > 0) {
+          // Write ONE consolidated version
+          try {
+            const newVersion = await createVersion(supabase, {
+              documentId: documentId,
+              docType: orderedTargets[0].doc_type,
+              plaintext: runningContent,
+              label: `patch_execution_v1.1_sections_${appliedSectionKeys.join("+")}`,
+              createdBy: execUserId,
+              approvalStatus: "draft",
+              changeSummary: `Patch execution v1.1: ${appliedSectionKeys.length} section(s) [${appliedSectionKeys.join(", ")}] repaired for ${execCore.resolved_repair_type || repairType || "narrative repair"}.`,
+              generatorId: "patch-execution-v1.1",
+              inputsUsed: {
+                repair_id: repairId || null,
+                repair_type: execCore.resolved_repair_type || repairType || null,
+                source_type: sourceType || "manual",
+                section_keys: appliedSectionKeys,
+                parent_version_id: sourceVersionId,
+                plan_id: execPlan.plan_id,
+              },
+              parentVersionId: sourceVersionId,
+              format: execFormat,
+              metaJson: {
+                patch_plan_id: execPlan.plan_id,
+                patch_section_keys: appliedSectionKeys,
+                patch_repair_type: execCore.resolved_repair_type || repairType || null,
+                multi_section_execution: appliedSectionKeys.length > 1,
+              },
             });
-            continue;
+
+            writePerformed = true;
+            documentsExecuted++;
+
+            // Backfill version_id_after on all successful target results
+            for (const r of docTargetResults) {
+              if (r.status === "executed") {
+                r.version_id_after = newVersion.id;
+              }
+            }
+            for (const r of docTargetResults) {
+              targetResults.push(r);
+            }
+          } catch (writeErr: any) {
+            documentSequencesFailed++;
+            for (const r of docTargetResults) {
+              r.status = "failed";
+              r.version_id_after = null;
+              r.message = `consolidated_write_failed:${writeErr?.message?.slice(0, 200) || "unknown"}`;
+              targetResults.push(r);
+            }
           }
-
-          // Apply section replacement
-          const replaceResult = execReplaceSection(currentVer.plaintext, target.doc_type, target.section_key!, newSectionContent);
-
-          if (!replaceResult.success) {
-            targetResults.push({
-              target_id: target.target_id,
-              target_type: "section",
-              document_id: target.document_id,
-              doc_type: target.doc_type,
-              version_id_before: target.version_id,
-              version_id_after: null,
-              status: "failed",
-              message: `section_replace_failed:${replaceResult.reason}`,
-            });
-            continue;
+        } else {
+          // No successful results for this document
+          for (const r of docTargetResults) {
+            targetResults.push(r);
           }
-
-          // Dry run: skip write
-          if (dryRun) {
-            targetResults.push({
-              target_id: target.target_id,
-              target_type: "section",
-              document_id: target.document_id,
-              doc_type: target.doc_type,
-              version_id_before: target.version_id,
-              version_id_after: null,
-              status: "skipped",
-              message: "dry_run_no_write",
-            });
-            continue;
-          }
-
-          // Create new version via canonical write path
-          const newVersion = await createVersion(supabase, {
-            documentId: target.document_id,
-            docType: target.doc_type,
-            plaintext: replaceResult.new_content,
-            label: `patch_execution_v1_section_${target.section_key}`,
-            createdBy: execUserId,
-            approvalStatus: "draft",
-            changeSummary: `Patch execution v1: section "${target.section_key}" repaired for ${execCore.resolved_repair_type || repairType || "narrative repair"}.`,
-            generatorId: "patch-execution-v1",
-            inputsUsed: {
-              repair_id: repairId || null,
-              repair_type: execCore.resolved_repair_type || repairType || null,
-              source_type: sourceType || "manual",
-              section_key: target.section_key,
-              parent_version_id: target.version_id,
-              plan_id: execPlan.plan_id,
-            },
-            parentVersionId: target.version_id,
-            format: execFormat,
-            metaJson: {
-              patch_plan_id: execPlan.plan_id,
-              patch_target_id: target.target_id,
-              patch_section_key: target.section_key,
-              patch_repair_type: execCore.resolved_repair_type || repairType || null,
-            },
-          });
-
-          writePerformed = true;
-          targetResults.push({
-            target_id: target.target_id,
-            target_type: "section",
-            document_id: target.document_id,
-            doc_type: target.doc_type,
-            version_id_before: target.version_id,
-            version_id_after: newVersion.id,
-            status: "executed",
-            message: `section_${target.section_key}_replaced_successfully`,
-          });
-        } catch (execErr: any) {
-          targetResults.push({
-            target_id: target.target_id,
-            target_type: "section",
-            document_id: target.document_id,
-            doc_type: target.doc_type,
-            version_id_before: target.version_id,
-            version_id_after: null,
-            status: "failed",
-            message: `execution_error:${execErr?.message?.slice(0, 200) || "unknown"}`,
-          });
         }
       }
 
