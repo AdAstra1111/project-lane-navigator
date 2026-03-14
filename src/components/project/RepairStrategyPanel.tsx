@@ -4251,6 +4251,12 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const displayResult: DisplayRecommendationsResult | null = recs
     ? dedupeAndSuppressRecommendations(recs)
     : null;
+  // Populate recommended_actions from registry (additive, non-mutating)
+  if (displayResult) {
+    for (const rec of displayResult.all_display) {
+      populateRecommendedActions(rec);
+    }
+  }
   const report = displayResult?.suppression_report;
 
   const sevColor = (s: ExecutionRecommendation["severity"]) =>
