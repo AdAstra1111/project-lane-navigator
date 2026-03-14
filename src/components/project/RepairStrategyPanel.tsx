@@ -500,6 +500,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
       {/* ═══ SECTION 4b: PRP2S STRATEGIC STRATEGY WITH ROI ADVISORY ═══ */}
       <PRP2SAdvisorySection prp2s={prp2s} prp2sLoading={prp2sLoading} />
 
+      {/* ═══ SECTION 4c: INTERVENTION ENGINE (advisory-only decision layer) ═══ */}
+      <InterventionCandidatesSection iv={iv} ivLoading={ivLoading} />
+
       {/* ═══ SECTION 5: INTERVENTION ROI (READ-ONLY DIAGNOSTIC, collapsed by default) ═══ */}
       <Collapsible>
         <CollapsibleTrigger asChild>
