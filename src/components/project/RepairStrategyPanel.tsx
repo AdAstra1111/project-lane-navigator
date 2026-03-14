@@ -8,6 +8,7 @@ import {
   usePreventiveRepairPrioritization,
   fetchPatchTargets,
   fetchPatchPlan,
+  fetchPatchPlanValidation,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type PRP2SData, type PRP2SStrategyOption, type PRP2SROIAdvisory,
@@ -16,6 +17,7 @@ import {
   type InterventionAnalysisResult, type InterventionCandidate,
   type PatchTarget, type PatchTargetResolutionResult,
   type PatchPlanBuildResult, type PatchPlan, type PatchImpactSurface, type PatchRevalidationTarget,
+  type PatchPlanValidationResponse, type PatchPlanValidationResult, type PatchPlanValidationIssue,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +33,7 @@ import { Progress } from '@/components/ui/progress';
 import {
   ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle,
   RefreshCw, Info, Star, Unlock, Shield, Target, Activity, ChevronDown, ChevronRight,
+  CheckCircle, XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -497,6 +500,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
 
       {/* ═══ SECTION 4e: PATCH PLAN BUILDER (read-only visibility) ═══ */}
       <PatchPlanSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
+
+      {/* ═══ SECTION 4f: PATCH PLAN VALIDATION (read-only gate) ═══ */}
+      <PatchValidationSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
 
           </div>
         )}
@@ -1785,6 +1791,188 @@ function PatchPlanSection({
                 ))}
               </div>
             )}
+          </>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ── PatchValidationSection — read-only patch plan validation gate ──
+
+function PatchValidationSection({
+  projectId,
+  iv,
+  prp2s,
+  prp2,
+}: {
+  projectId: string | undefined;
+  iv: InterventionAnalysisResult | null;
+  prp2s: PRP2SData | null;
+  prp2: PRP2Data | null;
+}) {
+  const [valResult, setValResult] = useState<PatchPlanValidationResponse | null>(null);
+  const [valLoading, setValLoading] = useState(false);
+  const [valSource, setValSource] = useState<string>("none");
+
+  useEffect(() => {
+    if (!projectId) return;
+
+    let repairId: string | null = null;
+    let sourceType: "intervention" | "prp2s" | "arp1" | "manual" = "manual";
+    let sourceLabel = "none";
+
+    if (iv?.recommended_intervention_repair_id) {
+      repairId = iv.recommended_intervention_repair_id;
+      sourceType = "intervention";
+      sourceLabel = "Intervention Engine";
+    } else if (prp2s?.prp2_strategy?.recommended_first_repair_id) {
+      repairId = prp2s.prp2_strategy.recommended_first_repair_id;
+      sourceType = "prp2s";
+      sourceLabel = "PRP2S Strategy";
+    } else if (prp2?.selected_repair_id) {
+      repairId = prp2.selected_repair_id;
+      sourceType = "arp1";
+      sourceLabel = "PRP2 Strategy";
+    }
+
+    if (!repairId) {
+      setValResult(null);
+      setValSource("none");
+      return;
+    }
+
+    setValLoading(true);
+    setValSource(sourceLabel);
+    fetchPatchPlanValidation(projectId, repairId, undefined, sourceType)
+      .then(r => setValResult(r))
+      .catch(() => setValResult(null))
+      .finally(() => setValLoading(false));
+  }, [projectId, iv?.recommended_intervention_repair_id, prp2s?.prp2_strategy?.recommended_first_repair_id, prp2?.selected_repair_id]);
+
+  const validation = valResult?.validation;
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+          <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+          <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+          <Shield className="h-3 w-3" />
+          <span className="font-semibold uppercase tracking-wider">Patch Validation</span>
+          {validation && (
+            validation.plan_valid ? (
+              <Badge variant="outline" className="text-[9px] ml-1 font-mono text-emerald-400 border-emerald-500/30">VALID</Badge>
+            ) : validation.stale ? (
+              <Badge variant="destructive" className="text-[9px] ml-1 font-mono">STALE</Badge>
+            ) : (
+              <Badge variant="destructive" className="text-[9px] ml-1 font-mono">INVALID</Badge>
+            )
+          )}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-2">
+        <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+          <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-[10px] text-muted-foreground">
+            Read-only validation gate. Source: <strong>{valSource}</strong>.
+          </span>
+        </div>
+
+        {valLoading ? (
+          <Skeleton className="h-20 w-full rounded-md" />
+        ) : !validation ? (
+          <Card className="border-border/50">
+            <CardContent className="py-6 text-center">
+              <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+              <p className="text-xs text-muted-foreground">
+                {valSource === "none" ? "No recommended repair available for validation." : "Validation unavailable."}
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* Status + counts */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  {validation.plan_valid ? (
+                    <CheckCircle className="h-5 w-5 mx-auto text-emerald-400" />
+                  ) : (
+                    <XCircle className="h-5 w-5 mx-auto text-red-400" />
+                  )}
+                  <div className="text-[9px] text-muted-foreground uppercase mt-1">
+                    {validation.plan_valid ? 'Valid' : validation.stale ? 'Stale' : 'Invalid'}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{validation.direct_targets_valid}/{validation.direct_targets_checked}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Direct Valid</div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{validation.protected_targets_valid}/{validation.protected_targets_checked}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Protected Valid</div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{validation.issues.length}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Issues</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Issues table */}
+            {validation.issues.length > 0 && (
+              <Card className="border-border/50">
+                <CardHeader className="pb-1 pt-3 px-3">
+                  <CardTitle className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Validation Issues</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border/50">
+                          <TableHead className="text-xs w-[70px]">Severity</TableHead>
+                          <TableHead className="text-xs w-[140px]">Code</TableHead>
+                          <TableHead className="text-xs">Message</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {validation.issues.map((issue, idx) => (
+                          <TableRow key={`${issue.code}-${issue.target_id}-${idx}`} className="border-border/30">
+                            <TableCell>
+                              <Badge
+                                variant={issue.severity === 'error' ? 'destructive' : 'secondary'}
+                                className="text-[9px] font-mono px-1.5 py-0 h-4"
+                              >
+                                {issue.severity}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs font-mono text-foreground">{issue.code}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{issue.message}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Validation notes */}
+            <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground">
+              <span>Hash: <span className="font-mono text-foreground">{validation.validation_notes.hash_check_performed ? '✓' : '—'}</span></span>
+              <span>Version: <span className="font-mono text-foreground">{validation.validation_notes.version_check_performed ? '✓' : '—'}</span></span>
+              <span>Lock: <span className="font-mono text-foreground">{validation.validation_notes.lock_check_performed ? '✓' : '—'}</span></span>
+              {validation.validation_notes.fallback_used && (
+                <Badge variant="outline" className="text-[9px] font-mono text-amber-400 border-amber-500/30">fallback: {validation.validation_notes.fallback_reason}</Badge>
+              )}
+            </div>
           </>
         )}
       </CollapsibleContent>
