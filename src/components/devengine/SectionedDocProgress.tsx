@@ -10,7 +10,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle, Loader2, Clock, XCircle } from 'lucide-react';
-import { CheckCircle, Loader2, Clock, XCircle } from 'lucide-react';
 
 interface ChunkRow {
   id: string;
