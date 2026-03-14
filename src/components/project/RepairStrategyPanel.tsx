@@ -3832,6 +3832,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [triageMap, setTriageMap] = useState<Record<string, TriageStatus>>({});
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [memoCopied, setMemoCopied] = useState<string | null>(null);
+  const [bulkFeedback, setBulkFeedback] = useState<string | null>(null);
 
   // Clean stale triage entries when recommendations change
   const cleanTriageMap = (recs: ExecutionRecommendations) => {
