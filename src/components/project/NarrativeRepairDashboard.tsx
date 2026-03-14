@@ -7,6 +7,7 @@
 
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { RepairStrategyPanel, type RepairLandingContext } from '@/components/project/RepairStrategyPanel';
+import { useNarrativeRepairs, type NarrativeRepair } from '@/hooks/useNarrativeRepairs';
 import { useSelectiveRegenerationPlan, type RepairStrategy, type RecommendedScope, type SourceUnit, type ImpactedScene } from '@/hooks/useSelectiveRegenerationPlan';
 import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/hooks/useExecuteSelectiveRegeneration';
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
@@ -101,6 +102,20 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
   const { data: monitorData, isLoading: monitorLoading, refresh: refreshMonitor } = useNarrativeMonitor(projectId);
   const diffHook = useSceneVersionDiff(projectId);
   const slugMap = sluglines ?? new Map<string, string>();
+  const { data: allRepairs } = useNarrativeRepairs(projectId);
+
+  // Compute completed repair signatures for advisory resolution indicators
+  const completedRepairSignatures = useMemo(() => {
+    if (!allRepairs) return new Set<string>();
+    const sigs = new Set<string>();
+    for (const r of allRepairs) {
+      if (r.status !== 'completed') continue;
+      if (r.repair_type) sigs.add(`repair_type::${r.repair_type}`);
+      if (r.diagnostic_type) sigs.add(`diagnostic_type::${r.diagnostic_type}`);
+      if (r.scope_key) sigs.add(`scope_key::${r.scope_key}`);
+    }
+    return sigs;
+  }, [allRepairs]);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
@@ -199,7 +214,7 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
         </CardHeader>
         <CardContent className="space-y-4">
           {dashTab === 'strategy' ? (
-            <RepairStrategyPanel projectId={projectId} onRouteToRepairs={handleRouteToRepairs} />
+            <RepairStrategyPanel projectId={projectId} onRouteToRepairs={handleRouteToRepairs} completedRepairSignatures={completedRepairSignatures} />
           ) : (
           <>
           {/* Autopilot Status */}
@@ -272,7 +287,7 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
 
       <CardContent className="space-y-6">
         {dashTab === 'strategy' ? (
-          <RepairStrategyPanel projectId={projectId} onRouteToRepairs={handleRouteToRepairs} />
+          <RepairStrategyPanel projectId={projectId} onRouteToRepairs={handleRouteToRepairs} completedRepairSignatures={completedRepairSignatures} />
         ) : (
         <>
         {/* ═══ AUTOPILOT STATUS ═══ */}

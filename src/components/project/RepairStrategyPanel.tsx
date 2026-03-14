@@ -80,6 +80,7 @@ export interface RepairLandingContext {
 interface Props {
   projectId: string | undefined;
   onRouteToRepairs?: (ctx: RepairLandingContext) => void;
+  completedRepairSignatures?: Set<string>;
 }
 
 /* ── Pressure color helpers ── */
@@ -108,7 +109,7 @@ const RISK_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
 type SortKey = 'preventive_rank' | 'baseline_rank' | 'preventive_score' | 'rank_delta' | 'root_cause_signal' | 'preventive_confidence_signal';
 
-export function RepairStrategyPanel({ projectId, onRouteToRepairs }: Props) {
+export function RepairStrategyPanel({ projectId, onRouteToRepairs, completedRepairSignatures }: Props) {
   const { prp1, nrf1, prp2, roi, prp2s, rcc, iv, isLoading, nrf1Loading, prp2Loading, roiLoading, prp2sLoading, rccLoading, ivLoading, error, refresh } = usePreventiveRepairPrioritization(projectId);
   const [selectedRepair, setSelectedRepair] = useState<PRP1Repair | null>(null);
   const [trendNavTarget, setTrendNavTarget] = useState<TrendNavigationTarget | null>(null);
@@ -552,7 +553,7 @@ export function RepairStrategyPanel({ projectId, onRouteToRepairs }: Props) {
       <ExecutionAnalyticsSection projectId={projectId} />
 
       {/* ═══ SECTION 4j: EXECUTION RECOMMENDATIONS (read-only, deterministic) ═══ */}
-      <ExecutionRecommendationsSection projectId={projectId} onNavigateToTrend={setTrendNavTarget} onRouteToRepairs={onRouteToRepairs} />
+      <ExecutionRecommendationsSection projectId={projectId} onNavigateToTrend={setTrendNavTarget} onRouteToRepairs={onRouteToRepairs} completedRepairSignatures={completedRepairSignatures} />
 
       {/* ═══ SECTION 4k: EXECUTION TRENDS (read-only) ═══ */}
       <ExecutionTrendsSection projectId={projectId} navigationTarget={trendNavTarget} onTargetHandled={() => setTrendNavTarget(null)} />
@@ -4067,10 +4068,11 @@ function computeChangeMap(
   return map;
 }
 
-function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRouteToRepairs }: {
+function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRouteToRepairs, completedRepairSignatures }: {
   projectId: string;
   onNavigateToTrend: (target: TrendNavigationTarget) => void;
   onRouteToRepairs?: (ctx: RepairLandingContext) => void;
+  completedRepairSignatures?: Set<string>;
 }) {
   const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
   const [trendsData, setTrendsData] = useState<PatchExecutionTrendsResponse | null>(null);
@@ -4933,6 +4935,19 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
                                 const c = cfg[change.change_status];
                                 if (!c) return null;
                                 return <Badge variant="outline" className={cn("text-[6px] font-mono shrink-0", c.cls)}>{c.label}</Badge>;
+                              })()}
+                              {status === "do_now" && completedRepairSignatures && completedRepairSignatures.size > 0 && (() => {
+                                const ev = rec.evidence as Record<string, unknown> | undefined;
+                                const hasMatch =
+                                  (ev?.repair_type && completedRepairSignatures.has(`repair_type::${ev.repair_type}`)) ||
+                                  (ev?.doc_type && completedRepairSignatures.has(`diagnostic_type::${ev.doc_type}`)) ||
+                                  (ev?.source_type && completedRepairSignatures.has(`scope_key::${ev.source_type}`));
+                                if (!hasMatch) return null;
+                                return (
+                                  <Badge variant="outline" className="text-[6px] font-mono shrink-0 text-emerald-400 border-emerald-500/30 bg-emerald-500/10" title="A matching repair has completed in the repair queue">
+                                    ✓ Repair completed
+                                  </Badge>
+                                );
                               })()}
                             </div>
                             <div className="text-[8px] text-muted-foreground leading-snug border-l-2 border-border/30 pl-1.5">
