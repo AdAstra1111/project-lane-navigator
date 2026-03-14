@@ -2175,14 +2175,43 @@ function PatchExecutionSection({
 
             {/* Document-level summary (v1.1) */}
             {execution.documents_attempted != null && execution.documents_attempted > 0 && (
-              <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground">
-                <span>Docs attempted: <span className="font-mono text-foreground">{execution.documents_attempted}</span></span>
-                <span>Docs executed: <span className="font-mono text-foreground">{execution.documents_executed}</span></span>
-                {(execution.document_sequences_failed ?? 0) > 0 && (
-                  <Badge variant="destructive" className="text-[9px] font-mono">{execution.document_sequences_failed} sequence(s) failed</Badge>
-                )}
-                {execution.direct_targets_attempted > 1 && (
-                  <Badge variant="outline" className="text-[9px] font-mono text-muted-foreground border-border/50">multi-section</Badge>
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground">
+                  <span>Docs attempted: <span className="font-mono text-foreground">{execution.documents_attempted}</span></span>
+                  <span>Docs executed: <span className="font-mono text-foreground">{execution.documents_executed}</span></span>
+                  {(execution.document_sequences_failed ?? 0) > 0 && (
+                    <Badge variant="destructive" className="text-[9px] font-mono">{execution.document_sequences_failed} sequence(s) failed</Badge>
+                  )}
+                  {execution.direct_targets_attempted > 1 && (
+                    <Badge variant="outline" className="text-[9px] font-mono text-muted-foreground border-border/50">multi-section</Badge>
+                  )}
+                  {(execution.document_execution_order?.length ?? 0) > 1 && (
+                    <Badge variant="outline" className="text-[9px] font-mono text-muted-foreground border-border/50">multi-document</Badge>
+                  )}
+                </div>
+
+                {/* Document execution order */}
+                {execution.document_execution_metadata && execution.document_execution_metadata.length > 1 && (
+                  <div className="rounded-md border border-border/30 px-2.5 py-1.5 space-y-1">
+                    <div className="text-[9px] font-semibold text-muted-foreground uppercase">Execution Order</div>
+                    {execution.document_execution_metadata.map((dm, i) => (
+                      <div key={`doc-order-${i}`} className="flex items-center gap-2 text-[10px]">
+                        <span className="font-mono text-muted-foreground w-4 text-right">{dm.order_index + 1}.</span>
+                        <span className="font-mono text-foreground">{dm.doc_type}</span>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[8px] font-mono px-1 py-0 h-3.5",
+                            dm.ordering_basis === "dependency_registry" ? "text-blue-400 border-blue-500/30" :
+                            dm.ordering_basis === "lane_ladder" ? "text-amber-400 border-amber-500/30" :
+                            "text-muted-foreground border-border/50"
+                          )}
+                        >
+                          {dm.ordering_basis.replace(/_/g, ' ')}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
