@@ -31963,19 +31963,29 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const compareAt = new Date().toISOString();
 
       // ── Fetch both snapshots in parallel ──
-      const [leftRes, rightRes] = await Promise.all([
+      // run_id is NOT used: plan_id is not UUID-compatible with pipeline_transitions.run_id.
+      // Scan 200 rows per side (indexed on project_id+event_type+created_at DESC),
+      // then JS-filter on resulting_state.plan_id via the canonical validator.
+      const [leftScan, rightScan] = await Promise.all([
         supabase.from("pipeline_transitions").select("id, resulting_state, created_at")
           .eq("project_id", projectId).eq("event_type", "patch_execution_completed")
-          .eq("run_id", leftPlanId).order("created_at", { ascending: false }).limit(1),
+          .order("created_at", { ascending: false }).limit(200),
         supabase.from("pipeline_transitions").select("id, resulting_state, created_at")
           .eq("project_id", projectId).eq("event_type", "patch_execution_completed")
-          .eq("run_id", rightPlanId).order("created_at", { ascending: false }).limit(1),
+          .order("created_at", { ascending: false }).limit(200),
       ]);
 
-      const leftRow = leftRes.data?.[0] ?? null;
-      const rightRow = rightRes.data?.[0] ?? null;
-      const leftSnap = leftRow?.resulting_state as any;
-      const rightSnap = rightRow?.resulting_state as any;
+      const leftRow = (leftScan.data || []).find(row => {
+        const v = validatePatchExecutionReplaySnapshot(row.resulting_state, leftPlanId);
+        return v.valid;
+      }) ?? null;
+      const rightRow = (rightScan.data || []).find(row => {
+        const v = validatePatchExecutionReplaySnapshot(row.resulting_state, rightPlanId);
+        return v.valid;
+      }) ?? null;
+
+      const leftSnap = leftRow?.resulting_state as any ?? null;
+      const rightSnap = rightRow?.resulting_state as any ?? null;
 
       const leftValidation = validatePatchExecutionReplaySnapshot(leftSnap, leftPlanId);
       const rightValidation = validatePatchExecutionReplaySnapshot(rightSnap, rightPlanId);
