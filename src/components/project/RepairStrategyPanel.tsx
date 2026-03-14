@@ -4279,6 +4279,10 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
   const [data, setData] = useState<PatchExecutionTrendsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [sectionOpen, setSectionOpen] = useState(false);
+  const [forcedOpenSubs, setForcedOpenSubs] = useState<Set<TrendSubsectionKey>>(new Set());
+  const [highlightedEntity, setHighlightedEntity] = useState<{ subsection: TrendSubsectionKey; entity?: string; at: number } | null>(null);
+  const sectionRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
     setLoading(true);
@@ -4290,6 +4294,55 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
       setLoaded(true);
     }
   };
+
+  // React to navigation target from recommendations
+  useEffect(() => {
+    if (!navigationTarget) return;
+    const { subsection_key, entity_key, activated_at } = navigationTarget;
+
+    // Auto-load if not loaded
+    if (!loaded && !loading) {
+      load().then(() => {
+        // After load, force open and highlight
+        setSectionOpen(true);
+        setForcedOpenSubs(prev => new Set(prev).add(subsection_key));
+        setHighlightedEntity({ subsection: subsection_key, entity: entity_key, at: activated_at });
+        setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      });
+    } else {
+      setSectionOpen(true);
+      setForcedOpenSubs(prev => new Set(prev).add(subsection_key));
+      setHighlightedEntity({ subsection: subsection_key, entity: entity_key, at: activated_at });
+      setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    }
+
+    // Clear highlight after 3 seconds
+    const timer = setTimeout(() => setHighlightedEntity(null), 3000);
+    // Acknowledge navigation target handled
+    onTargetHandled();
+    return () => clearTimeout(timer);
+  }, [navigationTarget]);
+
+  // Helper: is a subsection forced open by navigation?
+  const isSubOpen = (key: TrendSubsectionKey, defaultOpen = false) => {
+    if (forcedOpenSubs.has(key)) return true;
+    return undefined; // let Radix manage default
+  };
+  const onSubOpenChange = (key: TrendSubsectionKey, open: boolean) => {
+    if (!open) {
+      setForcedOpenSubs(prev => { const n = new Set(prev); n.delete(key); return n; });
+    }
+  };
+
+  // Is a specific row highlighted?
+  const isRowHighlighted = (subsection: TrendSubsectionKey, entityKey?: string) => {
+    if (!highlightedEntity) return false;
+    if (highlightedEntity.subsection !== subsection) return false;
+    if (entityKey && highlightedEntity.entity) return highlightedEntity.entity === entityKey;
+    return !entityKey || !highlightedEntity.entity; // header-level
+  };
+
+  const highlightClass = "ring-1 ring-primary/40 bg-primary/5 rounded transition-all duration-500";
 
   const trends = data?.trends;
 
@@ -4355,7 +4408,8 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
   );
 
   return (
-    <Collapsible>
+    <div ref={sectionRef}>
+    <Collapsible open={sectionOpen || undefined} onOpenChange={setSectionOpen}>
       <CollapsibleTrigger asChild>
         <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
           <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
