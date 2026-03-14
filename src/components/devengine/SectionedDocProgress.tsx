@@ -250,12 +250,17 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
                       )}
                       {isDone && isExpanded && fullText && (
                         <ScrollArea className="max-h-[400px] mt-2">
-                          <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pr-3">
+                          <div className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pr-3">
                             {fullText}
-                          </p>
+                          </div>
                         </ScrollArea>
                       )}
-                      {isDone && !previewText && !isExpanded && (
+                      {isDone && isExpanded && !fullText && (
+                        <p className="text-xs text-muted-foreground/50 italic mt-2">
+                          Content not yet available — try refreshing.
+                        </p>
+                      )}
+                      {isDone && !isExpanded && !previewText && (
                         <p className="text-xs text-muted-foreground/50 italic">Complete — click to read</p>
                       )}
 
