@@ -33151,7 +33151,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             "Only fires when executed > 0 for the doc type",
           ],
           calibration_notes: [
-            "Cannot distinguish "governance not applicable" from "governance skipped" — no applicability flag exists in snapshot",
+            "Cannot distinguish \"governance not applicable\" from \"governance skipped\" — no applicability flag exists in snapshot",
             "May emit for doc types where governance is intentionally absent",
           ],
         },
@@ -33177,7 +33177,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             "revalidation_performed counts any non-skipped revalidation_status — includes partial and deferred",
           ],
           calibration_notes: [
-            "Cannot distinguish "revalidation not applicable" from "revalidation skipped"",
+            "Cannot distinguish \"revalidation not applicable\" from \"revalidation skipped\"",
             "revalidation_performed is more accurately \"revalidation attempted\"; threshold is conservative (30%)",
           ],
         },
