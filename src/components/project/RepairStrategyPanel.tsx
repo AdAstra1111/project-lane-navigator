@@ -4110,7 +4110,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     })();
   }, [projectId]);
 
-  // Persist a single triage upsert — dual-writes recommendation_id + comparison_key
+  // Persist a single triage upsert — keyed by stable comparison_key (Phase 4)
   const persistTriage = useCallback(async (compKey: string, recId: string, status: TriageStatus) => {
     const { data: userData } = await supabase.auth.getUser();
     await supabase
@@ -4121,19 +4121,19 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
         comparison_key: compKey,
         triage_status: status,
         created_by: userData?.user?.id ?? null,
-      }, { onConflict: 'project_id,recommendation_id' });
+      }, { onConflict: 'project_id,comparison_key' });
   }, [projectId]);
 
-  // Delete a single triage row
-  const deleteTriage = useCallback(async (compKey: string, recId: string) => {
+  // Delete a single triage row — by stable comparison_key
+  const deleteTriage = useCallback(async (compKey: string, _recId: string) => {
     await supabase
       .from('execution_recommendation_triage')
       .delete()
       .eq('project_id', projectId)
-      .eq('recommendation_id', recId);
+      .eq('comparison_key', compKey);
   }, [projectId]);
 
-  // Persist bulk upserts — dual-writes comparison_key
+  // Persist bulk upserts — keyed by stable comparison_key (Phase 4)
   const persistBulkTriage = useCallback(async (items: { compKey: string; recId: string }[], status: TriageStatus) => {
     const { data: userData } = await supabase.auth.getUser();
     const rows = items.map(item => ({
@@ -4145,16 +4145,16 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     }));
     await supabase
       .from('execution_recommendation_triage')
-      .upsert(rows, { onConflict: 'project_id,recommendation_id' });
+      .upsert(rows, { onConflict: 'project_id,comparison_key' });
   }, [projectId]);
 
-  // Delete bulk triage rows
-  const deleteBulkTriage = useCallback(async (recIds: string[]) => {
+  // Delete bulk triage rows — by stable comparison_key
+  const deleteBulkTriage = useCallback(async (compKeys: string[]) => {
     await supabase
       .from('execution_recommendation_triage')
       .delete()
       .eq('project_id', projectId)
-      .in('recommendation_id', recIds);
+      .in('comparison_key', compKeys);
   }, [projectId]);
 
   // Clean stale triage entries when recommendations change — uses comparison_key
