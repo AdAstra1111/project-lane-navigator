@@ -32419,7 +32419,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     // buildPatchExecutionRecommendations — converts analytics aggregates into
     // deterministic operational recommendations. All thresholds explicit and
     // version-locked. No model calls. No heuristics. Same inputs → same output.
-    // Threshold version: rec-thresholds-v1
+    // Threshold version: execution-recommendations-v1.1
     // ══════════════════════════════════════════════════════════════════════════════
 
     function buildPatchExecutionRecommendations(
@@ -32435,7 +32435,13 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         evidence: Record<string, unknown>;
         suggested_action: string;
         confidence: "high" | "medium" | "low";
+        // Explainability fields (v1.1)
+        rule_id: string;
+        threshold_version: string;
+        trigger_metrics: Record<string, number | string | null>;
+        evidence_summary: string[];
       };
+      const THRESHOLD_VERSION = "execution-recommendations-v1.1";
 
       // ── THRESHOLDS (rec-thresholds-v1) ──
       // All values are explicit constants. Change requires version bump.
@@ -32503,6 +32509,20 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           },
           suggested_action: "Investigate the most frequent blocker codes and failing repair types before running further patches.",
           confidence: unhealthyCount >= 5 ? "high" : "medium",
+          rule_id: "REC_A_OVERALL_HEALTH",
+          threshold_version: THRESHOLD_VERSION,
+          trigger_metrics: {
+            total_snapshots: totalN,
+            blocked: a.outcomes.blocked,
+            failed: a.outcomes.failed,
+            unhealthy_rate_pct: unhealthyRate,
+            threshold_pct: T.OVERALL_UNHEALTHY_RATE,
+          },
+          evidence_summary: [
+            `Blocked + failed: ${unhealthyCount}/${totalN} snapshots (${unhealthyRate}%)`,
+            `Executed rate: ${a.success_rates.executed_rate}%`,
+            `Threshold: ≥${T.OVERALL_UNHEALTHY_RATE}% blocked/failed triggers rec`,
+          ],
         });
       }
 
@@ -32520,6 +32540,18 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           evidence: { blocker_code: b.blocker_code, occurrence_count: b.count, total_snapshots: totalN },
           suggested_action: `Diagnose root cause of "${b.blocker_code}" and address before next run.`,
           confidence: conf,
+          rule_id: "REC_B_BLOCKER_MITIGATION",
+          threshold_version: THRESHOLD_VERSION,
+          trigger_metrics: {
+            blocker_code: b.blocker_code,
+            blocker_count: b.count,
+            threshold_min_occurrences: T.BLOCKER_MIN_OCCURRENCES,
+            threshold_high_confidence: T.BLOCKER_HIGH_CONFIDENCE,
+          },
+          evidence_summary: [
+            `Blocker "${b.blocker_code}" seen in ${b.count} snapshot(s)`,
+            `Threshold: ≥${T.BLOCKER_MIN_OCCURRENCES} occurrences triggers rec`,
+          ],
         });
       }
 
@@ -32551,6 +32583,22 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           },
           suggested_action: `Review patch plan construction for repair type "${r.repair_type}". Check for common validation issues or stale targets.`,
           confidence: conf,
+          rule_id: "REC_C_REPAIR_TYPE_WATCHLIST",
+          threshold_version: THRESHOLD_VERSION,
+          trigger_metrics: {
+            repair_type: r.repair_type,
+            count: r.count,
+            blocked: r.blocked,
+            failed: r.failed,
+            issue_rate_pct: badRate,
+            threshold_min_count: T.TYPE_MIN_COUNT,
+            threshold_rate_medium_pct: T.TYPE_WATCHLIST_RATE_MEDIUM,
+            threshold_rate_high_pct: T.TYPE_WATCHLIST_RATE_HIGH,
+          },
+          evidence_summary: [
+            `Repair type "${r.repair_type}": ${badCount}/${r.count} executions blocked/failed (${badRate}%)`,
+            `Threshold: ≥${T.TYPE_WATCHLIST_RATE_MEDIUM}% issue rate triggers rec`,
+          ],
         });
       }
 
@@ -32581,6 +32629,22 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           },
           suggested_action: `Audit source quality for "${s.source_type}". Check for missing or stale input data driving failures.`,
           confidence: conf,
+          rule_id: "REC_D_SOURCE_TYPE_WATCHLIST",
+          threshold_version: THRESHOLD_VERSION,
+          trigger_metrics: {
+            source_type: s.source_type,
+            count: s.count,
+            blocked: s.blocked,
+            failed: s.failed,
+            issue_rate_pct: badRate,
+            threshold_min_count: T.TYPE_MIN_COUNT,
+            threshold_rate_medium_pct: T.TYPE_WATCHLIST_RATE_MEDIUM,
+            threshold_rate_high_pct: T.TYPE_WATCHLIST_RATE_HIGH,
+          },
+          evidence_summary: [
+            `Source type "${s.source_type}": ${badCount}/${s.count} executions blocked/failed (${badRate}%)`,
+            `Threshold: ≥${T.TYPE_WATCHLIST_RATE_MEDIUM}% issue rate triggers rec`,
+          ],
         });
       }
 
@@ -32609,6 +32673,20 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             },
             suggested_action: `Investigate why "${d.doc_type}" documents are consistently failing. Check dependency ordering and content hash freshness.`,
             confidence: conf,
+            rule_id: "REC_E_DOC_STABILITY",
+            threshold_version: THRESHOLD_VERSION,
+            trigger_metrics: {
+              doc_type: d.doc_type,
+              total_seen: d.total_seen,
+              instability_count: instableCount,
+              instability_rate_pct: instabilityRate,
+              threshold_medium_pct: T.DOC_INSTABILITY_MEDIUM,
+              threshold_high_pct: T.DOC_INSTABILITY_HIGH,
+            },
+            evidence_summary: [
+              `"${d.doc_type}": ${instableCount}/${d.total_seen} appearances blocked/failed/skipped (${instabilityRate}%)`,
+              `Threshold: ≥${T.DOC_INSTABILITY_MEDIUM}% instability triggers rec`,
+            ],
           });
         }
         // Per-doc governance gap
@@ -32628,6 +32706,19 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             },
             suggested_action: `Verify governance is enabled for "${d.doc_type}" document executions. Check invalidation targets.`,
             confidence: d.total_seen >= 5 ? "medium" : "low",
+            rule_id: "REC_E_GOVERNANCE_GAP",
+            threshold_version: THRESHOLD_VERSION,
+            trigger_metrics: {
+              doc_type: d.doc_type,
+              total_seen: d.total_seen,
+              governance_performed: d.governance_performed,
+              governance_coverage_pct: govCoverage,
+              threshold_coverage_pct: T.DOC_GOV_COVERAGE_GAP,
+            },
+            evidence_summary: [
+              `"${d.doc_type}": governance performed in ${govCoverage}% of appearances (${d.governance_performed}/${d.total_seen})`,
+              `Threshold: <${T.DOC_GOV_COVERAGE_GAP}% coverage triggers rec`,
+            ],
           });
         }
         // Per-doc revalidation gap
@@ -32647,6 +32738,19 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             },
             suggested_action: `Verify revalidation targets include "${d.doc_type}". Deferred revalidation may leave diagnostic state stale.`,
             confidence: "low",
+            rule_id: "REC_E_REVALIDATION_GAP",
+            threshold_version: THRESHOLD_VERSION,
+            trigger_metrics: {
+              doc_type: d.doc_type,
+              total_seen: d.total_seen,
+              revalidation_performed: d.revalidation_performed,
+              revalidation_coverage_pct: revalCoverage,
+              threshold_coverage_pct: T.DOC_REVAL_COVERAGE_GAP,
+            },
+            evidence_summary: [
+              `"${d.doc_type}": revalidation performed in ${revalCoverage}% of appearances (${d.revalidation_performed}/${d.total_seen})`,
+              `Threshold: <${T.DOC_REVAL_COVERAGE_GAP}% coverage triggers rec`,
+            ],
           });
         }
       }
@@ -32668,6 +32772,19 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           },
           suggested_action: "Review post-execution governance configuration. Ensure executed documents trigger invalidation and revalidation handoff.",
           confidence: a.governance.snapshots_without_governance >= 5 ? "high" : "medium",
+          rule_id: "REC_F_OVERALL_GOVERNANCE_GAP",
+          threshold_version: THRESHOLD_VERSION,
+          trigger_metrics: {
+            snapshots_without_governance: a.governance.snapshots_without_governance,
+            total_snapshots: totalN,
+            governance_gap_rate_pct: govGapRate,
+            threshold_gap_rate_pct: T.GOV_GAP_RATE,
+            threshold_min_absolute: 3,
+          },
+          evidence_summary: [
+            `${a.governance.snapshots_without_governance}/${totalN} snapshots lack governance (${govGapRate}%)`,
+            `Threshold: ≥${T.GOV_GAP_RATE}% gap rate and ≥3 absolute triggers rec`,
+          ],
         });
       }
 
@@ -32693,6 +32810,20 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             },
             suggested_action: "Investigate revalidation path availability. Deferred revalidations may indicate missing canonical paths for doc types.",
             confidence: revalN >= 5 ? "high" : "medium",
+            rule_id: "REC_G_REVALIDATION_FAILURE_GAP",
+            threshold_version: THRESHOLD_VERSION,
+            trigger_metrics: {
+              snapshots_with_revalidation: revalN,
+              failed: a.revalidation.failed_count,
+              deferred: a.revalidation.deferred_count,
+              failure_or_deferral_rate_pct: revalBadRate,
+              threshold_rate_pct: T.REVAL_FAILURE_RATE,
+              threshold_min_snapshots: 3,
+            },
+            evidence_summary: [
+              `${revalBad}/${revalN} revalidations failed or deferred (${revalBadRate}%)`,
+              `Threshold: ≥${T.REVAL_FAILURE_RATE}% failure/deferral rate triggers rec`,
+            ],
           });
         }
       }
@@ -32719,6 +32850,19 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           },
           suggested_action: "Review section sizes and LLM call count per run. Consider batching or limiting sections per execution.",
           confidence: "medium",
+          rule_id: "REC_H_TIMING_INEFFICIENCY",
+          threshold_version: THRESHOLD_VERSION,
+          trigger_metrics: {
+            avg_section_execution_ms: avgExecMs,
+            section_execution_sample_count: execSampleCount,
+            threshold_ms: T.TIMING_EXEC_MS_MEDIUM,
+            threshold_high_ms: T.TIMING_EXEC_MS_HIGH,
+            threshold_min_samples: 3,
+          },
+          evidence_summary: [
+            `Avg section execution: ${(avgExecMs / 1000).toFixed(1)}s across ${execSampleCount} samples`,
+            `Threshold: ≥${T.TIMING_EXEC_MS_MEDIUM / 1000}s average triggers rec (min 3 samples)`,
+          ],
         });
       }
 
@@ -32734,6 +32878,17 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           evidence: { blocker: rb.blocker, causal_pattern_count: rb.count },
           suggested_action: `Resolve the root cause of "${rb.blocker}" to prevent downstream cascade blocks.`,
           confidence: rb.count >= 5 ? "high" : "medium",
+          rule_id: "REC_I_CAUSAL_ROOT_BLOCKER",
+          threshold_version: THRESHOLD_VERSION,
+          trigger_metrics: {
+            blocker: rb.blocker,
+            blocker_count: rb.count,
+            threshold_min_count: T.CAUSAL_ROOT_BLOCKER_MIN,
+          },
+          evidence_summary: [
+            `Root blocker "${rb.blocker}" in ${rb.count} snapshot causal graph(s)`,
+            `Threshold: ≥${T.CAUSAL_ROOT_BLOCKER_MIN} causal appearances triggers rec`,
+          ],
         });
       }
 

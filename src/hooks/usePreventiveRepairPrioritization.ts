@@ -1078,6 +1078,11 @@ export interface ExecutionRecommendation {
   evidence: Record<string, unknown>;
   suggested_action: string;
   confidence: "high" | "medium" | "low";
+  // Explainability fields — execution-recommendations-v1.1
+  rule_id: string;
+  threshold_version: string;
+  trigger_metrics: Record<string, number | string | null>;
+  evidence_summary: string[];
 }
 
 export interface ExecutionRecommendationSummary {
