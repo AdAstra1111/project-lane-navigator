@@ -51,6 +51,9 @@ interface Props {
   onDismissLandingContext?: () => void;
 }
 
+// Related-repairs filter state type
+type RelatedRepairsFilter = { repair_type: string } | null;
+
 const ACTIVE_STATUSES = ['pending', 'failed'] as const;
 const HISTORY_STATUSES = ['completed', 'skipped', 'dismissed'] as const;
 const RESERVED_STATUSES = ['planned', 'approved', 'queued', 'in_progress'] as const;
