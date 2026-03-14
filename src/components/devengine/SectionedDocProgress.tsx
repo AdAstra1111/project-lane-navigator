@@ -43,6 +43,24 @@ function sectionIcon(status: string) {
   return <Clock className="h-4 w-4 text-muted-foreground/50 shrink-0" />;
 }
 
+/** Strip metadata-like preamble lines to show actual prose content */
+function cleanPreview(raw: string): string {
+  const lines = raw.split('\n');
+  // Skip lines that look like metadata (key: value, markdown headers, blank)
+  let startIdx = 0;
+  for (let i = 0; i < Math.min(lines.length, 15); i++) {
+    const line = lines[i].trim();
+    if (!line || /^#+\s/.test(line) || /^(Deliverable|Completion|Completeness|Status|Section|Type)\s*(Type|Status|Check)?:/i.test(line)) {
+      startIdx = i + 1;
+    } else {
+      break;
+    }
+  }
+  const prose = lines.slice(startIdx).join('\n').trim();
+  const preview = prose.slice(0, 400);
+  return preview + (prose.length > 400 ? '…' : '');
+}
+
 export function SectionedDocProgress({ versionId, docType }: SectionedDocProgressProps) {
   const { data: chunks = [], isLoading } = useQuery<ChunkRow[]>({
     queryKey: ['sectioned-doc-chunks', versionId],
