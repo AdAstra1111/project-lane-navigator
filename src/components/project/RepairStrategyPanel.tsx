@@ -2700,9 +2700,9 @@ function ExecutionReplaySection({
           <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
           <History className="h-3 w-3" />
           <span className="font-semibold uppercase tracking-wider">Execution Replay</span>
-          {historyResult && historyResult.history_items.length > 0 && (
+          {accumulatedItems.length > 0 && (
             <Badge variant="outline" className="text-[9px] ml-1 font-mono text-muted-foreground border-border/50">
-              {historyResult.history_items.length} saved
+              {accumulatedItems.length}{hasMore ? '+' : ''} saved
             </Badge>
           )}
           {replayResult?.replay_found && (
