@@ -1397,6 +1397,126 @@ export function buildSuppressionReport(rawTotal: number, suppressions: Suppressi
   };
 }
 
+// ── Recommendation → Trend Linkage ────────────────────────────────────────
+// Deterministic mapping from a recommendation's category + evidence to
+// the corresponding trend direction. No heuristics, no fuzzy matching.
+// If a recommendation cannot be linked honestly, returns "unavailable".
+
+export type LinkedTrendStatus = TrendDirection | "unavailable";
+
+export interface RecommendationTrendLinkage {
+  status: LinkedTrendStatus;
+  label: string;
+  source_key: string;
+  metric_summary: string | null;
+}
+
+const TREND_LABELS: Record<LinkedTrendStatus, string> = {
+  worsening: "Signal worsening vs prior window",
+  improving: "Signal improving vs prior window",
+  flat: "Signal flat vs prior window",
+  insufficient_data: "Insufficient trend data",
+  unavailable: "No linked trend signal",
+};
+
+export function resolveRecommendationTrendLinkage(
+  rec: ExecutionRecommendation,
+  trends: ExecutionRecommendationTrends | null | undefined,
+): RecommendationTrendLinkage {
+  const unavailable: RecommendationTrendLinkage = {
+    status: "unavailable",
+    label: TREND_LABELS.unavailable,
+    source_key: "none",
+    metric_summary: null,
+  };
+
+  if (!trends) return unavailable;
+
+  const ev = rec.evidence as Record<string, unknown>;
+  const cat = rec.category;
+  const signals = trends.recommendation_signal_trends;
+
+  // Category-based deterministic dispatch
+  switch (cat) {
+    case "overall_health": {
+      const pt = signals.overall_health_signal;
+      return makeLinkage(pt.direction, "recommendation_signal_trends.overall_health_signal", formatCountDelta(pt));
+    }
+    case "blocker_pattern":
+    case "blocker_mitigation": {
+      // Try entity-level match first
+      if (ev?.blocker_code && typeof ev.blocker_code === "string") {
+        const entry = trends.blocker_code_trends.find(e => e.blocker_code === ev.blocker_code);
+        if (entry) return makeLinkage(entry.direction, `blocker_code_trends[${ev.blocker_code}]`, `Δ${entry.delta}`);
+      }
+      // Fallback to aggregate signal
+      const pt = signals.blocker_signal_count;
+      return makeLinkage(pt.direction, "recommendation_signal_trends.blocker_signal_count", formatCountDelta(pt));
+    }
+    case "causal_root_blocker": {
+      const pt = signals.causal_root_blocker_signal;
+      return makeLinkage(pt.direction, "recommendation_signal_trends.causal_root_blocker_signal", formatCountDelta(pt));
+    }
+    case "repair_type_instability": {
+      if (ev?.repair_type && typeof ev.repair_type === "string") {
+        const entry = trends.repair_type_trends.find(e => e.repair_type === ev.repair_type);
+        if (entry) return makeLinkage(entry.direction, `repair_type_trends[${ev.repair_type}]`, formatNullableDelta(entry.delta));
+      }
+      return unavailable;
+    }
+    case "source_type_instability": {
+      if (ev?.source_type && typeof ev.source_type === "string") {
+        const entry = trends.source_type_trends.find(e => e.source_type === ev.source_type);
+        if (entry) return makeLinkage(entry.direction, `source_type_trends[${ev.source_type}]`, formatNullableDelta(entry.delta));
+      }
+      return unavailable;
+    }
+    case "document_type_instability": {
+      if (ev?.doc_type && typeof ev.doc_type === "string") {
+        const entry = trends.document_type_trends.find(e => e.doc_type === ev.doc_type);
+        if (entry) return makeLinkage(entry.direction, `document_type_trends[${ev.doc_type}]`, formatNullableDelta(entry.delta));
+      }
+      return unavailable;
+    }
+    case "governance_coverage":
+    case "governance_gap": {
+      const pt = signals.governance_gap_signal;
+      return makeLinkage(pt.direction, "recommendation_signal_trends.governance_gap_signal", formatCountDelta(pt));
+    }
+    case "revalidation_coverage":
+    case "revalidation_gap": {
+      const pt = signals.revalidation_gap_signal;
+      return makeLinkage(pt.direction, "recommendation_signal_trends.revalidation_gap_signal", formatNullableDelta(pt.delta));
+    }
+    case "timing_efficiency":
+    case "execution_timing": {
+      const pt = signals.timing_signal;
+      return makeLinkage(pt.direction, "recommendation_signal_trends.timing_signal", formatNullableDelta(pt.delta));
+    }
+    default:
+      return unavailable;
+  }
+}
+
+function makeLinkage(direction: TrendDirection, sourceKey: string, metricSummary: string | null): RecommendationTrendLinkage {
+  return {
+    status: direction,
+    label: TREND_LABELS[direction],
+    source_key: sourceKey,
+    metric_summary: metricSummary,
+  };
+}
+
+function formatCountDelta(pt: { delta: number | null }): string | null {
+  if (pt.delta == null) return null;
+  return `Δ${pt.delta > 0 ? "+" : ""}${pt.delta}`;
+}
+
+function formatNullableDelta(delta: number | null | undefined): string | null {
+  if (delta == null) return null;
+  return `Δ${delta > 0 ? "+" : ""}${Number(delta.toFixed(1))}`;
+}
+
 // ── Execution Trend Types ──
 
 export type TrendDirection = "improving" | "worsening" | "flat" | "insufficient_data";
