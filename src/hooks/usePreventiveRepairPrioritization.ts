@@ -450,6 +450,28 @@ async function fetchRootCauseClusters(projectId: string): Promise<RootCauseAnaly
   return json as RootCauseAnalysisResult;
 }
 
+async function fetchInterventionCandidates(projectId: string): Promise<InterventionAnalysisResult | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'compute_intervention_candidates',
+      projectId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as InterventionAnalysisResult;
+}
+
 export function usePreventiveRepairPrioritization(projectId: string | undefined) {
   const queryClient = useQueryClient();
   const prp1Key = ['prp1-prioritization', projectId];
