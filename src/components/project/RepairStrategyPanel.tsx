@@ -545,7 +545,7 @@ export function RepairStrategyPanel({ projectId, onRouteToRepairs }: Props) {
       <ExecutionAnalyticsSection projectId={projectId} />
 
       {/* ═══ SECTION 4j: EXECUTION RECOMMENDATIONS (read-only, deterministic) ═══ */}
-      <ExecutionRecommendationsSection projectId={projectId} onNavigateToTrend={setTrendNavTarget} />
+      <ExecutionRecommendationsSection projectId={projectId} onNavigateToTrend={setTrendNavTarget} onRouteToRepairs={onRouteToRepairs} />
 
       {/* ═══ SECTION 4k: EXECUTION TRENDS (read-only) ═══ */}
       <ExecutionTrendsSection projectId={projectId} navigationTarget={trendNavTarget} onTargetHandled={() => setTrendNavTarget(null)} />
