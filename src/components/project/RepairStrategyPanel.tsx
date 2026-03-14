@@ -9,6 +9,7 @@ import {
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type PRP2SData, type PRP2SStrategyOption, type PRP2SROIAdvisory,
+  type PRP2SRootCauseAdvisory,
   type RootCauseAnalysisResult, type RootCauseCluster,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -639,7 +640,7 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
       <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
         <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         <span className="text-[10px] text-muted-foreground">
-          Advisory ROI is shown for diagnostic comparison only. It does <strong>not</strong> affect the strategic priority score.
+          Advisory ROI and root-cause leverage are shown for diagnostic comparison only. They do <strong>not</strong> affect the strategic priority score.
         </span>
       </div>
 
@@ -680,15 +681,17 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader>
+               <TableHeader>
                   <TableRow className="border-border/50">
-                    <TableHead className="text-xs w-[55px]">Strat #</TableHead>
-                    <TableHead className="text-xs w-[55px]">ROI #</TableHead>
-                    <TableHead className="text-xs">Repair</TableHead>
-                    <TableHead className="text-xs w-[70px]">Strat Score</TableHead>
-                    <TableHead className="text-xs w-[70px]">Adv. ROI</TableHead>
-                    <TableHead className="text-xs w-[70px]">Confidence</TableHead>
-                    <TableHead className="text-xs w-[30px]" />
+                     <TableHead className="text-xs w-[55px]">Strat #</TableHead>
+                     <TableHead className="text-xs w-[55px]">ROI #</TableHead>
+                     <TableHead className="text-xs w-[50px]">RC #</TableHead>
+                     <TableHead className="text-xs">Repair</TableHead>
+                     <TableHead className="text-xs w-[70px]">Strat Score</TableHead>
+                     <TableHead className="text-xs w-[70px]">Adv. ROI</TableHead>
+                     <TableHead className="text-xs w-[55px]">RC</TableHead>
+                     <TableHead className="text-xs w-[70px]">Confidence</TableHead>
+                     <TableHead className="text-xs w-[30px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -708,6 +711,9 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
                           <TableCell className="font-mono text-xs text-center text-muted-foreground">
                             {opt.roi_rank != null ? opt.roi_rank : '—'}
                           </TableCell>
+                          <TableCell className="font-mono text-xs text-center text-muted-foreground">
+                            {opt.root_cause_rank != null ? opt.root_cause_rank : '—'}
+                          </TableCell>
                           <TableCell className="font-mono text-xs truncate max-w-[140px]">
                             {opt.repair_type}
                             {isTop && <Star className="h-3 w-3 text-primary inline ml-1" />}
@@ -720,6 +726,9 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
                               <span className="text-[10px] text-muted-foreground">—</span>
                             )}
                           </TableCell>
+                          <TableCell className="text-center">
+                            <RCLeverageBadge advisory={opt.root_cause_advisory} />
+                          </TableCell>
                           <TableCell className="font-mono text-xs text-center capitalize">{opt.recommendation_confidence}</TableCell>
                           <TableCell className="text-center">
                             {isExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
@@ -727,7 +736,7 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
                         </TableRow>
                         {isExpanded && (
                           <TableRow key={`${opt.repair_id}-detail`} className="border-border/30 bg-muted/10">
-                            <TableCell colSpan={7} className="p-3">
+                            <TableCell colSpan={9} className="p-3">
                               <PRP2SOptionDetail opt={opt} />
                             </TableCell>
                           </TableRow>
@@ -801,7 +810,23 @@ function PRP2SOptionDetail({ opt }: { opt: PRP2SStrategyOption }) {
         </div>
       )}
 
-      {/* Tags */}
+      {/* Root-Cause Leverage Advisory detail */}
+      {opt.root_cause_advisory?.in_cluster && (
+        <div className="space-y-1.5 border-t border-border/30 pt-3">
+          <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            Root-Cause Cluster
+            <Badge variant="outline" className="text-[8px] font-normal">Advisory only</Badge>
+          </h5>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 pl-1">
+            <Detail label="Cluster ID" value={opt.root_cause_advisory.cluster_id ?? '—'} />
+            <Detail label="Primary Axis" value={opt.root_cause_advisory.cluster_primary_axis ?? '—'} />
+            <Detail label="Combined Pressure" value={opt.root_cause_advisory.cluster_combined_pressure?.toFixed(2) ?? '—'} />
+            <Detail label="Cluster Confidence" value={opt.root_cause_advisory.cluster_confidence != null ? `${Math.round(opt.root_cause_advisory.cluster_confidence * 100)}%` : '—'} />
+            <Detail label="Cluster Size" value={String(opt.root_cause_advisory.cluster_repair_count ?? '—')} />
+            <Detail label="Leverage Score" value={opt.root_cause_advisory.root_cause_leverage_score?.toFixed(1) ?? '—'} />
+          </div>
+        </div>
+      )}
       {opt.rationale_tags.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {opt.rationale_tags.map(t => (
@@ -954,6 +979,15 @@ function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData 
 function ROIScoreBadge({ score }: { score: number }) {
   const color = score >= 40 ? 'text-emerald-400' : score >= 10 ? 'text-amber-400' : score >= -10 ? 'text-muted-foreground' : 'text-red-400';
   return <span className={cn('font-mono text-xs font-bold', color)}>{score.toFixed(1)}</span>;
+}
+
+function RCLeverageBadge({ advisory }: { advisory: PRP2SRootCauseAdvisory | undefined }) {
+  if (!advisory?.in_cluster || !advisory.root_cause_leverage_label) {
+    return <span className="text-[10px] text-muted-foreground">—</span>;
+  }
+  const label = advisory.root_cause_leverage_label;
+  const color = label === 'high' ? 'text-red-400' : label === 'medium' ? 'text-amber-400' : 'text-muted-foreground';
+  return <span className={cn('font-mono text-[10px] font-bold uppercase', color)}>{label}</span>;
 }
 
 function ROIDetailBlock({ entry }: { entry: ROIRepairEntry }) {

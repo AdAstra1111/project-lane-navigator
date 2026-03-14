@@ -110,6 +110,17 @@ export interface PRP2SROIAdvisory {
   rationale: string;
 }
 
+export interface PRP2SRootCauseAdvisory {
+  in_cluster: boolean;
+  cluster_id: string | null;
+  cluster_primary_axis: string | null;
+  cluster_combined_pressure: number | null;
+  cluster_confidence: number | null;
+  cluster_repair_count: number | null;
+  root_cause_leverage_score: number | null;
+  root_cause_leverage_label: "high" | "medium" | "low" | null;
+}
+
 export interface PRP2SStrategyOption {
   repair_id: string;
   repair_type: string;
@@ -136,6 +147,8 @@ export interface PRP2SStrategyOption {
   unlocks_repairs: string[];
   roi_advisory: PRP2SROIAdvisory | null;
   roi_rank: number;
+  root_cause_advisory: PRP2SRootCauseAdvisory;
+  root_cause_rank: number | null;
 }
 
 export interface PRP2SAxisHotspot {
