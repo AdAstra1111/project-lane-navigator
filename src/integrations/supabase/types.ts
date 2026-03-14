@@ -5940,6 +5940,45 @@ export type Database = {
           },
         ]
       }
+      execution_recommendation_runs: {
+        Row: {
+          created_at: string
+          id: string
+          project_id: string
+          recommendations_snapshot: Json
+          run_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          project_id: string
+          recommendations_snapshot?: Json
+          run_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          project_id?: string
+          recommendations_snapshot?: Json
+          run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "execution_recommendation_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "execution_recommendation_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       execution_recommendation_triage: {
         Row: {
           created_at: string

@@ -3820,6 +3820,54 @@ function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
 // evidence_summary (execution-recommendations-v1.1).
 
 type TriageStatus = "do_now" | "watch" | "ignore";
+type ChangeStatus = "new" | "resolved" | "worsened" | "improved" | "unchanged";
+interface ChangeEntry { change_status: ChangeStatus; previous_severity?: string; current_severity?: string; title?: string; rule_id?: string; }
+
+const SEV_ORDER: Record<string, number> = { high: 2, medium: 1, low: 0 };
+
+function computeChangeMap(
+  currentRecs: DisplayRecommendation[],
+  previousSnapshot: { recommendation_id: string; severity: string; suppressed?: boolean; title?: string; rule_id?: string }[] | null,
+): Record<string, ChangeEntry> {
+  const map: Record<string, ChangeEntry> = {};
+  if (!previousSnapshot) return map; // first run — no changes
+
+  const prevMap = new Map(previousSnapshot.map(r => [r.recommendation_id, r]));
+  const currentIds = new Set<string>();
+
+  for (const rec of currentRecs) {
+    if (rec.suppressed) continue;
+    currentIds.add(rec.recommendation_id);
+    const prev = prevMap.get(rec.recommendation_id);
+    if (!prev) {
+      map[rec.recommendation_id] = { change_status: "new", current_severity: rec.severity };
+    } else {
+      const prevSev = SEV_ORDER[prev.severity] ?? 0;
+      const curSev = SEV_ORDER[rec.severity] ?? 0;
+      if (curSev > prevSev) {
+        map[rec.recommendation_id] = { change_status: "worsened", previous_severity: prev.severity, current_severity: rec.severity };
+      } else if (curSev < prevSev) {
+        map[rec.recommendation_id] = { change_status: "improved", previous_severity: prev.severity, current_severity: rec.severity };
+      } else {
+        map[rec.recommendation_id] = { change_status: "unchanged", previous_severity: prev.severity, current_severity: rec.severity };
+      }
+    }
+  }
+
+  // Resolved: existed previously (not suppressed) but not in current
+  for (const prev of previousSnapshot) {
+    if (!currentIds.has(prev.recommendation_id) && !prev.suppressed) {
+      map[prev.recommendation_id] = {
+        change_status: "resolved",
+        previous_severity: prev.severity,
+        title: (prev as any).title,
+        rule_id: (prev as any).rule_id,
+      };
+    }
+  }
+
+  return map;
+}
 
 function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   projectId: string;
@@ -3836,6 +3884,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [memoCopied, setMemoCopied] = useState<string | null>(null);
   const [bulkFeedback, setBulkFeedback] = useState<string | null>(null);
   const [triageJsonCopied, setTriageJsonCopied] = useState<string | null>(null);
+  const [changeMap, setChangeMap] = useState<Record<string, ChangeEntry>>({});
 
   // Load persisted triage from DB on mount
   useEffect(() => {
@@ -3941,6 +3990,47 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
       if (recsRes?.ok) {
         setData(recsRes);
         if (recsRes.recommendations) cleanTriageMap(recsRes.recommendations);
+
+        // Change detection: compare with previous run
+        const runId = recsRes.computed_at || new Date().toISOString();
+        const displayModel = dedupeAndSuppressRecommendations(recsRes.recommendations);
+        if (displayModel) {
+          // Build minimal snapshot for storage
+          const snapshotItems = displayModel.all_display
+            .filter(r => !r.suppressed)
+            .map(r => ({
+              recommendation_id: r.recommendation_id,
+              severity: r.severity,
+              confidence: r.confidence,
+              rule_id: r.rule_id,
+              suppressed: false,
+              title: r.title,
+            }));
+
+          // Fetch previous snapshot
+          const { data: prevRows } = await supabase
+            .from('execution_recommendation_runs')
+            .select('recommendations_snapshot')
+            .eq('project_id', projectId)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          const prevSnapshot = prevRows?.[0]?.recommendations_snapshot as { recommendations?: any[] } | null;
+          const prevRecs = prevSnapshot?.recommendations ?? null;
+
+          // Compute change map
+          const changes = computeChangeMap(displayModel.all_display, prevRecs);
+          setChangeMap(changes);
+
+          // Persist current snapshot (upsert by run_id)
+          await supabase
+            .from('execution_recommendation_runs')
+            .upsert({
+              project_id: projectId,
+              run_id: runId,
+              recommendations_snapshot: { recommendations: snapshotItems },
+            }, { onConflict: 'project_id,run_id' });
+        }
       }
       if (trendsRes?.ok) setTrendsData(trendsRes);
     } finally {
@@ -4026,6 +4116,19 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                 {rec.suppression_reason}
               </Badge>
             )}
+            {/* Change detection badge */}
+            {(() => {
+              const change = changeMap[rec.recommendation_id];
+              if (!change || change.change_status === "unchanged") return null;
+              const cfg: Record<string, { label: string; cls: string }> = {
+                new: { label: "NEW", cls: "text-blue-400 border-blue-500/30 bg-blue-500/10" },
+                worsened: { label: `WORSENED ↑ ${change.previous_severity}→${change.current_severity}`, cls: "text-red-400 border-red-500/30 bg-red-500/10" },
+                improved: { label: `IMPROVED ↓ ${change.previous_severity}→${change.current_severity}`, cls: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10" },
+              };
+              const c = cfg[change.change_status];
+              if (!c) return null;
+              return <Badge variant="outline" className={cn("text-[7px] font-mono shrink-0", c.cls)}>{c.label}</Badge>;
+            })()}
           </div>
 
           {/* Trend signal subline — shown for all statuses for honesty */}
@@ -4252,6 +4355,79 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                 </button>
               </div>
             )}
+
+            {/* Change detection summary strip */}
+            {(() => {
+              const entries = Object.values(changeMap);
+              const newCount = entries.filter(e => e.change_status === "new").length;
+              const worsenedCount = entries.filter(e => e.change_status === "worsened").length;
+              const improvedCount = entries.filter(e => e.change_status === "improved").length;
+              const resolvedCount = entries.filter(e => e.change_status === "resolved").length;
+              const hasChanges = newCount + worsenedCount + improvedCount + resolvedCount > 0;
+              if (!hasChanges) return null;
+              return (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[8px] font-mono text-muted-foreground/50 uppercase">Changes since last run:</span>
+                  {newCount > 0 && (
+                    <Badge variant="outline" className="text-[8px] font-mono text-blue-400 border-blue-500/30 bg-blue-500/10">
+                      {newCount} new
+                    </Badge>
+                  )}
+                  {worsenedCount > 0 && (
+                    <Badge variant="outline" className="text-[8px] font-mono text-red-400 border-red-500/30 bg-red-500/10">
+                      {worsenedCount} worsened
+                    </Badge>
+                  )}
+                  {improvedCount > 0 && (
+                    <Badge variant="outline" className="text-[8px] font-mono text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
+                      {improvedCount} improved
+                    </Badge>
+                  )}
+                  {resolvedCount > 0 && (
+                    <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground border-border/40 bg-muted/20">
+                      {resolvedCount} resolved
+                    </Badge>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Resolved recommendations section */}
+            {(() => {
+              const resolved = Object.entries(changeMap)
+                .filter(([, e]) => e.change_status === "resolved")
+                .map(([id, e]) => ({ recommendation_id: id, ...e }));
+              if (resolved.length === 0) return null;
+              return (
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-0.5">
+                      <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                      <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                      <CheckCircle className="h-3 w-3 text-emerald-400" />
+                      <span className="font-semibold">Resolved Since Last Run</span>
+                      <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground border-border/40 ml-1">
+                        {resolved.length}
+                      </Badge>
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pl-4 pt-1.5 space-y-1">
+                    {resolved.map(r => (
+                      <div key={r.recommendation_id} className="rounded border border-border/20 bg-muted/10 px-3 py-1.5 flex items-center gap-2">
+                        <CheckCircle className="h-3 w-3 text-emerald-400 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[9px] font-semibold text-muted-foreground">{r.title || r.recommendation_id}</span>
+                          {r.rule_id && <span className="text-[7px] font-mono text-muted-foreground/40 ml-1.5">({r.rule_id})</span>}
+                        </div>
+                        <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/30 shrink-0">
+                          was {r.previous_severity}
+                        </Badge>
+                      </div>
+                    ))}
+                  </CollapsibleContent>
+                </Collapsible>
+              );
+            })()}
 
             {/* Triage summary strip */}
             {hasAnyTriage && (
