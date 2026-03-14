@@ -1406,8 +1406,10 @@ export type LinkedTrendStatus = TrendDirection | "unavailable";
 
 export interface RecommendationTrendLinkage {
   status: LinkedTrendStatus;
+  chip_label: string;
   label: string;
   source_key: string;
+  source_label: string;
   metric_summary: string | null;
 }
 
