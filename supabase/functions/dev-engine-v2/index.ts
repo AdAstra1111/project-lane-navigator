@@ -30353,6 +30353,21 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }
 
       const execAt = new Date().toISOString();
+      const obsStartedAt = Date.now();
+
+      // ── Observability: event trace + document timeline accumulators ──
+      interface ObsEvent { seq: number; event_type: string; document_id: string | null; doc_type: string | null; phase: "validation" | "execution" | "governance" | "revalidation"; status: "started" | "completed" | "failed" | "blocked" | "skipped"; message: string; }
+      interface ObsDocTimeline { document_id: string; doc_type: string; order_index: number; ordering_basis: "dependency_registry" | "lane_ladder" | "lexical_fallback"; status: "executed" | "failed" | "blocked" | "dry_run"; blocked_by_doc_type: string | null; blocked_reason: string | null; section_targets_total: number; section_targets_executed: number; section_targets_failed: number; section_targets_skipped: number; version_id_before: string | null; version_id_after: string | null; governance_status: "performed" | "skipped" | "deferred" | "failed" | null; revalidation_status: "performed" | "partial" | "deferred" | "failed" | null; execution_message: string; }
+      const obsEventTrace: ObsEvent[] = [];
+      let obsSeq = 0;
+      function obsEmit(event_type: string, phase: ObsEvent["phase"], status: ObsEvent["status"], message: string, document_id: string | null = null, doc_type: string | null = null) {
+        obsEventTrace.push({ seq: obsSeq++, event_type, document_id, doc_type, phase, status, message });
+      }
+      const obsDocTimelines: ObsDocTimeline[] = [];
+      let obsValidationMs: number | null = null;
+      let obsSectionExecMs: number | null = null;
+      let obsGovernanceMs: number | null = null;
+      let obsRevalidationMs: number | null = null;
 
       // ── STEP 1: Build canonical patch plan via shared core ──
       const planResult = await buildPatchPlanCore(supabase, { projectId, repairId, repairType, sourceType, versionId });
