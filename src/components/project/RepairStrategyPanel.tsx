@@ -3821,7 +3821,13 @@ function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
 
 type TriageStatus = "do_now" | "watch" | "ignore";
 type ChangeStatus = "new" | "resolved" | "worsened" | "improved" | "unchanged";
-interface ChangeEntry { change_status: ChangeStatus; previous_severity?: string; current_severity?: string; title?: string; rule_id?: string; }
+interface ChangeEntry { change_status: ChangeStatus; previous_severity?: string; current_severity?: string; title?: string; rule_id?: string; comparison_key?: string; }
+
+/** Derive a stable comparison key from category + rule_id. Positional recommendation_id (top_001 etc.) is NOT stable across runs when the set changes. */
+function deriveComparisonKey(rec: { category?: string; rule_id?: string; recommendation_id: string }): string {
+  if (rec.category && rec.rule_id) return `${rec.category}::${rec.rule_id}`;
+  return rec.recommendation_id; // fallback
+}
 
 const SEV_ORDER: Record<string, number> = { high: 2, medium: 1, low: 0 };
 
