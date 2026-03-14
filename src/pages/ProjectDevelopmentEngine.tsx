@@ -283,24 +283,63 @@ export default function ProjectDevelopmentEngine() {
   const isBgGenerating = (selectedVersion as any)?.meta_json?.bg_generating === true;
   const isSeasonScript = selectedDoc?.doc_type === 'season_script';
 
-  // Auto-poll versions every 20s while bg_generating — refresh content when done
+  // Auto-poll versions every 4s while bg_generating — refresh content when done
   const { data: _polledVersions } = useQuery({
     queryKey: ['dev-v2-bg-poll', selectedVersionId],
     queryFn: async () => {
       if (!selectedVersionId) return null;
       const { data } = await (supabase as any)
         .from('project_document_versions')
-        .select('id, plaintext, meta_json')
+        .select('id, plaintext, meta_json, assembled_from_chunks')
         .eq('id', selectedVersionId)
         .maybeSingle();
-      // When generation completes, refresh the main version list so content appears
-      if (data && data.plaintext && data.meta_json?.bg_generating !== true) {
+      if (!data) return null;
+
+      const stillGenerating = data.meta_json?.bg_generating === true;
+
+      // If backend has finished writing plaintext, refresh immediately
+      if (data.plaintext && !stillGenerating) {
         qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+        return data;
       }
+
+      // If all chunks are done but backend assembly is still running,
+      // assemble from chunks and inject into the cache so content shows NOW
+      if (stillGenerating && data.assembled_from_chunks) {
+        const { data: chunks } = await (supabase as any)
+          .from('project_document_chunks')
+          .select('chunk_index, content, status')
+          .eq('version_id', selectedVersionId)
+          .order('chunk_index', { ascending: true });
+
+        if (chunks && chunks.length > 0) {
+          const allDone = chunks.every((c: any) => c.status === 'done');
+          if (allDone) {
+            const assembled = chunks
+              .filter((c: any) => c.content)
+              .map((c: any) => c.content)
+              .join('\n\n');
+            if (assembled.length > 100) {
+              // Inject assembled content into the version cache so the editor shows it
+              qc.setQueryData(['dev-v2-versions', selectedDocId], (old: any) => {
+                if (!Array.isArray(old)) return old;
+                return old.map((v: any) =>
+                  v.id === selectedVersionId
+                    ? { ...v, plaintext: assembled, meta_json: { ...v.meta_json, bg_generating: false } }
+                    : v
+                );
+              });
+              // Also trigger a real refresh to get the final server version
+              setTimeout(() => qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] }), 3000);
+            }
+          }
+        }
+      }
+
       return data;
     },
     enabled: !!selectedVersionId && isBgGenerating,
-    refetchInterval: isBgGenerating ? 20_000 : false,
+    refetchInterval: isBgGenerating ? 4_000 : false,
   });
 
   const pipeline = useScriptPipeline(projectId);

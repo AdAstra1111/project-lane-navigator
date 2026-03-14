@@ -58,7 +58,7 @@ export function SeasonScriptProgress({ versionId, episodeCount }: SeasonScriptPr
       return (data ?? []) as ChunkRow[];
     },
     enabled: !!versionId,
-    refetchInterval: 8000,
+    refetchInterval: 4000,
   });
 
   const safeChunks = Array.isArray(chunks) ? chunks : [];
