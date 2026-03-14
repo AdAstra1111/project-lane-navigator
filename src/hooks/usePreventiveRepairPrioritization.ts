@@ -1548,6 +1548,67 @@ function formatNullableDelta(delta: number | null | undefined): string | null {
   return `Δ${delta > 0 ? "+" : ""}${Number(delta.toFixed(1))}`;
 }
 
+// ── Trend Navigation Target ──────────────────────────────────────────────────
+// Deterministic resolver: maps a linkage source_key to the exact subsection
+// and optional entity row in ExecutionTrendsSection. Presentation-only.
+
+export type TrendSubsectionKey =
+  | "overall_outcomes"
+  | "signal_trends"
+  | "blocker_code_trends"
+  | "repair_type_trends"
+  | "source_type_trends"
+  | "document_type_trends"
+  | "timing_trends"
+  | "governance_trends"
+  | "revalidation_trends";
+
+export interface TrendNavigationTarget {
+  source_key: string;
+  subsection_key: TrendSubsectionKey;
+  entity_key?: string;
+  highlight_mode: "header" | "row";
+  activated_at: number;
+}
+
+export function resolveTrendNavigationTarget(sourceKey: string): Omit<TrendNavigationTarget, "activated_at"> | null {
+  if (!sourceKey || sourceKey === "none") return null;
+
+  // recommendation_signal_trends.X → map to the corresponding subsection
+  if (sourceKey.startsWith("recommendation_signal_trends.")) {
+    const field = sourceKey.replace("recommendation_signal_trends.", "");
+    const fieldToSubsection: Record<string, TrendSubsectionKey> = {
+      overall_health_signal: "overall_outcomes",
+      blocker_signal_count: "blocker_code_trends",
+      governance_gap_signal: "governance_trends",
+      revalidation_gap_signal: "revalidation_trends",
+      timing_signal: "timing_trends",
+      causal_root_blocker_signal: "signal_trends",
+    };
+    const sub = fieldToSubsection[field];
+    if (sub) return { source_key: sourceKey, subsection_key: sub, highlight_mode: "header" };
+    return null;
+  }
+
+  // Entity-level: blocker_code_trends[X], repair_type_trends[X], etc.
+  const bracketMatch = sourceKey.match(/^(\w+?)_(?:code_)?trends\[(.+)\]$/);
+  if (bracketMatch) {
+    const prefix = sourceKey.split("[")[0]; // e.g. blocker_code_trends
+    const entity = bracketMatch[2];
+    const prefixToSubsection: Record<string, TrendSubsectionKey> = {
+      blocker_code_trends: "blocker_code_trends",
+      repair_type_trends: "repair_type_trends",
+      source_type_trends: "source_type_trends",
+      document_type_trends: "document_type_trends",
+    };
+    const sub = prefixToSubsection[prefix];
+    if (sub) return { source_key: sourceKey, subsection_key: sub, entity_key: entity, highlight_mode: "row" };
+    return null;
+  }
+
+  return null;
+}
+
 // ── Execution Trend Types ──
 
 export type TrendDirection = "improving" | "worsening" | "flat" | "insufficient_data";
