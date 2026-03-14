@@ -2836,15 +2836,21 @@ function ExecutionReplaySection({
                         <span className="text-[10px] font-mono text-foreground">
                           {new Date(item.created_at).toLocaleString()}
                         </span>
-                        {item.executed && (
-                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-emerald-400 border-emerald-500/30">executed</Badge>
-                        )}
-                        {item.dry_run && (
-                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-blue-400 border-blue-500/30">dry run</Badge>
-                        )}
-                        {!item.execution_allowed && (
-                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-red-400 border-red-500/30">blocked</Badge>
-                        )}
+                        {(() => {
+                          const oc = item.outcome || deriveExecutionOutcome(item);
+                          const ocStyles: Record<string, string> = {
+                            executed: "text-emerald-400 border-emerald-500/30",
+                            partial: "text-amber-400 border-amber-500/30",
+                            blocked: "text-red-400 border-red-500/30",
+                            failed: "text-destructive border-destructive/30",
+                            dry_run: "text-blue-400 border-blue-500/30",
+                          };
+                          return (
+                            <Badge variant="outline" className={cn("text-[8px] font-mono px-1 py-0 h-3.5", ocStyles[oc] || "text-muted-foreground border-border/50")}>
+                              {oc === "dry_run" ? "dry run" : oc}
+                            </Badge>
+                          );
+                        })()}
                         {item.blocked_doc_types.length > 0 && (
                           <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-amber-400 border-amber-500/30">
                             {item.blocked_doc_types.length} blocked
