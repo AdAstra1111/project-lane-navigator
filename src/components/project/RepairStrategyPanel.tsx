@@ -4523,6 +4523,35 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
 
   const hasAnyTriage = triageCounts.do_now + triageCounts.watch + triageCounts.ignore > 0;
 
+  // Producer observability counts — derived from existing state only
+  const observabilityCounts = useMemo(() => {
+    const counts = { doNow: 0, worsened: 0, relatedRepairDone: 0, highUnresolved: 0 };
+    if (!displayResult) return counts;
+    const visible = displayResult.all_display.filter(r => !r.suppressed);
+    for (const rec of visible) {
+      const tk = triageKey(rec);
+      const status = triageMap[tk];
+      // active do_now
+      if (status === 'do_now') counts.doNow++;
+      // worsened
+      const change = changeMap[rec.recommendation_id];
+      if (change?.change_status === 'worsened') counts.worsened++;
+      // related repair done — do_now only, same logic as badge
+      if (status === 'do_now' && completedRepairSignatures && completedRepairSignatures.size > 0) {
+        const ev = rec.evidence as Record<string, unknown> | undefined;
+        const hasMatch =
+          (ev?.repair_type && completedRepairSignatures.has(`repair_type::${ev.repair_type}`)) ||
+          (ev?.doc_type && completedRepairSignatures.has(`diagnostic_type::${ev.doc_type}`)) ||
+          (ev?.source_type && completedRepairSignatures.has(`scope_key::${ev.source_type}`));
+        if (hasMatch) counts.relatedRepairDone++;
+      }
+      // high unresolved — high severity, not ignored
+      if (rec.severity === 'high' && status !== 'ignore') counts.highUnresolved++;
+    }
+    return counts;
+  }, [displayResult, triageMap, changeMap, completedRepairSignatures]);
+
+
   const DisplayBucket = ({ title, icon: Icon, bucketKey }: { title: string; icon: any; bucketKey: RecommendationBucketKey }) => {
     if (!displayResult) return null;
     const allItems = displayResult.display_buckets[bucketKey];
@@ -4876,6 +4905,29 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
               <div className="flex items-center gap-1.5 text-[9px] text-emerald-400">
                 <CheckCircle className="h-3 w-3" />
                 All tracked metrics are within healthy thresholds across {summary.total_snapshots} snapshots.
+              </div>
+            )}
+
+            {/* ── Producer Observability Header ── */}
+            {hasAnyTriage && displayResult && (
+              <div className="flex items-center gap-1.5 flex-wrap py-1 px-2 rounded border border-border/30 bg-muted/10">
+                <span className="text-[7px] font-mono text-muted-foreground/50 uppercase tracking-wider">Status</span>
+                <Badge variant="outline" className="text-[7px] font-mono text-primary border-primary/30 bg-primary/5">
+                  {observabilityCounts.doNow} do now
+                </Badge>
+                {observabilityCounts.worsened > 0 && (
+                  <Badge variant="outline" className="text-[7px] font-mono text-red-400 border-red-500/30 bg-red-500/5">
+                    {observabilityCounts.worsened} worsened
+                  </Badge>
+                )}
+                {observabilityCounts.relatedRepairDone > 0 && (
+                  <Badge variant="outline" className="text-[7px] font-mono text-emerald-400 border-emerald-500/30 bg-emerald-500/5">
+                    {observabilityCounts.relatedRepairDone} repair done
+                  </Badge>
+                )}
+                <Badge variant="outline" className="text-[7px] font-mono text-amber-400 border-amber-500/30 bg-amber-500/5">
+                  {observabilityCounts.highUnresolved} high unresolved
+                </Badge>
               </div>
             )}
 
