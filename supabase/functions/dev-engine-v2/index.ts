@@ -7480,6 +7480,7 @@ Format: ${rq.format}.`;
       }
 
       // ── FIX 3: Feature-length screenplay enforcement for FEATURE_SCRIPT / PRODUCTION_DRAFT ──
+      const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
       const FEATURE_SCRIPT_TARGETS = new Set(["FEATURE_SCRIPT", "PRODUCTION_DRAFT"]);
       let featureLengthBlock = "";
       if (FEATURE_SCRIPT_TARGETS.has(normalizedTarget)) {
@@ -7491,8 +7492,6 @@ TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA):\n${JSON.stringify(protectItems || [])}
 ${qualBindingBlock}${cvNecBlock}${cvConstraintPack}${featureLengthBlock}${assimilationBlock}
 MATERIAL:\n${version.plaintext}${convertTemplateBlock}`;
-
-      const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
 
       // ── EPISODE DOC TYPES: Redirect to generate-document chunked pipeline ──
       // Single-shot LLM calls truncate at high episode counts (e.g., 35 episodes).
