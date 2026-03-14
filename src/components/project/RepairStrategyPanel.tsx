@@ -501,6 +501,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
       {/* ═══ SECTION 4e: PATCH PLAN BUILDER (read-only visibility) ═══ */}
       <PatchPlanSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
 
+      {/* ═══ SECTION 4f: PATCH PLAN VALIDATION (read-only gate) ═══ */}
+      <PatchValidationSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
+
           </div>
         )}
       </div>
