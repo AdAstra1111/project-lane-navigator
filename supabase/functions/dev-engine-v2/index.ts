@@ -30353,6 +30353,21 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }
 
       const execAt = new Date().toISOString();
+      const obsStartedAt = Date.now();
+
+      // ── Observability: event trace + document timeline accumulators ──
+      interface ObsEvent { seq: number; event_type: string; document_id: string | null; doc_type: string | null; phase: "validation" | "execution" | "governance" | "revalidation"; status: "started" | "completed" | "failed" | "blocked" | "skipped"; message: string; }
+      interface ObsDocTimeline { document_id: string; doc_type: string; order_index: number; ordering_basis: "dependency_registry" | "lane_ladder" | "lexical_fallback"; status: "executed" | "failed" | "blocked" | "dry_run"; blocked_by_doc_type: string | null; blocked_reason: string | null; section_targets_total: number; section_targets_executed: number; section_targets_failed: number; section_targets_skipped: number; version_id_before: string | null; version_id_after: string | null; governance_status: "performed" | "skipped" | "deferred" | "failed" | null; revalidation_status: "performed" | "partial" | "deferred" | "failed" | null; execution_message: string; }
+      const obsEventTrace: ObsEvent[] = [];
+      let obsSeq = 0;
+      function obsEmit(event_type: string, phase: ObsEvent["phase"], status: ObsEvent["status"], message: string, document_id: string | null = null, doc_type: string | null = null) {
+        obsEventTrace.push({ seq: obsSeq++, event_type, document_id, doc_type, phase, status, message });
+      }
+      const obsDocTimelines: ObsDocTimeline[] = [];
+      let obsValidationMs: number | null = null;
+      let obsSectionExecMs: number | null = null;
+      let obsGovernanceMs: number | null = null;
+      let obsRevalidationMs: number | null = null;
 
       // ── STEP 1: Build canonical patch plan via shared core ──
       const planResult = await buildPatchPlanCore(supabase, { projectId, repairId, repairType, sourceType, versionId });
@@ -30390,7 +30405,11 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const execCore = planResult._core;
 
       // ── STEP 2: Validate via shared validation core ──
+      const obsValStart = Date.now();
+      obsEmit("validation", "validation", "started", "Patch plan validation started");
       const execValidation = await validatePatchPlanCore(supabase, execCore, execPlan.plan_id, projectId);
+      obsValidationMs = Date.now() - obsValStart;
+      obsEmit("validation", "validation", execValidation.plan_valid ? "completed" : "failed", `Validation ${execValidation.plan_valid ? "passed" : "failed"}: ${execValidation.issues?.length || 0} issues`);
 
       // ── STEP 3: Execution eligibility gate ──
       const unsupportedTypes = execCore.direct_targets.filter(t => t.target_type !== "section");
@@ -30602,6 +30621,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      const obsSectionExecStart = Date.now();
+      obsEmit("section_execution", "execution", "started", `Beginning section execution for ${documentExecutionOrder.length} document(s)`);
+
       // ── STEP 4: Execute section targets per document (consolidated, dependency-ordered) ──
       const { replaceSection: execReplaceSection, extractSection: execExtractSection } = await import("../_shared/sectionRepairEngine.ts");
       const { getSectionKeys } = await import("../_shared/deliverableSectionRegistry.ts");
@@ -30656,6 +30678,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         const docTargets = docGroups.get(documentId)!;
         documentsAttempted++;
         const currentDocType = docTargets[0].doc_type;
+        const docMeta = documentExecutionMetadata.find(m => m.document_id === documentId);
+        obsEmit("document_execution", "execution", "started", `Starting document ${currentDocType}`, documentId, currentDocType);
 
         // ── Cross-document failure cascade check ──
         const blockingUpstream = isBlockedByUpstreamFailure(currentDocType);
@@ -30664,6 +30688,17 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           documentsSkippedDueToUpstreamFailure++;
           blockedDocumentIds.push(documentId);
           if (!blockedDocTypes.includes(currentDocType)) blockedDocTypes.push(currentDocType);
+
+          obsEmit("document_execution", "execution", "blocked", `Blocked by upstream failure: ${blockingUpstream}`, documentId, currentDocType);
+          obsDocTimelines.push({
+            document_id: documentId, doc_type: currentDocType,
+            order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+            status: "blocked", blocked_by_doc_type: blockingUpstream, blocked_reason: `upstream_doc_type_failed:${blockingUpstream}`,
+            section_targets_total: docTargets.length, section_targets_executed: 0, section_targets_failed: 0, section_targets_skipped: docTargets.length,
+            version_id_before: docTargets[0].version_id, version_id_after: null,
+            governance_status: null, revalidation_status: null,
+            execution_message: `Blocked by upstream document failure: ${blockingUpstream}`,
+          });
 
           const sourceVersionId = docTargets[0].version_id;
           for (const target of docTargets) {
@@ -30883,12 +30918,33 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             }
             targetResults.push(r);
           }
+          const failedExec = docTargetResults.filter(r => r.status === "failed").length;
+          obsEmit("document_execution", "execution", "failed", `Document ${currentDocType} sequence failed`, documentId, currentDocType);
+          obsDocTimelines.push({
+            document_id: documentId, doc_type: currentDocType,
+            order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+            status: "failed", blocked_by_doc_type: null, blocked_reason: null,
+            section_targets_total: docTargets.length, section_targets_executed: 0, section_targets_failed: failedExec, section_targets_skipped: docTargets.length - failedExec,
+            version_id_before: sourceVersionId, version_id_after: null,
+            governance_status: null, revalidation_status: null,
+            execution_message: "Document sequence failed — no version written",
+          });
         } else if (dryRun) {
           // Dry run — report all as skipped
           for (const r of docTargetResults) {
             r.message = `dry_run_sequence:${appliedSectionKeys.join("+")}`;
             targetResults.push(r);
           }
+          obsEmit("document_execution", "execution", "completed", `Document ${currentDocType} dry-run simulated`, documentId, currentDocType);
+          obsDocTimelines.push({
+            document_id: documentId, doc_type: currentDocType,
+            order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+            status: "dry_run", blocked_by_doc_type: null, blocked_reason: null,
+            section_targets_total: docTargets.length, section_targets_executed: 0, section_targets_failed: 0, section_targets_skipped: docTargets.length,
+            version_id_before: sourceVersionId, version_id_after: null,
+            governance_status: "skipped", revalidation_status: "skipped",
+            execution_message: `Dry run: ${appliedSectionKeys.length} section(s) simulated [${appliedSectionKeys.join("+")}]`,
+          });
         } else if (successfulResults.length > 0) {
           // Write ONE consolidated version
           try {
@@ -30931,6 +30987,16 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             for (const r of docTargetResults) {
               targetResults.push(r);
             }
+            obsEmit("document_execution", "execution", "completed", `Document ${currentDocType} executed: ${appliedSectionKeys.length} section(s), version ${newVersion.id.slice(0,8)}`, documentId, currentDocType);
+            obsDocTimelines.push({
+              document_id: documentId, doc_type: currentDocType,
+              order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+              status: "executed", blocked_by_doc_type: null, blocked_reason: null,
+              section_targets_total: docTargets.length, section_targets_executed: successfulResults.length, section_targets_failed: 0, section_targets_skipped: 0,
+              version_id_before: sourceVersionId, version_id_after: newVersion.id,
+              governance_status: null, revalidation_status: null,
+              execution_message: `${appliedSectionKeys.length} section(s) patched, new version created`,
+            });
             } catch (writeErr: any) {
             documentSequencesFailed++;
             failedPatchedDocTypes.add(currentDocType);
@@ -30940,14 +31006,36 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
               r.message = `consolidated_write_failed:${writeErr?.message?.slice(0, 200) || "unknown"}`;
               targetResults.push(r);
             }
+            obsEmit("document_execution", "execution", "failed", `Document ${currentDocType} write failed: ${(writeErr?.message || "unknown").slice(0,100)}`, documentId, currentDocType);
+            obsDocTimelines.push({
+              document_id: documentId, doc_type: currentDocType,
+              order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+              status: "failed", blocked_by_doc_type: null, blocked_reason: null,
+              section_targets_total: docTargets.length, section_targets_executed: 0, section_targets_failed: docTargets.length, section_targets_skipped: 0,
+              version_id_before: sourceVersionId, version_id_after: null,
+              governance_status: null, revalidation_status: null,
+              execution_message: `Consolidated write failed`,
+            });
           }
         } else {
           // No successful results for this document
           for (const r of docTargetResults) {
             targetResults.push(r);
           }
+          obsDocTimelines.push({
+            document_id: documentId, doc_type: currentDocType,
+            order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+            status: "failed", blocked_by_doc_type: null, blocked_reason: null,
+            section_targets_total: docTargets.length, section_targets_executed: 0, section_targets_failed: docTargets.length, section_targets_skipped: 0,
+            version_id_before: sourceVersionId, version_id_after: null,
+            governance_status: null, revalidation_status: null,
+            execution_message: "No successful section results",
+          });
         }
       }
+
+      obsSectionExecMs = Date.now() - obsSectionExecStart;
+      obsEmit("section_execution", "execution", "completed", `Section execution complete: ${documentExecutionOrder.length} doc(s) processed`);
 
       const executedCount = targetResults.filter(r => r.status === "executed").length;
       const failedCount = targetResults.filter(r => r.status === "failed").length;
@@ -30956,9 +31044,13 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       // Compute downstream invalidation and immediate revalidation targets
       // Only perform writes on real (non-dry-run) successful executions.
       let postExecution: Record<string, unknown> | null = null;
+      const obsGovStart = Date.now();
 
       const executedTargets = targetResults.filter(r => r.status === "executed" && r.version_id_after);
       const shouldRunGovernance = executedTargets.length > 0;
+      if (shouldRunGovernance) {
+        obsEmit("governance", "governance", "started", `Governance starting for ${executedTargets.length} executed target(s)`);
+      }
 
       if (shouldRunGovernance) {
         try {
@@ -31146,14 +31238,29 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           };
         }
       }
+      obsGovernanceMs = shouldRunGovernance ? Date.now() - obsGovStart : null;
+      if (shouldRunGovernance) {
+        const govFailed = postExecution && (postExecution as any).governance_notes?.governance_error;
+        obsEmit("governance", "governance", govFailed ? "failed" : "completed", govFailed ? `Governance failed: ${govFailed}` : "Governance completed");
+        // Backfill governance_status on executed doc timelines
+        for (const dt of obsDocTimelines) {
+          if (dt.status === "executed") {
+            dt.governance_status = govFailed ? "failed" : "performed";
+          }
+        }
+      }
 
       // ── REVALIDATION EXECUTION v1 ──
       // Execute bounded revalidation for the patched document and downstream targets
       // where canonical revalidation paths exist. No regeneration. No rewrite cascades.
       let revalidationExecution: Record<string, unknown> | null = null;
+      const obsRevalStart = Date.now();
 
       const revalTargets = (postExecution as any)?.immediate_revalidation?.targets || [];
       const shouldRunRevalidation = !dryRun && writePerformed && executedCount > 0 && revalTargets.length > 0;
+      if (shouldRunRevalidation || (dryRun && revalTargets.length > 0)) {
+        obsEmit("revalidation", "revalidation", "started", `Revalidation starting for ${revalTargets.length} target(s)`);
+      }
 
       if (shouldRunRevalidation || (dryRun && revalTargets.length > 0)) {
         const revalResults: Array<{
@@ -31298,6 +31405,49 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           deferred: revalDeferred,
         });
       }
+      const revalWasAttempted = shouldRunRevalidation || (dryRun && revalTargets.length > 0);
+      obsRevalidationMs = revalWasAttempted ? Date.now() - obsRevalStart : null;
+      if (revalWasAttempted) {
+        const revalExec = revalidationExecution as any;
+        const revalSucceeded = revalExec?.succeeded ?? 0;
+        const revalFailedCount = revalExec?.failed ?? 0;
+        obsEmit("revalidation", "revalidation", revalFailedCount > 0 && revalSucceeded === 0 ? "failed" : "completed",
+          `Revalidation complete: ${revalSucceeded} succeeded, ${revalFailedCount} failed`);
+        // Backfill revalidation_status on executed doc timelines
+        for (const dt of obsDocTimelines) {
+          if (dt.status === "executed" || dt.status === "dry_run") {
+            const docRevalTargets = (revalExec?.target_results || []).filter((r: any) => r.document_id === dt.document_id);
+            if (docRevalTargets.length === 0) {
+              dt.revalidation_status = dt.revalidation_status || "skipped";
+            } else {
+              const allExecuted = docRevalTargets.every((r: any) => r.status === "executed");
+              const anyFailed = docRevalTargets.some((r: any) => r.status === "failed");
+              const anyDeferred = docRevalTargets.some((r: any) => r.status === "deferred" || r.status === "skipped");
+              if (allExecuted) dt.revalidation_status = "performed";
+              else if (anyFailed && !allExecuted) dt.revalidation_status = "partial";
+              else if (anyDeferred) dt.revalidation_status = "deferred";
+              else dt.revalidation_status = "skipped";
+            }
+          }
+        }
+      }
+
+      // ── BUILD EXECUTION OBSERVABILITY ──
+      const obsFinishedAt = new Date().toISOString();
+      const obsTotalMs = Date.now() - obsStartedAt;
+      const executionObservability = {
+        started_at: execAt,
+        finished_at: obsFinishedAt,
+        total_duration_ms: obsTotalMs,
+        phase_durations_ms: {
+          validation: obsValidationMs,
+          section_execution: obsSectionExecMs,
+          governance: obsGovernanceMs,
+          revalidation: obsRevalidationMs,
+        },
+        document_timeline: obsDocTimelines,
+        event_trace: obsEventTrace,
+      };
 
       console.log("[dev-engine-v2] execute_patch_plan", {
         project_id: projectId,
@@ -31316,6 +31466,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         write_performed: writePerformed,
         has_governance: !!postExecution,
         has_revalidation: !!revalidationExecution,
+        total_duration_ms: obsTotalMs,
       });
 
       return new Response(JSON.stringify({
@@ -31350,6 +31501,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           },
           post_execution: postExecution,
           revalidation_execution: revalidationExecution,
+          execution_observability: executionObservability,
         },
         computed_at: execAt,
         version: "patch-execution-v1.2",
