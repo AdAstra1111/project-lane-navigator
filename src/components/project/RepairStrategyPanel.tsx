@@ -4607,6 +4607,38 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
               </Collapsible>
             )}
 
+            {/* Source type trends */}
+            {trends.source_type_trends.length > 0 && (
+              <Collapsible open={forcedOpenSubs.has("source_type_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("source_type_trends", o)}>
+                <CollapsibleTrigger asChild>
+                  <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("source_type_trends") && !highlightedEntity?.entity && highlightClass)}>
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <span className="font-semibold">Source Type Issue Rates</span>
+                    <Badge variant="outline" className="text-[8px] font-mono border-border/40 ml-1">{trends.source_type_trends.length}</Badge>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pl-4 pt-1">
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 pb-0.5 mb-0.5 border-b border-border/20">
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Source</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-10 text-right">Prior%</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-10 text-right">Recent%</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Δ</span>
+                  </div>
+                  {trends.source_type_trends.slice(0, 8).map(s => (
+                    <div key={s.source_type} className={cn("grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0", isRowHighlighted("source_type_trends", s.source_type) && highlightClass)}>
+                      <span className="text-[8px] font-mono text-muted-foreground truncate" title={`prior n=${s.sample_prior} recent n=${s.sample_recent}`}>{s.source_type}</span>
+                      <span className="text-[8px] font-mono text-muted-foreground/50 w-10 text-right">{s.prior_bad_rate_pct != null ? `${s.prior_bad_rate_pct}%` : "—"}</span>
+                      <span className="text-[8px] font-mono text-foreground/80 w-10 text-right">{s.recent_bad_rate_pct != null ? `${s.recent_bad_rate_pct}%` : "—"}</span>
+                      <span className={cn("text-[8px] font-mono font-semibold w-8 text-right", dirColor(s.direction))}>
+                        {s.delta != null && s.delta !== 0 ? (s.delta > 0 ? `+${s.delta}` : `${s.delta}`) : "—"}
+                      </span>
+                    </div>
+                  ))}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
             {/* Document type trends */}
             {trends.document_type_trends.length > 0 && (
               <Collapsible open={forcedOpenSubs.has("document_type_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("document_type_trends", o)}>
