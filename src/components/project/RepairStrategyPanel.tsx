@@ -3820,6 +3820,54 @@ function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
 // evidence_summary (execution-recommendations-v1.1).
 
 type TriageStatus = "do_now" | "watch" | "ignore";
+type ChangeStatus = "new" | "resolved" | "worsened" | "improved" | "unchanged";
+interface ChangeEntry { change_status: ChangeStatus; previous_severity?: string; current_severity?: string; title?: string; rule_id?: string; }
+
+const SEV_ORDER: Record<string, number> = { high: 2, medium: 1, low: 0 };
+
+function computeChangeMap(
+  currentRecs: DisplayRecommendation[],
+  previousSnapshot: { recommendation_id: string; severity: string }[] | null,
+): Record<string, ChangeEntry> {
+  const map: Record<string, ChangeEntry> = {};
+  if (!previousSnapshot) return map; // first run — no changes
+
+  const prevMap = new Map(previousSnapshot.map(r => [r.recommendation_id, r]));
+  const currentIds = new Set<string>();
+
+  for (const rec of currentRecs) {
+    if (rec.suppressed) continue;
+    currentIds.add(rec.recommendation_id);
+    const prev = prevMap.get(rec.recommendation_id);
+    if (!prev) {
+      map[rec.recommendation_id] = { change_status: "new", current_severity: rec.severity };
+    } else {
+      const prevSev = SEV_ORDER[prev.severity] ?? 0;
+      const curSev = SEV_ORDER[rec.severity] ?? 0;
+      if (curSev > prevSev) {
+        map[rec.recommendation_id] = { change_status: "worsened", previous_severity: prev.severity, current_severity: rec.severity };
+      } else if (curSev < prevSev) {
+        map[rec.recommendation_id] = { change_status: "improved", previous_severity: prev.severity, current_severity: rec.severity };
+      } else {
+        map[rec.recommendation_id] = { change_status: "unchanged", previous_severity: prev.severity, current_severity: rec.severity };
+      }
+    }
+  }
+
+  // Resolved: existed previously (not suppressed) but not in current
+  for (const prev of previousSnapshot) {
+    if (!currentIds.has(prev.recommendation_id) && !prev.suppressed) {
+      map[prev.recommendation_id] = {
+        change_status: "resolved",
+        previous_severity: prev.severity,
+        title: (prev as any).title,
+        rule_id: (prev as any).rule_id,
+      };
+    }
+  }
+
+  return map;
+}
 
 function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   projectId: string;
