@@ -3527,3 +3527,266 @@ function ExecutionReplaySection({
     </Collapsible>
   );
 }
+
+// ── ExecutionAnalyticsSection — read-only aggregation over persisted replay snapshots ──
+
+function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
+  const [analytics, setAnalytics] = useState<PatchExecutionAnalytics | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const loadAnalytics = async () => {
+    setLoading(true);
+    try {
+      const res = await fetchPatchExecutionAnalytics(projectId, { limit: 100 });
+      if (res?.ok) setAnalytics(res.analytics);
+    } finally {
+      setLoading(false);
+      setLoaded(true);
+    }
+  };
+
+  const a = analytics;
+  const fmtMs = (ms: number | null) => ms != null ? `${(ms / 1000).toFixed(1)}s` : '—';
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+          <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+          <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+          <Activity className="h-3 w-3" />
+          <span className="font-semibold uppercase tracking-wider">Execution Analytics</span>
+          {a && (
+            <Badge variant="outline" className="text-[9px] ml-1 font-mono text-muted-foreground border-border/50">
+              {a.summary.total_snapshots} snapshots
+            </Badge>
+          )}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-2">
+        {!loaded && (
+          <Button variant="outline" size="sm" className="text-[10px] h-7" onClick={loadAnalytics} disabled={loading}>
+            {loading ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <Activity className="h-3 w-3 mr-1" />}
+            {loading ? 'Loading…' : 'Load Analytics'}
+          </Button>
+        )}
+
+        {loaded && !a && (
+          <div className="text-[10px] text-muted-foreground italic">No analytics data available.</div>
+        )}
+
+        {a && (
+          <div className="space-y-3">
+            {/* Summary cards */}
+            <div className="grid grid-cols-4 gap-2">
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2 text-center">
+                <div className="text-[9px] text-muted-foreground uppercase">Snapshots</div>
+                <div className="text-sm font-mono font-semibold text-foreground">{a.summary.total_snapshots}</div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2 text-center">
+                <div className="text-[9px] text-muted-foreground uppercase">Executed %</div>
+                <div className="text-sm font-mono font-semibold text-emerald-400">{a.success_rates.executed_rate}%</div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2 text-center">
+                <div className="text-[9px] text-muted-foreground uppercase">Blocked</div>
+                <div className="text-sm font-mono font-semibold text-amber-400">{a.outcomes.blocked}</div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2 text-center">
+                <div className="text-[9px] text-muted-foreground uppercase">Avg Duration</div>
+                <div className="text-sm font-mono font-semibold text-foreground">{fmtMs(a.timing.avg_total_duration_ms)}</div>
+              </div>
+            </div>
+
+            {/* Outcome chips */}
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(a.outcomes).map(([key, val]) => (
+                <Badge key={key} variant="outline" className={cn("text-[9px] font-mono",
+                  key === 'executed' && 'text-emerald-400 border-emerald-500/30',
+                  key === 'partial' && 'text-amber-400 border-amber-500/30',
+                  key === 'blocked' && 'text-orange-400 border-orange-500/30',
+                  key === 'failed' && 'text-red-400 border-red-500/30',
+                  key === 'dry_run' && 'text-muted-foreground border-border/50',
+                )}>
+                  {key}: {val}
+                </Badge>
+              ))}
+            </div>
+
+            {/* Repair type table */}
+            {a.repair_type_breakdown.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Repair Types</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border/30">
+                      <TableHead className="text-[9px] h-7 px-2">Type</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">Count</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">✓</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">⚠</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">✗</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {a.repair_type_breakdown.slice(0, 8).map((r) => (
+                      <TableRow key={r.repair_type} className="border-border/20">
+                        <TableCell className="text-[9px] font-mono px-2 py-1">{r.repair_type}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right">{r.count}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-emerald-400">{r.executed}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-amber-400">{r.partial + r.blocked}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-red-400">{r.failed}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Source type table */}
+            {a.source_type_breakdown.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Source Types</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border/30">
+                      <TableHead className="text-[9px] h-7 px-2">Source</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">Count</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">✓</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">✗</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {a.source_type_breakdown.slice(0, 8).map((s) => (
+                      <TableRow key={s.source_type} className="border-border/20">
+                        <TableCell className="text-[9px] font-mono px-2 py-1">{s.source_type}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right">{s.count}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-emerald-400">{s.executed}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-red-400">{s.failed}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Document type health */}
+            {a.document_type_breakdown.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Document Type Health</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border/30">
+                      <TableHead className="text-[9px] h-7 px-2">Doc Type</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">Seen</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">✓</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">Blocked</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">Gov</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {a.document_type_breakdown.slice(0, 10).map((d) => (
+                      <TableRow key={d.doc_type} className="border-border/20">
+                        <TableCell className="text-[9px] font-mono px-2 py-1">{d.doc_type}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right">{d.total_seen}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-emerald-400">{d.executed}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-orange-400">{d.blocked}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right">{d.governance_performed}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Blocker patterns */}
+            {a.blocker_breakdown.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Blocker Patterns</div>
+                <div className="space-y-0.5">
+                  {a.blocker_breakdown.slice(0, 8).map((b) => (
+                    <div key={b.blocker_code} className="flex items-center justify-between text-[9px] font-mono">
+                      <span className="text-muted-foreground truncate max-w-[200px]">{b.blocker_code}</span>
+                      <Badge variant="outline" className="text-[8px] border-border/50 ml-2">{b.count}×</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Causal block edges */}
+            {a.causal_patterns.block_edges.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Causal Block Edges</div>
+                <div className="space-y-0.5">
+                  {a.causal_patterns.block_edges.slice(0, 6).map((e, i) => (
+                    <div key={i} className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground">
+                      <span className="truncate max-w-[120px]">{e.from_node}</span>
+                      <span className="text-orange-400">→</span>
+                      <span className="truncate max-w-[120px]">{e.to_node}</span>
+                      <Badge variant="outline" className="text-[8px] border-border/50 ml-auto">{e.count}×</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Governance + Revalidation cards */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2">
+                <div className="text-[9px] text-muted-foreground uppercase mb-1">Governance</div>
+                <div className="text-[9px] font-mono space-y-0.5">
+                  <div className="flex justify-between"><span>With gov:</span><span className="text-foreground">{a.governance.snapshots_with_governance}</span></div>
+                  <div className="flex justify-between"><span>Without:</span><span className="text-foreground">{a.governance.snapshots_without_governance}</span></div>
+                  <div className="flex justify-between"><span>Invalidations:</span><span className="text-foreground">{a.governance.invalidation_performed_count}</span></div>
+                </div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2">
+                <div className="text-[9px] text-muted-foreground uppercase mb-1">Revalidation</div>
+                <div className="text-[9px] font-mono space-y-0.5">
+                  <div className="flex justify-between"><span>With reval:</span><span className="text-foreground">{a.revalidation.snapshots_with_revalidation_execution}</span></div>
+                  <div className="flex justify-between"><span>Full success:</span><span className="text-emerald-400">{a.revalidation.full_success_count}</span></div>
+                  <div className="flex justify-between"><span>Failed:</span><span className="text-red-400">{a.revalidation.failed_count}</span></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Timing cards */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2">
+                <div className="text-[9px] text-muted-foreground uppercase mb-1">Timing</div>
+                <div className="text-[9px] font-mono space-y-0.5">
+                  <div className="flex justify-between"><span>Avg total:</span><span className="text-foreground">{fmtMs(a.timing.avg_total_duration_ms)}</span></div>
+                  <div className="flex justify-between"><span>Min:</span><span className="text-foreground">{fmtMs(a.timing.min_total_duration_ms)}</span></div>
+                  <div className="flex justify-between"><span>Max:</span><span className="text-foreground">{fmtMs(a.timing.max_total_duration_ms)}</span></div>
+                </div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2">
+                <div className="text-[9px] text-muted-foreground uppercase mb-1">Phase Avg</div>
+                <div className="text-[9px] font-mono space-y-0.5">
+                  <div className="flex justify-between"><span>Validation:</span><span className="text-foreground">{fmtMs(a.timing.avg_validation_ms)}</span></div>
+                  <div className="flex justify-between"><span>Execution:</span><span className="text-foreground">{fmtMs(a.timing.avg_section_execution_ms)}</span></div>
+                  <div className="flex justify-between"><span>Governance:</span><span className="text-foreground">{fmtMs(a.timing.avg_governance_ms)}</span></div>
+                  <div className="flex justify-between"><span>Revalidation:</span><span className="text-foreground">{fmtMs(a.timing.avg_revalidation_ms)}</span></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Invalid snapshots warning */}
+            {a.summary.invalid_snapshots > 0 && (
+              <div className="flex items-center gap-1.5 text-[9px] text-amber-400">
+                <AlertTriangle className="h-3 w-3" />
+                {a.summary.invalid_snapshots} snapshot(s) excluded due to invalid structure
+              </div>
+            )}
+
+            {/* Refresh */}
+            <Button variant="ghost" size="sm" className="text-[9px] h-6" onClick={loadAnalytics} disabled={loading}>
+              <RefreshCw className={cn("h-3 w-3 mr-1", loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
