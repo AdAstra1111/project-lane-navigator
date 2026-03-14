@@ -4341,17 +4341,16 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                     ) : (
                       <>
                         {(() => {
-                          const [copied, setCopied] = useState<string | null>(null);
                           const doCopy = async (label: string, text: string) => {
-                            try { await navigator.clipboard.writeText(text); setCopied(label); setTimeout(() => setCopied(null), 1500); } catch {}
+                            try { await navigator.clipboard.writeText(text); setMemoCopied(label); setTimeout(() => setMemoCopied(null), 1500); } catch {}
                           };
                           return (
                             <div className="flex items-center gap-1.5">
                               <button onClick={() => doCopy("plain", buildPlain())} className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground transition-colors">
-                                {copied === "plain" ? "Copied" : "Copy Memo"}
+                                {memoCopied === "plain" ? "Copied" : "Copy Memo"}
                               </button>
                               <button onClick={() => doCopy("md", buildMarkdown())} className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground transition-colors">
-                                {copied === "md" ? "Copied" : "Copy Markdown"}
+                                {memoCopied === "md" ? "Copied" : "Copy Markdown"}
                               </button>
                             </div>
                           );
