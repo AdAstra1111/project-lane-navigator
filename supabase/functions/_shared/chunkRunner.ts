@@ -507,8 +507,57 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
     }
   }
 
-  // 4. Assemble + validate + repair loop
-  let assembledContent = chunkContents.filter(Boolean).join("\n\n");
+  // 4. If any chunks are missing (failed with no content), reset them to "pending"
+  // so the repair loop below will regenerate them. Do NOT silently skip gaps.
+  const missingIndexes: number[] = [];
+  for (let i = 0; i < plan.totalChunks; i++) {
+    if (!chunkContents[i]) {
+      missingIndexes.push(i);
+      console.warn(`[chunkRunner] Chunk ${i} has no content — resetting to pending for repair`);
+      await supabase
+        .from("project_document_chunks")
+        .update({ status: "pending", error: null })
+        .eq("document_id", documentId)
+        .eq("version_id", versionId)
+        .eq("chunk_index", i);
+    }
+  }
+
+  // If there are missing chunks, regenerate them now before assembly
+  if (missingIndexes.length > 0) {
+    console.log(`[chunkRunner] Regenerating ${missingIndexes.length} missing chunk(s): [${missingIndexes.join(", ")}]`);
+    for (const idx of missingIndexes) {
+      const chunk = plan.chunks[idx];
+      if (!chunk) continue;
+      const previousEnding = idx > 0 ? (chunkContents[idx - 1] || "").slice(-500) : undefined;
+      try {
+        const regenContent = await generateSingleChunk(opts, chunk, previousEnding);
+        if (regenContent) {
+          chunkContents[idx] = regenContent;
+          await supabase
+            .from("project_document_chunks")
+            .update({ status: "done", content: regenContent, char_count: regenContent.length, error: null })
+            .eq("document_id", documentId)
+            .eq("version_id", versionId)
+            .eq("chunk_index", idx);
+          console.log(`[chunkRunner] Missing chunk ${idx} recovered: ${regenContent.length} chars`);
+        }
+      } catch (err: any) {
+        console.error(`[chunkRunner] Recovery regen for chunk ${idx} failed:`, err.message);
+        await supabase
+          .from("project_document_chunks")
+          .update({ status: "failed", error: `Recovery failed: ${err.message?.slice(0, 300)}` })
+          .eq("document_id", documentId)
+          .eq("version_id", versionId)
+          .eq("chunk_index", idx);
+      }
+    }
+  }
+
+  // Assemble — use placeholder for any still-missing chunks so gaps are visible
+  let assembledContent = chunkContents
+    .map((c, i) => c || `[SECTION ${i + 1} GENERATION FAILED — REGENERATE THIS DOCUMENT]`)
+    .join("\n\n");
   let validationResult: any;
 
   for (let repairPass = 0; repairPass <= MAX_ASSEMBLY_REPAIR_PASSES; repairPass++) {
