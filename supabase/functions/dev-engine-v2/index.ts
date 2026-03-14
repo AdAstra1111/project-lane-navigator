@@ -25335,22 +25335,37 @@ ${scenesForPrompt}`;
       }
 
       // Read foundation docs
-      const { data: docs } = await supabase.from("project_documents")
-        .select("doc_type, plaintext, extracted_text")
+      // Read foundation docs — content lives in project_document_versions, not project_documents
+      // We join via latest_version_id to get the current plaintext for each doc type
+      const { data: docRows } = await supabase.from("project_documents")
+        .select("doc_type, plaintext, extracted_text, latest_version_id")
         .eq("project_id", projectId)
         .in("doc_type", ["idea", "concept_brief", "treatment", "character_bible", "market_sheet"]);
 
-      if (!docs || docs.length === 0) {
+      if (!docRows || docRows.length === 0) {
         return new Response(JSON.stringify({ updated: false, reason: "no_seed_docs" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
+      // For each doc, prefer project_documents.plaintext; fall back to latest version plaintext
+      const docs: { doc_type: string; text: string }[] = [];
+      for (const d of docRows) {
+        let text = (d.plaintext || d.extracted_text || "").trim();
+        if (!text && d.latest_version_id) {
+          const { data: ver } = await supabase.from("project_document_versions")
+            .select("plaintext, extracted_text")
+            .eq("id", d.latest_version_id)
+            .single();
+          text = (ver?.plaintext || ver?.extracted_text || "").trim();
+        }
+        if (text) docs.push({ doc_type: d.doc_type, text });
+      }
+
       // Build concatenated context from seed docs
-      const docContext = docs.map((d: any) => {
-        const text = (d.plaintext || d.extracted_text || "").trim();
-        return text ? `--- ${d.doc_type.toUpperCase()} ---\n${text.slice(0, 6000)}` : "";
-      }).filter(Boolean).join("\n\n");
+      const docContext = docs.map((d) =>
+        `--- ${d.doc_type.toUpperCase()} ---\n${d.text.slice(0, 6000)}`
+      ).join("\n\n");
 
       if (docContext.length < 50) {
         return new Response(JSON.stringify({ updated: false, reason: "insufficient_content" }), {
