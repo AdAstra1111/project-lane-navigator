@@ -900,6 +900,62 @@ function PRP2SOptionDetail({ opt }: { opt: PRP2SStrategyOption }) {
   );
 }
 
+            {/* Export Triage JSON */}
+            {displayResult && (() => {
+              const sevOrd: Record<string, number> = { high: 0, medium: 1, low: 2 };
+              const confOrd: Record<string, number> = { high: 0, medium: 1, low: 2 };
+              const statusOrd: Record<string, number> = { do_now: 0, watch: 1, ignore: 2 };
+              const visible = displayResult.all_display.filter(r => !r.suppressed && triageMap[r.recommendation_id]);
+              const sorted = [...visible].sort((a, b) =>
+                (statusOrd[triageMap[a.recommendation_id]] ?? 3) - (statusOrd[triageMap[b.recommendation_id]] ?? 3)
+                || (sevOrd[a.severity] ?? 3) - (sevOrd[b.severity] ?? 3)
+                || (confOrd[a.confidence] ?? 3) - (confOrd[b.confidence] ?? 3)
+                || a.recommendation_id.localeCompare(b.recommendation_id)
+              );
+              const cts = { do_now: 0, watch: 0, ignore: 0 };
+              sorted.forEach(r => { const s = triageMap[r.recommendation_id]; if (s) cts[s]++; });
+
+              const exportJson = {
+                export_version: "triage-export-v1" as const,
+                exported_at: new Date().toISOString(),
+                project_id: projectId,
+                counts: { ...cts, total: sorted.length },
+                items: sorted.map(r => ({
+                  recommendation_id: r.recommendation_id,
+                  triage_status: triageMap[r.recommendation_id],
+                  title: r.title,
+                  severity: r.severity,
+                  confidence: r.confidence,
+                  rule_id: r.rule_id,
+                  category: r.category,
+                  source_bucket: r.source_bucket,
+                  suggested_action: r.suggested_action,
+                  suppressed: false as const,
+                })),
+              };
+
+              const doExport = async () => {
+                try {
+                  await navigator.clipboard.writeText(JSON.stringify(exportJson, null, 2));
+                  setTriageJsonCopied("Copied");
+                  setTimeout(() => setTriageJsonCopied(null), 1500);
+                } catch {
+                  setTriageJsonCopied("Copy failed");
+                  setTimeout(() => setTriageJsonCopied(null), 2000);
+                }
+              };
+
+              return (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={doExport}
+                    className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {triageJsonCopied || "Export triage JSON"}
+                  </button>
+                </div>
+              );
+            })()}
 
 function InterventionROISection({ roi, roiLoading }: { roi: InterventionROIData | null; roiLoading: boolean }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
