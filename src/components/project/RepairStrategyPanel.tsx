@@ -3831,43 +3831,54 @@ function deriveComparisonKey(rec: { category?: string; rule_id?: string; recomme
 
 const SEV_ORDER: Record<string, number> = { high: 2, medium: 1, low: 0 };
 
+interface SnapshotItem { recommendation_id: string; comparison_key?: string; severity: string; suppressed?: boolean; title?: string; rule_id?: string; category?: string; }
+
 function computeChangeMap(
   currentRecs: DisplayRecommendation[],
-  previousSnapshot: { recommendation_id: string; severity: string; suppressed?: boolean; title?: string; rule_id?: string }[] | null,
+  previousSnapshot: SnapshotItem[] | null,
 ): Record<string, ChangeEntry> {
   const map: Record<string, ChangeEntry> = {};
   if (!previousSnapshot) return map; // first run — no changes
 
-  const prevMap = new Map(previousSnapshot.map(r => [r.recommendation_id, r]));
-  const currentIds = new Set<string>();
+  // Build previous map keyed by comparison_key (falls back to recommendation_id for legacy snapshots)
+  const prevMap = new Map<string, SnapshotItem>();
+  for (const r of previousSnapshot) {
+    const key = r.comparison_key || deriveComparisonKey(r);
+    prevMap.set(key, r);
+  }
+  const currentKeys = new Set<string>();
 
   for (const rec of currentRecs) {
     if (rec.suppressed) continue;
-    currentIds.add(rec.recommendation_id);
-    const prev = prevMap.get(rec.recommendation_id);
+    const key = deriveComparisonKey(rec);
+    currentKeys.add(key);
+    // Map back to recommendation_id for UI badge lookups
+    const prev = prevMap.get(key);
     if (!prev) {
-      map[rec.recommendation_id] = { change_status: "new", current_severity: rec.severity };
+      map[rec.recommendation_id] = { change_status: "new", current_severity: rec.severity, comparison_key: key };
     } else {
       const prevSev = SEV_ORDER[prev.severity] ?? 0;
       const curSev = SEV_ORDER[rec.severity] ?? 0;
       if (curSev > prevSev) {
-        map[rec.recommendation_id] = { change_status: "worsened", previous_severity: prev.severity, current_severity: rec.severity };
+        map[rec.recommendation_id] = { change_status: "worsened", previous_severity: prev.severity, current_severity: rec.severity, comparison_key: key };
       } else if (curSev < prevSev) {
-        map[rec.recommendation_id] = { change_status: "improved", previous_severity: prev.severity, current_severity: rec.severity };
+        map[rec.recommendation_id] = { change_status: "improved", previous_severity: prev.severity, current_severity: rec.severity, comparison_key: key };
       } else {
-        map[rec.recommendation_id] = { change_status: "unchanged", previous_severity: prev.severity, current_severity: rec.severity };
+        map[rec.recommendation_id] = { change_status: "unchanged", previous_severity: prev.severity, current_severity: rec.severity, comparison_key: key };
       }
     }
   }
 
-  // Resolved: existed previously (not suppressed) but not in current
+  // Resolved: existed previously (not suppressed) but not in current set
   for (const prev of previousSnapshot) {
-    if (!currentIds.has(prev.recommendation_id) && !prev.suppressed) {
-      map[prev.recommendation_id] = {
+    const key = prev.comparison_key || deriveComparisonKey(prev);
+    if (!currentKeys.has(key) && !prev.suppressed) {
+      map[key] = {
         change_status: "resolved",
         previous_severity: prev.severity,
-        title: (prev as any).title,
-        rule_id: (prev as any).rule_id,
+        title: prev.title,
+        rule_id: prev.rule_id,
+        comparison_key: key,
       };
     }
   }
