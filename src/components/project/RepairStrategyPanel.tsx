@@ -2451,6 +2451,123 @@ function PatchExecutionSection({
                 </CardContent>
               </Card>
             )}
+
+            {/* ── EXECUTION OBSERVABILITY TIMELINE ── */}
+            {execution.execution_observability && (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full mt-2">
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <Activity className="h-3 w-3" />
+                    <span className="font-semibold uppercase tracking-wider">Execution Timeline</span>
+                    <Badge variant="outline" className="text-[8px] font-mono ml-1 text-muted-foreground border-border/50">
+                      {execution.execution_observability.total_duration_ms}ms
+                    </Badge>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-2 pt-2">
+                  {/* Phase duration chips */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {(Object.entries(execution.execution_observability.phase_durations_ms) as [string, number | null][]).map(([phase, ms]) => (
+                      ms != null && (
+                        <Badge key={phase} variant="outline" className="text-[8px] font-mono px-1.5 py-0 h-4 text-muted-foreground border-border/50">
+                          {phase.replace(/_/g, ' ')}: {ms}ms
+                        </Badge>
+                      )
+                    ))}
+                  </div>
+
+                  {/* Document timeline */}
+                  {execution.execution_observability.document_timeline.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-[9px] font-semibold text-muted-foreground uppercase">Document Timeline</div>
+                      {execution.execution_observability.document_timeline.map((dt, i) => (
+                        <div key={`obs-doc-${i}`} className="rounded-md border border-border/30 px-2.5 py-1.5 space-y-0.5">
+                          <div className="flex items-center gap-2 text-[10px]">
+                            <span className="font-mono text-muted-foreground w-4 text-right">{dt.order_index + 1}.</span>
+                            <span className="font-mono text-foreground font-semibold">{dt.doc_type}</span>
+                            <Badge
+                              variant={dt.status === 'executed' ? 'outline' : dt.status === 'failed' ? 'destructive' : dt.status === 'blocked' ? 'secondary' : 'outline'}
+                              className={cn(
+                                "text-[8px] font-mono px-1 py-0 h-3.5",
+                                dt.status === 'executed' && "text-emerald-400 border-emerald-500/30",
+                                dt.status === 'dry_run' && "text-blue-400 border-blue-500/30",
+                                dt.status === 'blocked' && "text-amber-400 border-amber-500/30",
+                              )}
+                            >
+                              {dt.status.replace(/_/g, ' ')}
+                            </Badge>
+                            <Badge variant="outline" className={cn(
+                              "text-[8px] font-mono px-1 py-0 h-3.5",
+                              dt.ordering_basis === "dependency_registry" ? "text-blue-400 border-blue-500/30" :
+                              dt.ordering_basis === "lane_ladder" ? "text-amber-400 border-amber-500/30" :
+                              "text-muted-foreground border-border/50"
+                            )}>
+                              {dt.ordering_basis.replace(/_/g, ' ')}
+                            </Badge>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground pl-6">
+                            <span>Sections: {dt.section_targets_executed}/{dt.section_targets_total}</span>
+                            {dt.section_targets_failed > 0 && <span className="text-destructive">{dt.section_targets_failed} failed</span>}
+                            {dt.section_targets_skipped > 0 && <span>{dt.section_targets_skipped} skipped</span>}
+                            {dt.version_id_after && <span className="font-mono">→ {dt.version_id_after.slice(0, 8)}</span>}
+                            {dt.blocked_by_doc_type && <span className="text-amber-400">blocked by: {dt.blocked_by_doc_type}</span>}
+                            {dt.governance_status && dt.governance_status !== "skipped" && (
+                              <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">
+                                gov: {dt.governance_status}
+                              </Badge>
+                            )}
+                            {dt.revalidation_status && dt.revalidation_status !== "skipped" && (
+                              <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">
+                                reval: {dt.revalidation_status}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-[9px] text-muted-foreground pl-6">{dt.execution_message}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Event trace */}
+                  {execution.execution_observability.event_trace.length > 0 && (
+                    <Collapsible>
+                      <CollapsibleTrigger asChild>
+                        <button className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors">
+                          <ChevronRight className="h-2.5 w-2.5 [[data-state=open]>&]:hidden" />
+                          <ChevronDown className="h-2.5 w-2.5 hidden [[data-state=open]>&]:block" />
+                          Event Trace ({execution.execution_observability.event_trace.length})
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="space-y-0.5 mt-1 max-h-40 overflow-y-auto">
+                          {execution.execution_observability.event_trace.map((ev, i) => (
+                            <div key={`obs-ev-${i}`} className="flex items-center gap-1.5 text-[9px]">
+                              <span className="font-mono text-muted-foreground w-4 text-right shrink-0">{ev.seq}</span>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "text-[7px] font-mono px-1 py-0 h-3 shrink-0",
+                                  ev.status === 'completed' && "text-emerald-400 border-emerald-500/30",
+                                  ev.status === 'failed' && "text-destructive border-destructive/30",
+                                  ev.status === 'blocked' && "text-amber-400 border-amber-500/30",
+                                  ev.status === 'started' && "text-blue-400 border-blue-500/30",
+                                )}
+                              >
+                                {ev.status}
+                              </Badge>
+                              <span className="font-mono text-muted-foreground shrink-0">[{ev.phase}]</span>
+                              <span className="text-foreground truncate">{ev.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
           </>
         )}
       </CollapsibleContent>
