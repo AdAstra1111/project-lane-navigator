@@ -3884,6 +3884,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [memoCopied, setMemoCopied] = useState<string | null>(null);
   const [bulkFeedback, setBulkFeedback] = useState<string | null>(null);
   const [triageJsonCopied, setTriageJsonCopied] = useState<string | null>(null);
+  const [changeMap, setChangeMap] = useState<Record<string, ChangeEntry>>({});
 
   // Load persisted triage from DB on mount
   useEffect(() => {
