@@ -3119,6 +3119,7 @@ async function tryPlateauForcePromote(
 
   if (!bestForDoc || effectiveBestCi < GLOBAL_MIN_CI) return null;
 
+  const ciGapFromTarget = targetCi - effectiveBestCi;
   await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_auto_promote",
     `CI plateaued at ${detectedCi} (target: ${targetCi}) but best eligible version is CI:${bestForDoc.ci}, GP:${bestForDoc.gp} (>=${GLOBAL_MIN_CI}). allow_defaults=ON → force-promoting.`,
     { ci: detectedCi, gp: bestForDoc.gp },
@@ -3133,8 +3134,28 @@ async function tryPlateauForcePromote(
       targetCi,
       best_version_id: bestForDoc.versionId,
       best_document_id: bestForDoc.documentId,
+      CONVERGENCE_WARNING: `Force-promoted with CI gap of ${ciGapFromTarget} (best: ${effectiveBestCi}, target: ${targetCi}). Stage did not reach full convergence.`,
+      ci_gap: ciGapFromTarget,
     }
   );
+
+  // Append CONVERGENCE_WARNING to stage_history for audit trail
+  try {
+    const { data: jobRow } = await supabase.from("auto_run_jobs").select("stage_history").eq("id", jobId).single();
+    const history = Array.isArray(jobRow?.stage_history) ? jobRow.stage_history : [];
+    history.push({
+      event: "CONVERGENCE_WARNING",
+      doc_type: currentDoc,
+      ci_gap: ciGapFromTarget,
+      best_ci: effectiveBestCi,
+      target_ci: targetCi,
+      action: "ci_plateau_auto_promote",
+      timestamp: new Date().toISOString(),
+    });
+    await supabase.from("auto_run_jobs").update({ stage_history: history }).eq("id", jobId);
+  } catch (shErr: any) {
+    console.warn(`[tryPlateauForcePromote] stage_history append failed: ${shErr?.message}`);
+  }
 
   const { error: promoteErr } = await supabase.rpc("set_current_version", {
     p_document_id: bestForDoc.documentId,
