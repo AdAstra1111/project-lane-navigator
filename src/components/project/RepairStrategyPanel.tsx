@@ -80,6 +80,7 @@ export interface RepairLandingContext {
 interface Props {
   projectId: string | undefined;
   onRouteToRepairs?: (ctx: RepairLandingContext) => void;
+  completedRepairSignatures?: Set<string>;
 }
 
 /* ── Pressure color helpers ── */

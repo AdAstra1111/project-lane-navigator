@@ -287,7 +287,7 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
 
       <CardContent className="space-y-6">
         {dashTab === 'strategy' ? (
-          <RepairStrategyPanel projectId={projectId} onRouteToRepairs={handleRouteToRepairs} />
+          <RepairStrategyPanel projectId={projectId} onRouteToRepairs={handleRouteToRepairs} completedRepairSignatures={completedRepairSignatures} />
         ) : (
         <>
         {/* ═══ AUTOPILOT STATUS ═══ */}
