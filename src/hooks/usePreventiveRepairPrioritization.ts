@@ -601,6 +601,50 @@ export interface PatchExecutionResult {
   };
   post_execution?: PostExecutionGovernance | null;
   revalidation_execution?: RevalidationExecution | null;
+  execution_observability?: ExecutionObservability | null;
+}
+
+export interface ExecutionObservabilityDocTimeline {
+  document_id: string;
+  doc_type: string;
+  order_index: number;
+  ordering_basis: "dependency_registry" | "lane_ladder" | "lexical_fallback";
+  status: "executed" | "failed" | "blocked" | "dry_run";
+  blocked_by_doc_type: string | null;
+  blocked_reason: string | null;
+  section_targets_total: number;
+  section_targets_executed: number;
+  section_targets_failed: number;
+  section_targets_skipped: number;
+  version_id_before: string | null;
+  version_id_after: string | null;
+  governance_status: "performed" | "skipped" | "deferred" | "failed" | null;
+  revalidation_status: "performed" | "partial" | "deferred" | "failed" | null;
+  execution_message: string;
+}
+
+export interface ExecutionObservabilityEvent {
+  seq: number;
+  event_type: string;
+  document_id: string | null;
+  doc_type: string | null;
+  phase: "validation" | "execution" | "governance" | "revalidation";
+  status: "started" | "completed" | "failed" | "blocked" | "skipped";
+  message: string;
+}
+
+export interface ExecutionObservability {
+  started_at: string;
+  finished_at: string;
+  total_duration_ms: number;
+  phase_durations_ms: {
+    validation: number | null;
+    section_execution: number | null;
+    governance: number | null;
+    revalidation: number | null;
+  };
+  document_timeline: ExecutionObservabilityDocTimeline[];
+  event_trace: ExecutionObservabilityEvent[];
 }
 
 export interface RevalidationExecutionTarget {
