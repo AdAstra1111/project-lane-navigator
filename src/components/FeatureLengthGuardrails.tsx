@@ -4,10 +4,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, Shield, Clock, TrendingUp } from 'lucide-react';
+import { Shield, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Props {
@@ -23,7 +22,7 @@ function estimateRuntime(text: string, mode: string) {
   return { words, minutes: words / divisor };
 }
 
-export function FeatureLengthGuardrails({ projectId, versionText, selectedDocId, selectedVersionId }: Props) {
+export function FeatureLengthGuardrails({ projectId, versionText }: Props) {
   const qc = useQueryClient();
   const [guardrailsOn, setGuardrailsOn] = useState(true);
 
@@ -42,8 +41,8 @@ export function FeatureLengthGuardrails({ projectId, versionText, selectedDocId,
   });
 
   const mode = project?.runtime_estimation_mode ?? 'feature';
-  const softMin = project?.min_runtime_minutes ?? 80;
-  const hardFloor = project?.min_runtime_hard_floor ?? 70;
+  const softMin = project?.min_runtime_minutes ?? 95;
+  const hardFloor = project?.min_runtime_hard_floor ?? 85;
 
   const { words, minutes } = useMemo(() => estimateRuntime(versionText, mode), [versionText, mode]);
 
@@ -55,36 +54,6 @@ export function FeatureLengthGuardrails({ projectId, versionText, selectedDocId,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['project-runtime-settings', projectId] });
       toast.success('Runtime settings updated');
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const expandMutation = useMutation({
-    mutationFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
-      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          action: 'expand-to-feature-floor',
-          projectId,
-          documentId: selectedDocId,
-          versionId: selectedVersionId,
-          currentText: versionText,
-        }),
-      });
-      const result = await resp.json();
-      if (!resp.ok) throw new Error(result.error || 'Expand error');
-      return result;
-    },
-    onSuccess: (data) => {
-      toast.success(`Expanded to ~${data.estimatedMinutes} mins (${data.wordCount?.toLocaleString()} words)`);
-      qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
-      qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -158,18 +127,6 @@ export function FeatureLengthGuardrails({ projectId, versionText, selectedDocId,
               </SelectContent>
             </Select>
           </div>
-
-          {/* Expand Button */}
-          {isBelowSoft && selectedDocId && selectedVersionId && (
-            <Button
-              size="sm" className="w-full h-8 text-xs gap-1.5"
-              onClick={() => expandMutation.mutate()}
-              disabled={expandMutation.isPending}
-            >
-              {expandMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <TrendingUp className="h-3 w-3" />}
-              Expand to Feature Length (~{softMin} mins)
-            </Button>
-          )}
         </CardContent>
       )}
     </Card>

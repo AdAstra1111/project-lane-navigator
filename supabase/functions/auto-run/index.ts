@@ -7272,6 +7272,37 @@ Deno.serve(async (req) => {
               convertedVersionId = newVers?.[0]?.id || null;
             }
           } else {
+            // ── FIX 2: Assimilation Context — fetch approved plaintext of all preceding stages ──
+            const ASSIMILATION_STAGES = ["concept_brief", "treatment", "story_outline", "character_bible", "beat_sheet"];
+            const ASSIMILATION_TARGETS = new Set(["feature_script", "production_draft", "season_script", "episode_script"]);
+            let assimilationContext: Record<string, string> | undefined;
+            if (ASSIMILATION_TARGETS.has(currentDoc)) {
+              assimilationContext = {};
+              for (const stage of ASSIMILATION_STAGES) {
+                try {
+                  const { data: stageDocs } = await supabase.from("project_documents")
+                    .select("id").eq("project_id", job.project_id).eq("doc_type", stage)
+                    .order("created_at", { ascending: false }).limit(1);
+                  if (stageDocs?.[0]) {
+                    const { data: stageVers } = await supabase.from("project_document_versions")
+                      .select("plaintext, approval_status, is_current")
+                      .eq("document_id", stageDocs[0].id)
+                      .order("version_number", { ascending: false });
+                    const approved = (stageVers || []).find((v: any) => v.approval_status === "approved" && v.is_current) ||
+                      (stageVers || []).find((v: any) => v.approval_status === "approved") ||
+                      (stageVers || [])[0];
+                    if (approved?.plaintext && approved.plaintext.trim().length > 50) {
+                      assimilationContext[stage] = approved.plaintext;
+                    }
+                  }
+                } catch (aErr: any) {
+                  console.warn(`[auto-run] assimilation_context_fetch_failed { stage: "${stage}", error: "${aErr?.message}" }`);
+                }
+              }
+              if (Object.keys(assimilationContext).length === 0) assimilationContext = undefined;
+              else console.log(`[auto-run] assimilation_context_resolved { doc: "${currentDoc}", stages: ${JSON.stringify(Object.keys(assimilationContext))} }`);
+            }
+
             const { result: convertResult } = await callEdgeFunctionWithRetry(
               supabase, supabaseUrl, "dev-engine-v2", {
                 action: "convert",
@@ -7279,6 +7310,7 @@ Deno.serve(async (req) => {
                 documentId: prevDoc.id,
                 versionId: prevVersion.id,
                 targetOutput: currentDoc.toUpperCase(),
+                ...(assimilationContext ? { assimilationContext } : {}),
               }, token, job.project_id, format, currentDoc, jobId, stepCount + 1
             );
 
