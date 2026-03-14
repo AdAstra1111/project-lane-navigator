@@ -2626,6 +2626,8 @@ function ExecutionReplaySection({
     if (!projectId) return;
     setHistoryLoading(true);
     setAccumulatedItems([]);
+    setCompareItem(null);
+    setCompareResult(null);
     setNextCursor(null);
     setHasMore(false);
     try {
