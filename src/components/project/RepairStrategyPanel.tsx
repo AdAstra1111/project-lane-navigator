@@ -3892,8 +3892,8 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
             <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground/70 border-border/30 shrink-0">
               {rec.confidence} confidence
             </Badge>
-            {/* Trend linkage chip */}
-            <Badge variant="outline" className={cn("text-[8px] font-mono shrink-0", trendStatusColor(linkage.status))} title={linkage.source_key}>
+            {/* Trend linkage chip — raw source_key on title for audit */}
+            <Badge variant="outline" className={cn("text-[8px] font-mono shrink-0", trendStatusColor(linkage.status))} title={`Trend source: ${linkage.source_key}`}>
               {trendStatusIcon(linkage.status)} {linkage.chip_label}
             </Badge>
             {linkage.metric_summary && (
