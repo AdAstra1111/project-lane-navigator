@@ -31238,6 +31238,17 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           };
         }
       }
+      obsGovernanceMs = shouldRunGovernance ? Date.now() - obsGovStart : null;
+      if (shouldRunGovernance) {
+        const govFailed = postExecution && (postExecution as any).governance_notes?.governance_error;
+        obsEmit("governance", "governance", govFailed ? "failed" : "completed", govFailed ? `Governance failed: ${govFailed}` : "Governance completed");
+        // Backfill governance_status on executed doc timelines
+        for (const dt of obsDocTimelines) {
+          if (dt.status === "executed") {
+            dt.governance_status = govFailed ? "failed" : "performed";
+          }
+        }
+      }
 
       // ── REVALIDATION EXECUTION v1 ──
       // Execute bounded revalidation for the patched document and downstream targets
