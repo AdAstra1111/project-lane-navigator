@@ -1779,16 +1779,17 @@ export default function ProjectDevelopmentEngine() {
                    <Card>
                      <CardContent className="p-4">
                           {isBgGenerating ? (
-                            isSeasonScript && selectedVersionId ? (
+                            selectedVersionId ? (
                               <BgGenBanner
                                 versionId={selectedVersionId}
                                 episodeCount={(selectedVersion as any)?.meta_json?.episode_count}
+                                docType={selectedDoc?.doc_type}
                               />
                             ) : (
                               <div className="flex flex-col items-center justify-center h-[300px] gap-3 text-muted-foreground">
                                 <Loader2 className="h-6 w-6 animate-spin" />
                                 <p className="text-sm text-center max-w-sm">
-                                  Generating content — this may take a few minutes for large documents like Season Script. The page will update automatically when ready.
+                                  Generating content — this may take a few minutes. The page will update automatically when ready.
                                 </p>
                               </div>
                             )

@@ -1,14 +1,22 @@
 /**
- * BgGenBanner — wraps SeasonScriptProgress in an error boundary.
- * If SeasonScriptProgress throws for any reason, falls back to a simple spinner.
+ * BgGenBanner — wraps SeasonScriptProgress or SectionedDocProgress in an error boundary.
+ * Routes to the appropriate progress component based on doc type.
+ * Falls back to a simple spinner on error.
  */
 import React from 'react';
 import { Loader2 } from 'lucide-react';
 import { SeasonScriptProgress } from './SeasonScriptProgress';
+import { SectionedDocProgress } from './SectionedDocProgress';
+
+const SECTIONED_PROSE_TYPES = new Set([
+  'story_outline', 'treatment', 'long_treatment', 'beat_sheet',
+  'feature_script', 'screenplay_draft', 'character_bible', 'long_character_bible',
+]);
 
 interface BgGenBannerProps {
   versionId: string;
   episodeCount?: number;
+  docType?: string;
 }
 
 interface State { hasError: boolean }
@@ -36,10 +44,16 @@ class BgGenBannerErrorBoundary extends React.Component<
   }
 }
 
-export function BgGenBanner({ versionId, episodeCount }: BgGenBannerProps) {
+export function BgGenBanner({ versionId, episodeCount, docType }: BgGenBannerProps) {
+  const isSectioned = docType && SECTIONED_PROSE_TYPES.has(docType);
+
   return (
-    <BgGenBannerErrorBoundary versionId={versionId} episodeCount={episodeCount}>
-      <SeasonScriptProgress versionId={versionId} episodeCount={episodeCount} />
+    <BgGenBannerErrorBoundary versionId={versionId} episodeCount={episodeCount} docType={docType}>
+      {isSectioned ? (
+        <SectionedDocProgress versionId={versionId} docType={docType} />
+      ) : (
+        <SeasonScriptProgress versionId={versionId} episodeCount={episodeCount} />
+      )}
     </BgGenBannerErrorBoundary>
   );
 }
