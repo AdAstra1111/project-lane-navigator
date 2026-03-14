@@ -3818,7 +3818,10 @@ function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
 // Renders explainability fields: rule_id, threshold_version, trigger_metrics,
 // evidence_summary (execution-recommendations-v1.1).
 
-function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
+function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
+  projectId: string;
+  onNavigateToTrend: (target: TrendNavigationTarget) => void;
+}) {
   const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
   const [trendsData, setTrendsData] = useState<PatchExecutionTrendsResponse | null>(null);
   const [loading, setLoading] = useState(false);
