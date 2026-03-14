@@ -5981,7 +5981,7 @@ export type Database = {
       }
       execution_recommendation_triage: {
         Row: {
-          comparison_key: string | null
+          comparison_key: string
           created_at: string
           created_by: string | null
           id: string
@@ -5991,7 +5991,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          comparison_key?: string | null
+          comparison_key: string
           created_at?: string
           created_by?: string | null
           id?: string
@@ -6001,7 +6001,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          comparison_key?: string | null
+          comparison_key?: string
           created_at?: string
           created_by?: string | null
           id?: string
