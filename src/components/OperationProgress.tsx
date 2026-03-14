@@ -197,6 +197,16 @@ export const GENERATE_PITCH_STAGES: Stage[] = [
   { at: 90, label: 'Saving results…' },
 ];
 
+export const DEV_GENERATE_STAGES: Stage[] = [
+  { at: 3, label: 'Starting generation…' },
+  { at: 15, label: 'Loading project context…' },
+  { at: 30, label: 'Building creative framework…' },
+  { at: 50, label: 'Generating content…' },
+  { at: 70, label: 'Applying narrative constraints…' },
+  { at: 85, label: 'Reviewing output…' },
+  { at: 94, label: 'Saving new version…' },
+];
+
 export const DEV_ANALYZE_STAGES: Stage[] = [
   { at: 5, label: 'Reading document…' },
   { at: 20, label: 'Evaluating creative integrity…' },

@@ -76,6 +76,8 @@ interface ActionToolbarProps {
   /** Generate document on demand */
   onGenerateDocument?: () => void;
   generateDocumentPending?: boolean;
+  /** True while background generation is running (bg_generating flag on version) */
+  isBgGenerating?: boolean;
 }
 
 export function ActionToolbar({
@@ -100,6 +102,7 @@ export function ActionToolbar({
   assignedLane,
   onGenerateDocument,
   generateDocumentPending,
+  isBgGenerating,
 }: ActionToolbarProps) {
   const navigate = useNavigate();
   const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
@@ -128,9 +131,16 @@ export function ActionToolbar({
 
         {/* Generate document */}
         {onGenerateDocument && (
-          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={onGenerateDocument} disabled={anyPending || generateDocumentPending}>
-            {generateDocumentPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            Generate
+          <Button
+            size="sm"
+            variant="outline"
+            className={`h-8 text-xs gap-1.5 ${isBgGenerating ? 'border-amber-500/50 text-amber-400' : ''}`}
+            onClick={onGenerateDocument}
+            disabled={anyPending || generateDocumentPending || isBgGenerating}
+            title={isBgGenerating ? 'Generating in background — page will update when done' : 'Generate document'}
+          >
+            {(generateDocumentPending || isBgGenerating) ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            {isBgGenerating ? 'Generating…' : 'Generate'}
           </Button>
         )}
 

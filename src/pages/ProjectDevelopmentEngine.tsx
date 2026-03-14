@@ -32,7 +32,7 @@ import {
 
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
+import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES, DEV_GENERATE_STAGES } from '@/components/OperationProgress';
 import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
 import { approveAndActivate, unapproveVersion } from '@/lib/active-folder/approveAndActivate';
 import { recordResolutions } from '@/lib/decisions/client';
@@ -1708,6 +1708,7 @@ export default function ProjectDevelopmentEngine() {
                     assignedLane={project?.assigned_lane}
                     onGenerateDocument={handleGenerateDocument}
                     generateDocumentPending={isGeneratingDocument}
+                    isBgGenerating={isBgGenerating}
                   />
 
                   {/* Resume auto-run handled by banner above */}
@@ -1716,6 +1717,7 @@ export default function ProjectDevelopmentEngine() {
                   <OperationProgress isActive={analyze.isPending} stages={DEV_ANALYZE_STAGES} onStop={() => analyze.reset()} onRestart={handleRunEngine} />
                   <OperationProgress isActive={generateNotes.isPending} stages={DEV_NOTES_STAGES} onStop={() => generateNotes.reset()} onRestart={() => generateNotes.mutate(latestAnalysis)} />
                   <OperationProgress isActive={rewrite.isPending} stages={DEV_REWRITE_STAGES} onStop={() => rewrite.reset()} onRestart={() => handleRewrite()} />
+                  <OperationProgress isActive={isBgGenerating || isGeneratingDocument} stages={DEV_GENERATE_STAGES} />
                   <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} onStop={() => convert.reset()} onRestart={() => {
                     // PIPELINE AUTHORITY: use Pipeline Brain (promotionIntel), never LLM output
                     const nbd = promotionIntel.data?.next_document;
