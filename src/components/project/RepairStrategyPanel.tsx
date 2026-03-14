@@ -72,6 +72,7 @@ import {
 
 interface Props {
   projectId: string | undefined;
+  onRouteToRepairs?: () => void;
 }
 
 /* ── Pressure color helpers ── */
@@ -100,7 +101,7 @@ const RISK_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
 type SortKey = 'preventive_rank' | 'baseline_rank' | 'preventive_score' | 'rank_delta' | 'root_cause_signal' | 'preventive_confidence_signal';
 
-export function RepairStrategyPanel({ projectId }: Props) {
+export function RepairStrategyPanel({ projectId, onRouteToRepairs }: Props) {
   const { prp1, nrf1, prp2, roi, prp2s, rcc, iv, isLoading, nrf1Loading, prp2Loading, roiLoading, prp2sLoading, rccLoading, ivLoading, error, refresh } = usePreventiveRepairPrioritization(projectId);
   const [selectedRepair, setSelectedRepair] = useState<PRP1Repair | null>(null);
   const [trendNavTarget, setTrendNavTarget] = useState<TrendNavigationTarget | null>(null);
@@ -544,7 +545,7 @@ export function RepairStrategyPanel({ projectId }: Props) {
       <ExecutionAnalyticsSection projectId={projectId} />
 
       {/* ═══ SECTION 4j: EXECUTION RECOMMENDATIONS (read-only, deterministic) ═══ */}
-      <ExecutionRecommendationsSection projectId={projectId} onNavigateToTrend={setTrendNavTarget} />
+      <ExecutionRecommendationsSection projectId={projectId} onNavigateToTrend={setTrendNavTarget} onRouteToRepairs={onRouteToRepairs} />
 
       {/* ═══ SECTION 4k: EXECUTION TRENDS (read-only) ═══ */}
       <ExecutionTrendsSection projectId={projectId} navigationTarget={trendNavTarget} onTargetHandled={() => setTrendNavTarget(null)} />
@@ -4059,9 +4060,10 @@ function computeChangeMap(
   return map;
 }
 
-function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
+function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRouteToRepairs }: {
   projectId: string;
   onNavigateToTrend: (target: TrendNavigationTarget) => void;
+  onRouteToRepairs?: () => void;
 }) {
   const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
   const [trendsData, setTrendsData] = useState<PatchExecutionTrendsResponse | null>(null);
@@ -4942,6 +4944,19 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                                     {action.label}
                                   </button>
                                 ))}
+                              </div>
+                            )}
+                            {status === "do_now" && onRouteToRepairs && (
+                              <div className="flex items-center" onClick={e => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  className="text-[7px] font-mono px-1.5 py-0.5 rounded border border-accent/40 bg-accent/10 text-accent-foreground/80 hover:text-accent-foreground hover:bg-accent/20 transition-colors flex items-center gap-1"
+                                  title="Switch to Repairs tab and scroll to repair queue"
+                                  onClick={onRouteToRepairs}
+                                >
+                                  <ArrowRight className="h-2.5 w-2.5" />
+                                  Route to Repair
+                                </button>
                               </div>
                             )}
                           </div>

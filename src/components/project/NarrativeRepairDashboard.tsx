@@ -133,6 +133,15 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
     diffHook.loadDiff(sceneKey);
   };
 
+  const handleRouteToRepairs = useCallback(() => {
+    setDashTab('repairs');
+    // Allow tab switch to render, then scroll to repair queue panel
+    setTimeout(() => {
+      const el = document.getElementById('repair-queue-panel');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  }, []);
+
   const refreshAfterExecution = useCallback(() => {
     refreshMonitor();
     refetchPlan();
@@ -186,7 +195,7 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
         </CardHeader>
         <CardContent className="space-y-4">
           {dashTab === 'strategy' ? (
-            <RepairStrategyPanel projectId={projectId} />
+            <RepairStrategyPanel projectId={projectId} onRouteToRepairs={handleRouteToRepairs} />
           ) : (
           <>
           {/* Autopilot Status */}
@@ -259,7 +268,7 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
 
       <CardContent className="space-y-6">
         {dashTab === 'strategy' ? (
-          <RepairStrategyPanel projectId={projectId} />
+          <RepairStrategyPanel projectId={projectId} onRouteToRepairs={handleRouteToRepairs} />
         ) : (
         <>
         {/* ═══ AUTOPILOT STATUS ═══ */}
