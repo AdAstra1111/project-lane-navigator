@@ -4944,8 +4944,8 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
                                   (ev?.source_type && completedRepairSignatures.has(`scope_key::${ev.source_type}`));
                                 if (!hasMatch) return null;
                                 return (
-                                  <Badge variant="outline" className="text-[6px] font-mono shrink-0 text-emerald-400 border-emerald-500/30 bg-emerald-500/10" title="A matching repair has completed in the repair queue">
-                                    ✓ Repair completed
+                                  <Badge variant="outline" className="text-[6px] font-mono shrink-0 text-emerald-400 border-emerald-500/30 bg-emerald-500/10" title="A repair related to this area has completed — verify manually">
+                                    ✓ Related repair done
                                   </Badge>
                                 );
                               })()}
