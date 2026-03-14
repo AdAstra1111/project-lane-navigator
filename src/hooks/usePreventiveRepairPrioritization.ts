@@ -1266,6 +1266,13 @@ export interface TrendRevalidationMetrics {
   revalidation_failure_or_deferral_rate_pct: TrendNullableCountPoint;
 }
 
+export interface TrendTopSignalEntry {
+  signal_key: string;
+  rationale: string;
+  delta: number;
+  confidence: "high" | "medium" | "low";
+}
+
 export interface ExecutionRecommendationTrends {
   window_summary: TrendWindowSummary;
   overall_outcomes: TrendOverallOutcomes;
@@ -1277,6 +1284,8 @@ export interface ExecutionRecommendationTrends {
   timing_trends: TrendTimingMetrics;
   governance_trends: TrendGovernanceMetrics;
   revalidation_trends: TrendRevalidationMetrics;
+  top_worsening_signals: TrendTopSignalEntry[];
+  top_improving_signals: TrendTopSignalEntry[];
 }
 
 export interface PatchExecutionTrendsResponse {

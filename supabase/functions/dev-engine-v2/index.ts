@@ -33504,7 +33504,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       recentCount: number,
       priorCount: number,
     ) {
-      const MIN_WINDOW = 3;
+      const MIN_WINDOW = 5;
       const sufficientRecent = recentCount >= MIN_WINDOW;
       const sufficientPrior  = priorCount  >= MIN_WINDOW;
       const sufficient = sufficientRecent && sufficientPrior;
@@ -33811,6 +33811,77 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         },
       };
 
+      // ── Top worsening / improving signals ──
+      // Collect every named delta into a flat candidate list. Rank by |delta|.
+      // confidence: "high" when both windows >= 10, "medium" >= 5, else "low".
+      const confLevel = (): "high" | "medium" | "low" => {
+        if (recentCount >= 10 && priorCount >= 10) return "high";
+        if (recentCount >= 5  && priorCount >= 5)  return "medium";
+        return "low";
+      };
+      const conf = confLevel();
+
+      type TrendCandidate = {
+        signal_key: string;
+        rationale: string;
+        delta: number;
+        direction: Direction;
+        confidence: "high" | "medium" | "low";
+      };
+
+      const candidates: TrendCandidate[] = [];
+      const pushCandidate = (
+        key: string,
+        rationale: string,
+        delta: number | null,
+        dir: Direction,
+      ) => {
+        if (delta == null || dir === "flat" || dir === "insufficient_data") return;
+        candidates.push({ signal_key: key, rationale, delta: Math.round(delta * 10) / 10, direction: dir, confidence: conf });
+      };
+
+      // Overall outcomes
+      pushCandidate("blocked_rate_pct", `Blocked rate changed from ${overall_outcomes.blocked_rate_pct.prior}% to ${overall_outcomes.blocked_rate_pct.recent}%`, overall_outcomes.blocked_rate_pct.delta, overall_outcomes.blocked_rate_pct.direction);
+      pushCandidate("failed_rate_pct", `Failed rate changed from ${overall_outcomes.failed_rate_pct.prior}% to ${overall_outcomes.failed_rate_pct.recent}%`, overall_outcomes.failed_rate_pct.delta, overall_outcomes.failed_rate_pct.direction);
+      pushCandidate("executed_rate_pct", `Executed rate changed from ${overall_outcomes.executed_rate_pct.prior}% to ${overall_outcomes.executed_rate_pct.recent}%`, overall_outcomes.executed_rate_pct.delta, overall_outcomes.executed_rate_pct.direction);
+      pushCandidate("partial_or_better_rate_pct", `Partial-or-better rate changed from ${overall_outcomes.partial_or_better_rate_pct.prior}% to ${overall_outcomes.partial_or_better_rate_pct.recent}%`, overall_outcomes.partial_or_better_rate_pct.delta, overall_outcomes.partial_or_better_rate_pct.direction);
+      // Governance
+      pushCandidate("governance_coverage_rate_pct", `Governance coverage changed from ${governance_trends.governance_coverage_rate_pct.prior}% to ${governance_trends.governance_coverage_rate_pct.recent}%`, governance_trends.governance_coverage_rate_pct.delta, governance_trends.governance_coverage_rate_pct.direction);
+      pushCandidate("invalidation_performed_rate_pct", `Invalidation rate changed from ${governance_trends.invalidation_performed_rate_pct.prior}% to ${governance_trends.invalidation_performed_rate_pct.recent}%`, governance_trends.invalidation_performed_rate_pct.delta, governance_trends.invalidation_performed_rate_pct.direction);
+      // Revalidation
+      pushCandidate("revalidation_execution_rate_pct", `Revalidation execution rate changed from ${revalidation_trends.revalidation_execution_rate_pct.prior}% to ${revalidation_trends.revalidation_execution_rate_pct.recent}%`, revalidation_trends.revalidation_execution_rate_pct.delta, revalidation_trends.revalidation_execution_rate_pct.direction);
+      pushCandidate("revalidation_success_rate_pct", `Revalidation full-success rate changed from ${revalidation_trends.revalidation_success_rate_pct.prior}% to ${revalidation_trends.revalidation_success_rate_pct.recent}%`, revalidation_trends.revalidation_success_rate_pct.delta, revalidation_trends.revalidation_success_rate_pct.direction);
+      pushCandidate("revalidation_failure_or_deferral_rate_pct", `Revalidation failure/deferral rate changed from ${revalidation_trends.revalidation_failure_or_deferral_rate_pct.prior}% to ${revalidation_trends.revalidation_failure_or_deferral_rate_pct.recent}%`, revalidation_trends.revalidation_failure_or_deferral_rate_pct.delta, revalidation_trends.revalidation_failure_or_deferral_rate_pct.direction);
+      // Timing
+      pushCandidate("avg_section_execution_ms", `Avg section execution changed from ${timing_trends.avg_section_execution_ms.prior}ms to ${timing_trends.avg_section_execution_ms.recent}ms`, timing_trends.avg_section_execution_ms.delta, timing_trends.avg_section_execution_ms.direction);
+      pushCandidate("avg_total_duration_ms", `Avg total duration changed from ${timing_trends.avg_total_duration_ms.prior}ms to ${timing_trends.avg_total_duration_ms.recent}ms`, timing_trends.avg_total_duration_ms.delta, timing_trends.avg_total_duration_ms.direction);
+      // Recommendation signals
+      pushCandidate("overall_health_signal", `Overall unhealthy rate changed from ${recommendation_signal_trends.overall_health_signal.prior}% to ${recommendation_signal_trends.overall_health_signal.recent}%`, recommendation_signal_trends.overall_health_signal.delta, recommendation_signal_trends.overall_health_signal.direction);
+      pushCandidate("blocker_signal_count", `Total blocker occurrences changed from ${recommendation_signal_trends.blocker_signal_count.prior} to ${recommendation_signal_trends.blocker_signal_count.recent}`, recommendation_signal_trends.blocker_signal_count.delta, recommendation_signal_trends.blocker_signal_count.direction);
+      // Top blocker code by absolute delta (most movement)
+      const topBlocker = blocker_code_trends.filter(b => b.direction !== "flat" && b.direction !== "insufficient_data")[0];
+      if (topBlocker) {
+        pushCandidate(`blocker:${topBlocker.blocker_code}`, `Blocker "${topBlocker.blocker_code}" changed from ${topBlocker.prior_count} to ${topBlocker.recent_count} occurrences`, topBlocker.delta, topBlocker.direction);
+      }
+      // Top repair type by absolute delta (most movement)
+      const topRepair = repair_type_trends.filter(r => r.direction !== "flat" && r.direction !== "insufficient_data")[0];
+      if (topRepair) {
+        pushCandidate(`repair_type:${topRepair.repair_type}`, `Repair type "${topRepair.repair_type}" issue rate changed from ${topRepair.prior_bad_rate_pct}% to ${topRepair.recent_bad_rate_pct}%`, topRepair.delta, topRepair.direction);
+      }
+      // Top doc type by absolute delta (most movement)
+      const topDoc = document_type_trends.filter(d => d.direction !== "flat" && d.direction !== "insufficient_data")[0];
+      if (topDoc) {
+        pushCandidate(`doc_type:${topDoc.doc_type}`, `Doc type "${topDoc.doc_type}" instability rate changed from ${topDoc.prior_instability_rate_pct}% to ${topDoc.recent_instability_rate_pct}%`, topDoc.delta, topDoc.direction);
+      }
+
+      // Sort by |delta| descending, then stable key order
+      candidates.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.signal_key.localeCompare(b.signal_key));
+
+      const top_worsening_signals = candidates.filter(c => c.direction === "worsening").slice(0, 5)
+        .map(({ signal_key, rationale, delta, confidence }) => ({ signal_key, rationale, delta, confidence }));
+      const top_improving_signals = candidates.filter(c => c.direction === "improving").slice(0, 5)
+        .map(({ signal_key, rationale, delta, confidence }) => ({ signal_key, rationale, delta, confidence }));
+
       return {
         window_summary: {
           recent_count: recentCount,
@@ -33826,6 +33897,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         timing_trends,
         governance_trends,
         revalidation_trends,
+        top_worsening_signals,
+        top_improving_signals,
       };
     }
 
@@ -33844,8 +33917,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const recentLimit = Math.min(Math.max(Number(rawRecent) || 25, 3), 100);
-      const priorLimit  = Math.min(Math.max(Number(rawPrior)  || 25, 3), 100);
+      const recentLimit = Math.min(Math.max(Number(rawRecent) || 25, 5), 100);
+      const priorLimit  = Math.min(Math.max(Number(rawPrior)  || 25, 5), 100);
       const scanLimit   = recentLimit + priorLimit + 20; // buffer for invalid rows
       const trendsAt    = new Date().toISOString();
 
@@ -33881,8 +33954,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         recentSnapshots.length, priorSnapshots.length,
       );
 
-      // Honest report when data is insufficient
-      const insufficient = recentSnapshots.length < 3 || priorSnapshots.length < 3;
+      // Honest report when data is insufficient (minimum window = 5)
+      const insufficient = recentSnapshots.length < 5 || priorSnapshots.length < 5;
 
       console.log("[dev-engine-v2] get_patch_execution_recommendation_trends", {
         project_id: projectId,
@@ -33898,7 +33971,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         project_id: projectId,
         insufficient_data: insufficient,
         insufficient_reason: insufficient
-          ? `recent_window=${recentSnapshots.length} prior_window=${priorSnapshots.length}; both require >= 3 valid snapshots`
+          ? `recent_window=${recentSnapshots.length} prior_window=${priorSnapshots.length}; both require >= 5 valid snapshots for directional confidence`
           : null,
         trends,
         window: { recent_limit: recentLimit, prior_limit: priorLimit, total_valid_scanned: validRows.length },

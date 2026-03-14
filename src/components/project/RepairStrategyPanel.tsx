@@ -38,6 +38,7 @@ import {
   type ExecutionRecommendations, type ExecutionRecommendation,
   type PatchExecutionTrendsResponse, type ExecutionRecommendationTrends,
   type TrendDirection, type TrendRatePoint, type TrendNullableCountPoint, type TrendCountPoint,
+  type TrendTopSignalEntry,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -4105,6 +4106,42 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
                   </div>
                 </CollapsibleContent>
               </Collapsible>
+            )}
+
+            {/* Top worsening + improving signals */}
+            {(trends.top_worsening_signals.length > 0 || trends.top_improving_signals.length > 0) && (
+              <div className="grid grid-cols-2 gap-2">
+                {/* Worsening */}
+                {trends.top_worsening_signals.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[8px] font-mono text-red-400/70 uppercase font-semibold">↑ Worsening</div>
+                    {trends.top_worsening_signals.map((s: TrendTopSignalEntry) => (
+                      <div key={s.signal_key} className="rounded border border-red-500/20 bg-red-500/5 px-2 py-1 space-y-0.5">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-[8px] font-mono text-red-400 font-semibold">{s.signal_key}</span>
+                          <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/20">{s.confidence}</Badge>
+                        </div>
+                        <div className="text-[8px] text-muted-foreground/70 leading-snug">{s.rationale}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Improving */}
+                {trends.top_improving_signals.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[8px] font-mono text-emerald-400/70 uppercase font-semibold">↓ Improving</div>
+                    {trends.top_improving_signals.map((s: TrendTopSignalEntry) => (
+                      <div key={s.signal_key} className="rounded border border-emerald-500/20 bg-emerald-500/5 px-2 py-1 space-y-0.5">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-[8px] font-mono text-emerald-400 font-semibold">{s.signal_key}</span>
+                          <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/20">{s.confidence}</Badge>
+                        </div>
+                        <div className="text-[8px] text-muted-foreground/70 leading-snug">{s.rationale}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             <Button variant="ghost" size="sm" className="text-[9px] h-6" onClick={load} disabled={loading}>
