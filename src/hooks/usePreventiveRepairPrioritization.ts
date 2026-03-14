@@ -1433,10 +1433,12 @@ const TREND_CHIP_LABELS: Record<LinkedTrendStatus, string> = {
 export function humanizeSourceKey(sourceKey: string): string {
   if (sourceKey === "none") return "";
   if (sourceKey.startsWith("recommendation_signal_trends.")) {
-    const field = sourceKey.replace("recommendation_signal_trends.", "").replace(/_/g, " ").replace(" signal", "");
-    return field;
+    return sourceKey
+      .replace("recommendation_signal_trends.", "")
+      .replace(/_signal$/, "")
+      .replace(/_/g, " ");
   }
-  const bracketMatch = sourceKey.match(/^(\w+)_trends\[(.+)\]$/);
+  const bracketMatch = sourceKey.match(/^(\w+?)_(?:code_)?trends\[(.+)\]$/);
   if (bracketMatch) {
     const kind = bracketMatch[1].replace(/_/g, " ");
     return `${kind}: ${bracketMatch[2]}`;
