@@ -491,6 +491,77 @@ export async function fetchPatchPlan(
   return json as PatchPlanBuildResult;
 }
 
+// ── Patch Plan Validation types (validate_patch_plan response contract) ──
+
+export interface PatchPlanValidationIssue {
+  code: string;
+  severity: "error" | "warning";
+  target_id: string | null;
+  message: string;
+}
+
+export interface PatchPlanValidationResult {
+  plan_id: string;
+  plan_valid: boolean;
+  stale: boolean;
+  direct_targets_checked: number;
+  protected_targets_checked: number;
+  direct_targets_valid: number;
+  protected_targets_valid: number;
+  issues: PatchPlanValidationIssue[];
+  validation_notes: {
+    hash_check_performed: boolean;
+    version_check_performed: boolean;
+    lock_check_performed: boolean;
+    fallback_used: boolean;
+    fallback_reason: string | null;
+  };
+}
+
+export interface PatchPlanValidationResponse {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  patch_plan: PatchPlan | null;
+  validation: PatchPlanValidationResult | null;
+  computed_at: string;
+  version: string;
+}
+
+export async function fetchPatchPlanValidation(
+  projectId: string,
+  repairId?: string,
+  repairType?: string,
+  sourceType?: "intervention" | "prp2s" | "arp1" | "manual",
+  versionId?: string,
+): Promise<PatchPlanValidationResponse | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  const payload: Record<string, string> = {
+    action: 'validate_patch_plan',
+    projectId,
+  };
+  if (repairId) payload.repairId = repairId;
+  if (repairType) payload.repairType = repairType;
+  if (sourceType) payload.sourceType = sourceType;
+  if (versionId) payload.versionId = versionId;
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PatchPlanValidationResponse;
+}
+
 async function fetchPRP1(projectId: string): Promise<PRP1Data> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Authentication required');
