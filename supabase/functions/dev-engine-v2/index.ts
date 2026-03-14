@@ -30918,12 +30918,33 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             }
             targetResults.push(r);
           }
+          const failedExec = docTargetResults.filter(r => r.status === "failed").length;
+          obsEmit("document_execution", "execution", "failed", `Document ${currentDocType} sequence failed`, documentId, currentDocType);
+          obsDocTimelines.push({
+            document_id: documentId, doc_type: currentDocType,
+            order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+            status: "failed", blocked_by_doc_type: null, blocked_reason: null,
+            section_targets_total: docTargets.length, section_targets_executed: 0, section_targets_failed: failedExec, section_targets_skipped: docTargets.length - failedExec,
+            version_id_before: sourceVersionId, version_id_after: null,
+            governance_status: null, revalidation_status: null,
+            execution_message: "Document sequence failed — no version written",
+          });
         } else if (dryRun) {
           // Dry run — report all as skipped
           for (const r of docTargetResults) {
             r.message = `dry_run_sequence:${appliedSectionKeys.join("+")}`;
             targetResults.push(r);
           }
+          obsEmit("document_execution", "execution", "completed", `Document ${currentDocType} dry-run simulated`, documentId, currentDocType);
+          obsDocTimelines.push({
+            document_id: documentId, doc_type: currentDocType,
+            order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+            status: "dry_run", blocked_by_doc_type: null, blocked_reason: null,
+            section_targets_total: docTargets.length, section_targets_executed: 0, section_targets_failed: 0, section_targets_skipped: docTargets.length,
+            version_id_before: sourceVersionId, version_id_after: null,
+            governance_status: "skipped", revalidation_status: "skipped",
+            execution_message: `Dry run: ${appliedSectionKeys.length} section(s) simulated [${appliedSectionKeys.join("+")}]`,
+          });
         } else if (successfulResults.length > 0) {
           // Write ONE consolidated version
           try {
@@ -30966,6 +30987,16 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             for (const r of docTargetResults) {
               targetResults.push(r);
             }
+            obsEmit("document_execution", "execution", "completed", `Document ${currentDocType} executed: ${appliedSectionKeys.length} section(s), version ${newVersion.id.slice(0,8)}`, documentId, currentDocType);
+            obsDocTimelines.push({
+              document_id: documentId, doc_type: currentDocType,
+              order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+              status: "executed", blocked_by_doc_type: null, blocked_reason: null,
+              section_targets_total: docTargets.length, section_targets_executed: successfulResults.length, section_targets_failed: 0, section_targets_skipped: 0,
+              version_id_before: sourceVersionId, version_id_after: newVersion.id,
+              governance_status: null, revalidation_status: null,
+              execution_message: `${appliedSectionKeys.length} section(s) patched, new version created`,
+            });
             } catch (writeErr: any) {
             documentSequencesFailed++;
             failedPatchedDocTypes.add(currentDocType);
@@ -30975,14 +31006,36 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
               r.message = `consolidated_write_failed:${writeErr?.message?.slice(0, 200) || "unknown"}`;
               targetResults.push(r);
             }
+            obsEmit("document_execution", "execution", "failed", `Document ${currentDocType} write failed: ${(writeErr?.message || "unknown").slice(0,100)}`, documentId, currentDocType);
+            obsDocTimelines.push({
+              document_id: documentId, doc_type: currentDocType,
+              order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+              status: "failed", blocked_by_doc_type: null, blocked_reason: null,
+              section_targets_total: docTargets.length, section_targets_executed: 0, section_targets_failed: docTargets.length, section_targets_skipped: 0,
+              version_id_before: sourceVersionId, version_id_after: null,
+              governance_status: null, revalidation_status: null,
+              execution_message: `Consolidated write failed`,
+            });
           }
         } else {
           // No successful results for this document
           for (const r of docTargetResults) {
             targetResults.push(r);
           }
+          obsDocTimelines.push({
+            document_id: documentId, doc_type: currentDocType,
+            order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+            status: "failed", blocked_by_doc_type: null, blocked_reason: null,
+            section_targets_total: docTargets.length, section_targets_executed: 0, section_targets_failed: docTargets.length, section_targets_skipped: 0,
+            version_id_before: sourceVersionId, version_id_after: null,
+            governance_status: null, revalidation_status: null,
+            execution_message: "No successful section results",
+          });
         }
       }
+
+      obsSectionExecMs = Date.now() - obsSectionExecStart;
+      obsEmit("section_execution", "execution", "completed", `Section execution complete: ${documentExecutionOrder.length} doc(s) processed`);
 
       const executedCount = targetResults.filter(r => r.status === "executed").length;
       const failedCount = targetResults.filter(r => r.status === "failed").length;
