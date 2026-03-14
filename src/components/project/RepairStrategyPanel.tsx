@@ -3913,12 +3913,10 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
             )}
           </div>
 
-          {/* Trend signal subline */}
-          {linkage.status !== "unavailable" && (
-            <div className="text-[8px] text-muted-foreground/50">
-              {linkage.label}{linkage.source_label ? ` · ${linkage.source_label}` : ""}
-            </div>
-          )}
+          {/* Trend signal subline — shown for all statuses for honesty */}
+          <div className="text-[8px] text-muted-foreground/50">
+            {linkage.label}{linkage.source_label ? ` · ${linkage.source_label}` : ""}
+          </div>
 
           {/* Suppressed-by line */}
           {suppressed && rec.suppressed_by && (
