@@ -286,7 +286,24 @@ export function NarrativeRepairQueuePanel({ projectId, landingContext, onDismiss
           );
         })()}
 
-        {/* Exec error */}
+        {/* Related repairs filter notice */}
+        {relatedFilter && (
+          <div className="flex items-center justify-between gap-2 rounded border border-accent/30 bg-accent/5 px-3 py-1.5">
+            <p className="text-[10px] font-mono text-accent-foreground/80">
+              <Search className="h-3 w-3 inline mr-1 opacity-60" />
+              Showing related repairs for type: <span className="font-semibold text-foreground">{relatedFilter.repair_type}</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => setRelatedFilter(null)}
+              className="text-[9px] font-mono text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5"
+            >
+              <X className="h-2.5 w-2.5" />
+              Show all
+            </button>
+          </div>
+        )}
+
         {execHook.error && (
           <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
             <AlertCircle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
