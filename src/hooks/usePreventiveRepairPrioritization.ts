@@ -708,6 +708,73 @@ export interface ExecutionReplayResponse {
   version: string;
 }
 
+// ── Execution History Index Types ──
+
+export interface PatchExecutionHistoryItem {
+  transition_id: string;
+  plan_id: string;
+  created_at: string;
+  event_type: string;
+  status: string | null;
+  trigger: string | null;
+  replay_version: string;
+  dry_run: boolean;
+  executed: boolean;
+  execution_allowed: boolean;
+  direct_targets_attempted: number;
+  direct_targets_executed: number;
+  direct_targets_failed: number;
+  documents_attempted: number | null;
+  documents_executed: number | null;
+  blocked_doc_types: string[];
+  total_duration_ms: number | null;
+  source_type: string | null;
+  repair_id: string | null;
+  repair_type: string | null;
+}
+
+export interface PatchExecutionHistoryResponse {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  history_items: PatchExecutionHistoryItem[];
+  history_notes: {
+    exact_source: string;
+    filtered_count: number;
+    omitted_non_replay_rows: number;
+  };
+  computed_at: string;
+  version: string;
+}
+
+export async function fetchPatchExecutionHistory(
+  projectId: string,
+  limit?: number,
+): Promise<PatchExecutionHistoryResponse | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  const payload: Record<string, any> = {
+    action: 'list_patch_execution_history',
+    projectId,
+  };
+  if (limit) payload.limit = limit;
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PatchExecutionHistoryResponse;
+}
+
 export async function fetchPatchExecution(
   projectId: string,
   repairId?: string,

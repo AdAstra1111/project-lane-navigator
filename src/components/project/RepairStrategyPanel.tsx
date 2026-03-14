@@ -11,6 +11,8 @@ import {
   fetchPatchPlanValidation,
   fetchPatchExecution,
   fetchPatchExecutionReplay,
+  fetchPatchExecutionHistory,
+  type PatchExecutionHistoryItem, type PatchExecutionHistoryResponse,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type InterventionAnalysisResult, type InterventionCandidate,
@@ -39,7 +41,7 @@ import { Progress } from '@/components/ui/progress';
 import {
   ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle,
   RefreshCw, Info, Star, Unlock, Shield, Target, Activity, ChevronDown, ChevronRight,
-  CheckCircle, XCircle, Play, Zap, History,
+  CheckCircle, XCircle, Play, Zap, History, List, Clock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -2580,7 +2582,7 @@ function PatchExecutionSection({
   );
 }
 
-// ── ExecutionReplaySection — read-only historical execution audit replay ──
+// ── ExecutionReplaySection — read-only historical execution audit replay with history index ──
 
 function ExecutionReplaySection({
   projectId,
@@ -2597,18 +2599,46 @@ function ExecutionReplaySection({
   const [replayLoading, setReplayLoading] = useState(false);
   const [lastPlanId, setLastPlanId] = useState<string | null>(null);
 
-  // Resolve the plan_id from the latest available execution context
-  const resolvedPlanId = useMemo(() => {
-    // In a real flow, the plan_id comes from the latest execution response.
-    // For replay, the user needs to have a known plan_id. We try the latest known execution.
-    return lastPlanId;
-  }, [lastPlanId]);
+  // History index state
+  const [historyResult, setHistoryResult] = useState<PatchExecutionHistoryResponse | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<PatchExecutionHistoryItem | null>(null);
+  const [showManualInput, setShowManualInput] = useState(false);
 
-  const handleLoadReplay = async () => {
-    if (!projectId || !resolvedPlanId) return;
+  const handleLoadHistory = async () => {
+    if (!projectId) return;
+    setHistoryLoading(true);
+    try {
+      const result = await fetchPatchExecutionHistory(projectId, 20);
+      setHistoryResult(result);
+    } catch {
+      setHistoryResult(null);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleSelectHistoryItem = async (item: PatchExecutionHistoryItem) => {
+    if (!projectId) return;
+    setSelectedHistoryItem(item);
+    setLastPlanId(item.plan_id);
     setReplayLoading(true);
     try {
-      const result = await fetchPatchExecutionReplay(projectId, resolvedPlanId);
+      const result = await fetchPatchExecutionReplay(projectId, item.plan_id);
+      setReplayResult(result);
+    } catch {
+      setReplayResult(null);
+    } finally {
+      setReplayLoading(false);
+    }
+  };
+
+  const handleLoadReplay = async () => {
+    if (!projectId || !lastPlanId) return;
+    setSelectedHistoryItem(null);
+    setReplayLoading(true);
+    try {
+      const result = await fetchPatchExecutionReplay(projectId, lastPlanId);
       setReplayResult(result);
     } catch {
       setReplayResult(null);
@@ -2629,11 +2659,13 @@ function ExecutionReplaySection({
           <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
           <History className="h-3 w-3" />
           <span className="font-semibold uppercase tracking-wider">Execution Replay</span>
-          {replayResult?.replay_found && (
-            <Badge variant="outline" className="text-[9px] ml-1 font-mono text-emerald-400 border-emerald-500/30">REPLAY FOUND</Badge>
+          {historyResult && historyResult.history_items.length > 0 && (
+            <Badge variant="outline" className="text-[9px] ml-1 font-mono text-muted-foreground border-border/50">
+              {historyResult.history_items.length} saved
+            </Badge>
           )}
-          {replayResult && !replayResult.replay_found && (
-            <Badge variant="outline" className="text-[9px] ml-1 font-mono text-muted-foreground border-border/50">NO REPLAY</Badge>
+          {replayResult?.replay_found && (
+            <Badge variant="outline" className="text-[9px] ml-1 font-mono text-emerald-400 border-emerald-500/30">REPLAY LOADED</Badge>
           )}
         </button>
       </CollapsibleTrigger>
@@ -2641,45 +2673,132 @@ function ExecutionReplaySection({
         <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
           <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <span className="text-[10px] text-muted-foreground">
-            Read-only replay of a previously persisted execution snapshot. Source: <strong>pipeline_transitions</strong>.
+            Read-only replay of previously persisted execution snapshots. Older executions before replay persistence may not appear.
           </span>
         </div>
 
-        {/* Plan ID input */}
-        <div className="flex gap-2 items-end">
-          <div className="flex-1">
-            <label className="text-[9px] text-muted-foreground uppercase font-semibold block mb-1">Plan ID</label>
-            <input
-              type="text"
-              className="w-full rounded-md border border-border/50 bg-background px-2 py-1 text-[10px] font-mono text-foreground placeholder:text-muted-foreground/50"
-              placeholder="Enter plan_id from a previous execution"
-              value={lastPlanId || ''}
-              onChange={(e) => setLastPlanId(e.target.value || null)}
-            />
+        {/* ── History Index ── */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleLoadHistory}
+              disabled={!projectId || historyLoading}
+              className="text-xs"
+            >
+              <List className="h-3 w-3 mr-1" />
+              {historyLoading ? 'Loading…' : historyResult ? 'Refresh History' : 'Load Recent Executions'}
+            </Button>
+            <button
+              onClick={() => setShowManualInput(!showManualInput)}
+              className="text-[9px] text-muted-foreground hover:text-foreground transition-colors underline"
+            >
+              {showManualInput ? 'Hide manual input' : 'Enter plan ID manually'}
+            </button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleLoadReplay}
-            disabled={!resolvedPlanId || !projectId || replayLoading}
-            className="text-xs"
-          >
-            <History className="h-3 w-3 mr-1" />
-            {replayLoading ? 'Loading…' : 'Load Replay'}
-          </Button>
+
+          {historyLoading && <Skeleton className="h-16 w-full rounded-md" />}
+
+          {/* History list */}
+          {historyResult && !historyLoading && (
+            <>
+              {historyResult.history_items.length === 0 ? (
+                <Card className="border-border/50">
+                  <CardContent className="py-4 text-center">
+                    <History className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+                    <p className="text-xs text-muted-foreground">No replayable executions found for this project.</p>
+                    <p className="text-[9px] text-muted-foreground mt-1">Only non-dry-run executions that performed writes are persisted.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-1 max-h-[240px] overflow-y-auto">
+                  {historyResult.history_items.map((item) => (
+                    <button
+                      key={item.transition_id}
+                      onClick={() => handleSelectHistoryItem(item)}
+                      className={cn(
+                        "w-full text-left rounded-md border px-2.5 py-2 transition-colors hover:bg-accent/50",
+                        selectedHistoryItem?.transition_id === item.transition_id
+                          ? "border-primary/50 bg-accent/30"
+                          : "border-border/30"
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-mono text-foreground">
+                          {new Date(item.created_at).toLocaleString()}
+                        </span>
+                        {item.executed && (
+                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-emerald-400 border-emerald-500/30">executed</Badge>
+                        )}
+                        {item.dry_run && (
+                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-blue-400 border-blue-500/30">dry run</Badge>
+                        )}
+                        {!item.execution_allowed && (
+                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-red-400 border-red-500/30">blocked</Badge>
+                        )}
+                        {item.blocked_doc_types.length > 0 && (
+                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-amber-400 border-amber-500/30">
+                            {item.blocked_doc_types.length} blocked
+                          </Badge>
+                        )}
+                        {item.total_duration_ms != null && (
+                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">
+                            {item.total_duration_ms}ms
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5 text-[9px] text-muted-foreground">
+                        {item.repair_type && <span>repair: {item.repair_type}</span>}
+                        {item.source_type && <span>source: {item.source_type}</span>}
+                        <span>sections: {item.direct_targets_executed}/{item.direct_targets_attempted}</span>
+                        {item.documents_executed != null && (
+                          <span>docs: {item.documents_executed}/{item.documents_attempted}</span>
+                        )}
+                        {item.direct_targets_failed > 0 && (
+                          <span className="text-destructive">{item.direct_targets_failed} failed</span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {historyResult.history_notes.omitted_non_replay_rows > 0 && (
+                <div className="text-[9px] text-muted-foreground">
+                  {historyResult.history_notes.omitted_non_replay_rows} older transition(s) omitted (pre-replay format).
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Manual plan ID input (advanced fallback) */}
+          {showManualInput && (
+            <div className="flex gap-2 items-end border-t border-border/30 pt-2">
+              <div className="flex-1">
+                <label className="text-[9px] text-muted-foreground uppercase font-semibold block mb-1">Plan ID (manual)</label>
+                <input
+                  type="text"
+                  className="w-full rounded-md border border-border/50 bg-background px-2 py-1 text-[10px] font-mono text-foreground placeholder:text-muted-foreground/50"
+                  placeholder="Enter plan_id from a previous execution"
+                  value={lastPlanId || ''}
+                  onChange={(e) => { setLastPlanId(e.target.value || null); setSelectedHistoryItem(null); }}
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLoadReplay}
+                disabled={!lastPlanId || !projectId || replayLoading}
+                className="text-xs"
+              >
+                <History className="h-3 w-3 mr-1" />
+                {replayLoading ? 'Loading…' : 'Load Replay'}
+              </Button>
+            </div>
+          )}
         </div>
 
         {replayLoading && <Skeleton className="h-20 w-full rounded-md" />}
-
-        {/* Empty state */}
-        {!replayResult && !replayLoading && (
-          <Card className="border-border/50">
-            <CardContent className="py-6 text-center">
-              <History className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
-              <p className="text-xs text-muted-foreground">Enter a plan ID and load to replay a previous execution.</p>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Not found state */}
         {replayResult && !replayResult.replay_found && !replayLoading && (

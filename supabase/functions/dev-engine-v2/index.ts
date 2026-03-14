@@ -31641,6 +31641,113 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════
+    // EXECUTION HISTORY INDEX v1 — list_patch_execution_history (READ-ONLY)
+    //
+    // Lists persisted execution replay snapshots for a project from pipeline_transitions.
+    // No recomputation, no mutation, no fuzzy inference.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "list_patch_execution_history") {
+      const { projectId, limit: reqLimit } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const historyAt = new Date().toISOString();
+      const historyLimit = Math.min(Math.max(Number(reqLimit) || 20, 1), 50);
+
+      // Query all patch_execution_completed transitions for this project
+      const { data: historyRows, error: historyErr } = await supabase
+        .from("pipeline_transitions")
+        .select("id, run_id, resulting_state, created_at, status, trigger")
+        .eq("project_id", projectId)
+        .eq("event_type", "patch_execution_completed")
+        .order("created_at", { ascending: false })
+        .limit(historyLimit + 10); // overfetch slightly to account for invalid rows
+
+      if (historyErr) {
+        console.warn("[dev-engine-v2] list_patch_execution_history query error:", historyErr.message);
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "list_patch_execution_history",
+          project_id: projectId,
+          history_items: [],
+          history_notes: {
+            exact_source: "pipeline_transitions",
+            filtered_count: 0,
+            omitted_non_replay_rows: 0,
+          },
+          computed_at: historyAt,
+          version: "execution-history-v1",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const allRows = historyRows || [];
+      let omittedCount = 0;
+      const historyItems: any[] = [];
+
+      for (const row of allRows) {
+        if (historyItems.length >= historyLimit) break;
+
+        const snap = row.resulting_state as any;
+        if (!snap || typeof snap !== "object" || snap.execution_replay_version !== "execution-replay-v1" || !snap.plan_id) {
+          omittedCount++;
+          continue;
+        }
+
+        const exec = snap.execution || {};
+        const plan = snap.patch_plan || {};
+        const repairSource = plan.repair_source || {};
+        const obs = exec.execution_observability || null;
+        const blockedDocTypes = Array.isArray(exec.blocked_doc_types) ? exec.blocked_doc_types : [];
+
+        historyItems.push({
+          transition_id: row.id,
+          plan_id: snap.plan_id,
+          created_at: row.created_at,
+          event_type: "patch_execution_completed",
+          status: row.status || null,
+          trigger: row.trigger || null,
+          replay_version: snap.execution_replay_version,
+          dry_run: exec.dry_run === true,
+          executed: exec.executed === true,
+          execution_allowed: exec.execution_allowed === true,
+          direct_targets_attempted: typeof exec.direct_targets_attempted === "number" ? exec.direct_targets_attempted : 0,
+          direct_targets_executed: typeof exec.direct_targets_executed === "number" ? exec.direct_targets_executed : 0,
+          direct_targets_failed: typeof exec.direct_targets_failed === "number" ? exec.direct_targets_failed : 0,
+          documents_attempted: typeof exec.documents_attempted === "number" ? exec.documents_attempted : null,
+          documents_executed: typeof exec.documents_executed === "number" ? exec.documents_executed : null,
+          blocked_doc_types: blockedDocTypes,
+          total_duration_ms: obs?.total_duration_ms ?? null,
+          source_type: repairSource.source_type || null,
+          repair_id: repairSource.repair_id || null,
+          repair_type: repairSource.repair_type || null,
+        });
+      }
+
+      console.log("[dev-engine-v2] list_patch_execution_history", {
+        project_id: projectId,
+        returned: historyItems.length,
+        omitted: omittedCount,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "list_patch_execution_history",
+        project_id: projectId,
+        history_items: historyItems,
+        history_notes: {
+          exact_source: "pipeline_transitions",
+          filtered_count: historyItems.length,
+          omitted_non_replay_rows: omittedCount,
+        },
+        computed_at: historyAt,
+        version: "execution-history-v1",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
