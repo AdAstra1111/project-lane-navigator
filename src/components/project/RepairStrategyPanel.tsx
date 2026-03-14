@@ -3830,6 +3830,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [loaded, setLoaded] = useState(false);
   const [showSuppressed, setShowSuppressed] = useState(false);
   const [triageMap, setTriageMap] = useState<Record<string, TriageStatus>>({});
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Clean stale triage entries when recommendations change
   const cleanTriageMap = (recs: ExecutionRecommendations) => {
@@ -3912,7 +3913,9 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     const linkage = resolveRecommendationTrendLinkage(rec, trends);
     const navTarget = linkage.status !== "unavailable" ? resolveTrendNavigationTarget(linkage.source_key) : null;
     return (
-    <div className={cn(
+    <div
+      ref={(el) => { cardRefs.current[rec.recommendation_id] = el; }}
+      className={cn(
       "rounded-md border px-3 py-2 space-y-1.5",
       suppressed
         ? "border-border/20 bg-muted/10 opacity-50"
@@ -4045,14 +4048,16 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     </div>
   )};
 
-  // Triage summary counts
+  // Triage summary counts — visible non-suppressed only
   const triageCounts = useMemo(() => {
     const counts = { do_now: 0, watch: 0, ignore: 0 };
-    for (const status of Object.values(triageMap)) {
-      counts[status]++;
+    if (!displayResult) return counts;
+    const visibleIds = new Set(displayResult.all_display.filter(r => !r.suppressed).map(r => r.recommendation_id));
+    for (const [id, status] of Object.entries(triageMap)) {
+      if (visibleIds.has(id)) counts[status]++;
     }
     return counts;
-  }, [triageMap]);
+  }, [triageMap, displayResult]);
 
   const hasAnyTriage = triageCounts.do_now + triageCounts.watch + triageCounts.ignore > 0;
 
@@ -4250,7 +4255,15 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                           {statusLabels[status]} ({items.length})
                         </div>
                         {items.map(rec => (
-                          <div key={rec.recommendation_id} className={cn("rounded border px-2 py-1.5 space-y-0.5", statusColors[status].split(" ").slice(1).join(" "), "bg-muted/10")}>
+                          <div
+                            key={rec.recommendation_id}
+                            className={cn("rounded border px-2 py-1.5 space-y-0.5 cursor-pointer hover:bg-muted/20 transition-colors", statusColors[status].split(" ").slice(1).join(" "), "bg-muted/10")}
+                            onClick={() => {
+                              const el = cardRefs.current[rec.recommendation_id];
+                              if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                            }}
+                            title="Click to jump to card"
+                          >
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-[9px] font-semibold text-foreground">{rec.title}</span>
                               <Badge variant="outline" className={cn("text-[7px] font-mono shrink-0", sevColor(rec.severity))}>
