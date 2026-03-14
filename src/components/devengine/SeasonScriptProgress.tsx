@@ -45,14 +45,16 @@ function getStatusLabel(status: string): string {
   return 'Pending';
 }
 
-export function SeasonScriptProgress({ versionId, episodeCount }: SeasonScriptProgressProps) {
+export function SeasonScriptProgress({ versionId, episodeCount, onAllChunksDone }: SeasonScriptProgressProps) {
+  const firedRef = React.useRef(false);
+
   const { data: chunks = [], isLoading } = useQuery<ChunkRow[]>({
     queryKey: ['season-script-chunks', versionId],
     queryFn: async () => {
       if (!versionId) return [];
       const { data, error } = await (supabase as any)
         .from('project_document_chunks')
-        .select('id, chunk_index, chunk_key, status, char_count')
+        .select('id, chunk_index, chunk_key, status, char_count, content')
         .eq('version_id', versionId)
         .order('chunk_index', { ascending: true });
       if (error) throw error;
@@ -61,6 +63,21 @@ export function SeasonScriptProgress({ versionId, episodeCount }: SeasonScriptPr
     enabled: !!versionId,
     refetchInterval: 4000,
   });
+
+  // Fire onAllChunksDone exactly once when every chunk is done
+  React.useEffect(() => {
+    const safeArr = Array.isArray(chunks) ? chunks : [];
+    const allDone = safeArr.length > 0 && safeArr.every(c => c.status === 'done');
+    if (allDone && !firedRef.current && onAllChunksDone) {
+      firedRef.current = true;
+      const assembled = [...safeArr]
+        .sort((a, b) => a.chunk_index - b.chunk_index)
+        .filter(c => (c as any).content)
+        .map(c => (c as any).content)
+        .join('\n\n');
+      onAllChunksDone(assembled);
+    }
+  }, [chunks, onAllChunksDone]);
 
   const safeChunks = Array.isArray(chunks) ? chunks : [];
   const total = (typeof episodeCount === 'number' && episodeCount > 0)
