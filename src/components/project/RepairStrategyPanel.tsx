@@ -5281,14 +5281,19 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
                           {buckets.map(b => (
                             <div key={b.status} className="space-y-1">
                               <div className="text-[8px] font-mono font-semibold uppercase text-muted-foreground">{b.label}</div>
-                              {b.items.map(r => (
-                                <div key={r.recommendation_id} className="text-[8px] leading-snug text-muted-foreground">
-                                  <span className="font-semibold text-foreground">[{r.severity.toUpperCase()}]</span>{" "}
-                                  {r.title}{" "}
-                                  <span className="text-muted-foreground/40">({r.rule_id})</span>
-                                  <div className="pl-2 border-l border-border/30 mt-0.5">{r.suggested_action}</div>
-                                </div>
-                              ))}
+                              {b.items.map(r => {
+                                const { changeText, hasRepairDone } = itemSignals(r);
+                                return (
+                                  <div key={r.recommendation_id} className="text-[8px] leading-snug text-muted-foreground">
+                                    <span className="font-semibold text-foreground">[{r.severity.toUpperCase()}]</span>{" "}
+                                    {r.title}{" "}
+                                    <span className="text-muted-foreground/40">({r.rule_id})</span>
+                                    {changeText && <span className="ml-1 text-[7px] font-mono text-amber-400/80">• {changeText}</span>}
+                                    {hasRepairDone && <span className="ml-1 text-[7px] font-mono text-emerald-400/80">• repair done</span>}
+                                    <div className="pl-2 border-l border-border/30 mt-0.5">{r.suggested_action}</div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           ))}
                         </div>
