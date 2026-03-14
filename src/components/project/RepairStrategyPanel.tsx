@@ -3818,6 +3818,8 @@ function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
 // Renders explainability fields: rule_id, threshold_version, trigger_metrics,
 // evidence_summary (execution-recommendations-v1.1).
 
+type TriageStatus = "do_now" | "watch" | "ignore";
+
 function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   projectId: string;
   onNavigateToTrend: (target: TrendNavigationTarget) => void;
@@ -3827,6 +3829,32 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [showSuppressed, setShowSuppressed] = useState(false);
+  const [triageMap, setTriageMap] = useState<Record<string, TriageStatus>>({});
+
+  // Clean stale triage entries when data refreshes
+  useEffect(() => {
+    if (!data?.recommendations) return;
+    const allIds = new Set(
+      Object.values(data.recommendations.buckets ?? {}).flat().map((r: any) => r.recommendation_id)
+    );
+    setTriageMap(prev => {
+      const next: Record<string, TriageStatus> = {};
+      for (const [id, status] of Object.entries(prev)) {
+        if (allIds.has(id)) next[id] = status;
+      }
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [data]);
+
+  const toggleTriage = (recId: string, status: TriageStatus) => {
+    setTriageMap(prev => {
+      if (prev[recId] === status) {
+        const { [recId]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [recId]: status };
+    });
+  };
 
   const load = async () => {
     setLoading(true);
