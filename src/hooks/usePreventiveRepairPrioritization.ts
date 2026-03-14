@@ -619,7 +619,7 @@ export interface ExecutionObservabilityDocTimeline {
   version_id_before: string | null;
   version_id_after: string | null;
   governance_status: "performed" | "skipped" | "deferred" | "failed" | null;
-  revalidation_status: "performed" | "partial" | "deferred" | "failed" | null;
+  revalidation_status: "performed" | "partial" | "skipped" | "deferred" | "failed" | null;
   execution_message: string;
 }
 
