@@ -29814,36 +29814,49 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // PATCHPLAN BUILDER v1 — build_patch_plan
+    // SHARED PATCHPLAN BUILDER CORE — buildPatchPlanCore
     //
-    // Read-only planning layer. Uses resolvePatchTargetsCore for target resolution,
-    // then adds downstream impact, protected targets, revalidation planning.
+    // Single canonical helper for PatchPlan construction. Used by both
+    // build_patch_plan and validate_patch_plan. No writes. Deterministic.
     // ══════════════════════════════════════════════════════════════════════════════
 
-    if (action === "build_patch_plan") {
-      const { projectId, repairId, repairType, sourceType, versionId } = body;
-      if (!projectId) {
-        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-      if (!repairId && !repairType) {
-        return new Response(JSON.stringify({ ok: false, error: "repairId or repairType required" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
+    interface PatchPlanCoreResult {
+      empty: boolean;
+      patch_plan: any | null;
+      planning_notes: {
+        target_resolution_source: string;
+        execution_mode_reason: string;
+        fallback_used: boolean;
+        fallback_reason: string | null;
+        impact_surface_count: number;
+        protected_surface_count: number;
+      };
+      /** Internal: the core target resolution result, for validation use */
+      _core: PatchTargetCoreResult | null;
+    }
 
-      const ppAt = new Date().toISOString();
+    async function buildPatchPlanCore(
+      supabaseClient: any,
+      opts: {
+        projectId: string;
+        repairId?: string;
+        repairType?: string;
+        sourceType?: string;
+        versionId?: string;
+      },
+    ): Promise<PatchPlanCoreResult> {
+      const { projectId, repairId, repairType, sourceType, versionId } = opts;
+      const planAt = new Date().toISOString();
 
       // ── Resolve targets via shared core ──
-      const core = await resolvePatchTargetsCore(supabase, {
+      const core = await resolvePatchTargetsCore(supabaseClient, {
         projectId, repairId, repairType, versionId,
         includeProtected: true,
       });
 
       if (core.empty) {
-        return new Response(JSON.stringify({
-          ok: true,
-          action: "build_patch_plan",
-          project_id: projectId,
+        return {
+          empty: true,
           patch_plan: null,
           planning_notes: {
             target_resolution_source: "none",
@@ -29853,13 +29866,12 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             impact_surface_count: 0,
             protected_surface_count: 0,
           },
-          computed_at: ppAt,
-          version: "patch-plan-v1",
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          _core: core,
+        };
       }
 
       // ── Load project lane ──
-      const { data: projectRow } = await supabase
+      const { data: projectRow } = await supabaseClient
         .from("projects")
         .select("assigned_lane")
         .eq("id", projectId)
@@ -29882,9 +29894,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }
 
       // ── Build downstream regeneration surfaces ──
-      const { getInvalidationPlan: ppGetInvalidationPlan } = await import("../_shared/deliverableDependencyRegistry.ts");
+      const { getInvalidationPlan: coreGetInvalidationPlan } = await import("../_shared/deliverableDependencyRegistry.ts");
 
-      interface PPImpactSurface {
+      interface CoreImpactSurface {
         document_id: string;
         doc_type: string;
         version_id: string | null;
@@ -29897,12 +29909,12 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         propagation_path: string[];
       }
 
-      const ppDownstreamSurfaces: PPImpactSurface[] = [];
+      const downstreamSurfaces: CoreImpactSurface[] = [];
       const directDocTypes = [...new Set(core.direct_targets.map(t => t.doc_type))];
 
       for (const ddt of directDocTypes) {
         try {
-          const invPlan = ppGetInvalidationPlan(lane, ddt);
+          const invPlan = coreGetInvalidationPlan(lane, ddt);
           for (const entry of invPlan.entries) {
             const downstream = core.all_docs.find((d: any) => d.doc_type === entry.doc_type);
             const impactType = entry.invalidation_policy === "stale"
@@ -29911,7 +29923,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
                 ? "review_required" as const
                 : "no_action" as const;
 
-            ppDownstreamSurfaces.push({
+            downstreamSurfaces.push({
               document_id: downstream?.id || "",
               doc_type: entry.doc_type,
               version_id: downstream?.latest_version_id || null,
@@ -29930,18 +29942,18 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }
 
       // Deduplicate by doc_type (strictest wins)
-      const ppSurfaceMap = new Map<string, PPImpactSurface>();
+      const surfaceMap = new Map<string, CoreImpactSurface>();
       const impactOrder: Record<string, number> = { regeneration_required: 2, review_required: 1, no_action: 0 };
-      for (const s of ppDownstreamSurfaces) {
-        const existing = ppSurfaceMap.get(s.doc_type);
+      for (const s of downstreamSurfaces) {
+        const existing = surfaceMap.get(s.doc_type);
         if (!existing || (impactOrder[s.impact_type] ?? 0) > (impactOrder[existing.impact_type] ?? 0)) {
-          ppSurfaceMap.set(s.doc_type, s);
+          surfaceMap.set(s.doc_type, s);
         }
       }
-      const ppFinalDownstream = [...ppSurfaceMap.values()].sort((a, b) => a.doc_type.localeCompare(b.doc_type));
+      const finalDownstream = [...surfaceMap.values()].sort((a, b) => a.doc_type.localeCompare(b.doc_type));
 
       // ── Build revalidation plan ──
-      interface PPRevalidationTarget {
+      interface CoreRevalidationTarget {
         document_id: string;
         doc_type: string;
         version_id: string | null;
@@ -29949,8 +29961,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         priority: "immediate" | "deferred";
       }
 
-      const ppRevalTargets: PPRevalidationTarget[] = [];
-      for (const ds of ppFinalDownstream) {
+      const revalTargets: CoreRevalidationTarget[] = [];
+      for (const ds of finalDownstream) {
         if (ds.impact_type === "no_action") continue;
         const revalType = ds.revalidation_policy === "must_reanalyze"
           ? "full_reanalysis" as const
@@ -29958,7 +29970,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             ? "spine_check_only" as const
             : "section_recheck" as const;
         const priority = ds.impact_type === "regeneration_required" ? "immediate" as const : "deferred" as const;
-        ppRevalTargets.push({
+        revalTargets.push({
           document_id: ds.document_id,
           doc_type: ds.doc_type,
           version_id: ds.version_id,
@@ -29966,31 +29978,31 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           priority,
         });
       }
-      ppRevalTargets.sort((a, b) => {
+      revalTargets.sort((a, b) => {
         const pCmp = (a.priority === "immediate" ? 0 : 1) - (b.priority === "immediate" ? 0 : 1);
         if (pCmp !== 0) return pCmp;
         return a.doc_type.localeCompare(b.doc_type);
       });
 
-      const ppDownstreamInvalidation = ppFinalDownstream.some(s => s.impact_type === "regeneration_required");
+      const downstreamInvalidation = finalDownstream.some(s => s.impact_type === "regeneration_required");
 
       // ── Build content_hashes map ──
-      const ppContentHashes: Record<string, string> = {};
+      const contentHashes: Record<string, string> = {};
       for (const t of [...core.direct_targets, ...core.protected_targets]) {
-        ppContentHashes[t.target_id] = t.content_hash;
+        contentHashes[t.target_id] = t.content_hash;
       }
 
       // ── Stale flag ──
-      const ppStale = core.direct_targets.some(t => !t.content_hash) || core.protected_targets.some(t => !t.content_hash);
+      const stale = core.direct_targets.some(t => !t.content_hash) || core.protected_targets.some(t => !t.content_hash);
 
       // ── Deterministic plan_id ──
-      const ppRepairRef = repairId || core.resolved_repair_type || "unknown";
-      const ppVersionRef = versionId || "current";
-      const ppPlanId = `patchplan::${projectId}::${ppRepairRef}::${ppVersionRef}`;
+      const repairRef = repairId || core.resolved_repair_type || "unknown";
+      const versionRef = versionId || "current";
+      const planId = `patchplan::${projectId}::${repairRef}::${versionRef}`;
 
       // ── Assemble PatchPlan ──
       const patchPlan = {
-        plan_id: ppPlanId,
+        plan_id: planId,
         project_id: projectId,
         lane,
         repair_source: {
@@ -30001,47 +30013,73 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         },
         direct_targets: core.direct_targets,
         protected_targets: core.protected_targets,
-        downstream_regeneration: ppFinalDownstream,
+        downstream_regeneration: finalDownstream,
         revalidation_plan: {
-          revalidation_targets: ppRevalTargets,
+          revalidation_targets: revalTargets,
           affected_axes: [] as string[],
           stale_unit_keys: [] as string[],
-          downstream_invalidation_triggered: ppDownstreamInvalidation,
+          downstream_invalidation_triggered: downstreamInvalidation,
         },
         execution_mode: executionMode,
         guardrails: [] as string[],
         preserve_entities: [] as string[],
-        created_at: ppAt,
-        content_hashes: ppContentHashes,
-        stale: ppStale,
+        created_at: planAt,
+        content_hashes: contentHashes,
+        stale,
       };
 
-      console.log("[dev-engine-v2] build_patch_plan", {
-        project_id: projectId,
-        repair_id: repairId || null,
-        repair_type: core.resolved_repair_type,
-        execution_mode: executionMode,
-        direct_count: core.direct_targets.length,
-        protected_count: core.protected_targets.length,
-        downstream_count: ppFinalDownstream.length,
-        reval_count: ppRevalTargets.length,
-        stale: ppStale,
-      });
-
-      return new Response(JSON.stringify({
-        ok: true,
-        action: "build_patch_plan",
-        project_id: projectId,
+      return {
+        empty: false,
         patch_plan: patchPlan,
         planning_notes: {
           target_resolution_source: core.resolution_notes.chosen_strategy,
           execution_mode_reason: executionModeReason,
           fallback_used: core.resolution_notes.fallback_used,
           fallback_reason: core.resolution_notes.fallback_reason,
-          impact_surface_count: ppFinalDownstream.length,
+          impact_surface_count: finalDownstream.length,
           protected_surface_count: core.protected_targets.length,
         },
-        computed_at: ppAt,
+        _core: core,
+      };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // PATCHPLAN BUILDER v1 — build_patch_plan
+    //
+    // Read-only planning layer. Uses buildPatchPlanCore.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "build_patch_plan") {
+      const { projectId, repairId, repairType, sourceType, versionId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!repairId && !repairType) {
+        return new Response(JSON.stringify({ ok: false, error: "repairId or repairType required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const result = await buildPatchPlanCore(supabase, { projectId, repairId, repairType, sourceType, versionId });
+
+      console.log("[dev-engine-v2] build_patch_plan", {
+        project_id: projectId,
+        repair_id: repairId || null,
+        empty: result.empty,
+        execution_mode: result.patch_plan?.execution_mode,
+        direct_count: result.patch_plan?.direct_targets?.length ?? 0,
+        protected_count: result.patch_plan?.protected_targets?.length ?? 0,
+        downstream_count: result.planning_notes.impact_surface_count,
+        stale: result.patch_plan?.stale,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "build_patch_plan",
+        project_id: projectId,
+        patch_plan: result.patch_plan,
+        planning_notes: result.planning_notes,
+        computed_at: result.patch_plan?.created_at || new Date().toISOString(),
         version: "patch-plan-v1",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -30049,9 +30087,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     // ══════════════════════════════════════════════════════════════════════════════
     // PATCH PLAN VALIDATION / STALENESS VERIFICATION v1 — validate_patch_plan
     //
-    // Read-only validation gate. Builds plan via canonical path, then verifies
-    // that every target still exists, content hashes are fresh, version bindings
-    // are current, and no active processing conflict exists.
+    // Read-only validation gate. Uses buildPatchPlanCore, then verifies
+    // target existence, content hash freshness, version bindings, and locks.
     // ══════════════════════════════════════════════════════════════════════════════
 
     if (action === "validate_patch_plan") {
@@ -30067,13 +30104,10 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
 
       const vpAt = new Date().toISOString();
 
-      // ── STEP 1: Build canonical patch plan (reuse existing build_patch_plan logic) ──
-      const core = await resolvePatchTargetsCore(supabase, {
-        projectId, repairId, repairType, versionId,
-        includeProtected: true,
-      });
+      // ── STEP 1: Build canonical patch plan via shared core ──
+      const result = await buildPatchPlanCore(supabase, { projectId, repairId, repairType, sourceType, versionId });
 
-      if (core.empty) {
+      if (result.empty || !result.patch_plan || !result._core) {
         return new Response(JSON.stringify({
           ok: true,
           action: "validate_patch_plan",
@@ -30085,118 +30119,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Build the plan using same logic as build_patch_plan
-      const { getInvalidationPlan: vpGetInvalidationPlan } = await import("../_shared/deliverableDependencyRegistry.ts");
-
-      const { data: vpProjectRow } = await supabase
-        .from("projects")
-        .select("assigned_lane")
-        .eq("id", projectId)
-        .maybeSingle();
-      const vpLane = vpProjectRow?.assigned_lane || "unspecified";
-
-      let vpExecMode: "replace_section" | "regenerate_section" | "scene_rewrite" | "full_doc_rewrite" = "full_doc_rewrite";
-      let vpExecModeReason = "document_fallback";
-      if (core.direct_targets.some(t => t.target_type === "section")) {
-        vpExecMode = "replace_section"; vpExecModeReason = "section_target_resolved";
-      } else if (core.direct_targets.some(t => t.target_type === "episode_block")) {
-        vpExecMode = "regenerate_section"; vpExecModeReason = "episode_block_target_resolved";
-      } else if (core.direct_targets.some(t => t.target_type === "scene")) {
-        vpExecMode = "scene_rewrite"; vpExecModeReason = "scene_target_resolved";
-      }
-
-      // Downstream surfaces (same as build_patch_plan)
-      const vpDownstream: any[] = [];
-      const vpDirectDocTypes = [...new Set(core.direct_targets.map(t => t.doc_type))];
-      for (const ddt of vpDirectDocTypes) {
-        try {
-          const invPlan = vpGetInvalidationPlan(vpLane, ddt);
-          for (const entry of invPlan.entries) {
-            const ds = core.all_docs.find((d: any) => d.doc_type === entry.doc_type);
-            const impactType = entry.invalidation_policy === "stale"
-              ? "regeneration_required"
-              : entry.invalidation_policy === "review_only"
-                ? "review_required"
-                : "no_action";
-            vpDownstream.push({
-              document_id: ds?.id || "",
-              doc_type: entry.doc_type,
-              version_id: ds?.latest_version_id || null,
-              impact_type: impactType,
-              dependency_edge: `${entry.edge.from_doc_type}→${entry.edge.to_doc_type}`,
-              invalidation_policy: entry.invalidation_policy,
-              revalidation_policy: entry.revalidation_policy,
-              affected_sections: [],
-              scope_precision: ds ? "document_level_fallback" : null,
-              propagation_path: [ddt, entry.doc_type],
-            });
-          }
-        } catch (_e) { /* not in registry */ }
-      }
-      const vpSurfaceMap = new Map<string, any>();
-      const vpImpOrd: Record<string, number> = { regeneration_required: 2, review_required: 1, no_action: 0 };
-      for (const s of vpDownstream) {
-        const existing = vpSurfaceMap.get(s.doc_type);
-        if (!existing || (vpImpOrd[s.impact_type] ?? 0) > (vpImpOrd[existing.impact_type] ?? 0)) {
-          vpSurfaceMap.set(s.doc_type, s);
-        }
-      }
-      const vpFinalDownstream = [...vpSurfaceMap.values()].sort((a: any, b: any) => a.doc_type.localeCompare(b.doc_type));
-
-      // Revalidation plan
-      const vpRevalTargets: any[] = [];
-      for (const ds of vpFinalDownstream) {
-        if (ds.impact_type === "no_action") continue;
-        vpRevalTargets.push({
-          document_id: ds.document_id,
-          doc_type: ds.doc_type,
-          version_id: ds.version_id,
-          revalidation_type: ds.revalidation_policy === "must_reanalyze" ? "full_reanalysis"
-            : ds.revalidation_policy === "optional_review" ? "spine_check_only" : "section_recheck",
-          priority: ds.impact_type === "regeneration_required" ? "immediate" : "deferred",
-        });
-      }
-      vpRevalTargets.sort((a: any, b: any) => {
-        const p = (a.priority === "immediate" ? 0 : 1) - (b.priority === "immediate" ? 0 : 1);
-        if (p !== 0) return p;
-        return a.doc_type.localeCompare(b.doc_type);
-      });
-
-      const vpContentHashes: Record<string, string> = {};
-      for (const t of [...core.direct_targets, ...core.protected_targets]) {
-        vpContentHashes[t.target_id] = t.content_hash;
-      }
-
-      const vpRepairRef = repairId || core.resolved_repair_type || "unknown";
-      const vpVersionRef = versionId || "current";
-      const vpPlanId = `patchplan::${projectId}::${vpRepairRef}::${vpVersionRef}`;
-
-      const vpPlan = {
-        plan_id: vpPlanId,
-        project_id: projectId,
-        lane: vpLane,
-        repair_source: {
-          source_type: sourceType || "manual",
-          repair_id: repairId || null,
-          intervention_score: null as number | null,
-          repair_type: core.resolved_repair_type,
-        },
-        direct_targets: core.direct_targets,
-        protected_targets: core.protected_targets,
-        downstream_regeneration: vpFinalDownstream,
-        revalidation_plan: {
-          revalidation_targets: vpRevalTargets,
-          affected_axes: [] as string[],
-          stale_unit_keys: [] as string[],
-          downstream_invalidation_triggered: vpFinalDownstream.some((s: any) => s.impact_type === "regeneration_required"),
-        },
-        execution_mode: vpExecMode,
-        guardrails: [] as string[],
-        preserve_entities: [] as string[],
-        created_at: vpAt,
-        content_hashes: vpContentHashes,
-        stale: core.direct_targets.some(t => !t.content_hash) || core.protected_targets.some(t => !t.content_hash),
-      };
+      const vpPlan = result.patch_plan;
+      const core = result._core;
 
       // ── STEP 2-8: Validation checks ──
       interface VPIssue {
@@ -30213,7 +30137,6 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       // Helper: recompute hash for target content at current DB state
       async function recomputeTargetHash(target: CorePatchTarget): Promise<string | null> {
         if (target.target_type === "document" || target.target_type === "section" || target.target_type === "episode_block") {
-          // Get current version plaintext
           const { data: ver } = await supabase
             .from("project_document_versions")
             .select("plaintext")
@@ -30221,10 +30144,6 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             .maybeSingle();
           if (!ver) return null;
           const fullText = ver.plaintext || "";
-          if (target.target_type === "document") return await coreContentHash(fullText);
-          // For section/episode_block: we'd need to re-parse, but the content_hash was computed
-          // from the same version, so if version still exists and plaintext unchanged, hash matches.
-          // Re-hash full text and compare to detect any changes.
           return await coreContentHash(fullText);
         }
         if (target.target_type === "scene") {
@@ -30334,7 +30253,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           .select("id, is_current, superseded_at, superseded_by")
           .eq("id", dt.version_id)
           .maybeSingle();
-        if (!verRow) continue; // already caught in step 2
+        if (!verRow) continue;
         if (verRow.superseded_at || verRow.superseded_by) {
           vpIssues.push({ code: "version_superseded", severity: "error", target_id: dt.target_id, message: `Version ${dt.version_id} has been superseded` });
         }
@@ -30352,13 +30271,11 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         vpIssues.push({ code: "active_processing_conflict", severity: "error", target_id: null, message: `Active auto-run job exists (${activeJobs[0].id}), execution unsafe` });
       }
 
-      // STEP 7 — Missing hash check (already handled in step 4 inline)
-
       // STEP 8 — Final validity
       const vpHasError = vpIssues.some(i => i.severity === "error");
       const vpIsStale = vpIssues.some(i => i.code === "content_hash_mismatch" || i.code === "version_superseded");
 
-      // Deterministic issue sort: error before warning, then target_id, then code
+      // Deterministic issue sort
       vpIssues.sort((a, b) => {
         const sevCmp = (a.severity === "error" ? 0 : 1) - (b.severity === "error" ? 0 : 1);
         if (sevCmp !== 0) return sevCmp;
@@ -30369,7 +30286,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
 
       console.log("[dev-engine-v2] validate_patch_plan", {
         project_id: projectId,
-        plan_id: vpPlanId,
+        plan_id: vpPlan.plan_id,
         plan_valid: !vpHasError,
         stale: vpIsStale,
         direct_valid: directValid,
@@ -30383,7 +30300,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         project_id: projectId,
         patch_plan: vpPlan,
         validation: {
-          plan_id: vpPlanId,
+          plan_id: vpPlan.plan_id,
           plan_valid: !vpHasError,
           stale: vpIsStale,
           direct_targets_checked: core.direct_targets.length,
