@@ -171,7 +171,7 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
               || chunk.chunk_key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
             const isDone = chunk.status === 'done';
             const isRunning = chunk.status === 'running';
-            const isFailed = chunk.status === 'failed' || chunk.status === 'failed_validation';
+            const isFailed = isSectionFailed(chunk.status);
             const isExpanded = expandedId === chunk.id;
             const isRetrying = retryingId === chunk.id;
 
