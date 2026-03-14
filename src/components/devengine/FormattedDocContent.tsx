@@ -123,18 +123,18 @@ function CharacterCard({ char, index }: { char: Record<string, any>; index: numb
 
 function tryParseJSON(text: string): any | null {
   const trimmed = text.trim();
-  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    // Try extracting first JSON object/array
-    const start = trimmed.search(/[{[]/);
-    const end = Math.max(trimmed.lastIndexOf('}'), trimmed.lastIndexOf(']'));
-    if (start !== -1 && end !== -1) {
-      try { return JSON.parse(trimmed.slice(start, end + 1)); } catch { return null; }
-    }
-    return null;
+  // Try direct parse first (content starts with { or [)
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try { return JSON.parse(trimmed); } catch { /* fall through to extraction */ }
   }
+  // Try extracting the first JSON object/array even if there's leading text
+  // Handles formats like "CHARACTERS\n{...}" or markdown-wrapped JSON
+  const start = trimmed.search(/[{[]/);
+  const end = Math.max(trimmed.lastIndexOf('}'), trimmed.lastIndexOf(']'));
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(trimmed.slice(start, end + 1)); } catch { /* not JSON */ }
+  }
+  return null;
 }
 
 function renderJSON(parsed: any) {
@@ -158,6 +158,14 @@ function renderJSON(parsed: any) {
         ))}
       </ul>
     );
+  }
+
+  // Unwrap common wrapper keys: CHARACTER_BIBLE, character_bible, CHARACTERS, etc.
+  const WRAPPER_KEYS = ['CHARACTER_BIBLE', 'character_bible', 'CHARACTERS', 'characters_list', 'cast'];
+  for (const wk of WRAPPER_KEYS) {
+    if (parsed[wk] && typeof parsed[wk] === 'object') {
+      return renderJSON(parsed[wk]);
+    }
   }
 
   // Object with a "characters" key
