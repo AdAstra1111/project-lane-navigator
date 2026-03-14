@@ -4259,7 +4259,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                     Clear triage
                   </button>
                   {bulkFeedback && (
-                    <span className="text-[8px] font-mono text-primary/70">Updated</span>
+                    <span className="text-[8px] font-mono text-primary/70">{bulkFeedback}</span>
                   )}
                 </div>
               );
