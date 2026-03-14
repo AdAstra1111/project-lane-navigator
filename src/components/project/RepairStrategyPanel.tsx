@@ -4468,9 +4468,9 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
             </div>
 
             {/* Overall outcomes */}
-            <Collapsible defaultOpen>
+            <Collapsible defaultOpen open={forcedOpenSubs.has("overall_outcomes") ? true : undefined} onOpenChange={(o) => onSubOpenChange("overall_outcomes", o)}>
               <CollapsibleTrigger asChild>
-                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("overall_outcomes") && highlightClass)}>
                   <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                   <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                   <span className="font-semibold">Overall Outcomes</span>
