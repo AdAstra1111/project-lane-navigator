@@ -2604,6 +2604,10 @@ function ExecutionReplaySection({
   // History index state
   const [historyResult, setHistoryResult] = useState<PatchExecutionHistoryResponse | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [accumulatedItems, setAccumulatedItems] = useState<PatchExecutionHistoryItem[]>([]);
+  const [nextCursor, setNextCursor] = useState<PatchExecutionHistoryCursor | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<PatchExecutionHistoryItem | null>(null);
   const [showManualInput, setShowManualInput] = useState(false);
 
@@ -2614,14 +2618,39 @@ function ExecutionReplaySection({
   const handleLoadHistory = async (filtersOverride?: PatchExecutionHistoryFilters) => {
     if (!projectId) return;
     setHistoryLoading(true);
+    setAccumulatedItems([]);
+    setNextCursor(null);
+    setHasMore(false);
     try {
       const f = filtersOverride ?? historyFilters;
       const result = await fetchPatchExecutionHistory(projectId, 20, hasActiveFilters || filtersOverride ? f : undefined);
       setHistoryResult(result);
+      setAccumulatedItems(result?.history_items || []);
+      setNextCursor(result?.pagination?.next_cursor || null);
+      setHasMore(result?.pagination?.has_more || false);
     } catch {
       setHistoryResult(null);
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const handleLoadMore = async () => {
+    if (!projectId || !nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const f = hasActiveFilters ? historyFilters : undefined;
+      const result = await fetchPatchExecutionHistory(projectId, 20, f, nextCursor);
+      if (result) {
+        setHistoryResult(result);
+        setAccumulatedItems(prev => [...prev, ...result.history_items]);
+        setNextCursor(result.pagination?.next_cursor || null);
+        setHasMore(result.pagination?.has_more || false);
+      }
+    } catch {
+      // keep existing items
+    } finally {
+      setLoadingMore(false);
     }
   };
 
