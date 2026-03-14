@@ -253,6 +253,12 @@ export function NarrativeRepairQueuePanel({ projectId, landingContext, onDismiss
         {allRepairs.length === 0 && (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">No repair plans currently queued.</p>
+            {landingContext && (
+              <p className="text-[10px] text-muted-foreground leading-snug border-l-2 border-primary/30 pl-2">
+                Generate repair plans to address: <span className="font-semibold text-foreground">{landingContext.title}</span>
+                <span className="text-muted-foreground/60 font-mono ml-1">({landingContext.rule_id})</span>
+              </p>
+            )}
             <Button variant="outline" size="sm" className="gap-1.5" onClick={handleRefreshPlans} disabled={isPlanning}>
               {isPlanning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
               Generate Repair Plans
