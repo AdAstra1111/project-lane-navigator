@@ -4070,7 +4070,7 @@ function computeChangeMap(
 function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRouteToRepairs }: {
   projectId: string;
   onNavigateToTrend: (target: TrendNavigationTarget) => void;
-  onRouteToRepairs?: () => void;
+  onRouteToRepairs?: (ctx: RepairLandingContext) => void;
 }) {
   const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
   const [trendsData, setTrendsData] = useState<PatchExecutionTrendsResponse | null>(null);
