@@ -30412,7 +30412,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
 
       // Resolve lane for ordering
       const { data: orderProject } = await supabase.from("projects").select("format, assigned_lane").eq("id", projectId).maybeSingle();
-      const orderLane = (orderProject?.assigned_lane || orderProject?.format || "unspecified") as ExecLaneKey;
+      const orderLane = (orderProject?.assigned_lane || orderProject?.format || "unspecified") as string;
       const ladder = execLadders[orderLane] || execLadders.unspecified;
 
       // Collect unique doc_types across patched documents
