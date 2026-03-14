@@ -292,7 +292,7 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
         {/* ═══ NARRATIVE DIAGNOSTICS ═══ */}
         {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
         {/* ═══ REPAIR QUEUE ═══ */}
-        {projectId && <NarrativeRepairQueuePanel projectId={projectId} />}
+        {projectId && <NarrativeRepairQueuePanel projectId={projectId} landingContext={repairLandingContext} onDismissLandingContext={() => { setRepairLandingContext(null); if (landingTimerRef.current) clearTimeout(landingTimerRef.current); }} />}
         {/* ═══ SIMULATION PREVIEW ═══ */}
         <NarrativeSimulationPanel projectId={projectId} />
         {/* ═══ NARRATIVE DRIFT ═══ */}
