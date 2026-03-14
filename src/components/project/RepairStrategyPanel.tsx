@@ -3921,8 +3921,18 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
           </div>
 
           {/* Trend signal subline — shown for all statuses for honesty */}
-          <div className="text-[8px] text-muted-foreground/50">
-            {linkage.label}{linkage.source_label ? ` · ${linkage.source_label}` : ""}
+          <div className="flex items-center gap-2 text-[8px] text-muted-foreground/50">
+            <span>{linkage.label}{linkage.source_label ? ` · ${linkage.source_label}` : ""}</span>
+            {navTarget && (
+              <button
+                type="button"
+                className="text-[8px] font-mono text-primary/70 hover:text-primary underline decoration-primary/30 hover:decoration-primary/60 transition-colors"
+                onClick={() => onNavigateToTrend({ ...navTarget, activated_at: Date.now() })}
+                title={`Opens linked trend: ${linkage.source_key}`}
+              >
+                View trend evidence
+              </button>
+            )}
           </div>
 
           {/* Suppressed-by line */}
