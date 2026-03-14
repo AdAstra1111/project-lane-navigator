@@ -4079,12 +4079,9 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   // Stable triage identity helper — uses comparison_key instead of ephemeral recommendation_id
   const triageKey = (rec: { category?: string; rule_id?: string; recommendation_id: string; evidence?: Record<string, unknown>; trigger_metrics?: Record<string, unknown> }) => deriveComparisonKey(rec);
 
-  // Load persisted triage from DB on mount — keyed by comparison_key only.
-  // Legacy rows with null comparison_key are intentionally ignored (they used unstable recommendation_id
-  // and cannot be reliably mapped to current logical recommendations).
-  // During Phase 2, multiple DB rows may share the same comparison_key (different recommendation_id).
-  // We deduplicate by reading ORDER BY updated_at DESC so latest triage decision wins in memory.
-  // Phase 4 will enforce DB-level UNIQUE(project_id, comparison_key) and clean duplicates.
+  // Load persisted triage from DB on mount — keyed by stable comparison_key.
+  // Phase 4 enforces UNIQUE(project_id, comparison_key) and NOT NULL on comparison_key.
+  // The null filter and ORDER BY updated_at are defensive belts retained for safety.
   useEffect(() => {
     if (triageLoadedRef.current) return;
     triageLoadedRef.current = true;
@@ -4110,7 +4107,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     })();
   }, [projectId]);
 
-  // Persist a single triage upsert — dual-writes recommendation_id + comparison_key
+  // Persist a single triage upsert — keyed by stable comparison_key (Phase 4)
   const persistTriage = useCallback(async (compKey: string, recId: string, status: TriageStatus) => {
     const { data: userData } = await supabase.auth.getUser();
     await supabase
@@ -4121,19 +4118,19 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
         comparison_key: compKey,
         triage_status: status,
         created_by: userData?.user?.id ?? null,
-      }, { onConflict: 'project_id,recommendation_id' });
+      }, { onConflict: 'project_id,comparison_key' });
   }, [projectId]);
 
-  // Delete a single triage row
-  const deleteTriage = useCallback(async (compKey: string, recId: string) => {
+  // Delete a single triage row — by stable comparison_key
+  const deleteTriage = useCallback(async (compKey: string, _recId: string) => {
     await supabase
       .from('execution_recommendation_triage')
       .delete()
       .eq('project_id', projectId)
-      .eq('recommendation_id', recId);
+      .eq('comparison_key', compKey);
   }, [projectId]);
 
-  // Persist bulk upserts — dual-writes comparison_key
+  // Persist bulk upserts — keyed by stable comparison_key (Phase 4)
   const persistBulkTriage = useCallback(async (items: { compKey: string; recId: string }[], status: TriageStatus) => {
     const { data: userData } = await supabase.auth.getUser();
     const rows = items.map(item => ({
@@ -4145,16 +4142,16 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     }));
     await supabase
       .from('execution_recommendation_triage')
-      .upsert(rows, { onConflict: 'project_id,recommendation_id' });
+      .upsert(rows, { onConflict: 'project_id,comparison_key' });
   }, [projectId]);
 
-  // Delete bulk triage rows
-  const deleteBulkTriage = useCallback(async (recIds: string[]) => {
+  // Delete bulk triage rows — by stable comparison_key
+  const deleteBulkTriage = useCallback(async (compKeys: string[]) => {
     await supabase
       .from('execution_recommendation_triage')
       .delete()
       .eq('project_id', projectId)
-      .in('recommendation_id', recIds);
+      .in('comparison_key', compKeys);
   }, [projectId]);
 
   // Clean stale triage entries when recommendations change — uses comparison_key
@@ -4757,7 +4754,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                   visibleItems.forEach(item => { delete next[item.compKey]; });
                   return next;
                 });
-                if (itemsToDelete.length > 0) deleteBulkTriage(itemsToDelete.map(item => item.recId));
+                if (itemsToDelete.length > 0) deleteBulkTriage(itemsToDelete.map(item => item.compKey));
                 setBulkFeedback("Cleared triage");
                 setTimeout(() => setBulkFeedback(null), 1200);
               };
