@@ -72,6 +72,7 @@ import {
 
 interface Props {
   projectId: string | undefined;
+  onRouteToRepairs?: () => void;
 }
 
 /* ── Pressure color helpers ── */
