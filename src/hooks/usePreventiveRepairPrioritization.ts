@@ -1158,6 +1158,251 @@ export async function fetchPatchExecutionRecommendations(
   return json as PatchExecutionRecommendationsResponse;
 }
 
+// ── Recommendation Dedup / Suppression v1 ──────────────────────────────────
+// Pure deterministic post-processing layer. No backend changes. No threshold
+// changes. Raw recommendations preserved unchanged for auditability.
+// ────────────────────────────────────────────────────────────────────────────
+
+const BUCKET_PRIORITY_ORDER = [
+  "top_priorities",
+  "blocker_mitigations",
+  "repair_type_watchlist",
+  "source_type_watchlist",
+  "document_type_watchlist",
+  "governance_gaps",
+  "revalidation_gaps",
+  "suggested_next_actions",
+] as const;
+
+export type RecommendationBucketKey = typeof BUCKET_PRIORITY_ORDER[number];
+
+const ISSUE_FAMILY_MAP: Record<string, string> = {
+  overall_health: "execution_health",
+  blocker_pattern: "blocker_pressure",
+  blocker_mitigation: "blocker_pressure",
+  causal_root_blocker: "causal_blocking",
+  repair_type_instability: "repair_type_instability",
+  source_type_instability: "source_type_instability",
+  document_type_instability: "document_type_instability",
+  governance_coverage: "governance_gap",
+  governance_gap: "governance_gap",
+  revalidation_coverage: "revalidation_gap",
+  revalidation_gap: "revalidation_gap",
+  timing_efficiency: "timing_efficiency",
+  execution_timing: "timing_efficiency",
+};
+
+export function classifyRecommendationIssueFamily(rec: ExecutionRecommendation): string {
+  return ISSUE_FAMILY_MAP[rec.category] ?? rec.category;
+}
+
+const SEV_ORDER: Record<string, number> = { high: 3, medium: 2, low: 1 };
+const CONF_ORDER: Record<string, number> = { high: 3, medium: 2, low: 1 };
+
+export function computeRecommendationPriority(rec: ExecutionRecommendation, bucketKey: RecommendationBucketKey): number {
+  const bucketIdx = BUCKET_PRIORITY_ORDER.indexOf(bucketKey);
+  const sev = SEV_ORDER[rec.severity] ?? 0;
+  const conf = CONF_ORDER[rec.confidence] ?? 0;
+  // Higher = more important. Bucket 0 = top_priorities gets highest base.
+  return (8 - bucketIdx) * 100 + sev * 10 + conf;
+}
+
+export interface SuppressionEntry {
+  recommendation_id: string;
+  suppressed_by_recommendation_id: string | null;
+  reason: string;
+}
+
+export interface SuppressionReport {
+  raw_total: number;
+  display_total: number;
+  suppressed_total: number;
+  suppression_reasons: Array<{ reason: string; count: number }>;
+  suppressed_items: SuppressionEntry[];
+}
+
+export interface DisplayRecommendation extends ExecutionRecommendation {
+  source_bucket: RecommendationBucketKey;
+  suppressed: boolean;
+  suppression_reason: string | null;
+  suppressed_by: string | null;
+}
+
+export interface DisplayRecommendationsResult {
+  display_buckets: Record<RecommendationBucketKey, DisplayRecommendation[]>;
+  suppression_report: SuppressionReport;
+  all_display: DisplayRecommendation[];
+}
+
+function recFingerprint(rec: ExecutionRecommendation): string {
+  return `${rec.rule_id}|${rec.title}|${rec.suggested_action}|${rec.severity}`;
+}
+
+export function dedupeAndSuppressRecommendations(
+  recs: ExecutionRecommendations,
+): DisplayRecommendationsResult {
+  // Flatten all recs with source bucket
+  const all: DisplayRecommendation[] = [];
+  for (const bk of BUCKET_PRIORITY_ORDER) {
+    const bucket = recs[bk] as ExecutionRecommendation[];
+    if (!bucket) continue;
+    for (const rec of bucket) {
+      all.push({
+        ...rec,
+        source_bucket: bk,
+        suppressed: false,
+        suppression_reason: null,
+        suppressed_by: null,
+      });
+    }
+  }
+
+  const suppressions: SuppressionEntry[] = [];
+
+  const suppress = (dr: DisplayRecommendation, reason: string, byId: string | null) => {
+    dr.suppressed = true;
+    dr.suppression_reason = reason;
+    dr.suppressed_by = byId;
+    suppressions.push({
+      recommendation_id: dr.recommendation_id,
+      suppressed_by_recommendation_id: byId,
+      reason,
+    });
+  };
+
+  // RULE 1: Exact duplicate suppression
+  const seenFingerprints = new Map<string, DisplayRecommendation>();
+  for (const dr of all) {
+    if (dr.suppressed) continue;
+    const fp = recFingerprint(dr);
+    const existing = seenFingerprints.get(fp);
+    if (existing) {
+      suppress(dr, "exact_duplicate", existing.recommendation_id);
+    } else {
+      seenFingerprints.set(fp, dr);
+    }
+  }
+
+  // RULE 2: Same-rule bucket duplication — keep in top_priorities, suppress in lower
+  const topIds = new Set(
+    all.filter(d => !d.suppressed && d.source_bucket === "top_priorities")
+      .map(d => `${d.rule_id}|${d.title}`),
+  );
+  const topIdMap = new Map(
+    all.filter(d => !d.suppressed && d.source_bucket === "top_priorities")
+      .map(d => [`${d.rule_id}|${d.title}`, d.recommendation_id]),
+  );
+  for (const dr of all) {
+    if (dr.suppressed || dr.source_bucket === "top_priorities") continue;
+    const key = `${dr.rule_id}|${dr.title}`;
+    if (topIds.has(key)) {
+      suppress(dr, "promoted_to_top_priorities", topIdMap.get(key) ?? null);
+    }
+  }
+
+  // RULE 3: Same-entity watchlist collapse
+  // Group by (source_bucket, rule_id, entity_key) where entity_key is derived from evidence
+  const entityGroups = new Map<string, DisplayRecommendation[]>();
+  for (const dr of all) {
+    if (dr.suppressed) continue;
+    const entityKey = extractEntityKey(dr);
+    if (!entityKey) continue;
+    const gk = `${dr.source_bucket}|${dr.rule_id}|${entityKey}`;
+    const group = entityGroups.get(gk) ?? [];
+    group.push(dr);
+    entityGroups.set(gk, group);
+  }
+  for (const group of entityGroups.values()) {
+    if (group.length <= 1) continue;
+    // Sort: highest severity, then highest confidence, then lexical id
+    group.sort((a, b) => {
+      const sd = (SEV_ORDER[b.severity] ?? 0) - (SEV_ORDER[a.severity] ?? 0);
+      if (sd !== 0) return sd;
+      const cd = (CONF_ORDER[b.confidence] ?? 0) - (CONF_ORDER[a.confidence] ?? 0);
+      if (cd !== 0) return cd;
+      return a.recommendation_id.localeCompare(b.recommendation_id);
+    });
+    const retained = group[0];
+    for (let i = 1; i < group.length; i++) {
+      suppress(group[i], "same_entity_higher_priority_variant_retained", retained.recommendation_id);
+    }
+  }
+
+  // RULE 4: Lower-signal redundancy suppression
+  const active = all.filter(d => !d.suppressed);
+  const highMedActive = active.filter(d => d.severity === "high" || d.severity === "medium");
+  const lowActive = active.filter(d => d.severity === "low");
+  for (const low of lowActive) {
+    const lowFamily = classifyRecommendationIssueFamily(low);
+    const coveringRec = highMedActive.find(h => classifyRecommendationIssueFamily(h) === lowFamily);
+    if (coveringRec) {
+      suppress(low, "covered_by_higher_signal_recommendation", coveringRec.recommendation_id);
+    }
+  }
+
+  // Build display buckets (non-suppressed only for display, but keep all for audit)
+  const displayBuckets: Record<RecommendationBucketKey, DisplayRecommendation[]> = {
+    top_priorities: [],
+    blocker_mitigations: [],
+    repair_type_watchlist: [],
+    source_type_watchlist: [],
+    document_type_watchlist: [],
+    governance_gaps: [],
+    revalidation_gaps: [],
+    suggested_next_actions: [],
+  };
+
+  // Sort display items by priority within each bucket
+  for (const dr of all) {
+    displayBuckets[dr.source_bucket].push(dr);
+  }
+  for (const bk of BUCKET_PRIORITY_ORDER) {
+    displayBuckets[bk].sort((a, b) => {
+      // Non-suppressed first
+      if (a.suppressed !== b.suppressed) return a.suppressed ? 1 : -1;
+      const sd = (SEV_ORDER[b.severity] ?? 0) - (SEV_ORDER[a.severity] ?? 0);
+      if (sd !== 0) return sd;
+      const cd = (CONF_ORDER[b.confidence] ?? 0) - (CONF_ORDER[a.confidence] ?? 0);
+      if (cd !== 0) return cd;
+      return a.recommendation_id.localeCompare(b.recommendation_id);
+    });
+  }
+
+  return {
+    display_buckets: displayBuckets,
+    suppression_report: buildSuppressionReport(all.length, suppressions),
+    all_display: all,
+  };
+}
+
+function extractEntityKey(dr: DisplayRecommendation): string | null {
+  // Extract entity from evidence or title for watchlist-style recs
+  const ev = dr.evidence as Record<string, unknown>;
+  if (ev?.repair_type) return `repair:${ev.repair_type}`;
+  if (ev?.source_type) return `source:${ev.source_type}`;
+  if (ev?.doc_type) return `doc:${ev.doc_type}`;
+  if (ev?.blocker_code) return `blocker:${ev.blocker_code}`;
+  return null;
+}
+
+export function buildSuppressionReport(rawTotal: number, suppressions: SuppressionEntry[]): SuppressionReport {
+  const reasonCounts = new Map<string, number>();
+  for (const s of suppressions) {
+    reasonCounts.set(s.reason, (reasonCounts.get(s.reason) ?? 0) + 1);
+  }
+  const reasons = Array.from(reasonCounts.entries())
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason));
+
+  return {
+    raw_total: rawTotal,
+    display_total: rawTotal - suppressions.length,
+    suppressed_total: suppressions.length,
+    suppression_reasons: reasons,
+    suppressed_items: suppressions,
+  };
+}
+
 // ── Execution Trend Types ──
 
 export type TrendDirection = "improving" | "worsening" | "flat" | "insufficient_data";
