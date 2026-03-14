@@ -17,6 +17,7 @@ interface BgGenBannerProps {
   versionId: string;
   episodeCount?: number;
   docType?: string;
+  onAllChunksDone?: (assembledContent: string) => void;
 }
 
 interface State { hasError: boolean }
@@ -44,15 +45,15 @@ class BgGenBannerErrorBoundary extends React.Component<
   }
 }
 
-export function BgGenBanner({ versionId, episodeCount, docType }: BgGenBannerProps) {
+export function BgGenBanner({ versionId, episodeCount, docType, onAllChunksDone }: BgGenBannerProps) {
   const isSectioned = docType && SECTIONED_PROSE_TYPES.has(docType);
 
   return (
     <BgGenBannerErrorBoundary versionId={versionId} episodeCount={episodeCount} docType={docType}>
       {isSectioned ? (
-        <SectionedDocProgress versionId={versionId} docType={docType} />
+        <SectionedDocProgress versionId={versionId} docType={docType} onAllChunksDone={onAllChunksDone} />
       ) : (
-        <SeasonScriptProgress versionId={versionId} episodeCount={episodeCount} />
+        <SeasonScriptProgress versionId={versionId} episodeCount={episodeCount} onAllChunksDone={onAllChunksDone} />
       )}
     </BgGenBannerErrorBoundary>
   );
