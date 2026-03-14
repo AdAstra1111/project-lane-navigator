@@ -4961,7 +4961,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
               const buckets: { status: TriageStatus; label: string; items: DisplayRecommendation[] }[] = (["do_now", "watch", "ignore"] as const).map(s => ({
                 status: s,
                 label: s === "do_now" ? "DO NOW" : s === "watch" ? "WATCH" : "IGNORE",
-                items: sortItems(displayResult?.all_display.filter(r => !r.suppressed && triageMap[r.recommendation_id] === s) ?? []),
+                items: sortItems(displayResult?.all_display.filter(r => !r.suppressed && triageMap[triageKey(r)] === s) ?? []),
               })).filter(b => b.items.length > 0);
               const hasMemo = buckets.length > 0;
 
