@@ -4685,5 +4685,6 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
         )}
       </CollapsibleContent>
     </Collapsible>
+    </div>
   );
 }
