@@ -3406,6 +3406,74 @@ function ExecutionReplaySection({
               </div>
             )}
 
+            {/* Causal Graph */}
+            {obs && (obs as any).causal_nodes?.length > 0 && (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors">
+                    <ChevronRight className="h-2.5 w-2.5 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-2.5 w-2.5 hidden [[data-state=open]>&]:block" />
+                    Execution Causal Graph ({(obs as any).causal_nodes.length} nodes, {(obs as any).causal_edges?.length || 0} edges)
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="space-y-2 mt-1">
+                    {/* Root blockers */}
+                    {(() => {
+                      const edges = (obs as any).causal_edges || [];
+                      const blockEdges = edges.filter((e: any) => e.edge_type === "blocks");
+                      const failEdges = edges.filter((e: any) => e.edge_type === "failed_because");
+                      if (blockEdges.length === 0 && failEdges.length === 0) return null;
+                      return (
+                        <div>
+                          {blockEdges.length > 0 && (
+                            <div className="mb-1">
+                              <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-0.5">Blocked By</div>
+                              {blockEdges.map((e: any, i: number) => (
+                                <div key={`block-${i}`} className="text-[9px] font-mono text-amber-400">
+                                  {e.from_node} → {e.to_node}: {e.reason_message}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {failEdges.length > 0 && (
+                            <div>
+                              <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-0.5">Failures</div>
+                              {failEdges.map((e: any, i: number) => (
+                                <div key={`fail-${i}`} className="text-[9px] font-mono text-destructive">
+                                  {e.from_node}: {e.reason_message}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* All nodes */}
+                    <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                      {((obs as any).causal_nodes || []).map((n: any, i: number) => (
+                        <div key={`cn-${i}`} className="flex items-center gap-1.5 text-[9px]">
+                          <Badge variant="outline" className={cn(
+                            "text-[7px] font-mono px-1 py-0 h-3 shrink-0",
+                            n.node_type === 'document' && "text-blue-400 border-blue-500/30",
+                            n.node_type === 'validation' && "text-emerald-400 border-emerald-500/30",
+                            n.node_type === 'governance' && "text-amber-400 border-amber-500/30",
+                            n.node_type === 'revalidation' && "text-purple-400 border-purple-500/30",
+                            n.node_type === 'patch_target' && "text-muted-foreground border-border/50",
+                            n.node_type === 'execution_step' && "text-emerald-400 border-emerald-500/30",
+                          )}>
+                            {n.node_type}
+                          </Badge>
+                          <span className="text-foreground truncate">{n.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
             {/* Plan ID for reference */}
             <div className="text-[9px] text-muted-foreground font-mono border-t border-border/30 pt-1.5">
               plan_id: {replay.plan_id}
