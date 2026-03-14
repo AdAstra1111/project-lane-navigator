@@ -4951,6 +4951,8 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                   out += `── ${b.label} ──\n`;
                   for (const r of b.items) {
                     out += `• [${r.severity.toUpperCase()}] ${r.title} (${r.rule_id})\n  Action: ${r.suggested_action}\n`;
+                    const firstAction = r.recommended_actions?.find(a => !a.destructive);
+                    if (firstAction) out += `  Inspect: ${firstAction.label}\n`;
                   }
                   out += "\n";
                 }
