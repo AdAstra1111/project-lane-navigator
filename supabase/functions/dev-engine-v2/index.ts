@@ -32212,6 +32212,270 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════
+    // EXECUTION ANALYTICS v1 — get_patch_execution_analytics (READ-ONLY)
+    //
+    // Aggregates persisted execution replay snapshots into a deterministic
+    // analytics surface. No recomputation, no mutation, no schema drift.
+    // Derives all metrics strictly from pipeline_transitions.resulting_state.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "get_patch_execution_analytics") {
+      const { projectId, window: windowOpts } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const analyticsAt = new Date().toISOString();
+      const w = windowOpts && typeof windowOpts === "object" ? windowOpts : {};
+      const scanLimit = Math.min(Math.max(Number(w.limit) || 50, 1), 200);
+      const dateFrom: string | null = typeof w.date_from === "string" ? w.date_from : null;
+      const dateTo: string | null = typeof w.date_to === "string" ? w.date_to : null;
+
+      let query = supabase
+        .from("pipeline_transitions")
+        .select("id, resulting_state, created_at")
+        .eq("project_id", projectId)
+        .eq("event_type", "patch_execution_completed")
+        .order("created_at", { ascending: false });
+
+      if (dateFrom) query = query.gte("created_at", dateFrom);
+      if (dateTo) query = query.lte("created_at", dateTo);
+      query = query.limit(scanLimit);
+
+      const { data: rows, error: queryErr } = await query;
+
+      if (queryErr) {
+        return new Response(JSON.stringify({
+          ok: false, action: "get_patch_execution_analytics",
+          error: `query_error:${queryErr.message}`,
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const allRows = rows || [];
+      const scannedRows = allRows.length;
+
+      // ── Validate and collect valid snapshots ──
+      let validCount = 0;
+      let invalidCount = 0;
+      const validSnapshots: { snap: any; exec: any; plan: any; obs: any }[] = [];
+
+      for (const row of allRows) {
+        const v = validatePatchExecutionReplaySnapshot(row.resulting_state);
+        if (!v.valid) { invalidCount++; continue; }
+        validCount++;
+        const snap = row.resulting_state as any;
+        const exec = snap.execution || {};
+        const plan = snap.patch_plan || {};
+        const obs = exec.execution_observability || {};
+        validSnapshots.push({ snap, exec, plan, obs });
+      }
+
+      // ── Outcome counts ──
+      const outcomes = { executed: 0, partial: 0, blocked: 0, failed: 0, dry_run: 0 };
+      for (const { exec } of validSnapshots) {
+        const o = deriveReplayOutcome(exec);
+        if (o in outcomes) (outcomes as any)[o]++;
+      }
+      const total = validCount || 1; // avoid div by zero
+      const successRates = {
+        executed_rate: Math.round((outcomes.executed / total) * 1000) / 10,
+        partial_or_better_rate: Math.round(((outcomes.executed + outcomes.partial) / total) * 1000) / 10,
+        blocked_rate: Math.round((outcomes.blocked / total) * 1000) / 10,
+        failed_rate: Math.round((outcomes.failed / total) * 1000) / 10,
+      };
+
+      // ── Repair type breakdown ──
+      const repairMap = new Map<string, { count: number; executed: number; partial: number; blocked: number; failed: number; dry_run: number }>();
+      for (const { exec, plan } of validSnapshots) {
+        const rt = (plan.repair_source || {}).repair_type || "unknown";
+        if (!repairMap.has(rt)) repairMap.set(rt, { count: 0, executed: 0, partial: 0, blocked: 0, failed: 0, dry_run: 0 });
+        const entry = repairMap.get(rt)!;
+        entry.count++;
+        const o = deriveReplayOutcome(exec);
+        if (o in entry) (entry as any)[o]++;
+      }
+      const repairTypeBreakdown = Array.from(repairMap.entries())
+        .map(([repair_type, v]) => ({ repair_type, ...v }))
+        .sort((a, b) => b.count - a.count || a.repair_type.localeCompare(b.repair_type));
+
+      // ── Source type breakdown ──
+      const sourceMap = new Map<string, { count: number; executed: number; partial: number; blocked: number; failed: number; dry_run: number }>();
+      for (const { exec, plan } of validSnapshots) {
+        const st = (plan.repair_source || {}).source_type || "unknown";
+        if (!sourceMap.has(st)) sourceMap.set(st, { count: 0, executed: 0, partial: 0, blocked: 0, failed: 0, dry_run: 0 });
+        const entry = sourceMap.get(st)!;
+        entry.count++;
+        const o = deriveReplayOutcome(exec);
+        if (o in entry) (entry as any)[o]++;
+      }
+      const sourceTypeBreakdown = Array.from(sourceMap.entries())
+        .map(([source_type, v]) => ({ source_type, ...v }))
+        .sort((a, b) => b.count - a.count || a.source_type.localeCompare(b.source_type));
+
+      // ── Document type breakdown ──
+      const docMap = new Map<string, { total_seen: number; executed: number; blocked: number; failed: number; skipped_upstream: number; governance_performed: number; revalidation_performed: number }>();
+      for (const { obs } of validSnapshots) {
+        const timeline: any[] = Array.isArray(obs.document_timeline) ? obs.document_timeline : [];
+        for (const dt of timeline) {
+          const dType = dt.doc_type || "unknown";
+          if (!docMap.has(dType)) docMap.set(dType, { total_seen: 0, executed: 0, blocked: 0, failed: 0, skipped_upstream: 0, governance_performed: 0, revalidation_performed: 0 });
+          const entry = docMap.get(dType)!;
+          entry.total_seen++;
+          if (dt.status === "executed") entry.executed++;
+          else if (dt.status === "blocked") entry.blocked++;
+          else if (dt.status === "failed") entry.failed++;
+          else if (dt.status === "skipped_upstream_failure") entry.skipped_upstream++;
+          if (dt.governance_status === "performed") entry.governance_performed++;
+          if (dt.revalidation_status && dt.revalidation_status !== "skipped") entry.revalidation_performed++;
+        }
+      }
+      const documentTypeBreakdown = Array.from(docMap.entries())
+        .map(([doc_type, v]) => ({ doc_type, ...v }))
+        .sort((a, b) => b.total_seen - a.total_seen || a.doc_type.localeCompare(b.doc_type));
+
+      // ── Blocker breakdown ──
+      const blockerCounts = new Map<string, number>();
+      for (const { exec, obs } of validSnapshots) {
+        // Priority 1: block_reasons from execution_notes
+        const notes = exec.execution_notes || {};
+        const blockReasons = Array.isArray((notes as any).block_reasons) ? (notes as any).block_reasons : [];
+        for (const br of blockReasons) {
+          const code = typeof br === "string" ? br : (br?.code || "unknown");
+          blockerCounts.set(code, (blockerCounts.get(code) || 0) + 1);
+        }
+        // Priority 2/3: causal edges
+        const causalEdges: any[] = Array.isArray(obs.causal_edges) ? obs.causal_edges : [];
+        for (const e of causalEdges) {
+          if (e.edge_type === "blocks" || e.edge_type === "failed_because") {
+            const code = e.reason_code || e.edge_type;
+            blockerCounts.set(code, (blockerCounts.get(code) || 0) + 1);
+          }
+        }
+      }
+      const blockerBreakdown = Array.from(blockerCounts.entries())
+        .map(([blocker_code, count]) => ({ blocker_code, count }))
+        .sort((a, b) => b.count - a.count || a.blocker_code.localeCompare(b.blocker_code));
+
+      // ── Timing ──
+      const durations = { total: [] as number[], validation: [] as number[], section_execution: [] as number[], governance: [] as number[], revalidation: [] as number[] };
+      for (const { obs } of validSnapshots) {
+        if (typeof obs.total_duration_ms === "number") durations.total.push(obs.total_duration_ms);
+        const pd = obs.phase_durations_ms || {};
+        if (typeof pd.validation === "number") durations.validation.push(pd.validation);
+        if (typeof pd.section_execution === "number") durations.section_execution.push(pd.section_execution);
+        if (typeof pd.governance === "number") durations.governance.push(pd.governance);
+        if (typeof pd.revalidation === "number") durations.revalidation.push(pd.revalidation);
+      }
+      function avg(arr: number[]): number | null { return arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null; }
+      function minArr(arr: number[]): number | null { return arr.length ? Math.min(...arr) : null; }
+      function maxArr(arr: number[]): number | null { return arr.length ? Math.max(...arr) : null; }
+      const timing = {
+        avg_total_duration_ms: avg(durations.total),
+        min_total_duration_ms: minArr(durations.total),
+        max_total_duration_ms: maxArr(durations.total),
+        avg_validation_ms: avg(durations.validation),
+        avg_section_execution_ms: avg(durations.section_execution),
+        avg_governance_ms: avg(durations.governance),
+        avg_revalidation_ms: avg(durations.revalidation),
+      };
+
+      // ── Governance ──
+      let govWith = 0, govWithout = 0, govInvalidation = 0, govRevalHandoff = 0;
+      for (const { exec } of validSnapshots) {
+        const pe = exec.post_execution;
+        if (pe && typeof pe === "object") {
+          govWith++;
+          if ((pe as any).governance_notes?.invalidation_performed) govInvalidation++;
+          if ((pe as any).governance_notes?.revalidation_handoff) govRevalHandoff++;
+        } else {
+          govWithout++;
+        }
+      }
+      const governance = {
+        snapshots_with_governance: govWith,
+        snapshots_without_governance: govWithout,
+        invalidation_performed_count: govInvalidation,
+        revalidation_handoff_performed_count: govRevalHandoff,
+      };
+
+      // ── Revalidation ──
+      let revalWith = 0, revalFull = 0, revalPartial = 0, revalFailed = 0, revalDeferred = 0;
+      for (const { exec } of validSnapshots) {
+        const re = exec.revalidation_execution;
+        if (re && typeof re === "object") {
+          revalWith++;
+          const targets: any[] = Array.isArray((re as any).target_results) ? (re as any).target_results : [];
+          const allSucceeded = targets.length > 0 && targets.every((t: any) => t.status === "executed");
+          const anyFailed = targets.some((t: any) => t.status === "failed");
+          const anyDeferred = targets.some((t: any) => t.status === "deferred");
+          if (allSucceeded) revalFull++;
+          else if (anyFailed) revalFailed++;
+          else if (anyDeferred) revalDeferred++;
+          else revalPartial++;
+        }
+      }
+      const revalidation = {
+        snapshots_with_revalidation_execution: revalWith,
+        full_success_count: revalFull,
+        partial_count: revalPartial,
+        failed_count: revalFailed,
+        deferred_count: revalDeferred,
+      };
+
+      // ── Causal patterns ──
+      const rootBlockerCounts = new Map<string, number>();
+      const blockEdgeCounts = new Map<string, { from_node: string; to_node: string; count: number }>();
+      for (const { obs } of validSnapshots) {
+        const edges: any[] = Array.isArray(obs.causal_edges) ? obs.causal_edges : [];
+        const blockEdges = edges.filter((e: any) => e.edge_type === "blocks");
+        const blockedTargets = new Set(blockEdges.map((e: any) => e.to_node));
+        for (const e of blockEdges) {
+          // Root blocker: a node that blocks others but is not itself blocked
+          if (!blockedTargets.has(e.from_node)) {
+            rootBlockerCounts.set(e.from_node, (rootBlockerCounts.get(e.from_node) || 0) + 1);
+          }
+          const key = `${e.from_node}→${e.to_node}`;
+          if (!blockEdgeCounts.has(key)) blockEdgeCounts.set(key, { from_node: e.from_node, to_node: e.to_node, count: 0 });
+          blockEdgeCounts.get(key)!.count++;
+        }
+      }
+      const causalPatterns = {
+        root_blockers: Array.from(rootBlockerCounts.entries())
+          .map(([blocker, count]) => ({ blocker, count }))
+          .sort((a, b) => b.count - a.count || a.blocker.localeCompare(b.blocker)),
+        block_edges: Array.from(blockEdgeCounts.values())
+          .sort((a, b) => b.count - a.count || a.from_node.localeCompare(b.from_node)),
+      };
+
+      console.log("[dev-engine-v2] get_patch_execution_analytics", {
+        project_id: projectId, scanned: scannedRows, valid: validCount, invalid: invalidCount,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "get_patch_execution_analytics",
+        project_id: projectId,
+        analytics: {
+          summary: { total_snapshots: validCount, valid_snapshots: validCount, invalid_snapshots: invalidCount, scanned_rows: scannedRows },
+          outcomes,
+          success_rates: successRates,
+          repair_type_breakdown: repairTypeBreakdown,
+          source_type_breakdown: sourceTypeBreakdown,
+          document_type_breakdown: documentTypeBreakdown,
+          blocker_breakdown: blockerBreakdown,
+          timing,
+          governance,
+          revalidation,
+          causal_patterns: causalPatterns,
+        },
+        window: { limit: scanLimit, date_from: dateFrom, date_to: dateTo },
+        computed_at: analyticsAt,
+        version: "execution-analytics-v1",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
