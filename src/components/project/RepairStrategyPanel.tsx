@@ -4220,7 +4220,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                   ids.forEach(id => { next[id] = status; });
                   return next;
                 });
-                setBulkFeedback(status);
+                setBulkFeedback(status === "do_now" ? "Updated do now" : status === "watch" ? "Updated watch" : "Updated ignore");
                 setTimeout(() => setBulkFeedback(null), 1200);
               };
 
@@ -4230,7 +4230,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                   visibleIds.forEach(id => { delete next[id]; });
                   return next;
                 });
-                setBulkFeedback("cleared");
+                setBulkFeedback("Cleared triage");
                 setTimeout(() => setBulkFeedback(null), 1200);
               };
 
