@@ -222,7 +222,7 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
           {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
 
           {/* Repair Queue */}
-          {projectId && <NarrativeRepairQueuePanel projectId={projectId} />}
+          {projectId && <NarrativeRepairQueuePanel projectId={projectId} landingContext={repairLandingContext} onDismissLandingContext={() => { setRepairLandingContext(null); if (landingTimerRef.current) clearTimeout(landingTimerRef.current); }} />}
 
           {/* Simulation Preview */}
           <NarrativeSimulationPanel projectId={projectId} />
