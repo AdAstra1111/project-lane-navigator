@@ -41,6 +41,8 @@ import {
   type TrendTopSignalEntry,
   dedupeAndSuppressRecommendations,
   type DisplayRecommendation, type DisplayRecommendationsResult, type RecommendationBucketKey,
+  resolveRecommendationTrendLinkage,
+  type RecommendationTrendLinkage, type LinkedTrendStatus,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
