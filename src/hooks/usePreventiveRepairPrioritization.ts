@@ -1069,6 +1069,25 @@ export interface PatchExecutionAnalyticsResponse {
 
 // ── Execution Recommendations Types ──
 
+/**
+ * Structured action contract for execution recommendations.
+ * Allows recommendations to declare machine-readable actions that can be
+ * surfaced in Action Queue, Action Memo, or future automation surfaces.
+ *
+ * This is additive-only. Recommendations without recommended_actions
+ * continue to work unchanged — the UI falls back to suggested_action text.
+ */
+export interface RecommendedAction {
+  /** Machine-readable action type (e.g. "run_repair", "revalidate_doc", "investigate_blocker") */
+  action_type: string;
+  /** Human-readable label for UI display */
+  label: string;
+  /** Canonical parameters needed to execute the action */
+  params: Record<string, string | number | boolean | null>;
+  /** Whether this action is destructive / mutating (default false) */
+  destructive?: boolean;
+}
+
 export interface ExecutionRecommendation {
   recommendation_id: string;
   category: string;
@@ -1083,6 +1102,9 @@ export interface ExecutionRecommendation {
   threshold_version: string;
   trigger_metrics: Record<string, number | string | null>;
   evidence_summary: string[];
+  // Structured action contract — execution-recommendations-v1.2
+  /** Optional structured actions. When absent, UI uses suggested_action text. */
+  recommended_actions?: RecommendedAction[];
 }
 
 export interface ExecutionRecommendationSummary {
