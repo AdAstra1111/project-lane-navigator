@@ -3,7 +3,7 @@
  * NRF1 axis debt context, and PRP2 strategic recommendation. Read-only UI.
  */
 
-import { useState, useMemo, useEffect, Fragment } from 'react';
+import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import {
   usePreventiveRepairPrioritization,
   fetchPatchTargets,
@@ -43,6 +43,8 @@ import {
   type DisplayRecommendation, type DisplayRecommendationsResult, type RecommendationBucketKey,
   resolveRecommendationTrendLinkage, humanizeSourceKey,
   type RecommendationTrendLinkage, type LinkedTrendStatus,
+  resolveTrendNavigationTarget,
+  type TrendNavigationTarget, type TrendSubsectionKey,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -100,6 +102,7 @@ type SortKey = 'preventive_rank' | 'baseline_rank' | 'preventive_score' | 'rank_
 export function RepairStrategyPanel({ projectId }: Props) {
   const { prp1, nrf1, prp2, roi, prp2s, rcc, iv, isLoading, nrf1Loading, prp2Loading, roiLoading, prp2sLoading, rccLoading, ivLoading, error, refresh } = usePreventiveRepairPrioritization(projectId);
   const [selectedRepair, setSelectedRepair] = useState<PRP1Repair | null>(null);
+  const [trendNavTarget, setTrendNavTarget] = useState<TrendNavigationTarget | null>(null);
   
   const [sortKey, setSortKey] = useState<SortKey>('preventive_rank');
   const [sortAsc, setSortAsc] = useState(true);
@@ -540,10 +543,10 @@ export function RepairStrategyPanel({ projectId }: Props) {
       <ExecutionAnalyticsSection projectId={projectId} />
 
       {/* ═══ SECTION 4j: EXECUTION RECOMMENDATIONS (read-only, deterministic) ═══ */}
-      <ExecutionRecommendationsSection projectId={projectId} />
+      <ExecutionRecommendationsSection projectId={projectId} onNavigateToTrend={setTrendNavTarget} />
 
       {/* ═══ SECTION 4k: EXECUTION TRENDS (read-only) ═══ */}
-      <ExecutionTrendsSection projectId={projectId} />
+      <ExecutionTrendsSection projectId={projectId} navigationTarget={trendNavTarget} onTargetHandled={() => setTrendNavTarget(null)} />
 
           </div>
         )}
@@ -3815,7 +3818,10 @@ function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
 // Renders explainability fields: rule_id, threshold_version, trigger_metrics,
 // evidence_summary (execution-recommendations-v1.1).
 
-function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
+function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
+  projectId: string;
+  onNavigateToTrend: (target: TrendNavigationTarget) => void;
+}) {
   const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
   const [trendsData, setTrendsData] = useState<PatchExecutionTrendsResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -3872,6 +3878,7 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
 
   const RecCard = ({ rec, suppressed }: { rec: DisplayRecommendation; suppressed?: boolean }) => {
     const linkage = resolveRecommendationTrendLinkage(rec, trends);
+    const navTarget = linkage.status !== "unavailable" ? resolveTrendNavigationTarget(linkage.source_key) : null;
     return (
     <div className={cn(
       "rounded-md border px-3 py-2 space-y-1.5",
@@ -3914,8 +3921,18 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
           </div>
 
           {/* Trend signal subline — shown for all statuses for honesty */}
-          <div className="text-[8px] text-muted-foreground/50">
-            {linkage.label}{linkage.source_label ? ` · ${linkage.source_label}` : ""}
+          <div className="flex items-center gap-2 text-[8px] text-muted-foreground/50">
+            <span>{linkage.label}{linkage.source_label ? ` · ${linkage.source_label}` : ""}</span>
+            {navTarget && (
+              <button
+                type="button"
+                className="text-[8px] font-mono text-primary/70 hover:text-primary underline decoration-primary/30 hover:decoration-primary/60 transition-colors"
+                onClick={() => onNavigateToTrend({ ...navTarget, activated_at: Date.now() })}
+                title={`Opens linked trend: ${linkage.source_key}`}
+              >
+                View trend evidence
+              </button>
+            )}
           </div>
 
           {/* Suppressed-by line */}
@@ -4254,10 +4271,18 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
 // Read-only trend surface comparing two adjacent windows of persisted replay
 // snapshots. No execution-path changes. No mutation.
 
-function ExecutionTrendsSection({ projectId }: { projectId: string }) {
+function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }: {
+  projectId: string;
+  navigationTarget: TrendNavigationTarget | null;
+  onTargetHandled: () => void;
+}) {
   const [data, setData] = useState<PatchExecutionTrendsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [sectionOpen, setSectionOpen] = useState(false);
+  const [forcedOpenSubs, setForcedOpenSubs] = useState<Set<TrendSubsectionKey>>(new Set());
+  const [highlightedEntity, setHighlightedEntity] = useState<{ subsection: TrendSubsectionKey; entity?: string; at: number } | null>(null);
+  const sectionRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
     setLoading(true);
@@ -4269,6 +4294,51 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
       setLoaded(true);
     }
   };
+
+  // React to navigation target from recommendations
+  useEffect(() => {
+    if (!navigationTarget) return;
+    const { subsection_key, entity_key, activated_at } = navigationTarget;
+
+    // Auto-load if not loaded
+    if (!loaded && !loading) {
+      load().then(() => {
+        // After load, force open and highlight
+        setSectionOpen(true);
+        setForcedOpenSubs(prev => new Set(prev).add(subsection_key));
+        setHighlightedEntity({ subsection: subsection_key, entity: entity_key, at: activated_at });
+        setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      });
+    } else {
+      setSectionOpen(true);
+      setForcedOpenSubs(prev => new Set(prev).add(subsection_key));
+      setHighlightedEntity({ subsection: subsection_key, entity: entity_key, at: activated_at });
+      setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    }
+
+    // Clear highlight after 3 seconds
+    const timer = setTimeout(() => setHighlightedEntity(null), 3000);
+    // Acknowledge navigation target handled
+    onTargetHandled();
+    return () => clearTimeout(timer);
+  }, [navigationTarget]);
+
+  // onSubOpenChange: clear forced-open when user manually closes
+  const onSubOpenChange = (key: TrendSubsectionKey, open: boolean) => {
+    if (!open) {
+      setForcedOpenSubs(prev => { const n = new Set(prev); n.delete(key); return n; });
+    }
+  };
+
+  // Is a specific row highlighted?
+  const isRowHighlighted = (subsection: TrendSubsectionKey, entityKey?: string) => {
+    if (!highlightedEntity) return false;
+    if (highlightedEntity.subsection !== subsection) return false;
+    if (entityKey && highlightedEntity.entity) return highlightedEntity.entity === entityKey;
+    return !entityKey || !highlightedEntity.entity; // header-level
+  };
+
+  const highlightClass = "ring-1 ring-primary/40 bg-primary/5 rounded transition-all duration-500";
 
   const trends = data?.trends;
 
@@ -4334,7 +4404,8 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
   );
 
   return (
-    <Collapsible>
+    <div ref={sectionRef}>
+    <Collapsible open={sectionOpen || undefined} onOpenChange={setSectionOpen}>
       <CollapsibleTrigger asChild>
         <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
           <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
@@ -4393,9 +4464,9 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
             </div>
 
             {/* Overall outcomes */}
-            <Collapsible defaultOpen>
+            <Collapsible defaultOpen open={forcedOpenSubs.has("overall_outcomes") ? true : undefined} onOpenChange={(o) => onSubOpenChange("overall_outcomes", o)}>
               <CollapsibleTrigger asChild>
-                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("overall_outcomes") && highlightClass)}>
                   <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                   <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                   <span className="font-semibold">Overall Outcomes</span>
@@ -4411,9 +4482,9 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
             </Collapsible>
 
             {/* Timing trends */}
-            <Collapsible>
+            <Collapsible open={forcedOpenSubs.has("timing_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("timing_trends", o)}>
               <CollapsibleTrigger asChild>
-                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("timing_trends") && highlightClass)}>
                   <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                   <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                   <span className="font-semibold">Timing</span>
@@ -4431,9 +4502,9 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
             </Collapsible>
 
             {/* Governance trends */}
-            <Collapsible>
+            <Collapsible open={forcedOpenSubs.has("governance_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("governance_trends", o)}>
               <CollapsibleTrigger asChild>
-                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("governance_trends") && highlightClass)}>
                   <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                   <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                   <span className="font-semibold">Governance</span>
@@ -4450,9 +4521,9 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
             </Collapsible>
 
             {/* Revalidation trends */}
-            <Collapsible>
+            <Collapsible open={forcedOpenSubs.has("revalidation_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("revalidation_trends", o)}>
               <CollapsibleTrigger asChild>
-                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("revalidation_trends") && highlightClass)}>
                   <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                   <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                   <span className="font-semibold">Revalidation</span>
@@ -4471,9 +4542,9 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
 
             {/* Blocker code trends */}
             {trends.blocker_code_trends.length > 0 && (
-              <Collapsible>
+              <Collapsible open={forcedOpenSubs.has("blocker_code_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("blocker_code_trends", o)}>
                 <CollapsibleTrigger asChild>
-                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                  <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("blocker_code_trends") && !highlightedEntity?.entity && highlightClass)}>
                     <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                     <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                     <span className="font-semibold">Blocker Codes</span>
@@ -4491,7 +4562,7 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
                     <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Δ</span>
                   </div>
                   {trends.blocker_code_trends.slice(0, 10).map(b => (
-                    <div key={b.blocker_code} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0">
+                    <div key={b.blocker_code} className={cn("grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0", isRowHighlighted("blocker_code_trends", b.blocker_code) && highlightClass)}>
                       <span className="text-[8px] font-mono text-muted-foreground truncate">{b.blocker_code}</span>
                       <span className="text-[8px] font-mono text-muted-foreground/50 w-8 text-right">{b.prior_count}</span>
                       <span className="text-[8px] font-mono text-foreground/80 w-8 text-right">{b.recent_count}</span>
@@ -4506,9 +4577,9 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
 
             {/* Repair type trends */}
             {trends.repair_type_trends.length > 0 && (
-              <Collapsible>
+              <Collapsible open={forcedOpenSubs.has("repair_type_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("repair_type_trends", o)}>
                 <CollapsibleTrigger asChild>
-                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                  <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("repair_type_trends") && !highlightedEntity?.entity && highlightClass)}>
                     <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                     <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                     <span className="font-semibold">Repair Type Issue Rates</span>
@@ -4523,7 +4594,7 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
                     <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Δ</span>
                   </div>
                   {trends.repair_type_trends.slice(0, 8).map(r => (
-                    <div key={r.repair_type} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0">
+                    <div key={r.repair_type} className={cn("grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0", isRowHighlighted("repair_type_trends", r.repair_type) && highlightClass)}>
                       <span className="text-[8px] font-mono text-muted-foreground truncate" title={`prior n=${r.sample_prior} recent n=${r.sample_recent}`}>{r.repair_type}</span>
                       <span className="text-[8px] font-mono text-muted-foreground/50 w-10 text-right">{r.prior_bad_rate_pct != null ? `${r.prior_bad_rate_pct}%` : "—"}</span>
                       <span className="text-[8px] font-mono text-foreground/80 w-10 text-right">{r.recent_bad_rate_pct != null ? `${r.recent_bad_rate_pct}%` : "—"}</span>
@@ -4538,9 +4609,9 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
 
             {/* Document type trends */}
             {trends.document_type_trends.length > 0 && (
-              <Collapsible>
+              <Collapsible open={forcedOpenSubs.has("document_type_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("document_type_trends", o)}>
                 <CollapsibleTrigger asChild>
-                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                  <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("document_type_trends") && !highlightedEntity?.entity && highlightClass)}>
                     <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                     <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                     <span className="font-semibold">Document Type Stability</span>
@@ -4555,7 +4626,7 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
                     <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Δ</span>
                   </div>
                   {trends.document_type_trends.slice(0, 8).map(d => (
-                    <div key={d.doc_type} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0">
+                    <div key={d.doc_type} className={cn("grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0", isRowHighlighted("document_type_trends", d.doc_type) && highlightClass)}>
                       <span className="text-[8px] font-mono text-muted-foreground truncate" title={`prior n=${d.sample_prior} recent n=${d.sample_recent}`}>{d.doc_type}</span>
                       <span className="text-[8px] font-mono text-muted-foreground/50 w-10 text-right">{d.prior_instability_rate_pct != null ? `${d.prior_instability_rate_pct}%` : "—"}</span>
                       <span className="text-[8px] font-mono text-foreground/80 w-10 text-right">{d.recent_instability_rate_pct != null ? `${d.recent_instability_rate_pct}%` : "—"}</span>
@@ -4610,5 +4681,6 @@ function ExecutionTrendsSection({ projectId }: { projectId: string }) {
         )}
       </CollapsibleContent>
     </Collapsible>
+    </div>
   );
 }
