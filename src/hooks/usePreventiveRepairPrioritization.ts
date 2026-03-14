@@ -1528,8 +1528,10 @@ export function resolveRecommendationTrendLinkage(
 function makeLinkage(direction: TrendDirection, sourceKey: string, metricSummary: string | null): RecommendationTrendLinkage {
   return {
     status: direction,
+    chip_label: TREND_CHIP_LABELS[direction],
     label: TREND_LABELS[direction],
     source_key: sourceKey,
+    source_label: humanizeSourceKey(sourceKey),
     metric_summary: metricSummary,
   };
 }
