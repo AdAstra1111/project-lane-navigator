@@ -680,6 +680,34 @@ export interface PatchExecutionResponse {
   version: string;
 }
 
+// ── Execution Replay Types ──
+
+export interface ExecutionReplaySnapshot {
+  execution_replay_version: string;
+  plan_id: string;
+  project_id: string;
+  computed_at: string;
+  patch_plan: PatchPlan;
+  validation: PatchPlanValidationResult;
+  execution: PatchExecutionResult;
+}
+
+export interface ExecutionReplayResponse {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  replay_found: boolean;
+  replay_source: string;
+  execution_replay: ExecutionReplaySnapshot | null;
+  replay_notes: {
+    exact_match: boolean;
+    fallback_used: boolean;
+    fallback_reason: string | null;
+  };
+  computed_at: string;
+  version: string;
+}
+
 export async function fetchPatchExecution(
   projectId: string,
   repairId?: string,
