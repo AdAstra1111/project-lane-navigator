@@ -30321,6 +30321,509 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════
+    // PATCH EXECUTION ENGINE v1 — execute_patch_plan (SECTION-ONLY, FAIL-CLOSED)
+    //
+    // Bounded execution layer. Reuses buildPatchPlanCore for canonical plan
+    // construction, re-runs validation inline, then executes ONLY section-level
+    // targets via the existing replaceSection + createVersion write path.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "execute_patch_plan") {
+      const { projectId, repairId, repairType, sourceType, versionId, dryRun = false } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!repairId && !repairType) {
+        return new Response(JSON.stringify({ ok: false, error: "repairId or repairType required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const execAt = new Date().toISOString();
+
+      // ── STEP 1: Build canonical patch plan via shared core ──
+      const planResult = await buildPatchPlanCore(supabase, { projectId, repairId, repairType, sourceType, versionId });
+
+      if (planResult.empty || !planResult.patch_plan || !planResult._core) {
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "execute_patch_plan",
+          project_id: projectId,
+          patch_plan: null,
+          validation: null,
+          execution: {
+            plan_id: "none",
+            execution_allowed: false,
+            executed: false,
+            dry_run: dryRun,
+            direct_targets_attempted: 0,
+            direct_targets_executed: 0,
+            direct_targets_failed: 0,
+            target_results: [],
+            execution_notes: {
+              validation_passed: false,
+              stale_blocked: false,
+              unsupported_target_types_blocked: false,
+              write_performed: false,
+              downstream_execution_deferred: true,
+            },
+          },
+          computed_at: execAt,
+          version: "patch-execution-v1",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const execPlan = planResult.patch_plan;
+      const execCore = planResult._core;
+
+      // ── STEP 2: Inline validation (reuse same checks as validate_patch_plan) ──
+      interface ExecVPIssue {
+        code: string;
+        severity: "error" | "warning";
+        target_id: string | null;
+        message: string;
+      }
+      const execVPIssues: ExecVPIssue[] = [];
+      let execHashCheck = false;
+      let execVersionCheck = false;
+      let execLockCheck = false;
+
+      // Helper: recompute hash
+      async function execRecomputeHash(target: CorePatchTarget): Promise<string | null> {
+        if (target.target_type === "document" || target.target_type === "section" || target.target_type === "episode_block") {
+          const { data: ver } = await supabase
+            .from("project_document_versions")
+            .select("plaintext")
+            .eq("id", target.version_id)
+            .maybeSingle();
+          if (!ver) return null;
+          return await coreContentHash(ver.plaintext || "");
+        }
+        if (target.target_type === "scene") {
+          const { data: sceneVer } = await supabase
+            .from("scene_graph_versions")
+            .select("content, summary")
+            .eq("scene_id", target.scene_id)
+            .order("version_number", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (!sceneVer) return null;
+          return await coreContentHash(sceneVer.content || sceneVer.summary || "");
+        }
+        return null;
+      }
+
+      // Direct target existence
+      let execDirectValid = 0;
+      for (const dt of execCore.direct_targets) {
+        if (dt.target_type === "scene") {
+          const { data: sceneRow } = await supabase.from("scene_graph_scenes").select("id").eq("id", dt.scene_id).maybeSingle();
+          if (!sceneRow) { execVPIssues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: `Direct scene target ${dt.scene_id} no longer exists` }); }
+          else { execDirectValid++; }
+        } else {
+          const { data: docRow } = await supabase.from("project_documents").select("id").eq("id", dt.document_id).maybeSingle();
+          const { data: verRow } = await supabase.from("project_document_versions").select("id").eq("id", dt.version_id).maybeSingle();
+          if (!docRow) { execVPIssues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: `Direct document ${dt.document_id} no longer exists` }); }
+          else if (!verRow) { execVPIssues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: `Direct version ${dt.version_id} no longer exists` }); }
+          else { execDirectValid++; }
+        }
+      }
+
+      // Protected target existence
+      let execProtectedValid = 0;
+      for (const pt of execCore.protected_targets) {
+        if (pt.target_type === "scene") {
+          const { data: sceneRow } = await supabase.from("scene_graph_scenes").select("id").eq("id", pt.scene_id).maybeSingle();
+          if (!sceneRow) { execVPIssues.push({ code: "protected_target_missing", severity: "warning", target_id: pt.target_id, message: `Protected scene ${pt.scene_id} no longer exists` }); }
+          else { execProtectedValid++; }
+        } else {
+          const { data: docRow } = await supabase.from("project_documents").select("id").eq("id", pt.document_id).maybeSingle();
+          if (!docRow) { execVPIssues.push({ code: "protected_target_missing", severity: "warning", target_id: pt.target_id, message: `Protected document ${pt.document_id} no longer exists` }); }
+          else { execProtectedValid++; }
+        }
+      }
+
+      // Hash freshness
+      execHashCheck = true;
+      for (const dt of execCore.direct_targets) {
+        if (!dt.content_hash) { execVPIssues.push({ code: "missing_content_hash", severity: "error", target_id: dt.target_id, message: "Direct target missing content_hash" }); continue; }
+        const ch = await execRecomputeHash(dt);
+        if (ch === null) { execVPIssues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: "Cannot recompute hash — target content unavailable" }); }
+        else if (ch !== dt.content_hash) { execVPIssues.push({ code: "content_hash_mismatch", severity: "error", target_id: dt.target_id, message: "Direct target content changed since plan was built" }); }
+      }
+      for (const pt of execCore.protected_targets) {
+        if (!pt.content_hash) { execVPIssues.push({ code: "missing_content_hash", severity: "error", target_id: pt.target_id, message: "Protected target missing content_hash" }); continue; }
+        const ch = await execRecomputeHash(pt);
+        if (ch !== null && ch !== pt.content_hash) { execVPIssues.push({ code: "content_hash_mismatch", severity: "warning", target_id: pt.target_id, message: "Protected target content changed since plan was built" }); }
+      }
+
+      // Version binding
+      execVersionCheck = true;
+      const execCheckedVersions = new Set<string>();
+      for (const dt of execCore.direct_targets) {
+        if (execCheckedVersions.has(dt.version_id)) continue;
+        execCheckedVersions.add(dt.version_id);
+        const { data: verRow } = await supabase.from("project_document_versions").select("id, superseded_at, superseded_by").eq("id", dt.version_id).maybeSingle();
+        if (verRow && (verRow.superseded_at || verRow.superseded_by)) {
+          execVPIssues.push({ code: "version_superseded", severity: "error", target_id: dt.target_id, message: `Version ${dt.version_id} has been superseded` });
+        }
+      }
+
+      // Lock check
+      execLockCheck = true;
+      const { data: execActiveJobs } = await supabase.from("auto_run_jobs").select("id, status, is_processing").eq("project_id", projectId).in("status", ["running", "paused"]).limit(1);
+      if (execActiveJobs && execActiveJobs.length > 0) {
+        execVPIssues.push({ code: "active_processing_conflict", severity: "error", target_id: null, message: `Active auto-run job exists (${execActiveJobs[0].id}), execution unsafe` });
+      }
+
+      // Deterministic sort
+      execVPIssues.sort((a, b) => {
+        const sc = (a.severity === "error" ? 0 : 1) - (b.severity === "error" ? 0 : 1);
+        if (sc !== 0) return sc;
+        const tc = (a.target_id || "").localeCompare(b.target_id || "");
+        if (tc !== 0) return tc;
+        return a.code.localeCompare(b.code);
+      });
+
+      const execValHasError = execVPIssues.some(i => i.severity === "error");
+      const execValIsStale = execVPIssues.some(i => i.code === "content_hash_mismatch" || i.code === "version_superseded");
+
+      const execValidation = {
+        plan_id: execPlan.plan_id,
+        plan_valid: !execValHasError,
+        stale: execValIsStale,
+        direct_targets_checked: execCore.direct_targets.length,
+        protected_targets_checked: execCore.protected_targets.length,
+        direct_targets_valid: execDirectValid,
+        protected_targets_valid: execProtectedValid,
+        issues: execVPIssues,
+        validation_notes: {
+          hash_check_performed: execHashCheck,
+          version_check_performed: execVersionCheck,
+          lock_check_performed: execLockCheck,
+          fallback_used: execCore.resolution_notes.fallback_used,
+          fallback_reason: execCore.resolution_notes.fallback_reason,
+        },
+      };
+
+      // ── STEP 3: Execution eligibility gate ──
+      const unsupportedTypes = execCore.direct_targets.filter(t => t.target_type !== "section");
+      const unsupportedBlocked = unsupportedTypes.length > 0;
+      const sectionTargets = execCore.direct_targets.filter(t => t.target_type === "section");
+
+      // v1 safety: allow only a single section target per document to avoid complex multi-section edits
+      const docGroups = new Map<string, CorePatchTarget[]>();
+      for (const st of sectionTargets) {
+        const list = docGroups.get(st.document_id) || [];
+        list.push(st);
+        docGroups.set(st.document_id, list);
+      }
+      const multiSectionDoc = [...docGroups.values()].some(g => g.length > 1);
+
+      const executionAllowed = execValidation.plan_valid
+        && !execValidation.stale
+        && !unsupportedBlocked
+        && !multiSectionDoc
+        && sectionTargets.length > 0;
+
+      if (!executionAllowed) {
+        const blockReasons: string[] = [];
+        if (!execValidation.plan_valid) blockReasons.push("plan_invalid");
+        if (execValidation.stale) blockReasons.push("plan_stale");
+        if (unsupportedBlocked) blockReasons.push(`unsupported_target_types: ${unsupportedTypes.map(t => t.target_type).join(",")}`);
+        if (multiSectionDoc) blockReasons.push("multiple_section_targets_same_document_unsupported_in_v1");
+        if (sectionTargets.length === 0) blockReasons.push("no_section_targets");
+
+        console.log("[dev-engine-v2] execute_patch_plan BLOCKED", { project_id: projectId, reasons: blockReasons });
+
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "execute_patch_plan",
+          project_id: projectId,
+          patch_plan: execPlan,
+          validation: execValidation,
+          execution: {
+            plan_id: execPlan.plan_id,
+            execution_allowed: false,
+            executed: false,
+            dry_run: dryRun,
+            direct_targets_attempted: 0,
+            direct_targets_executed: 0,
+            direct_targets_failed: 0,
+            target_results: [],
+            execution_notes: {
+              validation_passed: execValidation.plan_valid,
+              stale_blocked: execValidation.stale,
+              unsupported_target_types_blocked: unsupportedBlocked,
+              write_performed: false,
+              downstream_execution_deferred: true,
+              block_reasons: blockReasons,
+            },
+          },
+          computed_at: execAt,
+          version: "patch-execution-v1",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── STEP 4: Execute section targets ──
+      const { replaceSection: execReplaceSection, extractSection: execExtractSection } = await import("../_shared/sectionRepairEngine.ts");
+
+      interface ExecTargetResult {
+        target_id: string;
+        target_type: "section";
+        document_id: string;
+        doc_type: string;
+        version_id_before: string;
+        version_id_after: string | null;
+        status: "executed" | "skipped" | "failed";
+        message: string;
+      }
+
+      const targetResults: ExecTargetResult[] = [];
+      let writePerformed = false;
+
+      // Get userId for version creation
+      const { data: { user: execUser } } = await supabase.auth.getUser();
+      const execUserId = execUser?.id || "system";
+
+      // Get project format for createVersion
+      const { data: execProject } = await supabase.from("projects").select("format").eq("id", projectId).maybeSingle();
+      const execFormat = execProject?.format || null;
+
+      for (const target of sectionTargets) {
+        try {
+          // Load current version content
+          const { data: currentVer } = await supabase
+            .from("project_document_versions")
+            .select("id, plaintext, version_number")
+            .eq("id", target.version_id)
+            .maybeSingle();
+
+          if (!currentVer || !currentVer.plaintext) {
+            targetResults.push({
+              target_id: target.target_id,
+              target_type: "section",
+              document_id: target.document_id,
+              doc_type: target.doc_type,
+              version_id_before: target.version_id,
+              version_id_after: null,
+              status: "failed",
+              message: "version_content_unavailable",
+            });
+            continue;
+          }
+
+          // Confirm section still resolves
+          const sectionExtract = execExtractSection(currentVer.plaintext, target.doc_type, target.section_key!);
+          if (!sectionExtract) {
+            targetResults.push({
+              target_id: target.target_id,
+              target_type: "section",
+              document_id: target.document_id,
+              doc_type: target.doc_type,
+              version_id_before: target.version_id,
+              version_id_after: null,
+              status: "failed",
+              message: `section_not_resolvable_at_execution_time:${target.section_key}`,
+            });
+            continue;
+          }
+
+          // Generate repair instruction from repair context
+          const repairInstruction = `Rewrite the ${target.section_key} section to address the identified narrative repair issue (${execCore.resolved_repair_type || repairType || "general improvement"}). Preserve the existing structure, tone, and all narrative elements not directly related to the repair. Maintain consistency with the rest of the document.`;
+
+          // Use LLM to generate improved section content
+          const sectionRewritePrompt = [
+            `You are rewriting a single section of a ${target.doc_type} document.`,
+            ``,
+            `SECTION KEY: ${target.section_key}`,
+            `REPAIR OBJECTIVE: ${repairInstruction}`,
+            ``,
+            `CURRENT SECTION CONTENT:`,
+            `---`,
+            sectionExtract.content,
+            `---`,
+            ``,
+            `RULES:`,
+            `- Output ONLY the rewritten section content`,
+            `- Preserve the section heading if present`,
+            `- Do NOT add content from other sections`,
+            `- Do NOT summarize or compress — maintain similar length`,
+            `- Maintain the same formatting style (markdown headings, bullet points, etc.)`,
+            `- Address the repair objective while preserving narrative voice`,
+          ].join("\n");
+
+          const rewriteResp = await fetch(`https://api.lovable.dev/v1/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash",
+              messages: [
+                { role: "system", content: "You are a professional script and document repair engine. Output only the requested section content. No preamble, no commentary." },
+                { role: "user", content: sectionRewritePrompt },
+              ],
+              temperature: 0.3,
+            }),
+          });
+
+          if (!rewriteResp.ok) {
+            targetResults.push({
+              target_id: target.target_id,
+              target_type: "section",
+              document_id: target.document_id,
+              doc_type: target.doc_type,
+              version_id_before: target.version_id,
+              version_id_after: null,
+              status: "failed",
+              message: `llm_rewrite_failed:${rewriteResp.status}`,
+            });
+            continue;
+          }
+
+          const rewriteJson = await rewriteResp.json();
+          const newSectionContent = rewriteJson?.choices?.[0]?.message?.content?.trim();
+
+          if (!newSectionContent || newSectionContent.length < 10) {
+            targetResults.push({
+              target_id: target.target_id,
+              target_type: "section",
+              document_id: target.document_id,
+              doc_type: target.doc_type,
+              version_id_before: target.version_id,
+              version_id_after: null,
+              status: "failed",
+              message: "llm_rewrite_empty_or_too_short",
+            });
+            continue;
+          }
+
+          // Apply section replacement
+          const replaceResult = execReplaceSection(currentVer.plaintext, target.doc_type, target.section_key!, newSectionContent);
+
+          if (!replaceResult.success) {
+            targetResults.push({
+              target_id: target.target_id,
+              target_type: "section",
+              document_id: target.document_id,
+              doc_type: target.doc_type,
+              version_id_before: target.version_id,
+              version_id_after: null,
+              status: "failed",
+              message: `section_replace_failed:${replaceResult.reason}`,
+            });
+            continue;
+          }
+
+          // Dry run: skip write
+          if (dryRun) {
+            targetResults.push({
+              target_id: target.target_id,
+              target_type: "section",
+              document_id: target.document_id,
+              doc_type: target.doc_type,
+              version_id_before: target.version_id,
+              version_id_after: null,
+              status: "skipped",
+              message: "dry_run_no_write",
+            });
+            continue;
+          }
+
+          // Create new version via canonical write path
+          const newVersion = await createVersion(supabase, {
+            documentId: target.document_id,
+            docType: target.doc_type,
+            plaintext: replaceResult.new_content,
+            label: `patch_execution_v1_section_${target.section_key}`,
+            createdBy: execUserId,
+            approvalStatus: "draft",
+            changeSummary: `Patch execution v1: section "${target.section_key}" repaired for ${execCore.resolved_repair_type || repairType || "narrative repair"}.`,
+            generatorId: "patch-execution-v1",
+            inputsUsed: {
+              repair_id: repairId || null,
+              repair_type: execCore.resolved_repair_type || repairType || null,
+              source_type: sourceType || "manual",
+              section_key: target.section_key,
+              parent_version_id: target.version_id,
+              plan_id: execPlan.plan_id,
+            },
+            parentVersionId: target.version_id,
+            format: execFormat,
+            metaJson: {
+              patch_plan_id: execPlan.plan_id,
+              patch_target_id: target.target_id,
+              patch_section_key: target.section_key,
+              patch_repair_type: execCore.resolved_repair_type || repairType || null,
+            },
+          });
+
+          writePerformed = true;
+          targetResults.push({
+            target_id: target.target_id,
+            target_type: "section",
+            document_id: target.document_id,
+            doc_type: target.doc_type,
+            version_id_before: target.version_id,
+            version_id_after: newVersion.id,
+            status: "executed",
+            message: `section_${target.section_key}_replaced_successfully`,
+          });
+        } catch (execErr: any) {
+          targetResults.push({
+            target_id: target.target_id,
+            target_type: "section",
+            document_id: target.document_id,
+            doc_type: target.doc_type,
+            version_id_before: target.version_id,
+            version_id_after: null,
+            status: "failed",
+            message: `execution_error:${execErr?.message?.slice(0, 200) || "unknown"}`,
+          });
+        }
+      }
+
+      const executedCount = targetResults.filter(r => r.status === "executed").length;
+      const failedCount = targetResults.filter(r => r.status === "failed").length;
+
+      console.log("[dev-engine-v2] execute_patch_plan", {
+        project_id: projectId,
+        plan_id: execPlan.plan_id,
+        dry_run: dryRun,
+        attempted: sectionTargets.length,
+        executed: executedCount,
+        failed: failedCount,
+        write_performed: writePerformed,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "execute_patch_plan",
+        project_id: projectId,
+        patch_plan: execPlan,
+        validation: execValidation,
+        execution: {
+          plan_id: execPlan.plan_id,
+          execution_allowed: true,
+          executed: executedCount > 0 || dryRun,
+          dry_run: dryRun,
+          direct_targets_attempted: sectionTargets.length,
+          direct_targets_executed: executedCount,
+          direct_targets_failed: failedCount,
+          target_results: targetResults,
+          execution_notes: {
+            validation_passed: true,
+            stale_blocked: false,
+            unsupported_target_types_blocked: false,
+            write_performed: writePerformed,
+            downstream_execution_deferred: true,
+          },
+        },
+        computed_at: execAt,
+        version: "patch-execution-v1",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);

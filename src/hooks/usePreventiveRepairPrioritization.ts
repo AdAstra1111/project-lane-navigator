@@ -528,6 +528,85 @@ export interface PatchPlanValidationResponse {
   version: string;
 }
 
+// ── Patch Execution types (execute_patch_plan response contract) ──
+
+export interface PatchExecutionTargetResult {
+  target_id: string;
+  target_type: "section";
+  document_id: string;
+  doc_type: string;
+  version_id_before: string;
+  version_id_after: string | null;
+  status: "executed" | "skipped" | "failed";
+  message: string;
+}
+
+export interface PatchExecutionResult {
+  plan_id: string;
+  execution_allowed: boolean;
+  executed: boolean;
+  dry_run: boolean;
+  direct_targets_attempted: number;
+  direct_targets_executed: number;
+  direct_targets_failed: number;
+  target_results: PatchExecutionTargetResult[];
+  execution_notes: {
+    validation_passed: boolean;
+    stale_blocked: boolean;
+    unsupported_target_types_blocked: boolean;
+    write_performed: boolean;
+    downstream_execution_deferred: boolean;
+    block_reasons?: string[];
+  };
+}
+
+export interface PatchExecutionResponse {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  patch_plan: PatchPlan | null;
+  validation: PatchPlanValidationResult | null;
+  execution: PatchExecutionResult | null;
+  computed_at: string;
+  version: string;
+}
+
+export async function fetchPatchExecution(
+  projectId: string,
+  repairId?: string,
+  repairType?: string,
+  sourceType?: "intervention" | "prp2s" | "arp1" | "manual",
+  versionId?: string,
+  dryRun?: boolean,
+): Promise<PatchExecutionResponse | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  const payload: Record<string, any> = {
+    action: 'execute_patch_plan',
+    projectId,
+  };
+  if (repairId) payload.repairId = repairId;
+  if (repairType) payload.repairType = repairType;
+  if (sourceType) payload.sourceType = sourceType;
+  if (versionId) payload.versionId = versionId;
+  if (dryRun !== undefined) payload.dryRun = dryRun;
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PatchExecutionResponse;
+}
+
 export async function fetchPatchPlanValidation(
   projectId: string,
   repairId?: string,
