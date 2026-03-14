@@ -4047,7 +4047,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
             .upsert({
               project_id: projectId,
               run_id: runId,
-              recommendations_snapshot: { recommendations: snapshotItems },
+              recommendations_snapshot: { recommendations: snapshotItems } as unknown as Record<string, unknown>,
             }, { onConflict: 'project_id,run_id' });
         }
       }
