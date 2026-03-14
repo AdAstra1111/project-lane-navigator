@@ -29414,40 +29414,90 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // PATCHTARGET RESOLVER v1 — resolve_patch_targets
+    // SHARED PATCHTARGET RESOLUTION CORE — resolvePatchTargetsCore
     //
-    // Read-only resolution layer. Given a project + repair candidate, resolves the
-    // smallest safe patchable units using existing registries and DB state.
-    // NO patch execution. NO writes. NO LLM reasoning.
+    // Single canonical helper for PatchTarget resolution. Used by both
+    // resolve_patch_targets and build_patch_plan. No writes. Deterministic.
     //
-    // Unit hierarchy (v1):  document > section > episode_block > scene
-    // Beat and passage are excluded from v1 target_type.
-    //
-    // Resolution order: section_registry → episode_block_registry → scene_graph → full_document
-    //
-    // Content hash: SHA-256 of targeted content for staleness detection.
+    // Returns: direct targets, protected sibling targets, resolution metadata,
+    // and repair context needed by both callers.
     // ══════════════════════════════════════════════════════════════════════════════
 
-    if (action === "resolve_patch_targets") {
-      const { projectId, repairId, repairType, sourceType, versionId } = body;
-      if (!projectId) {
-        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-      if (!repairId && !repairType) {
-        return new Response(JSON.stringify({ ok: false, error: "repairId or repairType required" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
+    interface CorePatchTarget {
+      target_id: string;
+      target_type: "document" | "section" | "episode_block" | "scene";
+      document_id: string;
+      doc_type: string;
+      version_id: string;
+      section_key: string | null;
+      episode_number: number | null;
+      scene_id: string | null;
+      scene_key: string | null;
+      content_hash: string;
+      start_offset: number | null;
+      end_offset: number | null;
+      targeting_method: "section_registry" | "episode_block_registry" | "scene_graph" | "mention_offset" | "full_document";
+      targeting_confidence: "high" | "medium" | "low";
+    }
 
-      const ptAt = new Date().toISOString();
+    interface PatchTargetCoreResult {
+      resolved_repair_type: string | null;
+      resolved_scope_type: string | null;
+      resolved_scope_key: string | null;
+      direct_targets: CorePatchTarget[];
+      protected_targets: CorePatchTarget[];
+      resolution_notes: {
+        chosen_strategy: string;
+        fallback_used: boolean;
+        fallback_reason: string | null;
+        doc_types_considered: string[];
+        version_binding_mode: "provided_version" | "current_version";
+      };
+      all_docs: Array<{ id: string; doc_type: string; latest_version_id: string | null }>;
+      empty: boolean;
+    }
 
-      // ── Helper: SHA-256 content hash ──
-      async function contentHash(text: string): Promise<string> {
-        const data = new TextEncoder().encode(text);
-        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-      }
+    async function coreContentHash(text: string): Promise<string> {
+      const data = new TextEncoder().encode(text);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    const CORE_TARGET_TYPE_ORDER: Record<string, number> = { section: 0, episode_block: 1, scene: 2, document: 3 };
+
+    function coreSortTargets(arr: CorePatchTarget[]): void {
+      arr.sort((a, b) => {
+        const dtCmp = a.doc_type.localeCompare(b.doc_type);
+        if (dtCmp !== 0) return dtCmp;
+        const ttCmp = (CORE_TARGET_TYPE_ORDER[a.target_type] ?? 9) - (CORE_TARGET_TYPE_ORDER[b.target_type] ?? 9);
+        if (ttCmp !== 0) return ttCmp;
+        const skCmp = (a.section_key || "").localeCompare(b.section_key || "");
+        if (skCmp !== 0) return skCmp;
+        const epCmp = (a.episode_number ?? 0) - (b.episode_number ?? 0);
+        if (epCmp !== 0) return epCmp;
+        const scCmp = (a.scene_key || "").localeCompare(b.scene_key || "");
+        if (scCmp !== 0) return scCmp;
+        return a.target_id.localeCompare(b.target_id);
+      });
+    }
+
+    async function resolvePatchTargetsCore(
+      supabaseClient: any,
+      opts: {
+        projectId: string;
+        repairId?: string;
+        repairType?: string;
+        versionId?: string;
+        includeProtected?: boolean;
+      },
+    ): Promise<PatchTargetCoreResult> {
+      const { projectId, repairId, repairType, versionId, includeProtected = false } = opts;
+
+      // ── Imports ──
+      const { getSectionConfig, isSectionRepairSupported } = await import("../_shared/deliverableSectionRegistry.ts");
+      const { parseSections, resolveIssueToSectionKey } = await import("../_shared/sectionRepairEngine.ts");
+      const { isEpisodicBlockRepairSupported, resolveIssueToEpisodeNumber, extractEpisodeBlock } = await import("../_shared/episodicBlockRegistry.ts");
 
       // ── Step 1: Resolve repair context ──
       let resolvedRepairType = repairType || null;
@@ -29455,7 +29505,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       let resolvedScopeKey: string | null = null;
 
       if (repairId) {
-        const { data: repairRow } = await supabase
+        const { data: repairRow } = await supabaseClient
           .from("narrative_repairs")
           .select("repair_type, scope_type, scope_key, status")
           .eq("repair_id", repairId)
@@ -29470,420 +29520,55 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }
 
       // ── Step 2: Load project documents with current versions ──
-      const { data: docs } = await supabase
+      const { data: docs } = await supabaseClient
         .from("project_documents")
         .select("id, doc_type, latest_version_id")
         .eq("project_id", projectId);
 
       if (!docs || docs.length === 0) {
-        return new Response(JSON.stringify({
-          ok: true,
-          action: "resolve_patch_targets",
-          project_id: projectId,
-          repair_id: repairId || null,
-          repair_type: resolvedRepairType,
-          source_type: sourceType || null,
-          resolved_targets: [],
+        return {
+          resolved_repair_type: resolvedRepairType,
+          resolved_scope_type: resolvedScopeType,
+          resolved_scope_key: resolvedScopeKey,
+          direct_targets: [],
+          protected_targets: [],
           resolution_notes: {
             chosen_strategy: "no_documents_found",
             fallback_used: true,
             fallback_reason: "project_has_no_documents",
             doc_types_considered: [],
-            version_binding_mode: "current_version",
+            version_binding_mode: versionId ? "provided_version" : "current_version",
           },
-          computed_at: ptAt,
-          version: "patch-target-v1",
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          all_docs: [],
+          empty: true,
+        };
       }
 
-      // ── Step 3: Determine which doc types to consider ──
-      // If scope_type points to a doc_type, narrow to it. Otherwise consider all.
+      // ── Step 3: Narrow doc types ──
       const docTypesConsidered: string[] = [];
       let targetDocs = docs;
-
       if (resolvedScopeType && resolvedScopeType !== "project") {
-        // scope_type might be a doc_type directly
-        const narrowed = docs.filter(d => d.doc_type === resolvedScopeType);
-        if (narrowed.length > 0) {
-          targetDocs = narrowed;
-        }
+        const narrowed = docs.filter((d: any) => d.doc_type === resolvedScopeType);
+        if (narrowed.length > 0) targetDocs = narrowed;
       }
-
-      // ── Imports for section + episode resolution ──
-      const { getSectionConfig, isSectionRepairSupported } = await import("../_shared/deliverableSectionRegistry.ts");
-      const { parseSections, resolveIssueToSectionKey } = await import("../_shared/sectionRepairEngine.ts");
-      const { isEpisodicBlockRepairSupported, resolveIssueToEpisodeNumber, extractEpisodeBlock } = await import("../_shared/episodicBlockRegistry.ts");
 
       // ── Step 4: Resolve targets ──
-      interface PatchTarget {
-        target_id: string;
-        target_type: "document" | "section" | "episode_block" | "scene";
-        document_id: string;
-        doc_type: string;
-        version_id: string;
-        section_key: string | null;
-        episode_number: number | null;
-        scene_id: string | null;
-        scene_key: string | null;
-        content_hash: string;
-        start_offset: number | null;
-        end_offset: number | null;
-        targeting_method: "section_registry" | "episode_block_registry" | "scene_graph" | "mention_offset" | "full_document";
-        targeting_confidence: "high" | "medium" | "low";
-      }
-
-      const resolvedTargets: PatchTarget[] = [];
+      const directTargets: CorePatchTarget[] = [];
+      const protectedTargets: CorePatchTarget[] = [];
       let fallbackUsed = false;
       let fallbackReason: string | null = null;
       let chosenStrategy = "none";
 
       for (const doc of targetDocs) {
         docTypesConsidered.push(doc.doc_type);
-
-        // Resolve version
         const targetVersionId = versionId || doc.latest_version_id;
         if (!targetVersionId) {
-          // No version available — document fallback with empty hash
           fallbackUsed = true;
           fallbackReason = fallbackReason || "no_version_available";
           continue;
         }
 
-        // Load version plaintext
-        const { data: ver } = await supabase
-          .from("project_document_versions")
-          .select("id, plaintext, version_number")
-          .eq("id", targetVersionId)
-          .maybeSingle();
-
-        const plaintext = ver?.plaintext || "";
-        const versionBinding = versionId ? "provided_version" : "current_version";
-
-        // ── Try 1: Section-level targeting ──
-        if (isSectionRepairSupported(doc.doc_type) && plaintext) {
-          const sections = parseSections(plaintext, doc.doc_type);
-          const config = getSectionConfig(doc.doc_type);
-
-          if (sections.length >= (config?.min_sections_required ?? 2)) {
-            // Try to resolve repair to a specific section
-            const issueProxy = {
-              category: resolvedScopeKey || undefined,
-              title: resolvedRepairType || undefined,
-              summary: resolvedScopeKey || undefined,
-              owning_doc_type: doc.doc_type,
-            };
-            const sectionRes = resolveIssueToSectionKey(issueProxy, doc.doc_type, plaintext);
-
-            if (sectionRes) {
-              const matchedSection = sections.find(s => s.section_key === sectionRes.section_key);
-              if (matchedSection) {
-                const hash = await contentHash(matchedSection.content);
-                chosenStrategy = "section_registry";
-                resolvedTargets.push({
-                  target_id: `${doc.id}::section::${sectionRes.section_key}`,
-                  target_type: "section",
-                  document_id: doc.id,
-                  doc_type: doc.doc_type,
-                  version_id: targetVersionId,
-                  section_key: sectionRes.section_key,
-                  episode_number: null,
-                  scene_id: null,
-                  scene_key: null,
-                  content_hash: hash,
-                  start_offset: null,
-                  end_offset: null,
-                  targeting_method: "section_registry",
-                  targeting_confidence: sectionRes.confidence,
-                });
-                continue;
-              }
-            }
-          }
-        }
-
-        // ── Try 2: Episode block targeting ──
-        if (isEpisodicBlockRepairSupported(doc.doc_type) && plaintext) {
-          const issueProxy = {
-            episodeIndex: null as number | null,
-            category: resolvedScopeKey || undefined,
-            title: resolvedRepairType || undefined,
-            summary: resolvedScopeKey || undefined,
-          };
-          const epRes = resolveIssueToEpisodeNumber(issueProxy, doc.doc_type, plaintext);
-          if (epRes) {
-            const extracted = extractEpisodeBlock(plaintext, epRes.episode_number);
-            if (extracted) {
-              const hash = await contentHash(extracted.content);
-              chosenStrategy = "episode_block_registry";
-              resolvedTargets.push({
-                target_id: `${doc.id}::episode::${epRes.episode_number}`,
-                target_type: "episode_block",
-                document_id: doc.id,
-                doc_type: doc.doc_type,
-                version_id: targetVersionId,
-                section_key: null,
-                episode_number: epRes.episode_number,
-                scene_id: null,
-                scene_key: null,
-                content_hash: hash,
-                start_offset: null,
-                end_offset: null,
-                targeting_method: "episode_block_registry",
-                targeting_confidence: epRes.confidence,
-              });
-              continue;
-            }
-          }
-        }
-
-        // ── Try 3: Scene graph targeting ──
-        const isScreenplay = ["feature_script", "season_script", "episode_script", "screenplay"].includes(doc.doc_type);
-        if (isScreenplay) {
-          const { data: scenes } = await supabase
-            .from("scene_graph_scenes")
-            .select("id, scene_key, order_key")
-            .eq("project_id", projectId)
-            .order("order_key", { ascending: true })
-            .limit(200);
-
-          if (scenes && scenes.length > 0 && resolvedScopeKey) {
-            // Try to match scope_key to a scene_key
-            const matchedScene = scenes.find(s => s.scene_key === resolvedScopeKey);
-            if (matchedScene) {
-              // Load scene version content for hash
-              const { data: sceneVer } = await supabase
-                .from("scene_graph_versions")
-                .select("id, content")
-                .eq("scene_id", matchedScene.id)
-                .order("version_number", { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
-              const sceneContent = sceneVer?.content || "";
-              const hash = await contentHash(sceneContent);
-              chosenStrategy = "scene_graph";
-              resolvedTargets.push({
-                target_id: `${doc.id}::scene::${matchedScene.id}`,
-                target_type: "scene",
-                document_id: doc.id,
-                doc_type: doc.doc_type,
-                version_id: targetVersionId,
-                section_key: null,
-                episode_number: null,
-                scene_id: matchedScene.id,
-                scene_key: matchedScene.scene_key,
-                content_hash: hash,
-                start_offset: null,
-                end_offset: null,
-                targeting_method: "scene_graph",
-                targeting_confidence: "high",
-              });
-              continue;
-            }
-          }
-        }
-
-        // ── Fallback: Document-level ──
-        const hash = await contentHash(plaintext);
-        chosenStrategy = chosenStrategy || "full_document";
-        fallbackUsed = true;
-        fallbackReason = fallbackReason || "no_narrower_target_resolvable";
-        resolvedTargets.push({
-          target_id: `${doc.id}::document`,
-          target_type: "document",
-          document_id: doc.id,
-          doc_type: doc.doc_type,
-          version_id: targetVersionId,
-          section_key: null,
-          episode_number: null,
-          scene_id: null,
-          scene_key: null,
-          content_hash: hash,
-          start_offset: null,
-          end_offset: null,
-          targeting_method: "full_document",
-          targeting_confidence: "low",
-        });
-      }
-
-      // ── Step 5: Sort deterministically ──
-      const TARGET_TYPE_ORDER: Record<string, number> = { section: 0, episode_block: 1, scene: 2, document: 3 };
-      resolvedTargets.sort((a, b) => {
-        const dtCmp = a.doc_type.localeCompare(b.doc_type);
-        if (dtCmp !== 0) return dtCmp;
-        const ttCmp = (TARGET_TYPE_ORDER[a.target_type] ?? 9) - (TARGET_TYPE_ORDER[b.target_type] ?? 9);
-        if (ttCmp !== 0) return ttCmp;
-        const skCmp = (a.section_key || "").localeCompare(b.section_key || "");
-        if (skCmp !== 0) return skCmp;
-        const epCmp = (a.episode_number ?? 0) - (b.episode_number ?? 0);
-        if (epCmp !== 0) return epCmp;
-        const scCmp = (a.scene_key || "").localeCompare(b.scene_key || "");
-        if (scCmp !== 0) return scCmp;
-        return a.target_id.localeCompare(b.target_id);
-      });
-
-      console.log("[dev-engine-v2] resolve_patch_targets", {
-        project_id: projectId,
-        repair_id: repairId || null,
-        repair_type: resolvedRepairType,
-        target_count: resolvedTargets.length,
-        chosen_strategy: chosenStrategy,
-        fallback_used: fallbackUsed,
-      });
-
-      return new Response(JSON.stringify({
-        ok: true,
-        action: "resolve_patch_targets",
-        project_id: projectId,
-        repair_id: repairId || null,
-        repair_type: resolvedRepairType,
-        source_type: sourceType || null,
-        resolved_targets: resolvedTargets,
-        resolution_notes: {
-          chosen_strategy: chosenStrategy,
-          fallback_used: fallbackUsed,
-          fallback_reason: fallbackReason,
-          doc_types_considered: docTypesConsidered,
-          version_binding_mode: versionId ? "provided_version" : "current_version",
-        },
-        computed_at: ptAt,
-        version: "patch-target-v1",
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════════
-    // PATCHPLAN BUILDER v1 — build_patch_plan
-    //
-    // Read-only planning layer. Given a project + repair candidate, resolves patch
-    // targets, determines downstream impact surfaces via deliverableDependencyRegistry,
-    // builds protected surfaces and a bounded revalidation plan.
-    //
-    // NO patch execution. NO writes. NO LLM reasoning. NO document mutation.
-    // ══════════════════════════════════════════════════════════════════════════════
-
-    if (action === "build_patch_plan") {
-      const { projectId, repairId, repairType, sourceType, versionId } = body;
-      if (!projectId) {
-        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-      if (!repairId && !repairType) {
-        return new Response(JSON.stringify({ ok: false, error: "repairId or repairType required" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      const ppAt = new Date().toISOString();
-
-      // ── Helper: SHA-256 content hash ──
-      async function ppContentHash(text: string): Promise<string> {
-        const data = new TextEncoder().encode(text);
-        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-      }
-
-      // ── Imports ──
-      const { getSectionConfig: ppGetSectionConfig, isSectionRepairSupported: ppIsSectionRepairSupported } = await import("../_shared/deliverableSectionRegistry.ts");
-      const { parseSections: ppParseSections, resolveIssueToSectionKey: ppResolveIssueToSectionKey } = await import("../_shared/sectionRepairEngine.ts");
-      const { isEpisodicBlockRepairSupported: ppIsEpisodicBlockRepairSupported, resolveIssueToEpisodeNumber: ppResolveIssueToEpisodeNumber, extractEpisodeBlock: ppExtractEpisodeBlock } = await import("../_shared/episodicBlockRegistry.ts");
-      const { getInvalidationPlan: ppGetInvalidationPlan, getDirectDependents: ppGetDirectDependents } = await import("../_shared/deliverableDependencyRegistry.ts");
-
-      // ── Step 1: Resolve repair context ──
-      let ppResolvedRepairType = repairType || null;
-      let ppResolvedScopeType: string | null = null;
-      let ppResolvedScopeKey: string | null = null;
-      let ppInterventionScore: number | null = null;
-
-      if (repairId) {
-        const { data: repairRow } = await supabase
-          .from("narrative_repairs")
-          .select("repair_type, scope_type, scope_key, status, priority_score")
-          .eq("repair_id", repairId)
-          .eq("project_id", projectId)
-          .limit(1)
-          .maybeSingle();
-        if (repairRow) {
-          ppResolvedRepairType = ppResolvedRepairType || repairRow.repair_type;
-          ppResolvedScopeType = repairRow.scope_type || null;
-          ppResolvedScopeKey = repairRow.scope_key || null;
-        }
-      }
-
-      // ── Step 2: Load project + lane ──
-      const { data: projectRow } = await supabase
-        .from("projects")
-        .select("assigned_lane")
-        .eq("id", projectId)
-        .maybeSingle();
-      const lane = projectRow?.assigned_lane || "unspecified";
-
-      // ── Step 3: Load project documents with current versions ──
-      const { data: ppDocs } = await supabase
-        .from("project_documents")
-        .select("id, doc_type, latest_version_id")
-        .eq("project_id", projectId);
-
-      if (!ppDocs || ppDocs.length === 0) {
-        return new Response(JSON.stringify({
-          ok: true,
-          action: "build_patch_plan",
-          project_id: projectId,
-          patch_plan: null,
-          planning_notes: {
-            target_resolution_source: "none",
-            execution_mode_reason: "no_documents_found",
-            fallback_used: true,
-            fallback_reason: "project_has_no_documents",
-            impact_surface_count: 0,
-            protected_surface_count: 0,
-          },
-          computed_at: ppAt,
-          version: "patch-plan-v1",
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // ── Step 4: Resolve direct targets (reuse same logic as resolve_patch_targets) ──
-      interface PPPatchTarget {
-        target_id: string;
-        target_type: "document" | "section" | "episode_block" | "scene";
-        document_id: string;
-        doc_type: string;
-        version_id: string;
-        section_key: string | null;
-        episode_number: number | null;
-        scene_id: string | null;
-        scene_key: string | null;
-        content_hash: string;
-        start_offset: number | null;
-        end_offset: number | null;
-        targeting_method: "section_registry" | "episode_block_registry" | "scene_graph" | "mention_offset" | "full_document";
-        targeting_confidence: "high" | "medium" | "low";
-      }
-
-      const ppDirectTargets: PPPatchTarget[] = [];
-      const ppProtectedTargets: PPPatchTarget[] = [];
-      let ppFallbackUsed = false;
-      let ppFallbackReason: string | null = null;
-      let ppChosenStrategy = "none";
-      const ppDocTypesConsidered: string[] = [];
-
-      // Narrow target docs
-      let ppTargetDocs = ppDocs;
-      if (ppResolvedScopeType && ppResolvedScopeType !== "project") {
-        const narrowed = ppDocs.filter((d: any) => d.doc_type === ppResolvedScopeType);
-        if (narrowed.length > 0) ppTargetDocs = narrowed;
-      }
-
-      for (const doc of ppTargetDocs) {
-        ppDocTypesConsidered.push(doc.doc_type);
-        const targetVersionId = versionId || doc.latest_version_id;
-        if (!targetVersionId) {
-          ppFallbackUsed = true;
-          ppFallbackReason = ppFallbackReason || "no_version_available";
-          continue;
-        }
-
-        const { data: ver } = await supabase
+        const { data: ver } = await supabaseClient
           .from("project_document_versions")
           .select("id, plaintext, version_number")
           .eq("id", targetVersionId)
@@ -29893,24 +29578,23 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         let targetResolved = false;
 
         // ── Try 1: Section-level targeting ──
-        if (ppIsSectionRepairSupported(doc.doc_type) && plaintext) {
-          const sections = ppParseSections(plaintext, doc.doc_type);
-          const config = ppGetSectionConfig(doc.doc_type);
+        if (isSectionRepairSupported(doc.doc_type) && plaintext) {
+          const sections = parseSections(plaintext, doc.doc_type);
+          const config = getSectionConfig(doc.doc_type);
           if (sections.length >= (config?.min_sections_required ?? 2)) {
             const issueProxy = {
-              category: ppResolvedScopeKey || undefined,
-              title: ppResolvedRepairType || undefined,
-              summary: ppResolvedScopeKey || undefined,
+              category: resolvedScopeKey || undefined,
+              title: resolvedRepairType || undefined,
+              summary: resolvedScopeKey || undefined,
               owning_doc_type: doc.doc_type,
             };
-            const sectionRes = ppResolveIssueToSectionKey(issueProxy, doc.doc_type, plaintext);
-
+            const sectionRes = resolveIssueToSectionKey(issueProxy, doc.doc_type, plaintext);
             if (sectionRes) {
               const matchedSection = sections.find((s: any) => s.section_key === sectionRes.section_key);
               if (matchedSection) {
-                const hash = await ppContentHash(matchedSection.content);
-                ppChosenStrategy = "section_registry";
-                ppDirectTargets.push({
+                const hash = await coreContentHash(matchedSection.content);
+                chosenStrategy = "section_registry";
+                directTargets.push({
                   target_id: `${doc.id}::section::${sectionRes.section_key}`,
                   target_type: "section",
                   document_id: doc.id,
@@ -29928,26 +29612,28 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
                 });
                 targetResolved = true;
 
-                // Protected: sibling sections
-                for (const sib of sections) {
-                  if (sib.section_key === sectionRes.section_key) continue;
-                  const sibHash = await ppContentHash(sib.content);
-                  ppProtectedTargets.push({
-                    target_id: `${doc.id}::section::${sib.section_key}`,
-                    target_type: "section",
-                    document_id: doc.id,
-                    doc_type: doc.doc_type,
-                    version_id: targetVersionId,
-                    section_key: sib.section_key,
-                    episode_number: null,
-                    scene_id: null,
-                    scene_key: null,
-                    content_hash: sibHash,
-                    start_offset: null,
-                    end_offset: null,
-                    targeting_method: "section_registry",
-                    targeting_confidence: "high",
-                  });
+                // Protected: sibling sections (only when requested)
+                if (includeProtected) {
+                  for (const sib of sections) {
+                    if (sib.section_key === sectionRes.section_key) continue;
+                    const sibHash = await coreContentHash(sib.content);
+                    protectedTargets.push({
+                      target_id: `${doc.id}::section::${sib.section_key}`,
+                      target_type: "section",
+                      document_id: doc.id,
+                      doc_type: doc.doc_type,
+                      version_id: targetVersionId,
+                      section_key: sib.section_key,
+                      episode_number: null,
+                      scene_id: null,
+                      scene_key: null,
+                      content_hash: sibHash,
+                      start_offset: null,
+                      end_offset: null,
+                      targeting_method: "section_registry",
+                      targeting_confidence: "high",
+                    });
+                  }
                 }
               }
             }
@@ -29955,20 +29641,20 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         }
 
         // ── Try 2: Episode block targeting ──
-        if (!targetResolved && ppIsEpisodicBlockRepairSupported(doc.doc_type) && plaintext) {
+        if (!targetResolved && isEpisodicBlockRepairSupported(doc.doc_type) && plaintext) {
           const issueProxy = {
             episodeIndex: null as number | null,
-            category: ppResolvedScopeKey || undefined,
-            title: ppResolvedRepairType || undefined,
-            summary: ppResolvedScopeKey || undefined,
+            category: resolvedScopeKey || undefined,
+            title: resolvedRepairType || undefined,
+            summary: resolvedScopeKey || undefined,
           };
-          const epRes = ppResolveIssueToEpisodeNumber(issueProxy, doc.doc_type, plaintext);
+          const epRes = resolveIssueToEpisodeNumber(issueProxy, doc.doc_type, plaintext);
           if (epRes) {
-            const extracted = ppExtractEpisodeBlock(plaintext, epRes.episode_number);
+            const extracted = extractEpisodeBlock(plaintext, epRes.episode_number);
             if (extracted) {
-              const hash = await ppContentHash(extracted.content);
-              ppChosenStrategy = "episode_block_registry";
-              ppDirectTargets.push({
+              const hash = await coreContentHash(extracted.content);
+              chosenStrategy = "episode_block_registry";
+              directTargets.push({
                 target_id: `${doc.id}::episode::${epRes.episode_number}`,
                 target_type: "episode_block",
                 document_id: doc.id,
@@ -29985,7 +29671,6 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
                 targeting_confidence: epRes.confidence,
               });
               targetResolved = true;
-              // Protected: sibling episode blocks (skip — expensive parse; note in planning_notes)
             }
           }
         }
@@ -29994,17 +29679,17 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         if (!targetResolved) {
           const isScreenplay = ["feature_script", "season_script", "episode_script", "screenplay"].includes(doc.doc_type);
           if (isScreenplay) {
-            const { data: scenes } = await supabase
+            const { data: scenes } = await supabaseClient
               .from("scene_graph_scenes")
               .select("id, scene_key, order_key")
               .eq("project_id", projectId)
               .order("order_key", { ascending: true })
               .limit(200);
 
-            if (scenes && scenes.length > 0 && ppResolvedScopeKey) {
-              const matchedScene = scenes.find((s: any) => s.scene_key === ppResolvedScopeKey);
+            if (scenes && scenes.length > 0 && resolvedScopeKey) {
+              const matchedScene = scenes.find((s: any) => s.scene_key === resolvedScopeKey);
               if (matchedScene) {
-                const { data: sceneVer } = await supabase
+                const { data: sceneVer } = await supabaseClient
                   .from("scene_graph_versions")
                   .select("id, content")
                   .eq("scene_id", matchedScene.id)
@@ -30012,9 +29697,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
                   .limit(1)
                   .maybeSingle();
                 const sceneContent = sceneVer?.content || "";
-                const hash = await ppContentHash(sceneContent);
-                ppChosenStrategy = "scene_graph";
-                ppDirectTargets.push({
+                const hash = await coreContentHash(sceneContent);
+                chosenStrategy = "scene_graph";
+                directTargets.push({
                   target_id: `${doc.id}::scene::${matchedScene.id}`,
                   target_type: "scene",
                   document_id: doc.id,
@@ -30038,11 +29723,11 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
 
         // ── Fallback: Document-level ──
         if (!targetResolved) {
-          const hash = await ppContentHash(plaintext);
-          ppChosenStrategy = ppChosenStrategy === "none" ? "full_document" : ppChosenStrategy;
-          ppFallbackUsed = true;
-          ppFallbackReason = ppFallbackReason || "no_narrower_target_resolvable";
-          ppDirectTargets.push({
+          const hash = await coreContentHash(plaintext);
+          chosenStrategy = chosenStrategy === "none" ? "full_document" : chosenStrategy;
+          fallbackUsed = true;
+          fallbackReason = fallbackReason || "no_narrower_target_resolvable";
+          directTargets.push({
             target_id: `${doc.id}::document`,
             target_type: "document",
             document_id: doc.id,
@@ -30061,40 +29746,144 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         }
       }
 
-      // ── Sort targets deterministically ──
-      const PP_TARGET_TYPE_ORDER: Record<string, number> = { section: 0, episode_block: 1, scene: 2, document: 3 };
-      const ppSortTargets = (arr: PPPatchTarget[]) => arr.sort((a, b) => {
-        const dtCmp = a.doc_type.localeCompare(b.doc_type);
-        if (dtCmp !== 0) return dtCmp;
-        const ttCmp = (PP_TARGET_TYPE_ORDER[a.target_type] ?? 9) - (PP_TARGET_TYPE_ORDER[b.target_type] ?? 9);
-        if (ttCmp !== 0) return ttCmp;
-        const skCmp = (a.section_key || "").localeCompare(b.section_key || "");
-        if (skCmp !== 0) return skCmp;
-        const epCmp = (a.episode_number ?? 0) - (b.episode_number ?? 0);
-        if (epCmp !== 0) return epCmp;
-        const scCmp = (a.scene_key || "").localeCompare(b.scene_key || "");
-        if (scCmp !== 0) return scCmp;
-        return a.target_id.localeCompare(b.target_id);
-      });
-      ppSortTargets(ppDirectTargets);
-      ppSortTargets(ppProtectedTargets);
+      // ── Sort deterministically ──
+      coreSortTargets(directTargets);
+      coreSortTargets(protectedTargets);
 
-      // ── Step 5: Determine execution_mode ──
+      return {
+        resolved_repair_type: resolvedRepairType,
+        resolved_scope_type: resolvedScopeType,
+        resolved_scope_key: resolvedScopeKey,
+        direct_targets: directTargets,
+        protected_targets: protectedTargets,
+        resolution_notes: {
+          chosen_strategy: chosenStrategy,
+          fallback_used: fallbackUsed,
+          fallback_reason: fallbackReason,
+          doc_types_considered: docTypesConsidered,
+          version_binding_mode: versionId ? "provided_version" : "current_version",
+        },
+        all_docs: docs,
+        empty: false,
+      };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // PATCHTARGET RESOLVER v1 — resolve_patch_targets
+    //
+    // Read-only resolution layer. Uses resolvePatchTargetsCore.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "resolve_patch_targets") {
+      const { projectId, repairId, repairType, sourceType, versionId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!repairId && !repairType) {
+        return new Response(JSON.stringify({ ok: false, error: "repairId or repairType required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const core = await resolvePatchTargetsCore(supabase, {
+        projectId, repairId, repairType, versionId,
+        includeProtected: false,
+      });
+
+      console.log("[dev-engine-v2] resolve_patch_targets", {
+        project_id: projectId,
+        repair_id: repairId || null,
+        repair_type: core.resolved_repair_type,
+        target_count: core.direct_targets.length,
+        chosen_strategy: core.resolution_notes.chosen_strategy,
+        fallback_used: core.resolution_notes.fallback_used,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "resolve_patch_targets",
+        project_id: projectId,
+        repair_id: repairId || null,
+        repair_type: core.resolved_repair_type,
+        source_type: sourceType || null,
+        resolved_targets: core.direct_targets,
+        resolution_notes: core.resolution_notes,
+        computed_at: new Date().toISOString(),
+        version: "patch-target-v1",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // PATCHPLAN BUILDER v1 — build_patch_plan
+    //
+    // Read-only planning layer. Uses resolvePatchTargetsCore for target resolution,
+    // then adds downstream impact, protected targets, revalidation planning.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "build_patch_plan") {
+      const { projectId, repairId, repairType, sourceType, versionId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!repairId && !repairType) {
+        return new Response(JSON.stringify({ ok: false, error: "repairId or repairType required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const ppAt = new Date().toISOString();
+
+      // ── Resolve targets via shared core ──
+      const core = await resolvePatchTargetsCore(supabase, {
+        projectId, repairId, repairType, versionId,
+        includeProtected: true,
+      });
+
+      if (core.empty) {
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "build_patch_plan",
+          project_id: projectId,
+          patch_plan: null,
+          planning_notes: {
+            target_resolution_source: "none",
+            execution_mode_reason: "no_documents_found",
+            fallback_used: true,
+            fallback_reason: "project_has_no_documents",
+            impact_surface_count: 0,
+            protected_surface_count: 0,
+          },
+          computed_at: ppAt,
+          version: "patch-plan-v1",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Load project lane ──
+      const { data: projectRow } = await supabase
+        .from("projects")
+        .select("assigned_lane")
+        .eq("id", projectId)
+        .maybeSingle();
+      const lane = projectRow?.assigned_lane || "unspecified";
+
+      // ── Determine execution_mode ──
       let executionMode: "replace_section" | "regenerate_section" | "scene_rewrite" | "full_doc_rewrite" = "full_doc_rewrite";
       let executionModeReason = "document_fallback";
 
-      if (ppDirectTargets.some(t => t.target_type === "section")) {
+      if (core.direct_targets.some(t => t.target_type === "section")) {
         executionMode = "replace_section";
         executionModeReason = "section_target_resolved";
-      } else if (ppDirectTargets.some(t => t.target_type === "episode_block")) {
+      } else if (core.direct_targets.some(t => t.target_type === "episode_block")) {
         executionMode = "regenerate_section";
         executionModeReason = "episode_block_target_resolved";
-      } else if (ppDirectTargets.some(t => t.target_type === "scene")) {
+      } else if (core.direct_targets.some(t => t.target_type === "scene")) {
         executionMode = "scene_rewrite";
         executionModeReason = "scene_target_resolved";
       }
 
-      // ── Step 6: Build downstream regeneration surfaces ──
+      // ── Build downstream regeneration surfaces ──
+      const { getInvalidationPlan: ppGetInvalidationPlan } = await import("../_shared/deliverableDependencyRegistry.ts");
+
       interface PPImpactSurface {
         document_id: string;
         doc_type: string;
@@ -30109,14 +29898,13 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }
 
       const ppDownstreamSurfaces: PPImpactSurface[] = [];
-      const directDocTypes = [...new Set(ppDirectTargets.map(t => t.doc_type))];
+      const directDocTypes = [...new Set(core.direct_targets.map(t => t.doc_type))];
 
       for (const ddt of directDocTypes) {
         try {
           const invPlan = ppGetInvalidationPlan(lane, ddt);
           for (const entry of invPlan.entries) {
-            // Find the actual document for this doc_type
-            const downstream = ppDocs.find((d: any) => d.doc_type === entry.doc_type);
+            const downstream = core.all_docs.find((d: any) => d.doc_type === entry.doc_type);
             const impactType = entry.invalidation_policy === "stale"
               ? "regeneration_required" as const
               : entry.invalidation_policy === "review_only"
@@ -30152,7 +29940,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }
       const ppFinalDownstream = [...ppSurfaceMap.values()].sort((a, b) => a.doc_type.localeCompare(b.doc_type));
 
-      // ── Step 7: Build revalidation plan ──
+      // ── Build revalidation plan ──
       interface PPRevalidationTarget {
         document_id: string;
         doc_type: string;
@@ -30184,21 +29972,19 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         return a.doc_type.localeCompare(b.doc_type);
       });
 
-      const ppAffectedAxes: string[] = [];
-      const ppStaleUnitKeys: string[] = [];
       const ppDownstreamInvalidation = ppFinalDownstream.some(s => s.impact_type === "regeneration_required");
 
-      // ── Step 8: Build content_hashes map ──
+      // ── Build content_hashes map ──
       const ppContentHashes: Record<string, string> = {};
-      for (const t of [...ppDirectTargets, ...ppProtectedTargets]) {
+      for (const t of [...core.direct_targets, ...core.protected_targets]) {
         ppContentHashes[t.target_id] = t.content_hash;
       }
 
-      // ── Step 9: Stale flag ──
-      const ppStale = ppDirectTargets.some(t => !t.content_hash) || ppProtectedTargets.some(t => !t.content_hash);
+      // ── Stale flag ──
+      const ppStale = core.direct_targets.some(t => !t.content_hash) || core.protected_targets.some(t => !t.content_hash);
 
-      // ── Step 10: Build deterministic plan_id ──
-      const ppRepairRef = repairId || ppResolvedRepairType || "unknown";
+      // ── Deterministic plan_id ──
+      const ppRepairRef = repairId || core.resolved_repair_type || "unknown";
       const ppVersionRef = versionId || "current";
       const ppPlanId = `patchplan::${projectId}::${ppRepairRef}::${ppVersionRef}`;
 
@@ -30210,16 +29996,16 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         repair_source: {
           source_type: sourceType || "manual",
           repair_id: repairId || null,
-          intervention_score: ppInterventionScore,
-          repair_type: ppResolvedRepairType,
+          intervention_score: null as number | null,
+          repair_type: core.resolved_repair_type,
         },
-        direct_targets: ppDirectTargets,
-        protected_targets: ppProtectedTargets,
+        direct_targets: core.direct_targets,
+        protected_targets: core.protected_targets,
         downstream_regeneration: ppFinalDownstream,
         revalidation_plan: {
           revalidation_targets: ppRevalTargets,
-          affected_axes: ppAffectedAxes,
-          stale_unit_keys: ppStaleUnitKeys,
+          affected_axes: [] as string[],
+          stale_unit_keys: [] as string[],
           downstream_invalidation_triggered: ppDownstreamInvalidation,
         },
         execution_mode: executionMode,
@@ -30233,10 +30019,10 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       console.log("[dev-engine-v2] build_patch_plan", {
         project_id: projectId,
         repair_id: repairId || null,
-        repair_type: ppResolvedRepairType,
+        repair_type: core.resolved_repair_type,
         execution_mode: executionMode,
-        direct_count: ppDirectTargets.length,
-        protected_count: ppProtectedTargets.length,
+        direct_count: core.direct_targets.length,
+        protected_count: core.protected_targets.length,
         downstream_count: ppFinalDownstream.length,
         reval_count: ppRevalTargets.length,
         stale: ppStale,
@@ -30248,12 +30034,12 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         project_id: projectId,
         patch_plan: patchPlan,
         planning_notes: {
-          target_resolution_source: ppChosenStrategy,
+          target_resolution_source: core.resolution_notes.chosen_strategy,
           execution_mode_reason: executionModeReason,
-          fallback_used: ppFallbackUsed,
-          fallback_reason: ppFallbackReason,
+          fallback_used: core.resolution_notes.fallback_used,
+          fallback_reason: core.resolution_notes.fallback_reason,
           impact_surface_count: ppFinalDownstream.length,
-          protected_surface_count: ppProtectedTargets.length,
+          protected_surface_count: core.protected_targets.length,
         },
         computed_at: ppAt,
         version: "patch-plan-v1",
