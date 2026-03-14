@@ -95,6 +95,14 @@ export function NarrativeRepairQueuePanel({ projectId, landingContext, onDismiss
   const repairPaths = useRecommendedRepairPaths(projectId);
   const evaluatedPaths = useEvaluatedRepairPaths(projectId);
   const lastPlanRefreshRef = useRef<number>(0);
+  const [relatedFilter, setRelatedFilter] = useState<RelatedRepairsFilter>(null);
+
+  // Derive related-repairs filter from landing context when it arrives
+  useEffect(() => {
+    if (landingContext?.repair_type) {
+      setRelatedFilter({ repair_type: landingContext.repair_type });
+    }
+  }, [landingContext]);
 
   // Auto plan on mount with TTL guard
   useEffect(() => {
