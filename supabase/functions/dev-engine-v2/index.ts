@@ -31256,6 +31256,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         documents_attempted: documentsAttempted,
         documents_executed: documentsExecuted,
         document_sequences_failed: documentSequencesFailed,
+        document_execution_order: documentExecutionOrder,
         write_performed: writePerformed,
         has_governance: !!postExecution,
         has_revalidation: !!revalidationExecution,
