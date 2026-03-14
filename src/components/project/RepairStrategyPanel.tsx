@@ -9,6 +9,7 @@ import {
   fetchPatchTargets,
   fetchPatchPlan,
   fetchPatchPlanValidation,
+  fetchPatchExecution,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type PRP2SData, type PRP2SStrategyOption, type PRP2SROIAdvisory,
@@ -18,6 +19,7 @@ import {
   type PatchTarget, type PatchTargetResolutionResult,
   type PatchPlanBuildResult, type PatchPlan, type PatchImpactSurface, type PatchRevalidationTarget,
   type PatchPlanValidationResponse, type PatchPlanValidationResult, type PatchPlanValidationIssue,
+  type PatchExecutionResponse, type PatchExecutionResult, type PatchExecutionTargetResult,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
