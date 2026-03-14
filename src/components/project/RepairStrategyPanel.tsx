@@ -2831,7 +2831,7 @@ function ExecutionReplaySection({
           {/* History list */}
           {historyResult && !historyLoading && (
             <>
-              {historyResult.history_items.length === 0 ? (
+              {accumulatedItems.length === 0 ? (
                 <Card className="border-border/50">
                   <CardContent className="py-4 text-center">
                     <History className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
@@ -2849,8 +2849,8 @@ function ExecutionReplaySection({
                   </CardContent>
                 </Card>
               ) : (
-                <div className="space-y-1 max-h-[240px] overflow-y-auto">
-                  {historyResult.history_items.map((item) => (
+                <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                  {accumulatedItems.map((item) => (
                     <button
                       key={item.transition_id}
                       onClick={() => handleSelectHistoryItem(item)}
@@ -2904,6 +2904,25 @@ function ExecutionReplaySection({
                       </div>
                     </button>
                   ))}
+                </div>
+              )}
+              {/* Pagination status and Load More */}
+              {accumulatedItems.length > 0 && (
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[9px] text-muted-foreground">
+                    Showing {accumulatedItems.length} item{accumulatedItems.length !== 1 ? 's' : ''}
+                  </span>
+                  {hasMore && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      className="text-[9px] h-6 px-2 ml-auto"
+                    >
+                      {loadingMore ? 'Loading…' : 'Load More'}
+                    </Button>
+                  )}
                 </div>
               )}
               {historyResult.history_notes.omitted_non_replay_rows > 0 && (
