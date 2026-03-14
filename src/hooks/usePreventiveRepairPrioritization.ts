@@ -1412,12 +1412,35 @@ export interface RecommendationTrendLinkage {
 }
 
 const TREND_LABELS: Record<LinkedTrendStatus, string> = {
-  worsening: "Signal worsening vs prior window",
-  improving: "Signal improving vs prior window",
-  flat: "Signal flat vs prior window",
-  insufficient_data: "Insufficient trend data",
-  unavailable: "No linked trend signal",
+  worsening: "Worsening vs prior window",
+  improving: "Improving vs prior window",
+  flat: "No meaningful change vs prior window",
+  insufficient_data: "Not enough history to compare",
+  unavailable: "No deterministic trend link",
 };
+
+const TREND_CHIP_LABELS: Record<LinkedTrendStatus, string> = {
+  worsening: "Worsening",
+  improving: "Improving",
+  flat: "Flat",
+  insufficient_data: "Insufficient data",
+  unavailable: "Unlinked",
+};
+
+// Presentation-only: maps internal source_key to human-readable label
+export function humanizeSourceKey(sourceKey: string): string {
+  if (sourceKey === "none") return "";
+  if (sourceKey.startsWith("recommendation_signal_trends.")) {
+    const field = sourceKey.replace("recommendation_signal_trends.", "").replace(/_/g, " ").replace(" signal", "");
+    return field;
+  }
+  const bracketMatch = sourceKey.match(/^(\w+)_trends\[(.+)\]$/);
+  if (bracketMatch) {
+    const kind = bracketMatch[1].replace(/_/g, " ");
+    return `${kind}: ${bracketMatch[2]}`;
+  }
+  return sourceKey;
+}
 
 export function resolveRecommendationTrendLinkage(
   rec: ExecutionRecommendation,

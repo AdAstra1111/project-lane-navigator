@@ -41,7 +41,7 @@ import {
   type TrendTopSignalEntry,
   dedupeAndSuppressRecommendations,
   type DisplayRecommendation, type DisplayRecommendationsResult, type RecommendationBucketKey,
-  resolveRecommendationTrendLinkage,
+  resolveRecommendationTrendLinkage, humanizeSourceKey,
   type RecommendationTrendLinkage, type LinkedTrendStatus,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
