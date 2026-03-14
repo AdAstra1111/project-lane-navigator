@@ -30770,7 +30770,23 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           const govLadder = getLaneLadder(govLane);
 
           const patchedDocumentIds = [...new Set(executedTargets.map(t => t.document_id))];
-          const patchedVersionIds = executedTargets.map(t => t.version_id_after!);
+          // Deduplicate: one governance pass per document (not per section target)
+          const uniqueDocVersions = new Map<string, { document_id: string; doc_type: string; version_id_after: string; version_id_before: string; section_keys: string[] }>();
+          for (const et of executedTargets) {
+            const existing = uniqueDocVersions.get(et.document_id);
+            if (existing) {
+              existing.section_keys.push(et.target_id);
+            } else {
+              uniqueDocVersions.set(et.document_id, {
+                document_id: et.document_id,
+                doc_type: et.doc_type,
+                version_id_after: et.version_id_after!,
+                version_id_before: et.version_id_before,
+                section_keys: [et.target_id],
+              });
+            }
+          }
+          const patchedVersionIds = [...uniqueDocVersions.values()].map(d => d.version_id_after);
 
           // Collect unique doc types that were patched
           const patchedDocTypes = [...new Set(executedTargets.map(t => t.doc_type))];
@@ -30787,7 +30803,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             status: string;
           }> = [];
 
-          for (const execTarget of executedTargets) {
+          for (const execTarget of uniqueDocVersions.values()) {
             const docType = execTarget.doc_type;
             const newVersionId = execTarget.version_id_after!;
 
