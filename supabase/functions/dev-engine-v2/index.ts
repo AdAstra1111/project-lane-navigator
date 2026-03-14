@@ -30838,6 +30838,153 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         }
       }
 
+      // ── REVALIDATION EXECUTION v1 ──
+      // Execute bounded revalidation for the patched document and downstream targets
+      // where canonical revalidation paths exist. No regeneration. No rewrite cascades.
+      let revalidationExecution: Record<string, unknown> | null = null;
+
+      const revalTargets = (postExecution as any)?.immediate_revalidation?.targets || [];
+      const shouldRunRevalidation = !dryRun && writePerformed && executedCount > 0 && revalTargets.length > 0;
+
+      if (shouldRunRevalidation || (dryRun && revalTargets.length > 0)) {
+        const revalResults: Array<{
+          document_id: string;
+          doc_type: string;
+          version_id: string | null;
+          revalidation_type: string;
+          status: string;
+          message: string;
+        }> = [];
+
+        const selfUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/dev-engine-v2`;
+        const authHeader = req.headers.get("authorization") || "";
+
+        // Process patched document targets first (sort to front)
+        const patchedDocIds = new Set(executedTargets.map(t => t.document_id));
+        const sortedRevalTargets = [...revalTargets].sort((a: any, b: any) => {
+          const aPatched = patchedDocIds.has(a.document_id) ? 0 : 1;
+          const bPatched = patchedDocIds.has(b.document_id) ? 0 : 1;
+          return aPatched - bPatched;
+        });
+
+        for (const rt of sortedRevalTargets) {
+          if (dryRun) {
+            revalResults.push({
+              document_id: rt.document_id,
+              doc_type: rt.doc_type,
+              version_id: rt.version_id,
+              revalidation_type: rt.revalidation_type,
+              status: "skipped",
+              message: "dry_run_no_revalidation",
+            });
+            continue;
+          }
+
+          // Only full_reanalysis has a canonical path (spine_revalidate = analyze + notes)
+          if (rt.revalidation_type === "full_reanalysis") {
+            if (!rt.version_id) {
+              revalResults.push({
+                document_id: rt.document_id,
+                doc_type: rt.doc_type,
+                version_id: null,
+                revalidation_type: rt.revalidation_type,
+                status: "failed",
+                message: "no_current_version_id",
+              });
+              continue;
+            }
+
+            try {
+              const revalResp = await fetch(selfUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": authHeader,
+                },
+                body: JSON.stringify({
+                  action: "spine_revalidate",
+                  projectId,
+                  documentId: rt.document_id,
+                  versionId: rt.version_id,
+                  deliverableType: rt.doc_type,
+                }),
+              });
+
+              const revalData = await revalResp.json().catch(() => null);
+
+              if (revalResp.ok && revalData?.success) {
+                revalResults.push({
+                  document_id: rt.document_id,
+                  doc_type: rt.doc_type,
+                  version_id: rt.version_id,
+                  revalidation_type: rt.revalidation_type,
+                  status: "executed",
+                  message: `revalidation_complete:analyze_run=${revalData.analyze_summary?.run_id || "?"},notes_count=${revalData.notes_summary?.notes_count ?? "?"}`,
+                });
+              } else {
+                revalResults.push({
+                  document_id: rt.document_id,
+                  doc_type: rt.doc_type,
+                  version_id: rt.version_id,
+                  revalidation_type: rt.revalidation_type,
+                  status: "failed",
+                  message: `revalidation_failed:${revalData?.error || revalData?.stage || "unknown"}`,
+                });
+              }
+            } catch (revalErr: any) {
+              revalResults.push({
+                document_id: rt.document_id,
+                doc_type: rt.doc_type,
+                version_id: rt.version_id,
+                revalidation_type: rt.revalidation_type,
+                status: "failed",
+                message: `revalidation_error:${revalErr?.message?.slice(0, 150) || "unknown"}`,
+              });
+            }
+          } else {
+            // section_recheck, spine_check_only, canon_alignment_only — no canonical path in v1
+            revalResults.push({
+              document_id: rt.document_id,
+              doc_type: rt.doc_type,
+              version_id: rt.version_id,
+              revalidation_type: rt.revalidation_type,
+              status: "deferred",
+              message: `canonical_path_unavailable_for_${rt.revalidation_type}`,
+            });
+          }
+        }
+
+        const revalExecuted = revalResults.filter(r => r.status === "executed").length;
+        const revalFailed = revalResults.filter(r => r.status === "failed").length;
+        const revalDeferred = revalResults.filter(r => r.status === "deferred" || r.status === "skipped").length;
+
+        revalidationExecution = {
+          attempted: revalResults.length,
+          succeeded: revalExecuted,
+          failed: revalFailed,
+          target_results: revalResults,
+          notes: {
+            patched_document_revalidated: revalResults.some(r =>
+              patchedDocIds.has(r.document_id) && r.status === "executed"
+            ),
+            downstream_revalidation_performed: revalResults.some(r =>
+              !patchedDocIds.has(r.document_id) && r.status === "executed"
+            ),
+            unavailable_paths_deferred: revalDeferred > 0,
+            dry_run_no_revalidation_writes: dryRun,
+          },
+        };
+
+        console.log("[dev-engine-v2] execute_patch_plan revalidation_execution", {
+          project_id: projectId,
+          dry_run: dryRun,
+          attempted: revalResults.length,
+          succeeded: revalExecuted,
+          failed: revalFailed,
+          deferred: revalDeferred,
+        });
+      }
+
       console.log("[dev-engine-v2] execute_patch_plan", {
         project_id: projectId,
         plan_id: execPlan.plan_id,
@@ -30847,6 +30994,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         failed: failedCount,
         write_performed: writePerformed,
         has_governance: !!postExecution,
+        has_revalidation: !!revalidationExecution,
       });
 
       return new Response(JSON.stringify({
@@ -30872,6 +31020,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             downstream_execution_deferred: !postExecution || (postExecution?.governance_notes as any)?.dry_run_no_governance_writes === true,
           },
           post_execution: postExecution,
+          revalidation_execution: revalidationExecution,
         },
         computed_at: execAt,
         version: "patch-execution-v1",
