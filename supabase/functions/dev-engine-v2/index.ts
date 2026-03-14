@@ -8351,7 +8351,7 @@ Return ONLY valid JSON:
       if (!version) throw new Error("Version not found");
 
       const { data: project } = await supabase.from("projects")
-        .select("title, budget_range, assigned_lane, format, episode_target_duration_seconds, season_episode_count, guardrails_config")
+        .select("title, budget_range, assigned_lane, format, tone, genres, episode_target_duration_seconds, season_episode_count, guardrails_config")
         .eq("id", projectId).single();
 
       const format = reqFormat || project?.format || "film";
@@ -8360,10 +8360,28 @@ Return ONLY valid JSON:
       const materialText = (version.plaintext || "").slice(0, 12000);
       const analysisSnippet = analysisJson ? JSON.stringify(analysisJson).slice(0, 4000) : "No prior analysis";
 
+      // Check whether a character_bible already exists and has content
+      const { data: charBibleRows } = await supabase
+        .from("project_documents")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("doc_type", "character_bible")
+        .limit(1);
+      const characterBibleExists = (charBibleRows?.length ?? 0) > 0;
+
+      // Existing qualification overrides already set by user or system
+      const existingQuals = project?.guardrails_config?.overrides?.qualifications || {};
+      const existingQualsText = Object.keys(existingQuals).length > 0
+        ? Object.entries(existingQuals).map(([k, v]) => `  ${k}: ${v}`).join("\n")
+        : "  (none)";
+
+      const toneText = project?.tone || "not set";
+      const genresText = Array.isArray(project?.genres) ? project.genres.join(", ") : (project?.genres || "not set");
+
       const EXEC_STRATEGY_SYSTEM = `You are IFFY Executive Strategist. You are NOT an editorial engine — do NOT rewrite or give editorial notes.
 Your job: diagnose why this project is failing to converge and propose minimal strategic repositioning.
 
-CONTEXT:
+CONTEXT (ALREADY DECIDED — do NOT ask about these in must_decide):
 - Current format: ${format}
 - Current lane: ${lane}
 - Current budget band: ${budget}
@@ -8371,6 +8389,11 @@ CONTEXT:
 - Development behavior: ${developmentBehavior || "market"}
 - Episode duration: ${project?.episode_target_duration_seconds || "not set"}
 - Season episode count: ${project?.season_episode_count || "not set"}
+- Tone (LOCKED): ${toneText}
+- Genres (LOCKED): ${genresText}
+- Character bible exists: ${characterBibleExists ? "YES — roster is locked, do NOT ask to lock it" : "no"}
+- Existing qualification overrides (already set, do NOT ask to set these again):
+${existingQualsText}
 
 Evaluate the material and latest analysis. Return ONLY valid JSON:
 {
@@ -8405,7 +8428,11 @@ Rules:
 - Each must_decide item needs 2-4 concrete options with reasoning.
 - Do NOT recommend format changes — that belongs in must_decide if relevant.
 - Keep must_decide to 1-3 items max. Focus on the most impactful blocking decisions first.
-- summary should explain WHY the project is stuck and what the strategy resolves.`;
+- summary should explain WHY the project is stuck and what the strategy resolves.
+- NEVER ask about tone, tonal register, or genre — these are already set on the project (see CONTEXT above).
+- NEVER ask whether to lock the character roster — if a character bible exists, the roster is already locked.
+- NEVER ask about any field already listed in "Existing qualification overrides" above.
+- If all blocking issues are resolvable from the CONTEXT above, return an empty must_decide array.`;
 
       const userPrompt = `LATEST ANALYSIS:\n${analysisSnippet}\n\nMATERIAL:\n${materialText}`;
       const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, EXEC_STRATEGY_SYSTEM, userPrompt, 0.3, 2500);
