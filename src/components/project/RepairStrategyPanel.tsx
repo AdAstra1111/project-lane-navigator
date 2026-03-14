@@ -33,8 +33,11 @@ import {
   type ExecutionObservability, type ExecutionObservabilityDocTimeline, type ExecutionObservabilityEvent,
   type ExecutionReplayResponse, type ExecutionReplaySnapshot,
   fetchPatchExecutionRecommendations,
+  fetchPatchExecutionRecommendationTrends,
   type PatchExecutionRecommendationsResponse,
   type ExecutionRecommendations, type ExecutionRecommendation,
+  type PatchExecutionTrendsResponse, type ExecutionRecommendationTrends,
+  type TrendDirection, type TrendRatePoint, type TrendNullableCountPoint, type TrendCountPoint,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -533,6 +536,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
 
       {/* ═══ SECTION 4j: EXECUTION RECOMMENDATIONS (read-only, deterministic) ═══ */}
       <ExecutionRecommendationsSection projectId={projectId} />
+
+      {/* ═══ SECTION 4k: EXECUTION TRENDS (read-only) ═══ */}
+      <ExecutionTrendsSection projectId={projectId} />
 
           </div>
         )}
@@ -4097,6 +4103,335 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
                       );
                     })}
                   </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
+            <Button variant="ghost" size="sm" className="text-[9px] h-6" onClick={load} disabled={loading}>
+              <RefreshCw className={cn("h-3 w-3 mr-1", loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ── ExecutionTrendsSection ────────────────────────────────────────────────────
+// Read-only trend surface comparing two adjacent windows of persisted replay
+// snapshots. No execution-path changes. No mutation.
+
+function ExecutionTrendsSection({ projectId }: { projectId: string }) {
+  const [data, setData] = useState<PatchExecutionTrendsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetchPatchExecutionRecommendationTrends(projectId, { recent_limit: 25, prior_limit: 25 });
+      if (res?.ok) setData(res);
+    } finally {
+      setLoading(false);
+      setLoaded(true);
+    }
+  };
+
+  const trends = data?.trends;
+
+  // Direction → color + symbol
+  const dirColor = (d: TrendDirection | undefined) => {
+    if (!d || d === "insufficient_data") return "text-muted-foreground/40";
+    if (d === "improving") return "text-emerald-400";
+    if (d === "worsening") return "text-red-400";
+    return "text-muted-foreground/60";
+  };
+  const dirSymbol = (d: TrendDirection | undefined, higherIsBetter?: boolean) => {
+    if (!d || d === "insufficient_data") return "—";
+    if (d === "flat") return "→";
+    if (d === "improving") return higherIsBetter ? "↑" : "↓";
+    return higherIsBetter ? "↓" : "↑";
+  };
+
+  // Compact metric row
+  const MetricRow = ({
+    label, prior, recent, delta, direction, unit = "", higherBetter = false,
+  }: {
+    label: string;
+    prior: number | null;
+    recent: number | null;
+    delta: number | null;
+    direction: TrendDirection;
+    unit?: string;
+    higherBetter?: boolean;
+  }) => (
+    <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0">
+      <span className="text-[9px] text-muted-foreground truncate">{label}</span>
+      <span className="text-[8px] font-mono text-muted-foreground/50 w-10 text-right">{prior != null ? `${prior}${unit}` : "—"}</span>
+      <span className="text-[8px] font-mono text-foreground/80 w-10 text-right">{recent != null ? `${recent}${unit}` : "—"}</span>
+      <div className={cn("text-[9px] font-mono font-semibold w-10 text-right flex items-center justify-end gap-0.5", dirColor(direction))}>
+        <span>{dirSymbol(direction, higherBetter)}</span>
+        {delta != null && delta !== 0 && (
+          <span className="text-[8px]">{delta > 0 ? `+${delta}` : `${delta}`}{unit}</span>
+        )}
+      </div>
+    </div>
+  );
+
+  // Sub-table header
+  const SubHeader = () => (
+    <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 pb-0.5 mb-0.5 border-b border-border/20">
+      <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Metric</span>
+      <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-10 text-right">Prior</span>
+      <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-10 text-right">Recent</span>
+      <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-10 text-right">Δ</span>
+    </div>
+  );
+
+  // Signal indicator badge
+  const SignalBadge = ({ label, d }: { label: string; d: TrendDirection }) => (
+    <div className={cn("flex items-center gap-1 text-[8px] font-mono rounded px-1.5 py-0.5 border",
+      d === "improving" ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/5" :
+      d === "worsening" ? "text-red-400 border-red-500/30 bg-red-500/5" :
+      d === "flat"      ? "text-muted-foreground/60 border-border/30" :
+      "text-muted-foreground/30 border-border/20")}>
+      <span>{dirSymbol(d)}</span>
+      <span>{label}</span>
+    </div>
+  );
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+          <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+          <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+          <TrendingUp className="h-3 w-3" />
+          <span className="font-semibold uppercase tracking-wider">Execution Trends</span>
+          {trends?.window_summary && (
+            <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground/60 border-border/30 ml-1">
+              {trends.window_summary.recent_count}r / {trends.window_summary.prior_count}p
+            </Badge>
+          )}
+          {trends && !trends.window_summary.sufficient_for_comparison && (
+            <Badge variant="outline" className="text-[8px] font-mono text-amber-400 border-amber-500/30 ml-1">
+              insufficient data
+            </Badge>
+          )}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-2">
+        {!loaded && (
+          <Button variant="outline" size="sm" className="text-[10px] h-7" onClick={load} disabled={loading}>
+            {loading ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <TrendingUp className="h-3 w-3 mr-1" />}
+            {loading ? 'Loading trends…' : 'Load Trends'}
+          </Button>
+        )}
+
+        {loaded && !trends && (
+          <div className="text-[10px] text-muted-foreground italic">No trend data available.</div>
+        )}
+
+        {data?.insufficient_data && (
+          <div className="text-[9px] text-amber-400 italic">{data.insufficient_reason}</div>
+        )}
+
+        {trends && (
+          <div className="space-y-3">
+            {/* Window summary */}
+            <div className="flex items-center gap-2 flex-wrap text-[9px] text-muted-foreground font-mono">
+              <span>Recent: {trends.window_summary.recent_count} snapshots</span>
+              <span className="text-muted-foreground/30">|</span>
+              <span>Prior: {trends.window_summary.prior_count} snapshots</span>
+              {trends.window_summary.sufficient_for_comparison
+                ? <Badge variant="outline" className="text-[8px] text-emerald-400 border-emerald-500/30">comparable</Badge>
+                : <Badge variant="outline" className="text-[8px] text-amber-400 border-amber-500/30">insufficient for comparison</Badge>
+              }
+            </div>
+
+            {/* Signal summary strip */}
+            <div className="flex flex-wrap gap-1">
+              <SignalBadge label="health" d={trends.recommendation_signal_trends.overall_health_signal.direction} />
+              <SignalBadge label="blockers" d={trends.recommendation_signal_trends.blocker_signal_count.direction} />
+              <SignalBadge label="governance" d={trends.recommendation_signal_trends.governance_gap_signal.direction} />
+              <SignalBadge label="revalidation" d={trends.recommendation_signal_trends.revalidation_gap_signal.direction} />
+              <SignalBadge label="timing" d={trends.recommendation_signal_trends.timing_signal.direction} />
+              <SignalBadge label="causal" d={trends.recommendation_signal_trends.causal_root_blocker_signal.direction} />
+            </div>
+
+            {/* Overall outcomes */}
+            <Collapsible defaultOpen>
+              <CollapsibleTrigger asChild>
+                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                  <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                  <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                  <span className="font-semibold">Overall Outcomes</span>
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pl-4 pt-1">
+                <SubHeader />
+                <MetricRow label="Executed rate" prior={trends.overall_outcomes.executed_rate_pct.prior} recent={trends.overall_outcomes.executed_rate_pct.recent} delta={trends.overall_outcomes.executed_rate_pct.delta} direction={trends.overall_outcomes.executed_rate_pct.direction} unit="%" higherBetter />
+                <MetricRow label="Blocked rate" prior={trends.overall_outcomes.blocked_rate_pct.prior} recent={trends.overall_outcomes.blocked_rate_pct.recent} delta={trends.overall_outcomes.blocked_rate_pct.delta} direction={trends.overall_outcomes.blocked_rate_pct.direction} unit="%" />
+                <MetricRow label="Failed rate" prior={trends.overall_outcomes.failed_rate_pct.prior} recent={trends.overall_outcomes.failed_rate_pct.recent} delta={trends.overall_outcomes.failed_rate_pct.delta} direction={trends.overall_outcomes.failed_rate_pct.direction} unit="%" />
+                <MetricRow label="Partial or better" prior={trends.overall_outcomes.partial_or_better_rate_pct.prior} recent={trends.overall_outcomes.partial_or_better_rate_pct.recent} delta={trends.overall_outcomes.partial_or_better_rate_pct.delta} direction={trends.overall_outcomes.partial_or_better_rate_pct.direction} unit="%" higherBetter />
+              </CollapsibleContent>
+            </Collapsible>
+
+            {/* Timing trends */}
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                  <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                  <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                  <span className="font-semibold">Timing</span>
+                  <span className={cn("text-[8px] font-mono ml-1", dirColor(trends.timing_trends.avg_section_execution_ms.direction))}>
+                    {dirSymbol(trends.timing_trends.avg_section_execution_ms.direction)}
+                  </span>
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pl-4 pt-1">
+                <SubHeader />
+                <MetricRow label="Avg total duration" prior={trends.timing_trends.avg_total_duration_ms.prior} recent={trends.timing_trends.avg_total_duration_ms.recent} delta={trends.timing_trends.avg_total_duration_ms.delta} direction={trends.timing_trends.avg_total_duration_ms.direction} unit="ms" />
+                <MetricRow label="Avg section exec" prior={trends.timing_trends.avg_section_execution_ms.prior} recent={trends.timing_trends.avg_section_execution_ms.recent} delta={trends.timing_trends.avg_section_execution_ms.delta} direction={trends.timing_trends.avg_section_execution_ms.direction} unit="ms" />
+                <MetricRow label="Section exec samples" prior={trends.timing_trends.section_execution_sample_count.prior} recent={trends.timing_trends.section_execution_sample_count.recent} delta={trends.timing_trends.section_execution_sample_count.delta} direction="flat" higherBetter />
+              </CollapsibleContent>
+            </Collapsible>
+
+            {/* Governance trends */}
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                  <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                  <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                  <span className="font-semibold">Governance</span>
+                  <span className={cn("text-[8px] font-mono ml-1", dirColor(trends.governance_trends.governance_coverage_rate_pct.direction))}>
+                    {dirSymbol(trends.governance_trends.governance_coverage_rate_pct.direction, true)}
+                  </span>
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pl-4 pt-1">
+                <SubHeader />
+                <MetricRow label="Governance coverage" prior={trends.governance_trends.governance_coverage_rate_pct.prior} recent={trends.governance_trends.governance_coverage_rate_pct.recent} delta={trends.governance_trends.governance_coverage_rate_pct.delta} direction={trends.governance_trends.governance_coverage_rate_pct.direction} unit="%" higherBetter />
+                <MetricRow label="Invalidation rate" prior={trends.governance_trends.invalidation_performed_rate_pct.prior} recent={trends.governance_trends.invalidation_performed_rate_pct.recent} delta={trends.governance_trends.invalidation_performed_rate_pct.delta} direction={trends.governance_trends.invalidation_performed_rate_pct.direction} unit="%" higherBetter />
+              </CollapsibleContent>
+            </Collapsible>
+
+            {/* Revalidation trends */}
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                  <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                  <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                  <span className="font-semibold">Revalidation</span>
+                  <span className={cn("text-[8px] font-mono ml-1", dirColor(trends.revalidation_trends.revalidation_success_rate_pct.direction))}>
+                    {dirSymbol(trends.revalidation_trends.revalidation_success_rate_pct.direction, true)}
+                  </span>
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pl-4 pt-1">
+                <SubHeader />
+                <MetricRow label="Execution rate" prior={trends.revalidation_trends.revalidation_execution_rate_pct.prior} recent={trends.revalidation_trends.revalidation_execution_rate_pct.recent} delta={trends.revalidation_trends.revalidation_execution_rate_pct.delta} direction={trends.revalidation_trends.revalidation_execution_rate_pct.direction} unit="%" higherBetter />
+                <MetricRow label="Full success rate" prior={trends.revalidation_trends.revalidation_success_rate_pct.prior} recent={trends.revalidation_trends.revalidation_success_rate_pct.recent} delta={trends.revalidation_trends.revalidation_success_rate_pct.delta} direction={trends.revalidation_trends.revalidation_success_rate_pct.direction} unit="%" higherBetter />
+                <MetricRow label="Failure/deferral rate" prior={trends.revalidation_trends.revalidation_failure_or_deferral_rate_pct.prior} recent={trends.revalidation_trends.revalidation_failure_or_deferral_rate_pct.recent} delta={trends.revalidation_trends.revalidation_failure_or_deferral_rate_pct.delta} direction={trends.revalidation_trends.revalidation_failure_or_deferral_rate_pct.direction} unit="%" />
+              </CollapsibleContent>
+            </Collapsible>
+
+            {/* Blocker code trends */}
+            {trends.blocker_code_trends.length > 0 && (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <span className="font-semibold">Blocker Codes</span>
+                    <Badge variant="outline" className="text-[8px] font-mono border-border/40 ml-1">{trends.blocker_code_trends.length}</Badge>
+                    <span className={cn("text-[8px] font-mono ml-1", dirColor(trends.recommendation_signal_trends.blocker_signal_count.direction))}>
+                      {dirSymbol(trends.recommendation_signal_trends.blocker_signal_count.direction)}
+                    </span>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pl-4 pt-1">
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 pb-0.5 mb-0.5 border-b border-border/20">
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Code</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Prior</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Recent</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Δ</span>
+                  </div>
+                  {trends.blocker_code_trends.slice(0, 10).map(b => (
+                    <div key={b.blocker_code} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0">
+                      <span className="text-[8px] font-mono text-muted-foreground truncate">{b.blocker_code}</span>
+                      <span className="text-[8px] font-mono text-muted-foreground/50 w-8 text-right">{b.prior_count}</span>
+                      <span className="text-[8px] font-mono text-foreground/80 w-8 text-right">{b.recent_count}</span>
+                      <span className={cn("text-[8px] font-mono font-semibold w-8 text-right", dirColor(b.direction))}>
+                        {b.delta !== 0 ? (b.delta > 0 ? `+${b.delta}` : `${b.delta}`) : "—"}
+                      </span>
+                    </div>
+                  ))}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
+            {/* Repair type trends */}
+            {trends.repair_type_trends.length > 0 && (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <span className="font-semibold">Repair Type Issue Rates</span>
+                    <Badge variant="outline" className="text-[8px] font-mono border-border/40 ml-1">{trends.repair_type_trends.length}</Badge>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pl-4 pt-1">
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 pb-0.5 mb-0.5 border-b border-border/20">
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Type</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-10 text-right">Prior%</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-10 text-right">Recent%</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Δ</span>
+                  </div>
+                  {trends.repair_type_trends.slice(0, 8).map(r => (
+                    <div key={r.repair_type} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0">
+                      <span className="text-[8px] font-mono text-muted-foreground truncate" title={`prior n=${r.sample_prior} recent n=${r.sample_recent}`}>{r.repair_type}</span>
+                      <span className="text-[8px] font-mono text-muted-foreground/50 w-10 text-right">{r.prior_bad_rate_pct != null ? `${r.prior_bad_rate_pct}%` : "—"}</span>
+                      <span className="text-[8px] font-mono text-foreground/80 w-10 text-right">{r.recent_bad_rate_pct != null ? `${r.recent_bad_rate_pct}%` : "—"}</span>
+                      <span className={cn("text-[8px] font-mono font-semibold w-8 text-right", dirColor(r.direction))}>
+                        {r.delta != null && r.delta !== 0 ? (r.delta > 0 ? `+${r.delta}` : `${r.delta}`) : "—"}
+                      </span>
+                    </div>
+                  ))}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
+            {/* Document type trends */}
+            {trends.document_type_trends.length > 0 && (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <span className="font-semibold">Document Type Stability</span>
+                    <Badge variant="outline" className="text-[8px] font-mono border-border/40 ml-1">{trends.document_type_trends.length}</Badge>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pl-4 pt-1">
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 pb-0.5 mb-0.5 border-b border-border/20">
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Doc Type</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-10 text-right">Prior%</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-10 text-right">Recent%</span>
+                    <span className="text-[7px] font-mono text-muted-foreground/40 uppercase w-8 text-right">Δ</span>
+                  </div>
+                  {trends.document_type_trends.slice(0, 8).map(d => (
+                    <div key={d.doc_type} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-0.5 border-b border-border/10 last:border-0">
+                      <span className="text-[8px] font-mono text-muted-foreground truncate" title={`prior n=${d.sample_prior} recent n=${d.sample_recent}`}>{d.doc_type}</span>
+                      <span className="text-[8px] font-mono text-muted-foreground/50 w-10 text-right">{d.prior_instability_rate_pct != null ? `${d.prior_instability_rate_pct}%` : "—"}</span>
+                      <span className="text-[8px] font-mono text-foreground/80 w-10 text-right">{d.recent_instability_rate_pct != null ? `${d.recent_instability_rate_pct}%` : "—"}</span>
+                      <span className={cn("text-[8px] font-mono font-semibold w-8 text-right", dirColor(d.direction))}>
+                        {d.delta != null && d.delta !== 0 ? (d.delta > 0 ? `+${d.delta}` : `${d.delta}`) : "—"}
+                      </span>
+                    </div>
+                  ))}
                 </CollapsibleContent>
               </Collapsible>
             )}

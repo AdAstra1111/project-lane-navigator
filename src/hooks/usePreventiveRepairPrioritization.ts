@@ -1158,6 +1158,162 @@ export async function fetchPatchExecutionRecommendations(
   return json as PatchExecutionRecommendationsResponse;
 }
 
+// ── Execution Trend Types ──
+
+export type TrendDirection = "improving" | "worsening" | "flat" | "insufficient_data";
+
+export interface TrendRatePoint {
+  prior: number | null;
+  recent: number | null;
+  delta: number | null;
+  direction: TrendDirection;
+}
+
+export interface TrendCountPoint {
+  prior: number;
+  recent: number;
+  delta: number;
+  direction: TrendDirection;
+}
+
+export interface TrendNullableCountPoint {
+  prior: number | null;
+  recent: number | null;
+  delta: number | null;
+  direction: TrendDirection;
+}
+
+export interface TrendSampleCountPoint {
+  prior: number;
+  recent: number;
+  delta: number;
+}
+
+export interface TrendWindowSummary {
+  recent_count: number;
+  prior_count: number;
+  sufficient_for_comparison: boolean;
+}
+
+export interface TrendOverallOutcomes {
+  executed_rate_pct: TrendRatePoint;
+  blocked_rate_pct: TrendRatePoint;
+  failed_rate_pct: TrendRatePoint;
+  partial_or_better_rate_pct: TrendRatePoint;
+}
+
+export interface TrendRecommendationSignals {
+  overall_health_signal: TrendCountPoint;
+  blocker_signal_count: TrendCountPoint;
+  governance_gap_signal: TrendCountPoint;
+  revalidation_gap_signal: TrendNullableCountPoint;
+  timing_signal: TrendNullableCountPoint;
+  causal_root_blocker_signal: TrendCountPoint;
+}
+
+export interface TrendBlockerCodeEntry {
+  blocker_code: string;
+  prior_count: number;
+  recent_count: number;
+  delta: number;
+  direction: TrendDirection;
+}
+
+export interface TrendRepairTypeEntry {
+  repair_type: string;
+  prior_bad_rate_pct: number | null;
+  recent_bad_rate_pct: number | null;
+  delta: number | null;
+  direction: TrendDirection;
+  sample_prior: number;
+  sample_recent: number;
+}
+
+export interface TrendSourceTypeEntry {
+  source_type: string;
+  prior_bad_rate_pct: number | null;
+  recent_bad_rate_pct: number | null;
+  delta: number | null;
+  direction: TrendDirection;
+  sample_prior: number;
+  sample_recent: number;
+}
+
+export interface TrendDocTypeEntry {
+  doc_type: string;
+  prior_instability_rate_pct: number | null;
+  recent_instability_rate_pct: number | null;
+  delta: number | null;
+  direction: TrendDirection;
+  sample_prior: number;
+  sample_recent: number;
+}
+
+export interface TrendTimingMetrics {
+  avg_total_duration_ms: TrendNullableCountPoint;
+  avg_section_execution_ms: TrendNullableCountPoint;
+  section_execution_sample_count: TrendSampleCountPoint;
+}
+
+export interface TrendGovernanceMetrics {
+  governance_coverage_rate_pct: TrendRatePoint;
+  invalidation_performed_rate_pct: TrendRatePoint;
+}
+
+export interface TrendRevalidationMetrics {
+  revalidation_execution_rate_pct: TrendRatePoint;
+  revalidation_success_rate_pct: TrendNullableCountPoint;
+  revalidation_failure_or_deferral_rate_pct: TrendNullableCountPoint;
+}
+
+export interface ExecutionRecommendationTrends {
+  window_summary: TrendWindowSummary;
+  overall_outcomes: TrendOverallOutcomes;
+  recommendation_signal_trends: TrendRecommendationSignals;
+  blocker_code_trends: TrendBlockerCodeEntry[];
+  repair_type_trends: TrendRepairTypeEntry[];
+  source_type_trends: TrendSourceTypeEntry[];
+  document_type_trends: TrendDocTypeEntry[];
+  timing_trends: TrendTimingMetrics;
+  governance_trends: TrendGovernanceMetrics;
+  revalidation_trends: TrendRevalidationMetrics;
+}
+
+export interface PatchExecutionTrendsResponse {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  insufficient_data: boolean;
+  insufficient_reason: string | null;
+  trends: ExecutionRecommendationTrends;
+  window: { recent_limit: number; prior_limit: number; total_valid_scanned: number };
+  computed_at: string;
+  version: string;
+}
+
+export async function fetchPatchExecutionRecommendationTrends(
+  projectId: string,
+  opts?: { recent_limit?: number; prior_limit?: number },
+): Promise<PatchExecutionTrendsResponse | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+  const payload: Record<string, any> = {
+    action: 'get_patch_execution_recommendation_trends',
+    projectId,
+    ...(opts?.recent_limit != null ? { recent_limit: opts.recent_limit } : {}),
+    ...(opts?.prior_limit  != null ? { prior_limit:  opts.prior_limit  } : {}),
+  };
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PatchExecutionTrendsResponse;
+}
+
 export async function fetchPatchExecutionAnalytics(
   projectId: string,
   window?: { limit?: number; date_from?: string; date_to?: string },

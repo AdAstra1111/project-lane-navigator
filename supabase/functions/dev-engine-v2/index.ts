@@ -33485,6 +33485,428 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════
+    // RECOMMENDATION TREND ANALYTICS v1
+    //
+    // buildPatchExecutionTrends — pure function. Takes two pre-computed analytics
+    // aggregates (recent + prior window) and returns a deterministic trend surface.
+    // Direction semantics:
+    //   improving  = condition associated with failures/blockers is decreasing,
+    //                OR condition associated with success is increasing.
+    //   worsening  = opposite.
+    //   flat       = |delta| < 1 (rounded rates) or delta === 0 (counts).
+    //   insufficient_data = window had < 3 valid snapshots.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    function buildPatchExecutionTrends(
+      recent: ReturnType<typeof buildPatchExecutionAnalyticsCore>,
+      prior: ReturnType<typeof buildPatchExecutionAnalyticsCore>,
+      recentCount: number,
+      priorCount: number,
+    ) {
+      const MIN_WINDOW = 3;
+      const sufficientRecent = recentCount >= MIN_WINDOW;
+      const sufficientPrior  = priorCount  >= MIN_WINDOW;
+      const sufficient = sufficientRecent && sufficientPrior;
+
+      type Direction = "improving" | "worsening" | "flat" | "insufficient_data";
+
+      // Helper: rate delta (positive = recent higher)
+      const rd = (r: number | null, p: number | null): number | null =>
+        r != null && p != null ? Math.round((r - p) * 10) / 10 : null;
+
+      // Helper: count delta
+      const cd = (r: number, p: number): number => r - p;
+
+      // Helper: direction for a metric where LOWER is better (e.g. blocked_rate, duration)
+      const dirLower = (delta: number | null, suf: boolean): Direction => {
+        if (!suf) return "insufficient_data";
+        if (delta == null) return "insufficient_data";
+        if (Math.abs(delta) < 1) return "flat";
+        return delta < 0 ? "improving" : "worsening";
+      };
+
+      // Helper: direction where HIGHER is better (e.g. executed_rate, coverage)
+      const dirHigher = (delta: number | null, suf: boolean): Direction => {
+        if (!suf) return "insufficient_data";
+        if (delta == null) return "insufficient_data";
+        if (Math.abs(delta) < 1) return "flat";
+        return delta > 0 ? "improving" : "worsening";
+      };
+
+      // Helper: direction where LOWER count is better (blockers, bad outcomes)
+      const dirLowerCount = (delta: number, suf: boolean): Direction => {
+        if (!suf) return "insufficient_data";
+        if (delta === 0) return "flat";
+        return delta < 0 ? "improving" : "worsening";
+      };
+
+      // ── Overall outcomes ──
+      const overall_outcomes = {
+        executed_rate_pct: {
+          prior: prior.success_rates.executed_rate,
+          recent: recent.success_rates.executed_rate,
+          delta: rd(recent.success_rates.executed_rate, prior.success_rates.executed_rate),
+          direction: dirHigher(rd(recent.success_rates.executed_rate, prior.success_rates.executed_rate), sufficient) as Direction,
+        },
+        blocked_rate_pct: {
+          prior: prior.success_rates.blocked_rate,
+          recent: recent.success_rates.blocked_rate,
+          delta: rd(recent.success_rates.blocked_rate, prior.success_rates.blocked_rate),
+          direction: dirLower(rd(recent.success_rates.blocked_rate, prior.success_rates.blocked_rate), sufficient) as Direction,
+        },
+        failed_rate_pct: {
+          prior: prior.success_rates.failed_rate,
+          recent: recent.success_rates.failed_rate,
+          delta: rd(recent.success_rates.failed_rate, prior.success_rates.failed_rate),
+          direction: dirLower(rd(recent.success_rates.failed_rate, prior.success_rates.failed_rate), sufficient) as Direction,
+        },
+        partial_or_better_rate_pct: {
+          prior: prior.success_rates.partial_or_better_rate,
+          recent: recent.success_rates.partial_or_better_rate,
+          delta: rd(recent.success_rates.partial_or_better_rate, prior.success_rates.partial_or_better_rate),
+          direction: dirHigher(rd(recent.success_rates.partial_or_better_rate, prior.success_rates.partial_or_better_rate), sufficient) as Direction,
+        },
+      };
+
+      // ── Recommendation signal trends ──
+      // Each signal is a single numeric value representing the "strength" of a
+      // recommendation-producing condition. Lower = healthier for most signals.
+      const recentUnhealthyRate = Math.round(((recent.outcomes.blocked + recent.outcomes.failed) / Math.max(recentCount, 1)) * 100);
+      const priorUnhealthyRate  = Math.round(((prior.outcomes.blocked  + prior.outcomes.failed)  / Math.max(priorCount, 1))  * 100);
+      const recentBlockerCount = recent.blocker_breakdown.reduce((s, b) => s + b.count, 0);
+      const priorBlockerCount  = prior.blocker_breakdown.reduce((s, b) => s + b.count, 0);
+      const recentGovGapRate = Math.round((prior.governance.snapshots_without_governance / Math.max(priorCount, 1)) * 100);
+      const priorGovGapRate  = Math.round((prior.governance.snapshots_without_governance / Math.max(priorCount, 1)) * 100);
+      // governance gap rate: % snapshots without governance (lower = better)
+      const recentGovGap = Math.round((recent.governance.snapshots_without_governance / Math.max(recentCount, 1)) * 100);
+      const priorGovGap  = Math.round((prior.governance.snapshots_without_governance  / Math.max(priorCount, 1))  * 100);
+      // revalidation failure rate (lower = better)
+      const recentRevalN = recent.revalidation.snapshots_with_revalidation_execution || 0;
+      const priorRevalN  = prior.revalidation.snapshots_with_revalidation_execution  || 0;
+      const recentRevalBadRate = recentRevalN > 0
+        ? Math.round(((recent.revalidation.failed_count + recent.revalidation.deferred_count) / recentRevalN) * 100) : null;
+      const priorRevalBadRate  = priorRevalN > 0
+        ? Math.round(((prior.revalidation.failed_count  + prior.revalidation.deferred_count)  / priorRevalN)  * 100) : null;
+      // timing signal: avg section execution ms (lower = better)
+      const recentTimingMs = recent.timing.avg_section_execution_ms;
+      const priorTimingMs  = prior.timing.avg_section_execution_ms;
+      // causal root blocker count (lower = better)
+      const recentCausalCount = recent.causal_patterns.root_blockers.length;
+      const priorCausalCount  = prior.causal_patterns.root_blockers.length;
+
+      const recommendation_signal_trends = {
+        overall_health_signal: {
+          prior: priorUnhealthyRate,
+          recent: recentUnhealthyRate,
+          delta: recentUnhealthyRate - priorUnhealthyRate,
+          direction: dirLowerCount(recentUnhealthyRate - priorUnhealthyRate, sufficient) as Direction,
+        },
+        blocker_signal_count: {
+          prior: priorBlockerCount,
+          recent: recentBlockerCount,
+          delta: cd(recentBlockerCount, priorBlockerCount),
+          direction: dirLowerCount(cd(recentBlockerCount, priorBlockerCount), sufficient) as Direction,
+        },
+        governance_gap_signal: {
+          prior: priorGovGap,
+          recent: recentGovGap,
+          delta: recentGovGap - priorGovGap,
+          direction: dirLower(recentGovGap - priorGovGap, sufficient) as Direction,
+        },
+        revalidation_gap_signal: {
+          prior: priorRevalBadRate,
+          recent: recentRevalBadRate,
+          delta: rd(recentRevalBadRate, priorRevalBadRate),
+          direction: dirLower(rd(recentRevalBadRate, priorRevalBadRate), sufficient) as Direction,
+        },
+        timing_signal: {
+          prior: priorTimingMs,
+          recent: recentTimingMs,
+          delta: rd(recentTimingMs, priorTimingMs),
+          direction: dirLower(rd(recentTimingMs, priorTimingMs), sufficient) as Direction,
+        },
+        causal_root_blocker_signal: {
+          prior: priorCausalCount,
+          recent: recentCausalCount,
+          delta: cd(recentCausalCount, priorCausalCount),
+          direction: dirLowerCount(cd(recentCausalCount, priorCausalCount), sufficient) as Direction,
+        },
+      };
+
+      // ── Blocker code trends ──
+      // Union all codes seen in either window; report per-window counts + delta.
+      const allBlockerCodes = new Set([
+        ...recent.blocker_breakdown.map(b => b.blocker_code),
+        ...prior.blocker_breakdown.map(b => b.blocker_code),
+      ]);
+      const blocker_code_trends = Array.from(allBlockerCodes).map(code => {
+        const r = recent.blocker_breakdown.find(b => b.blocker_code === code)?.count ?? 0;
+        const p = prior.blocker_breakdown.find(b => b.blocker_code === code)?.count ?? 0;
+        const delta = cd(r, p);
+        return {
+          blocker_code: code,
+          prior_count: p,
+          recent_count: r,
+          delta,
+          direction: dirLowerCount(delta, sufficient) as Direction,
+        };
+      }).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || b.recent_count - a.recent_count || a.blocker_code.localeCompare(b.blocker_code));
+
+      // ── Repair type trends ──
+      const allRepairTypes = new Set([
+        ...recent.repair_type_breakdown.map(r => r.repair_type),
+        ...prior.repair_type_breakdown.map(r => r.repair_type),
+      ]);
+      const repair_type_trends = Array.from(allRepairTypes).filter(t => t !== "unknown").map(rt => {
+        const r = recent.repair_type_breakdown.find(x => x.repair_type === rt);
+        const p = prior.repair_type_breakdown.find(x => x.repair_type === rt);
+        const rRate = r && r.count > 0 ? Math.round(((r.blocked + r.failed) / r.count) * 100) : null;
+        const pRate = p && p.count > 0 ? Math.round(((p.blocked + p.failed) / p.count) * 100) : null;
+        const delta = rd(rRate, pRate);
+        return {
+          repair_type: rt,
+          prior_bad_rate_pct: pRate,
+          recent_bad_rate_pct: rRate,
+          delta,
+          direction: dirLower(delta, sufficient) as Direction,
+          sample_prior: p?.count ?? 0,
+          sample_recent: r?.count ?? 0,
+        };
+      }).sort((a, b) => {
+        const ad = a.delta != null ? Math.abs(a.delta) : 0;
+        const bd = b.delta != null ? Math.abs(b.delta) : 0;
+        return bd - ad || a.repair_type.localeCompare(b.repair_type);
+      });
+
+      // ── Source type trends ──
+      const allSourceTypes = new Set([
+        ...recent.source_type_breakdown.map(s => s.source_type),
+        ...prior.source_type_breakdown.map(s => s.source_type),
+      ]);
+      const source_type_trends = Array.from(allSourceTypes).filter(t => t !== "unknown").map(st => {
+        const r = recent.source_type_breakdown.find(x => x.source_type === st);
+        const p = prior.source_type_breakdown.find(x => x.source_type === st);
+        const rRate = r && r.count > 0 ? Math.round(((r.blocked + r.failed) / r.count) * 100) : null;
+        const pRate = p && p.count > 0 ? Math.round(((p.blocked + p.failed) / p.count) * 100) : null;
+        const delta = rd(rRate, pRate);
+        return {
+          source_type: st,
+          prior_bad_rate_pct: pRate,
+          recent_bad_rate_pct: rRate,
+          delta,
+          direction: dirLower(delta, sufficient) as Direction,
+          sample_prior: p?.count ?? 0,
+          sample_recent: r?.count ?? 0,
+        };
+      }).sort((a, b) => {
+        const ad = a.delta != null ? Math.abs(a.delta) : 0;
+        const bd = b.delta != null ? Math.abs(b.delta) : 0;
+        return bd - ad || a.source_type.localeCompare(b.source_type);
+      });
+
+      // ── Document type trends ──
+      const allDocTypes = new Set([
+        ...recent.document_type_breakdown.map(d => d.doc_type),
+        ...prior.document_type_breakdown.map(d => d.doc_type),
+      ]);
+      const document_type_trends = Array.from(allDocTypes).map(dt => {
+        const r = recent.document_type_breakdown.find(x => x.doc_type === dt);
+        const p = prior.document_type_breakdown.find(x => x.doc_type === dt);
+        const rRate = r && r.total_seen > 0
+          ? Math.round(((r.blocked + r.failed + r.skipped_upstream) / r.total_seen) * 100) : null;
+        const pRate = p && p.total_seen > 0
+          ? Math.round(((p.blocked + p.failed + p.skipped_upstream) / p.total_seen) * 100) : null;
+        const delta = rd(rRate, pRate);
+        return {
+          doc_type: dt,
+          prior_instability_rate_pct: pRate,
+          recent_instability_rate_pct: rRate,
+          delta,
+          direction: dirLower(delta, sufficient) as Direction,
+          sample_prior: p?.total_seen ?? 0,
+          sample_recent: r?.total_seen ?? 0,
+        };
+      }).sort((a, b) => {
+        const ad = a.delta != null ? Math.abs(a.delta) : 0;
+        const bd = b.delta != null ? Math.abs(b.delta) : 0;
+        return bd - ad || a.doc_type.localeCompare(b.doc_type);
+      });
+
+      // ── Timing trends ──
+      const timingDeltaTotal = rd(recent.timing.avg_total_duration_ms, prior.timing.avg_total_duration_ms);
+      const timingDeltaExec  = rd(recent.timing.avg_section_execution_ms, prior.timing.avg_section_execution_ms);
+      const timing_trends = {
+        avg_total_duration_ms: {
+          prior: prior.timing.avg_total_duration_ms,
+          recent: recent.timing.avg_total_duration_ms,
+          delta: timingDeltaTotal,
+          direction: dirLower(timingDeltaTotal, sufficient) as Direction,
+        },
+        avg_section_execution_ms: {
+          prior: prior.timing.avg_section_execution_ms,
+          recent: recent.timing.avg_section_execution_ms,
+          delta: timingDeltaExec,
+          direction: dirLower(timingDeltaExec, sufficient) as Direction,
+        },
+        section_execution_sample_count: {
+          prior: prior.timing.section_execution_sample_count,
+          recent: recent.timing.section_execution_sample_count,
+          delta: recent.timing.section_execution_sample_count - prior.timing.section_execution_sample_count,
+        },
+      };
+
+      // ── Governance trends ──
+      const recentGovRate = Math.round(((recentCount - recent.governance.snapshots_without_governance) / Math.max(recentCount, 1)) * 100);
+      const priorGovRate  = Math.round(((priorCount  - prior.governance.snapshots_without_governance)  / Math.max(priorCount, 1))  * 100);
+      const recentInvRate = recent.governance.invalidation_performed_count > 0
+        ? Math.round((recent.governance.invalidation_performed_count / Math.max(recentCount, 1)) * 100) : 0;
+      const priorInvRate  = prior.governance.invalidation_performed_count > 0
+        ? Math.round((prior.governance.invalidation_performed_count  / Math.max(priorCount, 1))  * 100) : 0;
+      const govCovDelta = rd(recentGovRate, priorGovRate);
+      const invDelta    = rd(recentInvRate, priorInvRate);
+      const governance_trends = {
+        governance_coverage_rate_pct: {
+          prior: priorGovRate,
+          recent: recentGovRate,
+          delta: govCovDelta,
+          direction: dirHigher(govCovDelta, sufficient) as Direction,
+        },
+        invalidation_performed_rate_pct: {
+          prior: priorInvRate,
+          recent: recentInvRate,
+          delta: invDelta,
+          direction: dirHigher(invDelta, sufficient) as Direction,
+        },
+      };
+
+      // ── Revalidation trends ──
+      const recentRevalExecRate = Math.round((recentRevalN / Math.max(recentCount, 1)) * 100);
+      const priorRevalExecRate  = Math.round((priorRevalN  / Math.max(priorCount, 1))  * 100);
+      const recentRevalSuccessRate = recentRevalN > 0
+        ? Math.round((recent.revalidation.full_success_count / recentRevalN) * 100) : null;
+      const priorRevalSuccessRate  = priorRevalN > 0
+        ? Math.round((prior.revalidation.full_success_count  / priorRevalN)  * 100) : null;
+      const revalExecDelta    = rd(recentRevalExecRate, priorRevalExecRate);
+      const revalSuccessDelta = rd(recentRevalSuccessRate, priorRevalSuccessRate);
+      const revalBadDelta     = rd(recentRevalBadRate, priorRevalBadRate);
+      const revalidation_trends = {
+        revalidation_execution_rate_pct: {
+          prior: priorRevalExecRate,
+          recent: recentRevalExecRate,
+          delta: revalExecDelta,
+          direction: dirHigher(revalExecDelta, sufficient) as Direction,
+        },
+        revalidation_success_rate_pct: {
+          prior: priorRevalSuccessRate,
+          recent: recentRevalSuccessRate,
+          delta: revalSuccessDelta,
+          direction: dirHigher(revalSuccessDelta, sufficient) as Direction,
+        },
+        revalidation_failure_or_deferral_rate_pct: {
+          prior: priorRevalBadRate,
+          recent: recentRevalBadRate,
+          delta: revalBadDelta,
+          direction: dirLower(revalBadDelta, sufficient) as Direction,
+        },
+      };
+
+      return {
+        window_summary: {
+          recent_count: recentCount,
+          prior_count: priorCount,
+          sufficient_for_comparison: sufficient,
+        },
+        overall_outcomes,
+        recommendation_signal_trends,
+        blocker_code_trends,
+        repair_type_trends,
+        source_type_trends,
+        document_type_trends,
+        timing_trends,
+        governance_trends,
+        revalidation_trends,
+      };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // RECOMMENDATION TREND ANALYTICS v1 — get_patch_execution_recommendation_trends
+    //
+    // Read-only. Scans pipeline_transitions.resulting_state. Compares two adjacent
+    // windows (recent + prior) of valid replay snapshots. Returns deterministic
+    // trend signals. No mutation. No schema drift.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "get_patch_execution_recommendation_trends") {
+      const { projectId, recent_limit: rawRecent, prior_limit: rawPrior } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const recentLimit = Math.min(Math.max(Number(rawRecent) || 25, 3), 100);
+      const priorLimit  = Math.min(Math.max(Number(rawPrior)  || 25, 3), 100);
+      const scanLimit   = recentLimit + priorLimit + 20; // buffer for invalid rows
+      const trendsAt    = new Date().toISOString();
+
+      const { data: trendRows } = await supabase
+        .from("pipeline_transitions")
+        .select("resulting_state, created_at")
+        .eq("project_id", projectId)
+        .eq("event_type", "patch_execution_completed")
+        .order("created_at", { ascending: false })
+        .limit(scanLimit);
+
+      // Validate and collect in order (newest first)
+      const validRows: { snap: any; exec: any; plan: any; obs: any }[] = [];
+      for (const row of (trendRows || [])) {
+        const v = validatePatchExecutionReplaySnapshot(row.resulting_state);
+        if (!v.valid) continue;
+        const snap = row.resulting_state as any;
+        const exec = snap.execution || {};
+        const plan = snap.patch_plan || {};
+        const obs  = exec.execution_observability || {};
+        validRows.push({ snap, exec, plan, obs });
+      }
+
+      // Split into two adjacent windows
+      const recentSnapshots = validRows.slice(0, recentLimit);
+      const priorSnapshots  = validRows.slice(recentLimit, recentLimit + priorLimit);
+
+      const recentAnalytics = buildPatchExecutionAnalyticsCore(recentSnapshots);
+      const priorAnalytics  = buildPatchExecutionAnalyticsCore(priorSnapshots);
+
+      const trends = buildPatchExecutionTrends(
+        recentAnalytics, priorAnalytics,
+        recentSnapshots.length, priorSnapshots.length,
+      );
+
+      // Honest report when data is insufficient
+      const insufficient = recentSnapshots.length < 3 || priorSnapshots.length < 3;
+
+      console.log("[dev-engine-v2] get_patch_execution_recommendation_trends", {
+        project_id: projectId,
+        valid_total: validRows.length,
+        recent: recentSnapshots.length,
+        prior: priorSnapshots.length,
+        sufficient: !insufficient,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "get_patch_execution_recommendation_trends",
+        project_id: projectId,
+        insufficient_data: insufficient,
+        insufficient_reason: insufficient
+          ? `recent_window=${recentSnapshots.length} prior_window=${priorSnapshots.length}; both require >= 3 valid snapshots`
+          : null,
+        trends,
+        window: { recent_limit: recentLimit, prior_limit: priorLimit, total_valid_scanned: validRows.length },
+        computed_at: trendsAt,
+        version: "execution-trends-v1",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
