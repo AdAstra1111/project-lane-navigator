@@ -2665,7 +2665,36 @@ function ExecutionReplaySection({
 
   const handleClearFilters = () => {
     setHistoryFilters({});
+    setCompareItem(null);
+    setCompareResult(null);
     if (historyResult) handleLoadHistory({});
+  };
+
+  const handleMarkForCompare = (item: PatchExecutionHistoryItem) => {
+    if (compareItem?.transition_id === item.transition_id) {
+      setCompareItem(null);
+      setCompareResult(null);
+    } else {
+      setCompareItem(item);
+      setCompareResult(null);
+    }
+  };
+
+  const handleRunComparison = async () => {
+    if (!projectId || !selectedHistoryItem || !compareItem) return;
+    setCompareLoading(true);
+    try {
+      const result = await fetchPatchExecutionComparison(
+        projectId,
+        selectedHistoryItem.plan_id,
+        compareItem.plan_id,
+      );
+      setCompareResult(result);
+    } catch {
+      setCompareResult(null);
+    } finally {
+      setCompareLoading(false);
+    }
   };
 
   const handleSelectHistoryItem = async (item: PatchExecutionHistoryItem) => {
