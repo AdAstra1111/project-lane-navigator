@@ -32940,6 +32940,374 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
+    // CALIBRATION SURFACE BUILDER
+    //
+    // buildPatchExecutionCalibration — returns a machine-readable block describing
+    // every recommendation rule's active thresholds, sample support, denominator,
+    // and known interpretation limits. Read-only. Deterministic. Code-derived only.
+    // Version-locked to THRESHOLD_VERSION. No model calls. No live-state reads.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    function buildPatchExecutionCalibration(
+      a: ReturnType<typeof buildPatchExecutionAnalyticsCore>,
+      totalSnapshots: number,
+      T: {
+        MIN_SNAPSHOTS: number; BLOCKER_MIN_OCCURRENCES: number; BLOCKER_HIGH_CONFIDENCE: number;
+        TYPE_MIN_COUNT: number; TYPE_WATCHLIST_RATE_MEDIUM: number; TYPE_WATCHLIST_RATE_HIGH: number;
+        DOC_MIN_SEEN: number; DOC_INSTABILITY_MEDIUM: number; DOC_INSTABILITY_HIGH: number;
+        DOC_GOV_COVERAGE_GAP: number; DOC_REVAL_COVERAGE_GAP: number; GOV_GAP_RATE: number;
+        REVAL_FAILURE_RATE: number; TIMING_EXEC_MS_MEDIUM: number; TIMING_EXEC_MS_HIGH: number;
+        CAUSAL_ROOT_BLOCKER_MIN: number; OVERALL_UNHEALTHY_RATE: number;
+      },
+      thresholdVersion: string,
+    ) {
+      type SampleSupport = {
+        metric_name: string;
+        sample_count: number | null;
+        minimum_required: number | null;
+        sufficient: boolean | null;
+      };
+      type CalibrationRule = {
+        rule_id: string;
+        category: string;
+        threshold_fields: Record<string, number | string>;
+        minimum_sample_support: SampleSupport[];
+        denominator_notes: string[];
+        calibration_notes: string[];
+      };
+
+      const rules: CalibrationRule[] = [
+
+        // ── REC_A: Overall health ──
+        {
+          rule_id: "REC_A_OVERALL_HEALTH",
+          category: "overall_health",
+          threshold_fields: {
+            unhealthy_rate_medium_pct: T.OVERALL_UNHEALTHY_RATE,
+            unhealthy_rate_high_pct: 60,
+            minimum_snapshots: T.MIN_SNAPSHOTS,
+          },
+          minimum_sample_support: [
+            {
+              metric_name: "total_snapshots",
+              sample_count: totalSnapshots,
+              minimum_required: T.MIN_SNAPSHOTS,
+              sufficient: totalSnapshots >= T.MIN_SNAPSHOTS,
+            },
+          ],
+          denominator_notes: [
+            "Rate uses total_snapshots as denominator",
+            "Numerator: outcomes.blocked + outcomes.failed",
+          ],
+          calibration_notes: [
+            "dry_run outcomes are excluded from the unhealthy numerator",
+            "High threshold hardcoded at 60% (not a named constant)",
+          ],
+        },
+
+        // ── REC_B: Blocker mitigation ──
+        {
+          rule_id: "REC_B_BLOCKER_MITIGATION",
+          category: "blocker_mitigation",
+          threshold_fields: {
+            min_occurrences: T.BLOCKER_MIN_OCCURRENCES,
+            high_confidence_occurrences: T.BLOCKER_HIGH_CONFIDENCE,
+          },
+          minimum_sample_support: [
+            {
+              metric_name: "total_snapshots",
+              sample_count: totalSnapshots,
+              minimum_required: T.MIN_SNAPSHOTS,
+              sufficient: totalSnapshots >= T.MIN_SNAPSHOTS,
+            },
+            {
+              metric_name: "qualifying_blocker_codes",
+              sample_count: a.blocker_breakdown.filter(b => b.count >= T.BLOCKER_MIN_OCCURRENCES).length,
+              minimum_required: 0,
+              sufficient: null, // informational; rec emits per qualifying code
+            },
+          ],
+          denominator_notes: [
+            "Count is occurrences across snapshots, not total snapshots",
+            "Blocker codes deduplicated per-snapshot before counting (sources: execution_notes.block_reasons + causal_edges)",
+          ],
+          calibration_notes: [
+            "Per-snapshot dedup prevents double-counting codes present in both block_reasons and causal_edges",
+            "No per-run denominator; only absolute occurrence count is used",
+          ],
+        },
+
+        // ── REC_C: Repair type watchlist ──
+        {
+          rule_id: "REC_C_REPAIR_TYPE_WATCHLIST",
+          category: "repair_type_watchlist",
+          threshold_fields: {
+            min_type_count: T.TYPE_MIN_COUNT,
+            issue_rate_medium_pct: T.TYPE_WATCHLIST_RATE_MEDIUM,
+            issue_rate_high_pct: T.TYPE_WATCHLIST_RATE_HIGH,
+          },
+          minimum_sample_support: [
+            {
+              metric_name: "qualifying_repair_types",
+              sample_count: a.repair_type_breakdown.filter(r => r.repair_type !== "unknown" && r.count >= T.TYPE_MIN_COUNT).length,
+              minimum_required: 0,
+              sufficient: null, // informational; rec emits per qualifying type
+            },
+            {
+              metric_name: "total_snapshots",
+              sample_count: totalSnapshots,
+              minimum_required: T.MIN_SNAPSHOTS,
+              sufficient: totalSnapshots >= T.MIN_SNAPSHOTS,
+            },
+          ],
+          denominator_notes: [
+            "Issue rate uses repair_type entry count as denominator, not total_snapshots",
+            "Min count threshold (TYPE_MIN_COUNT) must be met before rate is evaluated",
+          ],
+          calibration_notes: [
+            ""unknown" repair_type sentinel is suppressed and cannot emit a rec",
+            "Rate = (blocked + failed) / count; partial outcomes are not counted as issues",
+          ],
+        },
+
+        // ── REC_D: Source type watchlist ──
+        {
+          rule_id: "REC_D_SOURCE_TYPE_WATCHLIST",
+          category: "source_type_watchlist",
+          threshold_fields: {
+            min_type_count: T.TYPE_MIN_COUNT,
+            issue_rate_medium_pct: T.TYPE_WATCHLIST_RATE_MEDIUM,
+            issue_rate_high_pct: T.TYPE_WATCHLIST_RATE_HIGH,
+          },
+          minimum_sample_support: [
+            {
+              metric_name: "qualifying_source_types",
+              sample_count: a.source_type_breakdown.filter(s => s.source_type !== "unknown" && s.count >= T.TYPE_MIN_COUNT).length,
+              minimum_required: 0,
+              sufficient: null,
+            },
+            {
+              metric_name: "total_snapshots",
+              sample_count: totalSnapshots,
+              minimum_required: T.MIN_SNAPSHOTS,
+              sufficient: totalSnapshots >= T.MIN_SNAPSHOTS,
+            },
+          ],
+          denominator_notes: [
+            "Issue rate uses source_type entry count as denominator, not total_snapshots",
+            "Min count threshold (TYPE_MIN_COUNT) must be met before rate is evaluated",
+          ],
+          calibration_notes: [
+            ""unknown" source_type sentinel is suppressed and cannot emit a rec",
+            "Rate = (blocked + failed) / count; does not include partial",
+          ],
+        },
+
+        // ── REC_E_DOC_STABILITY ──
+        {
+          rule_id: "REC_E_DOC_STABILITY",
+          category: "document_type_stability",
+          threshold_fields: {
+            min_doc_seen: T.DOC_MIN_SEEN,
+            instability_medium_pct: T.DOC_INSTABILITY_MEDIUM,
+            instability_high_pct: T.DOC_INSTABILITY_HIGH,
+          },
+          minimum_sample_support: [
+            {
+              metric_name: "qualifying_doc_types",
+              sample_count: a.document_type_breakdown.filter(d => d.total_seen >= T.DOC_MIN_SEEN).length,
+              minimum_required: 0,
+              sufficient: null,
+            },
+          ],
+          denominator_notes: [
+            "Instability rate uses doc_type total_seen as denominator",
+            "Numerator: blocked + failed + skipped_upstream",
+          ],
+          calibration_notes: [
+            "skipped_upstream is included in instability; a cascade failure from a single blocked doc can inflate instability for downstream doc types",
+            "Rationale text says "consistently failing" which may overstate if cause is upstream cascade",
+          ],
+        },
+
+        // ── REC_E_GOVERNANCE_GAP (per-doc) ──
+        {
+          rule_id: "REC_E_GOVERNANCE_GAP",
+          category: "governance_gap",
+          threshold_fields: {
+            governance_coverage_gap_pct: T.DOC_GOV_COVERAGE_GAP,
+            requires_executed_count_gt: 0,
+          },
+          minimum_sample_support: [
+            {
+              metric_name: "qualifying_doc_types_with_executions",
+              sample_count: a.document_type_breakdown.filter(d => d.total_seen >= T.DOC_MIN_SEEN && d.executed > 0).length,
+              minimum_required: 0,
+              sufficient: null,
+            },
+          ],
+          denominator_notes: [
+            "Coverage rate uses doc_type total_seen as denominator",
+            "Only fires when executed > 0 for the doc type",
+          ],
+          calibration_notes: [
+            "Cannot distinguish "governance not applicable" from "governance skipped" — no applicability flag exists in snapshot",
+            "May emit for doc types where governance is intentionally absent",
+          ],
+        },
+
+        // ── REC_E_REVALIDATION_GAP (per-doc) ──
+        {
+          rule_id: "REC_E_REVALIDATION_GAP",
+          category: "revalidation_gap",
+          threshold_fields: {
+            revalidation_coverage_gap_pct: T.DOC_REVAL_COVERAGE_GAP,
+            requires_executed_count_gt: 0,
+          },
+          minimum_sample_support: [
+            {
+              metric_name: "qualifying_doc_types_with_executions",
+              sample_count: a.document_type_breakdown.filter(d => d.total_seen >= T.DOC_MIN_SEEN && d.executed > 0).length,
+              minimum_required: 0,
+              sufficient: null,
+            },
+          ],
+          denominator_notes: [
+            "Coverage rate uses doc_type total_seen as denominator",
+            "revalidation_performed counts any non-skipped revalidation_status — includes partial and deferred",
+          ],
+          calibration_notes: [
+            "Cannot distinguish "revalidation not applicable" from "revalidation skipped"",
+            "revalidation_performed is more accurately "revalidation attempted"; threshold is conservative (30%)",
+          ],
+        },
+
+        // ── REC_F: Overall governance gap ──
+        {
+          rule_id: "REC_F_OVERALL_GOVERNANCE_GAP",
+          category: "governance_gap",
+          threshold_fields: {
+            governance_gap_rate_medium_pct: T.GOV_GAP_RATE,
+            governance_gap_rate_high_pct: 50,
+            minimum_absolute_without_governance: 3,
+          },
+          minimum_sample_support: [
+            {
+              metric_name: "total_snapshots",
+              sample_count: totalSnapshots,
+              minimum_required: T.MIN_SNAPSHOTS,
+              sufficient: totalSnapshots >= T.MIN_SNAPSHOTS,
+            },
+            {
+              metric_name: "snapshots_without_governance",
+              sample_count: a.governance.snapshots_without_governance,
+              minimum_required: 3,
+              sufficient: a.governance.snapshots_without_governance >= 3,
+            },
+          ],
+          denominator_notes: [
+            "Gap rate uses total_snapshots as denominator",
+            "Both rate threshold AND absolute minimum (>=3) must be met",
+          ],
+          calibration_notes: [
+            "High threshold hardcoded at 50% (not a named constant)",
+            "A snapshot with post_execution present but no invalidation/handoff still counts as "with governance"",
+          ],
+        },
+
+        // ── REC_G: Revalidation failure gap ──
+        {
+          rule_id: "REC_G_REVALIDATION_FAILURE_GAP",
+          category: "revalidation_gap",
+          threshold_fields: {
+            failure_or_deferral_rate_pct: T.REVAL_FAILURE_RATE,
+            failure_rate_high_pct: 50,
+            minimum_revalidation_snapshots: 3,
+          },
+          minimum_sample_support: [
+            {
+              metric_name: "snapshots_with_revalidation_execution",
+              sample_count: a.revalidation.snapshots_with_revalidation_execution,
+              minimum_required: 3,
+              sufficient: a.revalidation.snapshots_with_revalidation_execution >= 3,
+            },
+          ],
+          denominator_notes: [
+            "Rate uses snapshots_with_revalidation_execution as denominator, not total_snapshots",
+            "Numerator: failed_count + deferred_count",
+          ],
+          calibration_notes: [
+            "High threshold hardcoded at 50% (not a named constant)",
+            "Classification priority: allSucceeded > anyFailed > anyDeferred > partial; a run with both failed and deferred counts as failed",
+          ],
+        },
+
+        // ── REC_H: Timing inefficiency ──
+        {
+          rule_id: "REC_H_TIMING_INEFFICIENCY",
+          category: "timing_efficiency",
+          threshold_fields: {
+            avg_exec_ms_medium: T.TIMING_EXEC_MS_MEDIUM,
+            avg_exec_ms_high: T.TIMING_EXEC_MS_HIGH,
+            min_samples: 3,
+          },
+          minimum_sample_support: [
+            {
+              metric_name: "section_execution_sample_count",
+              sample_count: a.timing.section_execution_sample_count,
+              minimum_required: 3,
+              sufficient: a.timing.section_execution_sample_count >= 3,
+            },
+          ],
+          denominator_notes: [
+            "Timing rule uses section_execution_sample_count, not total_snapshots",
+            "Sample = any snapshot where phase_durations_ms.section_execution is present",
+          ],
+          calibration_notes: [
+            "Thresholds are operational defaults (15s/30s), not empirically tuned from baseline data",
+            "avg_section_execution_ms is only computed when section_execution_sample_count >= 1; rec requires >= 3",
+          ],
+        },
+
+        // ── REC_I: Causal root blocker ──
+        {
+          rule_id: "REC_I_CAUSAL_ROOT_BLOCKER",
+          category: "causal_pattern",
+          threshold_fields: {
+            min_root_blocker_count: T.CAUSAL_ROOT_BLOCKER_MIN,
+          },
+          minimum_sample_support: [
+            {
+              metric_name: "total_snapshots",
+              sample_count: totalSnapshots,
+              minimum_required: T.MIN_SNAPSHOTS,
+              sufficient: totalSnapshots >= T.MIN_SNAPSHOTS,
+            },
+            {
+              metric_name: "qualifying_root_blockers",
+              sample_count: a.causal_patterns.root_blockers.filter(rb => rb.count >= T.CAUSAL_ROOT_BLOCKER_MIN).length,
+              minimum_required: 0,
+              sufficient: null,
+            },
+          ],
+          denominator_notes: [
+            "Count is causal graph root-blocker appearances across snapshots, not total_snapshots",
+            "Root blocker = node that appears in blocks edges as from_node but never as to_node within the same snapshot",
+          ],
+          calibration_notes: [
+            "Root-blocker identification is per-snapshot; a node may be root in some snapshots and downstream in others",
+            "Count reflects root-blocker appearances only; cascade depth is not tracked",
+          ],
+        },
+      ];
+
+      return {
+        threshold_version: thresholdVersion,
+        rules,
+      };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
     // EXECUTION ANALYTICS v1 — get_patch_execution_analytics (READ-ONLY)
     //
     // Aggregates persisted execution replay snapshots into a deterministic
@@ -33068,6 +33436,18 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
 
       const analyticsData = buildPatchExecutionAnalyticsCore(validSnapshots);
       const recs = buildPatchExecutionRecommendations(analyticsData, validCount);
+      // Threshold constants are scoped to buildPatchExecutionRecommendations;
+      // pass them explicitly here for calibration surface construction.
+      const REC_T = {
+        MIN_SNAPSHOTS: 3, BLOCKER_MIN_OCCURRENCES: 2, BLOCKER_HIGH_CONFIDENCE: 5,
+        TYPE_MIN_COUNT: 3, TYPE_WATCHLIST_RATE_MEDIUM: 30, TYPE_WATCHLIST_RATE_HIGH: 60,
+        DOC_MIN_SEEN: 3, DOC_INSTABILITY_MEDIUM: 30, DOC_INSTABILITY_HIGH: 60,
+        DOC_GOV_COVERAGE_GAP: 50, DOC_REVAL_COVERAGE_GAP: 30,
+        GOV_GAP_RATE: 20, REVAL_FAILURE_RATE: 25,
+        TIMING_EXEC_MS_MEDIUM: 15000, TIMING_EXEC_MS_HIGH: 30000,
+        CAUSAL_ROOT_BLOCKER_MIN: 3, OVERALL_UNHEALTHY_RATE: 40,
+      };
+      const calibration = buildPatchExecutionCalibration(analyticsData, validCount, REC_T, "execution-recommendations-v1.1");
 
       const allRecs = [
         ...recs.top_priorities, ...recs.blocker_mitigations, ...recs.repair_type_watchlist,
@@ -33098,6 +33478,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           },
           ...recs,
         },
+        recommendations_calibration: calibration,
         window: { limit: scanLimit, date_from: dateFrom, date_to: dateTo },
         computed_at: recsAt,
         version: "execution-recommendations-v1",

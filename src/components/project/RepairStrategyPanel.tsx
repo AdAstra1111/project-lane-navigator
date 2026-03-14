@@ -3999,6 +3999,108 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
               </div>
             )}
 
+            {/* ── Calibration Panel ── */}
+            {data?.recommendations_calibration && (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-[9px] text-muted-foreground/60 hover:text-muted-foreground transition-colors w-full pt-1">
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <span className="font-mono font-semibold uppercase tracking-wider text-[8px]">Recommendation Calibration</span>
+                    <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/20 ml-1">
+                      {data.recommendations_calibration.threshold_version}
+                    </Badge>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-1.5">
+                  <div className="rounded-md border border-border/30 bg-muted/10 overflow-hidden">
+                    {/* Header row */}
+                    <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/20 bg-muted/20">
+                      <span className="text-[8px] font-mono font-semibold text-muted-foreground/60 uppercase">Rule</span>
+                      <span className="text-[8px] font-mono font-semibold text-muted-foreground/60 uppercase">Key Thresholds</span>
+                      <span className="text-[8px] font-mono font-semibold text-muted-foreground/60 uppercase">Sample Support</span>
+                    </div>
+                    {data.recommendations_calibration.rules.map(rule => {
+                      const primarySupport = rule.minimum_sample_support.find(s => s.minimum_required !== null && s.minimum_required > 0) ?? rule.minimum_sample_support[0];
+                      const sufficient = primarySupport?.sufficient;
+                      const supportColor = sufficient === true ? "text-emerald-400" : sufficient === false ? "text-red-400" : "text-muted-foreground/50";
+                      const keyThresholds = Object.entries(rule.threshold_fields).slice(0, 2);
+                      return (
+                        <Collapsible key={rule.rule_id}>
+                          <CollapsibleTrigger asChild>
+                            <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1.5 border-b border-border/10 hover:bg-muted/20 transition-colors cursor-pointer items-start">
+                              {/* Rule ID */}
+                              <div className="flex items-center gap-1">
+                                <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0 [[data-state=open]>&]:hidden" />
+                                <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0 hidden [[data-state=open]>&]:block" />
+                                <span className="text-[8px] font-mono text-muted-foreground/70 truncate">{rule.rule_id.replace("REC_", "")}</span>
+                              </div>
+                              {/* Key thresholds */}
+                              <div className="flex flex-wrap gap-0.5">
+                                {keyThresholds.map(([k, v]) => (
+                                  <span key={k} className="text-[7px] font-mono text-muted-foreground/60 bg-muted/30 border border-border/20 rounded px-1 py-0.5">
+                                    {k.replace(/_pct$|_ms$/, "")}: {String(v)}
+                                  </span>
+                                ))}
+                              </div>
+                              {/* Sample support indicator */}
+                              <div className={cn("text-[7px] font-mono shrink-0", supportColor)}>
+                                {primarySupport ? (
+                                  <span title={`${primarySupport.metric_name}: ${primarySupport.sample_count ?? "N/A"} / min ${primarySupport.minimum_required ?? "N/A"}`}>
+                                    {primarySupport.sample_count ?? "—"}{primarySupport.minimum_required != null ? `/${primarySupport.minimum_required}` : ""}
+                                    {sufficient === true && " ✓"}
+                                    {sufficient === false && " ✗"}
+                                  </span>
+                                ) : "—"}
+                              </div>
+                            </div>
+                          </CollapsibleTrigger>
+                          {/* Expanded detail */}
+                          <CollapsibleContent className="px-3 pb-2 pt-1 bg-muted/5 border-b border-border/10 space-y-1.5">
+                            {/* All sample supports */}
+                            <div className="space-y-0.5">
+                              {rule.minimum_sample_support.map((s, i) => (
+                                <div key={i} className="flex items-center gap-1.5 text-[8px] font-mono">
+                                  <span className="text-muted-foreground/50 w-44 shrink-0 truncate">{s.metric_name}</span>
+                                  <span className={cn("font-semibold", s.sufficient === true ? "text-emerald-400" : s.sufficient === false ? "text-red-400" : "text-muted-foreground/60")}>
+                                    {s.sample_count ?? "null"}
+                                  </span>
+                                  {s.minimum_required != null && (
+                                    <span className="text-muted-foreground/40">/ min {s.minimum_required}</span>
+                                  )}
+                                  {s.sufficient === true && <span className="text-emerald-400/70">sufficient</span>}
+                                  {s.sufficient === false && <span className="text-red-400/70">insufficient</span>}
+                                  {s.sufficient === null && <span className="text-muted-foreground/30">informational</span>}
+                                </div>
+                              ))}
+                            </div>
+                            {/* Denominator notes */}
+                            {rule.denominator_notes.length > 0 && (
+                              <div className="space-y-0.5">
+                                <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Denominator</span>
+                                {rule.denominator_notes.map((n, i) => (
+                                  <div key={i} className="text-[8px] text-muted-foreground/50 leading-snug">· {n}</div>
+                                ))}
+                              </div>
+                            )}
+                            {/* Calibration notes */}
+                            {rule.calibration_notes.length > 0 && (
+                              <div className="space-y-0.5">
+                                <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Calibration Notes</span>
+                                {rule.calibration_notes.map((n, i) => (
+                                  <div key={i} className="text-[8px] text-amber-400/50 leading-snug">⚠ {n}</div>
+                                ))}
+                              </div>
+                            )}
+                          </CollapsibleContent>
+                        </Collapsible>
+                      );
+                    })}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
             <Button variant="ghost" size="sm" className="text-[9px] h-6" onClick={load} disabled={loading}>
               <RefreshCw className={cn("h-3 w-3 mr-1", loading && "animate-spin")} />
               Refresh

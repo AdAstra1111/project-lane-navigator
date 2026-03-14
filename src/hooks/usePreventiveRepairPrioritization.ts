@@ -1105,11 +1105,35 @@ export interface ExecutionRecommendations {
   suggested_next_actions: ExecutionRecommendation[];
 }
 
+// ── Recommendations Calibration Types ──
+
+export interface RecommendationCalibrationSampleSupport {
+  metric_name: string;
+  sample_count: number | null;
+  minimum_required: number | null;
+  sufficient: boolean | null;
+}
+
+export interface RecommendationCalibrationRule {
+  rule_id: string;
+  category: string;
+  threshold_fields: Record<string, number | string>;
+  minimum_sample_support: RecommendationCalibrationSampleSupport[];
+  denominator_notes: string[];
+  calibration_notes: string[];
+}
+
+export interface RecommendationCalibration {
+  threshold_version: string;
+  rules: RecommendationCalibrationRule[];
+}
+
 export interface PatchExecutionRecommendationsResponse {
   ok: boolean;
   action: string;
   project_id: string;
   recommendations: ExecutionRecommendations;
+  recommendations_calibration: RecommendationCalibration;
   window: { limit: number; date_from: string | null; date_to: string | null };
   computed_at: string;
   version: string;
