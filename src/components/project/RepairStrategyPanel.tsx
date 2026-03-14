@@ -102,6 +102,7 @@ type SortKey = 'preventive_rank' | 'baseline_rank' | 'preventive_score' | 'rank_
 export function RepairStrategyPanel({ projectId }: Props) {
   const { prp1, nrf1, prp2, roi, prp2s, rcc, iv, isLoading, nrf1Loading, prp2Loading, roiLoading, prp2sLoading, rccLoading, ivLoading, error, refresh } = usePreventiveRepairPrioritization(projectId);
   const [selectedRepair, setSelectedRepair] = useState<PRP1Repair | null>(null);
+  const [trendNavTarget, setTrendNavTarget] = useState<TrendNavigationTarget | null>(null);
   
   const [sortKey, setSortKey] = useState<SortKey>('preventive_rank');
   const [sortAsc, setSortAsc] = useState(true);
