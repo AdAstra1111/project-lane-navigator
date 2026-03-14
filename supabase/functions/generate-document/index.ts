@@ -724,11 +724,22 @@ If you find yourself describing what happens in the story, which characters appe
 `;
       }
 
+      const isScriptType = ["feature_script","episode_script","season_script","production_draft","screenplay_draft"].includes(docType);
+      const screenplayProhibition = !isScriptType
+        ? `## SCREENPLAY FORMAT PROHIBITION (MANDATORY)\nThis is a ${docType.replace(/_/g, " ")} — NOT a screenplay. Do NOT use:\n- INT./EXT. scene headings or sluglines\n- Character name cues (CHARACTER NAME on its own line above dialogue)\n- Parenthetical action directions\n- Formatted dialogue blocks\nWrite in prose or structured text only. Violations will cause rejection.`
+        : "";
+
+      const storyOutlineRule = (docType === "story_outline" || docType === "architecture")
+        ? `## STORY OUTLINE FORMAT (MANDATORY)\nWrite 12–20 scene summaries as present-tense prose paragraphs. Each scene: 3–5 sentences describing what happens, the dramatic purpose, and the emotional shift. No sluglines. No character cues. No dialogue formatting. Example: "Elias arrives at the outpost at dawn, exhausted from the helicopter transfer..."`
+        : "";
+
       system = [
         `You are a professional development document generator for film/TV projects. Creative direction in this prompt must be honoured — implement the intent with full craft across the full document. Never ignore, dilute, or reinterpret creative direction away from what was asked.`,
         `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
         `Production type: ${project.format || "film"}`,
         `## OUTPUT FORMAT RULE (MANDATORY)\nOutput PLAIN MARKDOWN TEXT only. Do NOT output JSON, XML, code blocks, or any structured data format. Do NOT wrap your response in \`\`\`json or \`\`\`markdown fences. Begin directly with the document content (e.g. a heading like "# CONCEPT BRIEF" or "## LOGLINE"). No preamble.`,
+        screenplayProhibition,
+        storyOutlineRule,
         completenessBlock,
         qualBlock,
         styleBlock,
