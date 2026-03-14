@@ -5170,32 +5170,65 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
     }
   };
 
-  // React to navigation target from recommendations
+  // ── Subsection emptiness check for action-driven navigation ──
+  // Entity subsections are conditionally rendered (length > 0).
+  // When navigation targets an empty subsection, warn in DEV.
+  const ARRAY_SUBSECTIONS: TrendSubsectionKey[] = [
+    'blocker_code_trends', 'repair_type_trends', 'source_type_trends', 'document_type_trends',
+  ];
+  const isSubsectionEmpty = useCallback((sub: TrendSubsectionKey, trendData: typeof data): boolean => {
+    if (!trendData?.trends) return true;
+    if (!ARRAY_SUBSECTIONS.includes(sub)) return false; // non-array subsections always render
+    const arr = (trendData.trends as Record<string, unknown>)[sub];
+    return !Array.isArray(arr) || arr.length === 0;
+  }, []);
+
+  // React to navigation target from recommendations / action dispatcher
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (!navigationTarget) return;
     const { subsection_key, entity_key, activated_at } = navigationTarget;
 
-    // Auto-load if not loaded
-    if (!loaded && !loading) {
-      load().then(() => {
-        // After load, force open and highlight
-        setSectionOpen(true);
-        setForcedOpenSubs(prev => new Set(prev).add(subsection_key));
-        setHighlightedEntity({ subsection: subsection_key, entity: entity_key, at: activated_at });
-        setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
-      });
-    } else {
+    // Clear any stale highlight timer from prior navigation
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = null;
+    }
+
+    const applyNavigation = (loadedData: typeof data) => {
       setSectionOpen(true);
       setForcedOpenSubs(prev => new Set(prev).add(subsection_key));
       setHighlightedEntity({ subsection: subsection_key, entity: entity_key, at: activated_at });
-      setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+
+      // DEV warning: subsection has no data → DOM target absent
+      if (import.meta.env.DEV && isSubsectionEmpty(subsection_key, loadedData)) {
+        console.warn(
+          `[IFFY nav] Subsection "${subsection_key}" has no data — forced-open and highlight will have no DOM target.`,
+          entity_key ? `Entity: "${entity_key}"` : '(header-level)',
+        );
+      }
+
+      setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+    };
+
+    // Auto-load if not loaded
+    if (!loaded && !loading) {
+      load().then(() => applyNavigation(data));
+    } else {
+      applyNavigation(data);
     }
 
     // Clear highlight after 3 seconds
-    const timer = setTimeout(() => setHighlightedEntity(null), 3000);
+    highlightTimerRef.current = setTimeout(() => setHighlightedEntity(null), 3000);
     // Acknowledge navigation target handled
     onTargetHandled();
-    return () => clearTimeout(timer);
+    return () => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = null;
+      }
+    };
   }, [navigationTarget]);
 
   // onSubOpenChange: clear forced-open when user manually closes
