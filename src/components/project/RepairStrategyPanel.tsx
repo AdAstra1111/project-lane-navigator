@@ -13,10 +13,14 @@ import {
   fetchPatchExecutionReplay,
   fetchPatchExecutionHistory,
   fetchPatchExecutionComparison,
+  fetchPatchExecutionAnalytics,
+  fetchPatchExecutionRecommendations,
   deriveExecutionOutcome,
   type PatchExecutionHistoryItem, type PatchExecutionHistoryResponse, type PatchExecutionHistoryCursor,
   type PatchExecutionHistoryFilters, type PatchExecutionOutcome,
   type PatchExecutionComparisonResponse, type MetricDiffEntry, type DocumentTimelineDiffEntry,
+  type PatchExecutionAnalyticsResponse, type PatchExecutionAnalytics,
+  type PatchExecutionRecommendationsResponse, type ExecutionRecommendations, type ExecutionRecommendation,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type InterventionAnalysisResult, type InterventionCandidate,
@@ -46,6 +50,7 @@ import {
   ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle,
   RefreshCw, Info, Star, Unlock, Shield, Target, Activity, ChevronDown, ChevronRight,
   CheckCircle, XCircle, Play, Zap, History, List, Clock,
+  Lightbulb, Wrench, FileText, FileCode, ArrowRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -521,6 +526,12 @@ export function RepairStrategyPanel({ projectId }: Props) {
 
       {/* ═══ SECTION 4h: EXECUTION REPLAY (read-only historical audit) ═══ */}
       <ExecutionReplaySection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
+
+      {/* ═══ SECTION 4i: EXECUTION ANALYTICS (read-only aggregation) ═══ */}
+      <ExecutionAnalyticsSection projectId={projectId} />
+
+      {/* ═══ SECTION 4j: EXECUTION RECOMMENDATIONS (read-only, deterministic) ═══ */}
+      <ExecutionRecommendationsSection projectId={projectId} />
 
           </div>
         )}
@@ -3186,6 +3197,44 @@ function ExecutionReplaySection({
                         </span>
                       )}
                     </div>
+
+                    {/* Causal comparison notes */}
+                    {compareResult.comparison_notes && (() => {
+                      const cn2 = compareResult.comparison_notes as any;
+                      const hasCausalData = cn2.first_causal_divergence || cn2.root_blocker || cn2.new_blockers?.length > 0 || cn2.resolved_blockers?.length > 0;
+                      if (!hasCausalData) return null;
+                      return (
+                        <div>
+                          <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Causal Analysis</div>
+                          <div className="space-y-1">
+                            {cn2.first_causal_divergence && (
+                              <div className="text-[9px]">
+                                <span className="text-muted-foreground">First divergence: </span>
+                                <span className="font-mono text-amber-400">{cn2.first_causal_divergence.reason}</span>
+                              </div>
+                            )}
+                            {cn2.root_blocker && (
+                              <div className="text-[9px]">
+                                <span className="text-muted-foreground">Root blocker: </span>
+                                <span className="font-mono text-red-400">{cn2.root_blocker.from_node} → {cn2.root_blocker.to_node}</span>
+                              </div>
+                            )}
+                            {cn2.new_blockers?.length > 0 && (
+                              <div className="text-[9px]">
+                                <span className="text-muted-foreground">New blockers: </span>
+                                <span className="font-mono text-red-400">{cn2.new_blockers.join(', ')}</span>
+                              </div>
+                            )}
+                            {cn2.resolved_blockers?.length > 0 && (
+                              <div className="text-[9px]">
+                                <span className="text-muted-foreground">Resolved blockers: </span>
+                                <span className="font-mono text-emerald-400">{cn2.resolved_blockers.join(', ')}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
@@ -3406,11 +3455,538 @@ function ExecutionReplaySection({
               </div>
             )}
 
+            {/* Causal Graph */}
+            {obs && (obs as any).causal_nodes?.length > 0 && (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors">
+                    <ChevronRight className="h-2.5 w-2.5 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-2.5 w-2.5 hidden [[data-state=open]>&]:block" />
+                    Execution Causal Graph ({(obs as any).causal_nodes.length} nodes, {(obs as any).causal_edges?.length || 0} edges)
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="space-y-2 mt-1">
+                    {/* Root blockers */}
+                    {(() => {
+                      const edges = (obs as any).causal_edges || [];
+                      const blockEdges = edges.filter((e: any) => e.edge_type === "blocks");
+                      const failEdges = edges.filter((e: any) => e.edge_type === "failed_because");
+                      if (blockEdges.length === 0 && failEdges.length === 0) return null;
+                      return (
+                        <div>
+                          {blockEdges.length > 0 && (
+                            <div className="mb-1">
+                              <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-0.5">Blocked By</div>
+                              {blockEdges.map((e: any, i: number) => (
+                                <div key={`block-${i}`} className="text-[9px] font-mono text-amber-400">
+                                  {e.from_node} → {e.to_node}: {e.reason_message}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {failEdges.length > 0 && (
+                            <div>
+                              <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-0.5">Failures</div>
+                              {failEdges.map((e: any, i: number) => (
+                                <div key={`fail-${i}`} className="text-[9px] font-mono text-destructive">
+                                  {e.from_node}: {e.reason_message}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* All nodes */}
+                    <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                      {((obs as any).causal_nodes || []).map((n: any, i: number) => (
+                        <div key={`cn-${i}`} className="flex items-center gap-1.5 text-[9px]">
+                          <Badge variant="outline" className={cn(
+                            "text-[7px] font-mono px-1 py-0 h-3 shrink-0",
+                            n.node_type === 'document' && "text-blue-400 border-blue-500/30",
+                            n.node_type === 'validation' && "text-emerald-400 border-emerald-500/30",
+                            n.node_type === 'governance' && "text-amber-400 border-amber-500/30",
+                            n.node_type === 'revalidation' && "text-purple-400 border-purple-500/30",
+                            n.node_type === 'patch_target' && "text-muted-foreground border-border/50",
+                            n.node_type === 'execution_step' && "text-emerald-400 border-emerald-500/30",
+                          )}>
+                            {n.node_type}
+                          </Badge>
+                          <span className="text-foreground truncate">{n.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
             {/* Plan ID for reference */}
             <div className="text-[9px] text-muted-foreground font-mono border-t border-border/30 pt-1.5">
               plan_id: {replay.plan_id}
             </div>
           </>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ── ExecutionAnalyticsSection — read-only aggregation over persisted replay snapshots ──
+
+function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
+  const [analytics, setAnalytics] = useState<PatchExecutionAnalytics | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const loadAnalytics = async () => {
+    setLoading(true);
+    try {
+      const res = await fetchPatchExecutionAnalytics(projectId, { limit: 100 });
+      if (res?.ok) setAnalytics(res.analytics);
+    } finally {
+      setLoading(false);
+      setLoaded(true);
+    }
+  };
+
+  const a = analytics;
+  const fmtMs = (ms: number | null) => ms != null ? `${(ms / 1000).toFixed(1)}s` : '—';
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+          <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+          <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+          <Activity className="h-3 w-3" />
+          <span className="font-semibold uppercase tracking-wider">Execution Analytics</span>
+          {a && (
+            <Badge variant="outline" className="text-[9px] ml-1 font-mono text-muted-foreground border-border/50">
+              {a.summary.total_snapshots} snapshots
+            </Badge>
+          )}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-2">
+        {!loaded && (
+          <Button variant="outline" size="sm" className="text-[10px] h-7" onClick={loadAnalytics} disabled={loading}>
+            {loading ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <Activity className="h-3 w-3 mr-1" />}
+            {loading ? 'Loading…' : 'Load Analytics'}
+          </Button>
+        )}
+
+        {loaded && !a && (
+          <div className="text-[10px] text-muted-foreground italic">No analytics data available.</div>
+        )}
+
+        {a && (
+          <div className="space-y-3">
+            {/* Summary cards */}
+            <div className="grid grid-cols-4 gap-2">
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2 text-center">
+                <div className="text-[9px] text-muted-foreground uppercase">Snapshots</div>
+                <div className="text-sm font-mono font-semibold text-foreground">{a.summary.total_snapshots}</div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2 text-center">
+                <div className="text-[9px] text-muted-foreground uppercase">Executed %</div>
+                <div className="text-sm font-mono font-semibold text-emerald-400">{a.success_rates.executed_rate}%</div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2 text-center">
+                <div className="text-[9px] text-muted-foreground uppercase">Blocked</div>
+                <div className="text-sm font-mono font-semibold text-amber-400">{a.outcomes.blocked}</div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2 text-center">
+                <div className="text-[9px] text-muted-foreground uppercase">Avg Duration</div>
+                <div className="text-sm font-mono font-semibold text-foreground">{fmtMs(a.timing.avg_total_duration_ms)}</div>
+              </div>
+            </div>
+
+            {/* Outcome chips */}
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(a.outcomes).map(([key, val]) => (
+                <Badge key={key} variant="outline" className={cn("text-[9px] font-mono",
+                  key === 'executed' && 'text-emerald-400 border-emerald-500/30',
+                  key === 'partial' && 'text-amber-400 border-amber-500/30',
+                  key === 'blocked' && 'text-orange-400 border-orange-500/30',
+                  key === 'failed' && 'text-red-400 border-red-500/30',
+                  key === 'dry_run' && 'text-muted-foreground border-border/50',
+                )}>
+                  {key}: {val}
+                </Badge>
+              ))}
+            </div>
+
+            {/* Repair type table */}
+            {a.repair_type_breakdown.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Repair Types</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border/30">
+                      <TableHead className="text-[9px] h-7 px-2">Type</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">Count</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">✓</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">⚠</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">✗</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {a.repair_type_breakdown.slice(0, 8).map((r) => (
+                      <TableRow key={r.repair_type} className="border-border/20">
+                        <TableCell className="text-[9px] font-mono px-2 py-1">{r.repair_type}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right">{r.count}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-emerald-400">{r.executed}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-amber-400">{r.partial + r.blocked}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-red-400">{r.failed}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Source type table */}
+            {a.source_type_breakdown.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Source Types</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border/30">
+                      <TableHead className="text-[9px] h-7 px-2">Source</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">Count</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">✓</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">✗</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {a.source_type_breakdown.slice(0, 8).map((s) => (
+                      <TableRow key={s.source_type} className="border-border/20">
+                        <TableCell className="text-[9px] font-mono px-2 py-1">{s.source_type}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right">{s.count}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-emerald-400">{s.executed}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-red-400">{s.failed}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Document type health */}
+            {a.document_type_breakdown.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Document Type Health</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border/30">
+                      <TableHead className="text-[9px] h-7 px-2">Doc Type</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">Seen</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">✓</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">Blocked</TableHead>
+                      <TableHead className="text-[9px] h-7 px-2 text-right">Gov</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {a.document_type_breakdown.slice(0, 10).map((d) => (
+                      <TableRow key={d.doc_type} className="border-border/20">
+                        <TableCell className="text-[9px] font-mono px-2 py-1">{d.doc_type}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right">{d.total_seen}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-emerald-400">{d.executed}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right text-orange-400">{d.blocked}</TableCell>
+                        <TableCell className="text-[9px] font-mono px-2 py-1 text-right">{d.governance_performed}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Blocker patterns */}
+            {a.blocker_breakdown.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Blocker Patterns</div>
+                <div className="space-y-0.5">
+                  {a.blocker_breakdown.slice(0, 8).map((b) => (
+                    <div key={b.blocker_code} className="flex items-center justify-between text-[9px] font-mono">
+                      <span className="text-muted-foreground truncate max-w-[200px]">{b.blocker_code}</span>
+                      <Badge variant="outline" className="text-[8px] border-border/50 ml-2">{b.count}×</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Causal block edges */}
+            {a.causal_patterns.block_edges.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Causal Block Edges</div>
+                <div className="space-y-0.5">
+                  {a.causal_patterns.block_edges.slice(0, 6).map((e, i) => (
+                    <div key={i} className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground">
+                      <span className="truncate max-w-[120px]">{e.from_node}</span>
+                      <span className="text-orange-400">→</span>
+                      <span className="truncate max-w-[120px]">{e.to_node}</span>
+                      <Badge variant="outline" className="text-[8px] border-border/50 ml-auto">{e.count}×</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Governance + Revalidation cards */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2">
+                <div className="text-[9px] text-muted-foreground uppercase mb-1">Governance</div>
+                <div className="text-[9px] font-mono space-y-0.5">
+                  <div className="flex justify-between"><span>With gov:</span><span className="text-foreground">{a.governance.snapshots_with_governance}</span></div>
+                  <div className="flex justify-between"><span>Without:</span><span className="text-foreground">{a.governance.snapshots_without_governance}</span></div>
+                  <div className="flex justify-between"><span>Invalidations:</span><span className="text-foreground">{a.governance.invalidation_performed_count}</span></div>
+                </div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2">
+                <div className="text-[9px] text-muted-foreground uppercase mb-1">Revalidation</div>
+                <div className="text-[9px] font-mono space-y-0.5">
+                  <div className="flex justify-between"><span>With reval:</span><span className="text-foreground">{a.revalidation.snapshots_with_revalidation_execution}</span></div>
+                  <div className="flex justify-between"><span>Full success:</span><span className="text-emerald-400">{a.revalidation.full_success_count}</span></div>
+                  <div className="flex justify-between"><span>Failed:</span><span className="text-red-400">{a.revalidation.failed_count}</span></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Timing cards */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2">
+                <div className="text-[9px] text-muted-foreground uppercase mb-1">Timing</div>
+                <div className="text-[9px] font-mono space-y-0.5">
+                  <div className="flex justify-between"><span>Avg total:</span><span className="text-foreground">{fmtMs(a.timing.avg_total_duration_ms)}</span></div>
+                  <div className="flex justify-between"><span>Min:</span><span className="text-foreground">{fmtMs(a.timing.min_total_duration_ms)}</span></div>
+                  <div className="flex justify-between"><span>Max:</span><span className="text-foreground">{fmtMs(a.timing.max_total_duration_ms)}</span></div>
+                </div>
+              </div>
+              <div className="rounded-md border border-border/50 bg-muted/30 p-2">
+                <div className="text-[9px] text-muted-foreground uppercase mb-1">Phase Avg</div>
+                <div className="text-[9px] font-mono space-y-0.5">
+                  <div className="flex justify-between"><span>Validation:</span><span className="text-foreground">{fmtMs(a.timing.avg_validation_ms)}</span></div>
+                  <div className="flex justify-between"><span>Execution:</span><span className="text-foreground">{fmtMs(a.timing.avg_section_execution_ms)}</span></div>
+                  <div className="flex justify-between"><span>Governance:</span><span className="text-foreground">{fmtMs(a.timing.avg_governance_ms)}</span></div>
+                  <div className="flex justify-between"><span>Revalidation:</span><span className="text-foreground">{fmtMs(a.timing.avg_revalidation_ms)}</span></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Invalid snapshots warning */}
+            {a.summary.invalid_snapshots > 0 && (
+              <div className="flex items-center gap-1.5 text-[9px] text-amber-400">
+                <AlertTriangle className="h-3 w-3" />
+                {a.summary.invalid_snapshots} snapshot(s) excluded due to invalid structure
+              </div>
+            )}
+
+            {/* Refresh */}
+            <Button variant="ghost" size="sm" className="text-[9px] h-6" onClick={loadAnalytics} disabled={loading}>
+              <RefreshCw className={cn("h-3 w-3 mr-1", loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ── ExecutionRecommendationsSection ──────────────────────────────────────────
+// Read-only deterministic recommendation surface derived from persisted replay
+// snapshots. No execution-path changes. No mutation.
+
+function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
+  const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetchPatchExecutionRecommendations(projectId, { limit: 100 });
+      if (res?.ok) setData(res);
+    } finally {
+      setLoading(false);
+      setLoaded(true);
+    }
+  };
+
+  const recs = data?.recommendations;
+  const summary = recs?.summary;
+
+  const sevColor = (s: ExecutionRecommendation["severity"]) =>
+    s === "high" ? "text-red-400 border-red-500/30" :
+    s === "medium" ? "text-amber-400 border-amber-500/30" :
+    "text-muted-foreground border-border/50";
+
+  const sevDot = (s: ExecutionRecommendation["severity"]) =>
+    s === "high" ? "bg-red-400" : s === "medium" ? "bg-amber-400" : "bg-muted-foreground";
+
+  const RecCard = ({ rec }: { rec: ExecutionRecommendation }) => (
+    <div className="rounded-md border border-border/40 bg-muted/20 px-3 py-2 space-y-1">
+      <div className="flex items-start gap-2">
+        <div className={cn("mt-1 h-1.5 w-1.5 rounded-full shrink-0", sevDot(rec.severity))} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] font-semibold text-foreground">{rec.title}</span>
+            <Badge variant="outline" className={cn("text-[8px] font-mono shrink-0", sevColor(rec.severity))}>
+              {rec.severity}
+            </Badge>
+            <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground/70 border-border/30 shrink-0">
+              {rec.confidence} confidence
+            </Badge>
+          </div>
+          <p className="text-[9px] text-muted-foreground mt-0.5 leading-snug">{rec.rationale}</p>
+          {/* Evidence chips */}
+          <div className="flex flex-wrap gap-1 mt-1">
+            {Object.entries(rec.evidence).slice(0, 5).map(([k, v]) => (
+              <span key={k} className="inline-flex items-center gap-0.5 text-[8px] font-mono bg-muted/50 border border-border/30 rounded px-1 py-0.5 text-muted-foreground">
+                {k}: <span className="text-foreground">{String(v)}</span>
+              </span>
+            ))}
+          </div>
+          {/* Suggested action */}
+          <div className="mt-1 text-[9px] text-muted-foreground border-l-2 border-border/40 pl-1.5">
+            <span className="font-semibold text-foreground/80">Action:</span> {rec.suggested_action}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const Bucket = ({ title, icon: Icon, items }: { title: string; icon: any; items: ExecutionRecommendation[] }) => {
+    if (!items || items.length === 0) return null;
+    return (
+      <Collapsible defaultOpen={items.some(r => r.severity === "high")}>
+        <CollapsibleTrigger asChild>
+          <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-0.5">
+            <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+            <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+            <Icon className="h-3 w-3" />
+            <span className="font-semibold">{title}</span>
+            <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground border-border/40 ml-1">{items.length}</Badge>
+            {items.some(r => r.severity === "high") && (
+              <Badge variant="outline" className="text-[8px] font-mono text-red-400 border-red-500/30 ml-0.5">HIGH</Badge>
+            )}
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-1.5 pt-1.5 pl-4">
+          {items.map(rec => <RecCard key={rec.recommendation_id} rec={rec} />)}
+        </CollapsibleContent>
+      </Collapsible>
+    );
+  };
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+          <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+          <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+          <Lightbulb className="h-3 w-3" />
+          <span className="font-semibold uppercase tracking-wider">Execution Recommendations</span>
+          {summary && (
+            <div className="flex items-center gap-1 ml-1">
+              {summary.high_severity_count > 0 && (
+                <Badge variant="outline" className="text-[8px] font-mono text-red-400 border-red-500/30">
+                  {summary.high_severity_count} high
+                </Badge>
+              )}
+              {summary.medium_severity_count > 0 && (
+                <Badge variant="outline" className="text-[8px] font-mono text-amber-400 border-amber-500/30">
+                  {summary.medium_severity_count} medium
+                </Badge>
+              )}
+              {summary.generated_recommendations === 0 && (
+                <Badge variant="outline" className="text-[8px] font-mono text-emerald-400 border-emerald-500/30">
+                  healthy
+                </Badge>
+              )}
+            </div>
+          )}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-2">
+        {!loaded && (
+          <Button variant="outline" size="sm" className="text-[10px] h-7" onClick={load} disabled={loading}>
+            {loading ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <Lightbulb className="h-3 w-3 mr-1" />}
+            {loading ? 'Analysing…' : 'Load Recommendations'}
+          </Button>
+        )}
+
+        {loaded && !recs && (
+          <div className="text-[10px] text-muted-foreground italic">No recommendation data available.</div>
+        )}
+
+        {recs && (
+          <div className="space-y-3">
+            {/* Summary row */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[9px] text-muted-foreground font-mono">{summary?.total_snapshots} snapshots analysed</span>
+              {summary?.generated_recommendations === 0 ? (
+                <Badge variant="outline" className="text-[9px] text-emerald-400 border-emerald-500/30">
+                  No recommendations — all metrics within thresholds
+                </Badge>
+              ) : (
+                <>
+                  {summary?.high_severity_count > 0 && <Badge variant="outline" className="text-[9px] text-red-400 border-red-500/30">{summary.high_severity_count} high</Badge>}
+                  {summary?.medium_severity_count > 0 && <Badge variant="outline" className="text-[9px] text-amber-400 border-amber-500/30">{summary.medium_severity_count} medium</Badge>}
+                  {summary?.low_severity_count > 0 && <Badge variant="outline" className="text-[9px] text-muted-foreground border-border/50">{summary.low_severity_count} low</Badge>}
+                </>
+              )}
+            </div>
+
+            {/* Insufficient history note */}
+            {summary && summary.total_snapshots < 3 && (
+              <div className="text-[9px] text-muted-foreground italic">
+                Insufficient execution history for recommendations (need ≥ 3 snapshots, have {summary.total_snapshots}).
+              </div>
+            )}
+
+            {/* Top priorities */}
+            <Bucket title="Top Priorities" icon={AlertTriangle} items={recs.top_priorities} />
+
+            {/* Blocker mitigations */}
+            <Bucket title="Blocker Mitigations" icon={XCircle} items={recs.blocker_mitigations} />
+
+            {/* Repair type watchlist */}
+            <Bucket title="Repair Type Watchlist" icon={Wrench} items={recs.repair_type_watchlist} />
+
+            {/* Source type watchlist */}
+            <Bucket title="Source Type Watchlist" icon={FileText} items={recs.source_type_watchlist} />
+
+            {/* Document type stability */}
+            <Bucket title="Document Type Stability" icon={FileCode} items={recs.document_type_watchlist} />
+
+            {/* Governance gaps */}
+            <Bucket title="Governance Gaps" icon={Shield} items={recs.governance_gaps} />
+
+            {/* Revalidation gaps */}
+            <Bucket title="Revalidation Gaps" icon={RefreshCw} items={recs.revalidation_gaps} />
+
+            {/* Suggested next actions */}
+            <Bucket title="Suggested Next Actions" icon={ArrowRight} items={recs.suggested_next_actions} />
+
+            {/* Empty state: no recs at all */}
+            {summary?.generated_recommendations === 0 && summary.total_snapshots >= 3 && (
+              <div className="flex items-center gap-1.5 text-[9px] text-emerald-400">
+                <CheckCircle className="h-3 w-3" />
+                All tracked metrics are within healthy thresholds across {summary.total_snapshots} snapshots.
+              </div>
+            )}
+
+            {/* Refresh */}
+            <Button variant="ghost" size="sm" className="text-[9px] h-6" onClick={load} disabled={loading}>
+              <RefreshCw className={cn("h-3 w-3 mr-1", loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
         )}
       </CollapsibleContent>
     </Collapsible>

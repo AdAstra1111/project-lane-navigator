@@ -694,6 +694,23 @@ export interface ExecutionReplaySnapshot {
   execution: PatchExecutionResult;
 }
 
+// ── Causal Graph Types ──
+
+export interface CausalNode {
+  node_id: string;
+  node_type: "document" | "validation" | "execution_step" | "governance" | "revalidation" | "patch_target";
+  ref_id: string | null;
+  label: string;
+}
+
+export interface CausalEdge {
+  from_node: string;
+  to_node: string;
+  edge_type: "depends_on" | "blocks" | "generated" | "invalidated" | "triggered" | "revalidated" | "failed_because";
+  reason_code: string;
+  reason_message: string;
+}
+
 export interface ExecutionReplayResponse {
   ok: boolean;
   action: string;
@@ -903,6 +920,10 @@ export interface PatchExecutionComparisonResponse {
     missing_side: "left" | "right" | "both" | null;
     left_invalid_reason?: string | null;
     right_invalid_reason?: string | null;
+    first_causal_divergence?: { edge: string; reason: string } | null;
+    root_blocker?: { from_node: string; to_node: string; reason: string } | null;
+    new_blockers?: string[];
+    resolved_blockers?: string[];
   };
   computed_at: string;
   version: string;
@@ -934,6 +955,203 @@ export async function fetchPatchExecutionComparison(
   const json = await resp.json();
   if (!json?.ok) return null;
   return json as PatchExecutionComparisonResponse;
+}
+
+// ── Execution Analytics Types ──
+
+export interface AnalyticsOutcomes {
+  executed: number;
+  partial: number;
+  blocked: number;
+  failed: number;
+  dry_run: number;
+}
+
+export interface AnalyticsSuccessRates {
+  executed_rate: number;
+  partial_or_better_rate: number;
+  blocked_rate: number;
+  failed_rate: number;
+}
+
+export interface AnalyticsRepairTypeEntry {
+  repair_type: string;
+  count: number;
+  executed: number;
+  partial: number;
+  blocked: number;
+  failed: number;
+  dry_run: number;
+}
+
+export interface AnalyticsSourceTypeEntry {
+  source_type: string;
+  count: number;
+  executed: number;
+  partial: number;
+  blocked: number;
+  failed: number;
+  dry_run: number;
+}
+
+export interface AnalyticsDocTypeEntry {
+  doc_type: string;
+  total_seen: number;
+  executed: number;
+  blocked: number;
+  failed: number;
+  skipped_upstream: number;
+  governance_performed: number;
+  revalidation_performed: number;
+}
+
+export interface AnalyticsBlockerEntry {
+  blocker_code: string;
+  count: number;
+}
+
+export interface AnalyticsTiming {
+  avg_total_duration_ms: number | null;
+  min_total_duration_ms: number | null;
+  max_total_duration_ms: number | null;
+  avg_validation_ms: number | null;
+  avg_section_execution_ms: number | null;
+  avg_governance_ms: number | null;
+  avg_revalidation_ms: number | null;
+}
+
+export interface AnalyticsGovernance {
+  snapshots_with_governance: number;
+  snapshots_without_governance: number;
+  invalidation_performed_count: number;
+  revalidation_handoff_performed_count: number;
+}
+
+export interface AnalyticsRevalidation {
+  snapshots_with_revalidation_execution: number;
+  full_success_count: number;
+  partial_count: number;
+  failed_count: number;
+  deferred_count: number;
+}
+
+export interface AnalyticsCausalPatterns {
+  root_blockers: Array<{ blocker: string; count: number }>;
+  block_edges: Array<{ from_node: string; to_node: string; count: number }>;
+}
+
+export interface PatchExecutionAnalytics {
+  summary: { total_snapshots: number; valid_snapshots: number; invalid_snapshots: number; scanned_rows: number };
+  outcomes: AnalyticsOutcomes;
+  success_rates: AnalyticsSuccessRates;
+  repair_type_breakdown: AnalyticsRepairTypeEntry[];
+  source_type_breakdown: AnalyticsSourceTypeEntry[];
+  document_type_breakdown: AnalyticsDocTypeEntry[];
+  blocker_breakdown: AnalyticsBlockerEntry[];
+  timing: AnalyticsTiming;
+  governance: AnalyticsGovernance;
+  revalidation: AnalyticsRevalidation;
+  causal_patterns: AnalyticsCausalPatterns;
+}
+
+export interface PatchExecutionAnalyticsResponse {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  analytics: PatchExecutionAnalytics;
+  window: { limit: number; date_from: string | null; date_to: string | null };
+  computed_at: string;
+  version: string;
+}
+
+// ── Execution Recommendations Types ──
+
+export interface ExecutionRecommendation {
+  recommendation_id: string;
+  category: string;
+  severity: "high" | "medium" | "low";
+  title: string;
+  rationale: string;
+  evidence: Record<string, unknown>;
+  suggested_action: string;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface ExecutionRecommendationSummary {
+  total_snapshots: number;
+  generated_recommendations: number;
+  high_severity_count: number;
+  medium_severity_count: number;
+  low_severity_count: number;
+}
+
+export interface ExecutionRecommendations {
+  summary: ExecutionRecommendationSummary;
+  top_priorities: ExecutionRecommendation[];
+  blocker_mitigations: ExecutionRecommendation[];
+  repair_type_watchlist: ExecutionRecommendation[];
+  source_type_watchlist: ExecutionRecommendation[];
+  document_type_watchlist: ExecutionRecommendation[];
+  governance_gaps: ExecutionRecommendation[];
+  revalidation_gaps: ExecutionRecommendation[];
+  suggested_next_actions: ExecutionRecommendation[];
+}
+
+export interface PatchExecutionRecommendationsResponse {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  recommendations: ExecutionRecommendations;
+  window: { limit: number; date_from: string | null; date_to: string | null };
+  computed_at: string;
+  version: string;
+}
+
+export async function fetchPatchExecutionRecommendations(
+  projectId: string,
+  window?: { limit?: number; date_from?: string; date_to?: string },
+): Promise<PatchExecutionRecommendationsResponse | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+  const payload: Record<string, any> = { action: 'get_patch_execution_recommendations', projectId };
+  if (window) payload.window = window;
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PatchExecutionRecommendationsResponse;
+}
+
+export async function fetchPatchExecutionAnalytics(
+  projectId: string,
+  window?: { limit?: number; date_from?: string; date_to?: string },
+): Promise<PatchExecutionAnalyticsResponse | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  const payload: Record<string, any> = {
+    action: 'get_patch_execution_analytics',
+    projectId,
+  };
+  if (window) payload.window = window;
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PatchExecutionAnalyticsResponse;
 }
 
 export async function fetchPatchExecution(
