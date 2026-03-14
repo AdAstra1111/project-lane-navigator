@@ -4015,10 +4015,46 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
             <span className="font-semibold text-foreground/80">Action:</span> {rec.suggested_action}
           </div>
 
+          {/* Triage controls — only for non-suppressed */}
+          {!suppressed && (
+            <div className="flex items-center gap-1 pt-0.5">
+              {(["do_now", "watch", "ignore"] as const).map(s => {
+                const active = triageMap[rec.recommendation_id] === s;
+                const labels: Record<TriageStatus, string> = { do_now: "Do now", watch: "Watch", ignore: "Ignore" };
+                const colors: Record<TriageStatus, string> = {
+                  do_now: active ? "bg-primary/15 text-primary border-primary/40" : "text-muted-foreground/50 border-border/30 hover:border-primary/30",
+                  watch: active ? "bg-amber-500/10 text-amber-400 border-amber-500/40" : "text-muted-foreground/50 border-border/30 hover:border-amber-500/30",
+                  ignore: active ? "bg-muted/40 text-muted-foreground border-border/50" : "text-muted-foreground/50 border-border/30 hover:border-border/50",
+                };
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => toggleTriage(rec.recommendation_id, s)}
+                    className={cn("text-[8px] font-mono rounded px-1.5 py-0.5 border transition-colors", colors[s])}
+                  >
+                    {labels[s]}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
         </div>
       </div>
     </div>
   )};
+
+  // Triage summary counts
+  const triageCounts = useMemo(() => {
+    const counts = { do_now: 0, watch: 0, ignore: 0 };
+    for (const status of Object.values(triageMap)) {
+      counts[status]++;
+    }
+    return counts;
+  }, [triageMap]);
+
+  const hasAnyTriage = triageCounts.do_now + triageCounts.watch + triageCounts.ignore > 0;
 
   const DisplayBucket = ({ title, icon: Icon, bucketKey }: { title: string; icon: any; bucketKey: RecommendationBucketKey }) => {
     if (!displayResult) return null;
