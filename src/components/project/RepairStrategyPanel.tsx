@@ -4723,33 +4723,33 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
 
             {/* Bulk triage controls */}
             {displayResult && (() => {
-              const visible = displayResult.all_display.filter(r => !r.suppressed);
-              const highIds = visible.filter(r => r.severity === "high").map(r => r.recommendation_id);
-              const medIds = visible.filter(r => r.severity === "medium").map(r => r.recommendation_id);
-              const visibleIds = visible.map(r => r.recommendation_id);
-              const canDoNow = highIds.some(id => triageMap[id] !== "do_now");
-              const canWatch = medIds.some(id => triageMap[id] !== "watch");
-              const canClear = visibleIds.some(id => triageMap[id]);
+               const visible = displayResult.all_display.filter(r => !r.suppressed);
+              const highItems = visible.filter(r => r.severity === "high").map(r => ({ compKey: triageKey(r), recId: r.recommendation_id }));
+              const medItems = visible.filter(r => r.severity === "medium").map(r => ({ compKey: triageKey(r), recId: r.recommendation_id }));
+              const visibleItems = visible.map(r => ({ compKey: triageKey(r), recId: r.recommendation_id }));
+              const canDoNow = highItems.some(item => triageMap[item.compKey] !== "do_now");
+              const canWatch = medItems.some(item => triageMap[item.compKey] !== "watch");
+              const canClear = visibleItems.some(item => triageMap[item.compKey]);
 
-              const applyBulk = (ids: string[], status: TriageStatus) => {
+              const applyBulk = (items: { compKey: string; recId: string }[], status: TriageStatus) => {
                 setTriageMap(prev => {
                   const next = { ...prev };
-                  ids.forEach(id => { next[id] = status; });
+                  items.forEach(item => { next[item.compKey] = status; });
                   return next;
                 });
-                persistBulkTriage(ids, status);
+                persistBulkTriage(items, status);
                 setBulkFeedback(status === "do_now" ? "Updated do now" : status === "watch" ? "Updated watch" : "Updated ignore");
                 setTimeout(() => setBulkFeedback(null), 1200);
               };
 
               const clearAll = () => {
-                const idsToDelete = visibleIds.filter(id => triageMap[id]);
+                const itemsToDelete = visibleItems.filter(item => triageMap[item.compKey]);
                 setTriageMap(prev => {
                   const next = { ...prev };
-                  visibleIds.forEach(id => { delete next[id]; });
+                  visibleItems.forEach(item => { delete next[item.compKey]; });
                   return next;
                 });
-                if (idsToDelete.length > 0) deleteBulkTriage(idsToDelete);
+                if (itemsToDelete.length > 0) deleteBulkTriage(itemsToDelete.map(item => item.recId));
                 setBulkFeedback("Cleared triage");
                 setTimeout(() => setBulkFeedback(null), 1200);
               };
