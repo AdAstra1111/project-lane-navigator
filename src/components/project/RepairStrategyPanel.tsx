@@ -2695,7 +2695,7 @@ function ExecutionReplaySection({
             <Button
               variant="outline"
               size="sm"
-              onClick={handleLoadHistory}
+              onClick={() => handleLoadHistory()}
               disabled={!projectId || historyLoading}
               className="text-xs"
             >
