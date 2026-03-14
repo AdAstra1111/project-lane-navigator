@@ -388,6 +388,109 @@ export async function fetchPatchTargets(
   return json as PatchTargetResolutionResult;
 }
 
+// ── PatchPlan Types ──
+
+export interface PatchImpactSurface {
+  document_id: string;
+  doc_type: string;
+  version_id: string | null;
+  impact_type: "regeneration_required" | "review_required" | "no_action";
+  dependency_edge: string | null;
+  invalidation_policy: string | null;
+  revalidation_policy: string | null;
+  affected_sections: string[];
+  scope_precision: string | null;
+  propagation_path: string[];
+}
+
+export interface PatchRevalidationTarget {
+  document_id: string;
+  doc_type: string;
+  version_id: string | null;
+  revalidation_type: "full_reanalysis" | "spine_check_only" | "canon_alignment_only" | "section_recheck";
+  priority: "immediate" | "deferred";
+}
+
+export interface PatchRevalidationPlan {
+  revalidation_targets: PatchRevalidationTarget[];
+  affected_axes: string[];
+  stale_unit_keys: string[];
+  downstream_invalidation_triggered: boolean;
+}
+
+export interface PatchPlan {
+  plan_id: string;
+  project_id: string;
+  lane: string | null;
+  repair_source: {
+    source_type: "intervention" | "prp2s" | "arp1" | "manual" | "impact_resolver";
+    repair_id: string | null;
+    intervention_score: number | null;
+    repair_type: string | null;
+  };
+  direct_targets: PatchTarget[];
+  protected_targets: PatchTarget[];
+  downstream_regeneration: PatchImpactSurface[];
+  revalidation_plan: PatchRevalidationPlan;
+  execution_mode: "replace_section" | "regenerate_section" | "scene_rewrite" | "full_doc_rewrite";
+  guardrails: string[];
+  preserve_entities: string[];
+  created_at: string;
+  content_hashes: Record<string, string>;
+  stale: boolean;
+}
+
+export interface PatchPlanBuildResult {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  patch_plan: PatchPlan | null;
+  planning_notes: {
+    target_resolution_source: string;
+    execution_mode_reason: string;
+    fallback_used: boolean;
+    fallback_reason: string | null;
+    impact_surface_count: number;
+    protected_surface_count: number;
+  };
+  computed_at: string;
+  version: string;
+}
+
+export async function fetchPatchPlan(
+  projectId: string,
+  repairId?: string,
+  repairType?: string,
+  sourceType?: "intervention" | "prp2s" | "arp1" | "manual",
+  versionId?: string,
+): Promise<PatchPlanBuildResult | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  const payload: Record<string, string> = {
+    action: 'build_patch_plan',
+    projectId,
+  };
+  if (repairId) payload.repairId = repairId;
+  if (repairType) payload.repairType = repairType;
+  if (sourceType) payload.sourceType = sourceType;
+  if (versionId) payload.versionId = versionId;
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PatchPlanBuildResult;
+}
+
 async function fetchPRP1(projectId: string): Promise<PRP1Data> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Authentication required');
