@@ -4955,8 +4955,88 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
                   </button>
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pl-4 pt-1.5 space-y-2">
+                  {/* ── Action Queue Operational Controls ── */}
+                  <div className="flex items-center gap-2 flex-wrap py-1 px-1.5 rounded border border-border/20 bg-muted/5">
+                    {/* Severity filter */}
+                    <div className="flex items-center gap-0.5">
+                      <span className="text-[6px] font-mono text-muted-foreground/40 uppercase mr-0.5">Sev</span>
+                      {(['all', 'high', 'medium', 'low'] as const).map(v => (
+                        <button key={v} type="button" onClick={() => setAqSevFilter(v)}
+                          className={cn("text-[6px] font-mono px-1 py-0.5 rounded border transition-colors",
+                            aqSevFilter === v ? "border-primary/50 bg-primary/10 text-primary" : "border-border/30 text-muted-foreground/50 hover:text-muted-foreground"
+                          )}>{v}</button>
+                      ))}
+                    </div>
+                    {/* Change filter */}
+                    <div className="flex items-center gap-0.5">
+                      <span className="text-[6px] font-mono text-muted-foreground/40 uppercase mr-0.5">Δ</span>
+                      {(['all', 'worsened', 'new', 'improved'] as const).map(v => (
+                        <button key={v} type="button" onClick={() => setAqChangeFilter(v)}
+                          className={cn("text-[6px] font-mono px-1 py-0.5 rounded border transition-colors",
+                            aqChangeFilter === v ? "border-primary/50 bg-primary/10 text-primary" : "border-border/30 text-muted-foreground/50 hover:text-muted-foreground"
+                          )}>{v}</button>
+                      ))}
+                    </div>
+                    {/* Repair filter */}
+                    <div className="flex items-center gap-0.5">
+                      <span className="text-[6px] font-mono text-muted-foreground/40 uppercase mr-0.5">Repair</span>
+                      {([['all', 'all'], ['repair_done', '✓ done'], ['no_repair', 'none']] as const).map(([v, label]) => (
+                        <button key={v} type="button" onClick={() => setAqRepairFilter(v as RepairFilter)}
+                          className={cn("text-[6px] font-mono px-1 py-0.5 rounded border transition-colors",
+                            aqRepairFilter === v ? "border-primary/50 bg-primary/10 text-primary" : "border-border/30 text-muted-foreground/50 hover:text-muted-foreground"
+                          )}>{label}</button>
+                      ))}
+                    </div>
+                    {/* Sort */}
+                    <div className="flex items-center gap-0.5">
+                      <span className="text-[6px] font-mono text-muted-foreground/40 uppercase mr-0.5">Sort</span>
+                      {([['default', 'default'], ['severity', 'severity'], ['worsened_first', 'worsened↑']] as const).map(([v, label]) => (
+                        <button key={v} type="button" onClick={() => setAqSort(v as QueueSort)}
+                          className={cn("text-[6px] font-mono px-1 py-0.5 rounded border transition-colors",
+                            aqSort === v ? "border-primary/50 bg-primary/10 text-primary" : "border-border/30 text-muted-foreground/50 hover:text-muted-foreground"
+                          )}>{label}</button>
+                      ))}
+                    </div>
+                    {/* Reset */}
+                    {(aqSevFilter !== 'all' || aqChangeFilter !== 'all' || aqRepairFilter !== 'all' || aqSort !== 'default') && (
+                      <button type="button" onClick={() => { setAqSevFilter('all'); setAqChangeFilter('all'); setAqRepairFilter('all'); setAqSort('default'); }}
+                        className="text-[6px] font-mono px-1 py-0.5 rounded border border-border/30 text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+                        reset
+                      </button>
+                    )}
+                  </div>
+
                   {(["do_now", "watch", "ignore"] as const).map(status => {
-                    const items = displayResult.all_display.filter(r => triageMap[triageKey(r)] === status && !r.suppressed);
+                    // Base filter: triaged + non-suppressed
+                    let items = displayResult.all_display.filter(r => triageMap[triageKey(r)] === status && !r.suppressed);
+                    // Severity filter
+                    if (aqSevFilter !== 'all') items = items.filter(r => r.severity === aqSevFilter);
+                    // Change filter
+                    if (aqChangeFilter !== 'all') items = items.filter(r => {
+                      const cs = changeMap[r.recommendation_id]?.change_status;
+                      return cs === aqChangeFilter;
+                    });
+                    // Repair filter
+                    if (aqRepairFilter !== 'all') items = items.filter(r => {
+                      const ev = r.evidence as Record<string, unknown> | undefined;
+                      const hasMatch = completedRepairSignatures && completedRepairSignatures.size > 0 && (
+                        (ev?.repair_type && completedRepairSignatures.has(`repair_type::${ev.repair_type}`)) ||
+                        (ev?.doc_type && completedRepairSignatures.has(`diagnostic_type::${ev.doc_type}`)) ||
+                        (ev?.source_type && completedRepairSignatures.has(`scope_key::${ev.source_type}`))
+                      );
+                      return aqRepairFilter === 'repair_done' ? !!hasMatch : !hasMatch;
+                    });
+                    // Sort
+                    if (aqSort === 'severity') {
+                      const ord: Record<string, number> = { high: 0, medium: 1, low: 2 };
+                      items = [...items].sort((a, b) => (ord[a.severity] ?? 3) - (ord[b.severity] ?? 3));
+                    } else if (aqSort === 'worsened_first') {
+                      items = [...items].sort((a, b) => {
+                        const aW = changeMap[a.recommendation_id]?.change_status === 'worsened' ? 0 : 1;
+                        const bW = changeMap[b.recommendation_id]?.change_status === 'worsened' ? 0 : 1;
+                        return aW - bW;
+                      });
+                    }
                     if (items.length === 0) return null;
                     const statusLabels: Record<TriageStatus, string> = { do_now: "Do Now", watch: "Watch", ignore: "Ignored" };
                     const statusColors: Record<TriageStatus, string> = {
