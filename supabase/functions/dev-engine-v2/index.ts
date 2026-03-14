@@ -7467,10 +7467,29 @@ Format: ${rq.format}.`;
         if (tb) convertTemplateBlock = tb;
       } catch (_te) { /* non-fatal */ }
 
+      // ── FIX 2: Build ASSIMILATED CANON block from preceding stage content ──
+      let assimilationBlock = "";
+      if (assimilationContext && typeof assimilationContext === "object" && Object.keys(assimilationContext).length > 0) {
+        const sections = Object.entries(assimilationContext as Record<string, string>)
+          .filter(([, text]) => typeof text === "string" && text.trim().length > 0)
+          .map(([stage, text]) => `### ${stage.toUpperCase().replace(/_/g, " ")}\n${text.slice(0, 6000)}`);
+        if (sections.length > 0) {
+          assimilationBlock = `\n\n══════ ASSIMILATED CANON (canonical ground truth from approved preceding stages — use as foundation) ══════\n${sections.join("\n\n")}\n══════ END ASSIMILATED CANON ══════\n`;
+        }
+        console.log(`[dev-engine-v2] convert: assimilation_context_injected { stages: ${Object.keys(assimilationContext).length}, total_chars: ${sections.reduce((s, t) => s + t.length, 0)} }`);
+      }
+
+      // ── FIX 3: Feature-length screenplay enforcement for FEATURE_SCRIPT / PRODUCTION_DRAFT ──
+      const FEATURE_SCRIPT_TARGETS = new Set(["FEATURE_SCRIPT", "PRODUCTION_DRAFT"]);
+      let featureLengthBlock = "";
+      if (FEATURE_SCRIPT_TARGETS.has(normalizedTarget)) {
+        featureLengthBlock = `\n\nCRITICAL LENGTH REQUIREMENT: Write a FULL-LENGTH FEATURE FILM SCREENPLAY targeting 90-110 minutes runtime (19,000-24,000 words). Write COMPLETE scene-by-scene content with FULL action lines, FULL dialogue exchanges, and EVERY beat fully dramatised. Absolutely NO summaries, NO placeholders, NO "scenes continue similarly", NO truncation. Every scene must be written out in proper screenplay format with sluglines, action blocks, and dialogue. This is a professional feature film — treat every page with full cinematic craft.\n`;
+      }
+
       const userPrompt = `SOURCE FORMAT: ${srcDoc?.doc_type || "unknown"}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA):\n${JSON.stringify(protectItems || [])}
-${qualBindingBlock}${cvNecBlock}${cvConstraintPack}
+${qualBindingBlock}${cvNecBlock}${cvConstraintPack}${featureLengthBlock}${assimilationBlock}
 MATERIAL:\n${version.plaintext}${convertTemplateBlock}`;
 
       const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
