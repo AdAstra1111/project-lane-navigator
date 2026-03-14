@@ -30875,6 +30875,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         if (docSequenceFailed) {
           // Fail entire document — no version write, mark all as failed
           documentSequencesFailed++;
+          failedPatchedDocTypes.add(currentDocType);
           for (const r of docTargetResults) {
             if (r.status === "executed") {
               r.status = "failed";
