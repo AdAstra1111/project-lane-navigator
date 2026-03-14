@@ -4077,6 +4077,25 @@ Deno.serve(async (req) => {
         job.pipeline_key = fmt;
       }
 
+      // ── FIX 3c: Set project runtime defaults for film formats if not already set ──
+      const FILM_FORMATS = new Set(["film", "narrative-feature", "short-film", "anim-feature"]);
+      if (FILM_FORMATS.has(fmt)) {
+        try {
+          const { data: projRt } = await supabase.from("projects")
+            .select("min_runtime_minutes, min_runtime_hard_floor")
+            .eq("id", projectId).single();
+          if (!projRt?.min_runtime_minutes || projRt.min_runtime_minutes < 95) {
+            await supabase.from("projects").update({
+              min_runtime_minutes: 95,
+              min_runtime_hard_floor: 85,
+            }).eq("id", projectId);
+            console.log(`[auto-run] film_runtime_defaults_applied { project_id: "${projectId}", min_runtime_minutes: 95, min_runtime_hard_floor: 85 }`);
+          }
+        } catch (rtErr: any) {
+          console.warn(`[auto-run] film_runtime_defaults_failed: ${rtErr?.message}`);
+        }
+      }
+
       await logStep(supabase, job.id, 0, effectiveStartDoc, "start", `Auto-run started: ${effectiveStartDoc} → ${effectiveTargetDoc} (${mode || "balanced"} mode)`);
 
       if (seedResult.ensured) {
