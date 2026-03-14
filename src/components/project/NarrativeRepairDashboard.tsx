@@ -133,6 +133,15 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
     diffHook.loadDiff(sceneKey);
   };
 
+  const handleRouteToRepairs = useCallback(() => {
+    setDashTab('repairs');
+    // Allow tab switch to render, then scroll to repair queue panel
+    setTimeout(() => {
+      const el = document.getElementById('repair-queue-panel');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  }, []);
+
   const refreshAfterExecution = useCallback(() => {
     refreshMonitor();
     refetchPlan();
