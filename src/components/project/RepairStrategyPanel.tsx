@@ -4035,15 +4035,27 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
               )}
             </div>
 
+            {/* Suppression helper note */}
+            {report.suppressed_total > 0 && (
+              <div className="text-[8px] text-muted-foreground/50 italic leading-snug">
+                Suppressed recommendations are hidden from primary display but retained for audit.
+              </div>
+            )}
+
             {/* Show/hide suppressed toggle */}
             {report.suppressed_total > 0 && (
-              <button
-                onClick={() => setShowSuppressed(p => !p)}
-                className="flex items-center gap-1 text-[9px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-              >
-                {showSuppressed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                {showSuppressed ? 'Hide suppressed' : 'Show suppressed recommendations'}
-              </button>
+              <div className="space-y-0.5">
+                <button
+                  onClick={() => setShowSuppressed(p => !p)}
+                  className="flex items-center gap-1 text-[9px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                >
+                  {showSuppressed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  {showSuppressed ? 'Hide suppressed' : 'Show suppressed recommendations'}
+                </button>
+                <div className="text-[7px] text-muted-foreground/40 pl-4">
+                  Suppressed items are lower-priority or redundant variants — not deleted.
+                </div>
+              </div>
             )}
 
             {/* Insufficient history note */}
