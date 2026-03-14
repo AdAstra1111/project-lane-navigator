@@ -640,7 +640,7 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
       <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
         <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         <span className="text-[10px] text-muted-foreground">
-          Advisory ROI is shown for diagnostic comparison only. It does <strong>not</strong> affect the strategic priority score.
+          Advisory ROI and root-cause leverage are shown for diagnostic comparison only. They do <strong>not</strong> affect the strategic priority score.
         </span>
       </div>
 
