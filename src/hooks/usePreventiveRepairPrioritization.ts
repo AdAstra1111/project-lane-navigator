@@ -587,6 +587,29 @@ export interface PatchExecutionResult {
     block_reasons?: string[];
   };
   post_execution?: PostExecutionGovernance | null;
+  revalidation_execution?: RevalidationExecution | null;
+}
+
+export interface RevalidationExecutionTarget {
+  document_id: string;
+  doc_type: string;
+  version_id: string | null;
+  revalidation_type: "full_reanalysis" | "spine_check_only" | "canon_alignment_only" | "section_recheck";
+  status: "executed" | "skipped" | "failed" | "deferred";
+  message: string;
+}
+
+export interface RevalidationExecution {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  target_results: RevalidationExecutionTarget[];
+  notes: {
+    patched_document_revalidated: boolean;
+    downstream_revalidation_performed: boolean;
+    unavailable_paths_deferred: boolean;
+    dry_run_no_revalidation_writes: boolean;
+  };
 }
 
 export interface PatchExecutionResponse {
