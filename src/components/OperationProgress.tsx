@@ -17,6 +17,11 @@ interface OperationProgressProps {
   onStop?: () => void;
   /** Called when the user clicks Restart after stopping */
   onRestart?: () => void;
+  /**
+   * How long (ms) to stay at the 96% cap before auto-completing.
+   * Default: 20000 (20s). Set higher for long background operations.
+   */
+  stallTimeoutMs?: number;
 }
 
 const DEFAULT_STAGES: Stage[] = [
@@ -28,7 +33,7 @@ const DEFAULT_STAGES: Stage[] = [
   { at: 95, label: 'Almost done…' },
 ];
 
-export function OperationProgress({ isActive, stages = DEFAULT_STAGES, className, onStop, onRestart }: OperationProgressProps) {
+export function OperationProgress({ isActive, stages = DEFAULT_STAGES, className, onStop, onRestart, stallTimeoutMs = 20_000 }: OperationProgressProps) {
   const [progress, setProgress] = useState(0);
   const [label, setLabel] = useState('');
   const [stopped, setStopped] = useState(false);
@@ -59,11 +64,14 @@ export function OperationProgress({ isActive, stages = DEFAULT_STAGES, className
         if (current > 96) {
           current = 96;
           if (!atCapSince) atCapSince = Date.now();
-          if (Date.now() - atCapSince > 20000) {
+          if (Date.now() - atCapSince > stallTimeoutMs) {
             setProgress(100);
             setLabel('Done!');
             setTimeout(stop, 400);
             return;
+          }
+          if (Date.now() - atCapSince > stallTimeoutMs / 2) {
+            setLabel('Still working — large documents take a few minutes…');
           }
         }
         setProgress(current);
@@ -198,13 +206,14 @@ export const GENERATE_PITCH_STAGES: Stage[] = [
 ];
 
 export const DEV_GENERATE_STAGES: Stage[] = [
-  { at: 3, label: 'Starting generation…' },
-  { at: 15, label: 'Loading project context…' },
-  { at: 30, label: 'Building creative framework…' },
-  { at: 50, label: 'Generating content…' },
-  { at: 70, label: 'Applying narrative constraints…' },
-  { at: 85, label: 'Reviewing output…' },
-  { at: 94, label: 'Saving new version…' },
+  { at: 2, label: 'Starting generation…' },
+  { at: 8, label: 'Loading project context…' },
+  { at: 18, label: 'Building creative framework…' },
+  { at: 32, label: 'Generating content…' },
+  { at: 52, label: 'Writing — large documents take a few minutes…' },
+  { at: 72, label: 'Applying narrative constraints…' },
+  { at: 86, label: 'Reviewing output…' },
+  { at: 93, label: 'Saving new version…' },
 ];
 
 export const DEV_ANALYZE_STAGES: Stage[] = [
