@@ -17,6 +17,7 @@ import { useProjectedNarrativeStability, type ProjectedEffect } from '@/hooks/us
 import { useRecommendedRepairOrder, type RepairRecommendation, type BlockedRepair } from '@/hooks/useRecommendedRepairOrder';
 import { useRecommendedRepairPaths, type RepairPath, type ExcludedRepair } from '@/hooks/useRecommendedRepairPaths';
 import { useEvaluatedRepairPaths, type EvaluatedPath, type EvaluatedStep } from '@/hooks/useEvaluatedRepairPaths';
+import type { RepairLandingContext } from '@/components/project/RepairStrategyPanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -40,10 +41,13 @@ import {
   TrendingUp,
   Ban,
   Info,
+  X,
 } from 'lucide-react';
 
 interface Props {
   projectId: string;
+  landingContext?: RepairLandingContext | null;
+  onDismissLandingContext?: () => void;
 }
 
 const ACTIVE_STATUSES = ['pending', 'failed'] as const;
@@ -76,7 +80,7 @@ const STATUS_STYLE: Record<string, { label: string; color: string }> = {
   dismissed: { label: 'Dismissed', color: 'text-muted-foreground' },
 };
 
-export function NarrativeRepairQueuePanel({ projectId }: Props) {
+export function NarrativeRepairQueuePanel({ projectId, landingContext, onDismissLandingContext }: Props) {
   const { data: repairs, isLoading, error, refresh: refreshQueue } = useNarrativeRepairs(projectId);
   const { planRepairs, isPlanning, error: planError } = usePlanNarrativeRepairs(projectId);
   const execHook = useExecuteNarrativeRepair(projectId);
@@ -195,6 +199,32 @@ export function NarrativeRepairQueuePanel({ projectId }: Props) {
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {/* Landing context notice from Action Queue routing */}
+        {landingContext && (
+          <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 animate-in fade-in slide-in-from-top-1 duration-300">
+            <ArrowRight className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+            <div className="flex-1 space-y-0.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-medium text-foreground">Routed from Action Queue</span>
+                <Badge variant="outline" className="text-[7px] font-mono">{landingContext.severity.toUpperCase()}</Badge>
+                <span className="text-[8px] font-mono text-muted-foreground">{landingContext.rule_id}</span>
+              </div>
+              <p className="text-[10px] font-semibold text-foreground">{landingContext.title}</p>
+              <p className="text-[9px] text-muted-foreground leading-snug">{landingContext.suggested_action}</p>
+            </div>
+            {onDismissLandingContext && (
+              <button
+                type="button"
+                onClick={onDismissLandingContext}
+                className="text-muted-foreground hover:text-foreground transition-colors shrink-0 mt-0.5"
+                title="Dismiss"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Plan error */}
         {planError && (
           <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">

@@ -70,9 +70,16 @@ import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 
+export interface RepairLandingContext {
+  title: string;
+  rule_id: string;
+  severity: string;
+  suggested_action: string;
+}
+
 interface Props {
   projectId: string | undefined;
-  onRouteToRepairs?: () => void;
+  onRouteToRepairs?: (ctx: RepairLandingContext) => void;
 }
 
 /* ── Pressure color helpers ── */
@@ -4063,7 +4070,7 @@ function computeChangeMap(
 function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRouteToRepairs }: {
   projectId: string;
   onNavigateToTrend: (target: TrendNavigationTarget) => void;
-  onRouteToRepairs?: () => void;
+  onRouteToRepairs?: (ctx: RepairLandingContext) => void;
 }) {
   const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
   const [trendsData, setTrendsData] = useState<PatchExecutionTrendsResponse | null>(null);
@@ -4952,7 +4959,12 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
                                   type="button"
                                   className="text-[7px] font-mono px-1.5 py-0.5 rounded border border-accent/40 bg-accent/10 text-accent-foreground/80 hover:text-accent-foreground hover:bg-accent/20 transition-colors flex items-center gap-1"
                                   title="Switch to Repairs tab and scroll to repair queue"
-                                  onClick={onRouteToRepairs}
+                                  onClick={() => onRouteToRepairs({
+                                    title: rec.title,
+                                    rule_id: rec.rule_id,
+                                    severity: rec.severity,
+                                    suggested_action: rec.suggested_action,
+                                  })}
                                 >
                                   <ArrowRight className="h-2.5 w-2.5" />
                                   Route to Repair

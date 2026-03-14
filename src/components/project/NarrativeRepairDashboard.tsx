@@ -5,8 +5,8 @@
  * Fail-closed: calm state when no risk; graceful degradation on errors.
  */
 
-import { useState, useMemo, useCallback } from 'react';
-import { RepairStrategyPanel } from '@/components/project/RepairStrategyPanel';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import { RepairStrategyPanel, type RepairLandingContext } from '@/components/project/RepairStrategyPanel';
 import { useSelectiveRegenerationPlan, type RepairStrategy, type RecommendedScope, type SourceUnit, type ImpactedScene } from '@/hooks/useSelectiveRegenerationPlan';
 import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/hooks/useExecuteSelectiveRegeneration';
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
@@ -106,6 +106,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
   const [diffOpen, setDiffOpen] = useState(false);
   const [diffSceneIndex, setDiffSceneIndex] = useState(0);
   const [diffSceneKeys, setDiffSceneKeys] = useState<string[]>([]);
+  const [repairLandingContext, setRepairLandingContext] = useState<RepairLandingContext | null>(null);
+  const landingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Scene groups from plan
   const allScenes = plan?.impacted_scenes || [];
@@ -133,9 +135,11 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
     diffHook.loadDiff(sceneKey);
   };
 
-  const handleRouteToRepairs = useCallback(() => {
+  const handleRouteToRepairs = useCallback((ctx: RepairLandingContext) => {
+    setRepairLandingContext(ctx);
+    if (landingTimerRef.current) clearTimeout(landingTimerRef.current);
+    landingTimerRef.current = setTimeout(() => setRepairLandingContext(null), 15000);
     setDashTab('repairs');
-    // Allow tab switch to render, then scroll to repair queue panel
     setTimeout(() => {
       const el = document.getElementById('repair-queue-panel');
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -218,7 +222,7 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
           {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
 
           {/* Repair Queue */}
-          {projectId && <NarrativeRepairQueuePanel projectId={projectId} />}
+          {projectId && <NarrativeRepairQueuePanel projectId={projectId} landingContext={repairLandingContext} onDismissLandingContext={() => { setRepairLandingContext(null); if (landingTimerRef.current) clearTimeout(landingTimerRef.current); }} />}
 
           {/* Simulation Preview */}
           <NarrativeSimulationPanel projectId={projectId} />
@@ -288,7 +292,7 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
         {/* ═══ NARRATIVE DIAGNOSTICS ═══ */}
         {projectId && <NarrativeDiagnosticsPanel projectId={projectId} />}
         {/* ═══ REPAIR QUEUE ═══ */}
-        {projectId && <NarrativeRepairQueuePanel projectId={projectId} />}
+        {projectId && <NarrativeRepairQueuePanel projectId={projectId} landingContext={repairLandingContext} onDismissLandingContext={() => { setRepairLandingContext(null); if (landingTimerRef.current) clearTimeout(landingTimerRef.current); }} />}
         {/* ═══ SIMULATION PREVIEW ═══ */}
         <NarrativeSimulationPanel projectId={projectId} />
         {/* ═══ NARRATIVE DRIFT ═══ */}
