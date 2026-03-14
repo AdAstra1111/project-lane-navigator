@@ -3831,10 +3831,77 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [loaded, setLoaded] = useState(false);
   const [showSuppressed, setShowSuppressed] = useState(false);
   const [triageMap, setTriageMap] = useState<Record<string, TriageStatus>>({});
+  const triageLoadedRef = useRef(false);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [memoCopied, setMemoCopied] = useState<string | null>(null);
   const [bulkFeedback, setBulkFeedback] = useState<string | null>(null);
   const [triageJsonCopied, setTriageJsonCopied] = useState<string | null>(null);
+
+  // Load persisted triage from DB on mount
+  useEffect(() => {
+    if (triageLoadedRef.current) return;
+    triageLoadedRef.current = true;
+    (async () => {
+      const { data: rows } = await supabase
+        .from('execution_recommendation_triage')
+        .select('recommendation_id, triage_status')
+        .eq('project_id', projectId);
+      if (rows && rows.length > 0) {
+        const map: Record<string, TriageStatus> = {};
+        for (const r of rows) {
+          if (r.triage_status === 'do_now' || r.triage_status === 'watch' || r.triage_status === 'ignore') {
+            map[r.recommendation_id] = r.triage_status;
+          }
+        }
+        setTriageMap(map);
+      }
+    })();
+  }, [projectId]);
+
+  // Persist a single triage upsert
+  const persistTriage = useCallback(async (recId: string, status: TriageStatus) => {
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase
+      .from('execution_recommendation_triage')
+      .upsert({
+        project_id: projectId,
+        recommendation_id: recId,
+        triage_status: status,
+        created_by: userData?.user?.id ?? null,
+      }, { onConflict: 'project_id,recommendation_id' });
+  }, [projectId]);
+
+  // Delete a single triage row
+  const deleteTriage = useCallback(async (recId: string) => {
+    await supabase
+      .from('execution_recommendation_triage')
+      .delete()
+      .eq('project_id', projectId)
+      .eq('recommendation_id', recId);
+  }, [projectId]);
+
+  // Persist bulk upserts
+  const persistBulkTriage = useCallback(async (ids: string[], status: TriageStatus) => {
+    const { data: userData } = await supabase.auth.getUser();
+    const rows = ids.map(id => ({
+      project_id: projectId,
+      recommendation_id: id,
+      triage_status: status,
+      created_by: userData?.user?.id ?? null,
+    }));
+    await supabase
+      .from('execution_recommendation_triage')
+      .upsert(rows, { onConflict: 'project_id,recommendation_id' });
+  }, [projectId]);
+
+  // Delete bulk triage rows
+  const deleteBulkTriage = useCallback(async (ids: string[]) => {
+    await supabase
+      .from('execution_recommendation_triage')
+      .delete()
+      .eq('project_id', projectId)
+      .in('recommendation_id', ids);
+  }, [projectId]);
 
   // Clean stale triage entries when recommendations change
   const cleanTriageMap = (recs: ExecutionRecommendations) => {
@@ -3856,8 +3923,10 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     setTriageMap(prev => {
       if (prev[recId] === status) {
         const { [recId]: _, ...rest } = prev;
+        deleteTriage(recId);
         return rest;
       }
+      persistTriage(recId, status);
       return { ...prev, [recId]: status };
     });
   };
