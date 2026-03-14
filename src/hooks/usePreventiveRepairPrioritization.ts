@@ -1450,8 +1450,10 @@ export function resolveRecommendationTrendLinkage(
 ): RecommendationTrendLinkage {
   const unavailable: RecommendationTrendLinkage = {
     status: "unavailable",
+    chip_label: TREND_CHIP_LABELS.unavailable,
     label: TREND_LABELS.unavailable,
     source_key: "none",
+    source_label: "",
     metric_summary: null,
   };
 
