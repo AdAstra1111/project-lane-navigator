@@ -4079,22 +4079,30 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   // Stable triage identity helper — uses comparison_key instead of ephemeral recommendation_id
   const triageKey = (rec: { category?: string; rule_id?: string; recommendation_id: string; evidence?: Record<string, unknown>; trigger_metrics?: Record<string, unknown> }) => deriveComparisonKey(rec);
 
-  // Load persisted triage from DB on mount — keyed by comparison_key (falls back to recommendation_id for legacy rows)
+  // Load persisted triage from DB on mount — keyed by comparison_key only.
+  // Legacy rows with null comparison_key are intentionally ignored (they used unstable recommendation_id
+  // and cannot be reliably mapped to current logical recommendations).
+  // During Phase 2, multiple DB rows may share the same comparison_key (different recommendation_id).
+  // We deduplicate by reading ORDER BY updated_at DESC so latest triage decision wins in memory.
+  // Phase 4 will enforce DB-level UNIQUE(project_id, comparison_key) and clean duplicates.
   useEffect(() => {
     if (triageLoadedRef.current) return;
     triageLoadedRef.current = true;
     (async () => {
       const { data: rows } = await supabase
         .from('execution_recommendation_triage')
-        .select('recommendation_id, comparison_key, triage_status')
-        .eq('project_id', projectId);
+        .select('comparison_key, triage_status')
+        .eq('project_id', projectId)
+        .not('comparison_key', 'is', null)
+        .order('updated_at', { ascending: false });
       if (rows && rows.length > 0) {
         const map: Record<string, TriageStatus> = {};
         for (const r of rows) {
           if (r.triage_status === 'do_now' || r.triage_status === 'watch' || r.triage_status === 'ignore') {
-            // Prefer comparison_key; fall back to recommendation_id for legacy rows
-            const key = r.comparison_key || r.recommendation_id;
-            map[key] = r.triage_status;
+            // First seen wins (rows are ordered by updated_at DESC, so latest is first)
+            if (!map[r.comparison_key!]) {
+              map[r.comparison_key!] = r.triage_status;
+            }
           }
         }
         setTriageMap(map);
