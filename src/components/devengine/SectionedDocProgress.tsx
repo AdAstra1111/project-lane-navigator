@@ -24,6 +24,8 @@ interface ChunkRow {
 interface SectionedDocProgressProps {
   versionId: string;
   docType: string;
+  /** Fires once when every chunk reaches status === 'done', with assembled content */
+  onAllChunksDone?: (assembledContent: string) => void;
 }
 
 const DOC_TYPE_LABELS: Record<string, string> = {
