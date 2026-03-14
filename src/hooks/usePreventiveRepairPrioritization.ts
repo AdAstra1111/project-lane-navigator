@@ -264,6 +264,56 @@ export interface RootCauseAnalysisResult {
   version: string;
 }
 
+// ── Intervention Engine types (compute_intervention_candidates response contract) ──
+
+export interface InterventionSupportingSignals {
+  prevented_downstream_pressure: number | null;
+  projected_stability_gain: number | null;
+  execution_friction: number | null;
+  blast_radius: number | null;
+  cluster_combined_pressure: number | null;
+  cluster_confidence: number | null;
+  cluster_repair_count: number | null;
+}
+
+export interface InterventionCandidate {
+  repair_id: string;
+  repair_type: string;
+  scope_type: string | null;
+  scope_key: string | null;
+  strategic_rank: number;
+  roi_rank: number | null;
+  root_cause_rank: number | null;
+  strategic_priority_score: number;
+  intervention_roi_score: number | null;
+  root_cause_leverage_score: number | null;
+  intervention_score: number;
+  intervention_label: "high" | "medium" | "low";
+  supporting_signals: InterventionSupportingSignals;
+  rationale_tags: string[];
+  rationale_summary: string;
+}
+
+export interface InterventionScoringNotes {
+  integration_mode: string;
+  formula_reference: string;
+  rank_definition: string;
+  anti_double_counting_notes: string;
+  label_thresholds: string;
+}
+
+export interface InterventionAnalysisResult {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  candidate_count: number;
+  recommended_intervention_repair_id: string | null;
+  interventions: InterventionCandidate[];
+  computed_at: string;
+  version: string;
+  scoring_notes: InterventionScoringNotes;
+}
+
 async function fetchPRP1(projectId: string): Promise<PRP1Data> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Authentication required');
@@ -400,6 +450,28 @@ async function fetchRootCauseClusters(projectId: string): Promise<RootCauseAnaly
   return json as RootCauseAnalysisResult;
 }
 
+async function fetchInterventionCandidates(projectId: string): Promise<InterventionAnalysisResult | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Authentication required');
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'compute_intervention_candidates',
+      projectId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as InterventionAnalysisResult;
+}
+
 export function usePreventiveRepairPrioritization(projectId: string | undefined) {
   const queryClient = useQueryClient();
   const prp1Key = ['prp1-prioritization', projectId];
@@ -408,6 +480,7 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
   const roiKey = ['intervention-roi', projectId];
   const prp2sKey = ['prp2s-strategy', projectId];
   const rccKey = ['root-cause-clusters', projectId];
+  const ivKey = ['intervention-candidates', projectId];
 
   const prp1Query = useQuery({
     queryKey: prp1Key,
@@ -453,6 +526,13 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     staleTime: 60_000,
   });
 
+  const ivQuery = useQuery({
+    queryKey: ivKey,
+    queryFn: () => fetchInterventionCandidates(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
   const refresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: prp1Key });
     queryClient.invalidateQueries({ queryKey: nrf1Key });
@@ -460,6 +540,7 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     queryClient.invalidateQueries({ queryKey: roiKey });
     queryClient.invalidateQueries({ queryKey: prp2sKey });
     queryClient.invalidateQueries({ queryKey: rccKey });
+    queryClient.invalidateQueries({ queryKey: ivKey });
   }, [queryClient]);
 
   return {
@@ -469,12 +550,14 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     roi: roiQuery.data ?? null,
     prp2s: prp2sQuery.data ?? null,
     rcc: rccQuery.data ?? null,
+    iv: ivQuery.data ?? null,
     isLoading: prp1Query.isLoading,
     nrf1Loading: nrf1Query.isLoading,
     prp2Loading: prp2Query.isLoading,
     roiLoading: roiQuery.isLoading,
     prp2sLoading: prp2sQuery.isLoading,
     rccLoading: rccQuery.isLoading,
+    ivLoading: ivQuery.isLoading,
     error: prp1Query.error?.message ?? null,
     refresh,
   };
