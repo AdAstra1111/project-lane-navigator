@@ -6155,6 +6155,35 @@ Deno.serve(async (req) => {
                   .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
                   .order("created_at", { ascending: false }).limit(1).maybeSingle();
                 if (docForCap) await finalizeBest(supabase, jobId, job, docForCap.id);
+
+                // In Full Autopilot (allow_defaults=true), auto-force-promote instead of pausing.
+                // No notes remain → this is as good as it gets. Promote and keep running.
+                if (job.allow_defaults) {
+                  const nextStage = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
+                  await logStep(supabase, jobId, stepCount + 2, currentDoc, "auto_force_promote",
+                    `Full Autopilot: CI=${plateauV2.currentCI} plateaued with no actionable notes — auto-promoting to next stage (${nextStage ?? "complete"}).`,
+                    { ci: plateauV2.currentCI }, undefined,
+                    { from: currentDoc, to: nextStage, reason: "notes_unresolvable_allow_defaults" });
+                  if (nextStage && isStageAtOrBeforeTarget(nextStage, job.target_document, format)) {
+                    await updateJob(supabase, jobId, {
+                      step_count: stepCount + 2,
+                      current_document: nextStage,
+                      stage_loop_count: 0,
+                      frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+                      status: "running",
+                      stop_reason: null,
+                      pause_reason: null,
+                      error: null,
+                    });
+                    await releaseProcessingLock(supabase, jobId);
+                    return respondWithJob(supabase, jobId, "run-next");
+                  } else {
+                    await updateJob(supabase, jobId, { step_count: stepCount + 2, status: "completed", stop_reason: "All stages satisfied (auto-promote from plateau)" });
+                    await releaseProcessingLock(supabase, jobId);
+                    return respondWithJob(supabase, jobId);
+                  }
+                }
+
                 await updateJob(supabase, jobId, {
                   status: "paused",
                   stop_reason: "NOTES_UNRESOLVABLE",
@@ -6242,6 +6271,34 @@ Deno.serve(async (req) => {
                 .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
                 .order("created_at", { ascending: false }).limit(1).maybeSingle();
               if (docForCap) await finalizeBest(supabase, jobId, job, docForCap.id);
+
+              // In Full Autopilot (allow_defaults=true), auto-force-promote instead of pausing.
+              if (job.allow_defaults) {
+                const nextStageV1 = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
+                await logStep(supabase, jobId, stepCount + 2, currentDoc, "auto_force_promote",
+                  `Full Autopilot: CI=${ciProgress.currentCi} plateaued (V1) with no actionable notes — auto-promoting to next stage (${nextStageV1 ?? "complete"}).`,
+                  { ci: ciProgress.currentCi }, undefined,
+                  { from: currentDoc, to: nextStageV1, reason: "notes_unresolvable_v1_allow_defaults" });
+                if (nextStageV1 && isStageAtOrBeforeTarget(nextStageV1, job.target_document, format)) {
+                  await updateJob(supabase, jobId, {
+                    step_count: stepCount + 2,
+                    current_document: nextStageV1,
+                    stage_loop_count: 0,
+                    frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+                    status: "running",
+                    stop_reason: null,
+                    pause_reason: null,
+                    error: null,
+                  });
+                  await releaseProcessingLock(supabase, jobId);
+                  return respondWithJob(supabase, jobId, "run-next");
+                } else {
+                  await updateJob(supabase, jobId, { step_count: stepCount + 2, status: "completed", stop_reason: "All stages satisfied (auto-promote from plateau V1)" });
+                  await releaseProcessingLock(supabase, jobId);
+                  return respondWithJob(supabase, jobId);
+                }
+              }
+
               await updateJob(supabase, jobId, {
                 status: "paused",
                 stop_reason: "NOTES_UNRESOLVABLE",
