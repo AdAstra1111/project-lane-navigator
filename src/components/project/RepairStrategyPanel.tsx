@@ -3823,15 +3823,44 @@ type TriageStatus = "do_now" | "watch" | "ignore";
 type ChangeStatus = "new" | "resolved" | "worsened" | "improved" | "unchanged";
 interface ChangeEntry { change_status: ChangeStatus; previous_severity?: string; current_severity?: string; title?: string; rule_id?: string; comparison_key?: string; }
 
-/** Derive a stable comparison key from category + rule_id. Positional recommendation_id (top_001 etc.) is NOT stable across runs when the set changes. */
-function deriveComparisonKey(rec: { category?: string; rule_id?: string; recommendation_id: string }): string {
-  if (rec.category && rec.rule_id) return `${rec.category}::${rec.rule_id}`;
-  return rec.recommendation_id; // fallback
+/**
+ * Derive a stable comparison key for change detection.
+ * category::rule_id is NOT unique for entity-scoped rules (B, C, D, E, I)
+ * where multiple recs share the same rule but target different entities.
+ * We append the entity discriminator from evidence when available.
+ */
+function deriveComparisonKey(rec: {
+  category?: string;
+  rule_id?: string;
+  recommendation_id: string;
+  evidence?: Record<string, unknown>;
+  trigger_metrics?: Record<string, unknown>;
+}): string {
+  if (!rec.category || !rec.rule_id) return rec.recommendation_id;
+
+  // Extract entity discriminator from evidence (mirrors extractEntityKey in the hook)
+  const ev = (rec.evidence ?? rec.trigger_metrics ?? {}) as Record<string, unknown>;
+  const entityKey =
+    ev.blocker_code ?? ev.blocker ??
+    ev.repair_type ?? ev.source_type ?? ev.doc_type ??
+    null;
+
+  if (entityKey) return `${rec.category}::${rec.rule_id}::${String(entityKey)}`;
+  return `${rec.category}::${rec.rule_id}`;
 }
 
 const SEV_ORDER: Record<string, number> = { high: 2, medium: 1, low: 0 };
 
-interface SnapshotItem { recommendation_id: string; comparison_key?: string; severity: string; suppressed?: boolean; title?: string; rule_id?: string; category?: string; }
+interface SnapshotItem {
+  recommendation_id: string;
+  comparison_key?: string;
+  severity: string;
+  suppressed?: boolean;
+  title?: string;
+  rule_id?: string;
+  category?: string;
+  evidence?: Record<string, unknown>;
+}
 
 function computeChangeMap(
   currentRecs: DisplayRecommendation[],
@@ -4012,18 +4041,29 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
         const runId = recsRes.computed_at || new Date().toISOString();
         const displayModel = dedupeAndSuppressRecommendations(recsRes.recommendations);
         if (displayModel) {
-          // Build minimal snapshot for storage — includes comparison_key for stable identity
+          // Build minimal snapshot for storage — includes comparison_key + entity evidence for stable identity
           const snapshotItems: SnapshotItem[] = displayModel.all_display
             .filter(r => !r.suppressed)
-            .map(r => ({
-              recommendation_id: r.recommendation_id,
-              comparison_key: deriveComparisonKey(r),
-              severity: r.severity,
-              rule_id: r.rule_id,
-              category: r.category,
-              suppressed: false,
-              title: r.title,
-            }));
+            .map(r => {
+              // Extract only canonical entity fields from evidence for snapshot (not full evidence blob)
+              const ev = r.evidence as Record<string, unknown> | undefined;
+              const entityEvidence: Record<string, unknown> = {};
+              if (ev) {
+                for (const k of ['blocker_code', 'blocker', 'repair_type', 'source_type', 'doc_type']) {
+                  if (ev[k] != null) entityEvidence[k] = ev[k];
+                }
+              }
+              return {
+                recommendation_id: r.recommendation_id,
+                comparison_key: deriveComparisonKey(r),
+                severity: r.severity,
+                rule_id: r.rule_id,
+                category: r.category,
+                suppressed: false,
+                title: r.title,
+                evidence: Object.keys(entityEvidence).length > 0 ? entityEvidence : undefined,
+              };
+            });
 
           // Fetch previous snapshot — EXCLUDE current run_id to prevent self-comparison
           const { data: prevRows } = await supabase
