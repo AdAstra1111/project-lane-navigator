@@ -2607,17 +2607,27 @@ function ExecutionReplaySection({
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<PatchExecutionHistoryItem | null>(null);
   const [showManualInput, setShowManualInput] = useState(false);
 
-  const handleLoadHistory = async () => {
+  // Filter state
+  const [historyFilters, setHistoryFilters] = useState<PatchExecutionHistoryFilters>({});
+  const hasActiveFilters = Object.values(historyFilters).some(v => v != null && v !== '');
+
+  const handleLoadHistory = async (filtersOverride?: PatchExecutionHistoryFilters) => {
     if (!projectId) return;
     setHistoryLoading(true);
     try {
-      const result = await fetchPatchExecutionHistory(projectId, 20);
+      const f = filtersOverride ?? historyFilters;
+      const result = await fetchPatchExecutionHistory(projectId, 20, hasActiveFilters || filtersOverride ? f : undefined);
       setHistoryResult(result);
     } catch {
       setHistoryResult(null);
     } finally {
       setHistoryLoading(false);
     }
+  };
+
+  const handleClearFilters = () => {
+    setHistoryFilters({});
+    if (historyResult) handleLoadHistory({});
   };
 
   const handleSelectHistoryItem = async (item: PatchExecutionHistoryItem) => {
