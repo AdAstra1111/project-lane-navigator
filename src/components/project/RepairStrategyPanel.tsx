@@ -4116,6 +4116,19 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                 {rec.suppression_reason}
               </Badge>
             )}
+            {/* Change detection badge */}
+            {(() => {
+              const change = changeMap[rec.recommendation_id];
+              if (!change || change.change_status === "unchanged") return null;
+              const cfg: Record<string, { label: string; cls: string }> = {
+                new: { label: "NEW", cls: "text-blue-400 border-blue-500/30 bg-blue-500/10" },
+                worsened: { label: `WORSENED ↑ ${change.previous_severity}→${change.current_severity}`, cls: "text-red-400 border-red-500/30 bg-red-500/10" },
+                improved: { label: `IMPROVED ↓ ${change.previous_severity}→${change.current_severity}`, cls: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10" },
+              };
+              const c = cfg[change.change_status];
+              if (!c) return null;
+              return <Badge variant="outline" className={cn("text-[7px] font-mono shrink-0", c.cls)}>{c.label}</Badge>;
+            })()}
           </div>
 
           {/* Trend signal subline — shown for all statuses for honesty */}
