@@ -681,15 +681,17 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader>
+               <TableHeader>
                   <TableRow className="border-border/50">
-                    <TableHead className="text-xs w-[55px]">Strat #</TableHead>
-                    <TableHead className="text-xs w-[55px]">ROI #</TableHead>
-                    <TableHead className="text-xs">Repair</TableHead>
-                    <TableHead className="text-xs w-[70px]">Strat Score</TableHead>
-                    <TableHead className="text-xs w-[70px]">Adv. ROI</TableHead>
-                    <TableHead className="text-xs w-[70px]">Confidence</TableHead>
-                    <TableHead className="text-xs w-[30px]" />
+                     <TableHead className="text-xs w-[55px]">Strat #</TableHead>
+                     <TableHead className="text-xs w-[55px]">ROI #</TableHead>
+                     <TableHead className="text-xs w-[50px]">RC #</TableHead>
+                     <TableHead className="text-xs">Repair</TableHead>
+                     <TableHead className="text-xs w-[70px]">Strat Score</TableHead>
+                     <TableHead className="text-xs w-[70px]">Adv. ROI</TableHead>
+                     <TableHead className="text-xs w-[55px]">RC</TableHead>
+                     <TableHead className="text-xs w-[70px]">Confidence</TableHead>
+                     <TableHead className="text-xs w-[30px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
