@@ -4258,6 +4258,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
         // Change detection: compare with previous run
         const runId = recsRes.computed_at || new Date().toISOString();
         const displayModel = dedupeAndSuppressRecommendations(recsRes.recommendations);
+        setDisplayResult(displayModel);
         if (displayModel) {
           // Build minimal snapshot for storage — includes comparison_key + entity evidence for stable identity
           const snapshotItems: SnapshotItem[] = displayModel.all_display
