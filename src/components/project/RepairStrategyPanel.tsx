@@ -75,6 +75,7 @@ export interface RepairLandingContext {
   rule_id: string;
   severity: string;
   suggested_action: string;
+  repair_type?: string;
 }
 
 interface Props {
