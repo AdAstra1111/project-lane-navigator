@@ -920,6 +920,10 @@ export interface PatchExecutionComparisonResponse {
     missing_side: "left" | "right" | "both" | null;
     left_invalid_reason?: string | null;
     right_invalid_reason?: string | null;
+    first_causal_divergence?: { edge: string; reason: string } | null;
+    root_blocker?: { from_node: string; to_node: string; reason: string } | null;
+    new_blockers?: string[];
+    resolved_blockers?: string[];
   };
   computed_at: string;
   version: string;
