@@ -2613,6 +2613,11 @@ function ExecutionReplaySection({
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<PatchExecutionHistoryItem | null>(null);
   const [showManualInput, setShowManualInput] = useState(false);
 
+  // Compare state
+  const [compareItem, setCompareItem] = useState<PatchExecutionHistoryItem | null>(null);
+  const [compareResult, setCompareResult] = useState<PatchExecutionComparisonResponse | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+
   // Filter state
   const [historyFilters, setHistoryFilters] = useState<PatchExecutionHistoryFilters>({});
   const hasActiveFilters = Object.values(historyFilters).some(v => v != null && v !== '');
