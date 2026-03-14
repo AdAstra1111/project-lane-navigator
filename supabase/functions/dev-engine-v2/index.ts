@@ -30085,10 +30085,197 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
+    // SHARED VALIDATION CORE — validatePatchPlanCore
+    //
+    // Single canonical helper for patch plan validation. Used by both
+    // validate_patch_plan and execute_patch_plan. No writes. Deterministic.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    interface PatchPlanValidationIssue {
+      code: string;
+      severity: "error" | "warning";
+      target_id: string | null;
+      message: string;
+    }
+
+    interface PatchPlanValidationResult {
+      plan_id: string;
+      plan_valid: boolean;
+      stale: boolean;
+      direct_targets_checked: number;
+      protected_targets_checked: number;
+      direct_targets_valid: number;
+      protected_targets_valid: number;
+      issues: PatchPlanValidationIssue[];
+      validation_notes: {
+        hash_check_performed: boolean;
+        version_check_performed: boolean;
+        lock_check_performed: boolean;
+        fallback_used: boolean;
+        fallback_reason: string | null;
+      };
+    }
+
+    async function validatePatchPlanCore(
+      supabaseClient: typeof supabase,
+      core: PatchTargetCoreResult,
+      planId: string,
+      projectId: string,
+    ): Promise<PatchPlanValidationResult> {
+      const issues: PatchPlanValidationIssue[] = [];
+      let hashCheckPerformed = false;
+      let versionCheckPerformed = false;
+      let lockCheckPerformed = false;
+
+      // Helper: recompute hash for target content at current DB state
+      async function recomputeTargetHash(target: CorePatchTarget): Promise<string | null> {
+        if (target.target_type === "document" || target.target_type === "section" || target.target_type === "episode_block") {
+          const { data: ver } = await supabaseClient
+            .from("project_document_versions")
+            .select("plaintext")
+            .eq("id", target.version_id)
+            .maybeSingle();
+          if (!ver) return null;
+          return await coreContentHash(ver.plaintext || "");
+        }
+        if (target.target_type === "scene") {
+          const { data: sceneVer } = await supabaseClient
+            .from("scene_graph_versions")
+            .select("content, summary")
+            .eq("scene_id", target.scene_id)
+            .order("version_number", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (!sceneVer) return null;
+          return await coreContentHash(sceneVer.content || sceneVer.summary || "");
+        }
+        return null;
+      }
+
+      // STEP 1 — Direct target existence
+      let directValid = 0;
+      for (const dt of core.direct_targets) {
+        if (dt.target_type === "scene") {
+          const { data: sceneRow } = await supabaseClient.from("scene_graph_scenes").select("id").eq("id", dt.scene_id).maybeSingle();
+          if (!sceneRow) {
+            issues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: `Direct scene target ${dt.scene_id} no longer exists` });
+          } else { directValid++; }
+        } else {
+          const { data: docRow } = await supabaseClient.from("project_documents").select("id").eq("id", dt.document_id).maybeSingle();
+          const { data: verRow } = await supabaseClient.from("project_document_versions").select("id").eq("id", dt.version_id).maybeSingle();
+          if (!docRow) {
+            issues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: `Direct document ${dt.document_id} no longer exists` });
+          } else if (!verRow) {
+            issues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: `Direct version ${dt.version_id} no longer exists` });
+          } else { directValid++; }
+        }
+      }
+
+      // STEP 2 — Protected target existence
+      let protectedValid = 0;
+      for (const pt of core.protected_targets) {
+        if (pt.target_type === "scene") {
+          const { data: sceneRow } = await supabaseClient.from("scene_graph_scenes").select("id").eq("id", pt.scene_id).maybeSingle();
+          if (!sceneRow) {
+            issues.push({ code: "protected_target_missing", severity: "warning", target_id: pt.target_id, message: `Protected scene ${pt.scene_id} no longer exists` });
+          } else { protectedValid++; }
+        } else {
+          const { data: docRow } = await supabaseClient.from("project_documents").select("id").eq("id", pt.document_id).maybeSingle();
+          if (!docRow) {
+            issues.push({ code: "protected_target_missing", severity: "warning", target_id: pt.target_id, message: `Protected document ${pt.document_id} no longer exists` });
+          } else { protectedValid++; }
+        }
+      }
+
+      // STEP 3 — Content hash freshness
+      hashCheckPerformed = true;
+      for (const dt of core.direct_targets) {
+        if (!dt.content_hash) {
+          issues.push({ code: "missing_content_hash", severity: "error", target_id: dt.target_id, message: `Direct target missing content_hash` });
+          continue;
+        }
+        const currentHash = await recomputeTargetHash(dt);
+        if (currentHash === null) {
+          issues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: `Cannot recompute hash — target content unavailable` });
+        } else if (currentHash !== dt.content_hash) {
+          issues.push({ code: "content_hash_mismatch", severity: "error", target_id: dt.target_id, message: `Direct target content changed since plan was built` });
+        }
+      }
+      for (const pt of core.protected_targets) {
+        if (!pt.content_hash) {
+          issues.push({ code: "missing_content_hash", severity: "error", target_id: pt.target_id, message: `Protected target missing content_hash` });
+          continue;
+        }
+        const currentHash = await recomputeTargetHash(pt);
+        if (currentHash !== null && currentHash !== pt.content_hash) {
+          issues.push({ code: "content_hash_mismatch", severity: "warning", target_id: pt.target_id, message: `Protected target content changed since plan was built` });
+        }
+      }
+
+      // STEP 4 — Version binding check
+      versionCheckPerformed = true;
+      const checkedVersions = new Set<string>();
+      for (const dt of core.direct_targets) {
+        if (checkedVersions.has(dt.version_id)) continue;
+        checkedVersions.add(dt.version_id);
+        const { data: verRow } = await supabaseClient
+          .from("project_document_versions")
+          .select("id, is_current, superseded_at, superseded_by")
+          .eq("id", dt.version_id)
+          .maybeSingle();
+        if (!verRow) continue;
+        if (verRow.superseded_at || verRow.superseded_by) {
+          issues.push({ code: "version_superseded", severity: "error", target_id: dt.target_id, message: `Version ${dt.version_id} has been superseded` });
+        }
+      }
+
+      // STEP 5 — Active processing lock check
+      lockCheckPerformed = true;
+      const { data: activeJobs } = await supabaseClient
+        .from("auto_run_jobs")
+        .select("id, status, is_processing")
+        .eq("project_id", projectId)
+        .in("status", ["running", "paused"])
+        .limit(1);
+      if (activeJobs && activeJobs.length > 0) {
+        issues.push({ code: "active_processing_conflict", severity: "error", target_id: null, message: `Active auto-run job exists (${activeJobs[0].id}), execution unsafe` });
+      }
+
+      // STEP 6 — Final validity + deterministic sort
+      const hasError = issues.some(i => i.severity === "error");
+      const isStale = issues.some(i => i.code === "content_hash_mismatch" || i.code === "version_superseded");
+
+      issues.sort((a, b) => {
+        const sevCmp = (a.severity === "error" ? 0 : 1) - (b.severity === "error" ? 0 : 1);
+        if (sevCmp !== 0) return sevCmp;
+        const tidCmp = (a.target_id || "").localeCompare(b.target_id || "");
+        if (tidCmp !== 0) return tidCmp;
+        return a.code.localeCompare(b.code);
+      });
+
+      return {
+        plan_id: planId,
+        plan_valid: !hasError,
+        stale: isStale,
+        direct_targets_checked: core.direct_targets.length,
+        protected_targets_checked: core.protected_targets.length,
+        direct_targets_valid: directValid,
+        protected_targets_valid: protectedValid,
+        issues,
+        validation_notes: {
+          hash_check_performed: hashCheckPerformed,
+          version_check_performed: versionCheckPerformed,
+          lock_check_performed: lockCheckPerformed,
+          fallback_used: core.resolution_notes.fallback_used,
+          fallback_reason: core.resolution_notes.fallback_reason,
+        },
+      };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
     // PATCH PLAN VALIDATION / STALENESS VERIFICATION v1 — validate_patch_plan
     //
-    // Read-only validation gate. Uses buildPatchPlanCore, then verifies
-    // target existence, content hash freshness, version bindings, and locks.
+    // Read-only validation gate. Uses buildPatchPlanCore + validatePatchPlanCore.
     // ══════════════════════════════════════════════════════════════════════════════
 
     if (action === "validate_patch_plan") {
@@ -30104,7 +30291,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
 
       const vpAt = new Date().toISOString();
 
-      // ── STEP 1: Build canonical patch plan via shared core ──
+      // Build canonical patch plan via shared core
       const result = await buildPatchPlanCore(supabase, { projectId, repairId, repairType, sourceType, versionId });
 
       if (result.empty || !result.patch_plan || !result._core) {
@@ -30122,176 +30309,17 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const vpPlan = result.patch_plan;
       const core = result._core;
 
-      // ── STEP 2-8: Validation checks ──
-      interface VPIssue {
-        code: string;
-        severity: "error" | "warning";
-        target_id: string | null;
-        message: string;
-      }
-      const vpIssues: VPIssue[] = [];
-      let vpHashCheckPerformed = false;
-      let vpVersionCheckPerformed = false;
-      let vpLockCheckPerformed = false;
-
-      // Helper: recompute hash for target content at current DB state
-      async function recomputeTargetHash(target: CorePatchTarget): Promise<string | null> {
-        if (target.target_type === "document" || target.target_type === "section" || target.target_type === "episode_block") {
-          const { data: ver } = await supabase
-            .from("project_document_versions")
-            .select("plaintext")
-            .eq("id", target.version_id)
-            .maybeSingle();
-          if (!ver) return null;
-          const fullText = ver.plaintext || "";
-          return await coreContentHash(fullText);
-        }
-        if (target.target_type === "scene") {
-          const { data: sceneVer } = await supabase
-            .from("scene_graph_versions")
-            .select("content, summary")
-            .eq("scene_id", target.scene_id)
-            .order("version_number", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (!sceneVer) return null;
-          return await coreContentHash(sceneVer.content || sceneVer.summary || "");
-        }
-        return null;
-      }
-
-      // STEP 2 — Direct target existence
-      let directValid = 0;
-      for (const dt of core.direct_targets) {
-        if (dt.target_type === "scene") {
-          const { data: sceneRow } = await supabase
-            .from("scene_graph_scenes")
-            .select("id")
-            .eq("id", dt.scene_id)
-            .maybeSingle();
-          if (!sceneRow) {
-            vpIssues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: `Direct scene target ${dt.scene_id} no longer exists` });
-          } else { directValid++; }
-        } else {
-          const { data: docRow } = await supabase
-            .from("project_documents")
-            .select("id")
-            .eq("id", dt.document_id)
-            .maybeSingle();
-          const { data: verRow } = await supabase
-            .from("project_document_versions")
-            .select("id")
-            .eq("id", dt.version_id)
-            .maybeSingle();
-          if (!docRow) {
-            vpIssues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: `Direct document ${dt.document_id} no longer exists` });
-          } else if (!verRow) {
-            vpIssues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: `Direct version ${dt.version_id} no longer exists` });
-          } else { directValid++; }
-        }
-      }
-
-      // STEP 3 — Protected target existence
-      let protectedValid = 0;
-      for (const pt of core.protected_targets) {
-        if (pt.target_type === "scene") {
-          const { data: sceneRow } = await supabase
-            .from("scene_graph_scenes")
-            .select("id")
-            .eq("id", pt.scene_id)
-            .maybeSingle();
-          if (!sceneRow) {
-            vpIssues.push({ code: "protected_target_missing", severity: "warning", target_id: pt.target_id, message: `Protected scene ${pt.scene_id} no longer exists` });
-          } else { protectedValid++; }
-        } else {
-          const { data: docRow } = await supabase
-            .from("project_documents")
-            .select("id")
-            .eq("id", pt.document_id)
-            .maybeSingle();
-          if (!docRow) {
-            vpIssues.push({ code: "protected_target_missing", severity: "warning", target_id: pt.target_id, message: `Protected document ${pt.document_id} no longer exists` });
-          } else { protectedValid++; }
-        }
-      }
-
-      // STEP 4 — Content hash freshness
-      vpHashCheckPerformed = true;
-      for (const dt of core.direct_targets) {
-        if (!dt.content_hash) {
-          vpIssues.push({ code: "missing_content_hash", severity: "error", target_id: dt.target_id, message: `Direct target missing content_hash` });
-          continue;
-        }
-        const currentHash = await recomputeTargetHash(dt);
-        if (currentHash === null) {
-          vpIssues.push({ code: "target_missing", severity: "error", target_id: dt.target_id, message: `Cannot recompute hash — target content unavailable` });
-        } else if (currentHash !== dt.content_hash) {
-          vpIssues.push({ code: "content_hash_mismatch", severity: "error", target_id: dt.target_id, message: `Direct target content changed since plan was built` });
-        }
-      }
-      for (const pt of core.protected_targets) {
-        if (!pt.content_hash) {
-          vpIssues.push({ code: "missing_content_hash", severity: "error", target_id: pt.target_id, message: `Protected target missing content_hash` });
-          continue;
-        }
-        const currentHash = await recomputeTargetHash(pt);
-        if (currentHash === null) {
-          // Protected target gone — already flagged in step 3
-        } else if (currentHash !== pt.content_hash) {
-          vpIssues.push({ code: "content_hash_mismatch", severity: "warning", target_id: pt.target_id, message: `Protected target content changed since plan was built` });
-        }
-      }
-
-      // STEP 5 — Version binding check
-      vpVersionCheckPerformed = true;
-      const vpCheckedVersions = new Set<string>();
-      for (const dt of core.direct_targets) {
-        if (vpCheckedVersions.has(dt.version_id)) continue;
-        vpCheckedVersions.add(dt.version_id);
-        const { data: verRow } = await supabase
-          .from("project_document_versions")
-          .select("id, is_current, superseded_at, superseded_by")
-          .eq("id", dt.version_id)
-          .maybeSingle();
-        if (!verRow) continue;
-        if (verRow.superseded_at || verRow.superseded_by) {
-          vpIssues.push({ code: "version_superseded", severity: "error", target_id: dt.target_id, message: `Version ${dt.version_id} has been superseded` });
-        }
-      }
-
-      // STEP 6 — Active processing lock check
-      vpLockCheckPerformed = true;
-      const { data: activeJobs } = await supabase
-        .from("auto_run_jobs")
-        .select("id, status, is_processing")
-        .eq("project_id", projectId)
-        .in("status", ["running", "paused"])
-        .limit(1);
-      if (activeJobs && activeJobs.length > 0) {
-        vpIssues.push({ code: "active_processing_conflict", severity: "error", target_id: null, message: `Active auto-run job exists (${activeJobs[0].id}), execution unsafe` });
-      }
-
-      // STEP 8 — Final validity
-      const vpHasError = vpIssues.some(i => i.severity === "error");
-      const vpIsStale = vpIssues.some(i => i.code === "content_hash_mismatch" || i.code === "version_superseded");
-
-      // Deterministic issue sort
-      vpIssues.sort((a, b) => {
-        const sevCmp = (a.severity === "error" ? 0 : 1) - (b.severity === "error" ? 0 : 1);
-        if (sevCmp !== 0) return sevCmp;
-        const tidCmp = (a.target_id || "").localeCompare(b.target_id || "");
-        if (tidCmp !== 0) return tidCmp;
-        return a.code.localeCompare(b.code);
-      });
+      // Validate via shared core
+      const validation = await validatePatchPlanCore(supabase, core, vpPlan.plan_id, projectId);
 
       console.log("[dev-engine-v2] validate_patch_plan", {
         project_id: projectId,
         plan_id: vpPlan.plan_id,
-        plan_valid: !vpHasError,
-        stale: vpIsStale,
-        direct_valid: directValid,
-        protected_valid: protectedValid,
-        issue_count: vpIssues.length,
+        plan_valid: validation.plan_valid,
+        stale: validation.stale,
+        direct_valid: validation.direct_targets_valid,
+        protected_valid: validation.protected_targets_valid,
+        issue_count: validation.issues.length,
       });
 
       return new Response(JSON.stringify({
@@ -30299,23 +30327,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         action: "validate_patch_plan",
         project_id: projectId,
         patch_plan: vpPlan,
-        validation: {
-          plan_id: vpPlan.plan_id,
-          plan_valid: !vpHasError,
-          stale: vpIsStale,
-          direct_targets_checked: core.direct_targets.length,
-          protected_targets_checked: core.protected_targets.length,
-          direct_targets_valid: directValid,
-          protected_targets_valid: protectedValid,
-          issues: vpIssues,
-          validation_notes: {
-            hash_check_performed: vpHashCheckPerformed,
-            version_check_performed: vpVersionCheckPerformed,
-            lock_check_performed: vpLockCheckPerformed,
-            fallback_used: core.resolution_notes.fallback_used,
-            fallback_reason: core.resolution_notes.fallback_reason,
-          },
-        },
+        validation,
         computed_at: vpAt,
         version: "patch-plan-validation-v1",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
