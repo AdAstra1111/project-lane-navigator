@@ -3856,7 +3856,21 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
   const sevDot = (s: ExecutionRecommendation["severity"]) =>
     s === "high" ? "bg-red-400" : s === "medium" ? "bg-amber-400" : "bg-muted-foreground";
 
-  const RecCard = ({ rec, suppressed }: { rec: DisplayRecommendation; suppressed?: boolean }) => (
+  // Trend status badge helpers
+  const trendStatusColor = (s: LinkedTrendStatus) =>
+    s === "worsening" ? "text-red-400 border-red-500/30" :
+    s === "improving" ? "text-emerald-400 border-emerald-500/30" :
+    s === "flat" ? "text-muted-foreground/60 border-border/40" :
+    "text-muted-foreground/40 border-border/20";
+
+  const trendStatusIcon = (s: LinkedTrendStatus) =>
+    s === "worsening" ? "↗" :
+    s === "improving" ? "↘" :
+    s === "flat" ? "→" : "·";
+
+  const RecCard = ({ rec, suppressed }: { rec: DisplayRecommendation; suppressed?: boolean }) => {
+    const linkage = resolveRecommendationTrendLinkage(rec, trends);
+    return (
     <div className={cn(
       "rounded-md border px-3 py-2 space-y-1.5",
       suppressed
@@ -3876,6 +3890,11 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
             <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground/70 border-border/30 shrink-0">
               {rec.confidence} confidence
             </Badge>
+            {/* Trend linkage badge */}
+            <Badge variant="outline" className={cn("text-[8px] font-mono shrink-0", trendStatusColor(linkage.status))}>
+              {trendStatusIcon(linkage.status)} {linkage.status === "unavailable" ? "no trend" : linkage.status === "insufficient_data" ? "insuff. data" : linkage.status}
+              {linkage.metric_summary && ` (${linkage.metric_summary})`}
+            </Badge>
             {suppressed && (
               <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/30 bg-muted/40 shrink-0">
                 SUPPRESSED
@@ -3887,6 +3906,13 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
               </Badge>
             )}
           </div>
+
+          {/* Trend signal subline */}
+          {linkage.status !== "unavailable" && (
+            <div className="text-[8px] font-mono text-muted-foreground/50">
+              {linkage.label} · {linkage.source_key}
+            </div>
+          )}
 
           {/* Suppressed-by line */}
           {suppressed && rec.suppressed_by && (
@@ -3939,7 +3965,7 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
         </div>
       </div>
     </div>
-  );
+  )};
 
   const DisplayBucket = ({ title, icon: Icon, bucketKey }: { title: string; icon: any; bucketKey: RecommendationBucketKey }) => {
     if (!displayResult) return null;
