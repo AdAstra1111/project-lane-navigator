@@ -4220,7 +4220,56 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
               </div>
             )}
 
-            {/* Suppression Audit */}
+            {/* ── Recommendation Action Queue ── */}
+            {hasAnyTriage && displayResult && (
+              <Collapsible defaultOpen>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-0.5">
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <List className="h-3 w-3" />
+                    <span className="font-semibold">Action Queue</span>
+                    <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground border-border/40 ml-1">
+                      {triageCounts.do_now + triageCounts.watch + triageCounts.ignore}
+                    </Badge>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pl-4 pt-1.5 space-y-2">
+                  {(["do_now", "watch", "ignore"] as const).map(status => {
+                    const items = displayResult.all_display.filter(r => triageMap[r.recommendation_id] === status && !r.suppressed);
+                    if (items.length === 0) return null;
+                    const statusLabels: Record<TriageStatus, string> = { do_now: "Do Now", watch: "Watch", ignore: "Ignored" };
+                    const statusColors: Record<TriageStatus, string> = {
+                      do_now: "text-primary border-primary/30",
+                      watch: "text-amber-400 border-amber-500/30",
+                      ignore: "text-muted-foreground/60 border-border/30",
+                    };
+                    return (
+                      <div key={status} className="space-y-1">
+                        <div className={cn("text-[8px] font-mono font-semibold uppercase", statusColors[status].split(" ")[0])}>
+                          {statusLabels[status]} ({items.length})
+                        </div>
+                        {items.map(rec => (
+                          <div key={rec.recommendation_id} className={cn("rounded border px-2 py-1.5 space-y-0.5", statusColors[status].split(" ").slice(1).join(" "), "bg-muted/10")}>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[9px] font-semibold text-foreground">{rec.title}</span>
+                              <Badge variant="outline" className={cn("text-[7px] font-mono shrink-0", sevColor(rec.severity))}>
+                                {rec.severity}
+                              </Badge>
+                              <span className="text-[7px] font-mono text-muted-foreground/40">{rec.rule_id}</span>
+                            </div>
+                            <div className="text-[8px] text-muted-foreground leading-snug border-l-2 border-border/30 pl-1.5">
+                              {rec.suggested_action}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
             {report.suppressed_total > 0 && (
               <Collapsible>
                 <CollapsibleTrigger asChild>
