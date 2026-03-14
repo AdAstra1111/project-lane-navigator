@@ -29055,6 +29055,317 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     // ROOT CAUSE ENGINE v1 — compute_root_cause_clusters (action handler)
     // ══════════════════════════════════════════════════════════════════════════════
 
+    // ══════════════════════════════════════════════════════════════════════════════
+    // INTERVENTION ENGINE v1 — compute_intervention_candidates
+    //
+    // Standalone advisory decision layer. Combines three existing advisory signals:
+    //   1. strategic_priority_score (from PRP2S formula)
+    //   2. intervention_roi_score (from ROI formula via computeROIForCandidate)
+    //   3. root_cause_leverage_score (from runRootCauseClusteringCore)
+    //
+    // Produces a unified intervention ranking. Advisory-only: does NOT modify
+    // PRP2S, ROI, or root-cause engines.
+    //
+    // Intervention score formula (intervention-v1):
+    //   normalized_strategic = (strategic_priority_score / max_strategic) * 100, clamped [0, 100]
+    //   normalized_roi = ((roi_score + 100) / 300) * 100, clamped [0, 100]
+    //     (ROI range is [-100, 200], so we shift and scale to 0-100)
+    //   normalized_root_cause = root_cause_leverage_score (already 0-100)
+    //   intervention_score = normalized_strategic * 0.40 + normalized_roi * 0.30 + normalized_root_cause * 0.30
+    //   Clamped [0, 100].
+    //
+    // Labels: ≥65 = "high", ≥35 = "medium", <35 = "low"
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "compute_intervention_candidates") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const ivAt = new Date().toISOString();
+
+      // ── 1. Load ARP1 + NRF1 cores ──
+      const [arp1R, nrf1R] = await Promise.all([
+        runARP1Core(supabase, projectId),
+        runNRF1Core(supabase, projectId),
+      ]);
+      if (!arp1R.ok) {
+        return new Response(JSON.stringify({ ok: false, error: `IV: ARP1 failed — ${arp1R.error ?? "unknown"}` }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const nrf1Ok = nrf1R.ok;
+      const nrfMap = new Map<string, any>();
+      for (const f of (nrf1Ok ? nrf1R.perRepairForecasts : [])) nrfMap.set(f.repair_id, f);
+
+      // ── 2. Compute ROI for each repair (reuse pure helper) ──
+      const roiByRepair = new Map<string, ROICandidateResult>();
+      for (const sr of arp1R.scoredRepairs) {
+        const nrf = nrfMap.get(sr.repair_id) ?? null;
+        const roiResult = computeROIForCandidate(sr, nrf);
+        roiByRepair.set(sr.repair_id, roiResult);
+      }
+
+      // ── 3. Compute root-cause clusters (reuse shared helper) ──
+      const rccResult = runRootCauseClusteringCore(arp1R, nrf1R);
+      const repairToCluster = new Map<string, RCCCluster>();
+      for (const cl of rccResult.clusters) {
+        for (const rid of cl.involved_repairs) repairToCluster.set(rid, cl);
+      }
+      const rccMaxPressure = Math.max(0.001, ...rccResult.clusters.map(c => c.combined_pressure));
+
+      // Root-cause leverage score (same formula as PRP2S advisory)
+      function ivRCLeverageScore(repairId: string): { score: number | null; label: "high" | "medium" | "low" | null; cluster: RCCCluster | null } {
+        const cl = repairToCluster.get(repairId);
+        if (!cl) return { score: null, label: null, cluster: null };
+        const normP = (cl.combined_pressure / rccMaxPressure) * 100;
+        const confC = cl.cluster_confidence * 100;
+        const sizeC = (Math.min(cl.repair_count, 10) / 10) * 100;
+        const s = Math.round(Math.min(100, Math.max(0, normP * 0.50 + confC * 0.30 + sizeC * 0.20)) * 100) / 100;
+        const l: "high" | "medium" | "low" = s >= 60 ? "high" : s >= 30 ? "medium" : "low";
+        return { score: s, label: l, cluster: cl };
+      }
+
+      // ── 4. Inline PRP2S strategic priority score (same formula, no HTTP call) ──
+      // Load CSP1 paths
+      let csp1Paths: any[] = [];
+      try {
+        const csp1r = await runCSP1Core(supabase, projectId);
+        if (csp1r.ok) csp1Paths = csp1r.paths ?? [];
+      } catch { /* degrade */ }
+
+      const pathByFirst = new Map<string, any>();
+      for (const path of csp1Paths) {
+        const fid = path.steps?.[0]?.repair_id;
+        if (!fid) continue;
+        const ex = pathByFirst.get(fid);
+        if (!ex || (path.adjusted_path_score ?? 0) > (ex.adjusted_path_score ?? 0)) pathByFirst.set(fid, path);
+      }
+
+      const axisDebtMap = nrf1Ok ? (nrf1R.axisDebtMap ?? {}) : {};
+
+      // PRP2S weights
+      const W_UP = 0.30, W_RC = 5.00, W_PA = 0.10, W_INT = 1.00, W_AX = 0.05, W_FR = 0.02;
+
+      function prp2sInteractionLocal(label: string | null, conf: string | null): number {
+        const raw = label === "de_risked_by_investigation" ? 1.5
+          : label === "prerequisite_aligned" ? 1.0
+          : label === "strengthened_by_sequence" ? 0.5
+          : label === "neutral_sequence" ? 0.0
+          : label === "dampened_by_sequence" ? -1.0
+          : label === "blocked_by_sequence" ? -3.0 : 0;
+        const scale = conf === "high" ? 1.0 : conf === "medium" ? 0.75 : 0.50;
+        return Math.round(raw * scale * 100) / 100;
+      }
+
+      interface IVCandidate {
+        repair_id: string;
+        repair_type: string;
+        scope_type: string | null;
+        scope_key: string | null;
+        strategic_priority_score: number;
+        intervention_roi_score: number | null;
+        root_cause_leverage_score: number | null;
+        root_cause_leverage_label: "high" | "medium" | "low" | null;
+        roi_result: ROICandidateResult | null;
+        rc_cluster: RCCCluster | null;
+      }
+
+      const candidates: IVCandidate[] = [];
+
+      for (const sr of arp1R.scoredRepairs) {
+        const nrf = nrfMap.get(sr.repair_id);
+        const pv = nrf?.repair_preventive_value ?? 0;
+        const fc = nrf?.forecast_confidence ?? 0;
+        const rootCause = nrf?.root_cause_score ?? 0;
+        const frictionRaw = sr.execution_friction_score ?? 0;
+        const affectedAxes: string[] = nrf?.affected_axes ?? sr.affected_axes ?? [];
+        let axisDebtTotal = 0;
+        for (const ax of affectedAxes) {
+          const adEntry: any = (axisDebtMap as any)[ax];
+          if (adEntry) axisDebtTotal += (adEntry.total_weight ?? 0);
+        }
+        const bestPath = pathByFirst.get(sr.repair_id);
+        const pathQuality = bestPath?.adjusted_path_score ?? 0;
+        const interactionLabel = bestPath?.steps?.[0]?.sequential_effect_label ?? null;
+        const interactionConf = bestPath?.steps?.[0]?.confidence ?? null;
+        const pathInteraction = prp2sInteractionLocal(interactionLabel, interactionConf);
+
+        const stratScore = Math.round((
+          (sr.net_priority_score ?? 0)
+          + pv * fc * W_UP
+          + rootCause * W_RC
+          + pathQuality * W_PA
+          + pathInteraction * W_INT
+          + axisDebtTotal * W_AX
+          - frictionRaw * W_FR
+        ) * 100) / 100;
+
+        const roiR = roiByRepair.get(sr.repair_id) ?? null;
+        const rcInfo = ivRCLeverageScore(sr.repair_id);
+
+        candidates.push({
+          repair_id: sr.repair_id,
+          repair_type: sr.repair_type ?? sr.repair_id,
+          scope_type: sr.scope_type ?? null,
+          scope_key: sr.scope_key ?? null,
+          strategic_priority_score: stratScore,
+          intervention_roi_score: roiR?.intervention_roi_score ?? null,
+          root_cause_leverage_score: rcInfo.score,
+          root_cause_leverage_label: rcInfo.label,
+          roi_result: roiR,
+          rc_cluster: rcInfo.cluster,
+        });
+      }
+
+      // ── 5. Normalize & compute intervention score ──
+      const maxStrat = Math.max(0.001, ...candidates.map(c => c.strategic_priority_score));
+
+      function normalizeStrat(v: number): number {
+        return Math.min(100, Math.max(0, (v / maxStrat) * 100));
+      }
+      function normalizeROI(v: number | null): number {
+        if (v == null) return 0;
+        // ROI range [-100, 200] → shift to [0, 300] → scale to [0, 100]
+        return Math.min(100, Math.max(0, ((v + 100) / 300) * 100));
+      }
+      function normalizeRC(v: number | null): number {
+        return v ?? 0; // already 0-100
+      }
+
+      interface InterventionOutput {
+        repair_id: string;
+        repair_type: string;
+        scope_type: string | null;
+        scope_key: string | null;
+        strategic_rank: number;
+        roi_rank: number | null;
+        root_cause_rank: number | null;
+        strategic_priority_score: number;
+        intervention_roi_score: number | null;
+        root_cause_leverage_score: number | null;
+        intervention_score: number;
+        intervention_label: "high" | "medium" | "low";
+        supporting_signals: {
+          prevented_downstream_pressure: number | null;
+          projected_stability_gain: number | null;
+          execution_friction: number | null;
+          blast_radius: number | null;
+          cluster_combined_pressure: number | null;
+          cluster_confidence: number | null;
+          cluster_repair_count: number | null;
+        };
+        rationale_tags: string[];
+        rationale_summary: string;
+      }
+
+      const outputs: InterventionOutput[] = candidates.map(c => {
+        const nStrat = normalizeStrat(c.strategic_priority_score);
+        const nROI = normalizeROI(c.intervention_roi_score);
+        const nRC = normalizeRC(c.root_cause_leverage_score);
+        const rawScore = nStrat * 0.40 + nROI * 0.30 + nRC * 0.30;
+        const ivScore = Math.round(Math.min(100, Math.max(0, rawScore)) * 100) / 100;
+        const ivLabel: "high" | "medium" | "low" = ivScore >= 65 ? "high" : ivScore >= 35 ? "medium" : "low";
+
+        // Rationale tags
+        const tags: string[] = [];
+        if (nStrat >= 70) tags.push("high_strategic_priority");
+        if (c.intervention_roi_score != null && c.intervention_roi_score >= 40) tags.push("high_roi");
+        if (c.root_cause_leverage_label === "high") tags.push("high_root_cause_leverage");
+        if (c.rc_cluster) tags.push("cluster_backed");
+        if (c.roi_result && c.roi_result.roi_components.execution_friction < 30) tags.push("low_friction");
+        if (c.roi_result && c.roi_result.roi_components.blast_radius >= 60) tags.push("high_blast_risk");
+        if (!c.rc_cluster) tags.push("standalone_candidate");
+        if (tags.length === 0) tags.push("moderate_intervention_value");
+
+        const summary = tags.join("; ");
+
+        return {
+          repair_id: c.repair_id,
+          repair_type: c.repair_type,
+          scope_type: c.scope_type,
+          scope_key: c.scope_key,
+          strategic_rank: 0, // assigned after sort
+          roi_rank: null,
+          root_cause_rank: null,
+          strategic_priority_score: c.strategic_priority_score,
+          intervention_roi_score: c.intervention_roi_score,
+          root_cause_leverage_score: c.root_cause_leverage_score,
+          intervention_score: ivScore,
+          intervention_label: ivLabel,
+          supporting_signals: {
+            prevented_downstream_pressure: c.roi_result?.roi_components.prevented_downstream_pressure ?? null,
+            projected_stability_gain: c.roi_result?.roi_components.projected_stability_gain ?? null,
+            execution_friction: c.roi_result?.roi_components.execution_friction ?? null,
+            blast_radius: c.roi_result?.roi_components.blast_radius ?? null,
+            cluster_combined_pressure: c.rc_cluster?.combined_pressure ?? null,
+            cluster_confidence: c.rc_cluster?.cluster_confidence ?? null,
+            cluster_repair_count: c.rc_cluster?.repair_count ?? null,
+          },
+          rationale_tags: tags,
+          rationale_summary: summary,
+        };
+      });
+
+      // Sort by intervention_score desc → strategic desc → repair_id asc
+      outputs.sort((a, b) => {
+        if (b.intervention_score !== a.intervention_score) return b.intervention_score - a.intervention_score;
+        if (b.strategic_priority_score !== a.strategic_priority_score) return b.strategic_priority_score - a.strategic_priority_score;
+        return a.repair_id < b.repair_id ? -1 : 1;
+      });
+
+      // Assign strategic_rank (by strategic_priority_score desc)
+      const stratSorted = [...outputs].sort((a, b) => {
+        if (b.strategic_priority_score !== a.strategic_priority_score) return b.strategic_priority_score - a.strategic_priority_score;
+        return a.repair_id < b.repair_id ? -1 : 1;
+      });
+      stratSorted.forEach((o, i) => { o.strategic_rank = i + 1; });
+
+      // Assign roi_rank
+      const roiSorted = [...outputs].filter(o => o.intervention_roi_score != null).sort((a, b) => {
+        if ((b.intervention_roi_score ?? -Infinity) !== (a.intervention_roi_score ?? -Infinity)) return (b.intervention_roi_score ?? -Infinity) - (a.intervention_roi_score ?? -Infinity);
+        return a.repair_id < b.repair_id ? -1 : 1;
+      });
+      roiSorted.forEach((o, i) => { o.roi_rank = i + 1; });
+
+      // Assign root_cause_rank
+      const rcSorted = [...outputs].filter(o => o.root_cause_leverage_score != null && o.root_cause_leverage_score > 0).sort((a, b) => {
+        if ((b.root_cause_leverage_score ?? -Infinity) !== (a.root_cause_leverage_score ?? -Infinity)) return (b.root_cause_leverage_score ?? -Infinity) - (a.root_cause_leverage_score ?? -Infinity);
+        return a.repair_id < b.repair_id ? -1 : 1;
+      });
+      rcSorted.forEach((o, i) => { o.root_cause_rank = i + 1; });
+
+      const topCandidate = outputs[0] ?? null;
+
+      console.log("[dev-engine-v2] compute_intervention_candidates", {
+        project_id: projectId,
+        candidate_count: outputs.length,
+        top_repair: topCandidate?.repair_id ?? null,
+        top_score: topCandidate?.intervention_score ?? null,
+        top_label: topCandidate?.intervention_label ?? null,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "compute_intervention_candidates",
+        project_id: projectId,
+        candidate_count: outputs.length,
+        recommended_intervention_repair_id: topCandidate?.repair_id ?? null,
+        interventions: outputs.slice(0, 15),
+        computed_at: ivAt,
+        version: "intervention-v1",
+        scoring_notes: {
+          integration_mode: "advisory_only",
+          formula_reference: "intervention_score = normalized_strategic × 0.40 + normalized_roi × 0.30 + normalized_root_cause × 0.30. normalized_strategic = (strategic_priority_score / max_strategic) × 100, clamped [0,100]. normalized_roi = ((roi_score + 100) / 300) × 100, clamped [0,100] (ROI range [-100,200]). normalized_root_cause = root_cause_leverage_score (already 0-100). Final score clamped [0,100].",
+          rank_definition: "Sorted by intervention_score desc, strategic_priority_score desc, repair_id asc.",
+          anti_double_counting_notes: "This engine consumes already-computed advisory scores from PRP2S formula, ROI helper, and root-cause clustering. It does NOT re-apply friction, blast, or prevention penalties. Each source signal is normalized independently before combination. Intervention score is advisory-only and does NOT modify PRP2S strategic_priority_score.",
+          label_thresholds: "high ≥ 65, medium ≥ 35, low < 35",
+        },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (action === "compute_root_cause_clusters") {
       const { projectId } = body;
       if (!projectId) {
