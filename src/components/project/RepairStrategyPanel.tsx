@@ -3831,6 +3831,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [showSuppressed, setShowSuppressed] = useState(false);
   const [triageMap, setTriageMap] = useState<Record<string, TriageStatus>>({});
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [memoCopied, setMemoCopied] = useState<string | null>(null);
 
   // Clean stale triage entries when recommendations change
   const cleanTriageMap = (recs: ExecutionRecommendations) => {
@@ -4282,6 +4283,99 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                 </CollapsibleContent>
               </Collapsible>
             )}
+
+            {/* ── Action Memo ── */}
+            {(() => {
+              const sevOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+              const confOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+              const sortItems = (items: DisplayRecommendation[]) =>
+                [...items].sort((a, b) =>
+                  (sevOrder[a.severity] ?? 3) - (sevOrder[b.severity] ?? 3)
+                  || (confOrder[a.confidence] ?? 3) - (confOrder[b.confidence] ?? 3)
+                  || a.recommendation_id.localeCompare(b.recommendation_id)
+                );
+              const buckets: { status: TriageStatus; label: string; items: DisplayRecommendation[] }[] = (["do_now", "watch", "ignore"] as const).map(s => ({
+                status: s,
+                label: s === "do_now" ? "DO NOW" : s === "watch" ? "WATCH" : "IGNORE",
+                items: sortItems(displayResult?.all_display.filter(r => !r.suppressed && triageMap[r.recommendation_id] === s) ?? []),
+              })).filter(b => b.items.length > 0);
+              const hasMemo = buckets.length > 0;
+
+              const buildPlain = () => {
+                let out = "Execution Recommendations Action Memo\n" + "=".repeat(42) + "\n\n";
+                for (const b of buckets) {
+                  out += `── ${b.label} ──\n`;
+                  for (const r of b.items) {
+                    out += `• [${r.severity.toUpperCase()}] ${r.title} (${r.rule_id})\n  Action: ${r.suggested_action}\n`;
+                  }
+                  out += "\n";
+                }
+                return out.trimEnd();
+              };
+
+              const buildMarkdown = () => {
+                let out = "# Execution Recommendations Action Memo\n\n";
+                for (const b of buckets) {
+                  out += `## ${b.label}\n\n`;
+                  for (const r of b.items) {
+                    out += `- **[${r.severity.toUpperCase()}]** ${r.title} _(${r.rule_id})_\n  - Action: ${r.suggested_action}\n`;
+                  }
+                  out += "\n";
+                }
+                return out.trimEnd();
+              };
+
+              return (
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-0.5">
+                      <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                      <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                      <FileText className="h-3 w-3" />
+                      <span className="font-semibold">Action Memo</span>
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pl-4 pt-1.5 space-y-2">
+                    {!hasMemo ? (
+                      <p className="text-[9px] text-muted-foreground/50 italic">No triaged recommendations yet.</p>
+                    ) : (
+                      <>
+                        {(() => {
+                          const doCopy = async (label: string, text: string) => {
+                            try { await navigator.clipboard.writeText(text); setMemoCopied(label); setTimeout(() => setMemoCopied(null), 1500); } catch {}
+                          };
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <button onClick={() => doCopy("plain", buildPlain())} className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground transition-colors">
+                                {memoCopied === "plain" ? "Copied" : "Copy Memo"}
+                              </button>
+                              <button onClick={() => doCopy("md", buildMarkdown())} className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground transition-colors">
+                                {memoCopied === "md" ? "Copied" : "Copy Markdown"}
+                              </button>
+                            </div>
+                          );
+                        })()}
+                        <div className="rounded-md border border-border/30 bg-muted/10 px-3 py-2 space-y-2">
+                          {buckets.map(b => (
+                            <div key={b.status} className="space-y-1">
+                              <div className="text-[8px] font-mono font-semibold uppercase text-muted-foreground">{b.label}</div>
+                              {b.items.map(r => (
+                                <div key={r.recommendation_id} className="text-[8px] leading-snug text-muted-foreground">
+                                  <span className="font-semibold text-foreground">[{r.severity.toUpperCase()}]</span>{" "}
+                                  {r.title}{" "}
+                                  <span className="text-muted-foreground/40">({r.rule_id})</span>
+                                  <div className="pl-2 border-l border-border/30 mt-0.5">{r.suggested_action}</div>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
+              );
+            })()}
 
             {report.suppressed_total > 0 && (
               <Collapsible>
