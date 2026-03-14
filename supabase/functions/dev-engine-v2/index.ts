@@ -30706,8 +30706,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           .maybeSingle();
 
         if (!currentVer || !currentVer.plaintext) {
-          // Fail the entire document sequence
+          // Fail the entire document sequence and register for cascade
           documentSequencesFailed++;
+          failedPatchedDocTypes.add(currentDocType);
           for (const target of orderedTargets) {
             targetResults.push({
               target_id: target.target_id,
