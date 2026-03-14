@@ -33065,7 +33065,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             "Min count threshold (TYPE_MIN_COUNT) must be met before rate is evaluated",
           ],
           calibration_notes: [
-            ""unknown" repair_type sentinel is suppressed and cannot emit a rec",
+            "'unknown' repair_type sentinel is suppressed and cannot emit a rec",
             "Rate = (blocked + failed) / count; partial outcomes are not counted as issues",
           ],
         },
