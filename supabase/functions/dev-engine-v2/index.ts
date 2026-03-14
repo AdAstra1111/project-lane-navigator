@@ -31254,9 +31254,13 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       // Execute bounded revalidation for the patched document and downstream targets
       // where canonical revalidation paths exist. No regeneration. No rewrite cascades.
       let revalidationExecution: Record<string, unknown> | null = null;
+      const obsRevalStart = Date.now();
 
       const revalTargets = (postExecution as any)?.immediate_revalidation?.targets || [];
       const shouldRunRevalidation = !dryRun && writePerformed && executedCount > 0 && revalTargets.length > 0;
+      if (shouldRunRevalidation || (dryRun && revalTargets.length > 0)) {
+        obsEmit("revalidation", "revalidation", "started", `Revalidation starting for ${revalTargets.length} target(s)`);
+      }
 
       if (shouldRunRevalidation || (dryRun && revalTargets.length > 0)) {
         const revalResults: Array<{
