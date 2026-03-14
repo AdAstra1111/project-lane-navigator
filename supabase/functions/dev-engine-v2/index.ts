@@ -30621,6 +30621,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      const obsSectionExecStart = Date.now();
+      obsEmit("section_execution", "execution", "started", `Beginning section execution for ${documentExecutionOrder.length} document(s)`);
+
       // ── STEP 4: Execute section targets per document (consolidated, dependency-ordered) ──
       const { replaceSection: execReplaceSection, extractSection: execExtractSection } = await import("../_shared/sectionRepairEngine.ts");
       const { getSectionKeys } = await import("../_shared/deliverableSectionRegistry.ts");
