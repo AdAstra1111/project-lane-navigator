@@ -20,6 +20,7 @@ import {
   type PatchPlanValidationResponse, type PatchPlanValidationResult, type PatchPlanValidationIssue,
   type PatchExecutionResponse, type PatchExecutionResult, type PatchExecutionTargetResult,
   type PostExecutionGovernance, type PostExecutionRevalidationTarget,
+  type RevalidationExecution, type RevalidationExecutionTarget,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
