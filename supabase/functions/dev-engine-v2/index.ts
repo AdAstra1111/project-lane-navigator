@@ -30689,6 +30689,17 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           blockedDocumentIds.push(documentId);
           if (!blockedDocTypes.includes(currentDocType)) blockedDocTypes.push(currentDocType);
 
+          obsEmit("document_execution", "execution", "blocked", `Blocked by upstream failure: ${blockingUpstream}`, documentId, currentDocType);
+          obsDocTimelines.push({
+            document_id: documentId, doc_type: currentDocType,
+            order_index: docMeta?.order_index ?? 0, ordering_basis: docMeta?.ordering_basis ?? "lexical_fallback",
+            status: "blocked", blocked_by_doc_type: blockingUpstream, blocked_reason: `upstream_doc_type_failed:${blockingUpstream}`,
+            section_targets_total: docTargets.length, section_targets_executed: 0, section_targets_failed: 0, section_targets_skipped: docTargets.length,
+            version_id_before: docTargets[0].version_id, version_id_after: null,
+            governance_status: null, revalidation_status: null,
+            execution_message: `Blocked by upstream document failure: ${blockingUpstream}`,
+          });
+
           const sourceVersionId = docTargets[0].version_id;
           for (const target of docTargets) {
             targetResults.push({
