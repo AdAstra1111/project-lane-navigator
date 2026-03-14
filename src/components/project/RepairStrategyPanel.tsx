@@ -4449,10 +4449,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                   type="button"
                   className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-primary/30 bg-primary/5 text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors"
                   title={`${action.action_type}: ${JSON.stringify(action.params)}`}
-                  onClick={() => {
-                    // Future: dispatch action to inspection handler
-                    console.log('[IFFY action]', action.action_type, action.params);
-                  }}
+                  onClick={() => dispatchRecommendedAction(action)}
                 >
                   {action.label}
                 </button>
