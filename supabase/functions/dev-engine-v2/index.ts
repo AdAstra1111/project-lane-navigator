@@ -30678,6 +30678,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         const docTargets = docGroups.get(documentId)!;
         documentsAttempted++;
         const currentDocType = docTargets[0].doc_type;
+        const docMeta = documentExecutionMetadata.find(m => m.document_id === documentId);
+        obsEmit("document_execution", "execution", "started", `Starting document ${currentDocType}`, documentId, currentDocType);
 
         // ── Cross-document failure cascade check ──
         const blockingUpstream = isBlockedByUpstreamFailure(currentDocType);
