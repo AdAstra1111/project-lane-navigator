@@ -2209,11 +2209,14 @@ function PatchExecutionSection({
                 {execution.blocked_doc_types && execution.blocked_doc_types.length > 0 && (
                   <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
                     <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-                    <div className="text-[10px] text-amber-400 space-y-0.5">
-                      <div className="font-semibold">Downstream documents blocked by upstream failure</div>
-                      {execution.blocked_doc_types.map((dt, i) => (
-                        <div key={`blocked-dt-${i}`} className="font-mono">{dt}</div>
-                      ))}
+                    <div className="text-[10px] text-amber-400 space-y-1">
+                      <div className="font-semibold">Dependency-linked downstream documents skipped</div>
+                      <div className="text-amber-300/80">These documents depend on a document that failed. They were not executed in this run to prevent inconsistent state. No versions were created. Re-run after fixing the upstream failure.</div>
+                      <div className="space-y-0.5 pt-0.5">
+                        {execution.blocked_doc_types.map((dt, i) => (
+                          <div key={`blocked-dt-${i}`} className="font-mono">{dt}</div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -3022,11 +3025,17 @@ function ExecutionReplaySection({
 
               {compareResult && !compareResult.comparison_found && (
                 <Card className="border-border/50">
-                  <CardContent className="py-3 text-center">
+                  <CardContent className="py-3 text-center space-y-1">
                     <XCircle className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
                     <p className="text-[10px] text-muted-foreground">
-                      Comparison unavailable. Missing: {compareResult.comparison_notes.missing_side || 'unknown'} snapshot.
+                      Comparison unavailable — {compareResult.comparison_notes.missing_side || 'unknown'} snapshot missing or invalid.
                     </p>
+                    {compareResult.comparison_notes.left_invalid_reason && (
+                      <p className="text-[9px] font-mono text-red-400/70">Left: {compareResult.comparison_notes.left_invalid_reason}</p>
+                    )}
+                    {compareResult.comparison_notes.right_invalid_reason && (
+                      <p className="text-[9px] font-mono text-red-400/70">Right: {compareResult.comparison_notes.right_invalid_reason}</p>
+                    )}
                   </CardContent>
                 </Card>
               )}
@@ -3242,6 +3251,11 @@ function ExecutionReplaySection({
               <span>Source: <span className="font-mono text-foreground">{replayResult.replay_source}</span></span>
               <span>Match: <span className="font-mono text-foreground">{replayResult.replay_notes.exact_match ? 'exact' : 'fallback'}</span></span>
               <span>Version: <span className="font-mono text-foreground">{replay.execution_replay_version}</span></span>
+              {replay.snapshot_mode && (
+                <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground border-border/50">
+                  {replay.snapshot_mode}
+                </Badge>
+              )}
               <span>Computed: <span className="font-mono text-foreground">{new Date(replay.computed_at).toLocaleString()}</span></span>
             </div>
 

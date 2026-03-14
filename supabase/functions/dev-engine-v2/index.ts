@@ -30334,6 +30334,94 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
+    // EXECUTION REPLAY SHARED HELPERS
+    //
+    // Used by: execute_patch_plan (persist), get_patch_execution_replay,
+    //          list_patch_execution_history, compare_patch_execution_replays.
+    //
+    // Canonical snapshot builder — single source of truth for persisted shape.
+    // Canonical validator — structural check used by all three readers.
+    // Canonical outcome deriver — replaces inline duplicates.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    /** Build the canonical resulting_state payload written to pipeline_transitions. */
+    function buildPatchExecutionReplaySnapshot(opts: {
+      planId: string;
+      projectId: string;
+      computedAt: string;
+      execPlan: Record<string, unknown>;
+      execValidation: Record<string, unknown>;
+      finalExecution: Record<string, unknown>;
+    }): Record<string, unknown> {
+      return {
+        execution_replay_version: "execution-replay-v1",
+        snapshot_mode: "full",
+        plan_id: opts.planId,
+        project_id: opts.projectId,
+        computed_at: opts.computedAt,
+        patch_plan: opts.execPlan,
+        validation: opts.execValidation,
+        execution: opts.finalExecution,
+      };
+    }
+
+    /**
+     * Validate a candidate replay snapshot against the required structural contract.
+     * Returns { valid, reason, snapshot_version }.
+     * Checks: type, version string, plan_id presence/match, required subtrees,
+     * execution.target_results array, execution.execution_notes presence.
+     */
+    function validatePatchExecutionReplaySnapshot(
+      snap: unknown,
+      expectedPlanId?: string,
+    ): { valid: boolean; reason: string | null; snapshot_version: string | null } {
+      if (!snap || typeof snap !== "object") {
+        return { valid: false, reason: "snapshot_not_object", snapshot_version: null };
+      }
+      const s = snap as Record<string, unknown>;
+      const ver = typeof s.execution_replay_version === "string" ? s.execution_replay_version : null;
+      if (ver !== "execution-replay-v1") {
+        return { valid: false, reason: `unsupported_snapshot_version:${ver ?? "missing"}`, snapshot_version: ver };
+      }
+      if (!s.plan_id) {
+        return { valid: false, reason: "missing_plan_id", snapshot_version: ver };
+      }
+      if (expectedPlanId !== undefined && s.plan_id !== expectedPlanId) {
+        return { valid: false, reason: "plan_id_mismatch", snapshot_version: ver };
+      }
+      if (!s.patch_plan || typeof s.patch_plan !== "object") {
+        return { valid: false, reason: "missing_patch_plan_subtree", snapshot_version: ver };
+      }
+      if (!s.validation || typeof s.validation !== "object") {
+        return { valid: false, reason: "missing_validation_subtree", snapshot_version: ver };
+      }
+      if (!s.execution || typeof s.execution !== "object") {
+        return { valid: false, reason: "missing_execution_subtree", snapshot_version: ver };
+      }
+      const exec = s.execution as Record<string, unknown>;
+      if (!Array.isArray(exec.target_results)) {
+        return { valid: false, reason: "execution_missing_target_results", snapshot_version: ver };
+      }
+      if (!exec.execution_notes || typeof exec.execution_notes !== "object") {
+        return { valid: false, reason: "execution_missing_execution_notes", snapshot_version: ver };
+      }
+      return { valid: true, reason: null, snapshot_version: ver };
+    }
+
+    /**
+     * Derive a human-readable outcome label from an execution subtree.
+     * Used in list_patch_execution_history and compare_patch_execution_replays.
+     */
+    function deriveReplayOutcome(exec: Record<string, unknown>): string {
+      if (exec.dry_run === true) return "dry_run";
+      if (exec.execution_allowed !== true) return "blocked";
+      const failed = typeof exec.direct_targets_failed === "number" ? exec.direct_targets_failed : 0;
+      if (exec.executed === true && failed > 0) return "partial";
+      if (exec.executed === true && failed === 0) return "executed";
+      return "failed";
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
     // PATCH EXECUTION ENGINE v1 — execute_patch_plan (SECTION-ONLY, FAIL-CLOSED)
     //
     // Bounded execution layer. Reuses buildPatchPlanCore for canonical plan
@@ -31499,28 +31587,31 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       };
 
       // ── PERSIST EXECUTION REPLAY SNAPSHOT (non-dry-run only) ──
-      // Store the full execution response in pipeline_transitions for deterministic replay.
-      // Uses resulting_state (JSONB) as the durable snapshot surface. Non-critical: failure
-      // does not block the execution response.
+      // Store the full execution response in pipeline_transitions.resulting_state
+      // for deterministic replay. Non-critical: failure does not block the response.
+      //
+      // NOTE: plan_id (e.g. "patchplan::uuid::type::version") is NOT a UUID and must
+      // NOT be passed as runId — pipeline_transitions.run_id is UUID-typed. Instead,
+      // plan_id is stored exclusively in resulting_state and looked up via JS filter.
       if (!dryRun && writePerformed) {
         try {
           const { emitTransition, TRANSITION_EVENTS } = await import("../_shared/transitionLedger.ts");
+          const replaySnapshot = buildPatchExecutionReplaySnapshot({
+            planId: execPlan.plan_id as string,
+            projectId,
+            computedAt: execAt,
+            execPlan: execPlan as Record<string, unknown>,
+            execValidation: execValidation as Record<string, unknown>,
+            finalExecution: finalExecution as Record<string, unknown>,
+          });
           await emitTransition(supabase, {
             projectId,
             eventType: TRANSITION_EVENTS.PATCH_EXECUTION_COMPLETED,
             eventDomain: "patch_execution",
             status: "completed",
             trigger: "execute_patch_plan",
-            runId: execPlan.plan_id,
-            resultingState: {
-              execution_replay_version: "execution-replay-v1",
-              plan_id: execPlan.plan_id,
-              project_id: projectId,
-              computed_at: execAt,
-              patch_plan: execPlan,
-              validation: execValidation,
-              execution: finalExecution,
-            } as Record<string, unknown>,
+            // runId intentionally omitted: plan_id is not UUID-compatible
+            resultingState: replaySnapshot,
             createdBy: execUserId,
           }, { critical: false });
           console.log("[dev-engine-v2] execution replay snapshot persisted", { plan_id: execPlan.plan_id });
@@ -31541,13 +31632,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ══════════════════════════════════════════════════════════════════════════════
-    // EXECUTION REPLAY v1 — get_patch_execution_replay (READ-ONLY)
-    //
-    // Retrieves a previously persisted execution snapshot from pipeline_transitions.
-    // No recomputation, no mutation. Exact recorded payload or honest failure.
-    // ══════════════════════════════════════════════════════════════════════════════
-
+    // ──────────── COMMON SNAPSHOT VALIDATION ────────────
     if (action === "get_patch_execution_replay") {
       const { projectId, planId } = body;
       if (!projectId) {
@@ -31561,15 +31646,18 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
 
       const replayAt = new Date().toISOString();
 
-      // Deterministic lookup: exact match on event_type + project_id + run_id (= plan_id)
-      const { data: replayRows, error: replayErr } = await supabase
+      // Lookup by project_id + event_type, then filter in JS on resulting_state.plan_id.
+      // run_id is NOT used here: plan_id ("patchplan::...") is not UUID-compatible with
+      // the pipeline_transitions.run_id UUID column. plan_id lives in resulting_state.plan_id.
+      // Scan up to 200 most-recent patch_execution_completed rows for this project — the
+      // (project_id, event_type, created_at DESC) index makes this efficient.
+      const { data: scanRows, error: replayErr } = await supabase
         .from("pipeline_transitions")
         .select("id, resulting_state, created_at")
         .eq("project_id", projectId)
         .eq("event_type", "patch_execution_completed")
-        .eq("run_id", planId)
         .order("created_at", { ascending: false })
-        .limit(1);
+        .limit(200);
 
       if (replayErr) {
         console.warn("[dev-engine-v2] get_patch_execution_replay query error:", replayErr.message);
@@ -31590,17 +31678,26 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const replayRow = replayRows && replayRows.length > 0 ? replayRows[0] : null;
-      const replaySnapshot = replayRow?.resulting_state;
+      // Find the first row whose resulting_state passes the canonical validator with plan_id match
+      const replayRow = (scanRows || []).find(row => {
+        const v = validatePatchExecutionReplaySnapshot(row.resulting_state, planId);
+        return v.valid;
+      }) ?? null;
+      const replaySnapshot = replayRow?.resulting_state ?? null;
 
-      // Validate replay snapshot has expected structure
-      const isValidSnapshot = replaySnapshot
-        && typeof replaySnapshot === "object"
-        && (replaySnapshot as any).execution_replay_version === "execution-replay-v1"
-        && (replaySnapshot as any).plan_id === planId;
-
-      if (!replayRow || !isValidSnapshot) {
-        // No fallback — fail honestly
+      if (!replayRow || !replaySnapshot) {
+        // Surface the precise validation reason from the closest matching row (plan_id match).
+        // If no row has a matching plan_id at all, reason = no_matching_transition_found.
+        let failReason = "no_matching_transition_found";
+        for (const row of (scanRows || [])) {
+          const rs = row.resulting_state as any;
+          if (rs && typeof rs === "object" && rs.plan_id === planId) {
+            // Row exists — run the full validator for precise reason
+            const v = validatePatchExecutionReplaySnapshot(rs, planId);
+            failReason = v.reason ?? "snapshot_structure_invalid";
+            break;
+          }
+        }
         return new Response(JSON.stringify({
           ok: true,
           action: "get_patch_execution_replay",
@@ -31611,7 +31708,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           replay_notes: {
             exact_match: false,
             fallback_used: false,
-            fallback_reason: replayRow ? "snapshot_structure_invalid" : "no_matching_transition_found",
+            fallback_reason: failReason,
           },
           computed_at: replayAt,
           version: "execution-replay-v1",
@@ -31677,19 +31774,6 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       // ── Resolve cursor ──
       const cursorCreatedAt: string | null = cursor && typeof cursor.created_at === "string" ? cursor.created_at : null;
       const cursorId: string | null = cursor && typeof cursor.id === "string" ? cursor.id : null;
-
-      // ── Outcome mapping helper ──
-      function deriveOutcome(exec: any): string {
-        const dryRun = exec.dry_run === true;
-        const executed = exec.executed === true;
-        const allowed = exec.execution_allowed === true;
-        const failed = typeof exec.direct_targets_failed === "number" ? exec.direct_targets_failed : 0;
-        if (dryRun) return "dry_run";
-        if (!allowed) return "blocked";
-        if (executed && failed > 0) return "partial";
-        if (executed && failed === 0) return "executed";
-        return "failed";
-      }
 
       // ── Iterative scan to fill page with filtered results ──
       // We scan in batches to handle application-level filters correctly.
@@ -31757,7 +31841,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           if (historyItems.length >= historyLimit + 1) break; // +1 to detect has_more
 
           const snap = row.resulting_state as any;
-          if (!snap || typeof snap !== "object" || snap.execution_replay_version !== "execution-replay-v1" || !snap.plan_id) {
+          const snapValidation = validatePatchExecutionReplaySnapshot(snap);
+          if (!snapValidation.valid) {
             omittedCount++;
             continue;
           }
@@ -31772,7 +31857,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
 
           const itemRepairType = repairSource.repair_type || null;
           const itemSourceType = repairSource.source_type || null;
-          const itemOutcome = deriveOutcome(exec);
+          const itemOutcome = deriveReplayOutcome(exec);
 
           // ── Application-level metadata filters ──
           if (fRepairType && itemRepairType !== fRepairType) continue;
@@ -31892,8 +31977,10 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const leftSnap = leftRow?.resulting_state as any;
       const rightSnap = rightRow?.resulting_state as any;
 
-      const leftValid = leftSnap && typeof leftSnap === "object" && leftSnap.execution_replay_version === "execution-replay-v1" && leftSnap.plan_id === leftPlanId;
-      const rightValid = rightSnap && typeof rightSnap === "object" && rightSnap.execution_replay_version === "execution-replay-v1" && rightSnap.plan_id === rightPlanId;
+      const leftValidation = validatePatchExecutionReplaySnapshot(leftSnap, leftPlanId);
+      const rightValidation = validatePatchExecutionReplaySnapshot(rightSnap, rightPlanId);
+      const leftValid = leftValidation.valid;
+      const rightValid = rightValidation.valid;
 
       const missingSide = !leftValid && !rightValid ? "both" : !leftValid ? "left" : !rightValid ? "right" : null;
 
@@ -31906,23 +31993,17 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           left_plan_id: leftPlanId,
           right_plan_id: rightPlanId,
           comparison: null,
-          comparison_notes: { exact_snapshot_match: false, fallback_used: false, missing_side: missingSide },
+          comparison_notes: {
+            exact_snapshot_match: false,
+            fallback_used: false,
+            missing_side: missingSide,
+            // Surfaced so UI can display precise failure reasons rather than generic "missing"
+            left_invalid_reason: leftValidation.valid ? null : leftValidation.reason,
+            right_invalid_reason: rightValidation.valid ? null : rightValidation.reason,
+          },
           computed_at: compareAt,
           version: "execution-diff-v1",
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // ── Outcome mapping (reuse existing canonical logic) ──
-      function deriveOutcomeCompare(exec: any): string {
-        const dryRun = exec.dry_run === true;
-        const executed = exec.executed === true;
-        const allowed = exec.execution_allowed === true;
-        const failed = typeof exec.direct_targets_failed === "number" ? exec.direct_targets_failed : 0;
-        if (dryRun) return "dry_run";
-        if (!allowed) return "blocked";
-        if (executed && failed > 0) return "partial";
-        if (executed && failed === 0) return "executed";
-        return "failed";
       }
 
       // ── Helpers ──
@@ -31950,8 +32031,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const lObs: any = lExec.execution_observability || {};
       const rObs: any = rExec.execution_observability || {};
 
-      const lOutcome = deriveOutcomeCompare(lExec);
-      const rOutcome = deriveOutcomeCompare(rExec);
+      const lOutcome = deriveReplayOutcome(lExec);
+      const rOutcome = deriveReplayOutcome(rExec);
 
       // ── Metrics diff ──
       const metricsDiff = {

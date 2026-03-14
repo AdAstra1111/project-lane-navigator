@@ -684,6 +684,8 @@ export interface PatchExecutionResponse {
 
 export interface ExecutionReplaySnapshot {
   execution_replay_version: string;
+  /** "full" is the only supported mode in v1. Added by buildPatchExecutionReplaySnapshot. */
+  snapshot_mode?: "full";
   plan_id: string;
   project_id: string;
   computed_at: string;
@@ -899,6 +901,8 @@ export interface PatchExecutionComparisonResponse {
     exact_snapshot_match: boolean;
     fallback_used: boolean;
     missing_side: "left" | "right" | "both" | null;
+    left_invalid_reason?: string | null;
+    right_invalid_reason?: string | null;
   };
   computed_at: string;
   version: string;
