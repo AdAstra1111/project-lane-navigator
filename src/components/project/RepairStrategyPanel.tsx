@@ -513,6 +513,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
       {/* ═══ SECTION 4g: PATCH EXECUTION (section-only, fail-closed) ═══ */}
       <PatchExecutionSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
 
+      {/* ═══ SECTION 4h: EXECUTION REPLAY (read-only historical audit) ═══ */}
+      <ExecutionReplaySection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
+
           </div>
         )}
       </div>
