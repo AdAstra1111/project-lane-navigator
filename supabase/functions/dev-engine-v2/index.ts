@@ -31405,6 +31405,49 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           deferred: revalDeferred,
         });
       }
+      const revalWasAttempted = shouldRunRevalidation || (dryRun && revalTargets.length > 0);
+      obsRevalidationMs = revalWasAttempted ? Date.now() - obsRevalStart : null;
+      if (revalWasAttempted) {
+        const revalExec = revalidationExecution as any;
+        const revalSucceeded = revalExec?.succeeded ?? 0;
+        const revalFailedCount = revalExec?.failed ?? 0;
+        obsEmit("revalidation", "revalidation", revalFailedCount > 0 && revalSucceeded === 0 ? "failed" : "completed",
+          `Revalidation complete: ${revalSucceeded} succeeded, ${revalFailedCount} failed`);
+        // Backfill revalidation_status on executed doc timelines
+        for (const dt of obsDocTimelines) {
+          if (dt.status === "executed" || dt.status === "dry_run") {
+            const docRevalTargets = (revalExec?.target_results || []).filter((r: any) => r.document_id === dt.document_id);
+            if (docRevalTargets.length === 0) {
+              dt.revalidation_status = dt.revalidation_status || "skipped";
+            } else {
+              const allExecuted = docRevalTargets.every((r: any) => r.status === "executed");
+              const anyFailed = docRevalTargets.some((r: any) => r.status === "failed");
+              const anyDeferred = docRevalTargets.some((r: any) => r.status === "deferred" || r.status === "skipped");
+              if (allExecuted) dt.revalidation_status = "performed";
+              else if (anyFailed && !allExecuted) dt.revalidation_status = "partial";
+              else if (anyDeferred) dt.revalidation_status = "deferred";
+              else dt.revalidation_status = "skipped";
+            }
+          }
+        }
+      }
+
+      // ── BUILD EXECUTION OBSERVABILITY ──
+      const obsFinishedAt = new Date().toISOString();
+      const obsTotalMs = Date.now() - obsStartedAt;
+      const executionObservability = {
+        started_at: execAt,
+        finished_at: obsFinishedAt,
+        total_duration_ms: obsTotalMs,
+        phase_durations_ms: {
+          validation: obsValidationMs,
+          section_execution: obsSectionExecMs,
+          governance: obsGovernanceMs,
+          revalidation: obsRevalidationMs,
+        },
+        document_timeline: obsDocTimelines,
+        event_trace: obsEventTrace,
+      };
 
       console.log("[dev-engine-v2] execute_patch_plan", {
         project_id: projectId,
@@ -31423,6 +31466,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         write_performed: writePerformed,
         has_governance: !!postExecution,
         has_revalidation: !!revalidationExecution,
+        total_duration_ms: obsTotalMs,
       });
 
       return new Response(JSON.stringify({
@@ -31457,6 +31501,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           },
           post_execution: postExecution,
           revalidation_execution: revalidationExecution,
+          execution_observability: executionObservability,
         },
         computed_at: execAt,
         version: "patch-execution-v1.2",
