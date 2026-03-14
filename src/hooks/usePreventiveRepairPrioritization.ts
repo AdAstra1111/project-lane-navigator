@@ -834,6 +834,104 @@ export async function fetchPatchExecutionHistory(
   return json as PatchExecutionHistoryResponse;
 }
 
+// ── Execution Diff Comparison Types ──
+
+export interface MetricDiffEntry {
+  left: number | null;
+  right: number | null;
+  delta: number | null;
+}
+
+export interface DocumentTimelineDiffEntry {
+  document_id: string;
+  doc_type: string;
+  left_status: string | null;
+  right_status: string | null;
+  left_version_id_after: string | null;
+  right_version_id_after: string | null;
+  left_governance_status: string | null;
+  right_governance_status: string | null;
+  left_revalidation_status: string | null;
+  right_revalidation_status: string | null;
+}
+
+export interface PatchExecutionComparisonResponse {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  comparison_found: boolean;
+  left_plan_id: string;
+  right_plan_id: string;
+  comparison: {
+    left_snapshot: { plan_id: string; computed_at: string; repair_type: string | null; source_type: string | null };
+    right_snapshot: { plan_id: string; computed_at: string; repair_type: string | null; source_type: string | null };
+    summary: {
+      same_repair_type: boolean;
+      same_source_type: boolean;
+      outcome_changed: boolean;
+      duration_changed: boolean;
+      documents_changed: boolean;
+      target_counts_changed: boolean;
+    };
+    metrics_diff: {
+      direct_targets_attempted: MetricDiffEntry;
+      direct_targets_executed: MetricDiffEntry;
+      direct_targets_failed: MetricDiffEntry;
+      documents_attempted: MetricDiffEntry;
+      documents_executed: MetricDiffEntry;
+      document_sequences_failed: MetricDiffEntry;
+      documents_skipped_due_to_upstream_failure: MetricDiffEntry;
+      total_duration_ms: MetricDiffEntry;
+    };
+    outcome_diff: { left_outcome: string; right_outcome: string };
+    blocked_doc_types_diff: { only_left: string[]; only_right: string[]; both: string[] };
+    document_order_diff: { left: string[]; right: string[]; changed: boolean };
+    document_timeline_diff: { only_left: string[]; only_right: string[]; changed_documents: DocumentTimelineDiffEntry[] };
+    phase_duration_diff: {
+      validation: MetricDiffEntry;
+      section_execution: MetricDiffEntry;
+      governance: MetricDiffEntry;
+      revalidation: MetricDiffEntry;
+    };
+    event_trace_summary: { left_event_count: number; right_event_count: number; delta: number };
+  } | null;
+  comparison_notes: {
+    exact_snapshot_match: boolean;
+    fallback_used: boolean;
+    missing_side: "left" | "right" | "both" | null;
+  };
+  computed_at: string;
+  version: string;
+}
+
+export async function fetchPatchExecutionComparison(
+  projectId: string,
+  leftPlanId: string,
+  rightPlanId: string,
+): Promise<PatchExecutionComparisonResponse | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'compare_patch_execution_replays',
+      projectId,
+      leftPlanId,
+      rightPlanId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PatchExecutionComparisonResponse;
+}
+
 export async function fetchPatchExecution(
   projectId: string,
   repairId?: string,

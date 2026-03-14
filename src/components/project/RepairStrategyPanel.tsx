@@ -12,9 +12,11 @@ import {
   fetchPatchExecution,
   fetchPatchExecutionReplay,
   fetchPatchExecutionHistory,
+  fetchPatchExecutionComparison,
   deriveExecutionOutcome,
   type PatchExecutionHistoryItem, type PatchExecutionHistoryResponse, type PatchExecutionHistoryCursor,
   type PatchExecutionHistoryFilters, type PatchExecutionOutcome,
+  type PatchExecutionComparisonResponse, type MetricDiffEntry, type DocumentTimelineDiffEntry,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type InterventionAnalysisResult, type InterventionCandidate,
@@ -2611,6 +2613,11 @@ function ExecutionReplaySection({
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<PatchExecutionHistoryItem | null>(null);
   const [showManualInput, setShowManualInput] = useState(false);
 
+  // Compare state
+  const [compareItem, setCompareItem] = useState<PatchExecutionHistoryItem | null>(null);
+  const [compareResult, setCompareResult] = useState<PatchExecutionComparisonResponse | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+
   // Filter state
   const [historyFilters, setHistoryFilters] = useState<PatchExecutionHistoryFilters>({});
   const hasActiveFilters = Object.values(historyFilters).some(v => v != null && v !== '');
@@ -2619,6 +2626,8 @@ function ExecutionReplaySection({
     if (!projectId) return;
     setHistoryLoading(true);
     setAccumulatedItems([]);
+    setCompareItem(null);
+    setCompareResult(null);
     setNextCursor(null);
     setHasMore(false);
     try {
@@ -2656,7 +2665,36 @@ function ExecutionReplaySection({
 
   const handleClearFilters = () => {
     setHistoryFilters({});
+    setCompareItem(null);
+    setCompareResult(null);
     if (historyResult) handleLoadHistory({});
+  };
+
+  const handleMarkForCompare = (item: PatchExecutionHistoryItem) => {
+    if (compareItem?.transition_id === item.transition_id) {
+      setCompareItem(null);
+      setCompareResult(null);
+    } else {
+      setCompareItem(item);
+      setCompareResult(null);
+    }
+  };
+
+  const handleRunComparison = async () => {
+    if (!projectId || !selectedHistoryItem || !compareItem) return;
+    setCompareLoading(true);
+    try {
+      const result = await fetchPatchExecutionComparison(
+        projectId,
+        selectedHistoryItem.plan_id,
+        compareItem.plan_id,
+      );
+      setCompareResult(result);
+    } catch {
+      setCompareResult(null);
+    } finally {
+      setCompareLoading(false);
+    }
   };
 
   const handleSelectHistoryItem = async (item: PatchExecutionHistoryItem) => {
@@ -2850,60 +2888,84 @@ function ExecutionReplaySection({
                 </Card>
               ) : (
                 <div className="space-y-1 max-h-[300px] overflow-y-auto">
-                  {accumulatedItems.map((item) => (
-                    <button
-                      key={item.transition_id}
-                      onClick={() => handleSelectHistoryItem(item)}
-                      className={cn(
-                        "w-full text-left rounded-md border px-2.5 py-2 transition-colors hover:bg-accent/50",
-                        selectedHistoryItem?.transition_id === item.transition_id
-                          ? "border-primary/50 bg-accent/30"
-                          : "border-border/30"
-                      )}
-                    >
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] font-mono text-foreground">
-                          {new Date(item.created_at).toLocaleString()}
-                        </span>
-                        {(() => {
-                          const oc = item.outcome || deriveExecutionOutcome(item);
-                          const ocStyles: Record<string, string> = {
-                            executed: "text-emerald-400 border-emerald-500/30",
-                            partial: "text-amber-400 border-amber-500/30",
-                            blocked: "text-red-400 border-red-500/30",
-                            failed: "text-destructive border-destructive/30",
-                            dry_run: "text-blue-400 border-blue-500/30",
-                          };
-                          return (
-                            <Badge variant="outline" className={cn("text-[8px] font-mono px-1 py-0 h-3.5", ocStyles[oc] || "text-muted-foreground border-border/50")}>
-                              {oc === "dry_run" ? "dry run" : oc}
-                            </Badge>
-                          );
-                        })()}
-                        {item.blocked_doc_types.length > 0 && (
-                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-amber-400 border-amber-500/30">
-                            {item.blocked_doc_types.length} blocked
-                          </Badge>
+                  {accumulatedItems.map((item) => {
+                    const isSelected = selectedHistoryItem?.transition_id === item.transition_id;
+                    const isCompare = compareItem?.transition_id === item.transition_id;
+                    return (
+                      <div
+                        key={item.transition_id}
+                        className={cn(
+                          "rounded-md border px-2.5 py-2 transition-colors",
+                          isSelected ? "border-primary/50 bg-accent/30" :
+                          isCompare ? "border-blue-500/50 bg-blue-500/5" :
+                          "border-border/30 hover:bg-accent/50"
                         )}
-                        {item.total_duration_ms != null && (
-                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">
-                            {item.total_duration_ms}ms
-                          </Badge>
+                      >
+                        <button
+                          onClick={() => handleSelectHistoryItem(item)}
+                          className="w-full text-left"
+                        >
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {isSelected && <Badge variant="outline" className="text-[7px] font-mono px-1 py-0 h-3 text-primary border-primary/30">L</Badge>}
+                            {isCompare && <Badge variant="outline" className="text-[7px] font-mono px-1 py-0 h-3 text-blue-400 border-blue-500/30">R</Badge>}
+                            <span className="text-[10px] font-mono text-foreground">
+                              {new Date(item.created_at).toLocaleString()}
+                            </span>
+                            {(() => {
+                              const oc = item.outcome || deriveExecutionOutcome(item);
+                              const ocStyles: Record<string, string> = {
+                                executed: "text-emerald-400 border-emerald-500/30",
+                                partial: "text-amber-400 border-amber-500/30",
+                                blocked: "text-red-400 border-red-500/30",
+                                failed: "text-destructive border-destructive/30",
+                                dry_run: "text-blue-400 border-blue-500/30",
+                              };
+                              return (
+                                <Badge variant="outline" className={cn("text-[8px] font-mono px-1 py-0 h-3.5", ocStyles[oc] || "text-muted-foreground border-border/50")}>
+                                  {oc === "dry_run" ? "dry run" : oc}
+                                </Badge>
+                              );
+                            })()}
+                            {item.blocked_doc_types.length > 0 && (
+                              <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-amber-400 border-amber-500/30">
+                                {item.blocked_doc_types.length} blocked
+                              </Badge>
+                            )}
+                            {item.total_duration_ms != null && (
+                              <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">
+                                {item.total_duration_ms}ms
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5 text-[9px] text-muted-foreground">
+                            {item.repair_type && <span>repair: {item.repair_type}</span>}
+                            {item.source_type && <span>source: {item.source_type}</span>}
+                            <span>sections: {item.direct_targets_executed}/{item.direct_targets_attempted}</span>
+                            {item.documents_executed != null && (
+                              <span>docs: {item.documents_executed}/{item.documents_attempted}</span>
+                            )}
+                            {item.direct_targets_failed > 0 && (
+                              <span className="text-destructive">{item.direct_targets_failed} failed</span>
+                            )}
+                          </div>
+                        </button>
+                        {/* Compare toggle — only show if this isn't the selected item */}
+                        {!isSelected && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleMarkForCompare(item); }}
+                            className={cn(
+                              "mt-1 text-[8px] font-mono px-1.5 py-0.5 rounded border transition-colors",
+                              isCompare
+                                ? "text-blue-400 border-blue-500/30 bg-blue-500/10"
+                                : "text-muted-foreground border-border/30 hover:text-foreground hover:border-border/60"
+                            )}
+                          >
+                            {isCompare ? '✕ Unmark' : '⇔ Compare'}
+                          </button>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5 text-[9px] text-muted-foreground">
-                        {item.repair_type && <span>repair: {item.repair_type}</span>}
-                        {item.source_type && <span>source: {item.source_type}</span>}
-                        <span>sections: {item.direct_targets_executed}/{item.direct_targets_attempted}</span>
-                        {item.documents_executed != null && (
-                          <span>docs: {item.documents_executed}/{item.documents_attempted}</span>
-                        )}
-                        {item.direct_targets_failed > 0 && (
-                          <span className="text-destructive">{item.direct_targets_failed} failed</span>
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {/* Pagination status and Load More */}
@@ -2933,7 +2995,194 @@ function ExecutionReplaySection({
             </>
           )}
 
-          {/* Manual plan ID input (advanced fallback) */}
+          {/* ── Compare Executions ── */}
+          {selectedHistoryItem && compareItem && (
+            <div className="space-y-2 border-t border-border/30 pt-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] text-muted-foreground">
+                  Comparing <Badge variant="outline" className="text-[7px] font-mono px-1 py-0 h-3 text-primary border-primary/30">L</Badge>{' '}
+                  {new Date(selectedHistoryItem.created_at).toLocaleDateString()} vs{' '}
+                  <Badge variant="outline" className="text-[7px] font-mono px-1 py-0 h-3 text-blue-400 border-blue-500/30">R</Badge>{' '}
+                  {new Date(compareItem.created_at).toLocaleDateString()}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRunComparison}
+                  disabled={compareLoading}
+                  className="text-[9px] h-6 px-2 ml-auto"
+                >
+                  {compareLoading ? 'Comparing…' : 'Compare Executions'}
+                </Button>
+                <button
+                  onClick={() => { setCompareItem(null); setCompareResult(null); }}
+                  className="text-[8px] text-muted-foreground hover:text-foreground"
+                >✕</button>
+              </div>
+
+              {compareResult && !compareResult.comparison_found && (
+                <Card className="border-border/50">
+                  <CardContent className="py-3 text-center">
+                    <XCircle className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
+                    <p className="text-[10px] text-muted-foreground">
+                      Comparison unavailable. Missing: {compareResult.comparison_notes.missing_side || 'unknown'} snapshot.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {compareResult?.comparison_found && compareResult.comparison && (() => {
+                const c = compareResult.comparison;
+                const renderDelta = (d: MetricDiffEntry) => {
+                  if (d.delta == null) return <span className="text-muted-foreground">—</span>;
+                  if (d.delta > 0) return <span className="text-emerald-400">+{d.delta}</span>;
+                  if (d.delta < 0) return <span className="text-red-400">{d.delta}</span>;
+                  return <span className="text-muted-foreground">0</span>;
+                };
+                const chipColor = (changed: boolean) =>
+                  changed ? "text-amber-400 border-amber-500/30" : "text-emerald-400 border-emerald-500/30";
+
+                return (
+                  <div className="space-y-3">
+                    {/* Summary chips */}
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge variant="outline" className={cn("text-[8px] font-mono px-1.5 py-0 h-4", chipColor(c.summary.outcome_changed))}>
+                        outcome {c.summary.outcome_changed ? 'changed' : 'same'}
+                      </Badge>
+                      <Badge variant="outline" className={cn("text-[8px] font-mono px-1.5 py-0 h-4", chipColor(c.summary.duration_changed))}>
+                        duration {c.summary.duration_changed ? 'changed' : 'same'}
+                      </Badge>
+                      <Badge variant="outline" className={cn("text-[8px] font-mono px-1.5 py-0 h-4", chipColor(c.summary.documents_changed))}>
+                        docs {c.summary.documents_changed ? 'changed' : 'same'}
+                      </Badge>
+                      <Badge variant="outline" className={cn("text-[8px] font-mono px-1.5 py-0 h-4", chipColor(c.summary.target_counts_changed))}>
+                        targets {c.summary.target_counts_changed ? 'changed' : 'same'}
+                      </Badge>
+                    </div>
+
+                    {/* Outcome diff */}
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <span className="text-muted-foreground">Outcome:</span>
+                      <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5">{c.outcome_diff.left_outcome}</Badge>
+                      <span className="text-muted-foreground">→</span>
+                      <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5">{c.outcome_diff.right_outcome}</Badge>
+                    </div>
+
+                    {/* Metrics diff table */}
+                    <div>
+                      <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Metrics</div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-[8px] py-1 h-6">Metric</TableHead>
+                            <TableHead className="text-[8px] py-1 h-6 text-right">Left</TableHead>
+                            <TableHead className="text-[8px] py-1 h-6 text-right">Right</TableHead>
+                            <TableHead className="text-[8px] py-1 h-6 text-right">Δ</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(Object.entries(c.metrics_diff) as [string, MetricDiffEntry][]).map(([key, val]) => (
+                            <TableRow key={key}>
+                              <TableCell className="text-[9px] font-mono py-1">{key.replace(/_/g, ' ')}</TableCell>
+                              <TableCell className="text-[9px] font-mono py-1 text-right">{val.left ?? '—'}</TableCell>
+                              <TableCell className="text-[9px] font-mono py-1 text-right">{val.right ?? '—'}</TableCell>
+                              <TableCell className="text-[9px] font-mono py-1 text-right">{renderDelta(val)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Blocked doc types diff */}
+                    {(c.blocked_doc_types_diff.only_left.length > 0 || c.blocked_doc_types_diff.only_right.length > 0 || c.blocked_doc_types_diff.both.length > 0) && (
+                      <div>
+                        <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Blocked Doc Types</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {c.blocked_doc_types_diff.only_left.map(d => (
+                            <Badge key={`bl-${d}`} variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-red-400 border-red-500/30">−{d}</Badge>
+                          ))}
+                          {c.blocked_doc_types_diff.only_right.map(d => (
+                            <Badge key={`br-${d}`} variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-emerald-400 border-emerald-500/30">+{d}</Badge>
+                          ))}
+                          {c.blocked_doc_types_diff.both.map(d => (
+                            <Badge key={`bb-${d}`} variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">{d}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Document order diff */}
+                    {c.document_order_diff.changed && (
+                      <div>
+                        <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Document Order Changed</div>
+                        <div className="grid grid-cols-2 gap-2 text-[9px] font-mono">
+                          <div><span className="text-muted-foreground">Left: </span>{c.document_order_diff.left.join(' → ') || '—'}</div>
+                          <div><span className="text-muted-foreground">Right: </span>{c.document_order_diff.right.join(' → ') || '—'}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Document timeline diff */}
+                    {(c.document_timeline_diff.only_left.length > 0 || c.document_timeline_diff.only_right.length > 0 || c.document_timeline_diff.changed_documents.length > 0) && (
+                      <div>
+                        <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Document Timeline Changes</div>
+                        {c.document_timeline_diff.only_left.length > 0 && (
+                          <div className="text-[9px] text-red-400 mb-1">Only left: {c.document_timeline_diff.only_left.join(', ')}</div>
+                        )}
+                        {c.document_timeline_diff.only_right.length > 0 && (
+                          <div className="text-[9px] text-emerald-400 mb-1">Only right: {c.document_timeline_diff.only_right.join(', ')}</div>
+                        )}
+                        {c.document_timeline_diff.changed_documents.map((cd) => (
+                          <div key={cd.document_id} className="rounded-md border border-border/30 px-2 py-1 mb-1 text-[9px]">
+                            <span className="font-mono font-semibold text-foreground">{cd.doc_type}</span>
+                            <div className="flex flex-wrap gap-2 text-muted-foreground mt-0.5">
+                              {cd.left_status !== cd.right_status && (
+                                <span>status: <span className="text-red-400">{cd.left_status}</span> → <span className="text-emerald-400">{cd.right_status}</span></span>
+                              )}
+                              {cd.left_governance_status !== cd.right_governance_status && (
+                                <span>gov: {cd.left_governance_status} → {cd.right_governance_status}</span>
+                              )}
+                              {cd.left_revalidation_status !== cd.right_revalidation_status && (
+                                <span>reval: {cd.left_revalidation_status} → {cd.right_revalidation_status}</span>
+                              )}
+                              {cd.left_version_id_after !== cd.right_version_id_after && (
+                                <span className="font-mono">ver: {cd.left_version_id_after?.slice(0,8) || '—'} → {cd.right_version_id_after?.slice(0,8) || '—'}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Phase duration diff */}
+                    <div>
+                      <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Phase Durations (ms)</div>
+                      <div className="flex flex-wrap gap-2">
+                        {(Object.entries(c.phase_duration_diff) as [string, MetricDiffEntry][]).map(([phase, val]) => (
+                          <div key={phase} className="text-[9px] font-mono">
+                            <span className="text-muted-foreground">{phase.replace(/_/g, ' ')}: </span>
+                            <span>{val.left ?? '—'}/{val.right ?? '—'} </span>
+                            {renderDelta(val)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Event trace summary */}
+                    <div className="text-[9px] text-muted-foreground">
+                      Events: {c.event_trace_summary.left_event_count} → {c.event_trace_summary.right_event_count}
+                      {c.event_trace_summary.delta !== 0 && (
+                        <span className={c.event_trace_summary.delta > 0 ? "text-emerald-400" : "text-red-400"}>
+                          {' '}({c.event_trace_summary.delta > 0 ? '+' : ''}{c.event_trace_summary.delta})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           {showManualInput && (
             <div className="flex gap-2 items-end border-t border-border/30 pt-2">
               <div className="flex-1">

@@ -31857,6 +31857,223 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════
+    // EXECUTION DIFF COMPARISON v1 — compare_patch_execution_replays (READ-ONLY)
+    //
+    // Compares two persisted execution replay snapshots structurally.
+    // No recomputation, no mutation. Exact stored payloads only.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "compare_patch_execution_replays") {
+      const { projectId, leftPlanId, rightPlanId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!leftPlanId || !rightPlanId) {
+        return new Response(JSON.stringify({ ok: false, error: "leftPlanId and rightPlanId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const compareAt = new Date().toISOString();
+
+      // ── Fetch both snapshots in parallel ──
+      const [leftRes, rightRes] = await Promise.all([
+        supabase.from("pipeline_transitions").select("id, resulting_state, created_at")
+          .eq("project_id", projectId).eq("event_type", "patch_execution_completed")
+          .eq("run_id", leftPlanId).order("created_at", { ascending: false }).limit(1),
+        supabase.from("pipeline_transitions").select("id, resulting_state, created_at")
+          .eq("project_id", projectId).eq("event_type", "patch_execution_completed")
+          .eq("run_id", rightPlanId).order("created_at", { ascending: false }).limit(1),
+      ]);
+
+      const leftRow = leftRes.data?.[0] ?? null;
+      const rightRow = rightRes.data?.[0] ?? null;
+      const leftSnap = leftRow?.resulting_state as any;
+      const rightSnap = rightRow?.resulting_state as any;
+
+      const leftValid = leftSnap && typeof leftSnap === "object" && leftSnap.execution_replay_version === "execution-replay-v1" && leftSnap.plan_id === leftPlanId;
+      const rightValid = rightSnap && typeof rightSnap === "object" && rightSnap.execution_replay_version === "execution-replay-v1" && rightSnap.plan_id === rightPlanId;
+
+      const missingSide = !leftValid && !rightValid ? "both" : !leftValid ? "left" : !rightValid ? "right" : null;
+
+      if (missingSide) {
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "compare_patch_execution_replays",
+          project_id: projectId,
+          comparison_found: false,
+          left_plan_id: leftPlanId,
+          right_plan_id: rightPlanId,
+          comparison: null,
+          comparison_notes: { exact_snapshot_match: false, fallback_used: false, missing_side: missingSide },
+          computed_at: compareAt,
+          version: "execution-diff-v1",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Outcome mapping (reuse existing canonical logic) ──
+      function deriveOutcomeCompare(exec: any): string {
+        const dryRun = exec.dry_run === true;
+        const executed = exec.executed === true;
+        const allowed = exec.execution_allowed === true;
+        const failed = typeof exec.direct_targets_failed === "number" ? exec.direct_targets_failed : 0;
+        if (dryRun) return "dry_run";
+        if (!allowed) return "blocked";
+        if (executed && failed > 0) return "partial";
+        if (executed && failed === 0) return "executed";
+        return "failed";
+      }
+
+      // ── Helpers ──
+      function metricDiff(l: number | null | undefined, r: number | null | undefined) {
+        const lv = typeof l === "number" ? l : null;
+        const rv = typeof r === "number" ? r : null;
+        return { left: lv, right: rv, delta: lv != null && rv != null ? rv - lv : null };
+      }
+
+      function arraySetDiff(l: string[], r: string[]) {
+        const ls = new Set(l); const rs = new Set(r);
+        return {
+          only_left: l.filter(x => !rs.has(x)),
+          only_right: r.filter(x => !ls.has(x)),
+          both: l.filter(x => rs.has(x)),
+        };
+      }
+
+      const lExec = leftSnap.execution || {};
+      const rExec = rightSnap.execution || {};
+      const lPlan = leftSnap.patch_plan || {};
+      const rPlan = rightSnap.patch_plan || {};
+      const lRepairSource = lPlan.repair_source || {};
+      const rRepairSource = rPlan.repair_source || {};
+      const lObs: any = lExec.execution_observability || {};
+      const rObs: any = rExec.execution_observability || {};
+
+      const lOutcome = deriveOutcomeCompare(lExec);
+      const rOutcome = deriveOutcomeCompare(rExec);
+
+      // ── Metrics diff ──
+      const metricsDiff = {
+        direct_targets_attempted: metricDiff(lExec.direct_targets_attempted, rExec.direct_targets_attempted),
+        direct_targets_executed: metricDiff(lExec.direct_targets_executed, rExec.direct_targets_executed),
+        direct_targets_failed: metricDiff(lExec.direct_targets_failed, rExec.direct_targets_failed),
+        documents_attempted: metricDiff(lExec.documents_attempted, rExec.documents_attempted),
+        documents_executed: metricDiff(lExec.documents_executed, rExec.documents_executed),
+        document_sequences_failed: metricDiff(lExec.document_sequences_failed, rExec.document_sequences_failed),
+        documents_skipped_due_to_upstream_failure: metricDiff(lExec.documents_skipped_due_to_upstream_failure, rExec.documents_skipped_due_to_upstream_failure),
+        total_duration_ms: metricDiff(lObs.total_duration_ms, rObs.total_duration_ms),
+      };
+
+      // ── Blocked doc types ──
+      const lBlocked = Array.isArray(lExec.blocked_doc_types) ? lExec.blocked_doc_types : [];
+      const rBlocked = Array.isArray(rExec.blocked_doc_types) ? rExec.blocked_doc_types : [];
+      const blockedDiff = arraySetDiff([...lBlocked].sort(), [...rBlocked].sort());
+
+      // ── Document execution order ──
+      const lOrder = Array.isArray(lExec.document_execution_order) ? lExec.document_execution_order : [];
+      const rOrder = Array.isArray(rExec.document_execution_order) ? rExec.document_execution_order : [];
+      const orderChanged = JSON.stringify(lOrder) !== JSON.stringify(rOrder);
+
+      // ── Document timeline diff ──
+      const lTimeline: any[] = Array.isArray(lObs.document_timeline) ? lObs.document_timeline : [];
+      const rTimeline: any[] = Array.isArray(rObs.document_timeline) ? rObs.document_timeline : [];
+      const lTimelineMap = new Map(lTimeline.map((d: any) => [d.document_id, d]));
+      const rTimelineMap = new Map(rTimeline.map((d: any) => [d.document_id, d]));
+      const allDocIds = new Set([...lTimelineMap.keys(), ...rTimelineMap.keys()]);
+      const onlyLeftDocs: string[] = [];
+      const onlyRightDocs: string[] = [];
+      const changedDocuments: any[] = [];
+      for (const docId of allDocIds) {
+        const ld = lTimelineMap.get(docId);
+        const rd = rTimelineMap.get(docId);
+        if (ld && !rd) { onlyLeftDocs.push(docId); continue; }
+        if (!ld && rd) { onlyRightDocs.push(docId); continue; }
+        if (ld.status !== rd.status || ld.version_id_after !== rd.version_id_after ||
+            ld.governance_status !== rd.governance_status || ld.revalidation_status !== rd.revalidation_status) {
+          changedDocuments.push({
+            document_id: docId,
+            doc_type: ld.doc_type || rd.doc_type || "unknown",
+            left_status: ld.status ?? null,
+            right_status: rd.status ?? null,
+            left_version_id_after: ld.version_id_after ?? null,
+            right_version_id_after: rd.version_id_after ?? null,
+            left_governance_status: ld.governance_status ?? null,
+            right_governance_status: rd.governance_status ?? null,
+            left_revalidation_status: ld.revalidation_status ?? null,
+            right_revalidation_status: rd.revalidation_status ?? null,
+          });
+        }
+      }
+
+      // ── Phase durations ──
+      const lPhases = lObs.phase_durations_ms || {};
+      const rPhases = rObs.phase_durations_ms || {};
+      const phaseDiff = {
+        validation: metricDiff(lPhases.validation, rPhases.validation),
+        section_execution: metricDiff(lPhases.section_execution, rPhases.section_execution),
+        governance: metricDiff(lPhases.governance, rPhases.governance),
+        revalidation: metricDiff(lPhases.revalidation, rPhases.revalidation),
+      };
+
+      // ── Event trace summary ──
+      const lEventCount = Array.isArray(lObs.event_trace) ? lObs.event_trace.length : 0;
+      const rEventCount = Array.isArray(rObs.event_trace) ? rObs.event_trace.length : 0;
+
+      // ── Summary flags ──
+      const docsChanged = onlyLeftDocs.length > 0 || onlyRightDocs.length > 0 || changedDocuments.length > 0;
+      const targetsChanged = metricsDiff.direct_targets_attempted.delta !== 0 || metricsDiff.direct_targets_executed.delta !== 0 || metricsDiff.direct_targets_failed.delta !== 0;
+
+      const comparison = {
+        left_snapshot: {
+          plan_id: leftPlanId,
+          computed_at: leftSnap.computed_at || leftRow.created_at,
+          repair_type: lRepairSource.repair_type || null,
+          source_type: lRepairSource.source_type || null,
+        },
+        right_snapshot: {
+          plan_id: rightPlanId,
+          computed_at: rightSnap.computed_at || rightRow.created_at,
+          repair_type: rRepairSource.repair_type || null,
+          source_type: rRepairSource.source_type || null,
+        },
+        summary: {
+          same_repair_type: lRepairSource.repair_type === rRepairSource.repair_type,
+          same_source_type: lRepairSource.source_type === rRepairSource.source_type,
+          outcome_changed: lOutcome !== rOutcome,
+          duration_changed: metricsDiff.total_duration_ms.delta != null && metricsDiff.total_duration_ms.delta !== 0,
+          documents_changed: docsChanged,
+          target_counts_changed: targetsChanged,
+        },
+        metrics_diff: metricsDiff,
+        outcome_diff: { left_outcome: lOutcome, right_outcome: rOutcome },
+        blocked_doc_types_diff: blockedDiff,
+        document_order_diff: { left: lOrder, right: rOrder, changed: orderChanged },
+        document_timeline_diff: { only_left: onlyLeftDocs, only_right: onlyRightDocs, changed_documents: changedDocuments },
+        phase_duration_diff: phaseDiff,
+        event_trace_summary: { left_event_count: lEventCount, right_event_count: rEventCount, delta: rEventCount - lEventCount },
+      };
+
+      console.log("[dev-engine-v2] compare_patch_execution_replays", {
+        project_id: projectId, left: leftPlanId, right: rightPlanId,
+        outcome_changed: comparison.summary.outcome_changed,
+        docs_changed: docsChanged,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "compare_patch_execution_replays",
+        project_id: projectId,
+        comparison_found: true,
+        left_plan_id: leftPlanId,
+        right_plan_id: rightPlanId,
+        comparison,
+        comparison_notes: { exact_snapshot_match: true, fallback_used: false, missing_side: null },
+        computed_at: compareAt,
+        version: "execution-diff-v1",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
