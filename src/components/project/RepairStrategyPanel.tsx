@@ -3912,6 +3912,87 @@ function deriveComparisonKey(rec: {
   return rec.recommendation_id;
 }
 
+// ── Recommended Actions Registry ────────────────────────────────────────────
+// Maps rule_id → factory producing non-mutating inspection actions from evidence.
+// All actions are destructive: false. Mutating actions are a future concern.
+
+type RecommendedActionFactory = (args: {
+  rule_id?: string;
+  category?: string;
+  title?: string;
+  evidence?: Record<string, unknown>;
+}) => import('@/hooks/usePreventiveRepairPrioritization').RecommendedAction[];
+
+const RECOMMENDED_ACTIONS_REGISTRY: Record<string, RecommendedActionFactory> = {
+  REC_A_OVERALL_HEALTH: () => [{
+    action_type: 'inspect_execution_health', label: 'View execution health', params: {}, destructive: false,
+  }],
+  REC_B_BLOCKER_MITIGATION: ({ evidence }) => [{
+    action_type: 'inspect_blocker',
+    label: `Inspect blocker: ${String(evidence?.blocker_code ?? '')}`,
+    params: { blocker_code: String(evidence?.blocker_code ?? '') },
+    destructive: false,
+  }],
+  REC_C_REPAIR_TYPE_WATCHLIST: ({ evidence }) => [{
+    action_type: 'inspect_repair_type',
+    label: `Inspect repair type: ${String(evidence?.repair_type ?? '')}`,
+    params: { repair_type: String(evidence?.repair_type ?? '') },
+    destructive: false,
+  }],
+  REC_D_SOURCE_TYPE_WATCHLIST: ({ evidence }) => [{
+    action_type: 'inspect_source_type',
+    label: `Inspect source type: ${String(evidence?.source_type ?? '')}`,
+    params: { source_type: String(evidence?.source_type ?? '') },
+    destructive: false,
+  }],
+  REC_E_DOC_STABILITY: ({ evidence }) => [{
+    action_type: 'inspect_doc_type',
+    label: `Inspect doc type: ${String(evidence?.doc_type ?? '')}`,
+    params: { doc_type: String(evidence?.doc_type ?? '') },
+    destructive: false,
+  }],
+  REC_E_GOVERNANCE_GAP: ({ evidence }) => [{
+    action_type: 'inspect_doc_type',
+    label: `Inspect doc type: ${String(evidence?.doc_type ?? '')}`,
+    params: { doc_type: String(evidence?.doc_type ?? '') },
+    destructive: false,
+  }],
+  REC_E_REVALIDATION_GAP: ({ evidence }) => [{
+    action_type: 'inspect_doc_type',
+    label: `Inspect doc type: ${String(evidence?.doc_type ?? '')}`,
+    params: { doc_type: String(evidence?.doc_type ?? '') },
+    destructive: false,
+  }],
+  REC_F_OVERALL_GOVERNANCE_GAP: () => [{
+    action_type: 'inspect_governance', label: 'Inspect governance', params: {}, destructive: false,
+  }],
+  REC_G_REVALIDATION_FAILURE_GAP: () => [{
+    action_type: 'inspect_governance', label: 'Inspect governance', params: {}, destructive: false,
+  }],
+  REC_H_TIMING_INEFFICIENCY: () => [{
+    action_type: 'inspect_timing', label: 'Inspect timing', params: {}, destructive: false,
+  }],
+  REC_I_CAUSAL_ROOT_BLOCKER: ({ evidence }) => [{
+    action_type: 'inspect_blocker',
+    label: `Inspect blocker: ${String(evidence?.blocker ?? '')}`,
+    params: { blocker: String(evidence?.blocker ?? '') },
+    destructive: false,
+  }],
+};
+
+/** Populate recommended_actions on a DisplayRecommendation using the registry. */
+function populateRecommendedActions(rec: import('@/hooks/usePreventiveRepairPrioritization').DisplayRecommendation): void {
+  if (rec.recommended_actions && rec.recommended_actions.length > 0) return; // already populated (e.g. from backend)
+  const factory = RECOMMENDED_ACTIONS_REGISTRY[rec.rule_id];
+  if (!factory) return; // unregistered rule — no actions
+  rec.recommended_actions = factory({
+    rule_id: rec.rule_id,
+    category: rec.category,
+    title: rec.title,
+    evidence: rec.evidence as Record<string, unknown>,
+  });
+}
+
 const SEV_ORDER: Record<string, number> = { high: 2, medium: 1, low: 0 };
 
 interface SnapshotItem {
