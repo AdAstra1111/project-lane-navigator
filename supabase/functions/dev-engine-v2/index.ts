@@ -13767,6 +13767,60 @@ Return ONLY valid JSON:
         return a.repair_id < b.repair_id ? -1 : 1;
       });
       roiSorted.forEach((o, i) => { o.roi_rank = i + 1; });
+
+      // ── 6c. Root-cause leverage advisory (non-binding, does not affect strategic_priority_score) ─
+      // Reuse shared clustering helper with same ARP1/NRF1 data already loaded
+      const rccResult = runRootCauseClusteringCore(arp1R, nrf1R);
+
+      // Build repair→cluster lookup
+      const repairToCluster = new Map<string, RCCCluster>();
+      for (const cl of rccResult.clusters) {
+        for (const rid of cl.involved_repairs) repairToCluster.set(rid, cl);
+      }
+
+      // Compute max combined_pressure for normalization
+      const rccMaxPressure = Math.max(0.001, ...rccResult.clusters.map(c => c.combined_pressure));
+
+      // Root-cause leverage score formula (advisory-only, documented in scoring_notes):
+      //   normalized_pressure = (combined_pressure / max_combined_pressure) * 100
+      //   leverage_score = normalized_pressure * 0.50 + (cluster_confidence * 100) * 0.30 + (min(repair_count, 10) / 10 * 100) * 0.20
+      //   Clamped [0, 100].
+      // Labels: ≥60 = "high", ≥30 = "medium", <30 = "low"
+      interface RCAdvisory {
+        in_cluster: boolean;
+        cluster_id: string | null;
+        cluster_primary_axis: string | null;
+        cluster_combined_pressure: number | null;
+        cluster_confidence: number | null;
+        cluster_repair_count: number | null;
+        root_cause_leverage_score: number | null;
+        root_cause_leverage_label: "high" | "medium" | "low" | null;
+      }
+
+      function computeRCAdvisory(repairId: string): RCAdvisory {
+        const cl = repairToCluster.get(repairId);
+        if (!cl) return { in_cluster: false, cluster_id: null, cluster_primary_axis: null, cluster_combined_pressure: null, cluster_confidence: null, cluster_repair_count: null, root_cause_leverage_score: null, root_cause_leverage_label: null };
+        const normalizedPressure = (cl.combined_pressure / rccMaxPressure) * 100;
+        const confComponent = cl.cluster_confidence * 100;
+        const sizeComponent = (Math.min(cl.repair_count, 10) / 10) * 100;
+        const score = Math.round(Math.min(100, Math.max(0, normalizedPressure * 0.50 + confComponent * 0.30 + sizeComponent * 0.20)) * 100) / 100;
+        const label: "high" | "medium" | "low" = score >= 60 ? "high" : score >= 30 ? "medium" : "low";
+        return { in_cluster: true, cluster_id: cl.cluster_id, cluster_primary_axis: cl.primary_axis, cluster_combined_pressure: cl.combined_pressure, cluster_confidence: cl.cluster_confidence, cluster_repair_count: cl.repair_count, root_cause_leverage_score: score, root_cause_leverage_label: label };
+      }
+
+      // Assign root_cause_advisory to each option (mutate in-place, advisory only)
+      for (const o of options) {
+        (o as any).root_cause_advisory = computeRCAdvisory(o.repair_id);
+      }
+
+      // Assign root_cause_rank: sorted by root_cause_leverage_score desc, then repair_id asc
+      const rcRanked = [...options].sort((a, b) => {
+        const aScore = (a as any).root_cause_advisory?.root_cause_leverage_score ?? -Infinity;
+        const bScore = (b as any).root_cause_advisory?.root_cause_leverage_score ?? -Infinity;
+        if (bScore !== aScore) return bScore - aScore;
+        return a.repair_id < b.repair_id ? -1 : 1;
+      });
+      rcRanked.forEach((o, i) => { (o as any).root_cause_rank = i + 1; });
       // ── 7. Compute maxima for rationale tagging ───────────────────────────────
       const maxUplift3   = Math.max(0, ...options.map(o => o.preventive_uplift_signal));
       const maxPathQ3    = Math.max(0, ...options.map(o => o.path_quality_signal));
