@@ -3,15 +3,17 @@
  * NRF1 axis debt context, and PRP2 strategic recommendation. Read-only UI.
  */
 
-import { useState, useMemo, Fragment } from 'react';
+import { useState, useMemo, useEffect, Fragment } from 'react';
 import {
   usePreventiveRepairPrioritization,
+  fetchPatchTargets,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type PRP2SData, type PRP2SStrategyOption, type PRP2SROIAdvisory,
   type PRP2SRootCauseAdvisory,
   type RootCauseAnalysisResult, type RootCauseCluster,
   type InterventionAnalysisResult, type InterventionCandidate,
+  type PatchTarget, type PatchTargetResolutionResult,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
