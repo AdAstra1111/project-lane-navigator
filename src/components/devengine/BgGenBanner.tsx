@@ -17,6 +17,7 @@ interface BgGenBannerProps {
   versionId: string;
   episodeCount?: number;
   docType?: string;
+  onAllChunksDone?: (assembledContent: string) => void;
 }
 
 interface State { hasError: boolean }
