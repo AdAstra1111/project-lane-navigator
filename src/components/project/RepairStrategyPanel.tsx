@@ -13,7 +13,7 @@ import {
   fetchPatchExecutionReplay,
   fetchPatchExecutionHistory,
   deriveExecutionOutcome,
-  type PatchExecutionHistoryItem, type PatchExecutionHistoryResponse,
+  type PatchExecutionHistoryItem, type PatchExecutionHistoryResponse, type PatchExecutionHistoryCursor,
   type PatchExecutionHistoryFilters, type PatchExecutionOutcome,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
@@ -2604,6 +2604,10 @@ function ExecutionReplaySection({
   // History index state
   const [historyResult, setHistoryResult] = useState<PatchExecutionHistoryResponse | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [accumulatedItems, setAccumulatedItems] = useState<PatchExecutionHistoryItem[]>([]);
+  const [nextCursor, setNextCursor] = useState<PatchExecutionHistoryCursor | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<PatchExecutionHistoryItem | null>(null);
   const [showManualInput, setShowManualInput] = useState(false);
 
@@ -2614,14 +2618,39 @@ function ExecutionReplaySection({
   const handleLoadHistory = async (filtersOverride?: PatchExecutionHistoryFilters) => {
     if (!projectId) return;
     setHistoryLoading(true);
+    setAccumulatedItems([]);
+    setNextCursor(null);
+    setHasMore(false);
     try {
       const f = filtersOverride ?? historyFilters;
       const result = await fetchPatchExecutionHistory(projectId, 20, hasActiveFilters || filtersOverride ? f : undefined);
       setHistoryResult(result);
+      setAccumulatedItems(result?.history_items || []);
+      setNextCursor(result?.pagination?.next_cursor || null);
+      setHasMore(result?.pagination?.has_more || false);
     } catch {
       setHistoryResult(null);
     } finally {
       setHistoryLoading(false);
+    }
+  };
+
+  const handleLoadMore = async () => {
+    if (!projectId || !nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const f = hasActiveFilters ? historyFilters : undefined;
+      const result = await fetchPatchExecutionHistory(projectId, 20, f, nextCursor);
+      if (result) {
+        setHistoryResult(result);
+        setAccumulatedItems(prev => [...prev, ...result.history_items]);
+        setNextCursor(result.pagination?.next_cursor || null);
+        setHasMore(result.pagination?.has_more || false);
+      }
+    } catch {
+      // keep existing items
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -2671,9 +2700,9 @@ function ExecutionReplaySection({
           <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
           <History className="h-3 w-3" />
           <span className="font-semibold uppercase tracking-wider">Execution Replay</span>
-          {historyResult && historyResult.history_items.length > 0 && (
+          {accumulatedItems.length > 0 && (
             <Badge variant="outline" className="text-[9px] ml-1 font-mono text-muted-foreground border-border/50">
-              {historyResult.history_items.length} saved
+              {accumulatedItems.length}{hasMore ? '+' : ''} saved
             </Badge>
           )}
           {replayResult?.replay_found && (
@@ -2802,7 +2831,7 @@ function ExecutionReplaySection({
           {/* History list */}
           {historyResult && !historyLoading && (
             <>
-              {historyResult.history_items.length === 0 ? (
+              {accumulatedItems.length === 0 ? (
                 <Card className="border-border/50">
                   <CardContent className="py-4 text-center">
                     <History className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
@@ -2820,8 +2849,8 @@ function ExecutionReplaySection({
                   </CardContent>
                 </Card>
               ) : (
-                <div className="space-y-1 max-h-[240px] overflow-y-auto">
-                  {historyResult.history_items.map((item) => (
+                <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                  {accumulatedItems.map((item) => (
                     <button
                       key={item.transition_id}
                       onClick={() => handleSelectHistoryItem(item)}
@@ -2875,6 +2904,25 @@ function ExecutionReplaySection({
                       </div>
                     </button>
                   ))}
+                </div>
+              )}
+              {/* Pagination status and Load More */}
+              {accumulatedItems.length > 0 && (
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[9px] text-muted-foreground">
+                    Showing {accumulatedItems.length} item{accumulatedItems.length !== 1 ? 's' : ''}
+                  </span>
+                  {hasMore && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      className="text-[9px] h-6 px-2 ml-auto"
+                    >
+                      {loadingMore ? 'Loading…' : 'Load More'}
+                    </Button>
+                  )}
                 </div>
               )}
               {historyResult.history_notes.omitted_non_replay_rows > 0 && (
