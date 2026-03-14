@@ -553,7 +553,7 @@ export function RepairStrategyPanel({ projectId, onRouteToRepairs, completedRepa
       <ExecutionAnalyticsSection projectId={projectId} />
 
       {/* ═══ SECTION 4j: EXECUTION RECOMMENDATIONS (read-only, deterministic) ═══ */}
-      <ExecutionRecommendationsSection projectId={projectId} onNavigateToTrend={setTrendNavTarget} onRouteToRepairs={onRouteToRepairs} />
+      <ExecutionRecommendationsSection projectId={projectId} onNavigateToTrend={setTrendNavTarget} onRouteToRepairs={onRouteToRepairs} completedRepairSignatures={completedRepairSignatures} />
 
       {/* ═══ SECTION 4k: EXECUTION TRENDS (read-only) ═══ */}
       <ExecutionTrendsSection projectId={projectId} navigationTarget={trendNavTarget} onTargetHandled={() => setTrendNavTarget(null)} />
