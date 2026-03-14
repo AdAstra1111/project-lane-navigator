@@ -286,7 +286,48 @@ export function NarrativeRepairQueuePanel({ projectId, landingContext, onDismiss
           );
         })()}
 
-        {/* Related repairs filter notice */}
+        {/* Recent Outcomes Trend Strip */}
+        {allRepairs.length > 0 && (() => {
+          const now = Date.now();
+          const MS_24H = 24 * 60 * 60 * 1000;
+          const MS_7D = 7 * MS_24H;
+          const MS_30D = 30 * MS_24H;
+          const terminal = allRepairs.filter(r =>
+            (r.status === 'completed' || r.status === 'failed') && r.executed_at
+          );
+          if (terminal.length === 0) return null;
+          const bucket = (ms: number) => {
+            let c = 0, f = 0;
+            for (const r of terminal) {
+              if (now - new Date(r.executed_at!).getTime() <= ms) {
+                if (r.status === 'completed') c++; else f++;
+              }
+            }
+            const total = c + f;
+            const rate = total > 0 ? Math.round((c / total) * 100) : null;
+            return { c, f, rate, total };
+          };
+          const b24 = bucket(MS_24H);
+          const b7 = bucket(MS_7D);
+          const b30 = bucket(MS_30D);
+          if (b30.total === 0) return null;
+          const Cell = ({ label, b }: { label: string; b: { c: number; f: number; rate: number | null; total: number } }) => (
+            <span className="text-[7px] font-mono text-muted-foreground">
+              {label}: <span className="text-emerald-400">{b.c}✓</span>{b.f > 0 && <>{' '}<span className="text-red-400">{b.f}✗</span></>}{b.rate !== null && <span className="text-muted-foreground/60"> ({b.rate}%)</span>}
+            </span>
+          );
+          return (
+            <div className="flex items-center gap-2 flex-wrap py-1 px-2 rounded border border-border/30 bg-muted/10">
+              <span className="text-[7px] font-mono text-muted-foreground/50 uppercase tracking-wider">Recent Outcomes</span>
+              <Cell label="24h" b={b24} />
+              <span className="text-border/40">│</span>
+              <Cell label="7d" b={b7} />
+              <span className="text-border/40">│</span>
+              <Cell label="30d" b={b30} />
+            </div>
+          );
+        })()}
+
         {relatedFilter && (
           <div className="flex items-center justify-between gap-2 rounded border border-accent/30 bg-accent/5 px-3 py-1.5">
             <p className="text-[10px] font-mono text-accent-foreground/80">
