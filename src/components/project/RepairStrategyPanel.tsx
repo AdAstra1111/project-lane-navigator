@@ -4079,12 +4079,9 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   // Stable triage identity helper — uses comparison_key instead of ephemeral recommendation_id
   const triageKey = (rec: { category?: string; rule_id?: string; recommendation_id: string; evidence?: Record<string, unknown>; trigger_metrics?: Record<string, unknown> }) => deriveComparisonKey(rec);
 
-  // Load persisted triage from DB on mount — keyed by comparison_key only.
-  // Legacy rows with null comparison_key are intentionally ignored (they used unstable recommendation_id
-  // and cannot be reliably mapped to current logical recommendations).
-  // During Phase 2, multiple DB rows may share the same comparison_key (different recommendation_id).
-  // We deduplicate by reading ORDER BY updated_at DESC so latest triage decision wins in memory.
-  // Phase 4 will enforce DB-level UNIQUE(project_id, comparison_key) and clean duplicates.
+  // Load persisted triage from DB on mount — keyed by stable comparison_key.
+  // Phase 4 enforces UNIQUE(project_id, comparison_key) and NOT NULL on comparison_key.
+  // The null filter and ORDER BY updated_at are defensive belts retained for safety.
   useEffect(() => {
     if (triageLoadedRef.current) return;
     triageLoadedRef.current = true;
