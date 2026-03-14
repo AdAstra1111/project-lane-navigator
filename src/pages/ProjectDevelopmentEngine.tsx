@@ -1825,6 +1825,8 @@ export default function ProjectDevelopmentEngine() {
                                 versionId={selectedVersionId}
                                 episodeCount={(selectedVersion as any)?.meta_json?.episode_count}
                                 docType={selectedDoc?.doc_type}
+                                projectId={projectId}
+                                documentId={selectedDoc?.id}
                               />
                             ) : (
                               <div className="flex flex-col items-center justify-center h-[300px] gap-3 text-muted-foreground">
