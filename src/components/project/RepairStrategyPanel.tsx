@@ -4076,20 +4076,25 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [triageJsonCopied, setTriageJsonCopied] = useState<string | null>(null);
   const [changeMap, setChangeMap] = useState<Record<string, ChangeEntry>>({});
 
-  // Load persisted triage from DB on mount
+  // Stable triage identity helper — uses comparison_key instead of ephemeral recommendation_id
+  const triageKey = (rec: { category?: string; rule_id?: string; recommendation_id: string; evidence?: Record<string, unknown>; trigger_metrics?: Record<string, unknown> }) => deriveComparisonKey(rec);
+
+  // Load persisted triage from DB on mount — keyed by comparison_key (falls back to recommendation_id for legacy rows)
   useEffect(() => {
     if (triageLoadedRef.current) return;
     triageLoadedRef.current = true;
     (async () => {
       const { data: rows } = await supabase
         .from('execution_recommendation_triage')
-        .select('recommendation_id, triage_status')
+        .select('recommendation_id, comparison_key, triage_status')
         .eq('project_id', projectId);
       if (rows && rows.length > 0) {
         const map: Record<string, TriageStatus> = {};
         for (const r of rows) {
           if (r.triage_status === 'do_now' || r.triage_status === 'watch' || r.triage_status === 'ignore') {
-            map[r.recommendation_id] = r.triage_status;
+            // Prefer comparison_key; fall back to recommendation_id for legacy rows
+            const key = r.comparison_key || r.recommendation_id;
+            map[key] = r.triage_status;
           }
         }
         setTriageMap(map);
@@ -4097,21 +4102,22 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     })();
   }, [projectId]);
 
-  // Persist a single triage upsert
-  const persistTriage = useCallback(async (recId: string, status: TriageStatus) => {
+  // Persist a single triage upsert — dual-writes recommendation_id + comparison_key
+  const persistTriage = useCallback(async (compKey: string, recId: string, status: TriageStatus) => {
     const { data: userData } = await supabase.auth.getUser();
     await supabase
       .from('execution_recommendation_triage')
       .upsert({
         project_id: projectId,
         recommendation_id: recId,
+        comparison_key: compKey,
         triage_status: status,
         created_by: userData?.user?.id ?? null,
       }, { onConflict: 'project_id,recommendation_id' });
   }, [projectId]);
 
   // Delete a single triage row
-  const deleteTriage = useCallback(async (recId: string) => {
+  const deleteTriage = useCallback(async (compKey: string, recId: string) => {
     await supabase
       .from('execution_recommendation_triage')
       .delete()
@@ -4119,12 +4125,13 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
       .eq('recommendation_id', recId);
   }, [projectId]);
 
-  // Persist bulk upserts
-  const persistBulkTriage = useCallback(async (ids: string[], status: TriageStatus) => {
+  // Persist bulk upserts — dual-writes comparison_key
+  const persistBulkTriage = useCallback(async (items: { compKey: string; recId: string }[], status: TriageStatus) => {
     const { data: userData } = await supabase.auth.getUser();
-    const rows = ids.map(id => ({
+    const rows = items.map(item => ({
       project_id: projectId,
-      recommendation_id: id,
+      recommendation_id: item.recId,
+      comparison_key: item.compKey,
       triage_status: status,
       created_by: userData?.user?.id ?? null,
     }));
@@ -4134,39 +4141,39 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   }, [projectId]);
 
   // Delete bulk triage rows
-  const deleteBulkTriage = useCallback(async (ids: string[]) => {
+  const deleteBulkTriage = useCallback(async (recIds: string[]) => {
     await supabase
       .from('execution_recommendation_triage')
       .delete()
       .eq('project_id', projectId)
-      .in('recommendation_id', ids);
+      .in('recommendation_id', recIds);
   }, [projectId]);
 
-  // Clean stale triage entries when recommendations change
+  // Clean stale triage entries when recommendations change — uses comparison_key
   const cleanTriageMap = (recs: ExecutionRecommendations) => {
-    const allIds = new Set([
+    const allKeys = new Set([
       ...recs.top_priorities, ...recs.blocker_mitigations, ...recs.repair_type_watchlist,
       ...recs.source_type_watchlist, ...recs.document_type_watchlist,
       ...recs.governance_gaps, ...recs.revalidation_gaps, ...recs.suggested_next_actions,
-    ].map(r => r.recommendation_id));
+    ].map(r => triageKey(r)));
     setTriageMap(prev => {
       const next: Record<string, TriageStatus> = {};
-      for (const [id, status] of Object.entries(prev)) {
-        if (allIds.has(id)) next[id] = status;
+      for (const [key, status] of Object.entries(prev)) {
+        if (allKeys.has(key)) next[key] = status;
       }
       return Object.keys(next).length === Object.keys(prev).length ? prev : next;
     });
   };
 
-  const toggleTriage = (recId: string, status: TriageStatus) => {
+  const toggleTriage = (compKey: string, recId: string, status: TriageStatus) => {
     setTriageMap(prev => {
-      if (prev[recId] === status) {
-        const { [recId]: _, ...rest } = prev;
-        deleteTriage(recId);
+      if (prev[compKey] === status) {
+        const { [compKey]: _, ...rest } = prev;
+        deleteTriage(compKey, recId);
         return rest;
       }
-      persistTriage(recId, status);
-      return { ...prev, [recId]: status };
+      persistTriage(compKey, recId, status);
+      return { ...prev, [compKey]: status };
     });
   };
 
@@ -4461,7 +4468,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
           {!suppressed && (
             <div className="flex items-center gap-1 pt-0.5">
               {(["do_now", "watch", "ignore"] as const).map(s => {
-                const active = triageMap[rec.recommendation_id] === s;
+                const active = triageMap[triageKey(rec)] === s;
                 const labels: Record<TriageStatus, string> = { do_now: "Do now", watch: "Watch", ignore: "Ignore" };
                 const colors: Record<TriageStatus, string> = {
                   do_now: active ? "bg-primary/15 text-primary border-primary/40" : "text-muted-foreground/50 border-border/30 hover:border-primary/30",
@@ -4472,7 +4479,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                   <button
                     key={s}
                     type="button"
-                    onClick={() => toggleTriage(rec.recommendation_id, s)}
+                    onClick={() => toggleTriage(triageKey(rec), rec.recommendation_id, s)}
                     className={cn("text-[8px] font-mono rounded px-1.5 py-0.5 border transition-colors", colors[s])}
                   >
                     {labels[s]}
@@ -4491,9 +4498,9 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const triageCounts = useMemo(() => {
     const counts = { do_now: 0, watch: 0, ignore: 0 };
     if (!displayResult) return counts;
-    const visibleIds = new Set(displayResult.all_display.filter(r => !r.suppressed).map(r => r.recommendation_id));
-    for (const [id, status] of Object.entries(triageMap)) {
-      if (visibleIds.has(id)) counts[status]++;
+     const visibleKeys = new Set(displayResult.all_display.filter(r => !r.suppressed).map(r => triageKey(r)));
+    for (const [key, status] of Object.entries(triageMap)) {
+      if (visibleKeys.has(key)) counts[status]++;
     }
     return counts;
   }, [triageMap, displayResult]);
@@ -4716,33 +4723,33 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
 
             {/* Bulk triage controls */}
             {displayResult && (() => {
-              const visible = displayResult.all_display.filter(r => !r.suppressed);
-              const highIds = visible.filter(r => r.severity === "high").map(r => r.recommendation_id);
-              const medIds = visible.filter(r => r.severity === "medium").map(r => r.recommendation_id);
-              const visibleIds = visible.map(r => r.recommendation_id);
-              const canDoNow = highIds.some(id => triageMap[id] !== "do_now");
-              const canWatch = medIds.some(id => triageMap[id] !== "watch");
-              const canClear = visibleIds.some(id => triageMap[id]);
+               const visible = displayResult.all_display.filter(r => !r.suppressed);
+              const highItems = visible.filter(r => r.severity === "high").map(r => ({ compKey: triageKey(r), recId: r.recommendation_id }));
+              const medItems = visible.filter(r => r.severity === "medium").map(r => ({ compKey: triageKey(r), recId: r.recommendation_id }));
+              const visibleItems = visible.map(r => ({ compKey: triageKey(r), recId: r.recommendation_id }));
+              const canDoNow = highItems.some(item => triageMap[item.compKey] !== "do_now");
+              const canWatch = medItems.some(item => triageMap[item.compKey] !== "watch");
+              const canClear = visibleItems.some(item => triageMap[item.compKey]);
 
-              const applyBulk = (ids: string[], status: TriageStatus) => {
+              const applyBulk = (items: { compKey: string; recId: string }[], status: TriageStatus) => {
                 setTriageMap(prev => {
                   const next = { ...prev };
-                  ids.forEach(id => { next[id] = status; });
+                  items.forEach(item => { next[item.compKey] = status; });
                   return next;
                 });
-                persistBulkTriage(ids, status);
+                persistBulkTriage(items, status);
                 setBulkFeedback(status === "do_now" ? "Updated do now" : status === "watch" ? "Updated watch" : "Updated ignore");
                 setTimeout(() => setBulkFeedback(null), 1200);
               };
 
               const clearAll = () => {
-                const idsToDelete = visibleIds.filter(id => triageMap[id]);
+                const itemsToDelete = visibleItems.filter(item => triageMap[item.compKey]);
                 setTriageMap(prev => {
                   const next = { ...prev };
-                  visibleIds.forEach(id => { delete next[id]; });
+                  visibleItems.forEach(item => { delete next[item.compKey]; });
                   return next;
                 });
-                if (idsToDelete.length > 0) deleteBulkTriage(idsToDelete);
+                if (itemsToDelete.length > 0) deleteBulkTriage(itemsToDelete.map(item => item.recId));
                 setBulkFeedback("Cleared triage");
                 setTimeout(() => setBulkFeedback(null), 1200);
               };
@@ -4751,18 +4758,18 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[8px] font-mono text-muted-foreground/40 uppercase">Bulk:</span>
                   <button
-                    disabled={!canDoNow || highIds.length === 0}
-                    onClick={() => applyBulk(highIds, "do_now")}
+                    disabled={!canDoNow || highItems.length === 0}
+                    onClick={() => applyBulk(highItems, "do_now")}
                     className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-default transition-colors"
                   >
-                    Do now: all high ({highIds.length})
+                    Do now: all high ({highItems.length})
                   </button>
                   <button
-                    disabled={!canWatch || medIds.length === 0}
-                    onClick={() => applyBulk(medIds, "watch")}
+                    disabled={!canWatch || medItems.length === 0}
+                    onClick={() => applyBulk(medItems, "watch")}
                     className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-default transition-colors"
                   >
-                    Watch: all medium ({medIds.length})
+                    Watch: all medium ({medItems.length})
                   </button>
                   <button
                     disabled={!canClear}
@@ -4783,15 +4790,15 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
               const sevOrd: Record<string, number> = { high: 0, medium: 1, low: 2 };
               const confOrd: Record<string, number> = { high: 0, medium: 1, low: 2 };
               const statusOrd: Record<string, number> = { do_now: 0, watch: 1, ignore: 2 };
-              const visible = displayResult.all_display.filter(r => !r.suppressed && triageMap[r.recommendation_id]);
+              const visible = displayResult.all_display.filter(r => !r.suppressed && triageMap[triageKey(r)]);
               const sorted = [...visible].sort((a, b) =>
-                (statusOrd[triageMap[a.recommendation_id]] ?? 3) - (statusOrd[triageMap[b.recommendation_id]] ?? 3)
+                (statusOrd[triageMap[triageKey(a)] ?? ''] ?? 3) - (statusOrd[triageMap[triageKey(b)] ?? ''] ?? 3)
                 || (sevOrd[a.severity] ?? 3) - (sevOrd[b.severity] ?? 3)
                 || (confOrd[a.confidence] ?? 3) - (confOrd[b.confidence] ?? 3)
                 || a.recommendation_id.localeCompare(b.recommendation_id)
               );
               const cts = { do_now: 0, watch: 0, ignore: 0 };
-              sorted.forEach(r => { const s = triageMap[r.recommendation_id]; if (s) cts[s]++; });
+              sorted.forEach(r => { const s = triageMap[triageKey(r)]; if (s) cts[s]++; });
               const exportJson = {
                 export_version: "triage-export-v1" as const,
                 exported_at: new Date().toISOString(),
@@ -4799,7 +4806,8 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                 counts: { ...cts, total: sorted.length },
                 items: sorted.map(r => ({
                   recommendation_id: r.recommendation_id,
-                  triage_status: triageMap[r.recommendation_id],
+                  comparison_key: triageKey(r),
+                  triage_status: triageMap[triageKey(r)],
                   title: r.title,
                   severity: r.severity,
                   confidence: r.confidence,
@@ -4871,7 +4879,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pl-4 pt-1.5 space-y-2">
                   {(["do_now", "watch", "ignore"] as const).map(status => {
-                    const items = displayResult.all_display.filter(r => triageMap[r.recommendation_id] === status && !r.suppressed);
+                    const items = displayResult.all_display.filter(r => triageMap[triageKey(r)] === status && !r.suppressed);
                     if (items.length === 0) return null;
                     const statusLabels: Record<TriageStatus, string> = { do_now: "Do Now", watch: "Watch", ignore: "Ignored" };
                     const statusColors: Record<TriageStatus, string> = {
@@ -4953,7 +4961,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
               const buckets: { status: TriageStatus; label: string; items: DisplayRecommendation[] }[] = (["do_now", "watch", "ignore"] as const).map(s => ({
                 status: s,
                 label: s === "do_now" ? "DO NOW" : s === "watch" ? "WATCH" : "IGNORE",
-                items: sortItems(displayResult?.all_display.filter(r => !r.suppressed && triageMap[r.recommendation_id] === s) ?? []),
+                items: sortItems(displayResult?.all_display.filter(r => !r.suppressed && triageMap[triageKey(r)] === s) ?? []),
               })).filter(b => b.items.length > 0);
               const hasMemo = buckets.length > 0;
 
