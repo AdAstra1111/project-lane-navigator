@@ -5371,6 +5371,12 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
           <div className="text-[9px] text-amber-400 italic">{data.insufficient_reason}</div>
         )}
 
+        {emptyTargetNotice && (
+          <div className="text-[9px] text-amber-400 italic border border-amber-500/20 rounded px-2 py-1 bg-amber-500/5">
+            Opened {emptyTargetNotice.subsection_label}, but no trend rows are currently available{emptyTargetNotice.entity ? ` for "${emptyTargetNotice.entity}"` : ''}.
+          </div>
+        )}
+
         {trends && (
           <div className="space-y-3">
             {/* Window summary */}
