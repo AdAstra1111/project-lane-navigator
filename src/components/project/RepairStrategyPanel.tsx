@@ -4255,7 +4255,15 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                           {statusLabels[status]} ({items.length})
                         </div>
                         {items.map(rec => (
-                          <div key={rec.recommendation_id} className={cn("rounded border px-2 py-1.5 space-y-0.5", statusColors[status].split(" ").slice(1).join(" "), "bg-muted/10")}>
+                          <div
+                            key={rec.recommendation_id}
+                            className={cn("rounded border px-2 py-1.5 space-y-0.5 cursor-pointer hover:bg-muted/20 transition-colors", statusColors[status].split(" ").slice(1).join(" "), "bg-muted/10")}
+                            onClick={() => {
+                              const el = cardRefs.current[rec.recommendation_id];
+                              if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                            }}
+                            title="Click to jump to card"
+                          >
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-[9px] font-semibold text-foreground">{rec.title}</span>
                               <Badge variant="outline" className={cn("text-[7px] font-mono shrink-0", sevColor(rec.severity))}>
