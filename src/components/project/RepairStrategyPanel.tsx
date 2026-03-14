@@ -3830,6 +3830,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [loaded, setLoaded] = useState(false);
   const [showSuppressed, setShowSuppressed] = useState(false);
   const [triageMap, setTriageMap] = useState<Record<string, TriageStatus>>({});
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Clean stale triage entries when recommendations change
   const cleanTriageMap = (recs: ExecutionRecommendations) => {
