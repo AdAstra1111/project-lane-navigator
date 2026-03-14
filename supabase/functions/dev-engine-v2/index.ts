@@ -28831,58 +28831,45 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // ROOT CAUSE ENGINE v1 — compute_root_cause_clusters
+    // ROOT CAUSE CLUSTERING — shared pure helper
     //
-    // Deterministic clustering of repair candidates that share upstream causes.
-    // Uses ARP1 scored repairs + NRF1 forecasts + NDG dependency information.
-    // No LLM. No mutation. No schema changes. Additive only.
-    //
-    // Clustering signals:
-    //   axis_overlap_score   — Jaccard similarity of affected_axes
-    //   family_overlap_score — Jaccard similarity of repair families
-    //   ndg_upstream_overlap — Jaccard similarity of upstream axes (NDG)
-    //   pressure_similarity  — 1 - |Δpressure| / max_pressure
-    //
-    // Cluster formation: greedy single-linkage with composite similarity threshold.
-    // Deterministic: sorted inputs, stable merge order, lexical tie-breaks.
+    // Extracted for reuse by both compute_root_cause_clusters and PRP2S advisory.
+    // Input: ARP1 + NRF1 core results. Output: clusters + unclustered list.
+    // No mutation. No LLM. Deterministic.
     // ══════════════════════════════════════════════════════════════════════════════
 
-    if (action === "compute_root_cause_clusters") {
-      const { projectId } = body;
-      if (!projectId) {
-        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
+    interface RCCRepairDescriptor {
+      repair_id: string;
+      repair_type: string;
+      affected_axes: string[];
+      upstream_axes: string[];
+      repair_families: string[];
+      forecast_pressure: number;
+    }
 
-      const rccAt = new Date().toISOString();
+    interface RCCCluster {
+      cluster_id: string;
+      primary_axis: string;
+      involved_repairs: string[];
+      repair_count: number;
+      shared_axes: string[];
+      repair_families: string[];
+      combined_pressure: number;
+      cluster_confidence: number;
+    }
 
-      // ── 1. Load ARP1 + NRF1 via internal helpers ──────────────────────────
-      const [arp1R, nrf1R] = await Promise.all([
-        runARP1Core(supabase, projectId),
-        runNRF1Core(supabase, projectId),
-      ]);
+    interface RCCResult {
+      clusters: RCCCluster[];
+      unclustered_repairs: string[];
+    }
 
-      if (!arp1R.ok) {
-        return new Response(JSON.stringify({ ok: false, error: `RCC: ARP1 failed — ${arp1R.error ?? "unknown"}` }),
-          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
+    function runRootCauseClusteringCore(arp1R: any, nrf1R: any): RCCResult {
       const nrf1Ok = nrf1R.ok;
       const nrfMap = new Map<string, any>();
       for (const f of (nrf1Ok ? nrf1R.perRepairForecasts : [])) nrfMap.set(f.repair_id, f);
 
-      // ── 2. Build enriched repair descriptors ──────────────────────────────
-      interface RCCRepairDescriptor {
-        repair_id: string;
-        repair_type: string;
-        affected_axes: string[];
-        upstream_axes: string[];
-        repair_families: string[];
-        forecast_pressure: number; // preventive_value × confidence
-      }
-
+      // Build enriched repair descriptors
       const descriptors: RCCRepairDescriptor[] = [];
-
       for (const sr of arp1R.scoredRepairs) {
         const nrf = nrfMap.get(sr.repair_id);
         const affectedAxes: string[] = (sr.affected_axes ?? nrf?.affected_axes ?? []).slice().sort();
@@ -28891,7 +28878,6 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         const forecastPressure = nrf
           ? Math.round((nrf.repair_preventive_value ?? 0) * (nrf.forecast_confidence ?? 0) * 100) / 100
           : 0;
-
         descriptors.push({
           repair_id: sr.repair_id,
           repair_type: sr.repair_type ?? sr.repair_id,
@@ -28901,11 +28887,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           forecast_pressure: forecastPressure,
         });
       }
-
-      // Sort deterministically for stable clustering
       descriptors.sort((a, b) => a.repair_id < b.repair_id ? -1 : 1);
 
-      // ── 3. Pairwise similarity computation ────────────────────────────────
+      // Jaccard
       function jaccard(a: string[], b: string[]): number {
         if (a.length === 0 && b.length === 0) return 0;
         const setA = new Set(a);
@@ -28923,105 +28907,64 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         const familyOverlap = jaccard(a.repair_families, b.repair_families);
         const ndgUpstreamOverlap = jaccard(a.upstream_axes, b.upstream_axes);
         const pressureSim = 1 - Math.abs(a.forecast_pressure - b.forecast_pressure) / maxPressure;
-
-        // Weighted composite: axis overlap is strongest signal
         return 0.40 * axisOverlap + 0.25 * familyOverlap + 0.25 * ndgUpstreamOverlap + 0.10 * pressureSim;
       }
 
-      // ── 4. Greedy single-linkage clustering ───────────────────────────────
+      // Greedy single-linkage clustering
       const SIMILARITY_THRESHOLD = 0.30;
-      const clusterAssignment = new Map<string, number>(); // repair_id → cluster index
+      const clusterAssignment = new Map<string, number>();
       const clusters: Map<number, RCCRepairDescriptor[]> = new Map();
       let nextClusterId = 0;
 
       for (const desc of descriptors) {
-        // Skip repairs with no axes (no meaningful clustering signal)
-        if (desc.affected_axes.length === 0 && desc.upstream_axes.length === 0 && desc.repair_families.length === 0) {
-          continue;
-        }
-
+        if (desc.affected_axes.length === 0 && desc.upstream_axes.length === 0 && desc.repair_families.length === 0) continue;
         let bestCluster: number | null = null;
         let bestSim = 0;
-
-        // Find best existing cluster (highest max similarity to any member)
         for (const [cid, members] of clusters) {
           for (const member of members) {
             const sim = compositeSimilarity(desc, member);
-            if (sim > bestSim) {
-              bestSim = sim;
-              bestCluster = cid;
-            }
+            if (sim > bestSim) { bestSim = sim; bestCluster = cid; }
           }
         }
-
         if (bestCluster !== null && bestSim >= SIMILARITY_THRESHOLD) {
           clusters.get(bestCluster)!.push(desc);
           clusterAssignment.set(desc.repair_id, bestCluster);
         } else {
-          // Start new cluster
           const cid = nextClusterId++;
           clusters.set(cid, [desc]);
           clusterAssignment.set(desc.repair_id, cid);
         }
       }
 
-      // ── 5. Build output clusters ──────────────────────────────────────────
-      interface RootCauseCluster {
-        cluster_id: string;
-        primary_axis: string;
-        involved_repairs: string[];
-        repair_count: number;
-        shared_axes: string[];
-        repair_families: string[];
-        combined_pressure: number;
-        cluster_confidence: number;
-      }
-
-      const outputClusters: RootCauseCluster[] = [];
-
+      // Build output clusters
+      const outputClusters: RCCCluster[] = [];
       for (const [cid, members] of clusters) {
-        if (members.length < 2) continue; // Single-member groups are unclustered
-
-        // Determine primary axis: most frequent affected axis across members
+        if (members.length < 2) continue;
         const axisCounts = new Map<string, number>();
         const allFamilies = new Set<string>();
         let combinedPressure = 0;
-
         for (const m of members) {
           for (const ax of m.affected_axes) axisCounts.set(ax, (axisCounts.get(ax) ?? 0) + 1);
           for (const fam of m.repair_families) allFamilies.add(fam);
           combinedPressure += m.forecast_pressure;
         }
-
         combinedPressure = Math.round(combinedPressure * 100) / 100;
-
-        // Primary axis: highest frequency, then lexical
         let primaryAxis = "unknown";
         let maxCount = 0;
         for (const [ax, count] of Array.from(axisCounts.entries()).sort((a, b) => a[0] < b[0] ? -1 : 1)) {
           if (count > maxCount) { maxCount = count; primaryAxis = ax; }
         }
-
-        // Shared axes: axes appearing in ≥2 members
-        const sharedAxes = Array.from(axisCounts.entries())
-          .filter(([, c]) => c >= 2)
-          .map(([ax]) => ax)
-          .sort();
-
-        // Cluster confidence: weighted combination of signals
+        const sharedAxes = Array.from(axisCounts.entries()).filter(([, c]) => c >= 2).map(([ax]) => ax).sort();
         const axisOverlapRatio = sharedAxes.length > 0 ? Math.min(1, sharedAxes.length / 3) : 0;
         const familyDensity = allFamilies.size > 0 ? Math.min(1, allFamilies.size / 4) : 0;
         const sizeFactor = Math.min(1, members.length / 5);
-        // NRF1 pressure similarity within cluster
         const pressures = members.map(m => m.forecast_pressure);
         const meanPressure = pressures.reduce((s, p) => s + p, 0) / pressures.length;
         const pressureVariance = pressures.reduce((s, p) => s + (p - meanPressure) ** 2, 0) / pressures.length;
         const pressureCoherence = 1 / (1 + Math.sqrt(pressureVariance));
-
         const clusterConfidence = Math.round(
           Math.min(1, 0.35 * axisOverlapRatio + 0.25 * familyDensity + 0.20 * sizeFactor + 0.20 * pressureCoherence) * 100
         ) / 100;
-
         outputClusters.push({
           cluster_id: `rcc-${cid}`,
           primary_axis: primaryAxis,
@@ -29034,21 +28977,43 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         });
       }
 
-      // Sort: combined_pressure desc, then repair_count desc, then cluster_id asc
       outputClusters.sort((a, b) =>
         b.combined_pressure - a.combined_pressure
         || b.repair_count - a.repair_count
         || (a.cluster_id < b.cluster_id ? -1 : 1)
       );
 
-      // Unclustered: repairs not in any multi-member cluster
       const clusteredIds = new Set(outputClusters.flatMap(c => c.involved_repairs));
-      const unclusteredRepairs = descriptors
-        .map(d => d.repair_id)
-        .filter(id => !clusteredIds.has(id))
-        .sort();
+      const unclusteredRepairs = descriptors.map(d => d.repair_id).filter(id => !clusteredIds.has(id)).sort();
 
-      // ── 6. Logging ────────────────────────────────────────────────────────
+      return { clusters: outputClusters, unclustered_repairs: unclusteredRepairs };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // ROOT CAUSE ENGINE v1 — compute_root_cause_clusters (action handler)
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "compute_root_cause_clusters") {
+      const { projectId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const rccAt = new Date().toISOString();
+
+      const [arp1R, nrf1R] = await Promise.all([
+        runARP1Core(supabase, projectId),
+        runNRF1Core(supabase, projectId),
+      ]);
+
+      if (!arp1R.ok) {
+        return new Response(JSON.stringify({ ok: false, error: `RCC: ARP1 failed — ${arp1R.error ?? "unknown"}` }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const { clusters: outputClusters, unclustered_repairs: unclusteredRepairs } = runRootCauseClusteringCore(arp1R, nrf1R);
+
       const largestClusterSize = outputClusters.length > 0 ? Math.max(...outputClusters.map(c => c.repair_count)) : 0;
       const highestPressureCluster = outputClusters.length > 0 ? outputClusters[0].cluster_id : null;
 
@@ -29058,7 +29023,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         largest_cluster_size: largestClusterSize,
         highest_pressure_cluster: highestPressureCluster,
         unclustered_count: unclusteredRepairs.length,
-        total_repairs_considered: descriptors.length,
+        total_repairs_considered: arp1R.scoredRepairs.length,
       });
 
       return new Response(JSON.stringify({
