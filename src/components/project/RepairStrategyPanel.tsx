@@ -4339,7 +4339,22 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                       <p className="text-[9px] text-muted-foreground/50 italic">No triaged recommendations yet.</p>
                     ) : (
                       <>
-                        <MemoExportBtns buildPlain={buildPlain} buildMarkdown={buildMarkdown} />
+                        {(() => {
+                          const [copied, setCopied] = useState<string | null>(null);
+                          const doCopy = async (label: string, text: string) => {
+                            try { await navigator.clipboard.writeText(text); setCopied(label); setTimeout(() => setCopied(null), 1500); } catch {}
+                          };
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <button onClick={() => doCopy("plain", buildPlain())} className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground transition-colors">
+                                {copied === "plain" ? "Copied" : "Copy Memo"}
+                              </button>
+                              <button onClick={() => doCopy("md", buildMarkdown())} className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground transition-colors">
+                                {copied === "md" ? "Copied" : "Copy Markdown"}
+                              </button>
+                            </div>
+                          );
+                        })()}
                         <div className="rounded-md border border-border/30 bg-muted/10 px-3 py-2 space-y-2">
                           {buckets.map(b => (
                             <div key={b.status} className="space-y-1">
