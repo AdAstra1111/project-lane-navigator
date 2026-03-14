@@ -32287,20 +32287,30 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         .sort((a, b) => b.total_seen - a.total_seen || a.doc_type.localeCompare(b.doc_type));
 
       // ── Blocker breakdown ──
+      // Per-snapshot deduplication: collect all blocker codes seen in this
+      // snapshot from BOTH execution_notes.block_reasons AND causal_edges into
+      // a Set before incrementing the global counter. Prevents a snapshot that
+      // emits the same code via both sources from being counted twice globally.
       const blockerCounts = new Map<string, number>();
       for (const { exec, obs } of validSnapshots) {
         const notes = exec.execution_notes || {};
         const blockReasons = Array.isArray((notes as any).block_reasons) ? (notes as any).block_reasons : [];
+        // Per-snapshot code set — deduplicates across both sources within one snapshot
+        const snapshotCodes = new Set<string>();
         for (const br of blockReasons) {
           const code = typeof br === "string" ? br : (br?.code || "unknown");
-          blockerCounts.set(code, (blockerCounts.get(code) || 0) + 1);
+          snapshotCodes.add(code);
         }
         const causalEdges: any[] = Array.isArray(obs.causal_edges) ? obs.causal_edges : [];
         for (const e of causalEdges) {
           if (e.edge_type === "blocks" || e.edge_type === "failed_because") {
             const code = e.reason_code || e.edge_type;
-            blockerCounts.set(code, (blockerCounts.get(code) || 0) + 1);
+            snapshotCodes.add(code); // Set absorbs duplicates within this snapshot
           }
+        }
+        // Increment global counter once per code per snapshot
+        for (const code of snapshotCodes) {
+          blockerCounts.set(code, (blockerCounts.get(code) || 0) + 1);
         }
       }
       const blockerBreakdown = Array.from(blockerCounts.entries())
@@ -32328,6 +32338,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         avg_section_execution_ms: _avg(dur.section_execution),
         avg_governance_ms: _avg(dur.governance),
         avg_revalidation_ms: _avg(dur.revalidation),
+        // Number of snapshots that contributed a section_execution sample.
+        // Used by recommendation engine to gate timing recs on >= 3 samples.
+        section_execution_sample_count: dur.section_execution.length,
       };
 
       // ── Governance ──
@@ -32512,6 +32525,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
 
       // ── C: Repair type watchlist ──
       for (const r of a.repair_type_breakdown) {
+        // Skip the "unknown" sentinel: it accumulates runs where repair_type was
+        // missing or unpopulated. It is non-diagnostic and must not emit a rec.
+        if (r.repair_type === "unknown") continue;
         if (r.count < T.TYPE_MIN_COUNT) continue;
         const badCount = r.blocked + r.failed;
         const badRate = Math.round((badCount / r.count) * 100);
@@ -32540,6 +32556,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
 
       // ── D: Source type watchlist ──
       for (const s of a.source_type_breakdown) {
+        // Skip the "unknown" sentinel: it accumulates runs where source_type was
+        // missing or unpopulated. It is non-diagnostic and must not emit a rec.
+        if (s.source_type === "unknown") continue;
         if (s.count < T.TYPE_MIN_COUNT) continue;
         const badCount = s.blocked + s.failed;
         const badRate = Math.round((badCount / s.count) * 100);
@@ -32679,8 +32698,11 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }
 
       // ── H: Timing recommendation ──
+      // Guard: require >= 3 samples contributing to avg_section_execution_ms.
+      // A single outlier run must not trigger a timing rec on its own.
       const avgExecMs = a.timing.avg_section_execution_ms;
-      if (avgExecMs != null && avgExecMs >= T.TIMING_EXEC_MS_MEDIUM) {
+      const execSampleCount = a.timing.section_execution_sample_count;
+      if (avgExecMs != null && execSampleCount >= 3 && avgExecMs >= T.TIMING_EXEC_MS_MEDIUM) {
         const sev: Rec["severity"] = avgExecMs >= T.TIMING_EXEC_MS_HIGH ? "high" : "medium";
         nextActions.push({
           recommendation_id: makeId("tim"),
@@ -32692,6 +32714,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             avg_section_execution_ms: avgExecMs,
             avg_total_duration_ms: a.timing.avg_total_duration_ms,
             max_total_duration_ms: a.timing.max_total_duration_ms,
+            section_execution_sample_count: execSampleCount,
             threshold_ms: T.TIMING_EXEC_MS_MEDIUM,
           },
           suggested_action: "Review section sizes and LLM call count per run. Consider batching or limiting sections per execution.",
@@ -32896,8 +32919,6 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         ...recs.source_type_watchlist, ...recs.document_type_watchlist,
         ...recs.governance_gaps, ...recs.revalidation_gaps, ...recs.suggested_next_actions,
       ];
-      // Deduplicate top_priorities (promoted items also appear in their source bucket)
-      const topIds = new Set(recs.top_priorities.map((r: any) => r.recommendation_id));
       const highCount = allRecs.filter(r => r.severity === "high").length;
       const medCount = allRecs.filter(r => r.severity === "medium").length;
       const lowCount = allRecs.filter(r => r.severity === "low").length;

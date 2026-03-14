@@ -1018,6 +1018,9 @@ export interface AnalyticsTiming {
   avg_section_execution_ms: number | null;
   avg_governance_ms: number | null;
   avg_revalidation_ms: number | null;
+  // Sample count used to compute avg_section_execution_ms.
+  // Used by recommendation engine to gate timing recs on >= 3 samples.
+  section_execution_sample_count: number;
 }
 
 export interface AnalyticsGovernance {
