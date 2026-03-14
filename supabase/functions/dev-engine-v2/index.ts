@@ -31541,6 +31541,106 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════
+    // EXECUTION REPLAY v1 — get_patch_execution_replay (READ-ONLY)
+    //
+    // Retrieves a previously persisted execution snapshot from pipeline_transitions.
+    // No recomputation, no mutation. Exact recorded payload or honest failure.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "get_patch_execution_replay") {
+      const { projectId, planId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!planId) {
+        return new Response(JSON.stringify({ ok: false, error: "planId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const replayAt = new Date().toISOString();
+
+      // Deterministic lookup: exact match on event_type + project_id + run_id (= plan_id)
+      const { data: replayRows, error: replayErr } = await supabase
+        .from("pipeline_transitions")
+        .select("id, resulting_state, created_at")
+        .eq("project_id", projectId)
+        .eq("event_type", "patch_execution_completed")
+        .eq("run_id", planId)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (replayErr) {
+        console.warn("[dev-engine-v2] get_patch_execution_replay query error:", replayErr.message);
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "get_patch_execution_replay",
+          project_id: projectId,
+          replay_found: false,
+          replay_source: "pipeline_transitions",
+          execution_replay: null,
+          replay_notes: {
+            exact_match: false,
+            fallback_used: false,
+            fallback_reason: `query_error:${replayErr.message}`,
+          },
+          computed_at: replayAt,
+          version: "execution-replay-v1",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const replayRow = replayRows && replayRows.length > 0 ? replayRows[0] : null;
+      const replaySnapshot = replayRow?.resulting_state;
+
+      // Validate replay snapshot has expected structure
+      const isValidSnapshot = replaySnapshot
+        && typeof replaySnapshot === "object"
+        && (replaySnapshot as any).execution_replay_version === "execution-replay-v1"
+        && (replaySnapshot as any).plan_id === planId;
+
+      if (!replayRow || !isValidSnapshot) {
+        // No fallback — fail honestly
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "get_patch_execution_replay",
+          project_id: projectId,
+          replay_found: false,
+          replay_source: "pipeline_transitions",
+          execution_replay: null,
+          replay_notes: {
+            exact_match: false,
+            fallback_used: false,
+            fallback_reason: replayRow ? "snapshot_structure_invalid" : "no_matching_transition_found",
+          },
+          computed_at: replayAt,
+          version: "execution-replay-v1",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      console.log("[dev-engine-v2] get_patch_execution_replay found", {
+        project_id: projectId,
+        plan_id: planId,
+        transition_id: replayRow.id,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "get_patch_execution_replay",
+        project_id: projectId,
+        replay_found: true,
+        replay_source: "pipeline_transitions",
+        execution_replay: replaySnapshot,
+        replay_notes: {
+          exact_match: true,
+          fallback_used: false,
+          fallback_reason: null,
+        },
+        computed_at: replayAt,
+        version: "execution-replay-v1",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
