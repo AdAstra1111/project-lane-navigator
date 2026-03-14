@@ -32173,9 +32173,42 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         left_plan_id: leftPlanId,
         right_plan_id: rightPlanId,
         comparison,
-        comparison_notes: { exact_snapshot_match: true, fallback_used: false, missing_side: null },
+        comparison_notes: {
+          exact_snapshot_match: true,
+          fallback_used: false,
+          missing_side: null,
+          // ── Causal comparison notes ──
+          first_causal_divergence: (() => {
+            const lCausalEdges: any[] = lObs.causal_edges || [];
+            const rCausalEdges: any[] = rObs.causal_edges || [];
+            const lEdgeKeys = new Set(lCausalEdges.map((e: any) => `${e.from_node}→${e.to_node}:${e.edge_type}`));
+            const rEdgeKeys = new Set(rCausalEdges.map((e: any) => `${e.from_node}→${e.to_node}:${e.edge_type}`));
+            for (const e of rCausalEdges) {
+              const key = `${e.from_node}→${e.to_node}:${e.edge_type}`;
+              if (!lEdgeKeys.has(key)) return { edge: key, reason: e.reason_message || "new causal edge in right" };
+            }
+            for (const e of lCausalEdges) {
+              const key = `${e.from_node}→${e.to_node}:${e.edge_type}`;
+              if (!rEdgeKeys.has(key)) return { edge: key, reason: "causal edge removed in right" };
+            }
+            return null;
+          })(),
+          root_blocker: (() => {
+            const rEdges: any[] = rObs.causal_edges || [];
+            const blockers = rEdges.filter((e: any) => e.edge_type === "blocks");
+            return blockers.length > 0 ? { from_node: blockers[0].from_node, to_node: blockers[0].to_node, reason: blockers[0].reason_message } : null;
+          })(),
+          new_blockers: (() => {
+            const lBlocks = new Set((lObs.causal_edges || []).filter((e: any) => e.edge_type === "blocks").map((e: any) => `${e.from_node}→${e.to_node}`));
+            return (rObs.causal_edges || []).filter((e: any) => e.edge_type === "blocks" && !lBlocks.has(`${e.from_node}→${e.to_node}`)).map((e: any) => e.to_node);
+          })(),
+          resolved_blockers: (() => {
+            const rBlocks = new Set((rObs.causal_edges || []).filter((e: any) => e.edge_type === "blocks").map((e: any) => `${e.from_node}→${e.to_node}`));
+            return (lObs.causal_edges || []).filter((e: any) => e.edge_type === "blocks" && !rBlocks.has(`${e.from_node}→${e.to_node}`)).map((e: any) => e.to_node);
+          })(),
+        },
         computed_at: compareAt,
-        version: "execution-diff-v1",
+        version: "execution-diff-v1.1",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
