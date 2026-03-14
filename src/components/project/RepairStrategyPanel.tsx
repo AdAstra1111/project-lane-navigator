@@ -4060,9 +4060,10 @@ function computeChangeMap(
   return map;
 }
 
-function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
+function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRouteToRepairs }: {
   projectId: string;
   onNavigateToTrend: (target: TrendNavigationTarget) => void;
+  onRouteToRepairs?: () => void;
 }) {
   const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
   const [trendsData, setTrendsData] = useState<PatchExecutionTrendsResponse | null>(null);
