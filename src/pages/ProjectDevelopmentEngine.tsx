@@ -304,8 +304,10 @@ export default function ProjectDevelopmentEngine() {
       }
 
       // If all chunks are done but backend assembly is still running,
-      // assemble from chunks and inject into the cache so content shows NOW
-      if (stillGenerating && data.assembled_from_chunks) {
+      // assemble from chunks and inject into the cache so content shows NOW.
+      // Check whenever stillGenerating — do NOT gate on assembled_from_chunks,
+      // that field isn't reliably set for all generation paths.
+      if (stillGenerating) {
         const { data: chunks } = await (supabase as any)
           .from('project_document_chunks')
           .select('chunk_index, content, status')

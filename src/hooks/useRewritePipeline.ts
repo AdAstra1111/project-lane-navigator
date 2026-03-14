@@ -184,6 +184,23 @@ export function useRewritePipeline(projectId: string | undefined) {
       pushActivity('info', 'Assembling final text…');
       const assembledText = rewrittenChunks.join('\n\n');
 
+      // ── Immediate display: inject assembled content into cache NOW,
+      // before the backend save completes. The user sees the document
+      // immediately; the cache refreshes naturally when the real version lands.
+      if (assembledText.length > 100) {
+        qc.setQueriesData(
+          { predicate: (q) => Array.isArray(q.queryKey) && q.queryKey.some((k) => k === 'dev-v2-versions' || k === documentId) },
+          (old: any) => {
+            if (!Array.isArray(old)) return old;
+            return old.map((v: any) =>
+              v.id === versionId ? { ...v, plaintext: assembledText } : v
+            );
+          }
+        );
+        // Also mark pipeline as 95% done visually so spinner is nearly stopped
+        setState(s => ({ ...s, smoothedPercent: 99 }));
+      }
+
       const assembleResult = await callEngine('rewrite-assemble', {
         projectId, documentId, versionId, planRunId, assembledText,
         rewriteModeSelected: provenance?.rewriteModeSelected || 'auto',
