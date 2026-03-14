@@ -4281,6 +4281,43 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     s === "flat" ? "→" :
     s === "insufficient_data" ? "…" : "·";
 
+  /* ── Recommended Action Dispatcher ──
+   * Maps non-mutating inspection action_types to existing TrendNavigationTarget
+   * subsections. All actions navigate to the Execution Trends section.
+   * No mutations, no backend calls, no schema changes.
+   */
+  const ACTION_TYPE_TO_TREND: Record<string, { subsection_key: TrendSubsectionKey; entity_param?: string }> = {
+    inspect_execution_health: { subsection_key: 'overall_outcomes' },
+    inspect_blocker:          { subsection_key: 'blocker_code_trends', entity_param: 'blocker_code' },
+    inspect_repair_type:      { subsection_key: 'repair_type_trends', entity_param: 'repair_type' },
+    inspect_source_type:      { subsection_key: 'source_type_trends', entity_param: 'source_type' },
+    inspect_doc_type:         { subsection_key: 'document_type_trends', entity_param: 'doc_type' },
+    inspect_governance:       { subsection_key: 'governance_trends' },
+    inspect_timing:           { subsection_key: 'timing_trends' },
+  };
+
+  const dispatchRecommendedAction = useCallback((action: { action_type: string; label: string; params: Record<string, unknown>; destructive?: boolean }) => {
+    const mapping = ACTION_TYPE_TO_TREND[action.action_type];
+    if (!mapping) {
+      if (import.meta.env.DEV) {
+        console.warn(`[IFFY action] No dispatcher mapping for action_type="${action.action_type}". Ignoring.`);
+      }
+      return;
+    }
+    // Resolve optional entity key from action params
+    const entity_key = mapping.entity_param
+      ? String(action.params[mapping.entity_param] ?? action.params['blocker'] ?? '')
+      : undefined;
+    const target: TrendNavigationTarget = {
+      source_key: `action::${action.action_type}`,
+      subsection_key: mapping.subsection_key,
+      entity_key: entity_key || undefined,
+      highlight_mode: entity_key ? 'row' : 'header',
+      activated_at: Date.now(),
+    };
+    onNavigateToTrend(target);
+  }, [onNavigateToTrend]);
+
   const RecCard = ({ rec, suppressed }: { rec: DisplayRecommendation; suppressed?: boolean }) => {
     const linkage = resolveRecommendationTrendLinkage(rec, trends);
     const navTarget = linkage.status !== "unavailable" ? resolveTrendNavigationTarget(linkage.source_key) : null;
@@ -4412,10 +4449,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                   type="button"
                   className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-primary/30 bg-primary/5 text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors"
                   title={`${action.action_type}: ${JSON.stringify(action.params)}`}
-                  onClick={() => {
-                    // Future: dispatch action to inspection handler
-                    console.log('[IFFY action]', action.action_type, action.params);
-                  }}
+                  onClick={() => dispatchRecommendedAction(action)}
                 >
                   {action.label}
                 </button>
