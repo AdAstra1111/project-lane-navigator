@@ -57,7 +57,7 @@ import {
   ArrowUp, ArrowDown, Minus, Gauge, TrendingUp, ShieldAlert, AlertTriangle,
   RefreshCw, Info, Star, Unlock, Shield, Target, Activity, ChevronDown, ChevronRight,
   CheckCircle, XCircle, Play, Zap, History, List, Clock,
-  Lightbulb, Wrench, FileText, FileCode, ArrowRight,
+  Lightbulb, Wrench, FileText, FileCode, ArrowRight, EyeOff, Eye,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
