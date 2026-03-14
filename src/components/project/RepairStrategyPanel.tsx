@@ -11,6 +11,8 @@ import {
   fetchPatchPlanValidation,
   fetchPatchExecution,
   fetchPatchExecutionReplay,
+  fetchPatchExecutionHistory,
+  type PatchExecutionHistoryItem, type PatchExecutionHistoryResponse,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type InterventionAnalysisResult, type InterventionCandidate,
