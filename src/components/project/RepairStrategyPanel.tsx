@@ -3824,10 +3824,45 @@ type ChangeStatus = "new" | "resolved" | "worsened" | "improved" | "unchanged";
 interface ChangeEntry { change_status: ChangeStatus; previous_severity?: string; current_severity?: string; title?: string; rule_id?: string; comparison_key?: string; }
 
 /**
+ * Comparison-key strategy registry.
+ * Every recommendation rule_id MUST be registered here.
+ * - singleton: category::rule_id is unique (only one rec per run for this rule)
+ * - multi: category::rule_id is NOT unique; the named evidence `field` discriminates instances
+ *
+ * If a new rule_id is added to the backend without a registry entry here,
+ * deriveComparisonKey will log a deterministic dev warning and fall back to
+ * recommendation_id (safe but defeats cross-run stability).
+ */
+type ComparisonKeyStrategy =
+  | { kind: 'singleton' }
+  | { kind: 'multi'; field: string };
+
+const COMPARISON_KEY_REGISTRY: Record<string, ComparisonKeyStrategy> = {
+  // Singletons — one rec per run
+  REC_A_OVERALL_HEALTH:        { kind: 'singleton' },
+  REC_F_OVERALL_GOVERNANCE_GAP:{ kind: 'singleton' },
+  REC_G_REVALIDATION_FAILURE_GAP: { kind: 'singleton' },
+  REC_H_TIMING_INEFFICIENCY:   { kind: 'singleton' },
+
+  // Multi-instance — one rec per qualifying entity
+  REC_B_BLOCKER_MITIGATION:    { kind: 'multi', field: 'blocker_code' },
+  REC_C_REPAIR_TYPE_WATCHLIST:  { kind: 'multi', field: 'repair_type' },
+  REC_D_SOURCE_TYPE_WATCHLIST:  { kind: 'multi', field: 'source_type' },
+  REC_E_DOC_STABILITY:          { kind: 'multi', field: 'doc_type' },
+  REC_E_GOVERNANCE_GAP:         { kind: 'multi', field: 'doc_type' },
+  REC_E_REVALIDATION_GAP:       { kind: 'multi', field: 'doc_type' },
+  REC_I_CAUSAL_ROOT_BLOCKER:    { kind: 'multi', field: 'blocker' },
+};
+
+// Dedup dev warnings so we don't spam per render cycle
+const _warnedRuleIds = new Set<string>();
+
+/**
  * Derive a stable comparison key for change detection.
- * category::rule_id is NOT unique for entity-scoped rules (B, C, D, E, I)
- * where multiple recs share the same rule but target different entities.
- * We append the entity discriminator from evidence when available.
+ *
+ * Uses COMPARISON_KEY_REGISTRY to determine strategy per rule_id.
+ * Unregistered rules trigger a dev warning and fall back to recommendation_id.
+ * Registered multi-instance rules missing their discriminator field also warn.
  */
 function deriveComparisonKey(rec: {
   category?: string;
@@ -3838,15 +3873,43 @@ function deriveComparisonKey(rec: {
 }): string {
   if (!rec.category || !rec.rule_id) return rec.recommendation_id;
 
-  // Extract entity discriminator from evidence (mirrors extractEntityKey in the hook)
-  const ev = (rec.evidence ?? rec.trigger_metrics ?? {}) as Record<string, unknown>;
-  const entityKey =
-    ev.blocker_code ?? ev.blocker ??
-    ev.repair_type ?? ev.source_type ?? ev.doc_type ??
-    null;
+  const strategy = COMPARISON_KEY_REGISTRY[rec.rule_id];
 
-  if (entityKey) return `${rec.category}::${rec.rule_id}::${String(entityKey)}`;
-  return `${rec.category}::${rec.rule_id}`;
+  // ── Guard: unregistered rule_id ──
+  if (!strategy) {
+    if (!_warnedRuleIds.has(rec.rule_id)) {
+      _warnedRuleIds.add(rec.rule_id);
+      console.warn(
+        `[IFFY change-detection] Unregistered rule_id "${rec.rule_id}" in COMPARISON_KEY_REGISTRY. ` +
+        `Falling back to recommendation_id — cross-run change detection will be unreliable for this rule. ` +
+        `Add an entry to COMPARISON_KEY_REGISTRY to fix.`
+      );
+    }
+    return rec.recommendation_id;
+  }
+
+  // ── Singleton: two-segment key is sufficient ──
+  if (strategy.kind === 'singleton') {
+    return `${rec.category}::${rec.rule_id}`;
+  }
+
+  // ── Multi-instance: three-segment key using registered field ──
+  const ev = (rec.evidence ?? rec.trigger_metrics ?? {}) as Record<string, unknown>;
+  const entityValue = ev[strategy.field];
+
+  if (entityValue != null && entityValue !== '') {
+    return `${rec.category}::${rec.rule_id}::${String(entityValue)}`;
+  }
+
+  // ── Guard: multi-instance rule missing its discriminator ──
+  if (!_warnedRuleIds.has(rec.rule_id + ':missing_field')) {
+    _warnedRuleIds.add(rec.rule_id + ':missing_field');
+    console.warn(
+      `[IFFY change-detection] Multi-instance rule "${rec.rule_id}" missing discriminator field "${strategy.field}" in evidence. ` +
+      `Falling back to recommendation_id. Check backend recommendation generation.`
+    );
+  }
+  return rec.recommendation_id;
 }
 
 const SEV_ORDER: Record<string, number> = { high: 2, medium: 1, low: 0 };
