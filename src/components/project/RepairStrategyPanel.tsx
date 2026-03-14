@@ -4498,9 +4498,9 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const triageCounts = useMemo(() => {
     const counts = { do_now: 0, watch: 0, ignore: 0 };
     if (!displayResult) return counts;
-    const visibleIds = new Set(displayResult.all_display.filter(r => !r.suppressed).map(r => r.recommendation_id));
-    for (const [id, status] of Object.entries(triageMap)) {
-      if (visibleIds.has(id)) counts[status]++;
+     const visibleKeys = new Set(displayResult.all_display.filter(r => !r.suppressed).map(r => triageKey(r)));
+    for (const [key, status] of Object.entries(triageMap)) {
+      if (visibleKeys.has(key)) counts[status]++;
     }
     return counts;
   }, [triageMap, displayResult]);
