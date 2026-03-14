@@ -7,6 +7,7 @@
 
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { RepairStrategyPanel, type RepairLandingContext } from '@/components/project/RepairStrategyPanel';
+import { useNarrativeRepairs, type NarrativeRepair } from '@/hooks/useNarrativeRepairs';
 import { useSelectiveRegenerationPlan, type RepairStrategy, type RecommendedScope, type SourceUnit, type ImpactedScene } from '@/hooks/useSelectiveRegenerationPlan';
 import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/hooks/useExecuteSelectiveRegeneration';
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
