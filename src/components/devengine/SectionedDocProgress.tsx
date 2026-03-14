@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { CheckCircle, Loader2, Clock, XCircle } from 'lucide-react';
 import { CheckCircle, Loader2, Clock, XCircle } from 'lucide-react';
 
 interface ChunkRow {
