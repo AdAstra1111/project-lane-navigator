@@ -480,6 +480,7 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
   const roiKey = ['intervention-roi', projectId];
   const prp2sKey = ['prp2s-strategy', projectId];
   const rccKey = ['root-cause-clusters', projectId];
+  const ivKey = ['intervention-candidates', projectId];
 
   const prp1Query = useQuery({
     queryKey: prp1Key,
@@ -525,6 +526,13 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     staleTime: 60_000,
   });
 
+  const ivQuery = useQuery({
+    queryKey: ivKey,
+    queryFn: () => fetchInterventionCandidates(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
   const refresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: prp1Key });
     queryClient.invalidateQueries({ queryKey: nrf1Key });
@@ -532,6 +540,7 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     queryClient.invalidateQueries({ queryKey: roiKey });
     queryClient.invalidateQueries({ queryKey: prp2sKey });
     queryClient.invalidateQueries({ queryKey: rccKey });
+    queryClient.invalidateQueries({ queryKey: ivKey });
   }, [queryClient]);
 
   return {
@@ -541,12 +550,14 @@ export function usePreventiveRepairPrioritization(projectId: string | undefined)
     roi: roiQuery.data ?? null,
     prp2s: prp2sQuery.data ?? null,
     rcc: rccQuery.data ?? null,
+    iv: ivQuery.data ?? null,
     isLoading: prp1Query.isLoading,
     nrf1Loading: nrf1Query.isLoading,
     prp2Loading: prp2Query.isLoading,
     roiLoading: roiQuery.isLoading,
     prp2sLoading: prp2sQuery.isLoading,
     rccLoading: rccQuery.isLoading,
+    ivLoading: ivQuery.isLoading,
     error: prp1Query.error?.message ?? null,
     refresh,
   };
