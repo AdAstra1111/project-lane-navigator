@@ -12,14 +12,15 @@ import {
   fetchPatchExecution,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
-  type InterventionAnalysisResult,
-  type PRP2SData,
+  type InterventionAnalysisResult, type InterventionCandidate,
+  type PRP2SData, type PRP2SStrategyOption, type PRP2SRootCauseAdvisory,
   type RootCauseAnalysisResult,
   type PatchTargetResolutionResult,
   type PatchPlanBuildResult, type PatchPlan, type PatchImpactSurface, type PatchRevalidationTarget,
   type PatchPlanValidationResponse, type PatchPlanValidationResult, type PatchPlanValidationIssue,
   type PatchExecutionResponse, type PatchExecutionResult, type PatchExecutionTargetResult,
   type PostExecutionGovernance, type PostExecutionRevalidationTarget,
+  type RevalidationExecution, type RevalidationExecutionTarget,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -2311,6 +2312,73 @@ function PatchExecutionSection({
                     <span>Revalidation: <span className="font-mono text-foreground">{execution.post_execution.governance_notes.revalidation_handoff_performed ? '✓' : '—'}</span></span>
                     {execution.post_execution.governance_notes.governance_error && (
                       <span className="text-red-400 font-mono truncate max-w-[200px]">{execution.post_execution.governance_notes.governance_error}</span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ── REVALIDATION EXECUTION SUMMARY ── */}
+            {execution.revalidation_execution && (
+              <Card className="border-border/50">
+                <CardHeader className="pb-1 pt-3 px-3">
+                  <CardTitle className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <RefreshCw className="h-3 w-3" />
+                    Revalidation Execution
+                    {execution.revalidation_execution.notes.dry_run_no_revalidation_writes && (
+                      <Badge variant="outline" className="text-[9px] font-mono text-blue-400 border-blue-500/30 ml-1">DRY RUN</Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-3 pb-3 space-y-2">
+                  {/* Summary counts */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="text-center">
+                      <div className="text-sm font-bold text-emerald-400">{execution.revalidation_execution.succeeded}</div>
+                      <div className="text-[9px] text-muted-foreground uppercase">Succeeded</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-sm font-bold text-red-400">{execution.revalidation_execution.failed}</div>
+                      <div className="text-[9px] text-muted-foreground uppercase">Failed</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-sm font-bold text-muted-foreground">{execution.revalidation_execution.attempted - execution.revalidation_execution.succeeded - execution.revalidation_execution.failed}</div>
+                      <div className="text-[9px] text-muted-foreground uppercase">Deferred</div>
+                    </div>
+                  </div>
+
+                  {/* Per-target results */}
+                  {execution.revalidation_execution.target_results.length > 0 && (
+                    <div className="space-y-1">
+                      {execution.revalidation_execution.target_results.map((rt, i) => (
+                        <div key={`reval-exec-${i}`} className="flex items-center gap-2 text-[10px] rounded border border-border/30 px-2 py-1">
+                          <Badge
+                            variant={rt.status === 'executed' ? 'outline' : rt.status === 'failed' ? 'destructive' : 'secondary'}
+                            className={cn(
+                              "text-[8px] font-mono px-1 py-0 h-3.5",
+                              rt.status === 'executed' && "text-emerald-400 border-emerald-500/30"
+                            )}
+                          >
+                            {rt.status}
+                          </Badge>
+                          <span className="font-mono text-foreground">{rt.doc_type}</span>
+                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">
+                            {rt.revalidation_type.replace(/_/g, ' ')}
+                          </Badge>
+                          {rt.status === 'deferred' && (
+                            <span className="text-[9px] text-amber-400 ml-auto">no canonical path</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Revalidation notes */}
+                  <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground pt-1 border-t border-border/30">
+                    <span>Patched doc: <span className="font-mono text-foreground">{execution.revalidation_execution.notes.patched_document_revalidated ? '✓' : '—'}</span></span>
+                    <span>Downstream: <span className="font-mono text-foreground">{execution.revalidation_execution.notes.downstream_revalidation_performed ? '✓' : '—'}</span></span>
+                    {execution.revalidation_execution.notes.unavailable_paths_deferred && (
+                      <Badge variant="outline" className="text-[9px] font-mono text-amber-400 border-amber-500/30">paths deferred</Badge>
                     )}
                   </div>
                 </CardContent>
