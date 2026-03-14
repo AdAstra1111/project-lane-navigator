@@ -4816,9 +4816,24 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
               </div>
             )}
 
-            {/* Bulk triage controls */}
+            {/* Bulk triage controls — respects Action Queue filters */}
             {displayResult && (() => {
-               const visible = displayResult.all_display.filter(r => !r.suppressed);
+               const hasActiveAqFilters = aqSevFilter !== 'all' || aqChangeFilter !== 'all' || aqRepairFilter !== 'all';
+               let visible = displayResult.all_display.filter(r => !r.suppressed);
+               if (aqSevFilter !== 'all') visible = visible.filter(r => r.severity === aqSevFilter);
+               if (aqChangeFilter !== 'all') visible = visible.filter(r => {
+                 const cs = changeMap[r.recommendation_id]?.change_status;
+                 return cs === aqChangeFilter;
+               });
+               if (aqRepairFilter !== 'all') visible = visible.filter(r => {
+                 const ev = r.evidence as Record<string, unknown> | undefined;
+                 const hasMatch = completedRepairSignatures && completedRepairSignatures.size > 0 && (
+                   (ev?.repair_type && completedRepairSignatures.has(`repair_type::${ev.repair_type}`)) ||
+                   (ev?.doc_type && completedRepairSignatures.has(`diagnostic_type::${ev.doc_type}`)) ||
+                   (ev?.source_type && completedRepairSignatures.has(`scope_key::${ev.source_type}`))
+                 );
+                 return aqRepairFilter === 'repair_done' ? !!hasMatch : !hasMatch;
+               });
               const highItems = visible.filter(r => r.severity === "high").map(r => ({ compKey: triageKey(r), recId: r.recommendation_id }));
               const medItems = visible.filter(r => r.severity === "medium").map(r => ({ compKey: triageKey(r), recId: r.recommendation_id }));
               const visibleItems = visible.map(r => ({ compKey: triageKey(r), recId: r.recommendation_id }));
