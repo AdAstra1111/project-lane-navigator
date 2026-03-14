@@ -3856,17 +3856,19 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
   const sevDot = (s: ExecutionRecommendation["severity"]) =>
     s === "high" ? "bg-red-400" : s === "medium" ? "bg-amber-400" : "bg-muted-foreground";
 
-  // Trend status badge helpers
+  // Trend status badge helpers — uses semantic tokens where possible
   const trendStatusColor = (s: LinkedTrendStatus) =>
-    s === "worsening" ? "text-red-400 border-red-500/30" :
+    s === "worsening" ? "text-destructive border-destructive/30" :
     s === "improving" ? "text-emerald-400 border-emerald-500/30" :
     s === "flat" ? "text-muted-foreground/60 border-border/40" :
+    s === "insufficient_data" ? "text-muted-foreground/50 border-border/25" :
     "text-muted-foreground/40 border-border/20";
 
   const trendStatusIcon = (s: LinkedTrendStatus) =>
     s === "worsening" ? "↗" :
     s === "improving" ? "↘" :
-    s === "flat" ? "→" : "·";
+    s === "flat" ? "→" :
+    s === "insufficient_data" ? "…" : "·";
 
   const RecCard = ({ rec, suppressed }: { rec: DisplayRecommendation; suppressed?: boolean }) => {
     const linkage = resolveRecommendationTrendLinkage(rec, trends);
