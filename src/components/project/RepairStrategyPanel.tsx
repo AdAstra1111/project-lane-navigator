@@ -1387,3 +1387,161 @@ function RootCauseClustersSection({ rcc, rccLoading }: { rcc: RootCauseAnalysisR
     </Collapsible>
   );
 }
+
+// ── PatchTargetSection — read-only patch target visibility ──
+
+function PatchTargetSection({
+  projectId,
+  iv,
+  prp2s,
+  prp2,
+}: {
+  projectId: string | undefined;
+  iv: InterventionAnalysisResult | null;
+  prp2s: PRP2SData | null;
+  prp2: PRP2Data | null;
+}) {
+  const [ptResult, setPtResult] = useState<PatchTargetResolutionResult | null>(null);
+  const [ptLoading, setPtLoading] = useState(false);
+  const [ptSource, setPtSource] = useState<string>("none");
+
+  useEffect(() => {
+    if (!projectId) return;
+
+    // Priority: intervention → prp2s → prp2
+    let repairId: string | null = null;
+    let sourceType: "intervention" | "prp2s" | "arp1" | "manual" = "manual";
+    let sourceLabel = "none";
+
+    if (iv?.recommended_intervention_repair_id) {
+      repairId = iv.recommended_intervention_repair_id;
+      sourceType = "intervention";
+      sourceLabel = "Intervention Engine";
+    } else if (prp2s?.prp2_strategy?.recommended_first_repair_id) {
+      repairId = prp2s.prp2_strategy.recommended_first_repair_id;
+      sourceType = "prp2s";
+      sourceLabel = "PRP2S Strategy";
+    } else if (prp2?.selected_repair_id) {
+      repairId = prp2.selected_repair_id;
+      sourceType = "arp1";
+      sourceLabel = "PRP2 Strategy";
+    }
+
+    if (!repairId) {
+      setPtResult(null);
+      setPtSource("none");
+      return;
+    }
+
+    setPtLoading(true);
+    setPtSource(sourceLabel);
+    fetchPatchTargets(projectId, repairId, undefined, sourceType)
+      .then(r => setPtResult(r))
+      .catch(() => setPtResult(null))
+      .finally(() => setPtLoading(false));
+  }, [projectId, iv?.recommended_intervention_repair_id, prp2s?.prp2_strategy?.recommended_first_repair_id, prp2?.selected_repair_id]);
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+          <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+          <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+          <Target className="h-3 w-3" />
+          <span className="font-semibold uppercase tracking-wider">Patch Targets</span>
+          {ptResult && <Badge variant="outline" className="text-[9px] ml-1 font-mono">{ptResult.resolved_targets.length} target{ptResult.resolved_targets.length !== 1 ? 's' : ''}</Badge>}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-2">
+        {/* Advisory notice */}
+        <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+          <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-[10px] text-muted-foreground">
+            Patch targets are resolved read-only. No execution, no mutations. Source: <strong>{ptSource}</strong>.
+          </span>
+        </div>
+
+        {ptLoading ? (
+          <Skeleton className="h-20 w-full rounded-md" />
+        ) : !ptResult || ptResult.resolved_targets.length === 0 ? (
+          <Card className="border-border/50">
+            <CardContent className="py-6 text-center">
+              <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+              <p className="text-xs text-muted-foreground">
+                {ptSource === "none" ? "No recommended repair available to resolve targets." : "No patch targets resolved."}
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* Resolution notes */}
+            {ptResult.resolution_notes.fallback_used && (
+              <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                <span className="text-[10px] text-amber-400">
+                  Fallback to document-level: {ptResult.resolution_notes.fallback_reason}
+                </span>
+              </div>
+            )}
+
+            <Card className="border-border/50">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-border/50">
+                        <TableHead className="text-xs w-[80px]">Type</TableHead>
+                        <TableHead className="text-xs">Doc Type</TableHead>
+                        <TableHead className="text-xs">Identifier</TableHead>
+                        <TableHead className="text-xs w-[100px]">Method</TableHead>
+                        <TableHead className="text-xs w-[70px]">Confidence</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {ptResult.resolved_targets.map(t => (
+                        <TableRow key={t.target_id} className="border-border/30">
+                          <TableCell>
+                            <Badge
+                              variant={t.target_type === 'document' ? 'secondary' : t.target_type === 'section' ? 'default' : 'outline'}
+                              className="text-[9px] font-mono uppercase px-1.5 py-0 h-4"
+                            >
+                              {t.target_type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs font-mono text-foreground">{t.doc_type}</TableCell>
+                          <TableCell className="text-xs font-mono text-muted-foreground">
+                            {t.section_key || (t.episode_number != null ? `ep ${t.episode_number}` : t.scene_key || '—')}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[9px] font-mono px-1.5 py-0 h-4">
+                              {t.targeting_method.replace(/_/g, ' ')}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={t.targeting_confidence === 'high' ? 'default' : t.targeting_confidence === 'medium' ? 'secondary' : 'outline'}
+                              className="text-[9px] font-mono uppercase px-1.5 py-0 h-4"
+                            >
+                              {t.targeting_confidence}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Strategy + version binding metadata */}
+            <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground">
+              <span>Strategy: <span className="font-mono text-foreground">{ptResult.resolution_notes.chosen_strategy}</span></span>
+              <span>Binding: <span className="font-mono text-foreground">{ptResult.resolution_notes.version_binding_mode}</span></span>
+              <span>Docs: <span className="font-mono text-foreground">{ptResult.resolution_notes.doc_types_considered.join(', ') || '—'}</span></span>
+            </div>
+          </>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
