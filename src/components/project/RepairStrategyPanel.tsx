@@ -4076,20 +4076,25 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [triageJsonCopied, setTriageJsonCopied] = useState<string | null>(null);
   const [changeMap, setChangeMap] = useState<Record<string, ChangeEntry>>({});
 
-  // Load persisted triage from DB on mount
+  // Stable triage identity helper — uses comparison_key instead of ephemeral recommendation_id
+  const triageKey = (rec: { category?: string; rule_id?: string; recommendation_id: string; evidence?: Record<string, unknown>; trigger_metrics?: Record<string, unknown> }) => deriveComparisonKey(rec);
+
+  // Load persisted triage from DB on mount — keyed by comparison_key (falls back to recommendation_id for legacy rows)
   useEffect(() => {
     if (triageLoadedRef.current) return;
     triageLoadedRef.current = true;
     (async () => {
       const { data: rows } = await supabase
         .from('execution_recommendation_triage')
-        .select('recommendation_id, triage_status')
+        .select('recommendation_id, comparison_key, triage_status')
         .eq('project_id', projectId);
       if (rows && rows.length > 0) {
         const map: Record<string, TriageStatus> = {};
         for (const r of rows) {
           if (r.triage_status === 'do_now' || r.triage_status === 'watch' || r.triage_status === 'ignore') {
-            map[r.recommendation_id] = r.triage_status;
+            // Prefer comparison_key; fall back to recommendation_id for legacy rows
+            const key = r.comparison_key || r.recommendation_id;
+            map[key] = r.triage_status;
           }
         }
         setTriageMap(map);
@@ -4097,21 +4102,22 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     })();
   }, [projectId]);
 
-  // Persist a single triage upsert
-  const persistTriage = useCallback(async (recId: string, status: TriageStatus) => {
+  // Persist a single triage upsert — dual-writes recommendation_id + comparison_key
+  const persistTriage = useCallback(async (compKey: string, recId: string, status: TriageStatus) => {
     const { data: userData } = await supabase.auth.getUser();
     await supabase
       .from('execution_recommendation_triage')
       .upsert({
         project_id: projectId,
         recommendation_id: recId,
+        comparison_key: compKey,
         triage_status: status,
         created_by: userData?.user?.id ?? null,
       }, { onConflict: 'project_id,recommendation_id' });
   }, [projectId]);
 
   // Delete a single triage row
-  const deleteTriage = useCallback(async (recId: string) => {
+  const deleteTriage = useCallback(async (compKey: string, recId: string) => {
     await supabase
       .from('execution_recommendation_triage')
       .delete()
@@ -4119,12 +4125,13 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
       .eq('recommendation_id', recId);
   }, [projectId]);
 
-  // Persist bulk upserts
-  const persistBulkTriage = useCallback(async (ids: string[], status: TriageStatus) => {
+  // Persist bulk upserts — dual-writes comparison_key
+  const persistBulkTriage = useCallback(async (items: { compKey: string; recId: string }[], status: TriageStatus) => {
     const { data: userData } = await supabase.auth.getUser();
-    const rows = ids.map(id => ({
+    const rows = items.map(item => ({
       project_id: projectId,
-      recommendation_id: id,
+      recommendation_id: item.recId,
+      comparison_key: item.compKey,
       triage_status: status,
       created_by: userData?.user?.id ?? null,
     }));
@@ -4134,39 +4141,39 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   }, [projectId]);
 
   // Delete bulk triage rows
-  const deleteBulkTriage = useCallback(async (ids: string[]) => {
+  const deleteBulkTriage = useCallback(async (recIds: string[]) => {
     await supabase
       .from('execution_recommendation_triage')
       .delete()
       .eq('project_id', projectId)
-      .in('recommendation_id', ids);
+      .in('recommendation_id', recIds);
   }, [projectId]);
 
-  // Clean stale triage entries when recommendations change
+  // Clean stale triage entries when recommendations change — uses comparison_key
   const cleanTriageMap = (recs: ExecutionRecommendations) => {
-    const allIds = new Set([
+    const allKeys = new Set([
       ...recs.top_priorities, ...recs.blocker_mitigations, ...recs.repair_type_watchlist,
       ...recs.source_type_watchlist, ...recs.document_type_watchlist,
       ...recs.governance_gaps, ...recs.revalidation_gaps, ...recs.suggested_next_actions,
-    ].map(r => r.recommendation_id));
+    ].map(r => triageKey(r)));
     setTriageMap(prev => {
       const next: Record<string, TriageStatus> = {};
-      for (const [id, status] of Object.entries(prev)) {
-        if (allIds.has(id)) next[id] = status;
+      for (const [key, status] of Object.entries(prev)) {
+        if (allKeys.has(key)) next[key] = status;
       }
       return Object.keys(next).length === Object.keys(prev).length ? prev : next;
     });
   };
 
-  const toggleTriage = (recId: string, status: TriageStatus) => {
+  const toggleTriage = (compKey: string, recId: string, status: TriageStatus) => {
     setTriageMap(prev => {
-      if (prev[recId] === status) {
-        const { [recId]: _, ...rest } = prev;
-        deleteTriage(recId);
+      if (prev[compKey] === status) {
+        const { [compKey]: _, ...rest } = prev;
+        deleteTriage(compKey, recId);
         return rest;
       }
-      persistTriage(recId, status);
-      return { ...prev, [recId]: status };
+      persistTriage(compKey, recId, status);
+      return { ...prev, [compKey]: status };
     });
   };
 
