@@ -30405,6 +30405,160 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         docGroups.set(st.document_id, list);
       }
 
+      // ── STEP 3b: Cross-document execution ordering ──
+      // Topological sort from dependency registry, lane ladder fallback, cycle detection
+      const { getDirectDependents: execGetDeps } = await import("../_shared/deliverableDependencyRegistry.ts");
+      const { LANE_DOC_LADDERS: execLadders, type LaneKey as ExecLaneKey } = await import("../_shared/documentLadders.ts");
+
+      // Resolve lane for ordering
+      const { data: orderProject } = await supabase.from("projects").select("format, assigned_lane").eq("id", projectId).maybeSingle();
+      const orderLane = (orderProject?.assigned_lane || orderProject?.format || "unspecified") as ExecLaneKey;
+      const ladder = execLadders[orderLane] || execLadders.unspecified;
+
+      // Collect unique doc_types across patched documents
+      const docTypeByDocId = new Map<string, string>();
+      for (const [docId, targets] of docGroups.entries()) {
+        docTypeByDocId.set(docId, targets[0].doc_type);
+      }
+      const patchedDocTypes = [...new Set(docTypeByDocId.values())];
+
+      // Build adjacency for ONLY the patched doc types using dependency registry edges
+      const adj = new Map<string, Set<string>>(); // docType -> downstream docTypes (that are also patched)
+      const inDegree = new Map<string, number>();
+      for (const dt of patchedDocTypes) {
+        adj.set(dt, new Set());
+        inDegree.set(dt, 0);
+      }
+      for (const fromDt of patchedDocTypes) {
+        const edges = execGetDeps(orderLane, fromDt);
+        for (const edge of edges) {
+          if (patchedDocTypes.includes(edge.to_doc_type)) {
+            adj.get(fromDt)!.add(edge.to_doc_type);
+            inDegree.set(edge.to_doc_type, (inDegree.get(edge.to_doc_type) || 0) + 1);
+          }
+        }
+      }
+
+      // Kahn's algorithm for topological sort
+      const topoQueue: string[] = [];
+      for (const [dt, deg] of inDegree.entries()) {
+        if (deg === 0) topoQueue.push(dt);
+      }
+      // Sort initial queue by lane ladder position for determinism
+      const ladderIndex = new Map(ladder.map((dt, i) => [dt, i]));
+      topoQueue.sort((a, b) => {
+        const ai = ladderIndex.get(a) ?? 99999;
+        const bi = ladderIndex.get(b) ?? 99999;
+        if (ai !== bi) return ai - bi;
+        return a.localeCompare(b);
+      });
+
+      const topoOrder: string[] = [];
+      const topoVisited = new Set<string>();
+      while (topoQueue.length > 0) {
+        const current = topoQueue.shift()!;
+        if (topoVisited.has(current)) continue;
+        topoVisited.add(current);
+        topoOrder.push(current);
+        const neighbors = [...(adj.get(current) || [])].sort((a, b) => {
+          const ai = ladderIndex.get(a) ?? 99999;
+          const bi = ladderIndex.get(b) ?? 99999;
+          if (ai !== bi) return ai - bi;
+          return a.localeCompare(b);
+        });
+        for (const nb of neighbors) {
+          const newDeg = (inDegree.get(nb) || 1) - 1;
+          inDegree.set(nb, newDeg);
+          if (newDeg <= 0) topoQueue.push(nb);
+        }
+        // Re-sort queue for determinism after insertions
+        topoQueue.sort((a, b) => {
+          const ai = ladderIndex.get(a) ?? 99999;
+          const bi = ladderIndex.get(b) ?? 99999;
+          if (ai !== bi) return ai - bi;
+          return a.localeCompare(b);
+        });
+      }
+
+      // Cycle detection: if not all patched doc types are in topoOrder
+      const hasCycle = topoOrder.length < patchedDocTypes.length;
+
+      if (hasCycle) {
+        const unresolved = patchedDocTypes.filter(dt => !topoOrder.includes(dt));
+        console.log("[dev-engine-v2] execute_patch_plan BLOCKED: cross-document cycle", { unresolved });
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "execute_patch_plan",
+          project_id: projectId,
+          patch_plan: execPlan,
+          validation: execValidation,
+          execution: {
+            plan_id: execPlan.plan_id,
+            execution_allowed: false,
+            executed: false,
+            dry_run: dryRun,
+            direct_targets_attempted: 0,
+            direct_targets_executed: 0,
+            direct_targets_failed: 0,
+            target_results: [],
+            execution_notes: {
+              validation_passed: true,
+              stale_blocked: false,
+              unsupported_target_types_blocked: false,
+              write_performed: false,
+              downstream_execution_deferred: true,
+              block_reasons: ["cross_document_order_unresolvable"],
+            },
+          },
+          computed_at: execAt,
+          version: "patch-execution-v1.1",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Build ordered list of [documentId, docTargets] using topoOrder
+      // For doc types with multiple documents, sort by document_id for determinism
+      const docTypeToDocIds = new Map<string, string[]>();
+      for (const [docId, dt] of docTypeByDocId.entries()) {
+        const list = docTypeToDocIds.get(dt) || [];
+        list.push(docId);
+        docTypeToDocIds.set(dt, list);
+      }
+      for (const list of docTypeToDocIds.values()) {
+        list.sort(); // lexical document_id tiebreak
+      }
+
+      interface DocExecMeta {
+        document_id: string;
+        doc_type: string;
+        order_index: number;
+        ordering_basis: "dependency_registry" | "lane_ladder" | "lexical_fallback";
+      }
+      const documentExecutionOrder: string[] = [];
+      const documentExecutionMetadata: DocExecMeta[] = [];
+
+      for (const dt of topoOrder) {
+        const docIds = docTypeToDocIds.get(dt) || [];
+        // Determine ordering basis
+        const hasDepEdge = [...(adj.get(dt) || [])].length > 0 ||
+          patchedDocTypes.some(other => adj.get(other)?.has(dt));
+        const ladderPos = ladderIndex.get(dt);
+        const basis: DocExecMeta["ordering_basis"] = hasDepEdge
+          ? "dependency_registry"
+          : ladderPos !== undefined
+            ? "lane_ladder"
+            : "lexical_fallback";
+
+        for (const docId of docIds) {
+          documentExecutionOrder.push(docId);
+          documentExecutionMetadata.push({
+            document_id: docId,
+            doc_type: dt,
+            order_index: documentExecutionOrder.length - 1,
+            ordering_basis: basis,
+          });
+        }
+      }
+
       const executionAllowed = execValidation.plan_valid
         && !execValidation.stale
         && !unsupportedBlocked
@@ -30448,7 +30602,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── STEP 4: Execute section targets per document (consolidated) ──
+      // ── STEP 4: Execute section targets per document (consolidated, dependency-ordered) ──
       const { replaceSection: execReplaceSection, extractSection: execExtractSection } = await import("../_shared/sectionRepairEngine.ts");
       const { getSectionKeys } = await import("../_shared/deliverableSectionRegistry.ts");
 
@@ -30477,8 +30631,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const { data: execProject } = await supabase.from("projects").select("format").eq("id", projectId).maybeSingle();
       const execFormat = execProject?.format || null;
 
-      // Process each document group
-      for (const [documentId, docTargets] of docGroups.entries()) {
+      // Process documents in canonical dependency-aware order
+      for (const documentId of documentExecutionOrder) {
+        const docTargets = docGroups.get(documentId)!;
         documentsAttempted++;
 
         // ── Determine deterministic execution order ──
