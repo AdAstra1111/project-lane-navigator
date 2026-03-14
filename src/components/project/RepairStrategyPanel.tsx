@@ -5403,6 +5403,43 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
               </Collapsible>
             )}
 
+            {/* ── Run History ── */}
+            {runHistory.length > 0 && (
+              <Collapsible open={runHistoryOpen} onOpenChange={setRunHistoryOpen}>
+                <CollapsibleTrigger asChild>
+                  <div className="flex items-center gap-2 cursor-pointer hover:bg-muted/20 rounded px-2 py-1.5 transition-colors">
+                    {runHistoryOpen ? <ChevronDown className="h-3 w-3 text-muted-foreground/60" /> : <ChevronRight className="h-3 w-3 text-muted-foreground/60" />}
+                    <History className="h-3 w-3 text-muted-foreground/60" />
+                    <span className="text-[9px] font-mono text-muted-foreground/80 font-semibold uppercase">Run History</span>
+                    <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/20">{runHistory.length}</Badge>
+                  </div>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-0.5 pl-2">
+                  {runHistory.map((entry) => {
+                    const ago = (() => {
+                      const diffMs = Date.now() - new Date(entry.created_at).getTime();
+                      const mins = Math.floor(diffMs / 60000);
+                      if (mins < 1) return 'just now';
+                      if (mins < 60) return `${mins}m ago`;
+                      const hrs = Math.floor(mins / 60);
+                      if (hrs < 24) return `${hrs}h ago`;
+                      const days = Math.floor(hrs / 24);
+                      return `${days}d ago`;
+                    })();
+                    return (
+                      <div key={entry.id} className="flex items-center gap-2 px-2 py-1 rounded border border-border/10 bg-muted/10">
+                        <span className="text-[8px] font-mono text-muted-foreground/60 w-14 shrink-0">{ago}</span>
+                        <span className="text-[8px] font-mono text-foreground/80">{entry.totalCount} recs</span>
+                        {entry.highCount > 0 && <Badge variant="outline" className="text-[6px] font-mono text-red-400 border-red-500/20 bg-red-500/5 px-1 py-0">{entry.highCount} high</Badge>}
+                        {entry.mediumCount > 0 && <Badge variant="outline" className="text-[6px] font-mono text-amber-400 border-amber-500/20 bg-amber-500/5 px-1 py-0">{entry.mediumCount} med</Badge>}
+                        {entry.lowCount > 0 && <Badge variant="outline" className="text-[6px] font-mono text-emerald-400 border-emerald-500/20 bg-emerald-500/5 px-1 py-0">{entry.lowCount} low</Badge>}
+                      </div>
+                    );
+                  })}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
             <Button variant="ghost" size="sm" className="text-[9px] h-6" onClick={load} disabled={loading}>
               <RefreshCw className={cn("h-3 w-3 mr-1", loading && "animate-spin")} />
               Refresh
