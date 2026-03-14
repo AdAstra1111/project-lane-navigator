@@ -4936,6 +4936,19 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
                                 if (!c) return null;
                                 return <Badge variant="outline" className={cn("text-[6px] font-mono shrink-0", c.cls)}>{c.label}</Badge>;
                               })()}
+                              {status === "do_now" && completedRepairSignatures && completedRepairSignatures.size > 0 && (() => {
+                                const ev = rec.evidence as Record<string, unknown> | undefined;
+                                const hasMatch =
+                                  (ev?.repair_type && completedRepairSignatures.has(`repair_type::${ev.repair_type}`)) ||
+                                  (ev?.doc_type && completedRepairSignatures.has(`diagnostic_type::${ev.doc_type}`)) ||
+                                  (ev?.source_type && completedRepairSignatures.has(`scope_key::${ev.source_type}`));
+                                if (!hasMatch) return null;
+                                return (
+                                  <Badge variant="outline" className="text-[6px] font-mono shrink-0 text-emerald-400 border-emerald-500/30 bg-emerald-500/10" title="A matching repair has completed in the repair queue">
+                                    ✓ Repair completed
+                                  </Badge>
+                                );
+                              })()}
                             </div>
                             <div className="text-[8px] text-muted-foreground leading-snug border-l-2 border-border/30 pl-1.5">
                               {rec.suggested_action}
