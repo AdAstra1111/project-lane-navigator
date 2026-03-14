@@ -32213,64 +32213,17 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // EXECUTION ANALYTICS v1 — get_patch_execution_analytics (READ-ONLY)
+    // EXECUTION ANALYTICS SHARED CORE
     //
-    // Aggregates persisted execution replay snapshots into a deterministic
-    // analytics surface. No recomputation, no mutation, no schema drift.
-    // Derives all metrics strictly from pipeline_transitions.resulting_state.
+    // buildPatchExecutionAnalyticsCore — extracts all aggregation logic used by
+    // BOTH get_patch_execution_analytics AND get_patch_execution_recommendations.
+    // Single canonical implementation. Do not duplicate.
     // ══════════════════════════════════════════════════════════════════════════════
 
-    if (action === "get_patch_execution_analytics") {
-      const { projectId, window: windowOpts } = body;
-      if (!projectId) {
-        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      const analyticsAt = new Date().toISOString();
-      const w = windowOpts && typeof windowOpts === "object" ? windowOpts : {};
-      const scanLimit = Math.min(Math.max(Number(w.limit) || 50, 1), 200);
-      const dateFrom: string | null = typeof w.date_from === "string" ? w.date_from : null;
-      const dateTo: string | null = typeof w.date_to === "string" ? w.date_to : null;
-
-      let query = supabase
-        .from("pipeline_transitions")
-        .select("id, resulting_state, created_at")
-        .eq("project_id", projectId)
-        .eq("event_type", "patch_execution_completed")
-        .order("created_at", { ascending: false });
-
-      if (dateFrom) query = query.gte("created_at", dateFrom);
-      if (dateTo) query = query.lte("created_at", dateTo);
-      query = query.limit(scanLimit);
-
-      const { data: rows, error: queryErr } = await query;
-
-      if (queryErr) {
-        return new Response(JSON.stringify({
-          ok: false, action: "get_patch_execution_analytics",
-          error: `query_error:${queryErr.message}`,
-        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      const allRows = rows || [];
-      const scannedRows = allRows.length;
-
-      // ── Validate and collect valid snapshots ──
-      let validCount = 0;
-      let invalidCount = 0;
-      const validSnapshots: { snap: any; exec: any; plan: any; obs: any }[] = [];
-
-      for (const row of allRows) {
-        const v = validatePatchExecutionReplaySnapshot(row.resulting_state);
-        if (!v.valid) { invalidCount++; continue; }
-        validCount++;
-        const snap = row.resulting_state as any;
-        const exec = snap.execution || {};
-        const plan = snap.patch_plan || {};
-        const obs = exec.execution_observability || {};
-        validSnapshots.push({ snap, exec, plan, obs });
-      }
+    function buildPatchExecutionAnalyticsCore(
+      validSnapshots: Array<{ snap: any; exec: any; plan: any; obs: any }>,
+    ) {
+      const total = validSnapshots.length || 1;
 
       // ── Outcome counts ──
       const outcomes = { executed: 0, partial: 0, blocked: 0, failed: 0, dry_run: 0 };
@@ -32278,7 +32231,6 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         const o = deriveReplayOutcome(exec);
         if (o in outcomes) (outcomes as any)[o]++;
       }
-      const total = validCount || 1; // avoid div by zero
       const successRates = {
         executed_rate: Math.round((outcomes.executed / total) * 1000) / 10,
         partial_or_better_rate: Math.round(((outcomes.executed + outcomes.partial) / total) * 1000) / 10,
@@ -32338,14 +32290,12 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       // ── Blocker breakdown ──
       const blockerCounts = new Map<string, number>();
       for (const { exec, obs } of validSnapshots) {
-        // Priority 1: block_reasons from execution_notes
         const notes = exec.execution_notes || {};
         const blockReasons = Array.isArray((notes as any).block_reasons) ? (notes as any).block_reasons : [];
         for (const br of blockReasons) {
           const code = typeof br === "string" ? br : (br?.code || "unknown");
           blockerCounts.set(code, (blockerCounts.get(code) || 0) + 1);
         }
-        // Priority 2/3: causal edges
         const causalEdges: any[] = Array.isArray(obs.causal_edges) ? obs.causal_edges : [];
         for (const e of causalEdges) {
           if (e.edge_type === "blocks" || e.edge_type === "failed_because") {
@@ -32359,26 +32309,26 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         .sort((a, b) => b.count - a.count || a.blocker_code.localeCompare(b.blocker_code));
 
       // ── Timing ──
-      const durations = { total: [] as number[], validation: [] as number[], section_execution: [] as number[], governance: [] as number[], revalidation: [] as number[] };
+      const dur = { total: [] as number[], validation: [] as number[], section_execution: [] as number[], governance: [] as number[], revalidation: [] as number[] };
       for (const { obs } of validSnapshots) {
-        if (typeof obs.total_duration_ms === "number") durations.total.push(obs.total_duration_ms);
+        if (typeof obs.total_duration_ms === "number") dur.total.push(obs.total_duration_ms);
         const pd = obs.phase_durations_ms || {};
-        if (typeof pd.validation === "number") durations.validation.push(pd.validation);
-        if (typeof pd.section_execution === "number") durations.section_execution.push(pd.section_execution);
-        if (typeof pd.governance === "number") durations.governance.push(pd.governance);
-        if (typeof pd.revalidation === "number") durations.revalidation.push(pd.revalidation);
+        if (typeof pd.validation === "number") dur.validation.push(pd.validation);
+        if (typeof pd.section_execution === "number") dur.section_execution.push(pd.section_execution);
+        if (typeof pd.governance === "number") dur.governance.push(pd.governance);
+        if (typeof pd.revalidation === "number") dur.revalidation.push(pd.revalidation);
       }
-      function avg(arr: number[]): number | null { return arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null; }
-      function minArr(arr: number[]): number | null { return arr.length ? Math.min(...arr) : null; }
-      function maxArr(arr: number[]): number | null { return arr.length ? Math.max(...arr) : null; }
+      function _avg(arr: number[]): number | null { return arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null; }
+      function _min(arr: number[]): number | null { return arr.length ? Math.min(...arr) : null; }
+      function _max(arr: number[]): number | null { return arr.length ? Math.max(...arr) : null; }
       const timing = {
-        avg_total_duration_ms: avg(durations.total),
-        min_total_duration_ms: minArr(durations.total),
-        max_total_duration_ms: maxArr(durations.total),
-        avg_validation_ms: avg(durations.validation),
-        avg_section_execution_ms: avg(durations.section_execution),
-        avg_governance_ms: avg(durations.governance),
-        avg_revalidation_ms: avg(durations.revalidation),
+        avg_total_duration_ms: _avg(dur.total),
+        min_total_duration_ms: _min(dur.total),
+        max_total_duration_ms: _max(dur.total),
+        avg_validation_ms: _avg(dur.validation),
+        avg_section_execution_ms: _avg(dur.section_execution),
+        avg_governance_ms: _avg(dur.governance),
+        avg_revalidation_ms: _avg(dur.revalidation),
       };
 
       // ── Governance ──
@@ -32432,7 +32382,6 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         const blockEdges = edges.filter((e: any) => e.edge_type === "blocks");
         const blockedTargets = new Set(blockEdges.map((e: any) => e.to_node));
         for (const e of blockEdges) {
-          // Root blocker: a node that blocks others but is not itself blocked
           if (!blockedTargets.has(e.from_node)) {
             rootBlockerCounts.set(e.from_node, (rootBlockerCounts.get(e.from_node) || 0) + 1);
           }
@@ -32449,6 +32398,433 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           .sort((a, b) => b.count - a.count || a.from_node.localeCompare(b.from_node)),
       };
 
+      return { outcomes, success_rates: successRates, repair_type_breakdown: repairTypeBreakdown, source_type_breakdown: sourceTypeBreakdown, document_type_breakdown: documentTypeBreakdown, blocker_breakdown: blockerBreakdown, timing, governance, revalidation, causal_patterns: causalPatterns };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // EXECUTION RECOMMENDATIONS BUILDER
+    //
+    // buildPatchExecutionRecommendations — converts analytics aggregates into
+    // deterministic operational recommendations. All thresholds explicit and
+    // version-locked. No model calls. No heuristics. Same inputs → same output.
+    // Threshold version: rec-thresholds-v1
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    function buildPatchExecutionRecommendations(
+      a: ReturnType<typeof buildPatchExecutionAnalyticsCore>,
+      totalSnapshots: number,
+    ) {
+      type Rec = {
+        recommendation_id: string;
+        category: string;
+        severity: "high" | "medium" | "low";
+        title: string;
+        rationale: string;
+        evidence: Record<string, unknown>;
+        suggested_action: string;
+        confidence: "high" | "medium" | "low";
+      };
+
+      // ── THRESHOLDS (rec-thresholds-v1) ──
+      // All values are explicit constants. Change requires version bump.
+      const T = {
+        MIN_SNAPSHOTS:               3,    // minimum snapshots for any analysis
+        BLOCKER_MIN_OCCURRENCES:     2,    // blocker must appear >= N times for rec
+        BLOCKER_HIGH_CONFIDENCE:     5,    // >= N occurrences = high confidence
+        TYPE_MIN_COUNT:              3,    // repair/source type min count for watchlist
+        TYPE_WATCHLIST_RATE_MEDIUM:  30,   // % blocked+failed → medium severity
+        TYPE_WATCHLIST_RATE_HIGH:    60,   // % blocked+failed → high severity
+        DOC_MIN_SEEN:                3,    // doc type min times seen
+        DOC_INSTABILITY_MEDIUM:      30,   // % instability → medium
+        DOC_INSTABILITY_HIGH:        60,   // % instability → high
+        DOC_GOV_COVERAGE_GAP:        50,   // < 50% governance coverage → gap rec
+        DOC_REVAL_COVERAGE_GAP:      30,   // < 30% reval coverage → gap rec
+        GOV_GAP_RATE:                20,   // % snapshots without governance → rec
+        REVAL_FAILURE_RATE:          25,   // % (failed+deferred)/with_reval → rec
+        TIMING_EXEC_MS_MEDIUM:       15000,// avg section execution > 15s → medium
+        TIMING_EXEC_MS_HIGH:         30000,// avg section execution > 30s → high
+        CAUSAL_ROOT_BLOCKER_MIN:     3,    // root blocker count >= N → rec
+        OVERALL_UNHEALTHY_RATE:      40,   // % blocked+failed → top priority rec
+      } as const;
+
+      let recSeq = 0;
+      const makeId = (prefix: string) => `${prefix}_${String(++recSeq).padStart(3, "0")}`;
+
+      const topPriorities: Rec[] = [];
+      const blockerMitigations: Rec[] = [];
+      const repairWatchlist: Rec[] = [];
+      const sourceWatchlist: Rec[] = [];
+      const docWatchlist: Rec[] = [];
+      const govGaps: Rec[] = [];
+      const revalGaps: Rec[] = [];
+      const nextActions: Rec[] = [];
+
+      // Guard: insufficient data
+      if (totalSnapshots < T.MIN_SNAPSHOTS) {
+        return {
+          top_priorities: topPriorities, blocker_mitigations: blockerMitigations,
+          repair_type_watchlist: repairWatchlist, source_type_watchlist: sourceWatchlist,
+          document_type_watchlist: docWatchlist, governance_gaps: govGaps,
+          revalidation_gaps: revalGaps, suggested_next_actions: nextActions,
+        };
+      }
+
+      const totalN = totalSnapshots;
+
+      // ── A: Overall health check → top priority if unhealthy ──
+      const unhealthyCount = (a.outcomes.blocked + a.outcomes.failed);
+      const unhealthyRate = Math.round((unhealthyCount / totalN) * 100);
+      if (unhealthyRate >= T.OVERALL_UNHEALTHY_RATE) {
+        const sev: Rec["severity"] = unhealthyRate >= 60 ? "high" : "medium";
+        topPriorities.push({
+          recommendation_id: makeId("top"),
+          category: "overall_health",
+          severity: sev,
+          title: `${unhealthyRate}% of executions blocked or failed`,
+          rationale: `${unhealthyCount} of ${totalN} executions did not complete successfully. This indicates systemic issues requiring investigation.`,
+          evidence: {
+            total_snapshots: totalN,
+            blocked_count: a.outcomes.blocked,
+            failed_count: a.outcomes.failed,
+            unhealthy_rate_pct: unhealthyRate,
+            executed_rate_pct: a.success_rates.executed_rate,
+          },
+          suggested_action: "Investigate the most frequent blocker codes and failing repair types before running further patches.",
+          confidence: unhealthyCount >= 5 ? "high" : "medium",
+        });
+      }
+
+      // ── B: Blocker mitigations ──
+      for (const b of a.blocker_breakdown) {
+        if (b.count < T.BLOCKER_MIN_OCCURRENCES) continue;
+        const conf: Rec["confidence"] = b.count >= T.BLOCKER_HIGH_CONFIDENCE ? "high" : b.count >= 3 ? "medium" : "low";
+        const sev: Rec["severity"] = b.count >= T.BLOCKER_HIGH_CONFIDENCE ? "high" : "medium";
+        blockerMitigations.push({
+          recommendation_id: makeId("blk"),
+          category: "blocker_mitigation",
+          severity: sev,
+          title: `Recurring blocker: ${b.blocker_code}`,
+          rationale: `Blocker "${b.blocker_code}" has appeared in ${b.count} execution(s). Repeated blockers indicate a structural issue rather than a one-off failure.`,
+          evidence: { blocker_code: b.blocker_code, occurrence_count: b.count, total_snapshots: totalN },
+          suggested_action: `Diagnose root cause of "${b.blocker_code}" and address before next run.`,
+          confidence: conf,
+        });
+      }
+
+      // ── C: Repair type watchlist ──
+      for (const r of a.repair_type_breakdown) {
+        if (r.count < T.TYPE_MIN_COUNT) continue;
+        const badCount = r.blocked + r.failed;
+        const badRate = Math.round((badCount / r.count) * 100);
+        if (badRate < T.TYPE_WATCHLIST_RATE_MEDIUM) continue;
+        const sev: Rec["severity"] = badRate >= T.TYPE_WATCHLIST_RATE_HIGH ? "high" : "medium";
+        const conf: Rec["confidence"] = r.count >= 10 ? "high" : r.count >= 5 ? "medium" : "low";
+        repairWatchlist.push({
+          recommendation_id: makeId("rpt"),
+          category: "repair_type_watchlist",
+          severity: sev,
+          title: `Repair type "${r.repair_type}" underperforming (${badRate}% blocked/failed)`,
+          rationale: `${badCount} of ${r.count} executions for repair type "${r.repair_type}" were blocked or failed.`,
+          evidence: {
+            repair_type: r.repair_type,
+            count: r.count,
+            executed: r.executed,
+            partial: r.partial,
+            blocked: r.blocked,
+            failed: r.failed,
+            blocked_or_failed_rate_pct: badRate,
+          },
+          suggested_action: `Review patch plan construction for repair type "${r.repair_type}". Check for common validation issues or stale targets.`,
+          confidence: conf,
+        });
+      }
+
+      // ── D: Source type watchlist ──
+      for (const s of a.source_type_breakdown) {
+        if (s.count < T.TYPE_MIN_COUNT) continue;
+        const badCount = s.blocked + s.failed;
+        const badRate = Math.round((badCount / s.count) * 100);
+        if (badRate < T.TYPE_WATCHLIST_RATE_MEDIUM) continue;
+        const sev: Rec["severity"] = badRate >= T.TYPE_WATCHLIST_RATE_HIGH ? "high" : "medium";
+        const conf: Rec["confidence"] = s.count >= 10 ? "high" : s.count >= 5 ? "medium" : "low";
+        sourceWatchlist.push({
+          recommendation_id: makeId("src"),
+          category: "source_type_watchlist",
+          severity: sev,
+          title: `Source type "${s.source_type}" underperforming (${badRate}% blocked/failed)`,
+          rationale: `${badCount} of ${s.count} executions for source type "${s.source_type}" were blocked or failed.`,
+          evidence: {
+            source_type: s.source_type,
+            count: s.count,
+            executed: s.executed,
+            blocked: s.blocked,
+            failed: s.failed,
+            blocked_or_failed_rate_pct: badRate,
+          },
+          suggested_action: `Audit source quality for "${s.source_type}". Check for missing or stale input data driving failures.`,
+          confidence: conf,
+        });
+      }
+
+      // ── E: Document type stability + governance/revalidation gaps ──
+      for (const d of a.document_type_breakdown) {
+        if (d.total_seen < T.DOC_MIN_SEEN) continue;
+        const instableCount = d.blocked + d.failed + d.skipped_upstream;
+        const instabilityRate = Math.round((instableCount / d.total_seen) * 100);
+        if (instabilityRate >= T.DOC_INSTABILITY_MEDIUM) {
+          const sev: Rec["severity"] = instabilityRate >= T.DOC_INSTABILITY_HIGH ? "high" : "medium";
+          const conf: Rec["confidence"] = d.total_seen >= 8 ? "high" : d.total_seen >= 4 ? "medium" : "low";
+          docWatchlist.push({
+            recommendation_id: makeId("doc"),
+            category: "document_type_stability",
+            severity: sev,
+            title: `Document type "${d.doc_type}" shows instability (${instabilityRate}% blocked/failed/skipped)`,
+            rationale: `${instableCount} of ${d.total_seen} appearances of "${d.doc_type}" resulted in blocked, failed, or upstream-skipped status.`,
+            evidence: {
+              doc_type: d.doc_type,
+              total_seen: d.total_seen,
+              executed: d.executed,
+              blocked: d.blocked,
+              failed: d.failed,
+              skipped_upstream: d.skipped_upstream,
+              instability_rate_pct: instabilityRate,
+            },
+            suggested_action: `Investigate why "${d.doc_type}" documents are consistently failing. Check dependency ordering and content hash freshness.`,
+            confidence: conf,
+          });
+        }
+        // Per-doc governance gap
+        const govCoverage = d.total_seen > 0 ? Math.round((d.governance_performed / d.total_seen) * 100) : 0;
+        if (govCoverage < T.DOC_GOV_COVERAGE_GAP && d.executed > 0) {
+          govGaps.push({
+            recommendation_id: makeId("gov"),
+            category: "governance_gap",
+            severity: "medium",
+            title: `Low governance coverage for "${d.doc_type}" (${govCoverage}%)`,
+            rationale: `Only ${d.governance_performed} of ${d.total_seen} appearances of "${d.doc_type}" had governance performed. Documents without governance may have stale invalidation state.`,
+            evidence: {
+              doc_type: d.doc_type,
+              total_seen: d.total_seen,
+              governance_performed: d.governance_performed,
+              governance_coverage_pct: govCoverage,
+            },
+            suggested_action: `Verify governance is enabled for "${d.doc_type}" document executions. Check invalidation targets.`,
+            confidence: d.total_seen >= 5 ? "medium" : "low",
+          });
+        }
+        // Per-doc revalidation gap
+        const revalCoverage = d.total_seen > 0 ? Math.round((d.revalidation_performed / d.total_seen) * 100) : 0;
+        if (revalCoverage < T.DOC_REVAL_COVERAGE_GAP && d.executed > 0) {
+          revalGaps.push({
+            recommendation_id: makeId("rev"),
+            category: "revalidation_gap",
+            severity: "low",
+            title: `Low revalidation coverage for "${d.doc_type}" (${revalCoverage}%)`,
+            rationale: `Only ${d.revalidation_performed} of ${d.total_seen} appearances of "${d.doc_type}" had revalidation performed.`,
+            evidence: {
+              doc_type: d.doc_type,
+              total_seen: d.total_seen,
+              revalidation_performed: d.revalidation_performed,
+              revalidation_coverage_pct: revalCoverage,
+            },
+            suggested_action: `Verify revalidation targets include "${d.doc_type}". Deferred revalidation may leave diagnostic state stale.`,
+            confidence: "low",
+          });
+        }
+      }
+
+      // ── F: Overall governance gap ──
+      const govGapRate = Math.round((a.governance.snapshots_without_governance / totalN) * 100);
+      if (govGapRate >= T.GOV_GAP_RATE && a.governance.snapshots_without_governance >= 3) {
+        govGaps.push({
+          recommendation_id: makeId("gov"),
+          category: "governance_gap",
+          severity: govGapRate >= 50 ? "high" : "medium",
+          title: `${govGapRate}% of executions lack governance`,
+          rationale: `${a.governance.snapshots_without_governance} of ${totalN} execution snapshots have no post-execution governance recorded. Invalidation and revalidation handoff may be consistently skipped.`,
+          evidence: {
+            total_snapshots: totalN,
+            snapshots_without_governance: a.governance.snapshots_without_governance,
+            governance_gap_rate_pct: govGapRate,
+            invalidation_performed_count: a.governance.invalidation_performed_count,
+          },
+          suggested_action: "Review post-execution governance configuration. Ensure executed documents trigger invalidation and revalidation handoff.",
+          confidence: a.governance.snapshots_without_governance >= 5 ? "high" : "medium",
+        });
+      }
+
+      // ── G: Revalidation failure/deferral gap ──
+      const revalN = a.revalidation.snapshots_with_revalidation_execution || 0;
+      if (revalN >= 3) {
+        const revalBad = a.revalidation.failed_count + a.revalidation.deferred_count;
+        const revalBadRate = Math.round((revalBad / revalN) * 100);
+        if (revalBadRate >= T.REVAL_FAILURE_RATE) {
+          const sev: Rec["severity"] = revalBadRate >= 50 ? "high" : "medium";
+          revalGaps.push({
+            recommendation_id: makeId("rev"),
+            category: "revalidation_gap",
+            severity: sev,
+            title: `${revalBadRate}% of revalidations failing or deferred`,
+            rationale: `${revalBad} of ${revalN} revalidation executions resulted in failure or deferral. This may leave documents in an unvalidated state.`,
+            evidence: {
+              snapshots_with_revalidation: revalN,
+              failed_count: a.revalidation.failed_count,
+              deferred_count: a.revalidation.deferred_count,
+              full_success_count: a.revalidation.full_success_count,
+              failure_or_deferral_rate_pct: revalBadRate,
+            },
+            suggested_action: "Investigate revalidation path availability. Deferred revalidations may indicate missing canonical paths for doc types.",
+            confidence: revalN >= 5 ? "high" : "medium",
+          });
+        }
+      }
+
+      // ── H: Timing recommendation ──
+      const avgExecMs = a.timing.avg_section_execution_ms;
+      if (avgExecMs != null && avgExecMs >= T.TIMING_EXEC_MS_MEDIUM) {
+        const sev: Rec["severity"] = avgExecMs >= T.TIMING_EXEC_MS_HIGH ? "high" : "medium";
+        nextActions.push({
+          recommendation_id: makeId("tim"),
+          category: "timing_efficiency",
+          severity: sev,
+          title: `Elevated average section execution time (${Math.round(avgExecMs / 1000)}s avg)`,
+          rationale: `Average section execution time is ${Math.round(avgExecMs / 1000)}s, above the ${Math.round(T.TIMING_EXEC_MS_MEDIUM / 1000)}s threshold. High LLM call volume or large sections may be contributing.`,
+          evidence: {
+            avg_section_execution_ms: avgExecMs,
+            avg_total_duration_ms: a.timing.avg_total_duration_ms,
+            max_total_duration_ms: a.timing.max_total_duration_ms,
+            threshold_ms: T.TIMING_EXEC_MS_MEDIUM,
+          },
+          suggested_action: "Review section sizes and LLM call count per run. Consider batching or limiting sections per execution.",
+          confidence: "medium",
+        });
+      }
+
+      // ── I: Causal root blocker recommendation ──
+      for (const rb of a.causal_patterns.root_blockers) {
+        if (rb.count < T.CAUSAL_ROOT_BLOCKER_MIN) continue;
+        nextActions.push({
+          recommendation_id: makeId("csl"),
+          category: "causal_pattern",
+          severity: "medium",
+          title: `Root blocker "${rb.blocker}" appears in ${rb.count} execution(s)`,
+          rationale: `Causal analysis identifies "${rb.blocker}" as a root-level blocker (not itself blocked) in ${rb.count} executions. It may be causing downstream cascade failures.`,
+          evidence: { blocker: rb.blocker, causal_pattern_count: rb.count },
+          suggested_action: `Resolve the root cause of "${rb.blocker}" to prevent downstream cascade blocks.`,
+          confidence: rb.count >= 5 ? "high" : "medium",
+        });
+      }
+
+      // ── Promote top priorities: pull highest severity items from each bucket ──
+      // Sort each bucket by severity desc then evidence count desc
+      const sortRecs = (recs: Rec[]) => recs.sort((a, b) => {
+        const sevOrd = { high: 0, medium: 1, low: 2 };
+        const sd = sevOrd[a.severity] - sevOrd[b.severity];
+        if (sd !== 0) return sd;
+        const ae = typeof a.evidence.occurrence_count === "number" ? a.evidence.occurrence_count as number
+          : typeof a.evidence.count === "number" ? a.evidence.count as number : 0;
+        const be = typeof b.evidence.occurrence_count === "number" ? b.evidence.occurrence_count as number
+          : typeof b.evidence.count === "number" ? b.evidence.count as number : 0;
+        if (be !== ae) return be - ae;
+        return a.recommendation_id.localeCompare(b.recommendation_id);
+      });
+
+      sortRecs(topPriorities);
+      sortRecs(blockerMitigations);
+      sortRecs(repairWatchlist);
+      sortRecs(sourceWatchlist);
+      sortRecs(docWatchlist);
+      sortRecs(govGaps);
+      sortRecs(revalGaps);
+      sortRecs(nextActions);
+
+      // Promote high-severity items from non-top buckets into topPriorities (max 3 additional)
+      const promoted = [
+        ...blockerMitigations, ...repairWatchlist, ...sourceWatchlist,
+        ...docWatchlist, ...govGaps, ...revalGaps, ...nextActions,
+      ].filter(r => r.severity === "high").slice(0, 3);
+      for (const p of promoted) {
+        if (!topPriorities.find(t => t.recommendation_id === p.recommendation_id)) {
+          topPriorities.push(p);
+        }
+      }
+      sortRecs(topPriorities);
+
+      return {
+        top_priorities: topPriorities,
+        blocker_mitigations: blockerMitigations,
+        repair_type_watchlist: repairWatchlist,
+        source_type_watchlist: sourceWatchlist,
+        document_type_watchlist: docWatchlist,
+        governance_gaps: govGaps,
+        revalidation_gaps: revalGaps,
+        suggested_next_actions: nextActions,
+      };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // EXECUTION ANALYTICS v1 — get_patch_execution_analytics (READ-ONLY)
+    //
+    // Aggregates persisted execution replay snapshots into a deterministic
+    // analytics surface. No recomputation, no mutation, no schema drift.
+    // Derives all metrics strictly from pipeline_transitions.resulting_state.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "get_patch_execution_analytics") {
+      const { projectId, window: windowOpts } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const analyticsAt = new Date().toISOString();
+      const w = windowOpts && typeof windowOpts === "object" ? windowOpts : {};
+      const scanLimit = Math.min(Math.max(Number(w.limit) || 50, 1), 200);
+      const dateFrom: string | null = typeof w.date_from === "string" ? w.date_from : null;
+      const dateTo: string | null = typeof w.date_to === "string" ? w.date_to : null;
+
+      let query = supabase
+        .from("pipeline_transitions")
+        .select("id, resulting_state, created_at")
+        .eq("project_id", projectId)
+        .eq("event_type", "patch_execution_completed")
+        .order("created_at", { ascending: false });
+
+      if (dateFrom) query = query.gte("created_at", dateFrom);
+      if (dateTo) query = query.lte("created_at", dateTo);
+      query = query.limit(scanLimit);
+
+      const { data: rows, error: queryErr } = await query;
+
+      if (queryErr) {
+        return new Response(JSON.stringify({
+          ok: false, action: "get_patch_execution_analytics",
+          error: `query_error:${queryErr.message}`,
+        }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const allRows = rows || [];
+      const scannedRows = allRows.length;
+
+      // ── Validate and collect valid snapshots ──
+      let validCount = 0;
+      let invalidCount = 0;
+      const validSnapshots: { snap: any; exec: any; plan: any; obs: any }[] = [];
+
+      for (const row of allRows) {
+        const v = validatePatchExecutionReplaySnapshot(row.resulting_state);
+        if (!v.valid) { invalidCount++; continue; }
+        validCount++;
+        const snap = row.resulting_state as any;
+        const exec = snap.execution || {};
+        const plan = snap.patch_plan || {};
+        const obs = exec.execution_observability || {};
+        validSnapshots.push({ snap, exec, plan, obs });
+      }
+
+      // ── Core aggregation via shared helper ──
+      const analyticsData = buildPatchExecutionAnalyticsCore(validSnapshots);
+
       console.log("[dev-engine-v2] get_patch_execution_analytics", {
         project_id: projectId, scanned: scannedRows, valid: validCount, invalid: invalidCount,
       });
@@ -32459,20 +32835,97 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         project_id: projectId,
         analytics: {
           summary: { total_snapshots: validCount, valid_snapshots: validCount, invalid_snapshots: invalidCount, scanned_rows: scannedRows },
-          outcomes,
-          success_rates: successRates,
-          repair_type_breakdown: repairTypeBreakdown,
-          source_type_breakdown: sourceTypeBreakdown,
-          document_type_breakdown: documentTypeBreakdown,
-          blocker_breakdown: blockerBreakdown,
-          timing,
-          governance,
-          revalidation,
-          causal_patterns: causalPatterns,
+          ...analyticsData,
         },
         window: { limit: scanLimit, date_from: dateFrom, date_to: dateTo },
         computed_at: analyticsAt,
         version: "execution-analytics-v1",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // EXECUTION RECOMMENDATIONS v1 — get_patch_execution_recommendations (READ-ONLY)
+    //
+    // Converts persisted execution analytics into deterministic operational
+    // recommendations. Shares scan + validation logic with analytics action.
+    // No recomputation from live state. No mutation. No schema drift.
+    // All thresholds explicit and deterministic (rec-thresholds-v1).
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "get_patch_execution_recommendations") {
+      const { projectId, window: windowOpts } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const recsAt = new Date().toISOString();
+      const scanLimit = Math.min(Math.max(windowOpts?.limit ?? 100, 1), 500);
+      const dateFrom = windowOpts?.date_from || null;
+      const dateTo = windowOpts?.date_to || null;
+
+      let recsQuery = supabase
+        .from("pipeline_transitions")
+        .select("resulting_state, created_at")
+        .eq("project_id", projectId)
+        .eq("event_type", "patch_execution_completed")
+        .order("created_at", { ascending: false })
+        .limit(scanLimit);
+      if (dateFrom) recsQuery = recsQuery.gte("created_at", dateFrom);
+      if (dateTo) recsQuery = recsQuery.lte("created_at", dateTo);
+      const { data: recsRows } = await recsQuery;
+
+      let validCount = 0;
+      let invalidCount = 0;
+      const validSnapshots: { snap: any; exec: any; plan: any; obs: any }[] = [];
+      for (const row of (recsRows || [])) {
+        const v = validatePatchExecutionReplaySnapshot(row.resulting_state);
+        if (!v.valid) { invalidCount++; continue; }
+        validCount++;
+        const snap = row.resulting_state as any;
+        const exec = snap.execution || {};
+        const plan = snap.patch_plan || {};
+        const obs = exec.execution_observability || {};
+        validSnapshots.push({ snap, exec, plan, obs });
+      }
+
+      const analyticsData = buildPatchExecutionAnalyticsCore(validSnapshots);
+      const recs = buildPatchExecutionRecommendations(analyticsData, validCount);
+
+      const allRecs = [
+        ...recs.top_priorities, ...recs.blocker_mitigations, ...recs.repair_type_watchlist,
+        ...recs.source_type_watchlist, ...recs.document_type_watchlist,
+        ...recs.governance_gaps, ...recs.revalidation_gaps, ...recs.suggested_next_actions,
+      ];
+      // Deduplicate top_priorities (promoted items also appear in their source bucket)
+      const topIds = new Set(recs.top_priorities.map((r: any) => r.recommendation_id));
+      const highCount = allRecs.filter(r => r.severity === "high").length;
+      const medCount = allRecs.filter(r => r.severity === "medium").length;
+      const lowCount = allRecs.filter(r => r.severity === "low").length;
+      // Unique total (top_priorities may overlap with other buckets)
+      const uniqueTotal = new Set(allRecs.map(r => r.recommendation_id)).size;
+
+      console.log("[dev-engine-v2] get_patch_execution_recommendations", {
+        project_id: projectId, scanned: (recsRows || []).length, valid: validCount, recs: uniqueTotal,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "get_patch_execution_recommendations",
+        project_id: projectId,
+        recommendations: {
+          summary: {
+            total_snapshots: validCount,
+            generated_recommendations: uniqueTotal,
+            high_severity_count: highCount,
+            medium_severity_count: medCount,
+            low_severity_count: lowCount,
+          },
+          ...recs,
+        },
+        window: { limit: scanLimit, date_from: dateFrom, date_to: dateTo },
+        computed_at: recsAt,
+        version: "execution-recommendations-v1",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

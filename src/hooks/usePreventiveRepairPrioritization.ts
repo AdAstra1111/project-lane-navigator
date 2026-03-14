@@ -1064,6 +1064,68 @@ export interface PatchExecutionAnalyticsResponse {
   version: string;
 }
 
+// ── Execution Recommendations Types ──
+
+export interface ExecutionRecommendation {
+  recommendation_id: string;
+  category: string;
+  severity: "high" | "medium" | "low";
+  title: string;
+  rationale: string;
+  evidence: Record<string, unknown>;
+  suggested_action: string;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface ExecutionRecommendationSummary {
+  total_snapshots: number;
+  generated_recommendations: number;
+  high_severity_count: number;
+  medium_severity_count: number;
+  low_severity_count: number;
+}
+
+export interface ExecutionRecommendations {
+  summary: ExecutionRecommendationSummary;
+  top_priorities: ExecutionRecommendation[];
+  blocker_mitigations: ExecutionRecommendation[];
+  repair_type_watchlist: ExecutionRecommendation[];
+  source_type_watchlist: ExecutionRecommendation[];
+  document_type_watchlist: ExecutionRecommendation[];
+  governance_gaps: ExecutionRecommendation[];
+  revalidation_gaps: ExecutionRecommendation[];
+  suggested_next_actions: ExecutionRecommendation[];
+}
+
+export interface PatchExecutionRecommendationsResponse {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  recommendations: ExecutionRecommendations;
+  window: { limit: number; date_from: string | null; date_to: string | null };
+  computed_at: string;
+  version: string;
+}
+
+export async function fetchPatchExecutionRecommendations(
+  projectId: string,
+  window?: { limit?: number; date_from?: string; date_to?: string },
+): Promise<PatchExecutionRecommendationsResponse | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+  const payload: Record<string, any> = { action: 'get_patch_execution_recommendations', projectId };
+  if (window) payload.window = window;
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PatchExecutionRecommendationsResponse;
+}
+
 export async function fetchPatchExecutionAnalytics(
   projectId: string,
   window?: { limit?: number; date_from?: string; date_to?: string },
