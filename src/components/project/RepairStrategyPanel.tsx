@@ -2710,6 +2710,93 @@ function ExecutionReplaySection({
             </button>
           </div>
 
+          {/* ── Filter Controls ── */}
+          {historyResult && (
+            <div className="space-y-1.5 rounded-md border border-border/30 bg-muted/20 px-2.5 py-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Filters</span>
+                {hasActiveFilters && (
+                  <button onClick={handleClearFilters} className="text-[8px] text-destructive hover:underline ml-auto">Clear all</button>
+                )}
+              </div>
+              <div className="flex items-end gap-2 flex-wrap">
+                <div>
+                  <label className="text-[8px] text-muted-foreground block mb-0.5">From</label>
+                  <input
+                    type="date"
+                    className="rounded border border-border/50 bg-background px-1.5 py-0.5 text-[9px] text-foreground"
+                    value={historyFilters.date_from || ''}
+                    onChange={e => setHistoryFilters(p => ({ ...p, date_from: e.target.value || undefined }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-[8px] text-muted-foreground block mb-0.5">To</label>
+                  <input
+                    type="date"
+                    className="rounded border border-border/50 bg-background px-1.5 py-0.5 text-[9px] text-foreground"
+                    value={historyFilters.date_to || ''}
+                    onChange={e => setHistoryFilters(p => ({ ...p, date_to: e.target.value || undefined }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-[8px] text-muted-foreground block mb-0.5">Source</label>
+                  <select
+                    className="rounded border border-border/50 bg-background px-1.5 py-0.5 text-[9px] text-foreground"
+                    value={historyFilters.source_type || ''}
+                    onChange={e => setHistoryFilters(p => ({ ...p, source_type: e.target.value || undefined }))}
+                  >
+                    <option value="">All</option>
+                    <option value="intervention">intervention</option>
+                    <option value="prp2s">prp2s</option>
+                    <option value="arp1">arp1</option>
+                    <option value="manual">manual</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[8px] text-muted-foreground block mb-0.5">Outcome</label>
+                  <select
+                    className="rounded border border-border/50 bg-background px-1.5 py-0.5 text-[9px] text-foreground"
+                    value={historyFilters.outcome || ''}
+                    onChange={e => setHistoryFilters(p => ({ ...p, outcome: (e.target.value || undefined) as PatchExecutionOutcome | undefined }))}
+                  >
+                    <option value="">All</option>
+                    <option value="executed">executed</option>
+                    <option value="partial">partial</option>
+                    <option value="blocked">blocked</option>
+                    <option value="failed">failed</option>
+                    <option value="dry_run">dry run</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[8px] text-muted-foreground block mb-0.5">Repair type</label>
+                  <input
+                    type="text"
+                    className="rounded border border-border/50 bg-background px-1.5 py-0.5 text-[9px] text-foreground w-[80px]"
+                    placeholder="any"
+                    value={historyFilters.repair_type || ''}
+                    onChange={e => setHistoryFilters(p => ({ ...p, repair_type: e.target.value || undefined }))}
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleLoadHistory()}
+                  disabled={historyLoading}
+                  className="text-[9px] h-6 px-2"
+                >
+                  Apply
+                </Button>
+              </div>
+              {historyResult.applied_filters && hasActiveFilters && (
+                <div className="text-[8px] text-muted-foreground">
+                  {historyResult.history_notes.prefilter_row_count != null && (
+                    <span>{historyResult.history_notes.prefilter_row_count} valid → {historyResult.history_notes.postfilter_row_count} matched</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {historyLoading && <Skeleton className="h-16 w-full rounded-md" />}
 
           {/* History list */}
@@ -2719,8 +2806,17 @@ function ExecutionReplaySection({
                 <Card className="border-border/50">
                   <CardContent className="py-4 text-center">
                     <History className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
-                    <p className="text-xs text-muted-foreground">No replayable executions found for this project.</p>
-                    <p className="text-[9px] text-muted-foreground mt-1">Only non-dry-run executions that performed writes are persisted.</p>
+                    {hasActiveFilters ? (
+                      <>
+                        <p className="text-xs text-muted-foreground">No executions match current filters.</p>
+                        <button onClick={handleClearFilters} className="text-[9px] text-primary hover:underline mt-1">Clear filters</button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs text-muted-foreground">No replayable executions found for this project.</p>
+                        <p className="text-[9px] text-muted-foreground mt-1">Only non-dry-run executions that performed writes are persisted.</p>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
               ) : (
