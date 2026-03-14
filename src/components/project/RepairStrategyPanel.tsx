@@ -4097,6 +4097,46 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
   const [aqRepairFilter, setAqRepairFilter] = useState<RepairFilter>('all');
   const [aqSort, setAqSort] = useState<QueueSort>('default');
 
+  // ── Run History state ──
+  interface RunHistoryEntry {
+    id: string;
+    created_at: string;
+    totalCount: number;
+    highCount: number;
+    mediumCount: number;
+    lowCount: number;
+  }
+  const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
+  const [runHistoryOpen, setRunHistoryOpen] = useState(false);
+  const runHistoryLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (runHistoryLoadedRef.current) return;
+    runHistoryLoadedRef.current = true;
+    (async () => {
+      const { data: rows } = await supabase
+        .from('execution_recommendation_runs')
+        .select('id, created_at, recommendations_snapshot')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (rows && rows.length > 0) {
+        const entries: RunHistoryEntry[] = rows.map((row: any) => {
+          const snapshot = row.recommendations_snapshot as { recommendations?: { severity?: string }[] } | null;
+          const recs = snapshot?.recommendations ?? [];
+          let high = 0, medium = 0, low = 0;
+          for (const r of recs) {
+            if (r.severity === 'high') high++;
+            else if (r.severity === 'medium') medium++;
+            else low++;
+          }
+          return { id: row.id, created_at: row.created_at, totalCount: recs.length, highCount: high, mediumCount: medium, lowCount: low };
+        });
+        setRunHistory(entries);
+      }
+    })();
+  }, [projectId]);
+
   // Stable triage identity helper — uses comparison_key instead of ephemeral recommendation_id
   const triageKey = (rec: { category?: string; rule_id?: string; recommendation_id: string; evidence?: Record<string, unknown>; trigger_metrics?: Record<string, unknown> }) => deriveComparisonKey(rec);
 
