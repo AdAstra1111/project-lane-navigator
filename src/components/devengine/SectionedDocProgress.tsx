@@ -24,8 +24,6 @@ interface ChunkRow {
 interface SectionedDocProgressProps {
   versionId: string;
   docType: string;
-  /** Fires once when every chunk reaches status === 'done', with assembled content */
-  onAllChunksDone?: (assembledContent: string) => void;
 }
 
 const DOC_TYPE_LABELS: Record<string, string> = {
@@ -62,9 +60,7 @@ function cleanPreview(raw: string): string {
   return preview + (prose.length > 400 ? '…' : '');
 }
 
-export function SectionedDocProgress({ versionId, docType, onAllChunksDone }: SectionedDocProgressProps) {
-  const firedRef = React.useRef(false);
-
+export function SectionedDocProgress({ versionId, docType }: SectionedDocProgressProps) {
   const { data: chunks = [], isLoading } = useQuery<ChunkRow[]>({
     queryKey: ['sectioned-doc-chunks', versionId],
     queryFn: async () => {
@@ -80,21 +76,6 @@ export function SectionedDocProgress({ versionId, docType, onAllChunksDone }: Se
     enabled: !!versionId,
     refetchInterval: 8000,
   });
-
-  // Fire onAllChunksDone exactly once when every chunk is done
-  React.useEffect(() => {
-    const safeArr = Array.isArray(chunks) ? chunks : [];
-    const allDone = safeArr.length > 0 && safeArr.every(c => c.status === 'done');
-    if (allDone && !firedRef.current && onAllChunksDone) {
-      firedRef.current = true;
-      const assembled = [...safeArr]
-        .sort((a, b) => a.chunk_index - b.chunk_index)
-        .filter(c => c.content)
-        .map(c => c.content!)
-        .join('\n\n');
-      onAllChunksDone(assembled);
-    }
-  }, [chunks, onAllChunksDone]);
 
   const safeChunks = Array.isArray(chunks) ? chunks : [];
   const total = safeChunks.length;
