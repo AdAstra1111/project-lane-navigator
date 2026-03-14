@@ -3817,6 +3817,7 @@ function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
 
 function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
   const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
+  const [trendsData, setTrendsData] = useState<PatchExecutionTrendsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [showSuppressed, setShowSuppressed] = useState(false);
@@ -3824,13 +3825,19 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await fetchPatchExecutionRecommendations(projectId, { limit: 100 });
-      if (res?.ok) setData(res);
+      const [recsRes, trendsRes] = await Promise.all([
+        fetchPatchExecutionRecommendations(projectId, { limit: 100 }),
+        fetchPatchExecutionRecommendationTrends(projectId, { recent_limit: 25, prior_limit: 25 }),
+      ]);
+      if (recsRes?.ok) setData(recsRes);
+      if (trendsRes?.ok) setTrendsData(trendsRes);
     } finally {
       setLoading(false);
       setLoaded(true);
     }
   };
+
+  const trends = trendsData?.trends ?? null;
 
   const recs = data?.recommendations;
   const summary = recs?.summary;
