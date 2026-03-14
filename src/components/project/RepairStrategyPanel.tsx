@@ -4042,12 +4042,12 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
           setChangeMap(changes);
 
           // Persist current snapshot idempotently (upsert by run_id)
-          await supabase
-            .from('execution_recommendation_runs')
+          await (supabase
+            .from('execution_recommendation_runs') as any)
             .upsert({
               project_id: projectId,
               run_id: runId,
-              recommendations_snapshot: { recommendations: snapshotItems } as unknown as Record<string, unknown>,
+              recommendations_snapshot: { recommendations: snapshotItems },
             }, { onConflict: 'project_id,run_id' });
         }
       }
