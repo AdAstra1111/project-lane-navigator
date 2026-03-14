@@ -4904,6 +4904,21 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                             <div className="text-[8px] text-muted-foreground leading-snug border-l-2 border-border/30 pl-1.5">
                               {rec.suggested_action}
                             </div>
+                            {rec.recommended_actions && rec.recommended_actions.length > 0 && (
+                              <div className="flex items-center gap-1 flex-wrap" onClick={e => e.stopPropagation()}>
+                                {rec.recommended_actions.filter(a => !a.destructive).map((action, i) => (
+                                  <button
+                                    key={`${action.action_type}-${i}`}
+                                    type="button"
+                                    className="text-[7px] font-mono px-1 py-0.5 rounded border border-primary/30 bg-primary/5 text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors"
+                                    title={`${action.action_type}: ${JSON.stringify(action.params)}`}
+                                    onClick={() => dispatchRecommendedAction(action)}
+                                  >
+                                    {action.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
