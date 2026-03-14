@@ -1540,6 +1540,19 @@ function buildRewriteSystem(deliverable: string, format: string, behavior: strin
     formatRules = "\n\nVERTICAL DRAMA: Preserve hook in first 3–10 seconds. Maintain micro-cliffhanger ending. Do NOT apply feature pacing logic. Ensure continuous beat cadence throughout.";
   }
 
+  // Story outline prose enforcement — must not produce screenplay format
+  let storyOutlineEnforcement = "";
+  if (deliverable === "story_outline") {
+    storyOutlineEnforcement = `\n\nSTORY OUTLINE FORMAT (MANDATORY — violations cause rejection):
+- Output MUST be written in present-tense PROSE paragraphs. This is NOT a screenplay.
+- Do NOT use INT./EXT. sluglines or scene headings.
+- Do NOT use character name cues (e.g. "KOFI", "VANCE" on their own line).
+- Do NOT use parentheticals or formatted dialogue blocks.
+- Write each scene as a narrative paragraph (3-5 sentences): what happens, dramatic purpose, emotional shift.
+- Number scenes as plain text (e.g. "Scene 1:", "Scene 2:") if needed, but no sluglines.
+- The output is a story document, not a shooting script.`;
+  }
+
   // Screenplay enforcement for script deliverables
   let scriptEnforcement = "";
   if (deliverable === "script" || deliverable === "production_draft") {
@@ -1637,7 +1650,7 @@ Rules:
 - Match the target deliverable type format expectations.
 - OUTPUT THE FULL REWRITTEN MATERIAL — do NOT summarize or truncate.
 - If repositioning (lane/format) appears in APPROVED STRATEGIC NOTES, reflect it. Otherwise do not stealth-reposition.
-${docGuard}${formatRules}${scriptEnforcement}${episodeBeatsEnforcement}${characterBibleEnforcement}${episodeGridEnforcement}
+${docGuard}${formatRules}${storyOutlineEnforcement}${scriptEnforcement}${episodeBeatsEnforcement}${characterBibleEnforcement}${episodeGridEnforcement}
 
 Return ONLY valid JSON:
 {
@@ -1782,7 +1795,7 @@ Creative direction in the user prompt (PROTECT items, APPROVED NOTES, SELECTED D
 Target format guidelines:
 - TOPLINE_NARRATIVE: A canonical narrative summary containing: # LOGLINE (1-2 sentences), # SHORT SYNOPSIS (150-300 words), # LONG SYNOPSIS (~1-2 pages), # STORY PILLARS (Theme, Protagonist, Goal, Stakes, Antagonistic force, Setting, Tone, Comps). For series, also include # SERIES ONLY with series promise/engine and season arc snapshot.
 - BLUEPRINT: High-level structural blueprint with act breaks, key beats, character arcs, tone anchors
-- ARCHITECTURE / STORY_OUTLINE: Feature-length scene-by-scene outline. This section covers ONE ACT of a feature film. Write 12-20 scenes, each with: numbered scene heading (INT./EXT.), 3-5 sentence description of action and purpose, dramatic function note. This is ONE SECTION — write it fully at feature-film quality and length. Do NOT summarise. Do NOT truncate.
+- ARCHITECTURE / STORY_OUTLINE: Feature-length story outline in PROSE format. This is NOT a screenplay — do NOT use INT./EXT. sluglines, character cues, or formatted dialogue. Write 12-20 scene summaries in present-tense prose paragraphs. Each scene: 3-5 sentences describing what happens, the dramatic purpose, and the emotional shift. Use narrative prose throughout (e.g. "Elias arrives at the outpost at dawn…"). This is ONE SECTION — write it fully at feature-film quality and length. Do NOT summarise. Do NOT truncate.
 - BEAT_SHEET: Feature-film beat sheet. This section covers ONE ACT. Write 10-15 named beats (e.g. "Opening Image", "Catalyst", "Midpoint Twist"), each with: beat name in bold, 4-6 sentence description of what happens, emotional/structural purpose. This is ONE SECTION — write every beat in full. Do NOT summarise.
 - TREATMENT: Prose narrative treatment. This section covers ONE ACT of a feature film. Write 4-7 pages of vivid, present-tense prose. Every scene described in full, with atmosphere, character interiority, tension. Aim for 1,500-2,000 words per section. Do NOT summarise.
 - CHARACTER_BIBLE: Character bible. This section covers ONE CHARACTER GROUP (protagonists/antagonists/supporting/relationships). Write each character profile in full: backstory, psychology, want/need/wound/flaw, arc across the story, relationship dynamics, sample dialogue voice, casting reference. Minimum 600 words per character.
