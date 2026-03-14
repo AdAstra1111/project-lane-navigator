@@ -31309,6 +31309,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         documents_attempted: documentsAttempted,
         documents_executed: documentsExecuted,
         document_sequences_failed: documentSequencesFailed,
+        documents_skipped_due_to_upstream_failure: documentsSkippedDueToUpstreamFailure,
+        blocked_document_ids: blockedDocumentIds,
+        blocked_doc_types: blockedDocTypes,
         document_execution_order: documentExecutionOrder,
         write_performed: writePerformed,
         has_governance: !!postExecution,
@@ -31332,6 +31335,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           documents_attempted: documentsAttempted,
           documents_executed: documentsExecuted,
           document_sequences_failed: documentSequencesFailed,
+          documents_skipped_due_to_upstream_failure: documentsSkippedDueToUpstreamFailure,
+          blocked_document_ids: blockedDocumentIds.length > 0 ? blockedDocumentIds : undefined,
+          blocked_doc_types: blockedDocTypes.length > 0 ? blockedDocTypes : undefined,
           document_execution_order: documentExecutionOrder,
           document_execution_metadata: documentExecutionMetadata,
           target_results: targetResults,
@@ -31346,7 +31352,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           revalidation_execution: revalidationExecution,
         },
         computed_at: execAt,
-        version: "patch-execution-v1.1",
+        version: "patch-execution-v1.2",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
