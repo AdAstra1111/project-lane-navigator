@@ -810,7 +810,23 @@ function PRP2SOptionDetail({ opt }: { opt: PRP2SStrategyOption }) {
         </div>
       )}
 
-      {/* Tags */}
+      {/* Root-Cause Leverage Advisory detail */}
+      {opt.root_cause_advisory?.in_cluster && (
+        <div className="space-y-1.5 border-t border-border/30 pt-3">
+          <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            Root-Cause Cluster
+            <Badge variant="outline" className="text-[8px] font-normal">Advisory only</Badge>
+          </h5>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 pl-1">
+            <Detail label="Cluster ID" value={opt.root_cause_advisory.cluster_id ?? '—'} />
+            <Detail label="Primary Axis" value={opt.root_cause_advisory.cluster_primary_axis ?? '—'} />
+            <Detail label="Combined Pressure" value={opt.root_cause_advisory.cluster_combined_pressure?.toFixed(2) ?? '—'} />
+            <Detail label="Cluster Confidence" value={opt.root_cause_advisory.cluster_confidence != null ? `${Math.round(opt.root_cause_advisory.cluster_confidence * 100)}%` : '—'} />
+            <Detail label="Cluster Size" value={String(opt.root_cause_advisory.cluster_repair_count ?? '—')} />
+            <Detail label="Leverage Score" value={opt.root_cause_advisory.root_cause_leverage_score?.toFixed(1) ?? '—'} />
+          </div>
+        </div>
+      )}
       {opt.rationale_tags.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {opt.rationale_tags.map(t => (
