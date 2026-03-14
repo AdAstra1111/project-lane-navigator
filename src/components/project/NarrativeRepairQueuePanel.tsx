@@ -80,7 +80,7 @@ const STATUS_STYLE: Record<string, { label: string; color: string }> = {
   dismissed: { label: 'Dismissed', color: 'text-muted-foreground' },
 };
 
-export function NarrativeRepairQueuePanel({ projectId }: Props) {
+export function NarrativeRepairQueuePanel({ projectId, landingContext, onDismissLandingContext }: Props) {
   const { data: repairs, isLoading, error, refresh: refreshQueue } = useNarrativeRepairs(projectId);
   const { planRepairs, isPlanning, error: planError } = usePlanNarrativeRepairs(projectId);
   const execHook = useExecuteNarrativeRepair(projectId);
