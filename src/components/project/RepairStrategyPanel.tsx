@@ -3832,6 +3832,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [triageMap, setTriageMap] = useState<Record<string, TriageStatus>>({});
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [memoCopied, setMemoCopied] = useState<string | null>(null);
+  const [bulkFeedback, setBulkFeedback] = useState<string | null>(null);
 
   // Clean stale triage entries when recommendations change
   const cleanTriageMap = (recs: ExecutionRecommendations) => {
@@ -4202,6 +4203,67 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                 )}
               </div>
             )}
+
+            {/* Bulk triage controls */}
+            {displayResult && (() => {
+              const visible = displayResult.all_display.filter(r => !r.suppressed);
+              const highIds = visible.filter(r => r.severity === "high").map(r => r.recommendation_id);
+              const medIds = visible.filter(r => r.severity === "medium").map(r => r.recommendation_id);
+              const visibleIds = visible.map(r => r.recommendation_id);
+              const canDoNow = highIds.some(id => triageMap[id] !== "do_now");
+              const canWatch = medIds.some(id => triageMap[id] !== "watch");
+              const canClear = visibleIds.some(id => triageMap[id]);
+
+              const applyBulk = (ids: string[], status: TriageStatus) => {
+                setTriageMap(prev => {
+                  const next = { ...prev };
+                  ids.forEach(id => { next[id] = status; });
+                  return next;
+                });
+                setBulkFeedback(status);
+                setTimeout(() => setBulkFeedback(null), 1200);
+              };
+
+              const clearAll = () => {
+                setTriageMap(prev => {
+                  const next = { ...prev };
+                  visibleIds.forEach(id => { delete next[id]; });
+                  return next;
+                });
+                setBulkFeedback("cleared");
+                setTimeout(() => setBulkFeedback(null), 1200);
+              };
+
+              return (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[8px] font-mono text-muted-foreground/40 uppercase">Bulk:</span>
+                  <button
+                    disabled={!canDoNow || highIds.length === 0}
+                    onClick={() => applyBulk(highIds, "do_now")}
+                    className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-default transition-colors"
+                  >
+                    Do now: all high ({highIds.length})
+                  </button>
+                  <button
+                    disabled={!canWatch || medIds.length === 0}
+                    onClick={() => applyBulk(medIds, "watch")}
+                    className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-default transition-colors"
+                  >
+                    Watch: all medium ({medIds.length})
+                  </button>
+                  <button
+                    disabled={!canClear}
+                    onClick={clearAll}
+                    className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-default transition-colors"
+                  >
+                    Clear triage
+                  </button>
+                  {bulkFeedback && (
+                    <span className="text-[8px] font-mono text-primary/70">Updated</span>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Insufficient history note */}
             {summary && summary.total_snapshots < 3 && (
