@@ -30931,8 +30931,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             for (const r of docTargetResults) {
               targetResults.push(r);
             }
-          } catch (writeErr: any) {
+            } catch (writeErr: any) {
             documentSequencesFailed++;
+            failedPatchedDocTypes.add(currentDocType);
             for (const r of docTargetResults) {
               r.status = "failed";
               r.version_id_after = null;
