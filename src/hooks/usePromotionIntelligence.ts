@@ -233,7 +233,21 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     const pState = computePipelineState(projectFormat, pipelineDocs, {
       seasonEpisodeCount: input.seasonEpisodeCount,
     });
-    const primaryNext = pState.nextSteps.find(s => s.priority === 'primary');
+
+    // ── CRITICAL FIX: anchor next-step to currentDocument, not the project's last existing stage ──
+    // Without this, if a user is viewing an earlier doc (e.g. concept_brief) but the project has
+    // later docs already created, the promote button incorrectly offers the globally-next stage
+    // (e.g. production_draft) instead of the stage immediately after the viewed doc.
+    const mappedCurrentDoc = mapDocTypeToLadderStage(doc);
+    const currentDocIdxInPipeline = pState.pipeline.indexOf(mappedCurrentDoc as any);
+    let primaryNext = pState.nextSteps.find(s => s.priority === 'primary');
+    if (currentDocIdxInPipeline >= 0 && pState.currentStageIndex !== currentDocIdxInPipeline) {
+      // User is viewing a doc that is NOT the project's last stage — find next stage after viewed doc
+      const nextFromViewedDoc = pState.pipeline[currentDocIdxInPipeline + 1] ?? null;
+      if (nextFromViewedDoc) {
+        primaryNext = { docType: nextFromViewedDoc, label: nextFromViewedDoc, reason: `Next stage after ${mappedCurrentDoc}`, action: 'create', priority: 'primary' };
+      }
+    }
 
     if (primaryNext?.action === 'enter_series_writer') {
       rawNext = 'series_writer';
