@@ -4098,7 +4098,7 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
                   </div>
                   {/* Suppressed items list — scrollable for long histories */}
                   <div className="rounded-md border border-border/20 bg-muted/10 overflow-hidden">
-                    <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/15 bg-muted/20">
+                    <div className="sticky top-0 z-10 grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/15 bg-muted/30">
                       <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Rec ID</span>
                       <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Reason</span>
                       <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Retained By</span>
