@@ -4035,26 +4035,19 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
               )}
             </div>
 
-            {/* Suppression helper note */}
+            {/* Suppression controls */}
             {report.suppressed_total > 0 && (
-              <div className="text-[8px] text-muted-foreground/50 italic leading-snug">
-                Suppressed recommendations are hidden from primary display but retained for audit.
-              </div>
-            )}
-
-            {/* Show/hide suppressed toggle */}
-            {report.suppressed_total > 0 && (
-              <div className="space-y-0.5">
+              <div className="space-y-1">
+                <div className="text-[8px] text-muted-foreground/50 italic">
+                  {report.suppressed_total} redundant or lower-priority variants hidden — retained for audit.
+                </div>
                 <button
                   onClick={() => setShowSuppressed(p => !p)}
                   className="flex items-center gap-1 text-[9px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
                 >
                   {showSuppressed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                  {showSuppressed ? 'Hide suppressed' : 'Show suppressed recommendations'}
+                  {showSuppressed ? 'Hide suppressed' : 'Show suppressed'}
                 </button>
-                <div className="text-[7px] text-muted-foreground/40 pl-4">
-                  Suppressed items are lower-priority or redundant variants — not deleted.
-                </div>
               </div>
             )}
 
@@ -4104,21 +4097,19 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
                     ))}
                   </div>
                   {/* Suppressed items list — scrollable for long histories */}
-                  <div className="rounded-md border border-border/20 bg-muted/10 overflow-hidden">
-                    <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/15 bg-muted/20">
+                  <div className="rounded-md border border-border/20 bg-muted/10 max-h-52 overflow-y-auto">
+                    <div className="sticky top-0 z-10 grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/15 bg-muted/30">
                       <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Rec ID</span>
                       <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Reason</span>
                       <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Retained By</span>
                     </div>
-                    <div className="max-h-48 overflow-y-auto">
-                      {report.suppressed_items.map(item => (
-                        <div key={item.recommendation_id} className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/10 last:border-0">
-                          <span className="text-[8px] font-mono text-muted-foreground/60 truncate">{item.recommendation_id}</span>
-                          <span className="text-[8px] font-mono text-muted-foreground/50 truncate">{item.reason}</span>
-                          <span className="text-[8px] font-mono text-muted-foreground/40 truncate">{item.suppressed_by_recommendation_id || "—"}</span>
-                        </div>
-                      ))}
-                    </div>
+                    {report.suppressed_items.map(item => (
+                      <div key={item.recommendation_id} className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/10 last:border-0">
+                        <span className="text-[8px] font-mono text-muted-foreground/60 truncate">{item.recommendation_id}</span>
+                        <span className="text-[8px] font-mono text-muted-foreground/50 truncate">{item.reason}</span>
+                        <span className="text-[8px] font-mono text-muted-foreground/40 truncate">{item.suppressed_by_recommendation_id || "—"}</span>
+                      </div>
+                    ))}
                   </div>
                 </CollapsibleContent>
               </Collapsible>

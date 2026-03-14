@@ -1199,9 +1199,7 @@ export function classifyRecommendationIssueFamily(rec: ExecutionRecommendation):
 const SEV_ORDER: Record<string, number> = { high: 3, medium: 2, low: 1 };
 const CONF_ORDER: Record<string, number> = { high: 3, medium: 2, low: 1 };
 
-// Note: computeRecommendationPriority removed in v1.1 — was exported but unused.
-// Bucket sort uses severity > confidence > lexical recommendation_id directly
-// inside dedupeAndSuppressRecommendations (see sort at bucket build step).
+// Bucket sort: severity > confidence > lexical recommendation_id (see dedupeAndSuppressRecommendations).
 
 export interface SuppressionEntry {
   recommendation_id: string;
