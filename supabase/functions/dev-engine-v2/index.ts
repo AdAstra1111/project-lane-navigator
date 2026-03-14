@@ -31461,6 +31461,80 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       // ── BUILD EXECUTION OBSERVABILITY ──
       const obsFinishedAt = new Date().toISOString();
       const obsTotalMs = Date.now() - obsStartedAt;
+
+      // ── BUILD CAUSAL GRAPH from existing execution state ──
+      interface CausalNode { node_id: string; node_type: "document" | "validation" | "execution_step" | "governance" | "revalidation" | "patch_target"; ref_id: string | null; label: string; }
+      interface CausalEdge { from_node: string; to_node: string; edge_type: "depends_on" | "blocks" | "generated" | "invalidated" | "triggered" | "revalidated" | "failed_because"; reason_code: string; reason_message: string; }
+      const causalNodes: CausalNode[] = [];
+      const causalEdges: CausalEdge[] = [];
+      const causalNodeIds = new Set<string>();
+
+      function addCausalNode(n: CausalNode) {
+        if (!causalNodeIds.has(n.node_id)) {
+          causalNodes.push(n);
+          causalNodeIds.add(n.node_id);
+        }
+      }
+
+      // Validation node
+      addCausalNode({ node_id: "validation", node_type: "validation", ref_id: null, label: `Validation: ${execValidation.plan_valid ? "passed" : "failed"}` });
+
+      // Document nodes + edges from execution state
+      for (const dt of obsDocTimelines) {
+        const docNodeId = `doc:${dt.document_id}`;
+        addCausalNode({ node_id: docNodeId, node_type: "document", ref_id: dt.document_id, label: `${dt.doc_type} [${dt.status}]` });
+
+        // Validation triggers document execution
+        causalEdges.push({ from_node: "validation", to_node: docNodeId, edge_type: "triggered", reason_code: "validation_passed", reason_message: "Validation triggered document execution" });
+
+        // Blocked-by-upstream edges
+        if (dt.blocked_by_doc_type) {
+          const blockingDocTimeline = obsDocTimelines.find(d => d.doc_type === dt.blocked_by_doc_type);
+          if (blockingDocTimeline) {
+            const blockingNodeId = `doc:${blockingDocTimeline.document_id}`;
+            causalEdges.push({ from_node: blockingNodeId, to_node: docNodeId, edge_type: "blocks", reason_code: "upstream_failure_cascade", reason_message: `Blocked by upstream failure: ${dt.blocked_by_doc_type}` });
+          }
+        }
+
+        // Section target nodes for this document
+        const docTargetResults = targetResults.filter(tr => tr.document_id === dt.document_id);
+        for (const tr of docTargetResults) {
+          const targetNodeId = `target:${tr.target_id}`;
+          addCausalNode({ node_id: targetNodeId, node_type: "patch_target", ref_id: tr.target_id, label: `${tr.doc_type}/${(tr as any).section_key || tr.target_id} [${tr.status}]` });
+          causalEdges.push({ from_node: docNodeId, to_node: targetNodeId, edge_type: "triggered", reason_code: "document_execution", reason_message: `Document triggered target execution` });
+
+          if (tr.status === "failed") {
+            causalEdges.push({ from_node: targetNodeId, to_node: docNodeId, edge_type: "failed_because", reason_code: "target_failed", reason_message: tr.message });
+          }
+          if (tr.version_id_after) {
+            const versionNodeId = `version:${tr.version_id_after}`;
+            addCausalNode({ node_id: versionNodeId, node_type: "execution_step", ref_id: tr.version_id_after, label: `Version ${tr.version_id_after.slice(0, 8)}` });
+            causalEdges.push({ from_node: targetNodeId, to_node: versionNodeId, edge_type: "generated", reason_code: "section_rewrite", reason_message: "Target execution generated new version" });
+          }
+        }
+
+        // Governance edges
+        if (dt.governance_status && dt.governance_status !== "skipped") {
+          const govNodeId = `gov:${dt.document_id}`;
+          addCausalNode({ node_id: govNodeId, node_type: "governance", ref_id: dt.document_id, label: `Governance: ${dt.governance_status}` });
+          causalEdges.push({ from_node: docNodeId, to_node: govNodeId, edge_type: "triggered", reason_code: "post_execution", reason_message: "Execution triggered governance" });
+          if (dt.governance_status === "performed" && postExecution) {
+            // Downstream invalidation edges
+            const invDocs = (postExecution as any)?.downstream_invalidation?.surfaces_marked_stale || 0;
+            if (invDocs > 0) {
+              causalEdges.push({ from_node: govNodeId, to_node: docNodeId, edge_type: "invalidated", reason_code: "downstream_invalidation", reason_message: `${invDocs} downstream surface(s) marked stale` });
+            }
+          }
+        }
+
+        // Revalidation edges
+        if (dt.revalidation_status && dt.revalidation_status !== "skipped") {
+          const revalNodeId = `reval:${dt.document_id}`;
+          addCausalNode({ node_id: revalNodeId, node_type: "revalidation", ref_id: dt.document_id, label: `Revalidation: ${dt.revalidation_status}` });
+          causalEdges.push({ from_node: docNodeId, to_node: revalNodeId, edge_type: "revalidated", reason_code: "revalidation_execution", reason_message: `Revalidation ${dt.revalidation_status}` });
+        }
+      }
+
       const executionObservability = {
         started_at: execAt,
         finished_at: obsFinishedAt,
@@ -31473,6 +31547,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         },
         document_timeline: obsDocTimelines,
         event_trace: obsEventTrace,
+        causal_nodes: causalNodes,
+        causal_edges: causalEdges,
       };
 
       console.log("[dev-engine-v2] execute_patch_plan", {
