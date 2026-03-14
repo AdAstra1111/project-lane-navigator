@@ -13870,7 +13870,7 @@ Return ONLY valid JSON:
         "which may change as repairs are resolved. " +
         "All signals reflect the current database state at time of computation.";
 
-      // Shape ranked_strategy_options (strip internal fields, include ROI advisory)
+      // Shape ranked_strategy_options (strip internal fields, include ROI + RC advisory)
       const toShape = (o: PRP2SOption) => ({
         repair_id:                  o.repair_id,
         repair_type:                o.repair_type,
@@ -13902,6 +13902,9 @@ Return ONLY valid JSON:
           rationale:              o.roi_advisory.rationale,
         } : null,
         roi_rank:                   o.roi_rank,
+        // Root-cause leverage advisory (non-binding, does not affect strategic_priority_score)
+        root_cause_advisory:        (o as any).root_cause_advisory ?? { in_cluster: false, cluster_id: null, cluster_primary_axis: null, cluster_combined_pressure: null, cluster_confidence: null, cluster_repair_count: null, root_cause_leverage_score: null, root_cause_leverage_label: null },
+        root_cause_rank:            (o as any).root_cause_rank ?? null,
       });
 
       // ── 11. Log + respond ─────────────────────────────────────────────────────
