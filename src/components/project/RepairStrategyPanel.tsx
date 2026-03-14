@@ -495,6 +495,8 @@ export function RepairStrategyPanel({ projectId }: Props) {
               </CardContent>
             </Card>
 
+      {/* ═══ SECTION 4e: PATCH PLAN BUILDER (read-only visibility) ═══ */}
+      <PatchPlanSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
 
           </div>
         )}
