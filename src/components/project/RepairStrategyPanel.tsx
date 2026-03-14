@@ -21,6 +21,7 @@ import {
   type PatchExecutionResponse, type PatchExecutionResult, type PatchExecutionTargetResult,
   type PostExecutionGovernance, type PostExecutionRevalidationTarget,
   type RevalidationExecution, type RevalidationExecutionTarget,
+  type ExecutionObservability, type ExecutionObservabilityDocTimeline, type ExecutionObservabilityEvent,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
