@@ -990,6 +990,7 @@ function RCLeverageBadge({ advisory }: { advisory: PRP2SRootCauseAdvisory | unde
   return <span className={cn('font-mono text-[10px] font-bold uppercase', color)}>{label}</span>;
 }
 
+function ROIDetailBlock({ entry }: { entry: ROIRepairEntry }) {
   const c = entry.roi_components;
   const s = entry.supporting_signals;
   return (
