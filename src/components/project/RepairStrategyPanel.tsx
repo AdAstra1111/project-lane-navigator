@@ -2231,6 +2231,91 @@ function PatchExecutionSection({
                 <Badge variant="outline" className="text-[9px] font-mono text-amber-400 border-amber-500/30">downstream deferred</Badge>
               )}
             </div>
+
+            {/* ── POST-EXECUTION GOVERNANCE SUMMARY ── */}
+            {execution.post_execution && (
+              <Card className="border-border/50">
+                <CardHeader className="pb-1 pt-3 px-3">
+                  <CardTitle className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Shield className="h-3 w-3" />
+                    Post-Execution Governance
+                    {execution.post_execution.governance_notes.dry_run_no_governance_writes && (
+                      <Badge variant="outline" className="text-[9px] font-mono text-blue-400 border-blue-500/30 ml-1">DRY RUN — NO WRITES</Badge>
+                    )}
+                    {execution.post_execution.governance_notes.governance_error && (
+                      <Badge variant="destructive" className="text-[9px] font-mono ml-1">GOVERNANCE ERROR</Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-3 pb-3 space-y-2">
+                  {/* Invalidation summary */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="text-center">
+                      <div className="text-sm font-bold text-foreground">{execution.post_execution.downstream_invalidation.surfaces_considered}</div>
+                      <div className="text-[9px] text-muted-foreground uppercase">Surfaces Checked</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-sm font-bold text-red-400">{execution.post_execution.downstream_invalidation.surfaces_marked_stale}</div>
+                      <div className="text-[9px] text-muted-foreground uppercase">Marked Stale</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-sm font-bold text-amber-400">{execution.post_execution.downstream_invalidation.surfaces_marked_review}</div>
+                      <div className="text-[9px] text-muted-foreground uppercase">Flagged Review</div>
+                    </div>
+                  </div>
+
+                  {/* Deferred surfaces */}
+                  {execution.post_execution.downstream_invalidation.deferred_surfaces.length > 0 && (
+                    <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-2.5 py-1.5">
+                      <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0 mt-0.5" />
+                      <div className="text-[10px] text-amber-400">
+                        <span className="font-semibold">Deferred:</span>{' '}
+                        {execution.post_execution.downstream_invalidation.deferred_surfaces.join(', ')}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Revalidation targets */}
+                  {execution.post_execution.immediate_revalidation.targets.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Revalidation Targets ({execution.post_execution.immediate_revalidation.targets.length})</div>
+                      <div className="space-y-1">
+                        {execution.post_execution.immediate_revalidation.targets.map((rt, i) => (
+                          <div key={`reval-${i}`} className="flex items-center gap-2 text-[10px] rounded border border-border/30 px-2 py-1">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-[8px] font-mono px-1 py-0 h-3.5",
+                                rt.revalidation_type === "full_reanalysis" ? "text-red-400 border-red-500/30" :
+                                "text-amber-400 border-amber-500/30"
+                              )}
+                            >
+                              {rt.revalidation_type.replace(/_/g, ' ')}
+                            </Badge>
+                            <span className="font-mono text-foreground">{rt.doc_type}</span>
+                            <Badge
+                              variant="secondary"
+                              className="text-[8px] font-mono px-1 py-0 h-3.5 ml-auto"
+                            >
+                              {rt.status}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Governance notes */}
+                  <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground pt-1 border-t border-border/30">
+                    <span>Invalidation: <span className="font-mono text-foreground">{execution.post_execution.governance_notes.invalidation_performed ? '✓' : '—'}</span></span>
+                    <span>Revalidation: <span className="font-mono text-foreground">{execution.post_execution.governance_notes.revalidation_handoff_performed ? '✓' : '—'}</span></span>
+                    {execution.post_execution.governance_notes.governance_error && (
+                      <span className="text-red-400 font-mono truncate max-w-[200px]">{execution.post_execution.governance_notes.governance_error}</span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </>
         )}
       </CollapsibleContent>
