@@ -497,6 +497,8 @@ export function RepairStrategyPanel({ projectId }: Props) {
       {/* ═══ SECTION 4d: PATCH TARGET RESOLVER (read-only visibility) ═══ */}
       <PatchTargetSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
 
+      {/* ═══ SECTION 4d: PATCH TARGET RESOLVER (read-only visibility) ═══ */}
+      <PatchTargetSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
 
           </div>
         )}
