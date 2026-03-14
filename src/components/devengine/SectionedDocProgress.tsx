@@ -218,7 +218,11 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
                       {isFailed && (
                         <div className="space-y-2">
                           <p className="text-xs text-destructive/80 italic">
-                            {chunk.status === 'failed_validation' ? 'Failed validation' : 'Generation failed'}
+                            {chunk.status === 'failed_validation' ? 'Failed validation' 
+                              : chunk.status === 'needs_regen' ? 'Needs regeneration'
+                              : chunk.status === 'skipped' ? 'Skipped'
+                              : 'Generation failed'}
+                          </p>
                           </p>
                           {projectId && documentId && (
                             <Button
