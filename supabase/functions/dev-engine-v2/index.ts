@@ -31120,12 +31120,17 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         const selfUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/dev-engine-v2`;
         const authHeader = req.headers.get("authorization") || "";
 
-        // Process patched document targets first (sort to front)
+        // Sort revalidation targets: patched docs first in execution order, then downstream
         const patchedDocIds = new Set(executedTargets.map(t => t.document_id));
+        const docOrderIndex = new Map(documentExecutionOrder.map((id, i) => [id, i]));
         const sortedRevalTargets = [...revalTargets].sort((a: any, b: any) => {
           const aPatched = patchedDocIds.has(a.document_id) ? 0 : 1;
           const bPatched = patchedDocIds.has(b.document_id) ? 0 : 1;
-          return aPatched - bPatched;
+          if (aPatched !== bPatched) return aPatched - bPatched;
+          // Within same tier, use dependency execution order
+          const aOrder = docOrderIndex.get(a.document_id) ?? 99999;
+          const bOrder = docOrderIndex.get(b.document_id) ?? 99999;
+          return aOrder - bOrder;
         });
 
         for (const rt of sortedRevalTargets) {
