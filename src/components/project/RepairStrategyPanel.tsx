@@ -2888,60 +2888,84 @@ function ExecutionReplaySection({
                 </Card>
               ) : (
                 <div className="space-y-1 max-h-[300px] overflow-y-auto">
-                  {accumulatedItems.map((item) => (
-                    <button
-                      key={item.transition_id}
-                      onClick={() => handleSelectHistoryItem(item)}
-                      className={cn(
-                        "w-full text-left rounded-md border px-2.5 py-2 transition-colors hover:bg-accent/50",
-                        selectedHistoryItem?.transition_id === item.transition_id
-                          ? "border-primary/50 bg-accent/30"
-                          : "border-border/30"
-                      )}
-                    >
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] font-mono text-foreground">
-                          {new Date(item.created_at).toLocaleString()}
-                        </span>
-                        {(() => {
-                          const oc = item.outcome || deriveExecutionOutcome(item);
-                          const ocStyles: Record<string, string> = {
-                            executed: "text-emerald-400 border-emerald-500/30",
-                            partial: "text-amber-400 border-amber-500/30",
-                            blocked: "text-red-400 border-red-500/30",
-                            failed: "text-destructive border-destructive/30",
-                            dry_run: "text-blue-400 border-blue-500/30",
-                          };
-                          return (
-                            <Badge variant="outline" className={cn("text-[8px] font-mono px-1 py-0 h-3.5", ocStyles[oc] || "text-muted-foreground border-border/50")}>
-                              {oc === "dry_run" ? "dry run" : oc}
-                            </Badge>
-                          );
-                        })()}
-                        {item.blocked_doc_types.length > 0 && (
-                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-amber-400 border-amber-500/30">
-                            {item.blocked_doc_types.length} blocked
-                          </Badge>
+                  {accumulatedItems.map((item) => {
+                    const isSelected = selectedHistoryItem?.transition_id === item.transition_id;
+                    const isCompare = compareItem?.transition_id === item.transition_id;
+                    return (
+                      <div
+                        key={item.transition_id}
+                        className={cn(
+                          "rounded-md border px-2.5 py-2 transition-colors",
+                          isSelected ? "border-primary/50 bg-accent/30" :
+                          isCompare ? "border-blue-500/50 bg-blue-500/5" :
+                          "border-border/30 hover:bg-accent/50"
                         )}
-                        {item.total_duration_ms != null && (
-                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">
-                            {item.total_duration_ms}ms
-                          </Badge>
+                      >
+                        <button
+                          onClick={() => handleSelectHistoryItem(item)}
+                          className="w-full text-left"
+                        >
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {isSelected && <Badge variant="outline" className="text-[7px] font-mono px-1 py-0 h-3 text-primary border-primary/30">L</Badge>}
+                            {isCompare && <Badge variant="outline" className="text-[7px] font-mono px-1 py-0 h-3 text-blue-400 border-blue-500/30">R</Badge>}
+                            <span className="text-[10px] font-mono text-foreground">
+                              {new Date(item.created_at).toLocaleString()}
+                            </span>
+                            {(() => {
+                              const oc = item.outcome || deriveExecutionOutcome(item);
+                              const ocStyles: Record<string, string> = {
+                                executed: "text-emerald-400 border-emerald-500/30",
+                                partial: "text-amber-400 border-amber-500/30",
+                                blocked: "text-red-400 border-red-500/30",
+                                failed: "text-destructive border-destructive/30",
+                                dry_run: "text-blue-400 border-blue-500/30",
+                              };
+                              return (
+                                <Badge variant="outline" className={cn("text-[8px] font-mono px-1 py-0 h-3.5", ocStyles[oc] || "text-muted-foreground border-border/50")}>
+                                  {oc === "dry_run" ? "dry run" : oc}
+                                </Badge>
+                              );
+                            })()}
+                            {item.blocked_doc_types.length > 0 && (
+                              <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-amber-400 border-amber-500/30">
+                                {item.blocked_doc_types.length} blocked
+                              </Badge>
+                            )}
+                            {item.total_duration_ms != null && (
+                              <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">
+                                {item.total_duration_ms}ms
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5 text-[9px] text-muted-foreground">
+                            {item.repair_type && <span>repair: {item.repair_type}</span>}
+                            {item.source_type && <span>source: {item.source_type}</span>}
+                            <span>sections: {item.direct_targets_executed}/{item.direct_targets_attempted}</span>
+                            {item.documents_executed != null && (
+                              <span>docs: {item.documents_executed}/{item.documents_attempted}</span>
+                            )}
+                            {item.direct_targets_failed > 0 && (
+                              <span className="text-destructive">{item.direct_targets_failed} failed</span>
+                            )}
+                          </div>
+                        </button>
+                        {/* Compare toggle — only show if this isn't the selected item */}
+                        {!isSelected && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleMarkForCompare(item); }}
+                            className={cn(
+                              "mt-1 text-[8px] font-mono px-1.5 py-0.5 rounded border transition-colors",
+                              isCompare
+                                ? "text-blue-400 border-blue-500/30 bg-blue-500/10"
+                                : "text-muted-foreground border-border/30 hover:text-foreground hover:border-border/60"
+                            )}
+                          >
+                            {isCompare ? '✕ Unmark' : '⇔ Compare'}
+                          </button>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5 text-[9px] text-muted-foreground">
-                        {item.repair_type && <span>repair: {item.repair_type}</span>}
-                        {item.source_type && <span>source: {item.source_type}</span>}
-                        <span>sections: {item.direct_targets_executed}/{item.direct_targets_attempted}</span>
-                        {item.documents_executed != null && (
-                          <span>docs: {item.documents_executed}/{item.documents_attempted}</span>
-                        )}
-                        {item.direct_targets_failed > 0 && (
-                          <span className="text-destructive">{item.direct_targets_failed} failed</span>
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {/* Pagination status and Load More */}
