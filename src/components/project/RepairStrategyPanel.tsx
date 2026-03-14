@@ -3827,7 +3827,7 @@ const SEV_ORDER: Record<string, number> = { high: 2, medium: 1, low: 0 };
 
 function computeChangeMap(
   currentRecs: DisplayRecommendation[],
-  previousSnapshot: { recommendation_id: string; severity: string }[] | null,
+  previousSnapshot: { recommendation_id: string; severity: string; suppressed?: boolean; title?: string; rule_id?: string }[] | null,
 ): Record<string, ChangeEntry> {
   const map: Record<string, ChangeEntry> = {};
   if (!previousSnapshot) return map; // first run — no changes
