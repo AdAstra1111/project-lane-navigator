@@ -30405,7 +30405,11 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const execCore = planResult._core;
 
       // ── STEP 2: Validate via shared validation core ──
+      const obsValStart = Date.now();
+      obsEmit("validation", "validation", "started", "Patch plan validation started");
       const execValidation = await validatePatchPlanCore(supabase, execCore, execPlan.plan_id, projectId);
+      obsValidationMs = Date.now() - obsValStart;
+      obsEmit("validation", "validation", execValidation.plan_valid ? "completed" : "failed", `Validation ${execValidation.plan_valid ? "passed" : "failed"}: ${execValidation.issues?.length || 0} issues`);
 
       // ── STEP 3: Execution eligibility gate ──
       const unsupportedTypes = execCore.direct_targets.filter(t => t.target_type !== "section");
