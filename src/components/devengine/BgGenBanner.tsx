@@ -17,6 +17,8 @@ interface BgGenBannerProps {
   versionId: string;
   episodeCount?: number;
   docType?: string;
+  projectId?: string;
+  documentId?: string;
 }
 
 interface State { hasError: boolean }
