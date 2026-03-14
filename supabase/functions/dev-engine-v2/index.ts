@@ -31649,7 +31649,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     // ══════════════════════════════════════════════════════════════════════════════
 
     if (action === "list_patch_execution_history") {
-      const { projectId, limit: reqLimit, filters } = body;
+      const { projectId, limit: reqLimit, filters, cursor } = body;
       if (!projectId) {
         return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -31674,9 +31674,11 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         outcome: fOutcome,
       };
 
+      // ── Resolve cursor ──
+      const cursorCreatedAt: string | null = cursor && typeof cursor.created_at === "string" ? cursor.created_at : null;
+      const cursorId: string | null = cursor && typeof cursor.id === "string" ? cursor.id : null;
+
       // ── Outcome mapping helper ──
-      // Deterministic canonical outcome from persisted snapshot execution fields.
-      // Priority: dry_run > blocked > partial > executed > failed
       function deriveOutcome(exec: any): string {
         const dryRun = exec.dry_run === true;
         const executed = exec.executed === true;
@@ -31689,103 +31691,145 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         return "failed";
       }
 
-      // ── DB query with date filters applied at SQL level ──
-      // Overfetch to compensate for post-query filtering
-      const fetchLimit = (historyLimit + 10) * (fRepairType || fSourceType || fOutcome ? 3 : 1);
-      let query = supabase
-        .from("pipeline_transitions")
-        .select("id, run_id, resulting_state, created_at, status, trigger")
-        .eq("project_id", projectId)
-        .eq("event_type", "patch_execution_completed")
-        .order("created_at", { ascending: false });
-
-      if (fDateFrom) query = query.gte("created_at", fDateFrom);
-      if (fDateTo) query = query.lte("created_at", fDateTo);
-      query = query.limit(Math.min(fetchLimit, 150));
-
-      const { data: historyRows, error: historyErr } = await query;
-
-      if (historyErr) {
-        console.warn("[dev-engine-v2] list_patch_execution_history query error:", historyErr.message);
-        return new Response(JSON.stringify({
-          ok: true,
-          action: "list_patch_execution_history",
-          project_id: projectId,
-          applied_filters: appliedFilters,
-          history_items: [],
-          history_notes: {
-            exact_source: "pipeline_transitions",
-            filtered_count: 0,
-            omitted_non_replay_rows: 0,
-            prefilter_row_count: 0,
-            postfilter_row_count: 0,
-          },
-          computed_at: historyAt,
-          version: "execution-history-v1.1",
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      const allRows = historyRows || [];
+      // ── Iterative scan to fill page with filtered results ──
+      // We scan in batches to handle application-level filters correctly.
+      const hasMetadataFilters = !!(fRepairType || fSourceType || fOutcome);
+      const SCAN_BATCH = hasMetadataFilters ? 60 : historyLimit + 5;
+      const MAX_SCAN_ROWS = 300; // hard cap to prevent runaway scans
+      let totalScanned = 0;
       let omittedCount = 0;
-      const historyItems: any[] = [];
       let prefilterValidCount = 0;
+      const historyItems: any[] = [];
+      let scanCursorCreatedAt = cursorCreatedAt;
+      let scanCursorId = cursorId;
+      let dbExhausted = false;
 
-      for (const row of allRows) {
-        if (historyItems.length >= historyLimit) break;
+      while (historyItems.length < historyLimit + 1 && totalScanned < MAX_SCAN_ROWS && !dbExhausted) {
+        const batchSize = Math.min(SCAN_BATCH, MAX_SCAN_ROWS - totalScanned);
 
-        const snap = row.resulting_state as any;
-        if (!snap || typeof snap !== "object" || snap.execution_replay_version !== "execution-replay-v1" || !snap.plan_id) {
-          omittedCount++;
-          continue;
+        let query = supabase
+          .from("pipeline_transitions")
+          .select("id, run_id, resulting_state, created_at, status, trigger")
+          .eq("project_id", projectId)
+          .eq("event_type", "patch_execution_completed")
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false });
+
+        if (fDateFrom) query = query.gte("created_at", fDateFrom);
+        if (fDateTo) query = query.lte("created_at", fDateTo);
+
+        // Cursor predicate: rows strictly before cursor in DESC order
+        if (scanCursorCreatedAt && scanCursorId) {
+          query = query.or(`created_at.lt.${scanCursorCreatedAt},and(created_at.eq.${scanCursorCreatedAt},id.lt.${scanCursorId})`);
         }
 
-        prefilterValidCount++;
+        query = query.limit(batchSize);
 
-        const exec = snap.execution || {};
-        const plan = snap.patch_plan || {};
-        const repairSource = plan.repair_source || {};
-        const obs = exec.execution_observability || null;
-        const blockedDocTypes = Array.isArray(exec.blocked_doc_types) ? exec.blocked_doc_types : [];
+        const { data: batchRows, error: batchErr } = await query;
 
-        const itemRepairType = repairSource.repair_type || null;
-        const itemSourceType = repairSource.source_type || null;
-        const itemOutcome = deriveOutcome(exec);
+        if (batchErr) {
+          console.warn("[dev-engine-v2] list_patch_execution_history query error:", batchErr.message);
+          return new Response(JSON.stringify({
+            ok: true,
+            action: "list_patch_execution_history",
+            project_id: projectId,
+            applied_filters: appliedFilters,
+            history_items: [],
+            pagination: { limit: historyLimit, returned_count: 0, next_cursor: null, has_more: false },
+            history_notes: {
+              exact_source: "pipeline_transitions",
+              filtered_count: 0,
+              omitted_non_replay_rows: 0,
+              prefilter_row_count: 0,
+              postfilter_row_count: 0,
+              cursor_mode: "created_at_id_desc",
+            },
+            computed_at: historyAt,
+            version: "execution-history-v1.2",
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
 
-        // ── Application-level metadata filters ──
-        if (fRepairType && itemRepairType !== fRepairType) continue;
-        if (fSourceType && itemSourceType !== fSourceType) continue;
-        if (fOutcome && itemOutcome !== fOutcome) continue;
+        const rows = batchRows || [];
+        totalScanned += rows.length;
+        if (rows.length < batchSize) dbExhausted = true;
 
-        historyItems.push({
-          transition_id: row.id,
-          plan_id: snap.plan_id,
-          created_at: row.created_at,
-          event_type: "patch_execution_completed",
-          status: row.status || null,
-          trigger: row.trigger || null,
-          replay_version: snap.execution_replay_version,
-          dry_run: exec.dry_run === true,
-          executed: exec.executed === true,
-          execution_allowed: exec.execution_allowed === true,
-          direct_targets_attempted: typeof exec.direct_targets_attempted === "number" ? exec.direct_targets_attempted : 0,
-          direct_targets_executed: typeof exec.direct_targets_executed === "number" ? exec.direct_targets_executed : 0,
-          direct_targets_failed: typeof exec.direct_targets_failed === "number" ? exec.direct_targets_failed : 0,
-          documents_attempted: typeof exec.documents_attempted === "number" ? exec.documents_attempted : null,
-          documents_executed: typeof exec.documents_executed === "number" ? exec.documents_executed : null,
-          blocked_doc_types: blockedDocTypes,
-          total_duration_ms: obs?.total_duration_ms ?? null,
-          source_type: itemSourceType,
-          repair_id: repairSource.repair_id || null,
-          repair_type: itemRepairType,
-          outcome: itemOutcome,
-        });
+        for (const row of rows) {
+          if (historyItems.length >= historyLimit + 1) break; // +1 to detect has_more
+
+          const snap = row.resulting_state as any;
+          if (!snap || typeof snap !== "object" || snap.execution_replay_version !== "execution-replay-v1" || !snap.plan_id) {
+            omittedCount++;
+            continue;
+          }
+
+          prefilterValidCount++;
+
+          const exec = snap.execution || {};
+          const plan = snap.patch_plan || {};
+          const repairSource = plan.repair_source || {};
+          const obs = exec.execution_observability || null;
+          const blockedDocTypes = Array.isArray(exec.blocked_doc_types) ? exec.blocked_doc_types : [];
+
+          const itemRepairType = repairSource.repair_type || null;
+          const itemSourceType = repairSource.source_type || null;
+          const itemOutcome = deriveOutcome(exec);
+
+          // ── Application-level metadata filters ──
+          if (fRepairType && itemRepairType !== fRepairType) continue;
+          if (fSourceType && itemSourceType !== fSourceType) continue;
+          if (fOutcome && itemOutcome !== fOutcome) continue;
+
+          historyItems.push({
+            transition_id: row.id,
+            plan_id: snap.plan_id,
+            created_at: row.created_at,
+            event_type: "patch_execution_completed",
+            status: row.status || null,
+            trigger: row.trigger || null,
+            replay_version: snap.execution_replay_version,
+            dry_run: exec.dry_run === true,
+            executed: exec.executed === true,
+            execution_allowed: exec.execution_allowed === true,
+            direct_targets_attempted: typeof exec.direct_targets_attempted === "number" ? exec.direct_targets_attempted : 0,
+            direct_targets_executed: typeof exec.direct_targets_executed === "number" ? exec.direct_targets_executed : 0,
+            direct_targets_failed: typeof exec.direct_targets_failed === "number" ? exec.direct_targets_failed : 0,
+            documents_attempted: typeof exec.documents_attempted === "number" ? exec.documents_attempted : null,
+            documents_executed: typeof exec.documents_executed === "number" ? exec.documents_executed : null,
+            blocked_doc_types: blockedDocTypes,
+            total_duration_ms: obs?.total_duration_ms ?? null,
+            source_type: itemSourceType,
+            repair_id: repairSource.repair_id || null,
+            repair_type: itemRepairType,
+            outcome: itemOutcome,
+          });
+        }
+
+        // Update scan cursor to last row for next batch
+        if (rows.length > 0) {
+          const lastRow = rows[rows.length - 1];
+          scanCursorCreatedAt = lastRow.created_at;
+          scanCursorId = lastRow.id;
+        }
       }
+
+      // Determine has_more: if we collected more than historyLimit, there's more
+      const hasMore = historyItems.length > historyLimit;
+      const returnItems = hasMore ? historyItems.slice(0, historyLimit) : historyItems;
+
+      // Build next_cursor from the last returned item
+      const lastReturnedItem = returnItems.length > 0 ? returnItems[returnItems.length - 1] : null;
+      const nextCursor = hasMore && lastReturnedItem
+        ? { created_at: lastReturnedItem.created_at, id: lastReturnedItem.transition_id }
+        : null;
 
       console.log("[dev-engine-v2] list_patch_execution_history", {
         project_id: projectId,
-        returned: historyItems.length,
+        returned: returnItems.length,
         omitted: omittedCount,
+        has_more: hasMore,
         applied_filters: appliedFilters,
+        cursor_used: !!(cursorCreatedAt && cursorId),
+        total_scanned: totalScanned,
       });
 
       return new Response(JSON.stringify({
@@ -31793,16 +31837,23 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         action: "list_patch_execution_history",
         project_id: projectId,
         applied_filters: appliedFilters,
-        history_items: historyItems,
+        history_items: returnItems,
+        pagination: {
+          limit: historyLimit,
+          returned_count: returnItems.length,
+          next_cursor: nextCursor,
+          has_more: hasMore,
+        },
         history_notes: {
           exact_source: "pipeline_transitions",
-          filtered_count: historyItems.length,
+          filtered_count: returnItems.length,
           omitted_non_replay_rows: omittedCount,
           prefilter_row_count: prefilterValidCount,
-          postfilter_row_count: historyItems.length,
+          postfilter_row_count: returnItems.length,
+          cursor_mode: "created_at_id_desc",
         },
         computed_at: historyAt,
-        version: "execution-history-v1.1",
+        version: "execution-history-v1.2",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

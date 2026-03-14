@@ -769,18 +769,32 @@ export interface PatchExecutionHistoryItem {
   outcome?: PatchExecutionOutcome;
 }
 
+export interface PatchExecutionHistoryCursor {
+  created_at: string;
+  id: string;
+}
+
+export interface PatchExecutionHistoryPagination {
+  limit: number;
+  returned_count: number;
+  next_cursor: PatchExecutionHistoryCursor | null;
+  has_more: boolean;
+}
+
 export interface PatchExecutionHistoryResponse {
   ok: boolean;
   action: string;
   project_id: string;
   applied_filters?: PatchExecutionHistoryAppliedFilters;
   history_items: PatchExecutionHistoryItem[];
+  pagination?: PatchExecutionHistoryPagination;
   history_notes: {
     exact_source: string;
     filtered_count: number;
     omitted_non_replay_rows: number;
     prefilter_row_count?: number;
     postfilter_row_count?: number;
+    cursor_mode?: string;
   };
   computed_at: string;
   version: string;
@@ -790,6 +804,7 @@ export async function fetchPatchExecutionHistory(
   projectId: string,
   limit?: number,
   filters?: PatchExecutionHistoryFilters,
+  cursor?: PatchExecutionHistoryCursor,
 ): Promise<PatchExecutionHistoryResponse | null> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return null;
@@ -802,6 +817,7 @@ export async function fetchPatchExecutionHistory(
   if (filters && Object.values(filters).some(v => v != null && v !== '')) {
     payload.filters = filters;
   }
+  if (cursor) payload.cursor = cursor;
 
   const resp = await fetch(FUNC_URL, {
     method: 'POST',

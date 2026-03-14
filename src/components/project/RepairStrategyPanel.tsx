@@ -13,7 +13,7 @@ import {
   fetchPatchExecutionReplay,
   fetchPatchExecutionHistory,
   deriveExecutionOutcome,
-  type PatchExecutionHistoryItem, type PatchExecutionHistoryResponse,
+  type PatchExecutionHistoryItem, type PatchExecutionHistoryResponse, type PatchExecutionHistoryCursor,
   type PatchExecutionHistoryFilters, type PatchExecutionOutcome,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
