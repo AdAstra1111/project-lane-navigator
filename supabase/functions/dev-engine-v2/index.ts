@@ -7404,7 +7404,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
     // ── CONVERT ──
     if (action === "convert") {
-      const { projectId, documentId, versionId, targetOutput, protectItems } = body;
+      const { projectId, documentId, versionId, targetOutput, protectItems, assimilationContext } = body;
       if (!projectId || !documentId || !versionId || !targetOutput) throw new Error("projectId, documentId, versionId, targetOutput required");
 
       const { data: version } = await supabase.from("project_document_versions")
