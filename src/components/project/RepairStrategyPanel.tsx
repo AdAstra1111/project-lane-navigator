@@ -7,6 +7,7 @@ import { useState, useMemo, useEffect, Fragment } from 'react';
 import {
   usePreventiveRepairPrioritization,
   fetchPatchTargets,
+  fetchPatchPlan,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type PRP2SData, type PRP2SStrategyOption, type PRP2SROIAdvisory,
@@ -14,6 +15,7 @@ import {
   type RootCauseAnalysisResult, type RootCauseCluster,
   type InterventionAnalysisResult, type InterventionCandidate,
   type PatchTarget, type PatchTargetResolutionResult,
+  type PatchPlanBuildResult, type PatchPlan, type PatchImpactSurface, type PatchRevalidationTarget,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
