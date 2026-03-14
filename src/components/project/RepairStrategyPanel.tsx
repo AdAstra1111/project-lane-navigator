@@ -39,6 +39,8 @@ import {
   type PatchExecutionTrendsResponse, type ExecutionRecommendationTrends,
   type TrendDirection, type TrendRatePoint, type TrendNullableCountPoint, type TrendCountPoint,
   type TrendTopSignalEntry,
+  dedupeAndSuppressRecommendations,
+  type DisplayRecommendation, type DisplayRecommendationsResult, type RecommendationBucketKey,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
