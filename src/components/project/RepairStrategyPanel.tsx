@@ -4260,7 +4260,11 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
 // Read-only trend surface comparing two adjacent windows of persisted replay
 // snapshots. No execution-path changes. No mutation.
 
-function ExecutionTrendsSection({ projectId }: { projectId: string }) {
+function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }: {
+  projectId: string;
+  navigationTarget: TrendNavigationTarget | null;
+  onTargetHandled: () => void;
+}) {
   const [data, setData] = useState<PatchExecutionTrendsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
