@@ -4079,6 +4079,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
   const [trendsData, setTrendsData] = useState<PatchExecutionTrendsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [displayResult, setDisplayResult] = useState<DisplayRecommendationsResult | null>(null);
   const [showSuppressed, setShowSuppressed] = useState(false);
   const [triageMap, setTriageMap] = useState<Record<string, TriageStatus>>({});
   const triageLoadedRef = useRef(false);
@@ -4257,6 +4258,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
         // Change detection: compare with previous run
         const runId = recsRes.computed_at || new Date().toISOString();
         const displayModel = dedupeAndSuppressRecommendations(recsRes.recommendations);
+        setDisplayResult(displayModel);
         if (displayModel) {
           // Build minimal snapshot for storage — includes comparison_key + entity evidence for stable identity
           const snapshotItems: SnapshotItem[] = displayModel.all_display
@@ -4320,11 +4322,8 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
   const recs = data?.recommendations;
   const summary = recs?.summary;
 
-  // Compute display model via dedup/suppression
-  const displayResult: DisplayRecommendationsResult | null = recs
-    ? dedupeAndSuppressRecommendations(recs)
-    : null;
   // Populate recommended_actions from registry (additive, non-mutating)
+  // displayResult is set once during load — no redundant recomputation
   if (displayResult) {
     for (const rec of displayResult.all_display) {
       populateRecommendedActions(rec);
