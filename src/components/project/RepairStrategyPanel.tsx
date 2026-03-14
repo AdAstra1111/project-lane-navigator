@@ -5157,6 +5157,7 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
   const [sectionOpen, setSectionOpen] = useState(false);
   const [forcedOpenSubs, setForcedOpenSubs] = useState<Set<TrendSubsectionKey>>(new Set());
   const [highlightedEntity, setHighlightedEntity] = useState<{ subsection: TrendSubsectionKey; entity?: string; at: number } | null>(null);
+  const [emptyTargetNotice, setEmptyTargetNotice] = useState<{ subsection_label: string; entity?: string } | null>(null);
   const sectionRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
