@@ -4079,6 +4079,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
   const [trendsData, setTrendsData] = useState<PatchExecutionTrendsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [displayResult, setDisplayResult] = useState<DisplayRecommendationsResult | null>(null);
   const [showSuppressed, setShowSuppressed] = useState(false);
   const [triageMap, setTriageMap] = useState<Record<string, TriageStatus>>({});
   const triageLoadedRef = useRef(false);
