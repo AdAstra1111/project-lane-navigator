@@ -543,10 +543,10 @@ export function RepairStrategyPanel({ projectId }: Props) {
       <ExecutionAnalyticsSection projectId={projectId} />
 
       {/* ═══ SECTION 4j: EXECUTION RECOMMENDATIONS (read-only, deterministic) ═══ */}
-      <ExecutionRecommendationsSection projectId={projectId} />
+      <ExecutionRecommendationsSection projectId={projectId} onNavigateToTrend={setTrendNavTarget} />
 
       {/* ═══ SECTION 4k: EXECUTION TRENDS (read-only) ═══ */}
-      <ExecutionTrendsSection projectId={projectId} />
+      <ExecutionTrendsSection projectId={projectId} navigationTarget={trendNavTarget} onTargetHandled={() => setTrendNavTarget(null)} />
 
           </div>
         )}
