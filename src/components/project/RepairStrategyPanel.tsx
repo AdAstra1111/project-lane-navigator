@@ -2182,6 +2182,9 @@ function PatchExecutionSection({
                   {(execution.document_sequences_failed ?? 0) > 0 && (
                     <Badge variant="destructive" className="text-[9px] font-mono">{execution.document_sequences_failed} sequence(s) failed</Badge>
                   )}
+                  {(execution.documents_skipped_due_to_upstream_failure ?? 0) > 0 && (
+                    <Badge variant="outline" className="text-[9px] font-mono text-amber-400 border-amber-500/30">{execution.documents_skipped_due_to_upstream_failure} blocked by upstream</Badge>
+                  )}
                   {execution.direct_targets_attempted > 1 && (
                     <Badge variant="outline" className="text-[9px] font-mono text-muted-foreground border-border/50">multi-section</Badge>
                   )}
@@ -2189,6 +2192,19 @@ function PatchExecutionSection({
                     <Badge variant="outline" className="text-[9px] font-mono text-muted-foreground border-border/50">multi-document</Badge>
                   )}
                 </div>
+
+                {/* Blocked downstream documents */}
+                {execution.blocked_doc_types && execution.blocked_doc_types.length > 0 && (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="text-[10px] text-amber-400 space-y-0.5">
+                      <div className="font-semibold">Downstream documents blocked by upstream failure</div>
+                      {execution.blocked_doc_types.map((dt, i) => (
+                        <div key={`blocked-dt-${i}`} className="font-mono">{dt}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Document execution order */}
                 {execution.document_execution_metadata && execution.document_execution_metadata.length > 1 && (
@@ -2209,6 +2225,9 @@ function PatchExecutionSection({
                         >
                           {dm.ordering_basis.replace(/_/g, ' ')}
                         </Badge>
+                        {execution.blocked_document_ids?.includes(dm.document_id) && (
+                          <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-amber-400 border-amber-500/30">blocked</Badge>
+                        )}
                       </div>
                     ))}
                   </div>

@@ -580,6 +580,9 @@ export interface PatchExecutionResult {
   documents_attempted?: number;
   documents_executed?: number;
   document_sequences_failed?: number;
+  documents_skipped_due_to_upstream_failure?: number;
+  blocked_document_ids?: string[];
+  blocked_doc_types?: string[];
   document_execution_order?: string[];
   document_execution_metadata?: Array<{
     document_id: string;

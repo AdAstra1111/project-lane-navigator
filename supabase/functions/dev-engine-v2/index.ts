@@ -30622,6 +30622,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       let documentsAttempted = 0;
       let documentsExecuted = 0;
       let documentSequencesFailed = 0;
+      let documentsSkippedDueToUpstreamFailure = 0;
+      const blockedDocumentIds: string[] = [];
+      const blockedDocTypes: string[] = [];
 
       // Get userId for version creation
       const { data: { user: execUser } } = await supabase.auth.getUser();
@@ -30631,10 +30634,52 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const { data: execProject } = await supabase.from("projects").select("format").eq("id", projectId).maybeSingle();
       const execFormat = execProject?.format || null;
 
+      // ── Cross-document failure cascade tracking ──
+      // Track failed doc_types and compute their transitive downstream set
+      // using canonical registry traversal ONLY.
+      const { getTransitiveDependents: execGetTransitiveDeps } = await import("../_shared/deliverableDependencyRegistry.ts");
+      const failedPatchedDocTypes = new Set<string>();
+
+      function isBlockedByUpstreamFailure(docType: string): string | null {
+        // Check if this doc_type is reachable from ANY failed patched doc_type
+        for (const failedDt of failedPatchedDocTypes) {
+          const transitive = execGetTransitiveDeps(orderLane, failedDt);
+          if (transitive.some(e => e.to_doc_type === docType)) {
+            return failedDt;
+          }
+        }
+        return null;
+      }
+
       // Process documents in canonical dependency-aware order
       for (const documentId of documentExecutionOrder) {
         const docTargets = docGroups.get(documentId)!;
         documentsAttempted++;
+        const currentDocType = docTargets[0].doc_type;
+
+        // ── Cross-document failure cascade check ──
+        const blockingUpstream = isBlockedByUpstreamFailure(currentDocType);
+        if (blockingUpstream) {
+          // Skip this document — upstream patched doc failed
+          documentsSkippedDueToUpstreamFailure++;
+          blockedDocumentIds.push(documentId);
+          if (!blockedDocTypes.includes(currentDocType)) blockedDocTypes.push(currentDocType);
+
+          const sourceVersionId = docTargets[0].version_id;
+          for (const target of docTargets) {
+            targetResults.push({
+              target_id: target.target_id,
+              target_type: "section",
+              document_id: target.document_id,
+              doc_type: target.doc_type,
+              version_id_before: sourceVersionId,
+              version_id_after: null,
+              status: "skipped",
+              message: `blocked_by_upstream_document_failure:${blockingUpstream}`,
+            });
+          }
+          continue;
+        }
 
         // ── Determine deterministic execution order ──
         // Priority: section registry order > lexical section_key > target_id
@@ -30661,8 +30706,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           .maybeSingle();
 
         if (!currentVer || !currentVer.plaintext) {
-          // Fail the entire document sequence
+          // Fail the entire document sequence and register for cascade
           documentSequencesFailed++;
+          failedPatchedDocTypes.add(currentDocType);
           for (const target of orderedTargets) {
             targetResults.push({
               target_id: target.target_id,
@@ -30829,6 +30875,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         if (docSequenceFailed) {
           // Fail entire document — no version write, mark all as failed
           documentSequencesFailed++;
+          failedPatchedDocTypes.add(currentDocType);
           for (const r of docTargetResults) {
             if (r.status === "executed") {
               r.status = "failed";
@@ -30884,8 +30931,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             for (const r of docTargetResults) {
               targetResults.push(r);
             }
-          } catch (writeErr: any) {
+            } catch (writeErr: any) {
             documentSequencesFailed++;
+            failedPatchedDocTypes.add(currentDocType);
             for (const r of docTargetResults) {
               r.status = "failed";
               r.version_id_after = null;
@@ -31261,6 +31309,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         documents_attempted: documentsAttempted,
         documents_executed: documentsExecuted,
         document_sequences_failed: documentSequencesFailed,
+        documents_skipped_due_to_upstream_failure: documentsSkippedDueToUpstreamFailure,
+        blocked_document_ids: blockedDocumentIds,
+        blocked_doc_types: blockedDocTypes,
         document_execution_order: documentExecutionOrder,
         write_performed: writePerformed,
         has_governance: !!postExecution,
@@ -31284,6 +31335,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           documents_attempted: documentsAttempted,
           documents_executed: documentsExecuted,
           document_sequences_failed: documentSequencesFailed,
+          documents_skipped_due_to_upstream_failure: documentsSkippedDueToUpstreamFailure,
+          blocked_document_ids: blockedDocumentIds.length > 0 ? blockedDocumentIds : undefined,
+          blocked_doc_types: blockedDocTypes.length > 0 ? blockedDocTypes : undefined,
           document_execution_order: documentExecutionOrder,
           document_execution_metadata: documentExecutionMetadata,
           target_results: targetResults,
@@ -31298,7 +31352,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           revalidation_execution: revalidationExecution,
         },
         computed_at: execAt,
-        version: "patch-execution-v1.1",
+        version: "patch-execution-v1.2",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
