@@ -580,6 +580,13 @@ export interface PatchExecutionResult {
   documents_attempted?: number;
   documents_executed?: number;
   document_sequences_failed?: number;
+  document_execution_order?: string[];
+  document_execution_metadata?: Array<{
+    document_id: string;
+    doc_type: string;
+    order_index: number;
+    ordering_basis: "dependency_registry" | "lane_ladder" | "lexical_fallback";
+  }>;
   target_results: PatchExecutionTargetResult[];
   execution_notes: {
     validation_passed: boolean;

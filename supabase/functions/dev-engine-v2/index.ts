@@ -31284,6 +31284,8 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           documents_attempted: documentsAttempted,
           documents_executed: documentsExecuted,
           document_sequences_failed: documentSequencesFailed,
+          document_execution_order: documentExecutionOrder,
+          document_execution_metadata: documentExecutionMetadata,
           target_results: targetResults,
           execution_notes: {
             validation_passed: true,
