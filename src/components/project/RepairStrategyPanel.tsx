@@ -711,6 +711,9 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
                           <TableCell className="font-mono text-xs text-center text-muted-foreground">
                             {opt.roi_rank != null ? opt.roi_rank : '—'}
                           </TableCell>
+                          <TableCell className="font-mono text-xs text-center text-muted-foreground">
+                            {opt.root_cause_rank != null ? opt.root_cause_rank : '—'}
+                          </TableCell>
                           <TableCell className="font-mono text-xs truncate max-w-[140px]">
                             {opt.repair_type}
                             {isTop && <Star className="h-3 w-3 text-primary inline ml-1" />}
@@ -723,6 +726,9 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
                               <span className="text-[10px] text-muted-foreground">—</span>
                             )}
                           </TableCell>
+                          <TableCell className="text-center">
+                            <RCLeverageBadge advisory={opt.root_cause_advisory} />
+                          </TableCell>
                           <TableCell className="font-mono text-xs text-center capitalize">{opt.recommendation_confidence}</TableCell>
                           <TableCell className="text-center">
                             {isExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
@@ -730,7 +736,7 @@ function PRP2SAdvisorySection({ prp2s, prp2sLoading }: { prp2s: PRP2SData | null
                         </TableRow>
                         {isExpanded && (
                           <TableRow key={`${opt.repair_id}-detail`} className="border-border/30 bg-muted/10">
-                            <TableCell colSpan={7} className="p-3">
+                            <TableCell colSpan={9} className="p-3">
                               <PRP2SOptionDetail opt={opt} />
                             </TableCell>
                           </TableRow>
