@@ -314,6 +314,80 @@ export interface InterventionAnalysisResult {
   scoring_notes: InterventionScoringNotes;
 }
 
+// ── PatchTarget Resolver types (resolve_patch_targets response contract) ──
+
+export interface PatchTarget {
+  target_id: string;
+  target_type: "document" | "section" | "episode_block" | "scene";
+  document_id: string;
+  doc_type: string;
+  version_id: string;
+  section_key: string | null;
+  episode_number: number | null;
+  scene_id: string | null;
+  scene_key: string | null;
+  content_hash: string;
+  start_offset: number | null;
+  end_offset: number | null;
+  targeting_method: "section_registry" | "episode_block_registry" | "scene_graph" | "mention_offset" | "full_document";
+  targeting_confidence: "high" | "medium" | "low";
+}
+
+export interface PatchTargetResolutionNotes {
+  chosen_strategy: string;
+  fallback_used: boolean;
+  fallback_reason: string | null;
+  doc_types_considered: string[];
+  version_binding_mode: "provided_version" | "current_version";
+}
+
+export interface PatchTargetResolutionResult {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  repair_id: string | null;
+  repair_type: string | null;
+  source_type: string | null;
+  resolved_targets: PatchTarget[];
+  resolution_notes: PatchTargetResolutionNotes;
+  computed_at: string;
+  version: string;
+}
+
+export async function fetchPatchTargets(
+  projectId: string,
+  repairId?: string,
+  repairType?: string,
+  sourceType?: "intervention" | "prp2s" | "arp1" | "manual",
+  versionId?: string,
+): Promise<PatchTargetResolutionResult | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  const payload: Record<string, string> = {
+    action: 'resolve_patch_targets',
+    projectId,
+  };
+  if (repairId) payload.repairId = repairId;
+  if (repairType) payload.repairType = repairType;
+  if (sourceType) payload.sourceType = sourceType;
+  if (versionId) payload.versionId = versionId;
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as PatchTargetResolutionResult;
+}
+
 async function fetchPRP1(projectId: string): Promise<PRP1Data> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Authentication required');
