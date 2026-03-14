@@ -4175,6 +4175,28 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
               </div>
             )}
 
+            {/* Triage summary strip */}
+            {hasAnyTriage && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[8px] font-mono text-muted-foreground/50 uppercase">Triage:</span>
+                {triageCounts.do_now > 0 && (
+                  <Badge variant="outline" className="text-[8px] font-mono text-primary border-primary/40 bg-primary/10">
+                    {triageCounts.do_now} do now
+                  </Badge>
+                )}
+                {triageCounts.watch > 0 && (
+                  <Badge variant="outline" className="text-[8px] font-mono text-amber-400 border-amber-500/40 bg-amber-500/10">
+                    {triageCounts.watch} watch
+                  </Badge>
+                )}
+                {triageCounts.ignore > 0 && (
+                  <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground border-border/50 bg-muted/30">
+                    {triageCounts.ignore} ignore
+                  </Badge>
+                )}
+              </div>
+            )}
+
             {/* Insufficient history note */}
             {summary && summary.total_snapshots < 3 && (
               <div className="text-[9px] text-muted-foreground italic">
