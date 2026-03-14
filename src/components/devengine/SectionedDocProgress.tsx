@@ -223,7 +223,6 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
                               : chunk.status === 'skipped' ? 'Skipped'
                               : 'Generation failed'}
                           </p>
-                          </p>
                           {projectId && documentId && (
                             <Button
                               variant="outline"
