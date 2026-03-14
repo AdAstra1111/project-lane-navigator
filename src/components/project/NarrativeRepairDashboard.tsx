@@ -5,8 +5,8 @@
  * Fail-closed: calm state when no risk; graceful degradation on errors.
  */
 
-import { useState, useMemo, useCallback } from 'react';
-import { RepairStrategyPanel } from '@/components/project/RepairStrategyPanel';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import { RepairStrategyPanel, type RepairLandingContext } from '@/components/project/RepairStrategyPanel';
 import { useSelectiveRegenerationPlan, type RepairStrategy, type RecommendedScope, type SourceUnit, type ImpactedScene } from '@/hooks/useSelectiveRegenerationPlan';
 import { useExecuteSelectiveRegeneration, type RegenExecutionResult } from '@/hooks/useExecuteSelectiveRegeneration';
 import { useSceneSluglines, type SluglineMap } from '@/hooks/useSceneSluglines';
