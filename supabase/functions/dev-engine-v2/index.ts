@@ -31044,9 +31044,13 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       // Compute downstream invalidation and immediate revalidation targets
       // Only perform writes on real (non-dry-run) successful executions.
       let postExecution: Record<string, unknown> | null = null;
+      const obsGovStart = Date.now();
 
       const executedTargets = targetResults.filter(r => r.status === "executed" && r.version_id_after);
       const shouldRunGovernance = executedTargets.length > 0;
+      if (shouldRunGovernance) {
+        obsEmit("governance", "governance", "started", `Governance starting for ${executedTargets.length} executed target(s)`);
+      }
 
       if (shouldRunGovernance) {
         try {
