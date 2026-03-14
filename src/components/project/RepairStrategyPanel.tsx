@@ -5198,14 +5198,32 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
               })).filter(b => b.items.length > 0);
               const hasMemo = buckets.length > 0;
 
+              // Helper: derive change + repair signals for a recommendation
+              const itemSignals = (r: DisplayRecommendation) => {
+                const change = changeMap[r.recommendation_id];
+                const changeText = change && change.change_status !== 'unchanged'
+                  ? change.change_status.toUpperCase()
+                  : null;
+                const ev = r.evidence as Record<string, unknown> | undefined;
+                const hasRepairDone = completedRepairSignatures && completedRepairSignatures.size > 0 && (
+                  (ev?.repair_type && completedRepairSignatures.has(`repair_type::${ev.repair_type}`)) ||
+                  (ev?.doc_type && completedRepairSignatures.has(`diagnostic_type::${ev.doc_type}`)) ||
+                  (ev?.source_type && completedRepairSignatures.has(`scope_key::${ev.source_type}`))
+                );
+                return { changeText, hasRepairDone: !!hasRepairDone };
+              };
+
               const buildPlain = () => {
                 let out = "Execution Recommendations Action Memo\n" + "=".repeat(42) + "\n\n";
                 for (const b of buckets) {
                   out += `── ${b.label} ──\n`;
                   for (const r of b.items) {
+                    const { changeText, hasRepairDone } = itemSignals(r);
                     out += `• [${r.severity.toUpperCase()}] ${r.title} (${r.rule_id})\n  Action: ${r.suggested_action}\n`;
                     const firstAction = r.recommended_actions?.find(a => !a.destructive);
                     if (firstAction) out += `  Inspect: ${firstAction.label}\n`;
+                    if (changeText) out += `  Change: ${changeText}\n`;
+                    if (hasRepairDone) out += `  Related repair: done (verify manually)\n`;
                   }
                   out += "\n";
                 }
@@ -5217,9 +5235,12 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
                 for (const b of buckets) {
                   out += `## ${b.label}\n\n`;
                     for (const r of b.items) {
+                      const { changeText, hasRepairDone } = itemSignals(r);
                       out += `- **[${r.severity.toUpperCase()}]** ${r.title} _(${r.rule_id})_\n  - Action: ${r.suggested_action}\n`;
                       const firstAction = r.recommended_actions?.find(a => !a.destructive);
                       if (firstAction) out += `  - Inspect: ${firstAction.label}\n`;
+                      if (changeText) out += `  - Change: **${changeText}**\n`;
+                      if (hasRepairDone) out += `  - Related repair: done _(verify manually)_\n`;
                     }
                   out += "\n";
                 }
