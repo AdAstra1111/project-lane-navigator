@@ -4012,34 +4012,36 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
         const runId = recsRes.computed_at || new Date().toISOString();
         const displayModel = dedupeAndSuppressRecommendations(recsRes.recommendations);
         if (displayModel) {
-          // Build minimal snapshot for storage
-          const snapshotItems = displayModel.all_display
+          // Build minimal snapshot for storage — includes comparison_key for stable identity
+          const snapshotItems: SnapshotItem[] = displayModel.all_display
             .filter(r => !r.suppressed)
             .map(r => ({
               recommendation_id: r.recommendation_id,
+              comparison_key: deriveComparisonKey(r),
               severity: r.severity,
-              confidence: r.confidence,
               rule_id: r.rule_id,
+              category: r.category,
               suppressed: false,
               title: r.title,
             }));
 
-          // Fetch previous snapshot
+          // Fetch previous snapshot — EXCLUDE current run_id to prevent self-comparison
           const { data: prevRows } = await supabase
             .from('execution_recommendation_runs')
             .select('recommendations_snapshot')
             .eq('project_id', projectId)
+            .neq('run_id', runId)
             .order('created_at', { ascending: false })
             .limit(1);
 
-          const prevSnapshot = prevRows?.[0]?.recommendations_snapshot as { recommendations?: any[] } | null;
+          const prevSnapshot = prevRows?.[0]?.recommendations_snapshot as { recommendations?: SnapshotItem[] } | null;
           const prevRecs = prevSnapshot?.recommendations ?? null;
 
           // Compute change map
           const changes = computeChangeMap(displayModel.all_display, prevRecs);
           setChangeMap(changes);
 
-          // Persist current snapshot (upsert by run_id)
+          // Persist current snapshot idempotently (upsert by run_id)
           await supabase
             .from('execution_recommendation_runs')
             .upsert({
