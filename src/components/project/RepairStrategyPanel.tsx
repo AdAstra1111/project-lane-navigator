@@ -4900,6 +4900,18 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                                 {rec.severity}
                               </Badge>
                               <span className="text-[7px] font-mono text-muted-foreground/40">{rec.rule_id}</span>
+                              {(() => {
+                                const change = changeMap[rec.recommendation_id];
+                                if (!change || change.change_status === "unchanged") return null;
+                                const cfg: Record<string, { label: string; cls: string }> = {
+                                  new: { label: "NEW", cls: "text-blue-400 border-blue-500/30 bg-blue-500/10" },
+                                  worsened: { label: "WORSENED", cls: "text-red-400 border-red-500/30 bg-red-500/10" },
+                                  improved: { label: "IMPROVED", cls: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10" },
+                                };
+                                const c = cfg[change.change_status];
+                                if (!c) return null;
+                                return <Badge variant="outline" className={cn("text-[6px] font-mono shrink-0", c.cls)}>{c.label}</Badge>;
+                              })()}
                             </div>
                             <div className="text-[8px] text-muted-foreground leading-snug border-l-2 border-border/30 pl-1.5">
                               {rec.suggested_action}
