@@ -4757,7 +4757,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                   visibleItems.forEach(item => { delete next[item.compKey]; });
                   return next;
                 });
-                if (itemsToDelete.length > 0) deleteBulkTriage(itemsToDelete.map(item => item.recId));
+                if (itemsToDelete.length > 0) deleteBulkTriage(itemsToDelete.map(item => item.compKey));
                 setBulkFeedback("Cleared triage");
                 setTimeout(() => setBulkFeedback(null), 1200);
               };
