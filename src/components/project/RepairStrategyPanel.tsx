@@ -41,7 +41,7 @@ import {
   type TrendTopSignalEntry,
   dedupeAndSuppressRecommendations,
   type DisplayRecommendation, type DisplayRecommendationsResult, type RecommendationBucketKey,
-  resolveRecommendationTrendLinkage,
+  resolveRecommendationTrendLinkage, humanizeSourceKey,
   type RecommendationTrendLinkage, type LinkedTrendStatus,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -3890,11 +3890,15 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
             <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground/70 border-border/30 shrink-0">
               {rec.confidence} confidence
             </Badge>
-            {/* Trend linkage badge */}
-            <Badge variant="outline" className={cn("text-[8px] font-mono shrink-0", trendStatusColor(linkage.status))}>
-              {trendStatusIcon(linkage.status)} {linkage.status === "unavailable" ? "no trend" : linkage.status === "insufficient_data" ? "insuff. data" : linkage.status}
-              {linkage.metric_summary && ` (${linkage.metric_summary})`}
+            {/* Trend linkage chip */}
+            <Badge variant="outline" className={cn("text-[8px] font-mono shrink-0", trendStatusColor(linkage.status))} title={linkage.source_key}>
+              {trendStatusIcon(linkage.status)} {linkage.chip_label}
             </Badge>
+            {linkage.metric_summary && (
+              <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/20 shrink-0">
+                {linkage.metric_summary}
+              </Badge>
+            )}
             {suppressed && (
               <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/30 bg-muted/40 shrink-0">
                 SUPPRESSED
@@ -3909,8 +3913,8 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
 
           {/* Trend signal subline */}
           {linkage.status !== "unavailable" && (
-            <div className="text-[8px] font-mono text-muted-foreground/50">
-              {linkage.label} · {linkage.source_key}
+            <div className="text-[8px] text-muted-foreground/50">
+              {linkage.label}{linkage.source_label ? ` · ${linkage.source_label}` : ""}
             </div>
           )}
 
