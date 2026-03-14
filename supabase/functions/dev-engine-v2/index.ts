@@ -4638,6 +4638,7 @@ serve(async (req) => {
       "compute_intervention_roi",
       "compute_root_cause_clusters",
       "compute_intervention_candidates",
+      "resolve_patch_targets",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
