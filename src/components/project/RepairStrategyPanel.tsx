@@ -4879,7 +4879,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pl-4 pt-1.5 space-y-2">
                   {(["do_now", "watch", "ignore"] as const).map(status => {
-                    const items = displayResult.all_display.filter(r => triageMap[r.recommendation_id] === status && !r.suppressed);
+                    const items = displayResult.all_display.filter(r => triageMap[triageKey(r)] === status && !r.suppressed);
                     if (items.length === 0) return null;
                     const statusLabels: Record<TriageStatus, string> = { do_now: "Do Now", watch: "Watch", ignore: "Ignored" };
                     const statusColors: Record<TriageStatus, string> = {
