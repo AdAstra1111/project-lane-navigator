@@ -4291,16 +4291,19 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                   ids.forEach(id => { next[id] = status; });
                   return next;
                 });
+                persistBulkTriage(ids, status);
                 setBulkFeedback(status === "do_now" ? "Updated do now" : status === "watch" ? "Updated watch" : "Updated ignore");
                 setTimeout(() => setBulkFeedback(null), 1200);
               };
 
               const clearAll = () => {
+                const idsToDelete = visibleIds.filter(id => triageMap[id]);
                 setTriageMap(prev => {
                   const next = { ...prev };
                   visibleIds.forEach(id => { delete next[id]; });
                   return next;
                 });
+                if (idsToDelete.length > 0) deleteBulkTriage(idsToDelete);
                 setBulkFeedback("Cleared triage");
                 setTimeout(() => setBulkFeedback(null), 1200);
               };
