@@ -5157,6 +5157,7 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
   const [sectionOpen, setSectionOpen] = useState(false);
   const [forcedOpenSubs, setForcedOpenSubs] = useState<Set<TrendSubsectionKey>>(new Set());
   const [highlightedEntity, setHighlightedEntity] = useState<{ subsection: TrendSubsectionKey; entity?: string; at: number } | null>(null);
+  const [emptyTargetNotice, setEmptyTargetNotice] = useState<{ subsection_label: string; entity?: string } | null>(null);
   const sectionRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
@@ -5196,17 +5197,36 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
       highlightTimerRef.current = null;
     }
 
+    const SUBSECTION_LABELS: Partial<Record<TrendSubsectionKey, string>> = {
+      blocker_code_trends: 'Blocker Code Trends',
+      repair_type_trends: 'Repair Type Trends',
+      source_type_trends: 'Source Type Trends',
+      document_type_trends: 'Document Type Trends',
+      overall_outcomes: 'Overall Outcomes',
+      governance_trends: 'Governance Trends',
+      timing_trends: 'Timing Trends',
+      revalidation_trends: 'Revalidation Trends',
+    };
+
     const applyNavigation = (loadedData: typeof data) => {
       setSectionOpen(true);
       setForcedOpenSubs(prev => new Set(prev).add(subsection_key));
       setHighlightedEntity({ subsection: subsection_key, entity: entity_key, at: activated_at });
 
-      // DEV warning: subsection has no data → DOM target absent
-      if (import.meta.env.DEV && isSubsectionEmpty(subsection_key, loadedData)) {
-        console.warn(
-          `[IFFY nav] Subsection "${subsection_key}" has no data — forced-open and highlight will have no DOM target.`,
-          entity_key ? `Entity: "${entity_key}"` : '(header-level)',
-        );
+      // Empty-target UX: show transient notice when subsection has no data rows
+      if (isSubsectionEmpty(subsection_key, loadedData)) {
+        setEmptyTargetNotice({
+          subsection_label: SUBSECTION_LABELS[subsection_key] ?? subsection_key,
+          entity: entity_key,
+        });
+        if (import.meta.env.DEV) {
+          console.warn(
+            `[IFFY nav] Subsection "${subsection_key}" has no data — forced-open and highlight will have no DOM target.`,
+            entity_key ? `Entity: "${entity_key}"` : '(header-level)',
+          );
+        }
+      } else {
+        setEmptyTargetNotice(null);
       }
 
       setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
@@ -5219,8 +5239,11 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
       applyNavigation(data);
     }
 
-    // Clear highlight after 3 seconds
-    highlightTimerRef.current = setTimeout(() => setHighlightedEntity(null), 3000);
+    // Clear highlight and empty-target notice after 4 seconds
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedEntity(null);
+      setEmptyTargetNotice(null);
+    }, 4000);
     // Acknowledge navigation target handled
     onTargetHandled();
     return () => {
@@ -5346,6 +5369,12 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
 
         {data?.insufficient_data && (
           <div className="text-[9px] text-amber-400 italic">{data.insufficient_reason}</div>
+        )}
+
+        {emptyTargetNotice && (
+          <div className="text-[9px] text-amber-400 italic border border-amber-500/20 rounded px-2 py-1 bg-amber-500/5">
+            Opened {emptyTargetNotice.subsection_label}, but no trend rows are currently available{emptyTargetNotice.entity ? ` for "${emptyTargetNotice.entity}"` : ''}.
+          </div>
         )}
 
         {trends && (
