@@ -9,7 +9,6 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { CheckCircle, Loader2, Clock, XCircle } from 'lucide-react';
 
 interface ChunkRow {
@@ -41,6 +40,24 @@ function sectionIcon(status: string) {
   if (status === 'running') return <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />;
   if (status === 'failed' || status === 'failed_validation') return <XCircle className="h-4 w-4 text-destructive shrink-0" />;
   return <Clock className="h-4 w-4 text-muted-foreground/50 shrink-0" />;
+}
+
+/** Strip metadata-like preamble lines to show actual prose content */
+function cleanPreview(raw: string): string {
+  const lines = raw.split('\n');
+  // Skip lines that look like metadata (key: value, markdown headers, blank)
+  let startIdx = 0;
+  for (let i = 0; i < Math.min(lines.length, 15); i++) {
+    const line = lines[i].trim();
+    if (!line || /^#+\s/.test(line) || /^(Deliverable|Completion|Completeness|Status|Section|Type)\s*(Type|Status|Check)?:/i.test(line)) {
+      startIdx = i + 1;
+    } else {
+      break;
+    }
+  }
+  const prose = lines.slice(startIdx).join('\n').trim();
+  const preview = prose.slice(0, 400);
+  return preview + (prose.length > 400 ? '…' : '');
 }
 
 export function SectionedDocProgress({ versionId, docType }: SectionedDocProgressProps) {
@@ -100,57 +117,61 @@ export function SectionedDocProgress({ versionId, docType }: SectionedDocProgres
           Starting generation…
         </div>
       ) : (
-        <ScrollArea className="w-full max-h-[400px]">
-          <div className="space-y-3">
-            {safeChunks.map((chunk) => {
-              const sectionLabel = chunk.meta_json?.label
-                || chunk.chunk_key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-              const isDone = chunk.status === 'done';
-              const isRunning = chunk.status === 'running';
+        <div className="w-full space-y-3">
+          {safeChunks.map((chunk) => {
+            const sectionLabel = chunk.meta_json?.label
+              || chunk.chunk_key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+            const isDone = chunk.status === 'done';
+            const isRunning = chunk.status === 'running';
 
-              return (
-                <Card
-                  key={chunk.id}
-                  className={`transition-all duration-300 ${
-                    isDone
-                      ? 'opacity-100 border-border/40'
-                      : isRunning
-                        ? 'opacity-90 border-blue-500/30 animate-pulse'
-                        : 'opacity-40 border-border/20'
-                  }`}
-                >
-                  <CardContent className="p-3">
-                    <div className="flex items-start gap-2">
-                      <div className="mt-0.5">{sectionIcon(chunk.status)}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide">
-                            {sectionLabel}
-                          </h4>
-                          {isDone && chunk.char_count != null && (
-                            <span className="text-[10px] text-muted-foreground/60 font-mono">
-                              {chunk.char_count.toLocaleString()} chars
-                            </span>
-                          )}
-                        </div>
-                        {isDone && chunk.content ? (
-                          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4 whitespace-pre-wrap">
-                            {chunk.content.slice(0, 400)}
-                            {chunk.content.length > 400 ? '…' : ''}
-                          </p>
-                        ) : isRunning ? (
-                          <p className="text-xs text-blue-400/70 italic">Generating…</p>
-                        ) : (
-                          <p className="text-xs text-muted-foreground/40 italic">Pending</p>
+            // Extract a clean prose preview — skip metadata-like lines at the start
+            const previewText = isDone && chunk.content
+              ? cleanPreview(chunk.content)
+              : null;
+
+            return (
+              <Card
+                key={chunk.id}
+                className={`transition-all duration-300 ${
+                  isDone
+                    ? 'opacity-100 border-border/40'
+                    : isRunning
+                      ? 'opacity-90 border-blue-500/30 animate-pulse'
+                      : 'opacity-40 border-border/20'
+                }`}
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-start gap-2">
+                    <div className="mt-0.5">{sectionIcon(chunk.status)}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide">
+                          {sectionLabel}
+                        </h4>
+                        {isDone && chunk.char_count != null && (
+                          <span className="text-[10px] text-muted-foreground/60 font-mono">
+                            {chunk.char_count.toLocaleString()} chars
+                          </span>
                         )}
                       </div>
+                      {previewText ? (
+                        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4 whitespace-pre-wrap">
+                          {previewText}
+                        </p>
+                      ) : isRunning ? (
+                        <p className="text-xs text-muted-foreground/70 italic">Generating…</p>
+                      ) : isDone ? (
+                        <p className="text-xs text-muted-foreground/50 italic">Complete</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground/40 italic">Pending</p>
+                      )}
                     </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </ScrollArea>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       )}
 
       <p className="text-[11px] text-muted-foreground/60 text-center">
