@@ -102,6 +102,20 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
   const { data: monitorData, isLoading: monitorLoading, refresh: refreshMonitor } = useNarrativeMonitor(projectId);
   const diffHook = useSceneVersionDiff(projectId);
   const slugMap = sluglines ?? new Map<string, string>();
+  const { data: allRepairs } = useNarrativeRepairs(projectId);
+
+  // Compute completed repair signatures for advisory resolution indicators
+  const completedRepairSignatures = useMemo(() => {
+    if (!allRepairs) return new Set<string>();
+    const sigs = new Set<string>();
+    for (const r of allRepairs) {
+      if (r.status !== 'completed') continue;
+      if (r.repair_type) sigs.add(`repair_type::${r.repair_type}`);
+      if (r.diagnostic_type) sigs.add(`diagnostic_type::${r.diagnostic_type}`);
+      if (r.scope_key) sigs.add(`scope_key::${r.scope_key}`);
+    }
+    return sigs;
+  }, [allRepairs]);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
