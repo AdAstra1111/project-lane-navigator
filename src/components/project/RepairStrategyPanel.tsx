@@ -4086,6 +4086,15 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
   const [bulkFeedback, setBulkFeedback] = useState<string | null>(null);
   const [triageJsonCopied, setTriageJsonCopied] = useState<string | null>(null);
   const [changeMap, setChangeMap] = useState<Record<string, ChangeEntry>>({});
+  // Action Queue operational controls — ephemeral local state only
+  type SevFilter = 'all' | 'high' | 'medium' | 'low';
+  type ChangeFilter = 'all' | 'worsened' | 'new' | 'improved';
+  type RepairFilter = 'all' | 'repair_done' | 'no_repair';
+  type QueueSort = 'default' | 'severity' | 'worsened_first';
+  const [aqSevFilter, setAqSevFilter] = useState<SevFilter>('all');
+  const [aqChangeFilter, setAqChangeFilter] = useState<ChangeFilter>('all');
+  const [aqRepairFilter, setAqRepairFilter] = useState<RepairFilter>('all');
+  const [aqSort, setAqSort] = useState<QueueSort>('default');
 
   // Stable triage identity helper — uses comparison_key instead of ephemeral recommendation_id
   const triageKey = (rec: { category?: string; rule_id?: string; recommendation_id: string; evidence?: Record<string, unknown>; trigger_metrics?: Record<string, unknown> }) => deriveComparisonKey(rec);
