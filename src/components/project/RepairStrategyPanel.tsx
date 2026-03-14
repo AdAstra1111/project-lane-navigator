@@ -504,6 +504,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
       {/* ═══ SECTION 4c: INTERVENTION ENGINE (advisory-only decision layer) ═══ */}
       <InterventionCandidatesSection iv={iv} ivLoading={ivLoading} />
 
+      {/* ═══ SECTION 4d: PATCH TARGET RESOLVER (read-only visibility) ═══ */}
+      <PatchTargetSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
+
       {/* ═══ SECTION 5: INTERVENTION ROI (READ-ONLY DIAGNOSTIC, collapsed by default) ═══ */}
       <Collapsible>
         <CollapsibleTrigger asChild>
