@@ -744,6 +744,32 @@ export async function fetchPatchExecution(
   return json as PatchExecutionResponse;
 }
 
+export async function fetchPatchExecutionReplay(
+  projectId: string,
+  planId: string,
+): Promise<ExecutionReplayResponse | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  const resp = await fetch(FUNC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      action: 'get_patch_execution_replay',
+      projectId,
+      planId,
+    }),
+  });
+
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  if (!json?.ok) return null;
+  return json as ExecutionReplayResponse;
+}
+
 export async function fetchPatchPlanValidation(
   projectId: string,
   repairId?: string,
