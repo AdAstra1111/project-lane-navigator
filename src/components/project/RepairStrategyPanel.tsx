@@ -4068,10 +4068,11 @@ function computeChangeMap(
   return map;
 }
 
-function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRouteToRepairs }: {
+function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRouteToRepairs, completedRepairSignatures }: {
   projectId: string;
   onNavigateToTrend: (target: TrendNavigationTarget) => void;
   onRouteToRepairs?: (ctx: RepairLandingContext) => void;
+  completedRepairSignatures?: Set<string>;
 }) {
   const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
   const [trendsData, setTrendsData] = useState<PatchExecutionTrendsResponse | null>(null);
