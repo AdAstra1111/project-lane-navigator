@@ -4468,7 +4468,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
           {!suppressed && (
             <div className="flex items-center gap-1 pt-0.5">
               {(["do_now", "watch", "ignore"] as const).map(s => {
-                const active = triageMap[rec.recommendation_id] === s;
+                const active = triageMap[triageKey(rec)] === s;
                 const labels: Record<TriageStatus, string> = { do_now: "Do now", watch: "Watch", ignore: "Ignore" };
                 const colors: Record<TriageStatus, string> = {
                   do_now: active ? "bg-primary/15 text-primary border-primary/40" : "text-muted-foreground/50 border-border/30 hover:border-primary/30",
