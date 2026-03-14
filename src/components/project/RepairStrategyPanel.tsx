@@ -4486,9 +4486,9 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
             </Collapsible>
 
             {/* Timing trends */}
-            <Collapsible>
+            <Collapsible open={forcedOpenSubs.has("timing_trends") ? true : undefined} onOpenChange={(o) => onSubOpenChange("timing_trends", o)}>
               <CollapsibleTrigger asChild>
-                <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5">
+                <button className={cn("flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground w-full py-0.5", isRowHighlighted("timing_trends") && highlightClass)}>
                   <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
                   <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
                   <span className="font-semibold">Timing</span>
