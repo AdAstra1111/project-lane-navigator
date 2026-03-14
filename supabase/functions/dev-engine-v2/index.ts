@@ -33098,7 +33098,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             "Min count threshold (TYPE_MIN_COUNT) must be met before rate is evaluated",
           ],
           calibration_notes: [
-            ""unknown" source_type sentinel is suppressed and cannot emit a rec",
+            'unknown' source_type sentinel is suppressed and cannot emit a rec,
             "Rate = (blocked + failed) / count; does not include partial",
           ],
         },
@@ -33126,7 +33126,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           ],
           calibration_notes: [
             "skipped_upstream is included in instability; a cascade failure from a single blocked doc can inflate instability for downstream doc types",
-            "Rationale text says "consistently failing" which may overstate if cause is upstream cascade",
+            "Rationale text says \"consistently failing\" which may overstate if cause is upstream cascade",
           ],
         },
 
@@ -33178,7 +33178,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           ],
           calibration_notes: [
             "Cannot distinguish "revalidation not applicable" from "revalidation skipped"",
-            "revalidation_performed is more accurately "revalidation attempted"; threshold is conservative (30%)",
+            "revalidation_performed is more accurately \"revalidation attempted\"; threshold is conservative (30%)",
           ],
         },
 
@@ -33211,7 +33211,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           ],
           calibration_notes: [
             "High threshold hardcoded at 50% (not a named constant)",
-            "A snapshot with post_execution present but no invalidation/handoff still counts as "with governance"",
+            "A snapshot with post_execution present but no invalidation/handoff still counts as \"with governance\"",
           ],
         },
 
