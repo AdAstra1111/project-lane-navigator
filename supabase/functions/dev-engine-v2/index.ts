@@ -8360,14 +8360,33 @@ Return ONLY valid JSON:
       const materialText = (version.plaintext || "").slice(0, 12000);
       const analysisSnippet = analysisJson ? JSON.stringify(analysisJson).slice(0, 4000) : "No prior analysis";
 
-      // Check whether a character_bible already exists and has content
-      const { data: charBibleRows } = await supabase
+      // Pull foundation docs for context (concept_brief, market_sheet, character_bible, treatment)
+      const FOUNDATION_DOC_TYPES = ["concept_brief", "market_sheet", "character_bible", "treatment", "story_outline", "market_positioning"];
+      const { data: foundationDocs } = await supabase
         .from("project_documents")
-        .select("id")
+        .select("doc_type, id")
         .eq("project_id", projectId)
-        .eq("doc_type", "character_bible")
-        .limit(1);
-      const characterBibleExists = (charBibleRows?.length ?? 0) > 0;
+        .in("doc_type", FOUNDATION_DOC_TYPES);
+
+      const foundationTexts: string[] = [];
+      let characterBibleExists = false;
+      for (const fd of foundationDocs || []) {
+        if (fd.doc_type === "character_bible") characterBibleExists = true;
+        const { data: fdVer } = await supabase
+          .from("project_document_versions")
+          .select("plaintext, extracted_text")
+          .eq("document_id", fd.id)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .single();
+        const text = fdVer?.plaintext || fdVer?.extracted_text || "";
+        if (text.trim().length > 50) {
+          foundationTexts.push(`=== ${fd.doc_type.toUpperCase()} ===\n${text.slice(0, 2500)}`);
+        }
+      }
+      const foundationContext = foundationTexts.length > 0
+        ? foundationTexts.join("\n\n")
+        : "No foundation documents available.";
 
       // Existing qualification overrides already set by user or system
       const existingQuals = project?.guardrails_config?.overrides?.qualifications || {};
@@ -8434,7 +8453,7 @@ Rules:
 - NEVER ask about any field already listed in "Existing qualification overrides" above.
 - If all blocking issues are resolvable from the CONTEXT above, return an empty must_decide array.`;
 
-      const userPrompt = `LATEST ANALYSIS:\n${analysisSnippet}\n\nMATERIAL:\n${materialText}`;
+      const userPrompt = `FOUNDATION DOCUMENTS (use these to answer qualification questions — do NOT ask the user about anything resolvable from here):\n${foundationContext}\n\nLATEST ANALYSIS:\n${analysisSnippet}\n\nCURRENT DOCUMENT MATERIAL:\n${materialText}`;
       const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, EXEC_STRATEGY_SYSTEM, userPrompt, 0.3, 2500);
       let parsed: any;
       try {
