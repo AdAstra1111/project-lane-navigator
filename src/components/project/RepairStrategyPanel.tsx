@@ -3,7 +3,7 @@
  * NRF1 axis debt context, and PRP2 strategic recommendation. Read-only UI.
  */
 
-import { useState, useMemo, useEffect, Fragment } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react';
 import {
   usePreventiveRepairPrioritization,
   fetchPatchTargets,
