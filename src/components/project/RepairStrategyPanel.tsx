@@ -524,6 +524,9 @@ export function RepairStrategyPanel({ projectId }: Props) {
       {/* ═══ SECTION 4h: EXECUTION REPLAY (read-only historical audit) ═══ */}
       <ExecutionReplaySection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
 
+      {/* ═══ SECTION 4i: EXECUTION ANALYTICS (read-only aggregation) ═══ */}
+      <ExecutionAnalyticsSection projectId={projectId} />
+
           </div>
         )}
       </div>
