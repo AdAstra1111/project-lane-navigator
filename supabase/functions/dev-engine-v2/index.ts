@@ -7609,7 +7609,8 @@ MATERIAL:\n${version.plaintext}${convertTemplateBlock}`;
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const isDraftScript = targetOutput === "DRAFT_SCRIPT" || normalizedTarget === "SCRIPT" || normalizedTarget === "DRAFT_SCRIPT";
+      const isFeatureScript = FEATURE_SCRIPT_TARGETS.has(normalizedTarget);
+      const isDraftScript = targetOutput === "DRAFT_SCRIPT" || normalizedTarget === "SCRIPT" || normalizedTarget === "DRAFT_SCRIPT" || isFeatureScript;
       const model = isDraftScript ? PRO_MODEL : BALANCED_MODEL;
       const maxTok = isDraftScript ? 16000 : 10000;
       const systemPrompt = isDraftScript ? CONVERT_SYSTEM : CONVERT_SYSTEM_JSON;
