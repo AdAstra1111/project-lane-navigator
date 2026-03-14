@@ -1018,6 +1018,9 @@ export interface AnalyticsTiming {
   avg_section_execution_ms: number | null;
   avg_governance_ms: number | null;
   avg_revalidation_ms: number | null;
+  // Sample count used to compute avg_section_execution_ms.
+  // Used by recommendation engine to gate timing recs on >= 3 samples.
+  section_execution_sample_count: number;
 }
 
 export interface AnalyticsGovernance {
@@ -1075,6 +1078,11 @@ export interface ExecutionRecommendation {
   evidence: Record<string, unknown>;
   suggested_action: string;
   confidence: "high" | "medium" | "low";
+  // Explainability fields — execution-recommendations-v1.1
+  rule_id: string;
+  threshold_version: string;
+  trigger_metrics: Record<string, number | string | null>;
+  evidence_summary: string[];
 }
 
 export interface ExecutionRecommendationSummary {
@@ -1097,11 +1105,35 @@ export interface ExecutionRecommendations {
   suggested_next_actions: ExecutionRecommendation[];
 }
 
+// ── Recommendations Calibration Types ──
+
+export interface RecommendationCalibrationSampleSupport {
+  metric_name: string;
+  sample_count: number | null;
+  minimum_required: number | null;
+  sufficient: boolean | null;
+}
+
+export interface RecommendationCalibrationRule {
+  rule_id: string;
+  category: string;
+  threshold_fields: Record<string, number | string>;
+  minimum_sample_support: RecommendationCalibrationSampleSupport[];
+  denominator_notes: string[];
+  calibration_notes: string[];
+}
+
+export interface RecommendationCalibration {
+  threshold_version: string;
+  rules: RecommendationCalibrationRule[];
+}
+
 export interface PatchExecutionRecommendationsResponse {
   ok: boolean;
   action: string;
   project_id: string;
   recommendations: ExecutionRecommendations;
+  recommendations_calibration: RecommendationCalibration;
   window: { limit: number; date_from: string | null; date_to: string | null };
   computed_at: string;
   version: string;

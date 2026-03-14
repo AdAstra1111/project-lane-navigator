@@ -14,13 +14,11 @@ import {
   fetchPatchExecutionHistory,
   fetchPatchExecutionComparison,
   fetchPatchExecutionAnalytics,
-  fetchPatchExecutionRecommendations,
   deriveExecutionOutcome,
   type PatchExecutionHistoryItem, type PatchExecutionHistoryResponse, type PatchExecutionHistoryCursor,
   type PatchExecutionHistoryFilters, type PatchExecutionOutcome,
   type PatchExecutionComparisonResponse, type MetricDiffEntry, type DocumentTimelineDiffEntry,
   type PatchExecutionAnalyticsResponse, type PatchExecutionAnalytics,
-  type PatchExecutionRecommendationsResponse, type ExecutionRecommendations, type ExecutionRecommendation,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type InterventionAnalysisResult, type InterventionCandidate,
@@ -34,6 +32,9 @@ import {
   type RevalidationExecution, type RevalidationExecutionTarget,
   type ExecutionObservability, type ExecutionObservabilityDocTimeline, type ExecutionObservabilityEvent,
   type ExecutionReplayResponse, type ExecutionReplaySnapshot,
+  fetchPatchExecutionRecommendations,
+  type PatchExecutionRecommendationsResponse,
+  type ExecutionRecommendations, type ExecutionRecommendation,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -3800,6 +3801,8 @@ function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
 // ── ExecutionRecommendationsSection ──────────────────────────────────────────
 // Read-only deterministic recommendation surface derived from persisted replay
 // snapshots. No execution-path changes. No mutation.
+// Renders explainability fields: rule_id, threshold_version, trigger_metrics,
+// evidence_summary (execution-recommendations-v1.1).
 
 function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
   const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
@@ -3829,10 +3832,12 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
     s === "high" ? "bg-red-400" : s === "medium" ? "bg-amber-400" : "bg-muted-foreground";
 
   const RecCard = ({ rec }: { rec: ExecutionRecommendation }) => (
-    <div className="rounded-md border border-border/40 bg-muted/20 px-3 py-2 space-y-1">
+    <div className="rounded-md border border-border/40 bg-muted/20 px-3 py-2 space-y-1.5">
       <div className="flex items-start gap-2">
         <div className={cn("mt-1 h-1.5 w-1.5 rounded-full shrink-0", sevDot(rec.severity))} />
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 space-y-1">
+
+          {/* Title + severity + confidence */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[10px] font-semibold text-foreground">{rec.title}</span>
             <Badge variant="outline" className={cn("text-[8px] font-mono shrink-0", sevColor(rec.severity))}>
@@ -3842,19 +3847,48 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
               {rec.confidence} confidence
             </Badge>
           </div>
-          <p className="text-[9px] text-muted-foreground mt-0.5 leading-snug">{rec.rationale}</p>
-          {/* Evidence chips */}
-          <div className="flex flex-wrap gap-1 mt-1">
-            {Object.entries(rec.evidence).slice(0, 5).map(([k, v]) => (
-              <span key={k} className="inline-flex items-center gap-0.5 text-[8px] font-mono bg-muted/50 border border-border/30 rounded px-1 py-0.5 text-muted-foreground">
-                {k}: <span className="text-foreground">{String(v)}</span>
-              </span>
-            ))}
+
+          {/* Rule metadata row: rule_id + threshold_version */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[8px] font-mono text-muted-foreground/50 bg-muted/40 border border-border/20 rounded px-1 py-0.5">
+              {rec.rule_id}
+            </span>
+            <span className="text-[8px] font-mono text-muted-foreground/40 bg-muted/30 border border-border/20 rounded px-1 py-0.5">
+              {rec.threshold_version}
+            </span>
           </div>
+
+          {/* Rationale */}
+          <p className="text-[9px] text-muted-foreground leading-snug">{rec.rationale}</p>
+
+          {/* Evidence summary — deterministic bullets */}
+          {rec.evidence_summary && rec.evidence_summary.length > 0 && (
+            <ul className="space-y-0.5">
+              {rec.evidence_summary.map((line, i) => (
+                <li key={i} className="flex items-start gap-1 text-[8px] font-mono text-muted-foreground/80">
+                  <span className="text-muted-foreground/40 mt-px shrink-0">›</span>
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* Trigger metrics — compact key:value chips (up to 4) */}
+          {rec.trigger_metrics && Object.keys(rec.trigger_metrics).length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(rec.trigger_metrics).slice(0, 4).map(([k, v]) => (
+                <span key={k} className="inline-flex items-center gap-0.5 text-[8px] font-mono bg-muted/50 border border-border/30 rounded px-1 py-0.5 text-muted-foreground">
+                  {k}: <span className="text-foreground/80">{String(v)}</span>
+                </span>
+              ))}
+            </div>
+          )}
+
           {/* Suggested action */}
-          <div className="mt-1 text-[9px] text-muted-foreground border-l-2 border-border/40 pl-1.5">
+          <div className="text-[9px] text-muted-foreground border-l-2 border-border/40 pl-1.5">
             <span className="font-semibold text-foreground/80">Action:</span> {rec.suggested_action}
           </div>
+
         </div>
       </div>
     </div>
@@ -3916,7 +3950,7 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
         {!loaded && (
           <Button variant="outline" size="sm" className="text-[10px] h-7" onClick={load} disabled={loading}>
             {loading ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <Lightbulb className="h-3 w-3 mr-1" />}
-            {loading ? 'Analysing…' : 'Load Recommendations'}
+            {loading ? 'Analysing\u2026' : 'Load Recommendations'}
           </Button>
         )}
 
@@ -3949,31 +3983,15 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
               </div>
             )}
 
-            {/* Top priorities */}
-            <Bucket title="Top Priorities" icon={AlertTriangle} items={recs.top_priorities} />
+            <Bucket title="Top Priorities"           icon={AlertTriangle} items={recs.top_priorities} />
+            <Bucket title="Blocker Mitigations"      icon={XCircle}       items={recs.blocker_mitigations} />
+            <Bucket title="Repair Type Watchlist"    icon={Wrench}        items={recs.repair_type_watchlist} />
+            <Bucket title="Source Type Watchlist"    icon={FileText}      items={recs.source_type_watchlist} />
+            <Bucket title="Document Type Stability"  icon={FileCode}      items={recs.document_type_watchlist} />
+            <Bucket title="Governance Gaps"          icon={Shield}        items={recs.governance_gaps} />
+            <Bucket title="Revalidation Gaps"        icon={RefreshCw}     items={recs.revalidation_gaps} />
+            <Bucket title="Suggested Next Actions"   icon={ArrowRight}    items={recs.suggested_next_actions} />
 
-            {/* Blocker mitigations */}
-            <Bucket title="Blocker Mitigations" icon={XCircle} items={recs.blocker_mitigations} />
-
-            {/* Repair type watchlist */}
-            <Bucket title="Repair Type Watchlist" icon={Wrench} items={recs.repair_type_watchlist} />
-
-            {/* Source type watchlist */}
-            <Bucket title="Source Type Watchlist" icon={FileText} items={recs.source_type_watchlist} />
-
-            {/* Document type stability */}
-            <Bucket title="Document Type Stability" icon={FileCode} items={recs.document_type_watchlist} />
-
-            {/* Governance gaps */}
-            <Bucket title="Governance Gaps" icon={Shield} items={recs.governance_gaps} />
-
-            {/* Revalidation gaps */}
-            <Bucket title="Revalidation Gaps" icon={RefreshCw} items={recs.revalidation_gaps} />
-
-            {/* Suggested next actions */}
-            <Bucket title="Suggested Next Actions" icon={ArrowRight} items={recs.suggested_next_actions} />
-
-            {/* Empty state: no recs at all */}
             {summary?.generated_recommendations === 0 && summary.total_snapshots >= 3 && (
               <div className="flex items-center gap-1.5 text-[9px] text-emerald-400">
                 <CheckCircle className="h-3 w-3" />
@@ -3981,7 +3999,108 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
               </div>
             )}
 
-            {/* Refresh */}
+            {/* ── Calibration Panel ── */}
+            {data?.recommendations_calibration && (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-[9px] text-muted-foreground/60 hover:text-muted-foreground transition-colors w-full pt-1">
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <span className="font-mono font-semibold uppercase tracking-wider text-[8px]">Recommendation Calibration</span>
+                    <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/20 ml-1">
+                      {data.recommendations_calibration.threshold_version}
+                    </Badge>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-1.5">
+                  <div className="rounded-md border border-border/30 bg-muted/10 overflow-hidden">
+                    {/* Header row */}
+                    <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/20 bg-muted/20">
+                      <span className="text-[8px] font-mono font-semibold text-muted-foreground/60 uppercase">Rule</span>
+                      <span className="text-[8px] font-mono font-semibold text-muted-foreground/60 uppercase">Key Thresholds</span>
+                      <span className="text-[8px] font-mono font-semibold text-muted-foreground/60 uppercase">Sample Support</span>
+                    </div>
+                    {data.recommendations_calibration.rules.map(rule => {
+                      const primarySupport = rule.minimum_sample_support.find(s => s.minimum_required !== null && s.minimum_required > 0) ?? rule.minimum_sample_support[0];
+                      const sufficient = primarySupport?.sufficient;
+                      const supportColor = sufficient === true ? "text-emerald-400" : sufficient === false ? "text-red-400" : "text-muted-foreground/50";
+                      const keyThresholds = Object.entries(rule.threshold_fields).slice(0, 2);
+                      return (
+                        <Collapsible key={rule.rule_id}>
+                          <CollapsibleTrigger asChild>
+                            <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1.5 border-b border-border/10 hover:bg-muted/20 transition-colors cursor-pointer items-start">
+                              {/* Rule ID */}
+                              <div className="flex items-center gap-1">
+                                <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0 [[data-state=open]>&]:hidden" />
+                                <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0 hidden [[data-state=open]>&]:block" />
+                                <span className="text-[8px] font-mono text-muted-foreground/70 truncate">{rule.rule_id.replace("REC_", "")}</span>
+                              </div>
+                              {/* Key thresholds */}
+                              <div className="flex flex-wrap gap-0.5">
+                                {keyThresholds.map(([k, v]) => (
+                                  <span key={k} className="text-[7px] font-mono text-muted-foreground/60 bg-muted/30 border border-border/20 rounded px-1 py-0.5">
+                                    {k.replace(/_pct$|_ms$/, "")}: {String(v)}
+                                  </span>
+                                ))}
+                              </div>
+                              {/* Sample support indicator */}
+                              <div className={cn("text-[7px] font-mono shrink-0", supportColor)}>
+                                {primarySupport ? (
+                                  <span title={`${primarySupport.metric_name}: ${primarySupport.sample_count ?? "N/A"} / min ${primarySupport.minimum_required ?? "N/A"}`}>
+                                    {primarySupport.sample_count ?? "—"}{primarySupport.minimum_required != null ? `/${primarySupport.minimum_required}` : ""}
+                                    {sufficient === true && " ✓"}
+                                    {sufficient === false && " ✗"}
+                                  </span>
+                                ) : "—"}
+                              </div>
+                            </div>
+                          </CollapsibleTrigger>
+                          {/* Expanded detail */}
+                          <CollapsibleContent className="px-3 pb-2 pt-1 bg-muted/5 border-b border-border/10 space-y-1.5">
+                            {/* All sample supports */}
+                            <div className="space-y-0.5">
+                              {rule.minimum_sample_support.map((s, i) => (
+                                <div key={i} className="flex items-center gap-1.5 text-[8px] font-mono">
+                                  <span className="text-muted-foreground/50 w-44 shrink-0 truncate">{s.metric_name}</span>
+                                  <span className={cn("font-semibold", s.sufficient === true ? "text-emerald-400" : s.sufficient === false ? "text-red-400" : "text-muted-foreground/60")}>
+                                    {s.sample_count ?? "null"}
+                                  </span>
+                                  {s.minimum_required != null && (
+                                    <span className="text-muted-foreground/40">/ min {s.minimum_required}</span>
+                                  )}
+                                  {s.sufficient === true && <span className="text-emerald-400/70">sufficient</span>}
+                                  {s.sufficient === false && <span className="text-red-400/70">insufficient</span>}
+                                  {s.sufficient === null && <span className="text-muted-foreground/30">informational</span>}
+                                </div>
+                              ))}
+                            </div>
+                            {/* Denominator notes */}
+                            {rule.denominator_notes.length > 0 && (
+                              <div className="space-y-0.5">
+                                <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Denominator</span>
+                                {rule.denominator_notes.map((n, i) => (
+                                  <div key={i} className="text-[8px] text-muted-foreground/50 leading-snug">· {n}</div>
+                                ))}
+                              </div>
+                            )}
+                            {/* Calibration notes */}
+                            {rule.calibration_notes.length > 0 && (
+                              <div className="space-y-0.5">
+                                <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Calibration Notes</span>
+                                {rule.calibration_notes.map((n, i) => (
+                                  <div key={i} className="text-[8px] text-amber-400/50 leading-snug">⚠ {n}</div>
+                                ))}
+                              </div>
+                            )}
+                          </CollapsibleContent>
+                        </Collapsible>
+                      );
+                    })}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
             <Button variant="ghost" size="sm" className="text-[9px] h-6" onClick={load} disabled={loading}>
               <RefreshCw className={cn("h-3 w-3 mr-1", loading && "animate-spin")} />
               Refresh
