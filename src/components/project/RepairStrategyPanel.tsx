@@ -13,6 +13,7 @@ import {
   fetchPatchExecutionReplay,
   fetchPatchExecutionHistory,
   fetchPatchExecutionComparison,
+  fetchPatchExecutionAnalytics,
   deriveExecutionOutcome,
   type PatchExecutionHistoryItem, type PatchExecutionHistoryResponse, type PatchExecutionHistoryCursor,
   type PatchExecutionHistoryFilters, type PatchExecutionOutcome,
