@@ -4908,6 +4908,29 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
               </div>
             )}
 
+            {/* ── Producer Observability Header ── */}
+            {hasAnyTriage && displayResult && (
+              <div className="flex items-center gap-1.5 flex-wrap py-1 px-2 rounded border border-border/30 bg-muted/10">
+                <span className="text-[7px] font-mono text-muted-foreground/50 uppercase tracking-wider">Status</span>
+                <Badge variant="outline" className="text-[7px] font-mono text-primary border-primary/30 bg-primary/5">
+                  {observabilityCounts.doNow} do now
+                </Badge>
+                {observabilityCounts.worsened > 0 && (
+                  <Badge variant="outline" className="text-[7px] font-mono text-red-400 border-red-500/30 bg-red-500/5">
+                    {observabilityCounts.worsened} worsened
+                  </Badge>
+                )}
+                {observabilityCounts.relatedRepairDone > 0 && (
+                  <Badge variant="outline" className="text-[7px] font-mono text-emerald-400 border-emerald-500/30 bg-emerald-500/5">
+                    {observabilityCounts.relatedRepairDone} repair done
+                  </Badge>
+                )}
+                <Badge variant="outline" className="text-[7px] font-mono text-amber-400 border-amber-500/30 bg-amber-500/5">
+                  {observabilityCounts.highUnresolved} high unresolved
+                </Badge>
+              </div>
+            )}
+
             {/* ── Recommendation Action Queue ── */}
             {hasAnyTriage && displayResult && (
               <Collapsible defaultOpen>
