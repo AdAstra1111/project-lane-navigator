@@ -4286,10 +4286,11 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
             {/* ── Action Memo ── */}
             {(() => {
               const sevOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+              const confOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
               const sortItems = (items: DisplayRecommendation[]) =>
                 [...items].sort((a, b) =>
                   (sevOrder[a.severity] ?? 3) - (sevOrder[b.severity] ?? 3)
-                  || (b.confidence - a.confidence)
+                  || (confOrder[a.confidence] ?? 3) - (confOrder[b.confidence] ?? 3)
                   || a.recommendation_id.localeCompare(b.recommendation_id)
                 );
               const buckets: { status: TriageStatus; label: string; items: DisplayRecommendation[] }[] = (["do_now", "watch", "ignore"] as const).map(s => ({
