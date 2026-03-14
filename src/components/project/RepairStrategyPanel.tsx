@@ -4479,7 +4479,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                   <button
                     key={s}
                     type="button"
-                    onClick={() => toggleTriage(rec.recommendation_id, s)}
+                    onClick={() => toggleTriage(triageKey(rec), rec.recommendation_id, s)}
                     className={cn("text-[8px] font-mono rounded px-1.5 py-0.5 border transition-colors", colors[s])}
                   >
                     {labels[s]}
