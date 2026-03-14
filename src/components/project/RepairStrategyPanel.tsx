@@ -2995,7 +2995,194 @@ function ExecutionReplaySection({
             </>
           )}
 
-          {/* Manual plan ID input (advanced fallback) */}
+          {/* ── Compare Executions ── */}
+          {selectedHistoryItem && compareItem && (
+            <div className="space-y-2 border-t border-border/30 pt-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] text-muted-foreground">
+                  Comparing <Badge variant="outline" className="text-[7px] font-mono px-1 py-0 h-3 text-primary border-primary/30">L</Badge>{' '}
+                  {new Date(selectedHistoryItem.created_at).toLocaleDateString()} vs{' '}
+                  <Badge variant="outline" className="text-[7px] font-mono px-1 py-0 h-3 text-blue-400 border-blue-500/30">R</Badge>{' '}
+                  {new Date(compareItem.created_at).toLocaleDateString()}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRunComparison}
+                  disabled={compareLoading}
+                  className="text-[9px] h-6 px-2 ml-auto"
+                >
+                  {compareLoading ? 'Comparing…' : 'Compare Executions'}
+                </Button>
+                <button
+                  onClick={() => { setCompareItem(null); setCompareResult(null); }}
+                  className="text-[8px] text-muted-foreground hover:text-foreground"
+                >✕</button>
+              </div>
+
+              {compareResult && !compareResult.comparison_found && (
+                <Card className="border-border/50">
+                  <CardContent className="py-3 text-center">
+                    <XCircle className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
+                    <p className="text-[10px] text-muted-foreground">
+                      Comparison unavailable. Missing: {compareResult.comparison_notes.missing_side || 'unknown'} snapshot.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {compareResult?.comparison_found && compareResult.comparison && (() => {
+                const c = compareResult.comparison;
+                const renderDelta = (d: MetricDiffEntry) => {
+                  if (d.delta == null) return <span className="text-muted-foreground">—</span>;
+                  if (d.delta > 0) return <span className="text-emerald-400">+{d.delta}</span>;
+                  if (d.delta < 0) return <span className="text-red-400">{d.delta}</span>;
+                  return <span className="text-muted-foreground">0</span>;
+                };
+                const chipColor = (changed: boolean) =>
+                  changed ? "text-amber-400 border-amber-500/30" : "text-emerald-400 border-emerald-500/30";
+
+                return (
+                  <div className="space-y-3">
+                    {/* Summary chips */}
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge variant="outline" className={cn("text-[8px] font-mono px-1.5 py-0 h-4", chipColor(c.summary.outcome_changed))}>
+                        outcome {c.summary.outcome_changed ? 'changed' : 'same'}
+                      </Badge>
+                      <Badge variant="outline" className={cn("text-[8px] font-mono px-1.5 py-0 h-4", chipColor(c.summary.duration_changed))}>
+                        duration {c.summary.duration_changed ? 'changed' : 'same'}
+                      </Badge>
+                      <Badge variant="outline" className={cn("text-[8px] font-mono px-1.5 py-0 h-4", chipColor(c.summary.documents_changed))}>
+                        docs {c.summary.documents_changed ? 'changed' : 'same'}
+                      </Badge>
+                      <Badge variant="outline" className={cn("text-[8px] font-mono px-1.5 py-0 h-4", chipColor(c.summary.target_counts_changed))}>
+                        targets {c.summary.target_counts_changed ? 'changed' : 'same'}
+                      </Badge>
+                    </div>
+
+                    {/* Outcome diff */}
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <span className="text-muted-foreground">Outcome:</span>
+                      <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5">{c.outcome_diff.left_outcome}</Badge>
+                      <span className="text-muted-foreground">→</span>
+                      <Badge variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5">{c.outcome_diff.right_outcome}</Badge>
+                    </div>
+
+                    {/* Metrics diff table */}
+                    <div>
+                      <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Metrics</div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-[8px] py-1 h-6">Metric</TableHead>
+                            <TableHead className="text-[8px] py-1 h-6 text-right">Left</TableHead>
+                            <TableHead className="text-[8px] py-1 h-6 text-right">Right</TableHead>
+                            <TableHead className="text-[8px] py-1 h-6 text-right">Δ</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(Object.entries(c.metrics_diff) as [string, MetricDiffEntry][]).map(([key, val]) => (
+                            <TableRow key={key}>
+                              <TableCell className="text-[9px] font-mono py-1">{key.replace(/_/g, ' ')}</TableCell>
+                              <TableCell className="text-[9px] font-mono py-1 text-right">{val.left ?? '—'}</TableCell>
+                              <TableCell className="text-[9px] font-mono py-1 text-right">{val.right ?? '—'}</TableCell>
+                              <TableCell className="text-[9px] font-mono py-1 text-right">{renderDelta(val)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Blocked doc types diff */}
+                    {(c.blocked_doc_types_diff.only_left.length > 0 || c.blocked_doc_types_diff.only_right.length > 0 || c.blocked_doc_types_diff.both.length > 0) && (
+                      <div>
+                        <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Blocked Doc Types</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {c.blocked_doc_types_diff.only_left.map(d => (
+                            <Badge key={`bl-${d}`} variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-red-400 border-red-500/30">−{d}</Badge>
+                          ))}
+                          {c.blocked_doc_types_diff.only_right.map(d => (
+                            <Badge key={`br-${d}`} variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-emerald-400 border-emerald-500/30">+{d}</Badge>
+                          ))}
+                          {c.blocked_doc_types_diff.both.map(d => (
+                            <Badge key={`bb-${d}`} variant="outline" className="text-[8px] font-mono px-1 py-0 h-3.5 text-muted-foreground border-border/50">{d}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Document order diff */}
+                    {c.document_order_diff.changed && (
+                      <div>
+                        <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Document Order Changed</div>
+                        <div className="grid grid-cols-2 gap-2 text-[9px] font-mono">
+                          <div><span className="text-muted-foreground">Left: </span>{c.document_order_diff.left.join(' → ') || '—'}</div>
+                          <div><span className="text-muted-foreground">Right: </span>{c.document_order_diff.right.join(' → ') || '—'}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Document timeline diff */}
+                    {(c.document_timeline_diff.only_left.length > 0 || c.document_timeline_diff.only_right.length > 0 || c.document_timeline_diff.changed_documents.length > 0) && (
+                      <div>
+                        <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Document Timeline Changes</div>
+                        {c.document_timeline_diff.only_left.length > 0 && (
+                          <div className="text-[9px] text-red-400 mb-1">Only left: {c.document_timeline_diff.only_left.join(', ')}</div>
+                        )}
+                        {c.document_timeline_diff.only_right.length > 0 && (
+                          <div className="text-[9px] text-emerald-400 mb-1">Only right: {c.document_timeline_diff.only_right.join(', ')}</div>
+                        )}
+                        {c.document_timeline_diff.changed_documents.map((cd) => (
+                          <div key={cd.document_id} className="rounded-md border border-border/30 px-2 py-1 mb-1 text-[9px]">
+                            <span className="font-mono font-semibold text-foreground">{cd.doc_type}</span>
+                            <div className="flex flex-wrap gap-2 text-muted-foreground mt-0.5">
+                              {cd.left_status !== cd.right_status && (
+                                <span>status: <span className="text-red-400">{cd.left_status}</span> → <span className="text-emerald-400">{cd.right_status}</span></span>
+                              )}
+                              {cd.left_governance_status !== cd.right_governance_status && (
+                                <span>gov: {cd.left_governance_status} → {cd.right_governance_status}</span>
+                              )}
+                              {cd.left_revalidation_status !== cd.right_revalidation_status && (
+                                <span>reval: {cd.left_revalidation_status} → {cd.right_revalidation_status}</span>
+                              )}
+                              {cd.left_version_id_after !== cd.right_version_id_after && (
+                                <span className="font-mono">ver: {cd.left_version_id_after?.slice(0,8) || '—'} → {cd.right_version_id_after?.slice(0,8) || '—'}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Phase duration diff */}
+                    <div>
+                      <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Phase Durations (ms)</div>
+                      <div className="flex flex-wrap gap-2">
+                        {(Object.entries(c.phase_duration_diff) as [string, MetricDiffEntry][]).map(([phase, val]) => (
+                          <div key={phase} className="text-[9px] font-mono">
+                            <span className="text-muted-foreground">{phase.replace(/_/g, ' ')}: </span>
+                            <span>{val.left ?? '—'}/{val.right ?? '—'} </span>
+                            {renderDelta(val)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Event trace summary */}
+                    <div className="text-[9px] text-muted-foreground">
+                      Events: {c.event_trace_summary.left_event_count} → {c.event_trace_summary.right_event_count}
+                      {c.event_trace_summary.delta !== 0 && (
+                        <span className={c.event_trace_summary.delta > 0 ? "text-emerald-400" : "text-red-400"}>
+                          {' '}({c.event_trace_summary.delta > 0 ? '+' : ''}{c.event_trace_summary.delta})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
           {showManualInput && (
             <div className="flex gap-2 items-end border-t border-border/30 pt-2">
               <div className="flex-1">
