@@ -4103,20 +4103,22 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
                       </Badge>
                     ))}
                   </div>
-                  {/* Suppressed items list */}
+                  {/* Suppressed items list — scrollable for long histories */}
                   <div className="rounded-md border border-border/20 bg-muted/10 overflow-hidden">
                     <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/15 bg-muted/20">
                       <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Rec ID</span>
                       <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Reason</span>
                       <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Retained By</span>
                     </div>
-                    {report.suppressed_items.map(item => (
-                      <div key={item.recommendation_id} className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/10 last:border-0">
-                        <span className="text-[8px] font-mono text-muted-foreground/60 truncate">{item.recommendation_id}</span>
-                        <span className="text-[8px] font-mono text-muted-foreground/50 truncate">{item.reason}</span>
-                        <span className="text-[8px] font-mono text-muted-foreground/40 truncate">{item.suppressed_by_recommendation_id || "—"}</span>
-                      </div>
-                    ))}
+                    <div className="max-h-48 overflow-y-auto">
+                      {report.suppressed_items.map(item => (
+                        <div key={item.recommendation_id} className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/10 last:border-0">
+                          <span className="text-[8px] font-mono text-muted-foreground/60 truncate">{item.recommendation_id}</span>
+                          <span className="text-[8px] font-mono text-muted-foreground/50 truncate">{item.reason}</span>
+                          <span className="text-[8px] font-mono text-muted-foreground/40 truncate">{item.suppressed_by_recommendation_id || "—"}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </CollapsibleContent>
               </Collapsible>
