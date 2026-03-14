@@ -981,7 +981,15 @@ function ROIScoreBadge({ score }: { score: number }) {
   return <span className={cn('font-mono text-xs font-bold', color)}>{score.toFixed(1)}</span>;
 }
 
-function ROIDetailBlock({ entry }: { entry: ROIRepairEntry }) {
+function RCLeverageBadge({ advisory }: { advisory: PRP2SRootCauseAdvisory | undefined }) {
+  if (!advisory?.in_cluster || !advisory.root_cause_leverage_label) {
+    return <span className="text-[10px] text-muted-foreground">—</span>;
+  }
+  const label = advisory.root_cause_leverage_label;
+  const color = label === 'high' ? 'text-red-400' : label === 'medium' ? 'text-amber-400' : 'text-muted-foreground';
+  return <span className={cn('font-mono text-[10px] font-bold uppercase', color)}>{label}</span>;
+}
+
   const c = entry.roi_components;
   const s = entry.supporting_signals;
   return (
