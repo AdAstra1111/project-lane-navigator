@@ -3818,6 +3818,8 @@ function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
 // Renders explainability fields: rule_id, threshold_version, trigger_metrics,
 // evidence_summary (execution-recommendations-v1.1).
 
+type TriageStatus = "do_now" | "watch" | "ignore";
+
 function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   projectId: string;
   onNavigateToTrend: (target: TrendNavigationTarget) => void;
@@ -3827,6 +3829,33 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [showSuppressed, setShowSuppressed] = useState(false);
+  const [triageMap, setTriageMap] = useState<Record<string, TriageStatus>>({});
+
+  // Clean stale triage entries when recommendations change
+  const cleanTriageMap = (recs: ExecutionRecommendations) => {
+    const allIds = new Set([
+      ...recs.top_priorities, ...recs.blocker_mitigations, ...recs.repair_type_watchlist,
+      ...recs.source_type_watchlist, ...recs.document_type_watchlist,
+      ...recs.governance_gaps, ...recs.revalidation_gaps, ...recs.suggested_next_actions,
+    ].map(r => r.recommendation_id));
+    setTriageMap(prev => {
+      const next: Record<string, TriageStatus> = {};
+      for (const [id, status] of Object.entries(prev)) {
+        if (allIds.has(id)) next[id] = status;
+      }
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  };
+
+  const toggleTriage = (recId: string, status: TriageStatus) => {
+    setTriageMap(prev => {
+      if (prev[recId] === status) {
+        const { [recId]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [recId]: status };
+    });
+  };
 
   const load = async () => {
     setLoading(true);
@@ -3835,7 +3864,10 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
         fetchPatchExecutionRecommendations(projectId, { limit: 100 }),
         fetchPatchExecutionRecommendationTrends(projectId, { recent_limit: 25, prior_limit: 25 }),
       ]);
-      if (recsRes?.ok) setData(recsRes);
+      if (recsRes?.ok) {
+        setData(recsRes);
+        if (recsRes.recommendations) cleanTriageMap(recsRes.recommendations);
+      }
       if (trendsRes?.ok) setTrendsData(trendsRes);
     } finally {
       setLoading(false);
@@ -3983,10 +4015,46 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
             <span className="font-semibold text-foreground/80">Action:</span> {rec.suggested_action}
           </div>
 
+          {/* Triage controls — only for non-suppressed */}
+          {!suppressed && (
+            <div className="flex items-center gap-1 pt-0.5">
+              {(["do_now", "watch", "ignore"] as const).map(s => {
+                const active = triageMap[rec.recommendation_id] === s;
+                const labels: Record<TriageStatus, string> = { do_now: "Do now", watch: "Watch", ignore: "Ignore" };
+                const colors: Record<TriageStatus, string> = {
+                  do_now: active ? "bg-primary/15 text-primary border-primary/40" : "text-muted-foreground/50 border-border/30 hover:border-primary/30",
+                  watch: active ? "bg-amber-500/10 text-amber-400 border-amber-500/40" : "text-muted-foreground/50 border-border/30 hover:border-amber-500/30",
+                  ignore: active ? "bg-muted/40 text-muted-foreground border-border/50" : "text-muted-foreground/50 border-border/30 hover:border-border/50",
+                };
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => toggleTriage(rec.recommendation_id, s)}
+                    className={cn("text-[8px] font-mono rounded px-1.5 py-0.5 border transition-colors", colors[s])}
+                  >
+                    {labels[s]}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
         </div>
       </div>
     </div>
   )};
+
+  // Triage summary counts
+  const triageCounts = useMemo(() => {
+    const counts = { do_now: 0, watch: 0, ignore: 0 };
+    for (const status of Object.values(triageMap)) {
+      counts[status]++;
+    }
+    return counts;
+  }, [triageMap]);
+
+  const hasAnyTriage = triageCounts.do_now + triageCounts.watch + triageCounts.ignore > 0;
 
   const DisplayBucket = ({ title, icon: Icon, bucketKey }: { title: string; icon: any; bucketKey: RecommendationBucketKey }) => {
     if (!displayResult) return null;
@@ -4107,6 +4175,28 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
               </div>
             )}
 
+            {/* Triage summary strip */}
+            {hasAnyTriage && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[8px] font-mono text-muted-foreground/50 uppercase">Triage:</span>
+                {triageCounts.do_now > 0 && (
+                  <Badge variant="outline" className="text-[8px] font-mono text-primary border-primary/40 bg-primary/10">
+                    {triageCounts.do_now} do now
+                  </Badge>
+                )}
+                {triageCounts.watch > 0 && (
+                  <Badge variant="outline" className="text-[8px] font-mono text-amber-400 border-amber-500/40 bg-amber-500/10">
+                    {triageCounts.watch} watch
+                  </Badge>
+                )}
+                {triageCounts.ignore > 0 && (
+                  <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground border-border/50 bg-muted/30">
+                    {triageCounts.ignore} ignore
+                  </Badge>
+                )}
+              </div>
+            )}
+
             {/* Insufficient history note */}
             {summary && summary.total_snapshots < 3 && (
               <div className="text-[9px] text-muted-foreground italic">
@@ -4130,7 +4220,56 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
               </div>
             )}
 
-            {/* Suppression Audit */}
+            {/* ── Recommendation Action Queue ── */}
+            {hasAnyTriage && displayResult && (
+              <Collapsible defaultOpen>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-0.5">
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <List className="h-3 w-3" />
+                    <span className="font-semibold">Action Queue</span>
+                    <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground border-border/40 ml-1">
+                      {triageCounts.do_now + triageCounts.watch + triageCounts.ignore}
+                    </Badge>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pl-4 pt-1.5 space-y-2">
+                  {(["do_now", "watch", "ignore"] as const).map(status => {
+                    const items = displayResult.all_display.filter(r => triageMap[r.recommendation_id] === status && !r.suppressed);
+                    if (items.length === 0) return null;
+                    const statusLabels: Record<TriageStatus, string> = { do_now: "Do Now", watch: "Watch", ignore: "Ignored" };
+                    const statusColors: Record<TriageStatus, string> = {
+                      do_now: "text-primary border-primary/30",
+                      watch: "text-amber-400 border-amber-500/30",
+                      ignore: "text-muted-foreground/60 border-border/30",
+                    };
+                    return (
+                      <div key={status} className="space-y-1">
+                        <div className={cn("text-[8px] font-mono font-semibold uppercase", statusColors[status].split(" ")[0])}>
+                          {statusLabels[status]} ({items.length})
+                        </div>
+                        {items.map(rec => (
+                          <div key={rec.recommendation_id} className={cn("rounded border px-2 py-1.5 space-y-0.5", statusColors[status].split(" ").slice(1).join(" "), "bg-muted/10")}>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[9px] font-semibold text-foreground">{rec.title}</span>
+                              <Badge variant="outline" className={cn("text-[7px] font-mono shrink-0", sevColor(rec.severity))}>
+                                {rec.severity}
+                              </Badge>
+                              <span className="text-[7px] font-mono text-muted-foreground/40">{rec.rule_id}</span>
+                            </div>
+                            <div className="text-[8px] text-muted-foreground leading-snug border-l-2 border-border/30 pl-1.5">
+                              {rec.suggested_action}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
             {report.suppressed_total > 0 && (
               <Collapsible>
                 <CollapsibleTrigger asChild>
