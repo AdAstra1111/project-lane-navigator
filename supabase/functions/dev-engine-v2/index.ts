@@ -30408,7 +30408,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       // ── STEP 3b: Cross-document execution ordering ──
       // Topological sort from dependency registry, lane ladder fallback, cycle detection
       const { getDirectDependents: execGetDeps } = await import("../_shared/deliverableDependencyRegistry.ts");
-      const { LANE_DOC_LADDERS: execLadders, type LaneKey as ExecLaneKey } = await import("../_shared/documentLadders.ts");
+      const { LANE_DOC_LADDERS: execLadders } = await import("../_shared/documentLadders.ts");
 
       // Resolve lane for ordering
       const { data: orderProject } = await supabase.from("projects").select("format, assigned_lane").eq("id", projectId).maybeSingle();
