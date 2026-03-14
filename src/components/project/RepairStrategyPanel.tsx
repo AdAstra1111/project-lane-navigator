@@ -5239,8 +5239,11 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
       applyNavigation(data);
     }
 
-    // Clear highlight after 3 seconds
-    highlightTimerRef.current = setTimeout(() => setHighlightedEntity(null), 3000);
+    // Clear highlight and empty-target notice after 4 seconds
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedEntity(null);
+      setEmptyTargetNotice(null);
+    }, 4000);
     // Acknowledge navigation target handled
     onTargetHandled();
     return () => {
