@@ -4322,11 +4322,8 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
   const recs = data?.recommendations;
   const summary = recs?.summary;
 
-  // Compute display model via dedup/suppression
-  const displayResult: DisplayRecommendationsResult | null = recs
-    ? dedupeAndSuppressRecommendations(recs)
-    : null;
   // Populate recommended_actions from registry (additive, non-mutating)
+  // displayResult is set once during load — no redundant recomputation
   if (displayResult) {
     for (const rec of displayResult.all_display) {
       populateRecommendedActions(rec);
