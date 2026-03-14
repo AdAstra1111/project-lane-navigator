@@ -18,6 +18,7 @@ import {
   type PatchExecutionHistoryItem, type PatchExecutionHistoryResponse, type PatchExecutionHistoryCursor,
   type PatchExecutionHistoryFilters, type PatchExecutionOutcome,
   type PatchExecutionComparisonResponse, type MetricDiffEntry, type DocumentTimelineDiffEntry,
+  type PatchExecutionAnalyticsResponse, type PatchExecutionAnalytics,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type InterventionAnalysisResult, type InterventionCandidate,
