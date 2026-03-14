@@ -3831,12 +3831,13 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
   const [showSuppressed, setShowSuppressed] = useState(false);
   const [triageMap, setTriageMap] = useState<Record<string, TriageStatus>>({});
 
-  // Clean stale triage entries when data refreshes
-  useEffect(() => {
-    if (!data?.recommendations) return;
-    const allIds = new Set(
-      Object.values(data.recommendations.buckets ?? {}).flat().map((r: any) => r.recommendation_id)
-    );
+  // Clean stale triage entries when recommendations change
+  const cleanTriageMap = (recs: ExecutionRecommendations) => {
+    const allIds = new Set([
+      ...recs.top_priorities, ...recs.blocker_mitigations, ...recs.repair_type_watchlist,
+      ...recs.source_type_watchlist, ...recs.document_type_watchlist,
+      ...recs.governance_gaps, ...recs.revalidation_gaps, ...recs.suggested_next_actions,
+    ].map(r => r.recommendation_id));
     setTriageMap(prev => {
       const next: Record<string, TriageStatus> = {};
       for (const [id, status] of Object.entries(prev)) {
@@ -3844,7 +3845,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
       }
       return Object.keys(next).length === Object.keys(prev).length ? prev : next;
     });
-  }, [data]);
+  };
 
   const toggleTriage = (recId: string, status: TriageStatus) => {
     setTriageMap(prev => {
