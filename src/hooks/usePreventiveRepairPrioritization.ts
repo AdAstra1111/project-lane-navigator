@@ -264,6 +264,56 @@ export interface RootCauseAnalysisResult {
   version: string;
 }
 
+// ── Intervention Engine types (compute_intervention_candidates response contract) ──
+
+export interface InterventionSupportingSignals {
+  prevented_downstream_pressure: number | null;
+  projected_stability_gain: number | null;
+  execution_friction: number | null;
+  blast_radius: number | null;
+  cluster_combined_pressure: number | null;
+  cluster_confidence: number | null;
+  cluster_repair_count: number | null;
+}
+
+export interface InterventionCandidate {
+  repair_id: string;
+  repair_type: string;
+  scope_type: string | null;
+  scope_key: string | null;
+  strategic_rank: number;
+  roi_rank: number | null;
+  root_cause_rank: number | null;
+  strategic_priority_score: number;
+  intervention_roi_score: number | null;
+  root_cause_leverage_score: number | null;
+  intervention_score: number;
+  intervention_label: "high" | "medium" | "low";
+  supporting_signals: InterventionSupportingSignals;
+  rationale_tags: string[];
+  rationale_summary: string;
+}
+
+export interface InterventionScoringNotes {
+  integration_mode: string;
+  formula_reference: string;
+  rank_definition: string;
+  anti_double_counting_notes: string;
+  label_thresholds: string;
+}
+
+export interface InterventionAnalysisResult {
+  ok: boolean;
+  action: string;
+  project_id: string;
+  candidate_count: number;
+  recommended_intervention_repair_id: string | null;
+  interventions: InterventionCandidate[];
+  computed_at: string;
+  version: string;
+  scoring_notes: InterventionScoringNotes;
+}
+
 async function fetchPRP1(projectId: string): Promise<PRP1Data> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Authentication required');
