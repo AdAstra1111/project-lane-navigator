@@ -1055,6 +1055,194 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
+/* ── Intervention Candidates Section ── */
+
+function InterventionLabelBadge({ label }: { label: "high" | "medium" | "low" }) {
+  const color = label === 'high' ? 'text-red-400' : label === 'medium' ? 'text-amber-400' : 'text-muted-foreground';
+  return <span className={cn('font-mono text-[10px] font-bold uppercase', color)}>{label}</span>;
+}
+
+function InterventionCandidatesSection({ iv, ivLoading }: { iv: InterventionAnalysisResult | null; ivLoading: boolean }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <Target className="h-3.5 w-3.5" /> Interventions
+        </h3>
+        {iv && (
+          <Badge variant="secondary" className="text-[9px] font-mono">
+            {iv.version}
+          </Badge>
+        )}
+      </div>
+
+      {/* Advisory notice */}
+      <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+        <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="text-[10px] text-muted-foreground">
+          Intervention score is advisory-only and does <strong>not</strong> modify PRP2S strategic scoring.
+          It combines strategic priority (40%), ROI (30%), and root-cause leverage (30%).
+        </span>
+      </div>
+
+      {ivLoading ? (
+        <Skeleton className="h-32 w-full rounded-md" />
+      ) : !iv ? (
+        <Card className="border-border/50">
+          <CardContent className="py-6 text-center">
+            <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+            <p className="text-xs text-muted-foreground">Intervention analysis unavailable.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* Recommended intervention card */}
+          {iv.recommended_intervention_repair_id && iv.interventions.length > 0 && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Star className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-semibold text-foreground">Recommended Intervention</span>
+                    </div>
+                    <p className="font-mono text-xs text-foreground">{iv.interventions[0].repair_type}</p>
+                  </div>
+                  <div className="flex gap-3 text-right shrink-0">
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block">Intervention</span>
+                      <span className="font-mono text-sm font-bold text-foreground">{iv.interventions[0].intervention_score.toFixed(1)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-muted-foreground block">Label</span>
+                      <InterventionLabelBadge label={iv.interventions[0].intervention_label} />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1 border-t border-border/30 pt-2">
+                  {iv.interventions[0].rationale_tags.map(t => (
+                    <Badge key={t} variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{t}</Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Ranked interventions table */}
+          {iv.interventions.length === 0 ? (
+            <Card className="border-border/50">
+              <CardContent className="py-6 text-center">
+                <p className="text-xs text-muted-foreground">No intervention candidates.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-border/50">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-border/50">
+                        <TableHead className="text-xs w-[40px]">#</TableHead>
+                        <TableHead className="text-xs">Repair</TableHead>
+                        <TableHead className="text-xs w-[70px]">IV Score</TableHead>
+                        <TableHead className="text-xs w-[55px]">Strat #</TableHead>
+                        <TableHead className="text-xs w-[55px]">ROI #</TableHead>
+                        <TableHead className="text-xs w-[50px]">RC #</TableHead>
+                        <TableHead className="text-xs w-[55px]">Label</TableHead>
+                        <TableHead className="text-xs w-[30px]" />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {iv.interventions.map((c, idx) => {
+                        const isExpanded = expandedId === c.repair_id;
+                        const isTop = c.repair_id === iv.recommended_intervention_repair_id;
+                        return (
+                          <Fragment key={c.repair_id}>
+                            <TableRow
+                              className={cn(
+                                'cursor-pointer hover:bg-muted/30 transition-colors border-border/30',
+                                isTop && 'bg-primary/5'
+                              )}
+                              onClick={() => setExpandedId(isExpanded ? null : c.repair_id)}
+                            >
+                              <TableCell className="font-mono text-xs text-center">{idx + 1}</TableCell>
+                              <TableCell className="font-mono text-xs truncate max-w-[140px]">
+                                {c.repair_type}
+                                {isTop && <Star className="h-3 w-3 text-primary inline ml-1" />}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs text-center font-bold">{c.intervention_score.toFixed(1)}</TableCell>
+                              <TableCell className="font-mono text-xs text-center text-muted-foreground">{c.strategic_rank}</TableCell>
+                              <TableCell className="font-mono text-xs text-center text-muted-foreground">{c.roi_rank ?? '—'}</TableCell>
+                              <TableCell className="font-mono text-xs text-center text-muted-foreground">{c.root_cause_rank ?? '—'}</TableCell>
+                              <TableCell className="text-center"><InterventionLabelBadge label={c.intervention_label} /></TableCell>
+                              <TableCell className="text-center">
+                                {isExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+                              </TableCell>
+                            </TableRow>
+                            {isExpanded && (
+                              <TableRow key={`${c.repair_id}-iv-detail`} className="border-border/30 bg-muted/10">
+                                <TableCell colSpan={8} className="p-3">
+                                  <InterventionDetail candidate={c} />
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function InterventionDetail({ candidate: c }: { candidate: InterventionCandidate }) {
+  const s = c.supporting_signals;
+  return (
+    <div className="space-y-4 text-[11px]">
+      <div className="space-y-1.5">
+        <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Composite Scores</h5>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 pl-1">
+          <Detail label="Strategic Priority" value={c.strategic_priority_score.toFixed(2)} />
+          <Detail label="ROI Score" value={c.intervention_roi_score?.toFixed(1) ?? '—'} />
+          <Detail label="RC Leverage" value={c.root_cause_leverage_score?.toFixed(1) ?? '—'} />
+          <Detail label="Intervention" value={c.intervention_score.toFixed(1)} />
+        </div>
+      </div>
+      <div className="space-y-1.5 border-t border-border/30 pt-3">
+        <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Supporting Signals</h5>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 pl-1">
+          <Detail label="Prev. Downstream" value={s.prevented_downstream_pressure?.toFixed(1) ?? '—'} />
+          <Detail label="Stability Gain" value={s.projected_stability_gain?.toFixed(1) ?? '—'} />
+          <Detail label="Exec. Friction" value={s.execution_friction?.toFixed(1) ?? '—'} />
+          <Detail label="Blast Radius" value={s.blast_radius?.toFixed(1) ?? '—'} />
+          <Detail label="Cluster Pressure" value={s.cluster_combined_pressure?.toFixed(2) ?? '—'} />
+          <Detail label="Cluster Confidence" value={s.cluster_confidence != null ? `${Math.round(s.cluster_confidence * 100)}%` : '—'} />
+          <Detail label="Cluster Size" value={String(s.cluster_repair_count ?? '—')} />
+        </div>
+      </div>
+      {c.rationale_tags.length > 0 && (
+        <div className="space-y-1.5 border-t border-border/30 pt-3">
+          <h5 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Rationale</h5>
+          <div className="flex flex-wrap gap-1">
+            {c.rationale_tags.map(t => (
+              <Badge key={t} variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{t}</Badge>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground italic pl-1">{c.rationale_summary}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Root Cause Clusters Section ── */
 
 function RootCauseClustersSection({ rcc, rccLoading }: { rcc: RootCauseAnalysisResult | null; rccLoading: boolean }) {
