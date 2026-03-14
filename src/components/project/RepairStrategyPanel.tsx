@@ -3878,6 +3878,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
 
   const RecCard = ({ rec, suppressed }: { rec: DisplayRecommendation; suppressed?: boolean }) => {
     const linkage = resolveRecommendationTrendLinkage(rec, trends);
+    const navTarget = linkage.status !== "unavailable" ? resolveTrendNavigationTarget(linkage.source_key) : null;
     return (
     <div className={cn(
       "rounded-md border px-3 py-2 space-y-1.5",
