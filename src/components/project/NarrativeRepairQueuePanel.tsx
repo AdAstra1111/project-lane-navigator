@@ -233,13 +233,43 @@ export function NarrativeRepairQueuePanel({ projectId, landingContext, onDismiss
           </div>
         )}
 
-        {/* Counts */}
-        <div className="flex flex-wrap gap-3 text-xs">
-          <span className="text-muted-foreground">Pending: <span className="font-semibold text-foreground">{pendingCount}</span></span>
-          {failedCount > 0 && (
-            <span className="text-destructive">Failed: <span className="font-semibold">{failedCount}</span></span>
-          )}
-        </div>
+        {/* Repair Outcome Observability */}
+        {allRepairs.length > 0 && (() => {
+          const completed = allRepairs.filter(r => r.status === 'completed').length;
+          const failed = allRepairs.filter(r => r.status === 'failed').length;
+          const blocked = allRepairs.filter(r => r.status === 'skipped' || r.status === 'dismissed').length;
+          const activeCount = allRepairs.filter(r => ['pending', 'planned', 'approved', 'queued', 'in_progress'].includes(r.status)).length;
+          const resolved = completed + failed;
+          const successRate = resolved > 0 ? Math.round((completed / resolved) * 100) : null;
+          return (
+            <div className="flex items-center gap-1.5 flex-wrap py-1 px-2 rounded border border-border/30 bg-muted/10">
+              <span className="text-[7px] font-mono text-muted-foreground/50 uppercase tracking-wider">Repairs</span>
+              <Badge variant="outline" className="text-[7px] font-mono text-emerald-400 border-emerald-500/30 bg-emerald-500/5">
+                {completed} completed
+              </Badge>
+              {failed > 0 && (
+                <Badge variant="outline" className="text-[7px] font-mono text-red-400 border-red-500/30 bg-red-500/5">
+                  {failed} failed
+                </Badge>
+              )}
+              {blocked > 0 && (
+                <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground border-border/40 bg-muted/10">
+                  {blocked} blocked
+                </Badge>
+              )}
+              <Badge variant="outline" className="text-[7px] font-mono text-primary border-primary/30 bg-primary/5">
+                {activeCount} active
+              </Badge>
+              {successRate !== null && (
+                <Badge variant="outline" className={cn("text-[7px] font-mono border-border/30",
+                  successRate >= 80 ? "text-emerald-400 bg-emerald-500/5" : successRate >= 50 ? "text-amber-400 bg-amber-500/5" : "text-red-400 bg-red-500/5"
+                )}>
+                  {successRate}% success
+                </Badge>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Exec error */}
         {execHook.error && (
