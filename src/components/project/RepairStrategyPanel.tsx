@@ -4339,7 +4339,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                       <p className="text-[9px] text-muted-foreground/50 italic">No triaged recommendations yet.</p>
                     ) : (
                       <>
-                        <MemoExportButtons buildPlain={buildPlain} buildMarkdown={buildMarkdown} />
+                        <MemoExportBtns buildPlain={buildPlain} buildMarkdown={buildMarkdown} />
                         <div className="rounded-md border border-border/30 bg-muted/10 px-3 py-2 space-y-2">
                           {buckets.map(b => (
                             <div key={b.status} className="space-y-1">
