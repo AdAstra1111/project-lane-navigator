@@ -199,6 +199,32 @@ export function NarrativeRepairQueuePanel({ projectId, landingContext, onDismiss
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {/* Landing context notice from Action Queue routing */}
+        {landingContext && (
+          <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 animate-in fade-in slide-in-from-top-1 duration-300">
+            <ArrowRight className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+            <div className="flex-1 space-y-0.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-medium text-foreground">Routed from Action Queue</span>
+                <Badge variant="outline" className="text-[7px] font-mono">{landingContext.severity.toUpperCase()}</Badge>
+                <span className="text-[8px] font-mono text-muted-foreground">{landingContext.rule_id}</span>
+              </div>
+              <p className="text-[10px] font-semibold text-foreground">{landingContext.title}</p>
+              <p className="text-[9px] text-muted-foreground leading-snug">{landingContext.suggested_action}</p>
+            </div>
+            {onDismissLandingContext && (
+              <button
+                type="button"
+                onClick={onDismissLandingContext}
+                className="text-muted-foreground hover:text-foreground transition-colors shrink-0 mt-0.5"
+                title="Dismiss"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Plan error */}
         {planError && (
           <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
