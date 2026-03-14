@@ -3913,7 +3913,9 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     const linkage = resolveRecommendationTrendLinkage(rec, trends);
     const navTarget = linkage.status !== "unavailable" ? resolveTrendNavigationTarget(linkage.source_key) : null;
     return (
-    <div className={cn(
+    <div
+      ref={(el) => { cardRefs.current[rec.recommendation_id] = el; }}
+      className={cn(
       "rounded-md border px-3 py-2 space-y-1.5",
       suppressed
         ? "border-border/20 bg-muted/10 opacity-50"
