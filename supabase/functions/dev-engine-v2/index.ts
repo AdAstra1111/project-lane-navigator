@@ -1417,6 +1417,14 @@ You are operating in EDITORIAL MODE.
 - Focus ONLY on improving the current deliverable within its declared format and lane.
 You are an editor, not a strategist, in this mode.
 
+SCREENPLAY FORMAT PROHIBITION (applies to ALL non-script deliverables):
+Unless the deliverable is explicitly a script (feature_script, episode_script, season_script, production_draft), do NOT use:
+- INT./EXT. scene headings / sluglines
+- Character name cues (NAME on its own line above dialogue)
+- Parenthetical action directions in screenplay format
+- Formatted dialogue blocks
+Development documents (concept_brief, treatment, story_outline, character_bible, beat_sheet, market_sheet, deck) must be written in prose or structured text — NEVER screenplay format.
+
 FORMAT DOCUMENT LADDER (these are the ONLY valid document types for this project's format):
 ${ladderStr}
 CRITICAL: Do NOT reference, recommend, or generate notes about document types outside this ladder.
@@ -1542,7 +1550,7 @@ function buildRewriteSystem(deliverable: string, format: string, behavior: strin
 
   // Story outline prose enforcement — must not produce screenplay format
   let storyOutlineEnforcement = "";
-  if (deliverable === "story_outline") {
+  if (deliverable === "story_outline" || deliverable === "architecture" || deliverable === "ARCHITECTURE") {
     storyOutlineEnforcement = `\n\nSTORY OUTLINE FORMAT (MANDATORY — violations cause rejection):
 - Output MUST be written in present-tense PROSE paragraphs. This is NOT a screenplay.
 - Do NOT use INT./EXT. sluglines or scene headings.
