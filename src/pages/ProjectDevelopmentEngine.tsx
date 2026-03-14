@@ -315,8 +315,9 @@ export default function ProjectDevelopmentEngine() {
           .order('chunk_index', { ascending: true });
 
         if (chunks && chunks.length > 0) {
-          const allDone = chunks.every((c: any) => c.status === 'done');
-          if (allDone) {
+          const TERMINAL_STATUSES = new Set(['done', 'failed', 'failed_validation', 'error', 'needs_regen', 'skipped']);
+          const allTerminal = chunks.every((c: any) => TERMINAL_STATUSES.has(c.status));
+          if (allTerminal) {
             const assembled = chunks
               .filter((c: any) => c.content)
               .map((c: any) => c.content)
@@ -333,6 +334,17 @@ export default function ProjectDevelopmentEngine() {
               });
               // Also trigger a real refresh to get the final server version
               setTimeout(() => qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] }), 3000);
+            } else {
+              // All chunks terminal but no content assembled — still clear bg_generating to unstick UI
+              qc.setQueryData(['dev-v2-versions', selectedDocId], (old: any) => {
+                if (!Array.isArray(old)) return old;
+                return old.map((v: any) =>
+                  v.id === selectedVersionId
+                    ? { ...v, meta_json: { ...v.meta_json, bg_generating: false } }
+                    : v
+                );
+              });
+              setTimeout(() => qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] }), 2000);
             }
           }
         }
