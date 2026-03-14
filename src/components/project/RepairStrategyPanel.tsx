@@ -3821,47 +3821,64 @@ function ExecutionAnalyticsSection({ projectId }: { projectId: string }) {
 
 type TriageStatus = "do_now" | "watch" | "ignore";
 type ChangeStatus = "new" | "resolved" | "worsened" | "improved" | "unchanged";
-interface ChangeEntry { change_status: ChangeStatus; previous_severity?: string; current_severity?: string; title?: string; rule_id?: string; }
+interface ChangeEntry { change_status: ChangeStatus; previous_severity?: string; current_severity?: string; title?: string; rule_id?: string; comparison_key?: string; }
+
+/** Derive a stable comparison key from category + rule_id. Positional recommendation_id (top_001 etc.) is NOT stable across runs when the set changes. */
+function deriveComparisonKey(rec: { category?: string; rule_id?: string; recommendation_id: string }): string {
+  if (rec.category && rec.rule_id) return `${rec.category}::${rec.rule_id}`;
+  return rec.recommendation_id; // fallback
+}
 
 const SEV_ORDER: Record<string, number> = { high: 2, medium: 1, low: 0 };
 
+interface SnapshotItem { recommendation_id: string; comparison_key?: string; severity: string; suppressed?: boolean; title?: string; rule_id?: string; category?: string; }
+
 function computeChangeMap(
   currentRecs: DisplayRecommendation[],
-  previousSnapshot: { recommendation_id: string; severity: string; suppressed?: boolean; title?: string; rule_id?: string }[] | null,
+  previousSnapshot: SnapshotItem[] | null,
 ): Record<string, ChangeEntry> {
   const map: Record<string, ChangeEntry> = {};
   if (!previousSnapshot) return map; // first run — no changes
 
-  const prevMap = new Map(previousSnapshot.map(r => [r.recommendation_id, r]));
-  const currentIds = new Set<string>();
+  // Build previous map keyed by comparison_key (falls back to recommendation_id for legacy snapshots)
+  const prevMap = new Map<string, SnapshotItem>();
+  for (const r of previousSnapshot) {
+    const key = r.comparison_key || deriveComparisonKey(r);
+    prevMap.set(key, r);
+  }
+  const currentKeys = new Set<string>();
 
   for (const rec of currentRecs) {
     if (rec.suppressed) continue;
-    currentIds.add(rec.recommendation_id);
-    const prev = prevMap.get(rec.recommendation_id);
+    const key = deriveComparisonKey(rec);
+    currentKeys.add(key);
+    // Map back to recommendation_id for UI badge lookups
+    const prev = prevMap.get(key);
     if (!prev) {
-      map[rec.recommendation_id] = { change_status: "new", current_severity: rec.severity };
+      map[rec.recommendation_id] = { change_status: "new", current_severity: rec.severity, comparison_key: key };
     } else {
       const prevSev = SEV_ORDER[prev.severity] ?? 0;
       const curSev = SEV_ORDER[rec.severity] ?? 0;
       if (curSev > prevSev) {
-        map[rec.recommendation_id] = { change_status: "worsened", previous_severity: prev.severity, current_severity: rec.severity };
+        map[rec.recommendation_id] = { change_status: "worsened", previous_severity: prev.severity, current_severity: rec.severity, comparison_key: key };
       } else if (curSev < prevSev) {
-        map[rec.recommendation_id] = { change_status: "improved", previous_severity: prev.severity, current_severity: rec.severity };
+        map[rec.recommendation_id] = { change_status: "improved", previous_severity: prev.severity, current_severity: rec.severity, comparison_key: key };
       } else {
-        map[rec.recommendation_id] = { change_status: "unchanged", previous_severity: prev.severity, current_severity: rec.severity };
+        map[rec.recommendation_id] = { change_status: "unchanged", previous_severity: prev.severity, current_severity: rec.severity, comparison_key: key };
       }
     }
   }
 
-  // Resolved: existed previously (not suppressed) but not in current
+  // Resolved: existed previously (not suppressed) but not in current set
   for (const prev of previousSnapshot) {
-    if (!currentIds.has(prev.recommendation_id) && !prev.suppressed) {
-      map[prev.recommendation_id] = {
+    const key = prev.comparison_key || deriveComparisonKey(prev);
+    if (!currentKeys.has(key) && !prev.suppressed) {
+      map[key] = {
         change_status: "resolved",
         previous_severity: prev.severity,
-        title: (prev as any).title,
-        rule_id: (prev as any).rule_id,
+        title: prev.title,
+        rule_id: prev.rule_id,
+        comparison_key: key,
       };
     }
   }
@@ -3995,36 +4012,38 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
         const runId = recsRes.computed_at || new Date().toISOString();
         const displayModel = dedupeAndSuppressRecommendations(recsRes.recommendations);
         if (displayModel) {
-          // Build minimal snapshot for storage
-          const snapshotItems = displayModel.all_display
+          // Build minimal snapshot for storage — includes comparison_key for stable identity
+          const snapshotItems: SnapshotItem[] = displayModel.all_display
             .filter(r => !r.suppressed)
             .map(r => ({
               recommendation_id: r.recommendation_id,
+              comparison_key: deriveComparisonKey(r),
               severity: r.severity,
-              confidence: r.confidence,
               rule_id: r.rule_id,
+              category: r.category,
               suppressed: false,
               title: r.title,
             }));
 
-          // Fetch previous snapshot
+          // Fetch previous snapshot — EXCLUDE current run_id to prevent self-comparison
           const { data: prevRows } = await supabase
             .from('execution_recommendation_runs')
             .select('recommendations_snapshot')
             .eq('project_id', projectId)
+            .neq('run_id', runId)
             .order('created_at', { ascending: false })
             .limit(1);
 
-          const prevSnapshot = prevRows?.[0]?.recommendations_snapshot as { recommendations?: any[] } | null;
+          const prevSnapshot = prevRows?.[0]?.recommendations_snapshot as { recommendations?: SnapshotItem[] } | null;
           const prevRecs = prevSnapshot?.recommendations ?? null;
 
           // Compute change map
           const changes = computeChangeMap(displayModel.all_display, prevRecs);
           setChangeMap(changes);
 
-          // Persist current snapshot (upsert by run_id)
-          await supabase
-            .from('execution_recommendation_runs')
+          // Persist current snapshot idempotently (upsert by run_id)
+          await (supabase
+            .from('execution_recommendation_runs') as any)
             .upsert({
               project_id: projectId,
               run_id: runId,
