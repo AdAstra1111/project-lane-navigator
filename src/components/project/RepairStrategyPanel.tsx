@@ -3186,6 +3186,44 @@ function ExecutionReplaySection({
                         </span>
                       )}
                     </div>
+
+                    {/* Causal comparison notes */}
+                    {compareResult.comparison_notes && (() => {
+                      const cn2 = compareResult.comparison_notes as any;
+                      const hasCausalData = cn2.first_causal_divergence || cn2.root_blocker || cn2.new_blockers?.length > 0 || cn2.resolved_blockers?.length > 0;
+                      if (!hasCausalData) return null;
+                      return (
+                        <div>
+                          <div className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">Causal Analysis</div>
+                          <div className="space-y-1">
+                            {cn2.first_causal_divergence && (
+                              <div className="text-[9px]">
+                                <span className="text-muted-foreground">First divergence: </span>
+                                <span className="font-mono text-amber-400">{cn2.first_causal_divergence.reason}</span>
+                              </div>
+                            )}
+                            {cn2.root_blocker && (
+                              <div className="text-[9px]">
+                                <span className="text-muted-foreground">Root blocker: </span>
+                                <span className="font-mono text-red-400">{cn2.root_blocker.from_node} → {cn2.root_blocker.to_node}</span>
+                              </div>
+                            )}
+                            {cn2.new_blockers?.length > 0 && (
+                              <div className="text-[9px]">
+                                <span className="text-muted-foreground">New blockers: </span>
+                                <span className="font-mono text-red-400">{cn2.new_blockers.join(', ')}</span>
+                              </div>
+                            )}
+                            {cn2.resolved_blockers?.length > 0 && (
+                              <div className="text-[9px]">
+                                <span className="text-muted-foreground">Resolved blockers: </span>
+                                <span className="font-mono text-emerald-400">{cn2.resolved_blockers.join(', ')}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
