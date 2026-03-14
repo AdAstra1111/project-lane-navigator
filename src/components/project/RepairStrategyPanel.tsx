@@ -4046,14 +4046,16 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
     </div>
   )};
 
-  // Triage summary counts
+  // Triage summary counts — visible non-suppressed only
   const triageCounts = useMemo(() => {
     const counts = { do_now: 0, watch: 0, ignore: 0 };
-    for (const status of Object.values(triageMap)) {
-      counts[status]++;
+    if (!displayResult) return counts;
+    const visibleIds = new Set(displayResult.all_display.filter(r => !r.suppressed).map(r => r.recommendation_id));
+    for (const [id, status] of Object.entries(triageMap)) {
+      if (visibleIds.has(id)) counts[status]++;
     }
     return counts;
-  }, [triageMap]);
+  }, [triageMap, displayResult]);
 
   const hasAnyTriage = triageCounts.do_now + triageCounts.watch + triageCounts.ignore > 0;
 
