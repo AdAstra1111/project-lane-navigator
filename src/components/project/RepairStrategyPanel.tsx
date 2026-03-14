@@ -3990,6 +3990,47 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
       if (recsRes?.ok) {
         setData(recsRes);
         if (recsRes.recommendations) cleanTriageMap(recsRes.recommendations);
+
+        // Change detection: compare with previous run
+        const runId = recsRes.computed_at || new Date().toISOString();
+        const displayModel = dedupeAndSuppressRecommendations(recsRes.recommendations);
+        if (displayModel) {
+          // Build minimal snapshot for storage
+          const snapshotItems = displayModel.all_display
+            .filter(r => !r.suppressed)
+            .map(r => ({
+              recommendation_id: r.recommendation_id,
+              severity: r.severity,
+              confidence: r.confidence,
+              rule_id: r.rule_id,
+              suppressed: false,
+              title: r.title,
+            }));
+
+          // Fetch previous snapshot
+          const { data: prevRows } = await supabase
+            .from('execution_recommendation_runs')
+            .select('recommendations_snapshot')
+            .eq('project_id', projectId)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          const prevSnapshot = prevRows?.[0]?.recommendations_snapshot as { recommendations?: any[] } | null;
+          const prevRecs = prevSnapshot?.recommendations ?? null;
+
+          // Compute change map
+          const changes = computeChangeMap(displayModel.all_display, prevRecs);
+          setChangeMap(changes);
+
+          // Persist current snapshot (upsert by run_id)
+          await supabase
+            .from('execution_recommendation_runs')
+            .upsert({
+              project_id: projectId,
+              run_id: runId,
+              recommendations_snapshot: { recommendations: snapshotItems },
+            }, { onConflict: 'project_id,run_id' });
+        }
       }
       if (trendsRes?.ok) setTrendsData(trendsRes);
     } finally {
