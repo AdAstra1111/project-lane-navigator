@@ -4866,7 +4866,7 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend, onRoute
 
               return (
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[8px] font-mono text-muted-foreground/40 uppercase">Bulk:</span>
+                  <span className="text-[8px] font-mono text-muted-foreground/40 uppercase">Bulk:{hasActiveAqFilters && <span className="text-primary/60 ml-0.5 normal-case">(filtered)</span>}</span>
                   <button
                     disabled={!canDoNow || highItems.length === 0}
                     onClick={() => applyBulk(highItems, "do_now")}
