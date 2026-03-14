@@ -4403,6 +4403,26 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
             <span className="font-semibold text-foreground/80">Action:</span> {rec.suggested_action}
           </div>
 
+          {/* Recommended actions — structured non-mutating inspection buttons */}
+          {rec.recommended_actions && rec.recommended_actions.length > 0 && !suppressed && (
+            <div className="flex items-center gap-1 flex-wrap">
+              {rec.recommended_actions.filter(a => !a.destructive).map((action, i) => (
+                <button
+                  key={`${action.action_type}-${i}`}
+                  type="button"
+                  className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-primary/30 bg-primary/5 text-primary/80 hover:text-primary hover:bg-primary/10 transition-colors"
+                  title={`${action.action_type}: ${JSON.stringify(action.params)}`}
+                  onClick={() => {
+                    // Future: dispatch action to inspection handler
+                    console.log('[IFFY action]', action.action_type, action.params);
+                  }}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Triage controls — only for non-suppressed */}
           {!suppressed && (
             <div className="flex items-center gap-1 pt-0.5">
