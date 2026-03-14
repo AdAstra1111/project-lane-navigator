@@ -31055,7 +31055,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       if (shouldRunGovernance) {
         try {
           const { invalidateDescendants } = await import("../_shared/unifiedNoteControl.ts");
-          const { getLaneLadder, type LaneKey } = await import("../_shared/documentLadders.ts");
+          const { getLaneLadder } = await import("../_shared/documentLadders.ts");
           const { getInvalidationPlan } = await import("../_shared/deliverableDependencyRegistry.ts");
           const { emitTransition } = await import("../_shared/transitionLedger.ts");
 
