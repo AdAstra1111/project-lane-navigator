@@ -70,9 +70,16 @@ import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 
+export interface RepairLandingContext {
+  title: string;
+  rule_id: string;
+  severity: string;
+  suggested_action: string;
+}
+
 interface Props {
   projectId: string | undefined;
-  onRouteToRepairs?: () => void;
+  onRouteToRepairs?: (ctx: RepairLandingContext) => void;
 }
 
 /* ── Pressure color helpers ── */
