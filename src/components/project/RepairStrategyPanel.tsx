@@ -3817,6 +3817,7 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
   const [data, setData] = useState<PatchExecutionRecommendationsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [showSuppressed, setShowSuppressed] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -3832,6 +3833,12 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
   const recs = data?.recommendations;
   const summary = recs?.summary;
 
+  // Compute display model via dedup/suppression
+  const displayResult: DisplayRecommendationsResult | null = recs
+    ? dedupeAndSuppressRecommendations(recs)
+    : null;
+  const report = displayResult?.suppression_report;
+
   const sevColor = (s: ExecutionRecommendation["severity"]) =>
     s === "high" ? "text-red-400 border-red-500/30" :
     s === "medium" ? "text-amber-400 border-amber-500/30" :
@@ -3840,13 +3847,18 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
   const sevDot = (s: ExecutionRecommendation["severity"]) =>
     s === "high" ? "bg-red-400" : s === "medium" ? "bg-amber-400" : "bg-muted-foreground";
 
-  const RecCard = ({ rec }: { rec: ExecutionRecommendation }) => (
-    <div className="rounded-md border border-border/40 bg-muted/20 px-3 py-2 space-y-1.5">
+  const RecCard = ({ rec, suppressed }: { rec: DisplayRecommendation; suppressed?: boolean }) => (
+    <div className={cn(
+      "rounded-md border px-3 py-2 space-y-1.5",
+      suppressed
+        ? "border-border/20 bg-muted/10 opacity-50"
+        : "border-border/40 bg-muted/20",
+    )}>
       <div className="flex items-start gap-2">
         <div className={cn("mt-1 h-1.5 w-1.5 rounded-full shrink-0", sevDot(rec.severity))} />
         <div className="flex-1 min-w-0 space-y-1">
 
-          {/* Title + severity + confidence */}
+          {/* Title + severity + confidence + suppressed badge */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[10px] font-semibold text-foreground">{rec.title}</span>
             <Badge variant="outline" className={cn("text-[8px] font-mono shrink-0", sevColor(rec.severity))}>
@@ -3855,9 +3867,26 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
             <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground/70 border-border/30 shrink-0">
               {rec.confidence} confidence
             </Badge>
+            {suppressed && (
+              <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/30 bg-muted/40 shrink-0">
+                SUPPRESSED
+              </Badge>
+            )}
+            {suppressed && rec.suppression_reason && (
+              <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/40 border-border/20 shrink-0">
+                {rec.suppression_reason}
+              </Badge>
+            )}
           </div>
 
-          {/* Rule metadata row: rule_id + threshold_version */}
+          {/* Suppressed-by line */}
+          {suppressed && rec.suppressed_by && (
+            <div className="text-[8px] font-mono text-muted-foreground/40">
+              retained by: {rec.suppressed_by}
+            </div>
+          )}
+
+          {/* Rule metadata row */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[8px] font-mono text-muted-foreground/50 bg-muted/40 border border-border/20 rounded px-1 py-0.5">
               {rec.rule_id}
@@ -3870,7 +3899,7 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
           {/* Rationale */}
           <p className="text-[9px] text-muted-foreground leading-snug">{rec.rationale}</p>
 
-          {/* Evidence summary — deterministic bullets */}
+          {/* Evidence summary */}
           {rec.evidence_summary && rec.evidence_summary.length > 0 && (
             <ul className="space-y-0.5">
               {rec.evidence_summary.map((line, i) => (
@@ -3882,7 +3911,7 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
             </ul>
           )}
 
-          {/* Trigger metrics — compact key:value chips (up to 4) */}
+          {/* Trigger metrics */}
           {rec.trigger_metrics && Object.keys(rec.trigger_metrics).length > 0 && (
             <div className="flex flex-wrap gap-1">
               {Object.entries(rec.trigger_metrics).slice(0, 4).map(([k, v]) => (
@@ -3903,24 +3932,34 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
     </div>
   );
 
-  const Bucket = ({ title, icon: Icon, items }: { title: string; icon: any; items: ExecutionRecommendation[] }) => {
-    if (!items || items.length === 0) return null;
+  const DisplayBucket = ({ title, icon: Icon, bucketKey }: { title: string; icon: any; bucketKey: RecommendationBucketKey }) => {
+    if (!displayResult) return null;
+    const allItems = displayResult.display_buckets[bucketKey];
+    const visible = showSuppressed ? allItems : allItems.filter(d => !d.suppressed);
+    if (visible.length === 0) return null;
+    const activeCount = allItems.filter(d => !d.suppressed).length;
+    const suppressedCount = allItems.filter(d => d.suppressed).length;
     return (
-      <Collapsible defaultOpen={items.some(r => r.severity === "high")}>
+      <Collapsible defaultOpen={visible.some(r => !r.suppressed && r.severity === "high")}>
         <CollapsibleTrigger asChild>
           <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-0.5">
             <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
             <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
             <Icon className="h-3 w-3" />
             <span className="font-semibold">{title}</span>
-            <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground border-border/40 ml-1">{items.length}</Badge>
-            {items.some(r => r.severity === "high") && (
+            <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground border-border/40 ml-1">{activeCount}</Badge>
+            {suppressedCount > 0 && (
+              <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/40 border-border/20 ml-0.5">
+                +{suppressedCount} suppressed
+              </Badge>
+            )}
+            {visible.some(r => !r.suppressed && r.severity === "high") && (
               <Badge variant="outline" className="text-[8px] font-mono text-red-400 border-red-500/30 ml-0.5">HIGH</Badge>
             )}
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent className="space-y-1.5 pt-1.5 pl-4">
-          {items.map(rec => <RecCard key={rec.recommendation_id} rec={rec} />)}
+          {visible.map(rec => <RecCard key={rec.recommendation_id} rec={rec} suppressed={rec.suppressed} />)}
         </CollapsibleContent>
       </Collapsible>
     );
@@ -3967,23 +4006,45 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
           <div className="text-[10px] text-muted-foreground italic">No recommendation data available.</div>
         )}
 
-        {recs && (
+        {recs && displayResult && report && (
           <div className="space-y-3">
-            {/* Summary row */}
+            {/* Summary row + suppression audit strip */}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[9px] text-muted-foreground font-mono">{summary?.total_snapshots} snapshots analysed</span>
+              <span className="text-[9px] text-muted-foreground font-mono">{summary?.total_snapshots} snapshots</span>
+              <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground border-border/40">
+                {report.display_total} display
+              </Badge>
+              {report.suppressed_total > 0 && (
+                <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground/50 border-border/30">
+                  {report.suppressed_total} suppressed
+                </Badge>
+              )}
+              <Badge variant="outline" className="text-[8px] font-mono text-muted-foreground/40 border-border/20">
+                {report.raw_total} raw
+              </Badge>
               {summary?.generated_recommendations === 0 ? (
                 <Badge variant="outline" className="text-[9px] text-emerald-400 border-emerald-500/30">
                   No recommendations — all metrics within thresholds
                 </Badge>
               ) : (
                 <>
-                  {summary?.high_severity_count > 0 && <Badge variant="outline" className="text-[9px] text-red-400 border-red-500/30">{summary.high_severity_count} high</Badge>}
-                  {summary?.medium_severity_count > 0 && <Badge variant="outline" className="text-[9px] text-amber-400 border-amber-500/30">{summary.medium_severity_count} medium</Badge>}
-                  {summary?.low_severity_count > 0 && <Badge variant="outline" className="text-[9px] text-muted-foreground border-border/50">{summary.low_severity_count} low</Badge>}
+                  {(summary?.high_severity_count ?? 0) > 0 && <Badge variant="outline" className="text-[9px] text-red-400 border-red-500/30">{summary!.high_severity_count} high</Badge>}
+                  {(summary?.medium_severity_count ?? 0) > 0 && <Badge variant="outline" className="text-[9px] text-amber-400 border-amber-500/30">{summary!.medium_severity_count} medium</Badge>}
+                  {(summary?.low_severity_count ?? 0) > 0 && <Badge variant="outline" className="text-[9px] text-muted-foreground border-border/50">{summary!.low_severity_count} low</Badge>}
                 </>
               )}
             </div>
+
+            {/* Show/hide suppressed toggle */}
+            {report.suppressed_total > 0 && (
+              <button
+                onClick={() => setShowSuppressed(p => !p)}
+                className="flex items-center gap-1 text-[9px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              >
+                {showSuppressed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                {showSuppressed ? 'Hide suppressed' : 'Show suppressed recommendations'}
+              </button>
+            )}
 
             {/* Insufficient history note */}
             {summary && summary.total_snapshots < 3 && (
@@ -3992,14 +4053,14 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
               </div>
             )}
 
-            <Bucket title="Top Priorities"           icon={AlertTriangle} items={recs.top_priorities} />
-            <Bucket title="Blocker Mitigations"      icon={XCircle}       items={recs.blocker_mitigations} />
-            <Bucket title="Repair Type Watchlist"    icon={Wrench}        items={recs.repair_type_watchlist} />
-            <Bucket title="Source Type Watchlist"    icon={FileText}      items={recs.source_type_watchlist} />
-            <Bucket title="Document Type Stability"  icon={FileCode}      items={recs.document_type_watchlist} />
-            <Bucket title="Governance Gaps"          icon={Shield}        items={recs.governance_gaps} />
-            <Bucket title="Revalidation Gaps"        icon={RefreshCw}     items={recs.revalidation_gaps} />
-            <Bucket title="Suggested Next Actions"   icon={ArrowRight}    items={recs.suggested_next_actions} />
+            <DisplayBucket title="Top Priorities"           icon={AlertTriangle} bucketKey="top_priorities" />
+            <DisplayBucket title="Blocker Mitigations"      icon={XCircle}       bucketKey="blocker_mitigations" />
+            <DisplayBucket title="Repair Type Watchlist"    icon={Wrench}        bucketKey="repair_type_watchlist" />
+            <DisplayBucket title="Source Type Watchlist"    icon={FileText}      bucketKey="source_type_watchlist" />
+            <DisplayBucket title="Document Type Stability"  icon={FileCode}      bucketKey="document_type_watchlist" />
+            <DisplayBucket title="Governance Gaps"          icon={Shield}        bucketKey="governance_gaps" />
+            <DisplayBucket title="Revalidation Gaps"        icon={RefreshCw}     bucketKey="revalidation_gaps" />
+            <DisplayBucket title="Suggested Next Actions"   icon={ArrowRight}    bucketKey="suggested_next_actions" />
 
             {summary?.generated_recommendations === 0 && summary.total_snapshots >= 3 && (
               <div className="flex items-center gap-1.5 text-[9px] text-emerald-400">
@@ -4008,7 +4069,48 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
               </div>
             )}
 
-            {/* ── Calibration Panel ── */}
+            {/* Suppression Audit */}
+            {report.suppressed_total > 0 && (
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center gap-1.5 text-[9px] text-muted-foreground/50 hover:text-muted-foreground transition-colors w-full pt-1">
+                    <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+                    <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+                    <span className="font-mono font-semibold uppercase tracking-wider text-[8px]">Suppression Audit</span>
+                    <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/40 border-border/20 ml-1">
+                      {report.suppressed_total} items
+                    </Badge>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-1.5 space-y-2">
+                  {/* Reason summary */}
+                  <div className="flex flex-wrap gap-1">
+                    {report.suppression_reasons.map(r => (
+                      <Badge key={r.reason} variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/20">
+                        {r.reason}: {r.count}
+                      </Badge>
+                    ))}
+                  </div>
+                  {/* Suppressed items list */}
+                  <div className="rounded-md border border-border/20 bg-muted/10 overflow-hidden">
+                    <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/15 bg-muted/20">
+                      <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Rec ID</span>
+                      <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Reason</span>
+                      <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Retained By</span>
+                    </div>
+                    {report.suppressed_items.map(item => (
+                      <div key={item.recommendation_id} className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/10 last:border-0">
+                        <span className="text-[8px] font-mono text-muted-foreground/60 truncate">{item.recommendation_id}</span>
+                        <span className="text-[8px] font-mono text-muted-foreground/50 truncate">{item.reason}</span>
+                        <span className="text-[8px] font-mono text-muted-foreground/40 truncate">{item.suppressed_by_recommendation_id || "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
+            {/* Calibration Panel */}
             {data?.recommendations_calibration && (
               <Collapsible>
                 <CollapsibleTrigger asChild>
@@ -4023,7 +4125,6 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pt-1.5">
                   <div className="rounded-md border border-border/30 bg-muted/10 overflow-hidden">
-                    {/* Header row */}
                     <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1 border-b border-border/20 bg-muted/20">
                       <span className="text-[8px] font-mono font-semibold text-muted-foreground/60 uppercase">Rule</span>
                       <span className="text-[8px] font-mono font-semibold text-muted-foreground/60 uppercase">Key Thresholds</span>
@@ -4038,13 +4139,11 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
                         <Collapsible key={rule.rule_id}>
                           <CollapsibleTrigger asChild>
                             <div className="grid grid-cols-[1fr_1fr_auto] gap-x-2 px-2 py-1.5 border-b border-border/10 hover:bg-muted/20 transition-colors cursor-pointer items-start">
-                              {/* Rule ID */}
                               <div className="flex items-center gap-1">
                                 <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0 [[data-state=open]>&]:hidden" />
                                 <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/40 shrink-0 hidden [[data-state=open]>&]:block" />
                                 <span className="text-[8px] font-mono text-muted-foreground/70 truncate">{rule.rule_id.replace("REC_", "")}</span>
                               </div>
-                              {/* Key thresholds */}
                               <div className="flex flex-wrap gap-0.5">
                                 {keyThresholds.map(([k, v]) => (
                                   <span key={k} className="text-[7px] font-mono text-muted-foreground/60 bg-muted/30 border border-border/20 rounded px-1 py-0.5">
@@ -4052,7 +4151,6 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
                                   </span>
                                 ))}
                               </div>
-                              {/* Sample support indicator */}
                               <div className={cn("text-[7px] font-mono shrink-0", supportColor)}>
                                 {primarySupport ? (
                                   <span title={`${primarySupport.metric_name}: ${primarySupport.sample_count ?? "N/A"} / min ${primarySupport.minimum_required ?? "N/A"}`}>
@@ -4060,39 +4158,26 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
                                     {sufficient === true && " ✓"}
                                     {sufficient === false && " ✗"}
                                   </span>
-                                ) : "—"}
+                                ) : <span>—</span>}
                               </div>
                             </div>
                           </CollapsibleTrigger>
-                          {/* Expanded detail */}
-                          <CollapsibleContent className="px-3 pb-2 pt-1 bg-muted/5 border-b border-border/10 space-y-1.5">
-                            {/* All sample supports */}
-                            <div className="space-y-0.5">
-                              {rule.minimum_sample_support.map((s, i) => (
-                                <div key={i} className="flex items-center gap-1.5 text-[8px] font-mono">
-                                  <span className="text-muted-foreground/50 w-44 shrink-0 truncate">{s.metric_name}</span>
-                                  <span className={cn("font-semibold", s.sufficient === true ? "text-emerald-400" : s.sufficient === false ? "text-red-400" : "text-muted-foreground/60")}>
-                                    {s.sample_count ?? "null"}
-                                  </span>
-                                  {s.minimum_required != null && (
-                                    <span className="text-muted-foreground/40">/ min {s.minimum_required}</span>
-                                  )}
-                                  {s.sufficient === true && <span className="text-emerald-400/70">sufficient</span>}
-                                  {s.sufficient === false && <span className="text-red-400/70">insufficient</span>}
-                                  {s.sufficient === null && <span className="text-muted-foreground/30">informational</span>}
-                                </div>
+                          <CollapsibleContent className="px-3 py-1.5 bg-muted/10 border-b border-border/10 space-y-1">
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(rule.threshold_fields).map(([k, v]) => (
+                                <span key={k} className="text-[7px] font-mono text-muted-foreground/50 bg-muted/20 border border-border/15 rounded px-1 py-0.5">
+                                  {k}: {String(v)}
+                                </span>
                               ))}
                             </div>
-                            {/* Denominator notes */}
                             {rule.denominator_notes.length > 0 && (
                               <div className="space-y-0.5">
-                                <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Denominator</span>
+                                <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Denominator Notes</span>
                                 {rule.denominator_notes.map((n, i) => (
-                                  <div key={i} className="text-[8px] text-muted-foreground/50 leading-snug">· {n}</div>
+                                  <div key={i} className="text-[8px] text-muted-foreground/60 leading-snug">• {n}</div>
                                 ))}
                               </div>
                             )}
-                            {/* Calibration notes */}
                             {rule.calibration_notes.length > 0 && (
                               <div className="space-y-0.5">
                                 <span className="text-[7px] font-mono text-muted-foreground/40 uppercase">Calibration Notes</span>
@@ -4108,42 +4193,6 @@ function ExecutionRecommendationsSection({ projectId }: { projectId: string }) {
                   </div>
                 </CollapsibleContent>
               </Collapsible>
-            )}
-
-            {/* Top worsening + improving signals */}
-            {(trends.top_worsening_signals.length > 0 || trends.top_improving_signals.length > 0) && (
-              <div className="grid grid-cols-2 gap-2">
-                {/* Worsening */}
-                {trends.top_worsening_signals.length > 0 && (
-                  <div className="space-y-1">
-                    <div className="text-[8px] font-mono text-red-400/70 uppercase font-semibold">↑ Worsening</div>
-                    {trends.top_worsening_signals.map((s: TrendTopSignalEntry) => (
-                      <div key={s.signal_key} className="rounded border border-red-500/20 bg-red-500/5 px-2 py-1 space-y-0.5">
-                        <div className="flex items-center gap-1 flex-wrap">
-                          <span className="text-[8px] font-mono text-red-400 font-semibold">{s.signal_key}</span>
-                          <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/20">{s.confidence}</Badge>
-                        </div>
-                        <div className="text-[8px] text-muted-foreground/70 leading-snug">{s.rationale}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {/* Improving */}
-                {trends.top_improving_signals.length > 0 && (
-                  <div className="space-y-1">
-                    <div className="text-[8px] font-mono text-emerald-400/70 uppercase font-semibold">↓ Improving</div>
-                    {trends.top_improving_signals.map((s: TrendTopSignalEntry) => (
-                      <div key={s.signal_key} className="rounded border border-emerald-500/20 bg-emerald-500/5 px-2 py-1 space-y-0.5">
-                        <div className="flex items-center gap-1 flex-wrap">
-                          <span className="text-[8px] font-mono text-emerald-400 font-semibold">{s.signal_key}</span>
-                          <Badge variant="outline" className="text-[7px] font-mono text-muted-foreground/50 border-border/20">{s.confidence}</Badge>
-                        </div>
-                        <div className="text-[8px] text-muted-foreground/70 leading-snug">{s.rationale}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             )}
 
             <Button variant="ghost" size="sm" className="text-[9px] h-6" onClick={load} disabled={loading}>
