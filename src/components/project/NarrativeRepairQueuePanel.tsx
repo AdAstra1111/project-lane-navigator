@@ -126,13 +126,16 @@ export function NarrativeRepairQueuePanel({ projectId, landingContext, onDismiss
     execHook.execute(repairId, approved);
   }, [execHook]);
 
-  // Group repairs
+  // Group repairs (with optional related-repairs filter)
   const { active, history, reserved } = useMemo(() => {
     if (!repairs) return { active: [], history: [], reserved: [] };
+    const filterFn = (r: NarrativeRepair) =>
+      !relatedFilter || r.repair_type === relatedFilter.repair_type;
     const act: NarrativeRepair[] = [];
     const hist: NarrativeRepair[] = [];
     const res: NarrativeRepair[] = [];
     for (const r of repairs) {
+      if (!filterFn(r)) continue;
       if ((ACTIVE_STATUSES as readonly string[]).includes(r.status)) act.push(r);
       else if ((HISTORY_STATUSES as readonly string[]).includes(r.status)) hist.push(r);
       else if ((RESERVED_STATUSES as readonly string[]).includes(r.status)) res.push(r);
@@ -143,7 +146,7 @@ export function NarrativeRepairQueuePanel({ projectId, landingContext, onDismiss
       history: hist.slice(0, HISTORY_CAP),
       reserved: res,
     };
-  }, [repairs]);
+  }, [repairs, relatedFilter]);
 
   const pendingCount = active.filter(r => r.status === 'pending').length;
   const failedCount = active.filter(r => r.status === 'failed').length;
