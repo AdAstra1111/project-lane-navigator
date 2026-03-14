@@ -7,6 +7,7 @@ import { useState, useMemo, useEffect, Fragment } from 'react';
 import {
   usePreventiveRepairPrioritization,
   fetchPatchTargets,
+  fetchPatchPlan,
   type PRP1Repair, type AxisDebtEntry, type PRP2Data,
   type InterventionROIData, type ROIRepairEntry,
   type PRP2SData, type PRP2SStrategyOption, type PRP2SROIAdvisory,
@@ -14,6 +15,7 @@ import {
   type RootCauseAnalysisResult, type RootCauseCluster,
   type InterventionAnalysisResult, type InterventionCandidate,
   type PatchTarget, type PatchTargetResolutionResult,
+  type PatchPlanBuildResult, type PatchPlan, type PatchImpactSurface, type PatchRevalidationTarget,
 } from '@/hooks/usePreventiveRepairPrioritization';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -493,6 +495,8 @@ export function RepairStrategyPanel({ projectId }: Props) {
               </CardContent>
             </Card>
 
+      {/* ═══ SECTION 4e: PATCH PLAN BUILDER (read-only visibility) ═══ */}
+      <PatchPlanSection projectId={projectId} iv={iv} prp2s={prp2s} prp2={prp2} />
 
           </div>
         )}
@@ -1539,6 +1543,248 @@ function PatchTargetSection({
               <span>Binding: <span className="font-mono text-foreground">{ptResult.resolution_notes.version_binding_mode}</span></span>
               <span>Docs: <span className="font-mono text-foreground">{ptResult.resolution_notes.doc_types_considered.join(', ') || '—'}</span></span>
             </div>
+          </>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ── PatchPlanSection — read-only patch plan visibility ──
+
+function PatchPlanSection({
+  projectId,
+  iv,
+  prp2s,
+  prp2,
+}: {
+  projectId: string | undefined;
+  iv: InterventionAnalysisResult | null;
+  prp2s: PRP2SData | null;
+  prp2: PRP2Data | null;
+}) {
+  const [ppResult, setPpResult] = useState<PatchPlanBuildResult | null>(null);
+  const [ppLoading, setPpLoading] = useState(false);
+  const [ppSource, setPpSource] = useState<string>("none");
+
+  useEffect(() => {
+    if (!projectId) return;
+
+    let repairId: string | null = null;
+    let sourceType: "intervention" | "prp2s" | "arp1" | "manual" = "manual";
+    let sourceLabel = "none";
+
+    if (iv?.recommended_intervention_repair_id) {
+      repairId = iv.recommended_intervention_repair_id;
+      sourceType = "intervention";
+      sourceLabel = "Intervention Engine";
+    } else if (prp2s?.prp2_strategy?.recommended_first_repair_id) {
+      repairId = prp2s.prp2_strategy.recommended_first_repair_id;
+      sourceType = "prp2s";
+      sourceLabel = "PRP2S Strategy";
+    } else if (prp2?.selected_repair_id) {
+      repairId = prp2.selected_repair_id;
+      sourceType = "arp1";
+      sourceLabel = "PRP2 Strategy";
+    }
+
+    if (!repairId) {
+      setPpResult(null);
+      setPpSource("none");
+      return;
+    }
+
+    setPpLoading(true);
+    setPpSource(sourceLabel);
+    fetchPatchPlan(projectId, repairId, undefined, sourceType)
+      .then(r => setPpResult(r))
+      .catch(() => setPpResult(null))
+      .finally(() => setPpLoading(false));
+  }, [projectId, iv?.recommended_intervention_repair_id, prp2s?.prp2_strategy?.recommended_first_repair_id, prp2?.selected_repair_id]);
+
+  const plan = ppResult?.patch_plan;
+
+  return (
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full">
+          <ChevronRight className="h-3 w-3 [[data-state=open]>&]:hidden" />
+          <ChevronDown className="h-3 w-3 hidden [[data-state=open]>&]:block" />
+          <Activity className="h-3 w-3" />
+          <span className="font-semibold uppercase tracking-wider">Patch Plan</span>
+          {plan && (
+            <Badge variant="outline" className="text-[9px] ml-1 font-mono">
+              {plan.execution_mode.replace(/_/g, ' ')}
+            </Badge>
+          )}
+          {plan?.stale && (
+            <Badge variant="destructive" className="text-[9px] ml-1 font-mono">STALE</Badge>
+          )}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-2">
+        {/* Advisory notice */}
+        <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+          <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-[10px] text-muted-foreground">
+            Patch plan is advisory-only and read-only. No execution, no mutations. Source: <strong>{ppSource}</strong>.
+          </span>
+        </div>
+
+        {ppLoading ? (
+          <Skeleton className="h-24 w-full rounded-md" />
+        ) : !plan ? (
+          <Card className="border-border/50">
+            <CardContent className="py-6 text-center">
+              <Info className="h-4 w-4 mx-auto mb-1.5 text-muted-foreground/60" />
+              <p className="text-xs text-muted-foreground">
+                {ppSource === "none" ? "No recommended repair available to build plan." : "No patch plan generated."}
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* Planning notes fallback warning */}
+            {ppResult?.planning_notes?.fallback_used && (
+              <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                <span className="text-[10px] text-amber-400">
+                  Fallback used: {ppResult.planning_notes.fallback_reason}
+                </span>
+              </div>
+            )}
+
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{plan.direct_targets.length}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Direct Targets</div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{plan.protected_targets.length}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Protected</div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{plan.downstream_regeneration.length}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Downstream</div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-2 text-center">
+                  <div className="text-lg font-bold text-foreground">{plan.revalidation_plan.revalidation_targets.length}</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Revalidation</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Downstream impact table */}
+            {plan.downstream_regeneration.length > 0 && (
+              <Card className="border-border/50">
+                <CardHeader className="pb-1 pt-3 px-3">
+                  <CardTitle className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Downstream Impact</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border/50">
+                          <TableHead className="text-xs">Doc Type</TableHead>
+                          <TableHead className="text-xs w-[110px]">Impact</TableHead>
+                          <TableHead className="text-xs w-[100px]">Edge</TableHead>
+                          <TableHead className="text-xs w-[80px]">Reval</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {plan.downstream_regeneration.map(ds => (
+                          <TableRow key={ds.doc_type} className="border-border/30">
+                            <TableCell className="text-xs font-mono text-foreground">{ds.doc_type}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={ds.impact_type === 'regeneration_required' ? 'destructive' : ds.impact_type === 'review_required' ? 'secondary' : 'outline'}
+                                className="text-[9px] font-mono px-1.5 py-0 h-4"
+                              >
+                                {ds.impact_type.replace(/_/g, ' ')}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-[10px] font-mono text-muted-foreground">{ds.dependency_edge || '—'}</TableCell>
+                            <TableCell className="text-[10px] font-mono text-muted-foreground">{ds.revalidation_policy || '—'}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Revalidation targets */}
+            {plan.revalidation_plan.revalidation_targets.length > 0 && (
+              <Card className="border-border/50">
+                <CardHeader className="pb-1 pt-3 px-3">
+                  <CardTitle className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Revalidation Targets</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border/50">
+                          <TableHead className="text-xs">Doc Type</TableHead>
+                          <TableHead className="text-xs w-[120px]">Type</TableHead>
+                          <TableHead className="text-xs w-[80px]">Priority</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {plan.revalidation_plan.revalidation_targets.map(rt => (
+                          <TableRow key={rt.doc_type} className="border-border/30">
+                            <TableCell className="text-xs font-mono text-foreground">{rt.doc_type}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-[9px] font-mono px-1.5 py-0 h-4">
+                                {rt.revalidation_type.replace(/_/g, ' ')}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={rt.priority === 'immediate' ? 'destructive' : 'secondary'}
+                                className="text-[9px] font-mono px-1.5 py-0 h-4"
+                              >
+                                {rt.priority}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Planning metadata */}
+            <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground">
+              <span>Mode: <span className="font-mono text-foreground">{plan.execution_mode.replace(/_/g, ' ')}</span></span>
+              <span>Lane: <span className="font-mono text-foreground">{plan.lane || '—'}</span></span>
+              <span>Strategy: <span className="font-mono text-foreground">{ppResult?.planning_notes?.target_resolution_source || '—'}</span></span>
+              {plan.revalidation_plan.downstream_invalidation_triggered && (
+                <Badge variant="destructive" className="text-[9px] font-mono px-1.5 py-0 h-4">downstream invalidation</Badge>
+              )}
+            </div>
+
+            {/* Guardrails + preserve_entities */}
+            {(plan.guardrails.length > 0 || plan.preserve_entities.length > 0) && (
+              <div className="flex flex-wrap gap-1.5">
+                {plan.guardrails.map(g => (
+                  <Badge key={g} variant="outline" className="text-[9px] font-mono">{g}</Badge>
+                ))}
+                {plan.preserve_entities.map(e => (
+                  <Badge key={e} variant="secondary" className="text-[9px] font-mono">preserve: {e}</Badge>
+                ))}
+              </div>
+            )}
           </>
         )}
       </CollapsibleContent>

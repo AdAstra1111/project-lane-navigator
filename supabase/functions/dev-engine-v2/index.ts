@@ -4639,6 +4639,7 @@ serve(async (req) => {
       "compute_root_cause_clusters",
       "compute_intervention_candidates",
       "resolve_patch_targets",
+      "build_patch_plan",
     ]);
     const allowNoAuth = Deno.env.get("ALLOW_REGEN_QUEUE_NOAUTH") === "true";
 
@@ -29747,6 +29748,515 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         },
         computed_at: ptAt,
         version: "patch-target-v1",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // PATCHPLAN BUILDER v1 — build_patch_plan
+    //
+    // Read-only planning layer. Given a project + repair candidate, resolves patch
+    // targets, determines downstream impact surfaces via deliverableDependencyRegistry,
+    // builds protected surfaces and a bounded revalidation plan.
+    //
+    // NO patch execution. NO writes. NO LLM reasoning. NO document mutation.
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    if (action === "build_patch_plan") {
+      const { projectId, repairId, repairType, sourceType, versionId } = body;
+      if (!projectId) {
+        return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (!repairId && !repairType) {
+        return new Response(JSON.stringify({ ok: false, error: "repairId or repairType required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const ppAt = new Date().toISOString();
+
+      // ── Helper: SHA-256 content hash ──
+      async function ppContentHash(text: string): Promise<string> {
+        const data = new TextEncoder().encode(text);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+      }
+
+      // ── Imports ──
+      const { getSectionConfig: ppGetSectionConfig, isSectionRepairSupported: ppIsSectionRepairSupported } = await import("../_shared/deliverableSectionRegistry.ts");
+      const { parseSections: ppParseSections, resolveIssueToSectionKey: ppResolveIssueToSectionKey } = await import("../_shared/sectionRepairEngine.ts");
+      const { isEpisodicBlockRepairSupported: ppIsEpisodicBlockRepairSupported, resolveIssueToEpisodeNumber: ppResolveIssueToEpisodeNumber, extractEpisodeBlock: ppExtractEpisodeBlock } = await import("../_shared/episodicBlockRegistry.ts");
+      const { getInvalidationPlan: ppGetInvalidationPlan, getDirectDependents: ppGetDirectDependents } = await import("../_shared/deliverableDependencyRegistry.ts");
+
+      // ── Step 1: Resolve repair context ──
+      let ppResolvedRepairType = repairType || null;
+      let ppResolvedScopeType: string | null = null;
+      let ppResolvedScopeKey: string | null = null;
+      let ppInterventionScore: number | null = null;
+
+      if (repairId) {
+        const { data: repairRow } = await supabase
+          .from("narrative_repairs")
+          .select("repair_type, scope_type, scope_key, status, priority_score")
+          .eq("repair_id", repairId)
+          .eq("project_id", projectId)
+          .limit(1)
+          .maybeSingle();
+        if (repairRow) {
+          ppResolvedRepairType = ppResolvedRepairType || repairRow.repair_type;
+          ppResolvedScopeType = repairRow.scope_type || null;
+          ppResolvedScopeKey = repairRow.scope_key || null;
+        }
+      }
+
+      // ── Step 2: Load project + lane ──
+      const { data: projectRow } = await supabase
+        .from("projects")
+        .select("assigned_lane")
+        .eq("id", projectId)
+        .maybeSingle();
+      const lane = projectRow?.assigned_lane || "unspecified";
+
+      // ── Step 3: Load project documents with current versions ──
+      const { data: ppDocs } = await supabase
+        .from("project_documents")
+        .select("id, doc_type, latest_version_id")
+        .eq("project_id", projectId);
+
+      if (!ppDocs || ppDocs.length === 0) {
+        return new Response(JSON.stringify({
+          ok: true,
+          action: "build_patch_plan",
+          project_id: projectId,
+          patch_plan: null,
+          planning_notes: {
+            target_resolution_source: "none",
+            execution_mode_reason: "no_documents_found",
+            fallback_used: true,
+            fallback_reason: "project_has_no_documents",
+            impact_surface_count: 0,
+            protected_surface_count: 0,
+          },
+          computed_at: ppAt,
+          version: "patch-plan-v1",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // ── Step 4: Resolve direct targets (reuse same logic as resolve_patch_targets) ──
+      interface PPPatchTarget {
+        target_id: string;
+        target_type: "document" | "section" | "episode_block" | "scene";
+        document_id: string;
+        doc_type: string;
+        version_id: string;
+        section_key: string | null;
+        episode_number: number | null;
+        scene_id: string | null;
+        scene_key: string | null;
+        content_hash: string;
+        start_offset: number | null;
+        end_offset: number | null;
+        targeting_method: "section_registry" | "episode_block_registry" | "scene_graph" | "mention_offset" | "full_document";
+        targeting_confidence: "high" | "medium" | "low";
+      }
+
+      const ppDirectTargets: PPPatchTarget[] = [];
+      const ppProtectedTargets: PPPatchTarget[] = [];
+      let ppFallbackUsed = false;
+      let ppFallbackReason: string | null = null;
+      let ppChosenStrategy = "none";
+      const ppDocTypesConsidered: string[] = [];
+
+      // Narrow target docs
+      let ppTargetDocs = ppDocs;
+      if (ppResolvedScopeType && ppResolvedScopeType !== "project") {
+        const narrowed = ppDocs.filter((d: any) => d.doc_type === ppResolvedScopeType);
+        if (narrowed.length > 0) ppTargetDocs = narrowed;
+      }
+
+      for (const doc of ppTargetDocs) {
+        ppDocTypesConsidered.push(doc.doc_type);
+        const targetVersionId = versionId || doc.latest_version_id;
+        if (!targetVersionId) {
+          ppFallbackUsed = true;
+          ppFallbackReason = ppFallbackReason || "no_version_available";
+          continue;
+        }
+
+        const { data: ver } = await supabase
+          .from("project_document_versions")
+          .select("id, plaintext, version_number")
+          .eq("id", targetVersionId)
+          .maybeSingle();
+        const plaintext = ver?.plaintext || "";
+
+        let targetResolved = false;
+
+        // ── Try 1: Section-level targeting ──
+        if (ppIsSectionRepairSupported(doc.doc_type) && plaintext) {
+          const sections = ppParseSections(plaintext, doc.doc_type);
+          const config = ppGetSectionConfig(doc.doc_type);
+          if (sections.length >= (config?.min_sections_required ?? 2)) {
+            const issueProxy = {
+              category: ppResolvedScopeKey || undefined,
+              title: ppResolvedRepairType || undefined,
+              summary: ppResolvedScopeKey || undefined,
+              owning_doc_type: doc.doc_type,
+            };
+            const sectionRes = ppResolveIssueToSectionKey(issueProxy, doc.doc_type, plaintext);
+
+            if (sectionRes) {
+              const matchedSection = sections.find((s: any) => s.section_key === sectionRes.section_key);
+              if (matchedSection) {
+                const hash = await ppContentHash(matchedSection.content);
+                ppChosenStrategy = "section_registry";
+                ppDirectTargets.push({
+                  target_id: `${doc.id}::section::${sectionRes.section_key}`,
+                  target_type: "section",
+                  document_id: doc.id,
+                  doc_type: doc.doc_type,
+                  version_id: targetVersionId,
+                  section_key: sectionRes.section_key,
+                  episode_number: null,
+                  scene_id: null,
+                  scene_key: null,
+                  content_hash: hash,
+                  start_offset: null,
+                  end_offset: null,
+                  targeting_method: "section_registry",
+                  targeting_confidence: sectionRes.confidence,
+                });
+                targetResolved = true;
+
+                // Protected: sibling sections
+                for (const sib of sections) {
+                  if (sib.section_key === sectionRes.section_key) continue;
+                  const sibHash = await ppContentHash(sib.content);
+                  ppProtectedTargets.push({
+                    target_id: `${doc.id}::section::${sib.section_key}`,
+                    target_type: "section",
+                    document_id: doc.id,
+                    doc_type: doc.doc_type,
+                    version_id: targetVersionId,
+                    section_key: sib.section_key,
+                    episode_number: null,
+                    scene_id: null,
+                    scene_key: null,
+                    content_hash: sibHash,
+                    start_offset: null,
+                    end_offset: null,
+                    targeting_method: "section_registry",
+                    targeting_confidence: "high",
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        // ── Try 2: Episode block targeting ──
+        if (!targetResolved && ppIsEpisodicBlockRepairSupported(doc.doc_type) && plaintext) {
+          const issueProxy = {
+            episodeIndex: null as number | null,
+            category: ppResolvedScopeKey || undefined,
+            title: ppResolvedRepairType || undefined,
+            summary: ppResolvedScopeKey || undefined,
+          };
+          const epRes = ppResolveIssueToEpisodeNumber(issueProxy, doc.doc_type, plaintext);
+          if (epRes) {
+            const extracted = ppExtractEpisodeBlock(plaintext, epRes.episode_number);
+            if (extracted) {
+              const hash = await ppContentHash(extracted.content);
+              ppChosenStrategy = "episode_block_registry";
+              ppDirectTargets.push({
+                target_id: `${doc.id}::episode::${epRes.episode_number}`,
+                target_type: "episode_block",
+                document_id: doc.id,
+                doc_type: doc.doc_type,
+                version_id: targetVersionId,
+                section_key: null,
+                episode_number: epRes.episode_number,
+                scene_id: null,
+                scene_key: null,
+                content_hash: hash,
+                start_offset: null,
+                end_offset: null,
+                targeting_method: "episode_block_registry",
+                targeting_confidence: epRes.confidence,
+              });
+              targetResolved = true;
+              // Protected: sibling episode blocks (skip — expensive parse; note in planning_notes)
+            }
+          }
+        }
+
+        // ── Try 3: Scene graph targeting ──
+        if (!targetResolved) {
+          const isScreenplay = ["feature_script", "season_script", "episode_script", "screenplay"].includes(doc.doc_type);
+          if (isScreenplay) {
+            const { data: scenes } = await supabase
+              .from("scene_graph_scenes")
+              .select("id, scene_key, order_key")
+              .eq("project_id", projectId)
+              .order("order_key", { ascending: true })
+              .limit(200);
+
+            if (scenes && scenes.length > 0 && ppResolvedScopeKey) {
+              const matchedScene = scenes.find((s: any) => s.scene_key === ppResolvedScopeKey);
+              if (matchedScene) {
+                const { data: sceneVer } = await supabase
+                  .from("scene_graph_versions")
+                  .select("id, content")
+                  .eq("scene_id", matchedScene.id)
+                  .order("version_number", { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
+                const sceneContent = sceneVer?.content || "";
+                const hash = await ppContentHash(sceneContent);
+                ppChosenStrategy = "scene_graph";
+                ppDirectTargets.push({
+                  target_id: `${doc.id}::scene::${matchedScene.id}`,
+                  target_type: "scene",
+                  document_id: doc.id,
+                  doc_type: doc.doc_type,
+                  version_id: targetVersionId,
+                  section_key: null,
+                  episode_number: null,
+                  scene_id: matchedScene.id,
+                  scene_key: matchedScene.scene_key,
+                  content_hash: hash,
+                  start_offset: null,
+                  end_offset: null,
+                  targeting_method: "scene_graph",
+                  targeting_confidence: "high",
+                });
+                targetResolved = true;
+              }
+            }
+          }
+        }
+
+        // ── Fallback: Document-level ──
+        if (!targetResolved) {
+          const hash = await ppContentHash(plaintext);
+          ppChosenStrategy = ppChosenStrategy === "none" ? "full_document" : ppChosenStrategy;
+          ppFallbackUsed = true;
+          ppFallbackReason = ppFallbackReason || "no_narrower_target_resolvable";
+          ppDirectTargets.push({
+            target_id: `${doc.id}::document`,
+            target_type: "document",
+            document_id: doc.id,
+            doc_type: doc.doc_type,
+            version_id: targetVersionId,
+            section_key: null,
+            episode_number: null,
+            scene_id: null,
+            scene_key: null,
+            content_hash: hash,
+            start_offset: null,
+            end_offset: null,
+            targeting_method: "full_document",
+            targeting_confidence: "low",
+          });
+        }
+      }
+
+      // ── Sort targets deterministically ──
+      const PP_TARGET_TYPE_ORDER: Record<string, number> = { section: 0, episode_block: 1, scene: 2, document: 3 };
+      const ppSortTargets = (arr: PPPatchTarget[]) => arr.sort((a, b) => {
+        const dtCmp = a.doc_type.localeCompare(b.doc_type);
+        if (dtCmp !== 0) return dtCmp;
+        const ttCmp = (PP_TARGET_TYPE_ORDER[a.target_type] ?? 9) - (PP_TARGET_TYPE_ORDER[b.target_type] ?? 9);
+        if (ttCmp !== 0) return ttCmp;
+        const skCmp = (a.section_key || "").localeCompare(b.section_key || "");
+        if (skCmp !== 0) return skCmp;
+        const epCmp = (a.episode_number ?? 0) - (b.episode_number ?? 0);
+        if (epCmp !== 0) return epCmp;
+        const scCmp = (a.scene_key || "").localeCompare(b.scene_key || "");
+        if (scCmp !== 0) return scCmp;
+        return a.target_id.localeCompare(b.target_id);
+      });
+      ppSortTargets(ppDirectTargets);
+      ppSortTargets(ppProtectedTargets);
+
+      // ── Step 5: Determine execution_mode ──
+      let executionMode: "replace_section" | "regenerate_section" | "scene_rewrite" | "full_doc_rewrite" = "full_doc_rewrite";
+      let executionModeReason = "document_fallback";
+
+      if (ppDirectTargets.some(t => t.target_type === "section")) {
+        executionMode = "replace_section";
+        executionModeReason = "section_target_resolved";
+      } else if (ppDirectTargets.some(t => t.target_type === "episode_block")) {
+        executionMode = "regenerate_section";
+        executionModeReason = "episode_block_target_resolved";
+      } else if (ppDirectTargets.some(t => t.target_type === "scene")) {
+        executionMode = "scene_rewrite";
+        executionModeReason = "scene_target_resolved";
+      }
+
+      // ── Step 6: Build downstream regeneration surfaces ──
+      interface PPImpactSurface {
+        document_id: string;
+        doc_type: string;
+        version_id: string | null;
+        impact_type: "regeneration_required" | "review_required" | "no_action";
+        dependency_edge: string | null;
+        invalidation_policy: string | null;
+        revalidation_policy: string | null;
+        affected_sections: string[];
+        scope_precision: string | null;
+        propagation_path: string[];
+      }
+
+      const ppDownstreamSurfaces: PPImpactSurface[] = [];
+      const directDocTypes = [...new Set(ppDirectTargets.map(t => t.doc_type))];
+
+      for (const ddt of directDocTypes) {
+        try {
+          const invPlan = ppGetInvalidationPlan(lane, ddt);
+          for (const entry of invPlan.entries) {
+            // Find the actual document for this doc_type
+            const downstream = ppDocs.find((d: any) => d.doc_type === entry.doc_type);
+            const impactType = entry.invalidation_policy === "stale"
+              ? "regeneration_required" as const
+              : entry.invalidation_policy === "review_only"
+                ? "review_required" as const
+                : "no_action" as const;
+
+            ppDownstreamSurfaces.push({
+              document_id: downstream?.id || "",
+              doc_type: entry.doc_type,
+              version_id: downstream?.latest_version_id || null,
+              impact_type: impactType,
+              dependency_edge: `${entry.edge.from_doc_type}→${entry.edge.to_doc_type}`,
+              invalidation_policy: entry.invalidation_policy,
+              revalidation_policy: entry.revalidation_policy,
+              affected_sections: [],
+              scope_precision: downstream ? "document_level_fallback" : null,
+              propagation_path: [ddt, entry.doc_type],
+            });
+          }
+        } catch (_e) {
+          // Lane or doc type not in registry — no downstream impact
+        }
+      }
+
+      // Deduplicate by doc_type (strictest wins)
+      const ppSurfaceMap = new Map<string, PPImpactSurface>();
+      const impactOrder: Record<string, number> = { regeneration_required: 2, review_required: 1, no_action: 0 };
+      for (const s of ppDownstreamSurfaces) {
+        const existing = ppSurfaceMap.get(s.doc_type);
+        if (!existing || (impactOrder[s.impact_type] ?? 0) > (impactOrder[existing.impact_type] ?? 0)) {
+          ppSurfaceMap.set(s.doc_type, s);
+        }
+      }
+      const ppFinalDownstream = [...ppSurfaceMap.values()].sort((a, b) => a.doc_type.localeCompare(b.doc_type));
+
+      // ── Step 7: Build revalidation plan ──
+      interface PPRevalidationTarget {
+        document_id: string;
+        doc_type: string;
+        version_id: string | null;
+        revalidation_type: "full_reanalysis" | "spine_check_only" | "canon_alignment_only" | "section_recheck";
+        priority: "immediate" | "deferred";
+      }
+
+      const ppRevalTargets: PPRevalidationTarget[] = [];
+      for (const ds of ppFinalDownstream) {
+        if (ds.impact_type === "no_action") continue;
+        const revalType = ds.revalidation_policy === "must_reanalyze"
+          ? "full_reanalysis" as const
+          : ds.revalidation_policy === "optional_review"
+            ? "spine_check_only" as const
+            : "section_recheck" as const;
+        const priority = ds.impact_type === "regeneration_required" ? "immediate" as const : "deferred" as const;
+        ppRevalTargets.push({
+          document_id: ds.document_id,
+          doc_type: ds.doc_type,
+          version_id: ds.version_id,
+          revalidation_type: revalType,
+          priority,
+        });
+      }
+      ppRevalTargets.sort((a, b) => {
+        const pCmp = (a.priority === "immediate" ? 0 : 1) - (b.priority === "immediate" ? 0 : 1);
+        if (pCmp !== 0) return pCmp;
+        return a.doc_type.localeCompare(b.doc_type);
+      });
+
+      const ppAffectedAxes: string[] = [];
+      const ppStaleUnitKeys: string[] = [];
+      const ppDownstreamInvalidation = ppFinalDownstream.some(s => s.impact_type === "regeneration_required");
+
+      // ── Step 8: Build content_hashes map ──
+      const ppContentHashes: Record<string, string> = {};
+      for (const t of [...ppDirectTargets, ...ppProtectedTargets]) {
+        ppContentHashes[t.target_id] = t.content_hash;
+      }
+
+      // ── Step 9: Stale flag ──
+      const ppStale = ppDirectTargets.some(t => !t.content_hash) || ppProtectedTargets.some(t => !t.content_hash);
+
+      // ── Step 10: Build deterministic plan_id ──
+      const ppRepairRef = repairId || ppResolvedRepairType || "unknown";
+      const ppVersionRef = versionId || "current";
+      const ppPlanId = `patchplan::${projectId}::${ppRepairRef}::${ppVersionRef}`;
+
+      // ── Assemble PatchPlan ──
+      const patchPlan = {
+        plan_id: ppPlanId,
+        project_id: projectId,
+        lane,
+        repair_source: {
+          source_type: sourceType || "manual",
+          repair_id: repairId || null,
+          intervention_score: ppInterventionScore,
+          repair_type: ppResolvedRepairType,
+        },
+        direct_targets: ppDirectTargets,
+        protected_targets: ppProtectedTargets,
+        downstream_regeneration: ppFinalDownstream,
+        revalidation_plan: {
+          revalidation_targets: ppRevalTargets,
+          affected_axes: ppAffectedAxes,
+          stale_unit_keys: ppStaleUnitKeys,
+          downstream_invalidation_triggered: ppDownstreamInvalidation,
+        },
+        execution_mode: executionMode,
+        guardrails: [] as string[],
+        preserve_entities: [] as string[],
+        created_at: ppAt,
+        content_hashes: ppContentHashes,
+        stale: ppStale,
+      };
+
+      console.log("[dev-engine-v2] build_patch_plan", {
+        project_id: projectId,
+        repair_id: repairId || null,
+        repair_type: ppResolvedRepairType,
+        execution_mode: executionMode,
+        direct_count: ppDirectTargets.length,
+        protected_count: ppProtectedTargets.length,
+        downstream_count: ppFinalDownstream.length,
+        reval_count: ppRevalTargets.length,
+        stale: ppStale,
+      });
+
+      return new Response(JSON.stringify({
+        ok: true,
+        action: "build_patch_plan",
+        project_id: projectId,
+        patch_plan: patchPlan,
+        planning_notes: {
+          target_resolution_source: ppChosenStrategy,
+          execution_mode_reason: executionModeReason,
+          fallback_used: ppFallbackUsed,
+          fallback_reason: ppFallbackReason,
+          impact_surface_count: ppFinalDownstream.length,
+          protected_surface_count: ppProtectedTargets.length,
+        },
+        computed_at: ppAt,
+        version: "patch-plan-v1",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
