@@ -5179,7 +5179,7 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
   const isSubsectionEmpty = useCallback((sub: TrendSubsectionKey, trendData: typeof data): boolean => {
     if (!trendData?.trends) return true;
     if (!ARRAY_SUBSECTIONS.includes(sub)) return false; // non-array subsections always render
-    const arr = (trendData.trends as Record<string, unknown>)[sub];
+    const arr = (trendData.trends as unknown as Record<string, unknown>)[sub];
     return !Array.isArray(arr) || arr.length === 0;
   }, []);
 
