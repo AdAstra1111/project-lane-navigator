@@ -30518,8 +30518,24 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           // Generate repair instruction from repair context
           const repairInstruction = `Rewrite the ${target.section_key} section to address the identified narrative repair issue (${execCore.resolved_repair_type || repairType || "general improvement"}). Preserve the existing structure, tone, and all narrative elements not directly related to the repair. Maintain consistency with the rest of the document.`;
 
-          // Use LLM to generate improved section content
-          const sectionRewritePrompt = [
+          // Use canonical callAI for section rewrite (existing LLM path)
+          const execApiKey = Deno.env.get("LOVABLE_API_KEY") || "";
+          if (!execApiKey) {
+            targetResults.push({
+              target_id: target.target_id,
+              target_type: "section",
+              document_id: target.document_id,
+              doc_type: target.doc_type,
+              version_id_before: target.version_id,
+              version_id_after: null,
+              status: "failed",
+              message: "canonical_rewrite_path_unavailable:no_api_key",
+            });
+            continue;
+          }
+
+          const sectionRewriteSystem = "You are a professional script and document repair engine. Output only the requested section content. No preamble, no commentary.";
+          const sectionRewriteUser = [
             `You are rewriting a single section of a ${target.doc_type} document.`,
             ``,
             `SECTION KEY: ${target.section_key}`,
@@ -30539,37 +30555,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             `- Address the repair objective while preserving narrative voice`,
           ].join("\n");
 
-          const rewriteResp = await fetch(`https://api.lovable.dev/v1/chat/completions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: "google/gemini-2.5-flash",
-              messages: [
-                { role: "system", content: "You are a professional script and document repair engine. Output only the requested section content. No preamble, no commentary." },
-                { role: "user", content: sectionRewritePrompt },
-              ],
-              temperature: 0.3,
-            }),
-          });
+          const newSectionContent = await callAI(execApiKey, FAST_MODEL, sectionRewriteSystem, sectionRewriteUser, 0.3, 8000);
 
-          if (!rewriteResp.ok) {
-            targetResults.push({
-              target_id: target.target_id,
-              target_type: "section",
-              document_id: target.document_id,
-              doc_type: target.doc_type,
-              version_id_before: target.version_id,
-              version_id_after: null,
-              status: "failed",
-              message: `llm_rewrite_failed:${rewriteResp.status}`,
-            });
-            continue;
-          }
-
-          const rewriteJson = await rewriteResp.json();
-          const newSectionContent = rewriteJson?.choices?.[0]?.message?.content?.trim();
-
-          if (!newSectionContent || newSectionContent.length < 10) {
+          if (!newSectionContent || newSectionContent.trim().length < 10) {
             targetResults.push({
               target_id: target.target_id,
               target_type: "section",
