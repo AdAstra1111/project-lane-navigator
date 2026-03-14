@@ -544,8 +544,8 @@ async function enforcePrereqGateBeforeAdvance(
 }
 
 // ── GLOBAL CI GATE: No promotion / prereq pass unless CI >= target ──
-const GLOBAL_MIN_CI = 85; // default fallback when job has no converge_target_json.ci
-const CI_PLATEAU_WINDOW = 2;   // consecutive non-improving ticks before fail-close
+const GLOBAL_MIN_CI = 90; // raised from 85 — each stage must fully converge before promotion
+const CI_PLATEAU_WINDOW = 5;   // raised from 2 — require 5 consecutive non-improving ticks before plateau
 const CI_MIN_DELTA = 1;        // minimum CI improvement to count as progress
 
 /**
@@ -1464,8 +1464,8 @@ const DEFAULT_MIN_CHARS = 600;
 // that the Feature Length Guardrail would flag as "Below Floor".
 // Does NOT apply to episodic scripts (episode_script, season_script) — different runtime targets.
 const FEATURE_MIN_WORDS: Record<string, number> = {
-  feature_script: 15400,   // 70 min hard floor at 220 wpm
-  production_draft: 15400, // same — inherits from script
+  feature_script: 19800,   // 90 min hard floor at 220 wpm (raised from 15400/70min)
+  production_draft: 19800, // same — inherits from script
 };
 
 function isDownstreamDocSufficient(docType: string, plaintext: string | null | undefined, _approvalStatus?: string): boolean {
@@ -3119,6 +3119,7 @@ async function tryPlateauForcePromote(
 
   if (!bestForDoc || effectiveBestCi < GLOBAL_MIN_CI) return null;
 
+  const ciGapFromTarget = targetCi - effectiveBestCi;
   await logStep(supabase, jobId, stepCount + 1, currentDoc, "ci_plateau_auto_promote",
     `CI plateaued at ${detectedCi} (target: ${targetCi}) but best eligible version is CI:${bestForDoc.ci}, GP:${bestForDoc.gp} (>=${GLOBAL_MIN_CI}). allow_defaults=ON → force-promoting.`,
     { ci: detectedCi, gp: bestForDoc.gp },
@@ -3133,8 +3134,28 @@ async function tryPlateauForcePromote(
       targetCi,
       best_version_id: bestForDoc.versionId,
       best_document_id: bestForDoc.documentId,
+      CONVERGENCE_WARNING: `Force-promoted with CI gap of ${ciGapFromTarget} (best: ${effectiveBestCi}, target: ${targetCi}). Stage did not reach full convergence.`,
+      ci_gap: ciGapFromTarget,
     }
   );
+
+  // Append CONVERGENCE_WARNING to stage_history for audit trail
+  try {
+    const { data: jobRow } = await supabase.from("auto_run_jobs").select("stage_history").eq("id", jobId).single();
+    const history = Array.isArray(jobRow?.stage_history) ? jobRow.stage_history : [];
+    history.push({
+      event: "CONVERGENCE_WARNING",
+      doc_type: currentDoc,
+      ci_gap: ciGapFromTarget,
+      best_ci: effectiveBestCi,
+      target_ci: targetCi,
+      action: "ci_plateau_auto_promote",
+      timestamp: new Date().toISOString(),
+    });
+    await supabase.from("auto_run_jobs").update({ stage_history: history }).eq("id", jobId);
+  } catch (shErr: any) {
+    console.warn(`[tryPlateauForcePromote] stage_history append failed: ${shErr?.message}`);
+  }
 
   const { error: promoteErr } = await supabase.rpc("set_current_version", {
     p_document_id: bestForDoc.documentId,
@@ -4054,6 +4075,25 @@ Deno.serve(async (req) => {
         console.warn(`[IEL] pipeline_key NULL after insert — correcting to ${fmt}`);
         await supabase.from("auto_run_jobs").update({ pipeline_key: fmt }).eq("id", job.id);
         job.pipeline_key = fmt;
+      }
+
+      // ── FIX 3c: Set project runtime defaults for film formats if not already set ──
+      const FILM_FORMATS = new Set(["film", "narrative-feature", "short-film", "anim-feature"]);
+      if (FILM_FORMATS.has(fmt)) {
+        try {
+          const { data: projRt } = await supabase.from("projects")
+            .select("min_runtime_minutes, min_runtime_hard_floor")
+            .eq("id", projectId).single();
+          if (!projRt?.min_runtime_minutes || projRt.min_runtime_minutes < 95) {
+            await supabase.from("projects").update({
+              min_runtime_minutes: 95,
+              min_runtime_hard_floor: 85,
+            }).eq("id", projectId);
+            console.log(`[auto-run] film_runtime_defaults_applied { project_id: "${projectId}", min_runtime_minutes: 95, min_runtime_hard_floor: 85 }`);
+          }
+        } catch (rtErr: any) {
+          console.warn(`[auto-run] film_runtime_defaults_failed: ${rtErr?.message}`);
+        }
       }
 
       await logStep(supabase, job.id, 0, effectiveStartDoc, "start", `Auto-run started: ${effectiveStartDoc} → ${effectiveTargetDoc} (${mode || "balanced"} mode)`);
@@ -7251,6 +7291,37 @@ Deno.serve(async (req) => {
               convertedVersionId = newVers?.[0]?.id || null;
             }
           } else {
+            // ── FIX 2: Assimilation Context — fetch approved plaintext of all preceding stages ──
+            const ASSIMILATION_STAGES = ["concept_brief", "treatment", "story_outline", "character_bible", "beat_sheet"];
+            const ASSIMILATION_TARGETS = new Set(["feature_script", "production_draft", "season_script", "episode_script"]);
+            let assimilationContext: Record<string, string> | undefined;
+            if (ASSIMILATION_TARGETS.has(currentDoc)) {
+              assimilationContext = {};
+              for (const stage of ASSIMILATION_STAGES) {
+                try {
+                  const { data: stageDocs } = await supabase.from("project_documents")
+                    .select("id").eq("project_id", job.project_id).eq("doc_type", stage)
+                    .order("created_at", { ascending: false }).limit(1);
+                  if (stageDocs?.[0]) {
+                    const { data: stageVers } = await supabase.from("project_document_versions")
+                      .select("plaintext, approval_status, is_current")
+                      .eq("document_id", stageDocs[0].id)
+                      .order("version_number", { ascending: false });
+                    const approved = (stageVers || []).find((v: any) => v.approval_status === "approved" && v.is_current) ||
+                      (stageVers || []).find((v: any) => v.approval_status === "approved") ||
+                      (stageVers || [])[0];
+                    if (approved?.plaintext && approved.plaintext.trim().length > 50) {
+                      assimilationContext[stage] = approved.plaintext;
+                    }
+                  }
+                } catch (aErr: any) {
+                  console.warn(`[auto-run] assimilation_context_fetch_failed { stage: "${stage}", error: "${aErr?.message}" }`);
+                }
+              }
+              if (Object.keys(assimilationContext).length === 0) assimilationContext = undefined;
+              else console.log(`[auto-run] assimilation_context_resolved { doc: "${currentDoc}", stages: ${JSON.stringify(Object.keys(assimilationContext))} }`);
+            }
+
             const { result: convertResult } = await callEdgeFunctionWithRetry(
               supabase, supabaseUrl, "dev-engine-v2", {
                 action: "convert",
@@ -7258,6 +7329,7 @@ Deno.serve(async (req) => {
                 documentId: prevDoc.id,
                 versionId: prevVersion.id,
                 targetOutput: currentDoc.toUpperCase(),
+                ...(assimilationContext ? { assimilationContext } : {}),
               }, token, job.project_id, format, currentDoc, jobId, stepCount + 1
             );
 

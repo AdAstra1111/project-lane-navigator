@@ -7404,7 +7404,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
     // ── CONVERT ──
     if (action === "convert") {
-      const { projectId, documentId, versionId, targetOutput, protectItems } = body;
+      const { projectId, documentId, versionId, targetOutput, protectItems, assimilationContext } = body;
       if (!projectId || !documentId || !versionId || !targetOutput) throw new Error("projectId, documentId, versionId, targetOutput required");
 
       const { data: version } = await supabase.from("project_document_versions")
@@ -7467,10 +7467,29 @@ Format: ${rq.format}.`;
         if (tb) convertTemplateBlock = tb;
       } catch (_te) { /* non-fatal */ }
 
+      // ── FIX 2: Build ASSIMILATED CANON block from preceding stage content ──
+      let assimilationBlock = "";
+      if (assimilationContext && typeof assimilationContext === "object" && Object.keys(assimilationContext).length > 0) {
+        const sections = Object.entries(assimilationContext as Record<string, string>)
+          .filter(([, text]) => typeof text === "string" && text.trim().length > 0)
+          .map(([stage, text]) => `### ${stage.toUpperCase().replace(/_/g, " ")}\n${text.slice(0, 6000)}`);
+        if (sections.length > 0) {
+          assimilationBlock = `\n\n══════ ASSIMILATED CANON (canonical ground truth from approved preceding stages — use as foundation) ══════\n${sections.join("\n\n")}\n══════ END ASSIMILATED CANON ══════\n`;
+        }
+        console.log(`[dev-engine-v2] convert: assimilation_context_injected { stages: ${Object.keys(assimilationContext).length}, total_chars: ${sections.reduce((s, t) => s + t.length, 0)} }`);
+      }
+
+      // ── FIX 3: Feature-length screenplay enforcement for FEATURE_SCRIPT / PRODUCTION_DRAFT ──
+      const FEATURE_SCRIPT_TARGETS = new Set(["FEATURE_SCRIPT", "PRODUCTION_DRAFT"]);
+      let featureLengthBlock = "";
+      if (FEATURE_SCRIPT_TARGETS.has(normalizedTarget)) {
+        featureLengthBlock = `\n\nCRITICAL LENGTH REQUIREMENT: Write a FULL-LENGTH FEATURE FILM SCREENPLAY targeting 90-110 minutes runtime (19,000-24,000 words). Write COMPLETE scene-by-scene content with FULL action lines, FULL dialogue exchanges, and EVERY beat fully dramatised. Absolutely NO summaries, NO placeholders, NO "scenes continue similarly", NO truncation. Every scene must be written out in proper screenplay format with sluglines, action blocks, and dialogue. This is a professional feature film — treat every page with full cinematic craft.\n`;
+      }
+
       const userPrompt = `SOURCE FORMAT: ${srcDoc?.doc_type || "unknown"}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA):\n${JSON.stringify(protectItems || [])}
-${qualBindingBlock}${cvNecBlock}${cvConstraintPack}
+${qualBindingBlock}${cvNecBlock}${cvConstraintPack}${featureLengthBlock}${assimilationBlock}
 MATERIAL:\n${version.plaintext}${convertTemplateBlock}`;
 
       const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
@@ -7590,7 +7609,8 @@ MATERIAL:\n${version.plaintext}${convertTemplateBlock}`;
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const isDraftScript = targetOutput === "DRAFT_SCRIPT" || normalizedTarget === "SCRIPT" || normalizedTarget === "DRAFT_SCRIPT";
+      const isFeatureScript = FEATURE_SCRIPT_TARGETS.has(normalizedTarget);
+      const isDraftScript = targetOutput === "DRAFT_SCRIPT" || normalizedTarget === "SCRIPT" || normalizedTarget === "DRAFT_SCRIPT" || isFeatureScript;
       const model = isDraftScript ? PRO_MODEL : BALANCED_MODEL;
       const maxTok = isDraftScript ? 16000 : 10000;
       const systemPrompt = isDraftScript ? CONVERT_SYSTEM : CONVERT_SYSTEM_JSON;
@@ -7991,89 +8011,7 @@ Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.
       });
     }
 
-    if (action === "expand-to-feature-floor") {
-      const { projectId, documentId, versionId, currentText } = body;
-      if (!projectId || !documentId || !versionId || !currentText) throw new Error("projectId, documentId, versionId, currentText required");
-
-      const { data: proj } = await supabase.from("projects")
-        .select("min_runtime_minutes, runtime_estimation_mode")
-        .eq("id", projectId).single();
-
-      const eMode = (proj as any)?.runtime_estimation_mode ?? 'feature';
-      const softMin = (proj as any)?.min_runtime_minutes ?? 80;
-      const divisor = eMode === 'dialogue_heavy' ? 200 : eMode === 'lean' ? 240 : eMode === 'action_heavy' ? 240 : 220;
-      const currentWords = currentText.trim().split(/\s+/).filter(Boolean).length;
-      const currentMins = currentWords / divisor;
-      const targetWords = Math.ceil(softMin * divisor);
-
-      const expandSystem = `You are expanding a feature screenplay that is too short (~${Math.round(currentMins)} mins, needs at least ${softMin} mins).
-
-Do NOT add filler. Expand cinematic beats: obstacles, reversals, complications, aftermath moments, and set-pieces where structurally appropriate.
-Strengthen Act 2 escalation and character dynamics.
-Do NOT summarize. Output full screenplay pages in proper format.
-Target approximately ${targetWords} words total.
-Output ONLY the expanded screenplay text. No JSON, no commentary, no markdown.`;
-
-      const expanded = await callAI(LOVABLE_API_KEY, PRO_MODEL, expandSystem, currentText, 0.4, 16000);
-      const cleanExpanded = expanded.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
-
-      const expandedWords = cleanExpanded.split(/\s+/).filter(Boolean).length;
-      const expandedMins = expandedWords / divisor;
-
-      // Load team voice for meta_json stamping on expand
-      const expandLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
-      const expandTvCtx = await loadTeamVoiceContext(supabase, projectId, expandLane);
-      // Resolve doc_type for createVersion
-      const { data: expandDocRow } = await supabase.from("project_documents").select("doc_type").eq("id", documentId).single();
-      const expandDocType = expandDocRow?.doc_type || "other";
-      let newVersion: any = null;
-      try {
-        newVersion = await createVersion(supabase, {
-          documentId,
-          docType: expandDocType,
-          plaintext: cleanExpanded,
-          label: `Expanded to ~${Math.round(expandedMins)} mins`,
-          createdBy: user.id,
-          changeSummary: `Auto-expanded from ~${Math.round(currentMins)} to ~${Math.round(expandedMins)} mins.`,
-          metaJson: expandMetaJson,
-          generatorId: "dev-engine-v2-expand",
-          inputsUsed: { generator_id: "dev-engine-v2-expand", document_id: documentId, parent_version_id: versionId, project_id: projectId },
-        });
-      } catch (err: any) {
-        if (err.message?.startsWith("CANON_MISMATCH:") || err.message?.startsWith("PROVENANCE_MISSING:")) throw err;
-        throw err;
-      }
-      if (!newVersion) throw new Error("Failed to create version");
-
-      // ── Style eval on expand output ──
-      const expandStyleTarget = (await loadVoiceTargets(supabase, projectId, expandLane)).target;
-      const expandStyleEval = await runStyleEval(supabase, cleanExpanded, projectId, documentId, newVersion.id, expandLane, expandStyleTarget);
-      if (expandStyleEval) {
-        const mergedMeta = { ...(newVersion.meta_json || {}), ...expandStyleEval.metaFields };
-        await supabase.from("project_document_versions").update({ meta_json: mergedMeta }).eq("id", newVersion.id);
-        newVersion.meta_json = mergedMeta;
-      }
-
-      await supabase.from("development_runs").insert({
-        project_id: projectId,
-        document_id: documentId,
-        version_id: newVersion.id,
-        user_id: user.id,
-        run_type: "EXPAND",
-        output_json: {
-          from_minutes: Math.round(currentMins),
-          to_minutes: Math.round(expandedMins),
-          from_words: currentWords,
-          to_words: expandedWords,
-        },
-      });
-
-      return new Response(JSON.stringify({
-        newVersion,
-        estimatedMinutes: Math.round(expandedMins),
-        wordCount: expandedWords,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+    // expand-to-feature-floor action removed (FIX 4) — feature length is now enforced at generation time
 
     // ══════════════════════════════════════════════
     // DRIFT RESOLUTION ACTIONS
