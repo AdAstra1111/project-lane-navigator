@@ -577,6 +577,9 @@ export interface PatchExecutionResult {
   direct_targets_attempted: number;
   direct_targets_executed: number;
   direct_targets_failed: number;
+  documents_attempted?: number;
+  documents_executed?: number;
+  document_sequences_failed?: number;
   target_results: PatchExecutionTargetResult[];
   execution_notes: {
     validation_passed: boolean;
