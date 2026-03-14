@@ -31082,6 +31082,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         attempted: sectionTargets.length,
         executed: executedCount,
         failed: failedCount,
+        documents_attempted: documentsAttempted,
+        documents_executed: documentsExecuted,
+        document_sequences_failed: documentSequencesFailed,
         write_performed: writePerformed,
         has_governance: !!postExecution,
         has_revalidation: !!revalidationExecution,
@@ -31101,6 +31104,9 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           direct_targets_attempted: sectionTargets.length,
           direct_targets_executed: executedCount,
           direct_targets_failed: failedCount,
+          documents_attempted: documentsAttempted,
+          documents_executed: documentsExecuted,
+          document_sequences_failed: documentSequencesFailed,
           target_results: targetResults,
           execution_notes: {
             validation_passed: true,
@@ -31113,7 +31119,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           revalidation_execution: revalidationExecution,
         },
         computed_at: execAt,
-        version: "patch-execution-v1",
+        version: "patch-execution-v1.1",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

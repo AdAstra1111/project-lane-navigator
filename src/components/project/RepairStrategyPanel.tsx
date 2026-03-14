@@ -2152,13 +2152,17 @@ function PatchExecutionSection({
               <Card className="border-border/50">
                 <CardContent className="p-2 text-center">
                   <div className="text-lg font-bold text-foreground">{execution.direct_targets_executed}/{execution.direct_targets_attempted}</div>
-                  <div className="text-[9px] text-muted-foreground uppercase">Executed</div>
+                  <div className="text-[9px] text-muted-foreground uppercase">Sections</div>
                 </CardContent>
               </Card>
               <Card className="border-border/50">
                 <CardContent className="p-2 text-center">
-                  <div className="text-lg font-bold text-foreground">{execution.direct_targets_failed}</div>
-                  <div className="text-[9px] text-muted-foreground uppercase">Failed</div>
+                  <div className="text-lg font-bold text-foreground">
+                    {execution.documents_executed != null ? `${execution.documents_executed}/${execution.documents_attempted}` : execution.direct_targets_failed}
+                  </div>
+                  <div className="text-[9px] text-muted-foreground uppercase">
+                    {execution.documents_executed != null ? 'Documents' : 'Failed'}
+                  </div>
                 </CardContent>
               </Card>
               <Card className="border-border/50">
@@ -2168,6 +2172,20 @@ function PatchExecutionSection({
                 </CardContent>
               </Card>
             </div>
+
+            {/* Document-level summary (v1.1) */}
+            {execution.documents_attempted != null && execution.documents_attempted > 0 && (
+              <div className="flex flex-wrap gap-2 text-[9px] text-muted-foreground">
+                <span>Docs attempted: <span className="font-mono text-foreground">{execution.documents_attempted}</span></span>
+                <span>Docs executed: <span className="font-mono text-foreground">{execution.documents_executed}</span></span>
+                {(execution.document_sequences_failed ?? 0) > 0 && (
+                  <Badge variant="destructive" className="text-[9px] font-mono">{execution.document_sequences_failed} sequence(s) failed</Badge>
+                )}
+                {execution.direct_targets_attempted > 1 && (
+                  <Badge variant="outline" className="text-[9px] font-mono text-muted-foreground border-border/50">multi-section</Badge>
+                )}
+              </div>
+            )}
 
             {/* Block reasons */}
             {!execution.execution_allowed && execution.execution_notes.block_reasons && execution.execution_notes.block_reasons.length > 0 && (
