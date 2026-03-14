@@ -99,7 +99,7 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
   const safeChunks = Array.isArray(chunks) ? chunks : [];
   const total = safeChunks.length;
   const doneCount = safeChunks.filter(c => c.status === 'done').length;
-  const failedChunks = safeChunks.filter(c => c.status === 'failed' || c.status === 'failed_validation');
+  const failedChunks = safeChunks.filter(c => isSectionFailed(c.status));
   const runningChunk = safeChunks.find(c => c.status === 'running');
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
   const label = DOC_TYPE_LABELS[docType] || docType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
