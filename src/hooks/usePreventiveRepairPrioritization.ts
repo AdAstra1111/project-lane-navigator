@@ -694,6 +694,23 @@ export interface ExecutionReplaySnapshot {
   execution: PatchExecutionResult;
 }
 
+// ── Causal Graph Types ──
+
+export interface CausalNode {
+  node_id: string;
+  node_type: "document" | "validation" | "execution_step" | "governance" | "revalidation" | "patch_target";
+  ref_id: string | null;
+  label: string;
+}
+
+export interface CausalEdge {
+  from_node: string;
+  to_node: string;
+  edge_type: "depends_on" | "blocks" | "generated" | "invalidated" | "triggered" | "revalidated" | "failed_because";
+  reason_code: string;
+  reason_message: string;
+}
+
 export interface ExecutionReplayResponse {
   ok: boolean;
   action: string;
