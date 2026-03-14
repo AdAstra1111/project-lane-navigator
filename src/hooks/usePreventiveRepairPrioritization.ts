@@ -710,6 +710,41 @@ export interface ExecutionReplayResponse {
 
 // ── Execution History Index Types ──
 
+/**
+ * Deterministic outcome mapping for history items.
+ * Priority: dry_run > blocked > partial > executed > failed
+ * - dry_run:  exec.dry_run === true
+ * - blocked:  exec.execution_allowed === false && !dry_run
+ * - partial:  exec.executed === true && direct_targets_failed > 0 && !dry_run
+ * - executed: exec.executed === true && direct_targets_failed === 0 && !dry_run
+ * - failed:   everything else (attempted but no success)
+ */
+export type PatchExecutionOutcome = "executed" | "blocked" | "failed" | "partial" | "dry_run";
+
+export function deriveExecutionOutcome(item: Pick<PatchExecutionHistoryItem, 'dry_run' | 'execution_allowed' | 'executed' | 'direct_targets_failed'>): PatchExecutionOutcome {
+  if (item.dry_run) return "dry_run";
+  if (!item.execution_allowed) return "blocked";
+  if (item.executed && item.direct_targets_failed > 0) return "partial";
+  if (item.executed && item.direct_targets_failed === 0) return "executed";
+  return "failed";
+}
+
+export interface PatchExecutionHistoryFilters {
+  date_from?: string;
+  date_to?: string;
+  repair_type?: string;
+  source_type?: string;
+  outcome?: PatchExecutionOutcome;
+}
+
+export interface PatchExecutionHistoryAppliedFilters {
+  date_from: string | null;
+  date_to: string | null;
+  repair_type: string | null;
+  source_type: string | null;
+  outcome: string | null;
+}
+
 export interface PatchExecutionHistoryItem {
   transition_id: string;
   plan_id: string;
@@ -731,17 +766,21 @@ export interface PatchExecutionHistoryItem {
   source_type: string | null;
   repair_id: string | null;
   repair_type: string | null;
+  outcome?: PatchExecutionOutcome;
 }
 
 export interface PatchExecutionHistoryResponse {
   ok: boolean;
   action: string;
   project_id: string;
+  applied_filters?: PatchExecutionHistoryAppliedFilters;
   history_items: PatchExecutionHistoryItem[];
   history_notes: {
     exact_source: string;
     filtered_count: number;
     omitted_non_replay_rows: number;
+    prefilter_row_count?: number;
+    postfilter_row_count?: number;
   };
   computed_at: string;
   version: string;
@@ -750,6 +789,7 @@ export interface PatchExecutionHistoryResponse {
 export async function fetchPatchExecutionHistory(
   projectId: string,
   limit?: number,
+  filters?: PatchExecutionHistoryFilters,
 ): Promise<PatchExecutionHistoryResponse | null> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return null;
@@ -759,6 +799,9 @@ export async function fetchPatchExecutionHistory(
     projectId,
   };
   if (limit) payload.limit = limit;
+  if (filters && Object.values(filters).some(v => v != null && v !== '')) {
+    payload.filters = filters;
+  }
 
   const resp = await fetch(FUNC_URL, {
     method: 'POST',

@@ -31649,7 +31649,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     // ══════════════════════════════════════════════════════════════════════════════
 
     if (action === "list_patch_execution_history") {
-      const { projectId, limit: reqLimit } = body;
+      const { projectId, limit: reqLimit, filters } = body;
       if (!projectId) {
         return new Response(JSON.stringify({ ok: false, error: "projectId required" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -31658,14 +31658,52 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
       const historyAt = new Date().toISOString();
       const historyLimit = Math.min(Math.max(Number(reqLimit) || 20, 1), 50);
 
-      // Query all patch_execution_completed transitions for this project
-      const { data: historyRows, error: historyErr } = await supabase
+      // ── Resolve filters ──
+      const f = filters && typeof filters === "object" ? filters : {};
+      const fDateFrom: string | null = typeof f.date_from === "string" ? f.date_from : null;
+      const fDateTo: string | null = typeof f.date_to === "string" ? f.date_to : null;
+      const fRepairType: string | null = typeof f.repair_type === "string" ? f.repair_type : null;
+      const fSourceType: string | null = typeof f.source_type === "string" ? f.source_type : null;
+      const fOutcome: string | null = typeof f.outcome === "string" ? f.outcome : null;
+
+      const appliedFilters = {
+        date_from: fDateFrom,
+        date_to: fDateTo,
+        repair_type: fRepairType,
+        source_type: fSourceType,
+        outcome: fOutcome,
+      };
+
+      // ── Outcome mapping helper ──
+      // Deterministic canonical outcome from persisted snapshot execution fields.
+      // Priority: dry_run > blocked > partial > executed > failed
+      function deriveOutcome(exec: any): string {
+        const dryRun = exec.dry_run === true;
+        const executed = exec.executed === true;
+        const allowed = exec.execution_allowed === true;
+        const failed = typeof exec.direct_targets_failed === "number" ? exec.direct_targets_failed : 0;
+        if (dryRun) return "dry_run";
+        if (!allowed) return "blocked";
+        if (executed && failed > 0) return "partial";
+        if (executed && failed === 0) return "executed";
+        return "failed";
+      }
+
+      // ── DB query with date filters applied at SQL level ──
+      // Overfetch to compensate for post-query filtering
+      const fetchLimit = (historyLimit + 10) * (fRepairType || fSourceType || fOutcome ? 3 : 1);
+      let query = supabase
         .from("pipeline_transitions")
         .select("id, run_id, resulting_state, created_at, status, trigger")
         .eq("project_id", projectId)
         .eq("event_type", "patch_execution_completed")
-        .order("created_at", { ascending: false })
-        .limit(historyLimit + 10); // overfetch slightly to account for invalid rows
+        .order("created_at", { ascending: false });
+
+      if (fDateFrom) query = query.gte("created_at", fDateFrom);
+      if (fDateTo) query = query.lte("created_at", fDateTo);
+      query = query.limit(Math.min(fetchLimit, 150));
+
+      const { data: historyRows, error: historyErr } = await query;
 
       if (historyErr) {
         console.warn("[dev-engine-v2] list_patch_execution_history query error:", historyErr.message);
@@ -31673,20 +31711,24 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           ok: true,
           action: "list_patch_execution_history",
           project_id: projectId,
+          applied_filters: appliedFilters,
           history_items: [],
           history_notes: {
             exact_source: "pipeline_transitions",
             filtered_count: 0,
             omitted_non_replay_rows: 0,
+            prefilter_row_count: 0,
+            postfilter_row_count: 0,
           },
           computed_at: historyAt,
-          version: "execution-history-v1",
+          version: "execution-history-v1.1",
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       const allRows = historyRows || [];
       let omittedCount = 0;
       const historyItems: any[] = [];
+      let prefilterValidCount = 0;
 
       for (const row of allRows) {
         if (historyItems.length >= historyLimit) break;
@@ -31697,11 +31739,22 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           continue;
         }
 
+        prefilterValidCount++;
+
         const exec = snap.execution || {};
         const plan = snap.patch_plan || {};
         const repairSource = plan.repair_source || {};
         const obs = exec.execution_observability || null;
         const blockedDocTypes = Array.isArray(exec.blocked_doc_types) ? exec.blocked_doc_types : [];
+
+        const itemRepairType = repairSource.repair_type || null;
+        const itemSourceType = repairSource.source_type || null;
+        const itemOutcome = deriveOutcome(exec);
+
+        // ── Application-level metadata filters ──
+        if (fRepairType && itemRepairType !== fRepairType) continue;
+        if (fSourceType && itemSourceType !== fSourceType) continue;
+        if (fOutcome && itemOutcome !== fOutcome) continue;
 
         historyItems.push({
           transition_id: row.id,
@@ -31721,9 +31774,10 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           documents_executed: typeof exec.documents_executed === "number" ? exec.documents_executed : null,
           blocked_doc_types: blockedDocTypes,
           total_duration_ms: obs?.total_duration_ms ?? null,
-          source_type: repairSource.source_type || null,
+          source_type: itemSourceType,
           repair_id: repairSource.repair_id || null,
-          repair_type: repairSource.repair_type || null,
+          repair_type: itemRepairType,
+          outcome: itemOutcome,
         });
       }
 
@@ -31731,20 +31785,24 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         project_id: projectId,
         returned: historyItems.length,
         omitted: omittedCount,
+        applied_filters: appliedFilters,
       });
 
       return new Response(JSON.stringify({
         ok: true,
         action: "list_patch_execution_history",
         project_id: projectId,
+        applied_filters: appliedFilters,
         history_items: historyItems,
         history_notes: {
           exact_source: "pipeline_transitions",
           filtered_count: historyItems.length,
           omitted_non_replay_rows: omittedCount,
+          prefilter_row_count: prefilterValidCount,
+          postfilter_row_count: historyItems.length,
         },
         computed_at: historyAt,
-        version: "execution-history-v1",
+        version: "execution-history-v1.1",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
