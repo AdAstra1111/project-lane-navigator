@@ -283,6 +283,26 @@ export default function ProjectDevelopmentEngine() {
   const isBgGenerating = (selectedVersion as any)?.meta_json?.bg_generating === true;
   const isSeasonScript = selectedDoc?.doc_type === 'season_script';
 
+  // When all chunks finish, immediately inject assembled content — don't wait for backend DB write
+  const handleAllChunksDone = useCallback((assembledContent: string) => {
+    if (!assembledContent || assembledContent.length < 50) return;
+    // Inject into version cache so editor renders immediately
+    qc.setQueryData(['dev-v2-versions', selectedDocId], (old: any) => {
+      if (!Array.isArray(old)) return old;
+      return old.map((v: any) =>
+        v.id === selectedVersionId
+          ? { ...v, plaintext: assembledContent, meta_json: { ...v.meta_json, bg_generating: false } }
+          : v
+      );
+    });
+    // Clear rewrite pipeline state if active
+    if (rewritePipeline.status !== 'idle') {
+      rewritePipeline.reset();
+    }
+    // Schedule a background refresh to pick up the final server version
+    setTimeout(() => qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] }), 3000);
+  }, [selectedDocId, selectedVersionId, qc, rewritePipeline]);
+
   // Auto-poll versions every 4s while bg_generating — refresh content when done
   const { data: _polledVersions } = useQuery({
     queryKey: ['dev-v2-bg-poll', selectedVersionId],
