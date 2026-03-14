@@ -5197,17 +5197,36 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
       highlightTimerRef.current = null;
     }
 
+    const SUBSECTION_LABELS: Partial<Record<TrendSubsectionKey, string>> = {
+      blocker_code_trends: 'Blocker Code Trends',
+      repair_type_trends: 'Repair Type Trends',
+      source_type_trends: 'Source Type Trends',
+      document_type_trends: 'Document Type Trends',
+      overall_outcomes: 'Overall Outcomes',
+      governance_trends: 'Governance Trends',
+      timing_trends: 'Timing Trends',
+      revalidation_trends: 'Revalidation Trends',
+    };
+
     const applyNavigation = (loadedData: typeof data) => {
       setSectionOpen(true);
       setForcedOpenSubs(prev => new Set(prev).add(subsection_key));
       setHighlightedEntity({ subsection: subsection_key, entity: entity_key, at: activated_at });
 
-      // DEV warning: subsection has no data → DOM target absent
-      if (import.meta.env.DEV && isSubsectionEmpty(subsection_key, loadedData)) {
-        console.warn(
-          `[IFFY nav] Subsection "${subsection_key}" has no data — forced-open and highlight will have no DOM target.`,
-          entity_key ? `Entity: "${entity_key}"` : '(header-level)',
-        );
+      // Empty-target UX: show transient notice when subsection has no data rows
+      if (isSubsectionEmpty(subsection_key, loadedData)) {
+        setEmptyTargetNotice({
+          subsection_label: SUBSECTION_LABELS[subsection_key] ?? subsection_key,
+          entity: entity_key,
+        });
+        if (import.meta.env.DEV) {
+          console.warn(
+            `[IFFY nav] Subsection "${subsection_key}" has no data — forced-open and highlight will have no DOM target.`,
+            entity_key ? `Entity: "${entity_key}"` : '(header-level)',
+          );
+        }
+      } else {
+        setEmptyTargetNotice(null);
       }
 
       setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
