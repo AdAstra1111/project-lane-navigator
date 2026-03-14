@@ -41,10 +41,16 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   feature_script: 'Feature Script',
 };
 
+const FAILED_STATUSES = new Set(['failed', 'failed_validation', 'error', 'needs_regen', 'skipped']);
+
+function isSectionFailed(status: string) {
+  return FAILED_STATUSES.has(status);
+}
+
 function sectionIcon(status: string) {
   if (status === 'done') return <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />;
   if (status === 'running') return <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />;
-  if (status === 'failed' || status === 'failed_validation') return <XCircle className="h-4 w-4 text-destructive shrink-0" />;
+  if (isSectionFailed(status)) return <XCircle className="h-4 w-4 text-destructive shrink-0" />;
   return <Clock className="h-4 w-4 text-muted-foreground/50 shrink-0" />;
 }
 
@@ -93,7 +99,7 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
   const safeChunks = Array.isArray(chunks) ? chunks : [];
   const total = safeChunks.length;
   const doneCount = safeChunks.filter(c => c.status === 'done').length;
-  const failedChunks = safeChunks.filter(c => c.status === 'failed' || c.status === 'failed_validation');
+  const failedChunks = safeChunks.filter(c => isSectionFailed(c.status));
   const runningChunk = safeChunks.find(c => c.status === 'running');
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
   const label = DOC_TYPE_LABELS[docType] || docType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -165,7 +171,7 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
               || chunk.chunk_key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
             const isDone = chunk.status === 'done';
             const isRunning = chunk.status === 'running';
-            const isFailed = chunk.status === 'failed' || chunk.status === 'failed_validation';
+            const isFailed = isSectionFailed(chunk.status);
             const isExpanded = expandedId === chunk.id;
             const isRetrying = retryingId === chunk.id;
 
@@ -212,7 +218,10 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
                       {isFailed && (
                         <div className="space-y-2">
                           <p className="text-xs text-destructive/80 italic">
-                            {chunk.status === 'failed_validation' ? 'Failed validation' : 'Generation failed'}
+                            {chunk.status === 'failed_validation' ? 'Failed validation' 
+                              : chunk.status === 'needs_regen' ? 'Needs regeneration'
+                              : chunk.status === 'skipped' ? 'Skipped'
+                              : 'Generation failed'}
                           </p>
                           {projectId && documentId && (
                             <Button
@@ -240,12 +249,17 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
                       )}
                       {isDone && isExpanded && fullText && (
                         <ScrollArea className="max-h-[400px] mt-2">
-                          <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pr-3">
+                          <div className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap pr-3">
                             {fullText}
-                          </p>
+                          </div>
                         </ScrollArea>
                       )}
-                      {isDone && !previewText && !isExpanded && (
+                      {isDone && isExpanded && !fullText && (
+                        <p className="text-xs text-muted-foreground/50 italic mt-2">
+                          Content not yet available — try refreshing.
+                        </p>
+                      )}
+                      {isDone && !isExpanded && !previewText && (
                         <p className="text-xs text-muted-foreground/50 italic">Complete — click to read</p>
                       )}
 
