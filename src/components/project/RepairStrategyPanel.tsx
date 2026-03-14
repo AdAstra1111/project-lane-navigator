@@ -4758,18 +4758,18 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[8px] font-mono text-muted-foreground/40 uppercase">Bulk:</span>
                   <button
-                    disabled={!canDoNow || highIds.length === 0}
-                    onClick={() => applyBulk(highIds, "do_now")}
+                    disabled={!canDoNow || highItems.length === 0}
+                    onClick={() => applyBulk(highItems, "do_now")}
                     className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-default transition-colors"
                   >
-                    Do now: all high ({highIds.length})
+                    Do now: all high ({highItems.length})
                   </button>
                   <button
-                    disabled={!canWatch || medIds.length === 0}
-                    onClick={() => applyBulk(medIds, "watch")}
+                    disabled={!canWatch || medItems.length === 0}
+                    onClick={() => applyBulk(medItems, "watch")}
                     className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border/40 bg-muted/20 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-default transition-colors"
                   >
-                    Watch: all medium ({medIds.length})
+                    Watch: all medium ({medItems.length})
                   </button>
                   <button
                     disabled={!canClear}
