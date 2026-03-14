@@ -4323,11 +4323,7 @@ function ExecutionTrendsSection({ projectId, navigationTarget, onTargetHandled }
     return () => clearTimeout(timer);
   }, [navigationTarget]);
 
-  // Helper: is a subsection forced open by navigation?
-  const isSubOpen = (key: TrendSubsectionKey, defaultOpen = false) => {
-    if (forcedOpenSubs.has(key)) return true;
-    return undefined; // let Radix manage default
-  };
+  // onSubOpenChange: clear forced-open when user manually closes
   const onSubOpenChange = (key: TrendSubsectionKey, open: boolean) => {
     if (!open) {
       setForcedOpenSubs(prev => { const n = new Set(prev); n.delete(key); return n; });
