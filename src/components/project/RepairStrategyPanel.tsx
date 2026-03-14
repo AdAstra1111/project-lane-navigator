@@ -4790,15 +4790,15 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
               const sevOrd: Record<string, number> = { high: 0, medium: 1, low: 2 };
               const confOrd: Record<string, number> = { high: 0, medium: 1, low: 2 };
               const statusOrd: Record<string, number> = { do_now: 0, watch: 1, ignore: 2 };
-              const visible = displayResult.all_display.filter(r => !r.suppressed && triageMap[r.recommendation_id]);
+              const visible = displayResult.all_display.filter(r => !r.suppressed && triageMap[triageKey(r)]);
               const sorted = [...visible].sort((a, b) =>
-                (statusOrd[triageMap[a.recommendation_id]] ?? 3) - (statusOrd[triageMap[b.recommendation_id]] ?? 3)
+                (statusOrd[triageMap[triageKey(a)] ?? ''] ?? 3) - (statusOrd[triageMap[triageKey(b)] ?? ''] ?? 3)
                 || (sevOrd[a.severity] ?? 3) - (sevOrd[b.severity] ?? 3)
                 || (confOrd[a.confidence] ?? 3) - (confOrd[b.confidence] ?? 3)
                 || a.recommendation_id.localeCompare(b.recommendation_id)
               );
               const cts = { do_now: 0, watch: 0, ignore: 0 };
-              sorted.forEach(r => { const s = triageMap[r.recommendation_id]; if (s) cts[s]++; });
+              sorted.forEach(r => { const s = triageMap[triageKey(r)]; if (s) cts[s]++; });
               const exportJson = {
                 export_version: "triage-export-v1" as const,
                 exported_at: new Date().toISOString(),
@@ -4806,7 +4806,8 @@ function ExecutionRecommendationsSection({ projectId, onNavigateToTrend }: {
                 counts: { ...cts, total: sorted.length },
                 items: sorted.map(r => ({
                   recommendation_id: r.recommendation_id,
-                  triage_status: triageMap[r.recommendation_id],
+                  comparison_key: triageKey(r),
+                  triage_status: triageMap[triageKey(r)],
                   title: r.title,
                   severity: r.severity,
                   confidence: r.confidence,
