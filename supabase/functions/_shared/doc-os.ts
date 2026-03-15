@@ -303,11 +303,25 @@ const CANON_ALIGNMENT_APPLICABLE: Record<string, Set<string>> = {
 
 /**
  * PAL: Determine if canon alignment should run for a given format + doc_type.
- * Returns true ONLY if the doc_type is a canon-consuming type for this format.
+ * Returns true ONLY if the doc_type is a canon-consuming type for that format.
  * Fail-closed: if format is unknown, alignment does NOT run (no false positives).
+ *
+ * Rewrite refinement exception:
+ * production_draft chunked rewrites are editing an existing approved script shape,
+ * so they must not be blocked by first-pass canon entity coverage heuristics.
  */
-export function shouldRunCanonAlignment(format: string | null | undefined, docType: string): boolean {
+export function shouldRunCanonAlignment(
+  format: string | null | undefined,
+  docType: string,
+  generatorId?: string | null,
+): boolean {
   const fmtKey = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, '-');
+
+  if (docType === "production_draft" && generatorId === "dev-engine-v2-rewrite-chunked") {
+    console.log(`[doc-os][PAL] canon_alignment_skipped: rewrite_refinement_exempt { format: "${fmtKey || 'unknown'}", doc_type: "${docType}", generator: "${generatorId}" }`);
+    return false;
+  }
+
   if (!fmtKey) {
     console.warn(`[doc-os][PAL] canon_alignment_skipped: no format provided for doc_type="${docType}"`);
     return false;
@@ -363,7 +377,7 @@ export async function createVersion(
   const runAlignment = (() => {
     if (!isSystemGenerated || !opts.plaintext) return false;
     if (opts.format) {
-      return shouldRunCanonAlignment(opts.format, key);
+      return shouldRunCanonAlignment(opts.format, key, effectiveGeneratorId);
     }
     // Legacy fallback: exempt set (for callers that don't pass format)
     return !CANON_ALIGNMENT_EXEMPT_FALLBACK.has(key);
