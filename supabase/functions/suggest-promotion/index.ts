@@ -20,8 +20,12 @@ function getLadderForFormat(format: string): string[] {
 function nextDocForFormat(currentStage: string, format: string): string | null {
   const ladder = getLadderForFormat(format);
   const normalized = normalizeDocType(currentStage, null, format);
-  const idx = ladder.indexOf(normalized);
-  return idx >= 0 && idx < ladder.length - 1 ? ladder[idx + 1] : null;
+  return getCanonicalNextStage({
+    ladder,
+    currentStage: normalized,
+    format,
+    source: "suggest-promotion",
+  });
 }
 
 function resolveCurrentStage(rawDocType: string, format: string): string | null {
