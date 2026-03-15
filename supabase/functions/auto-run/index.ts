@@ -3591,8 +3591,8 @@ async function chunkedRewrite(
       approvedNotes, protectItems,
     }, token, projectId, format, deliverableType, jobId, stepCount
   );
-  const planRunId = planResult?.result?.planRunId || planResult?.planRunId;
-  const totalChunks = planResult?.result?.totalChunks || planResult?.totalChunks || 1;
+  const planRunId = planResult?.result?.planRunId || (planResult as any)?.planRunId;
+  const totalChunks = planResult?.result?.totalChunks || (planResult as any)?.totalChunks || 1;
   if (!planRunId) throw new Error("Chunked rewrite plan failed: no planRunId returned");
 
   // Step 2: Rewrite each chunk
