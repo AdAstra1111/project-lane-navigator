@@ -1726,7 +1726,11 @@ function resolveTargetForFormat(targetDoc: string, format: string): string {
   if (isOnLadder(targetDoc, format)) return targetDoc;
   const ladder = getLadderForJob(format);
   if (!ladder || ladder.length === 0) return targetDoc; // caller must have validated format already
-  return ladder[ladder.length - 1];
+  const fallback = ladder[ladder.length - 1];
+  console.error(
+    `[auto-run][IEL] resolveTargetForFormat FALLBACK — target "${targetDoc}" not on ${format} ladder, falling back to "${fallback}". ladder=[${ladder.join(",")}]`
+  );
+  return fallback;
 }
 
 function isStageAtOrBeforeTarget(stage: string, targetDoc: string, format: string): boolean {
