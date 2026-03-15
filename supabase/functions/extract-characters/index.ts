@@ -142,7 +142,7 @@ serve(async (req) => {
       content: `Extract all named character names from this script, and count how many scenes each character appears in:\n\n${truncated}`,
     };
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,

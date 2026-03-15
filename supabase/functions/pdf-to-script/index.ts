@@ -36,7 +36,7 @@ function adminClient() {
   );
 }
 
-const GATEWAY_URL = "https://openrouter.ai/api/v1/chat/completions";
+const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 const EXTRACTION_PROMPT = `You are a screenplay text extraction specialist.
 Extract the COMPLETE screenplay/script text from this PDF accurately.

@@ -241,7 +241,7 @@ async function handleGenerateShotMedia(db: any, body: any, userId: string, apiKe
   for (let i = 0; i < variations; i++) {
     try {
       // Generate image via Lovable AI image model
-      const imageResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const imageResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
