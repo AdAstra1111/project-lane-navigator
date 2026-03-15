@@ -4797,8 +4797,13 @@ serve(async (req) => {
         updatePayload.meta_json.bg_assembled_by_client = true;
       }
 
-      // Use service client for the write — bypasses RLS which blocks user-key updates
-      const { error: fixErr } = await serviceClient
+      // Create service-role client for the write (bypasses RLS which blocks user-key updates)
+      const svcClient = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      );
+
+      const { error: fixErr } = await svcClient
         .from("project_document_versions")
         .update(updatePayload)
         .eq("id", stuckVersionId);
