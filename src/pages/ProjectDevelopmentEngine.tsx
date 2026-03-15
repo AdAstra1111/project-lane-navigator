@@ -1550,6 +1550,15 @@ export default function ProjectDevelopmentEngine() {
           <DeliverablePipeline stageStatuses={pipelineStatuses} activeDeliverable={selectedDeliverableType}
             onStageClick={(dt) => setSelectedDeliverableType(dt)} isVerticalDrama={isVerticalDrama} projectFormat={normalizedFormat} />
 
+          {/* ═══ OUTPUT DOCUMENTS (parallel packaging docs) ═══ */}
+          {projectId && (
+            <OutputDocumentsSection
+              projectId={projectId}
+              projectFormat={normalizedFormat}
+              existingDocTypes={documents.map(d => d.doc_type).filter(Boolean) as string[]}
+            />
+          )}
+
           {/* ═══ STAGE PLAN PANEL (drift verification) ═══ */}
           {(project as any)?.format && (
             <StagePlanPanel
