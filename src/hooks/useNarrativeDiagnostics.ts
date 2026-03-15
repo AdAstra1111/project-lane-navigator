@@ -12,7 +12,6 @@ export interface NarrativeDiagnostic {
   project_id: string;
   source_system: string;
   severity: 'critical' | 'high' | 'warning' | 'info';
-  /** Backend canonical name is scope_level; scope_type kept as alias for backward compat */
   scope_type: string;
   scope_level?: string;
   scope_key?: string;
@@ -20,18 +19,19 @@ export interface NarrativeDiagnostic {
   details?: string | null;
   recommended_action?: string | null;
   created_at: string;
-  // DX2 fields
+  /* DX2 metadata */
   diagnostic_type?: string;
+  repairability?: 'auto' | 'guided' | 'manual' | 'unknown';
+  base_severity?: string;
+  load_class?: string;
+  priority_score?: number;
+  /* Affected object refs */
   affected_axes?: string[];
   affected_units?: string[];
   affected_entities?: string[];
   affected_beats?: string[];
   affected_relations?: string[];
-  repairability?: 'auto' | 'guided' | 'manual' | 'unknown';
-  base_severity?: string;
-  load_class?: string;
-  priority_score?: number;
-  // DX3 convergence fields
+  /* DX3 convergence */
   repair_id?: string | null;
   repair_status?: string | null;
   proposal_status?: string | null;
