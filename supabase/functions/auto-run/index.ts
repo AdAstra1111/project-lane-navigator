@@ -1575,9 +1575,14 @@ async function nextUnsatisfiedStage(
   const ladder = getLadderForJob(format);
   if (!ladder) return null;
   const currentIdx = ladder.indexOf(currentStage);
+  if (currentIdx < 0) {
+    // ARCHITECTURE-STRICT: unresolved stage must not silently advance
+    console.error(
+      `[auto-run][IEL] nextUnsatisfiedStage UNRESOLVED — currentStage="${currentStage}" not in ${format} ladder=[${ladder.join(",")}]`
+    );
+    return null;
+  }
   const targetIdx = ladder.indexOf(targetStage);
-  const safeTargetIdx = targetIdx >= 0 ? targetIdx : ladder.length - 1;
-  if (currentIdx < 0) return nextDoc(currentStage, format);
 
   // Fetch all project docs
   const { data: allDocs } = await supabase
