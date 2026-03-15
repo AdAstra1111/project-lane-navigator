@@ -384,7 +384,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
           messages: [{ role: "user", content: signalPrompt }],
         }),
       }),
-      fetch("https://openrouter.ai/api/v1/chat/completions", {
+      fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${lovableApiKey}`,
