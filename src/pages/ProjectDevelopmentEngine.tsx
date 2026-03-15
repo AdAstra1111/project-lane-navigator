@@ -87,6 +87,7 @@ import { useDeferredNotes } from '@/hooks/useDeferredNotes';
 import { useEpisodeHandoff } from '@/hooks/useEpisodeHandoff';
 import { EpisodeHandoffBanner } from '@/components/devengine/EpisodeHandoffBanner';
 import { SceneGraphPanel } from '@/components/devengine/SceneGraphPanel';
+import { OutputDocumentsSection } from '@/components/devengine/OutputDocumentsSection';
 import { NoteWritersRoomDrawer } from '@/components/notes/NoteWritersRoomDrawer';
 import { NextActionsPanel } from '@/components/notes/NextActionsPanel';
 import { NoteDrawer } from '@/components/notes/NoteDrawer';
