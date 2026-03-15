@@ -1583,6 +1583,7 @@ async function nextUnsatisfiedStage(
     return null;
   }
   const targetIdx = ladder.indexOf(targetStage);
+  const safeTargetIdx = targetIdx >= 0 ? targetIdx : ladder.length - 1;
 
   // Fetch all project docs
   const { data: allDocs } = await supabase
