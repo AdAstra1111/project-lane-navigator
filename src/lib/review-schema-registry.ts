@@ -134,6 +134,18 @@ const registry: Record<DeliverableType, ReviewSchema> = {
     convergenceRules: { minCI: 70, minGP: 65 },
     forbiddenCritique: ['dialogue quality', 'prose style', 'visual description'],
   },
+  episode_beats: {
+    rubricSections: [
+      { dimension: 'Beat Density', weight: 30, description: 'Is the beat count appropriate for the episode runtime?' },
+      { dimension: 'Escalation Pacing', weight: 25, description: 'Does each beat escalate stakes within the episode?' },
+      { dimension: 'Cliff Positioning', weight: 20, description: 'Are cliffhangers well-placed for episodic structure?' },
+      { dimension: 'Series Continuity', weight: 25, description: 'Do episode beats align with the season arc?' },
+    ],
+    analysisPromptModifier: 'This is an EPISODE BEATS document — evaluate beat density, escalation pacing, cliff positioning, and series continuity. Do NOT critique dialogue or prose quality.',
+    rewritePromptModifier: 'Tighten beat density and escalation logic per episode. Do NOT add dialogue.',
+    convergenceRules: { minCI: 70, minGP: 65 },
+    forbiddenCritique: ['dialogue quality', 'prose style', 'visual description'],
+  },
   feature_script: {
     rubricSections: [
       { dimension: 'Scene Construction', weight: 20, description: 'Are scenes well-constructed with clear purpose?' },
