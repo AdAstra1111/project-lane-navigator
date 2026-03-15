@@ -73,7 +73,24 @@ export const BASE_DOC_TYPES: Record<string, DocTypeMeta> = {
   change_report:           { label: 'Change Report',           description: 'Deterministic diff and impact analysis' },
 };
 
+// ── Output document types by lane (parallel packaging docs, not ladder stages) ──
+
+/**
+ * Output documents available per lane. These can be generated at any time
+ * during development and do NOT participate in ladder progression.
+ */
+export const OUTPUT_DOC_TYPES_BY_LANE: Record<LaneKey, string[]> = {
+  feature_film:   ['market_sheet', 'deck', 'trailer_script'],
+  series:         ['market_sheet', 'deck'],
+  vertical_drama: ['vertical_market_sheet'],
+  documentary:    ['market_sheet', 'deck'],
+  animation:      ['market_sheet', 'deck'],
+  short:          ['deck'],
+  unspecified:    ['market_sheet', 'deck'],
+};
+
 // ── Lane-specific ladders ──────────────────────────────────────────────────
+
 
 /**
  * The official document ladder for each lane. Documents not in the ladder
