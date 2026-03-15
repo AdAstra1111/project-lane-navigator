@@ -1944,7 +1944,7 @@ async function resolveSeriesQualifications(
     await supabase.from("projects").update(updates).eq("id", projectId);
   }
 
-  return { episode_target_duration_seconds: durScalar, episode_target_duration_min_seconds: durMin, episode_target_duration_max_seconds: durMax, season_episode_count: count, source: { duration: durSource, count: countSource } };
+  return { episode_target_duration_seconds: durScalar, episode_target_duration_min_seconds: durMin, episode_target_duration_max_seconds: durMax, season_episode_count: count, source: { duration: durSource as any, count: countSource } };
 }
 
 function needsFilmQuals(format: string, stageIdx: number): boolean {
