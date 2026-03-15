@@ -10562,7 +10562,7 @@ async function respondWithJob(supabase: any, jobId: string, hint?: string): Prom
           if (fetchErr) {
             console.error(`[auto-run][IEL] pending_decisions_enrich_failed`, JSON.stringify({ job_id: jobId, error: fetchErr.message }));
           } else {
-            const rowMap = new Map((fullRows || []).map((r: any) => [r.id, r]));
+            const rowMap = new Map<string, any>((fullRows || []).map((r: any) => [r.id, r]));
             const enriched = job.pending_decisions.map((d: any) => {
               if (d.question && d.options) return d; // already enriched
               const row = rowMap.get(d.id);
