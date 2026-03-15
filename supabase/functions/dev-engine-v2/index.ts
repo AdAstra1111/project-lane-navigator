@@ -34216,6 +34216,11 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
         status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    if (msg === "AI_AUTH_FAILED") {
+      return new Response(JSON.stringify({ error: "AI authentication failed — API key may be expired. Please check your workspace AI settings or contact support." }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     // Return 200 for "stale version" errors so the UI can handle gracefully without crashing
     if (msg.includes("Version no longer exists") || msg.includes("Version was deleted") || msg.includes("Version not found")) {
       return new Response(JSON.stringify({ ok: false, stale_version: true, error: msg }), {
