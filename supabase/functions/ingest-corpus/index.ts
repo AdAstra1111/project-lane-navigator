@@ -165,7 +165,7 @@ async function handleIngest(
     }
     const base64Pdf = btoa(binary);
 
-    const aiResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
