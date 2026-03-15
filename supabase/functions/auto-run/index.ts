@@ -191,7 +191,7 @@ async function persistVersionScores(
 }
 
 // ── Get current accepted version for a document (fail-closed) ──
-async function getCurrentVersionForDoc(supabase: any, documentId: string): Promise<{ id: string; plaintext: string | null } | null> {
+async function getCurrentVersionForDoc(supabase: any, documentId: string): Promise<{ id: string; plaintext: string | null; meta_json?: any } | null> {
   const { data } = await supabase
     .from("project_document_versions")
     .select("id, plaintext")
