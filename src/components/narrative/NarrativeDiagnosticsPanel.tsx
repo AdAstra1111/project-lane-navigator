@@ -210,6 +210,11 @@ function DiagnosticCard({ diagnostic }: { diagnostic: NarrativeDiagnostic }) {
                 {diagnostic.source_system}
               </Badge>
               <ScopeChip scopeType={diagnostic.scope_type} scopeKey={diagnostic.scope_key} />
+              {diagnostic.repair_id && (
+                <Badge variant="outline" className="text-[10px] text-primary border-primary/30">
+                  Repair: {diagnostic.repair_status ?? 'linked'}
+                </Badge>
+              )}
             </div>
             {/* Summary */}
             <p className="text-sm text-foreground">{diagnostic.summary}</p>
