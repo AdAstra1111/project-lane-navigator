@@ -1,0 +1,75 @@
+name: Lara Regression Guard
+
+# Fires on every push to main (including Lovable's pushes).
+# Checks whether protected code patterns have been reverted.
+# If a regression is detected, fails the check so Lara can review.
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  regression-guard:
+    name: Check for reverted Lara fixes
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # need previous commit to diff
+
+      - name: Check isBgGenerating guard not reintroduced
+        run: |
+          FILE="src/pages/ProjectDevelopmentEngine.tsx"
+          if [ ! -f "$FILE" ]; then
+            echo "File not found, skipping"
+            exit 0
+          fi
+          # Detect if the banned pattern was reintroduced
+          if grep -n "isBgGenerating && " "$FILE" | grep -v "//.*isBgGenerating" | grep -q "toast\|warning\|return"; then
+            echo "❌ REGRESSION DETECTED: isBgGenerating guard reintroduced in runAnalysisWithContext"
+            echo "This blocks Re-review on versions with real content but a stuck bg_generating flag."
+            echo "See LARA_REVIEW_PROTOCOL.md for why this must not exist."
+            echo ""
+            echo "Offending lines:"
+            grep -n "isBgGenerating && " "$FILE" | grep -v "//"
+            exit 1
+          else
+            echo "✅ isBgGenerating guard check passed"
+          fi
+
+      - name: Check chunkRunner atomically clears bg_generating
+        run: |
+          FILE="supabase/functions/_shared/chunkRunner.ts"
+          if [ ! -f "$FILE" ]; then
+            echo "File not found, skipping"
+            exit 0
+          fi
+          # Ensure bg_generating: false is written in the assembly step
+          if ! grep -q "bg_generating: false" "$FILE"; then
+            echo "❌ REGRESSION DETECTED: chunkRunner no longer clears bg_generating on assembly"
+            echo "This causes 'Assembling final document...' to hang forever."
+            exit 1
+          else
+            echo "✅ chunkRunner bg_generating clear check passed"
+          fi
+
+      - name: Check retry handler passes docType
+        run: |
+          FILE="src/components/devengine/SectionedDocProgress.tsx"
+          if [ ! -f "$FILE" ]; then
+            echo "File not found, skipping"
+            exit 0
+          fi
+          # Ensure docType is passed in the retry handler
+          if ! grep -q "docType" "$FILE"; then
+            echo "❌ REGRESSION DETECTED: SectionedDocProgress retry no longer passes docType"
+            echo "This silently fails with a 400 error when retrying failed sections."
+            exit 1
+          else
+            echo "✅ Retry handler docType check passed"
+          fi
+
+      - name: Summary
+        if: success()
+        run: echo "✅ All Lara regression checks passed."
