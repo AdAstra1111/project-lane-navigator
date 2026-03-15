@@ -199,6 +199,7 @@ async function writeVersionSafe(
     generatorId?: string;
     metaJson?: Record<string, any>;
     deliverableType?: string;
+    format?: string;
     inputsUsed?: Record<string, any>;
   },
 ): Promise<{ data: any; error: any; deduplicated?: boolean }> {
