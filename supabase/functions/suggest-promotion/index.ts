@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
 import { formatToLane, getLaneLadder, normalizeDocType } from "../_shared/documentLadders.ts";
+import { getCanonicalNextStage, assertValidLadder } from "../_shared/ladder-invariant.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,8 +20,12 @@ function getLadderForFormat(format: string): string[] {
 function nextDocForFormat(currentStage: string, format: string): string | null {
   const ladder = getLadderForFormat(format);
   const normalized = normalizeDocType(currentStage, null, format);
-  const idx = ladder.indexOf(normalized);
-  return idx >= 0 && idx < ladder.length - 1 ? ladder[idx + 1] : null;
+  return getCanonicalNextStage({
+    ladder,
+    currentStage: normalized,
+    format,
+    source: "suggest-promotion",
+  });
 }
 
 function resolveCurrentStage(rawDocType: string, format: string): string | null {
