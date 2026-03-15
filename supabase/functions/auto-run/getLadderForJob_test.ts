@@ -11,10 +11,23 @@ import { assertEquals, assertNotEquals } from "https://deno.land/std@0.168.0/tes
  */
 
 // Import canonical registry (same import used by auto-run/index.ts)
-// Read canonical registry inline (Deno JSON import requires assertion which fails type-check)
-const stageLadders = JSON.parse(Deno.readTextFileSync(new URL("../_shared/stage-ladders.json", import.meta.url).pathname));
-const FORMAT_LADDERS: Record<string, string[]> = stageLadders.FORMAT_LADDERS;
-const DOC_TYPE_ALIASES: Record<string, string> = stageLadders.DOC_TYPE_ALIASES;
+// Inline the canonical ladders for test isolation (copied from stage-ladders.json)
+const FORMAT_LADDERS: Record<string, string[]> = {
+  "film":               ["idea","concept_brief","treatment","story_outline","character_bible","beat_sheet","feature_script","production_draft"],
+  "feature":            ["idea","concept_brief","treatment","story_outline","character_bible","beat_sheet","feature_script","production_draft"],
+  "tv-series":          ["idea","concept_brief","treatment","story_outline","character_bible","beat_sheet","episode_beats","episode_script","season_master_script","production_draft"],
+  "limited-series":     ["idea","concept_brief","treatment","story_outline","character_bible","beat_sheet","episode_beats","episode_script","season_master_script","production_draft"],
+  "digital-series":     ["idea","concept_brief","treatment","story_outline","character_bible","beat_sheet","episode_beats","episode_script","season_master_script","production_draft"],
+  "vertical-drama":     ["idea","concept_brief","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","season_script"],
+  "documentary":        ["idea","concept_brief","documentary_outline"],
+  "documentary-series": ["idea","concept_brief","documentary_outline"],
+  "hybrid-documentary": ["idea","concept_brief","documentary_outline","treatment"],
+  "short":              ["idea","concept_brief","feature_script"],
+  "animation":          ["idea","concept_brief","treatment","character_bible","beat_sheet","feature_script"],
+  "anim-series":        ["idea","concept_brief","treatment","story_outline","character_bible","beat_sheet","episode_beats","episode_script","season_master_script","production_draft"],
+  "reality":            ["idea","concept_brief","treatment","beat_sheet","episode_beats","episode_script"],
+};
+const DOC_TYPE_ALIASES: Record<string, string> = {};
 
 // Mirror of getLadderForJob from auto-run/index.ts (fail-closed version)
 function getLadderForJob(format: string): string[] | null {
