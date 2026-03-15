@@ -3623,7 +3623,7 @@ async function chunkedRewrite(
   );
 
   // Extract candidateVersionId from assemble response
-  const candidateVersionId = assembleResult?.result?.newVersion?.id || assembleResult?.newVersion?.id || null;
+  const candidateVersionId = assembleResult?.result?.newVersion?.id || (assembleResult as any)?.newVersion?.id || null;
   return { candidateVersionId };
 }
 
