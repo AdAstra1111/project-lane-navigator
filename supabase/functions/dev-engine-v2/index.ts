@@ -4752,6 +4752,7 @@ serve(async (req) => {
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    console.log(`[dev-engine-v2] AI key check: len=${LOVABLE_API_KEY.length}, prefix=${LOVABLE_API_KEY.slice(0, 8)}..., gateway=ai.gateway.lovable.dev`);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
