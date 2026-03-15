@@ -132,6 +132,20 @@ Deno.serve(async (req) => {
     }
 
     const currentDocument = resolveCurrentStage(currentDocumentRaw, projectFormat);
+    if (currentDocument === null) {
+      return respond({
+        recommendation: "escalate",
+        next_document: null,
+        readiness_score: 0,
+        confidence: 0,
+        reasons: [
+          `Unresolved stage: raw="${currentDocumentRaw}", format="${projectFormat}"`,
+          "Stage does not exist in canonical ladder — promotion refused",
+        ],
+        must_fix_next: ["Correct the document type or project format"],
+        risk_flags: ["hard_gate:unresolved_stage"],
+      });
+    }
 
     // ── Fetch session ──
     const { data: session, error: sessErr } = await supabase
