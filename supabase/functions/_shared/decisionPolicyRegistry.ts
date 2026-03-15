@@ -12,6 +12,8 @@
  *   5. This registry is imported by auto-run and dev-engine-v2.
  */
 
+import { getCanonicalNextStage } from "./ladder-invariant.ts";
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type DecisionClassification = "BLOCKING_NOW" | "DEFERRABLE" | "NEVER_BLOCKING";
@@ -312,9 +314,13 @@ export function buildPendingDecisionKey(format: string, docType: string, semanti
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function getNextStage(currentDocType: string, ladder: string[]): string | null {
-  const idx = ladder.indexOf(currentDocType);
-  if (idx < 0 || idx >= ladder.length - 1) return null;
-  return ladder[idx + 1];
+  // Delegate to shared invariant guard — prevents self-loops, reverse progression, unresolved stages
+  return getCanonicalNextStage({
+    ladder,
+    currentStage: currentDocType,
+    format: "unknown", // context not available here — ladder already resolved by caller
+    source: "decisionPolicyRegistry",
+  });
 }
 
 /**

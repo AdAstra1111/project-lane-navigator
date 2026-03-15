@@ -5,6 +5,7 @@ const CI_WEIGHT = 2;
 const GP_WEIGHT = 1;
 function compositeScore(ci: number, gp: number): number { return ci * CI_WEIGHT + gp * GP_WEIGHT; }
 import { emitTransition, TRANSITION_EVENTS } from "../_shared/transitionLedger.ts";
+import { getCanonicalNextStage } from "../_shared/ladder-invariant.ts";
 import { spineToPromptBlock } from "../_shared/narrativeSpine.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isCPMEnabled, buildCPRepairDirections, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
@@ -966,8 +967,12 @@ function canonicalDocType(raw: string): string {
 function nextDoc(current: string, format: string): string | null {
   const ladder = getLadderForJob(format);
   if (!ladder) return null;
-  const idx = ladder.indexOf(current);
-  return idx >= 0 && idx < ladder.length - 1 ? ladder[idx + 1] : null;
+  return getCanonicalNextStage({
+    ladder,
+    currentStage: current,
+    format,
+    source: "auto-run:nextDoc",
+  });
 }
 
 // ── Seed Pack doc types ──
@@ -1570,9 +1575,15 @@ async function nextUnsatisfiedStage(
   const ladder = getLadderForJob(format);
   if (!ladder) return null;
   const currentIdx = ladder.indexOf(currentStage);
+  if (currentIdx < 0) {
+    // ARCHITECTURE-STRICT: unresolved stage must not silently advance
+    console.error(
+      `[auto-run][IEL] nextUnsatisfiedStage UNRESOLVED — currentStage="${currentStage}" not in ${format} ladder=[${ladder.join(",")}]`
+    );
+    return null;
+  }
   const targetIdx = ladder.indexOf(targetStage);
   const safeTargetIdx = targetIdx >= 0 ? targetIdx : ladder.length - 1;
-  if (currentIdx < 0) return nextDoc(currentStage, format);
 
   // Fetch all project docs
   const { data: allDocs } = await supabase
@@ -1721,7 +1732,11 @@ function resolveTargetForFormat(targetDoc: string, format: string): string {
   if (isOnLadder(targetDoc, format)) return targetDoc;
   const ladder = getLadderForJob(format);
   if (!ladder || ladder.length === 0) return targetDoc; // caller must have validated format already
-  return ladder[ladder.length - 1];
+  const fallback = ladder[ladder.length - 1];
+  console.error(
+    `[auto-run][IEL] resolveTargetForFormat FALLBACK — target "${targetDoc}" not on ${format} ladder, falling back to "${fallback}". ladder=[${ladder.join(",")}]`
+  );
+  return fallback;
 }
 
 function isStageAtOrBeforeTarget(stage: string, targetDoc: string, format: string): boolean {
