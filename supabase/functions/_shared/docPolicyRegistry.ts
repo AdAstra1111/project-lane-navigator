@@ -225,22 +225,48 @@ export function validateCanonAlignment(
  * Extract canon entity names from document plaintext using deterministic heuristics.
  * Looks for: **Name**, # Name, UPPERCASE NAME, Name: patterns.
  */
+// Structural/meta terms commonly found as section headers in character bibles,
+// treatments, etc. — these are NOT narrative entities and must be excluded.
+const STRUCTURAL_TERMS = new Set([
+  "WORLD RULES", "ROLE", "PHYSICAL DESCRIPTION", "BACKSTORY", "MOTIVATION",
+  "PERSONALITY", "TRAITS", "GOALS", "SECRETS", "RELATIONSHIPS", "APPEARANCE",
+  "DESCRIPTION", "OVERVIEW", "SUMMARY", "BACKGROUND", "HISTORY", "ARC",
+  "CHARACTER ARC", "INTERNAL CONFLICT", "EXTERNAL CONFLICT", "CONFLICT",
+  "STAKES", "THEME", "TONE", "STYLE", "FORMAT", "GENRE", "SETTING",
+  "LOCATION", "LOCATIONS", "TIMELINE", "PREMISE", "LOGLINE", "CONCEPT",
+  "SYNOPSIS", "TREATMENT", "OUTLINE", "NOTES", "DIALOGUE STYLE",
+  "VOICE", "MANNERISMS", "FLAWS", "STRENGTHS", "WEAKNESSES",
+  "EMOTIONAL ARC", "TRANSFORMATION", "WANT", "NEED", "FEAR",
+  "OCCUPATION", "AGE", "GENDER", "ETHNICITY", "NATIONALITY",
+  "KEY RELATIONSHIPS", "FAMILY", "ALLIES", "ENEMIES", "MENTOR",
+  "FORBIDDEN CHANGES", "LOCKED FACTS", "ONGOING THREADS",
+  "FORMAT CONSTRAINTS", "TONE AND STYLE", "TONE STYLE",
+  "ACT ONE", "ACT TWO", "ACT THREE", "COLD OPEN", "TEASER",
+  "INCITING INCIDENT", "MIDPOINT", "CLIMAX", "RESOLUTION", "DENOUEMENT",
+]);
+
+function isStructuralTerm(name: string): boolean {
+  return STRUCTURAL_TERMS.has(name.toUpperCase().trim());
+}
+
 function extractEntitiesFromText(text: string): string[] {
   if (!text) return [];
   const entities = new Set<string>();
 
   // **Name** patterns
   for (const m of text.matchAll(/\*\*([A-Z][A-Za-z\s'-]{1,30}?)\*\*/g)) {
-    entities.add(m[1].trim());
+    const name = m[1].trim();
+    if (!isStructuralTerm(name)) entities.add(name);
   }
   // # Name or ## Name headers
   for (const m of text.matchAll(/^#+\s*([A-Z][A-Za-z\s'-]{1,30})/gm)) {
-    entities.add(m[1].trim());
+    const name = m[1].trim();
+    if (!isStructuralTerm(name)) entities.add(name);
   }
   // UPPERCASE NAME (2-25 chars) at start of line followed by : or (
   for (const m of text.matchAll(/^([A-Z][A-Z\s'-]{1,24})\s*[(:]/gm)) {
     const name = m[1].trim();
-    if (name.length >= 2 && !name.includes("SCENE") && !name.includes("FADE") && !name.includes("CUT")) {
+    if (name.length >= 2 && !name.includes("SCENE") && !name.includes("FADE") && !name.includes("CUT") && !isStructuralTerm(name)) {
       entities.add(name);
     }
   }
