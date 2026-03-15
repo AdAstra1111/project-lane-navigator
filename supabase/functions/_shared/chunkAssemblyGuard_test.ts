@@ -37,16 +37,15 @@ Deno.test("regex matches the exact placeholder pattern", () => {
 
 Deno.test("success should be false when failedChunks > 0 (documented contract)", () => {
   // This tests the contract: success = validationResult.pass && failedChunks === 0
-  // We verify the logic inline since we can't call runChunkedGeneration without DB
   const validationPass = true;
-  const failedChunks = 1;
+  const failedChunks = 1 as number;
   const success = validationPass && failedChunks === 0;
   assertEquals(success, false, "success must be false when any chunk failed");
 });
 
 Deno.test("success should be true when all chunks pass", () => {
   const validationPass = true;
-  const failedChunks = 0;
+  const failedChunks = 0 as number;
   const success = validationPass && failedChunks === 0;
   assertEquals(success, true);
 });
