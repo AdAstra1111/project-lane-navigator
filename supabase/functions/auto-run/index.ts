@@ -7829,7 +7829,9 @@ Deno.serve(async (req) => {
         if (!isDurationEligibleDocType(currentDoc, format)) {
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "duration_scope_skipped",
             `Skipped duration criteria/repair for non-runtime doc type: ${currentDoc} (format=${format})`,
-            { output_ref: { currentDoc, format, measuredDurationSeconds: measuredDuration, targetMin: latestCriteriaSnapshot.episode_target_duration_min_seconds, targetMax: latestCriteriaSnapshot.episode_target_duration_max_seconds, reason: "NON_DURATION_DOC_TYPE" } },
+            {},
+            undefined,
+            { currentDoc, format, measuredDurationSeconds: measuredDuration, targetMin: latestCriteriaSnapshot.episode_target_duration_min_seconds, targetMax: latestCriteriaSnapshot.episode_target_duration_max_seconds, reason: "NON_DURATION_DOC_TYPE" },
           );
           await updateJob(supabase, jobId, { step_count: stepCount + 1 });
           // Continue to normal analysis flow — no duration repair
