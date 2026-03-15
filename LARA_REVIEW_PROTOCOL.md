@@ -1,5 +1,25 @@
 # LARA LANE — IFFY STAFF ENGINEER REVIEW PROTOCOL
 
+## 🔒 Branch Workflow (MANDATORY — enforced by GitHub)
+
+**Lovable pushes to: `lovable` branch ONLY**
+**`main` is protected — direct pushes are BLOCKED — PRs required**
+
+### The Flow
+1. Lovable makes changes → pushes to `lovable` branch
+2. Lovable opens a PR: `lovable` → `main`
+3. Lara reviews the PR — checks for regressions, reverted fixes, conflicts
+4. Lara approves and merges, OR requests changes with explanation
+5. Vercel deploys from `main` after merge
+
+### Why This Exists
+Lovable and Lara both push to this repo. Without isolation, each overwrites
+the other's work. This happened multiple times in production — Lovable
+re-introduced a guard that blocked the "Re-review" button on completed
+documents, requiring 6+ fix attempts.
+
+**If you are Lovable: push to `lovable` branch. Never push directly to `main`.**
+
 ## ⚠️ DO NOT REVERT — Known Intentional Fixes
 
 ### `runAnalysisWithContext` in `ProjectDevelopmentEngine.tsx`
