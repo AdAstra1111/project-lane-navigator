@@ -325,8 +325,7 @@ export default function ProjectDevelopmentEngine() {
       }
 
       // If all chunks are done but backend assembly hasn't written plaintext yet,
-      // assemble from chunks and write directly to DB (not just local cache).
-      // This recovers versions where chunkRunner wrote chunks but never persisted plaintext.
+      // assemble from chunks locally and inject into cache so content shows NOW.
       if (stillGenerating) {
         const { data: chunks } = await (supabase as any)
           .from('project_document_chunks')
@@ -343,24 +342,23 @@ export default function ProjectDevelopmentEngine() {
               .map((c: any) => c.content)
               .join('\n\n');
             if (assembled.length > 100) {
-              // Write assembled content + clear flag directly to DB so it persists across re-fetches
-              // and the backend analyze call can read the real content.
-              await (supabase as any)
-                .from('project_document_versions')
-                .update({
-                  plaintext: assembled,
-                  assembled_from_chunks: true,
-                  meta_json: { ...(data.meta_json || {}), bg_generating: false, bg_assembled_by_client: true, bg_assembled_at: new Date().toISOString() },
-                })
-                .eq('id', selectedVersionId);
-              qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+              qc.setQueryData(['dev-v2-versions', selectedDocId], (old: any) => {
+                if (!Array.isArray(old)) return old;
+                return old.map((v: any) =>
+                  v.id === selectedVersionId
+                    ? { ...v, plaintext: assembled, meta_json: { ...v.meta_json, bg_generating: false } }
+                    : v
+                );
+              });
             } else {
-              // Chunks terminal but no content — just clear the stuck flag
-              await (supabase as any)
-                .from('project_document_versions')
-                .update({ meta_json: { ...(data.meta_json || {}), bg_generating: false, bg_stuck_cleared_at: new Date().toISOString() } })
-                .eq('id', selectedVersionId);
-              qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+              qc.setQueryData(['dev-v2-versions', selectedDocId], (old: any) => {
+                if (!Array.isArray(old)) return old;
+                return old.map((v: any) =>
+                  v.id === selectedVersionId
+                    ? { ...v, meta_json: { ...v.meta_json, bg_generating: false } }
+                    : v
+                );
+              });
             }
           }
         }
@@ -830,16 +828,15 @@ export default function ProjectDevelopmentEngine() {
 
   const runAnalysisWithContext = () => {
     // Guard: don't analyze while generating or when content is empty.
-    // Use editableText (what the user sees) not versionText (raw DB state) —
-    // for stuck pre-fix versions the DB plaintext may be empty while the editor
-    // shows assembled-from-chunks content. The poll will write it to DB before
-    // the analysis call reaches the backend.
-    const analysableText = editableText || versionText;
-    if (isBgGenerating && (!analysableText || analysableText.trim().length < 200)) {
+    // Analyzing an empty placeholder produces "document is empty" blockers that
+    // persist as stale notes even after real content arrives.
+    // Exception: if there's substantial content (>500 chars), the bg_generating flag
+    // is likely stuck (pre-fix versions) — allow analysis to proceed.
+    if (isBgGenerating && (!versionText || versionText.trim().length < 500)) {
       toast.warning('Generation in progress — wait for it to finish before running analysis.');
       return;
     }
-    if (!analysableText || analysableText.trim().length < 100) {
+    if (!versionText || versionText.trim().length < 100) {
       toast.warning('No content to analyze — generate the document first.');
       return;
     }
