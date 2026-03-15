@@ -4775,8 +4775,18 @@ serve(async (req) => {
 
 
       const { data: version } = await supabase.from("project_document_versions")
-        .select("plaintext").eq("id", versionId).single();
+        .select("plaintext, meta_json").eq("id", versionId).single();
       if (!version) throw new Error("Version not found");
+
+      // Guard: refuse to analyze an empty or still-generating document.
+      // An LLM analyzing an empty placeholder generates nonsensical "document is empty" blockers
+      // that then persist as stale notes even after the real content arrives.
+      if (version.meta_json?.bg_generating === true) {
+        throw new Error("Document is still generating — wait for generation to complete before running analysis.");
+      }
+      if (!version.plaintext || version.plaintext.trim().length < 100) {
+        throw new Error("Cannot analyze an empty document. Generate content first.");
+      }
 
       const { data: project } = await supabase.from("projects")
         .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config, canon_version_id")

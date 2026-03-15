@@ -823,6 +823,17 @@ export default function ProjectDevelopmentEngine() {
   }, [promotionGateAnalysis, promotionGateNotes, promotionGateVersionId, selectedVersionId, authoritativeVersion?.id, authoritativeVersion?.approval_status, allDocRuns, documents, approvedVersionMap, selectedDeliverableType, projectFormat, effectiveSeasonEpisodes, promotionConvergenceStatus, autoRun.job?.id]);
 
   const runAnalysisWithContext = () => {
+    // Guard: don't analyze while generating or when content is empty.
+    // Analyzing an empty placeholder produces "document is empty" blockers that
+    // persist as stale notes even after real content arrives.
+    if (isBgGenerating) {
+      toast.warning('Generation in progress — wait for it to finish before running analysis.');
+      return;
+    }
+    if (!versionText || versionText.trim().length < 100) {
+      toast.warning('No content to analyze — generate the document first.');
+      return;
+    }
     const prevVersion = versions.length > 1 ? versions[versions.length - 2] : null;
     analyze.mutate({
       deliverableType: selectedDeliverableType,
