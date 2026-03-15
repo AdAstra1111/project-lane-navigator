@@ -1,0 +1,1 @@
+INSERT INTO public.feature_flags (key, is_enabled) VALUES ('NIE_V1', true) ON CONFLICT (key) DO UPDATE SET is_enabled = true;
