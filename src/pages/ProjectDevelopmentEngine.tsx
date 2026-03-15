@@ -829,16 +829,10 @@ export default function ProjectDevelopmentEngine() {
   }, [promotionGateAnalysis, promotionGateNotes, promotionGateVersionId, selectedVersionId, authoritativeVersion?.id, authoritativeVersion?.approval_status, allDocRuns, documents, approvedVersionMap, selectedDeliverableType, projectFormat, effectiveSeasonEpisodes, promotionConvergenceStatus, autoRun.job?.id]);
 
   const runAnalysisWithContext = () => {
-    // Guard: don't analyze while generating or when content is empty.
-    // Use editableText (what the user sees) not versionText (raw DB state) —
-    // for stuck pre-fix versions the DB plaintext may be empty while the editor
-    // shows assembled-from-chunks content. The poll will write it to DB before
-    // the analysis call reaches the backend.
+    // Guard: only block if there is genuinely no content to analyze.
+    // Do NOT block on isBgGenerating — the flag can be permanently stuck on
+    // pre-fix versions that have real content. The backend rejects empty docs.
     const analysableText = editableText || versionText;
-    if (isBgGenerating && (!analysableText || analysableText.trim().length < 200)) {
-      toast.warning('Generation in progress — wait for it to finish before running analysis.');
-      return;
-    }
     if (!analysableText || analysableText.trim().length < 100) {
       toast.warning('No content to analyze — generate the document first.');
       return;
