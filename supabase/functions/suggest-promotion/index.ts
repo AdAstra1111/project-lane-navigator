@@ -23,12 +23,15 @@ function nextDocForFormat(currentStage: string, format: string): string | null {
   return idx >= 0 && idx < ladder.length - 1 ? ladder[idx + 1] : null;
 }
 
-function resolveCurrentStage(rawDocType: string, format: string): string {
+function resolveCurrentStage(rawDocType: string, format: string): string | null {
   const ladder = getLadderForFormat(format);
   const normalized = normalizeDocType(rawDocType, null, format);
   if (ladder.includes(normalized)) return normalized;
-  // Fallback: find closest match or default to first stage
-  return ladder[0] || "idea";
+  // ARCHITECTURE-STRICT: no silent fallback — unresolved stages must fail explicitly
+  console.error(
+    `[suggest-promotion] UNRESOLVED STAGE — raw: "${rawDocType}", normalized: "${normalized}", format: "${format}", ladder: [${ladder.join(", ")}]`
+  );
+  return null;
 }
 
 // ── Stage-specific weight profiles (keyed by canonical stage names) ──
@@ -129,6 +132,20 @@ Deno.serve(async (req) => {
     }
 
     const currentDocument = resolveCurrentStage(currentDocumentRaw, projectFormat);
+    if (currentDocument === null) {
+      return respond({
+        recommendation: "escalate",
+        next_document: null,
+        readiness_score: 0,
+        confidence: 0,
+        reasons: [
+          `Unresolved stage: raw="${currentDocumentRaw}", format="${projectFormat}"`,
+          "Stage does not exist in canonical ladder — promotion refused",
+        ],
+        must_fix_next: ["Correct the document type or project format"],
+        risk_flags: ["hard_gate:unresolved_stage"],
+      });
+    }
 
     // ── Fetch session ──
     const { data: session, error: sessErr } = await supabase
