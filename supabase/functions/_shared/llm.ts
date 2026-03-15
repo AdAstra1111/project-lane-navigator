@@ -418,6 +418,10 @@ export async function callLLM(opts: CallLLMOptions): Promise<CallLLMResult> {
 
     if (response.status === 429) throw new Error("RATE_LIMIT");
     if (response.status === 402) throw new Error("PAYMENT_REQUIRED");
+    if (response.status === 401) {
+      console.error("AI gateway 401: API key rejected. LOVABLE_API_KEY may be expired or invalid.");
+      throw new Error("AI_AUTH_FAILED");
+    }
 
     if (response.ok) {
       const text = await response.text();
