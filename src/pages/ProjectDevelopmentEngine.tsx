@@ -827,16 +827,11 @@ export default function ProjectDevelopmentEngine() {
   }, [promotionGateAnalysis, promotionGateNotes, promotionGateVersionId, selectedVersionId, authoritativeVersion?.id, authoritativeVersion?.approval_status, allDocRuns, documents, approvedVersionMap, selectedDeliverableType, projectFormat, effectiveSeasonEpisodes, promotionConvergenceStatus, autoRun.job?.id]);
 
   const runAnalysisWithContext = () => {
-    // Guard: don't analyze while generating or when content is empty.
-    // Analyzing an empty placeholder produces "document is empty" blockers that
-    // persist as stale notes even after real content arrives.
-    // Exception: if there's substantial content (>500 chars), the bg_generating flag
-    // is likely stuck (pre-fix versions) — allow analysis to proceed.
-    if (isBgGenerating && (!versionText || versionText.trim().length < 500)) {
-      toast.warning('Generation in progress — wait for it to finish before running analysis.');
-      return;
-    }
-    if (!versionText || versionText.trim().length < 100) {
+    // Guard: only block analysis if there is genuinely no content.
+    // Do NOT block on isBgGenerating — the flag can be stuck on pre-fix versions
+    // that have real content. The backend rejects analysis on truly empty documents.
+    const analysableText = editableText || versionText;
+    if (!analysableText || analysableText.trim().length < 100) {
       toast.warning('No content to analyze — generate the document first.');
       return;
     }
