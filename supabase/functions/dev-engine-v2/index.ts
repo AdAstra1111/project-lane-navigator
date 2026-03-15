@@ -7514,6 +7514,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           generatorId: "dev-engine-v2-rewrite-chunked",
           metaJson: chunkMetaJson,
           deliverableType: effectiveDeliverable,
+          format: assembleProject?.format || undefined,
           dependsOnResolverHash: chunkedResolverHash,
         });
         if (!vErr) { newVersion = nv; break; }
