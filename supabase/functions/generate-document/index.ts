@@ -6,7 +6,7 @@ import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
 import { buildLadderPromptBlock, formatToLane } from "../_shared/documentLadders.ts";
 import { EPISODE_DOC_TYPES, extractEpisodeNumbersFromOutput, detectCollapsedRangeSummaries } from "../_shared/episodeScope.ts";
 import { isLargeRiskDocType, isEpisodicDocType as isLargeRiskEpisodic, chunkPlanFor, strategyFor } from "../_shared/largeRiskRouter.ts";
-import { runChunkedGeneration } from "../_shared/chunkRunner.ts";
+import { runChunkedGeneration, resumeChunkedGeneration } from "../_shared/chunkRunner.ts";
 import { validateEpisodicContent, hasBannedSummarizationLanguage } from "../_shared/chunkValidator.ts";
 import {
   buildNuancePromptBlock, computeMetrics, melodramaScore, nuanceScore,
@@ -1193,6 +1193,80 @@ If you find yourself describing what happens in the story, which characters appe
           .update({ meta_json: { bg_generating: false, bg_stale: true } })
           .eq("id", inProgressChunkVer.id);
       }
+
+      // ── RESUME MODE: retry failed/validation chunks without creating a new version ──
+      // Triggered when body.resumeVersionId is present (from "Retry section" button).
+      // resumeChunkedGeneration skips 'done' chunks — only re-runs failed/needs_regen ones.
+      const resumeVersionId: string | null = (body as any).resumeVersionId ?? null;
+      if (resumeVersionId) {
+        const { data: resumeVer } = await supabase.from("project_document_versions")
+          .select("id, version_number, meta_json, document_id")
+          .eq("id", resumeVersionId)
+          .maybeSingle();
+
+        if (!resumeVer) {
+          return jsonRes({ error: "Resume version not found", version_id: resumeVersionId }, 404);
+        }
+
+        // Re-arm bg_generating (merge — preserve bg_started_at, episode_count etc.)
+        const rearmedMeta = {
+          ...(resumeVer.meta_json || {}),
+          bg_generating: true,
+          bg_retry_at: new Date().toISOString(),
+          bg_stale: false,
+        };
+        await supabase.from("project_document_versions")
+          .update({ meta_json: rearmedMeta })
+          .eq("id", resumeVersionId);
+
+        const resumePlan = chunkPlanFor(docType, {
+          episodeCount: resolvedQuals?.season_episode_count,
+          sceneCount: null,
+          batchSize: docType === "season_script" ? 1 : undefined,
+        });
+
+        const resumeDocId = resumeVer.document_id || chunkDocRecord!.id;
+        console.log(`[generate-document] Resume mode: ${docType} versionId=${resumeVersionId} chunks=${resumePlan.totalChunks}`);
+
+        const bgResumeTask = (async () => {
+          try {
+            await resumeChunkedGeneration({
+              supabase, apiKey, projectId,
+              documentId: resumeDocId, versionId: resumeVersionId,
+              docType, plan: resumePlan, systemPrompt: system, upstreamContent,
+              projectTitle: project.title || "Untitled",
+              additionalContext, model: "google/gemini-2.5-flash",
+              episodeCount: resolvedQuals?.season_episode_count,
+              requestId,
+            });
+            // chunkRunner clears bg_generating atomically in assembly — ensure is_current is set
+            await supabase.from("project_document_versions").update({ is_current: true }).eq("id", resumeVersionId);
+            await supabase.from("project_documents").update({ updated_at: new Date().toISOString() }).eq("id", resumeDocId);
+            console.log(`[generate-document] Resume COMPLETE: ${docType} versionId=${resumeVersionId}`);
+          } catch (bgErr: any) {
+            console.error(`[generate-document] Resume FAILED: ${docType} — ${bgErr?.message}`);
+            await supabase.from("project_document_versions")
+              .update({ meta_json: { ...rearmedMeta, bg_generating: false, bg_failed: true, bg_failed_at: new Date().toISOString() } })
+              .eq("id", resumeVersionId);
+          }
+        })();
+
+        // @ts-ignore — EdgeRuntime available in Supabase edge function context
+        if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+          EdgeRuntime.waitUntil(bgResumeTask);
+        }
+
+        return new Response(JSON.stringify({
+          success: true,
+          document_id: resumeDocId,
+          version_id: resumeVersionId,
+          version_number: resumeVer.version_number,
+          generating: true,
+          resumed: true,
+          chunk_plan: { total_chunks: resumePlan.totalChunks, strategy: resumePlan.strategy },
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      // ── END RESUME MODE ──
 
       // Create placeholder version
       // MUST clear existing is_current=true versions first to avoid pdv_one_current_per_doc constraint

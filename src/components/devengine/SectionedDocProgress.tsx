@@ -117,15 +117,26 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
     }
     setRetryingId(chunk.id);
     try {
+      // 1. Mark this specific chunk as needs_regen so resumeChunkedGeneration picks it up
+      const { error: markErr } = await (supabase as any)
+        .from('project_document_chunks')
+        .update({ status: 'needs_regen', error: null })
+        .eq('id', chunk.id);
+      if (markErr) throw markErr;
+
+      // 2. Invoke generate-document in resume mode:
+      //    - resumeVersionId tells the backend to reuse the existing version (not create a new one)
+      //    - docType is required for prompt-building and chunk plan
       const { error } = await supabase.functions.invoke('generate-document', {
         body: {
           projectId,
           documentId,
-          versionId,
-          resumeChunks: true,
+          docType,
+          resumeVersionId: versionId,
         },
       });
       if (error) throw error;
+
       toast.success(`Retrying ${chunk.meta_json?.label || chunk.chunk_key.replace(/_/g, ' ')}…`);
       queryClient.invalidateQueries({ queryKey: ['sectioned-doc-chunks', versionId] });
     } catch (err: any) {
