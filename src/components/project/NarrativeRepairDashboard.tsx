@@ -22,6 +22,7 @@ import { NarrativeEssenceDriftPanel } from '@/components/project/NarrativeEssenc
 import { NarrativeDiagnosticsPanel } from '@/components/narrative/NarrativeDiagnosticsPanel';
 import { NarrativeRepairQueuePanel } from '@/components/project/NarrativeRepairQueuePanel';
 import { StoryIntelligencePanel } from '@/components/project/StoryIntelligencePanel';
+import { ProjectHealthBriefingStrip } from '@/components/project/ProjectHealthBriefingStrip';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -212,6 +213,7 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
             <DashTabSwitcher active={dashTab} onChange={setDashTab} />
           </div>
         </CardHeader>
+        <ProjectHealthBriefingStrip repairs={allRepairs ?? null} />
         <CardContent className="space-y-4">
           {dashTab === 'strategy' ? (
             <RepairStrategyPanel projectId={projectId} onRouteToRepairs={handleRouteToRepairs} completedRepairSignatures={completedRepairSignatures} />
@@ -284,6 +286,8 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
           </div>
         </div>
       </CardHeader>
+
+      <ProjectHealthBriefingStrip repairs={allRepairs ?? null} />
 
       <CardContent className="space-y-6">
         {dashTab === 'strategy' ? (
