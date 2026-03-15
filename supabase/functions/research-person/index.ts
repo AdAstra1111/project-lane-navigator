@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
 
     // ── STEP 1: Disambiguation ──
     if (mode !== "assess") {
-      const disambigResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const disambigResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${LOVABLE_API_KEY}`,
