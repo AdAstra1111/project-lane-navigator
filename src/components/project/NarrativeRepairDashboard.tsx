@@ -213,6 +213,7 @@ export function NarrativeRepairDashboard({ projectId, authoredSeedId, derivedSee
             <DashTabSwitcher active={dashTab} onChange={setDashTab} />
           </div>
         </CardHeader>
+        <ProjectHealthBriefingStrip repairs={allRepairs ?? null} />
         <CardContent className="space-y-4">
           {dashTab === 'strategy' ? (
             <RepairStrategyPanel projectId={projectId} onRouteToRepairs={handleRouteToRepairs} completedRepairSignatures={completedRepairSignatures} />
