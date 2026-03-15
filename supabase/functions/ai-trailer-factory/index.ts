@@ -560,7 +560,7 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
 
   if (!skipMotionStill && item.ai_suggested_tier !== "C" && item.hook_strength >= 6) {
     try {
-      const animResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const animResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
