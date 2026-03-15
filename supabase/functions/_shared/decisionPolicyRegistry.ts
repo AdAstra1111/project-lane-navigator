@@ -312,9 +312,14 @@ export function buildPendingDecisionKey(format: string, docType: string, semanti
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function getNextStage(currentDocType: string, ladder: string[]): string | null {
-  const idx = ladder.indexOf(currentDocType);
-  if (idx < 0 || idx >= ladder.length - 1) return null;
-  return ladder[idx + 1];
+  // Delegate to shared invariant guard — prevents self-loops, reverse progression, unresolved stages
+  const { getCanonicalNextStage } = await import("./ladder-invariant.ts") as any;
+  return getCanonicalNextStage({
+    ladder,
+    currentStage: currentDocType,
+    format: "unknown", // context not available here — ladder already resolved by caller
+    source: "decisionPolicyRegistry",
+  });
 }
 
 /**
