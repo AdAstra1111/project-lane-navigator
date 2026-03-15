@@ -3646,7 +3646,7 @@ async function rewriteWithFallback(
       }, token, rewriteBody.projectId, format, deliverableType, jobId, stepCount
     );
     // Extract candidateVersionId from single-pass rewrite response
-    const candidateVersionId = result?.result?.newVersion?.id || result?.newVersion?.id || null;
+    const candidateVersionId = result?.result?.newVersion?.id || (result as any)?.newVersion?.id || null;
     // ── TRANSITION LEDGER: rewrite_pass_executed ──
     if (projectId) {
       await emitTransition(supabase, {
