@@ -1,4 +1,5 @@
 const BUILD = "AUTORUN_BUILD_MARKER_2026_03_07_TRANSITION_LEDGER_V1";
+type DocStage = string;
 // CI is the primary quality signal — always weighted 2x over GP
 const CI_WEIGHT = 2;
 const GP_WEIGHT = 1;
@@ -65,7 +66,7 @@ function parseVersionScores(metaJson: any): { ci: number | null; gp: number | nu
   };
 }
 
-function pickBestScoredVersion<T extends { ci: number; gp: number; version_number: number; blockerCount?: number }>(rows: T[]): T | null {
+function pickBestScoredVersion<T extends { ci: number; gp: number; version_number: number; [key: string]: any }>(rows: T[]): T | null {
   if (!rows.length) return null;
   const sorted = [...rows].sort((a, b) => {
     const aComposite = compositeScore(a.ci, a.gp);
@@ -190,10 +191,10 @@ async function persistVersionScores(
 }
 
 // ── Get current accepted version for a document (fail-closed) ──
-async function getCurrentVersionForDoc(supabase: any, documentId: string): Promise<{ id: string; plaintext: string | null } | null> {
+async function getCurrentVersionForDoc(supabase: any, documentId: string): Promise<{ id: string; plaintext: string | null; meta_json?: any } | null> {
   const { data } = await supabase
     .from("project_document_versions")
-    .select("id, plaintext")
+    .select("id, plaintext, meta_json")
     .eq("document_id", documentId)
     .eq("is_current", true)
     .order("version_number", { ascending: false })
@@ -1856,7 +1857,7 @@ async function resolveSeriesQualifications(
   let durMin: number | null = null;
   let durMax: number | null = null;
   let durScalar: number | null = null;
-  let durSource: "canon" | "canon_legacy" | "project_column" | "guardrails" | "defaults" | null = null;
+  let durSource: string | null = null;
   let durLocked = false;
 
   // PRIORITY 0: Canon (locked takes absolute precedence)
@@ -1943,7 +1944,7 @@ async function resolveSeriesQualifications(
     await supabase.from("projects").update(updates).eq("id", projectId);
   }
 
-  return { episode_target_duration_seconds: durScalar, episode_target_duration_min_seconds: durMin, episode_target_duration_max_seconds: durMax, season_episode_count: count, source: { duration: durSource, count: countSource } };
+  return { episode_target_duration_seconds: durScalar, episode_target_duration_min_seconds: durMin, episode_target_duration_max_seconds: durMax, season_episode_count: count, source: { duration: durSource as any, count: countSource } };
 }
 
 function needsFilmQuals(format: string, stageIdx: number): boolean {
@@ -3590,8 +3591,8 @@ async function chunkedRewrite(
       approvedNotes, protectItems,
     }, token, projectId, format, deliverableType, jobId, stepCount
   );
-  const planRunId = planResult?.result?.planRunId || planResult?.planRunId;
-  const totalChunks = planResult?.result?.totalChunks || planResult?.totalChunks || 1;
+  const planRunId = planResult?.result?.planRunId || (planResult as any)?.planRunId;
+  const totalChunks = planResult?.result?.totalChunks || (planResult as any)?.totalChunks || 1;
   if (!planRunId) throw new Error("Chunked rewrite plan failed: no planRunId returned");
 
   // Step 2: Rewrite each chunk
@@ -3606,7 +3607,7 @@ async function chunkedRewrite(
         previousChunkEnding: prevEnding,
       }, token, projectId, format, deliverableType, jobId, stepCount
     );
-    const text = chunkResult?.result?.rewrittenText || chunkResult?.rewrittenText || "";
+    const text = chunkResult?.result?.rewrittenText || (chunkResult as any)?.rewrittenText || "";
     rewrittenChunks.push(text);
   }
 
@@ -3622,7 +3623,7 @@ async function chunkedRewrite(
   );
 
   // Extract candidateVersionId from assemble response
-  const candidateVersionId = assembleResult?.result?.newVersion?.id || assembleResult?.newVersion?.id || null;
+  const candidateVersionId = assembleResult?.result?.newVersion?.id || (assembleResult as any)?.newVersion?.id || null;
   return { candidateVersionId };
 }
 
@@ -3645,7 +3646,7 @@ async function rewriteWithFallback(
       }, token, rewriteBody.projectId, format, deliverableType, jobId, stepCount
     );
     // Extract candidateVersionId from single-pass rewrite response
-    const candidateVersionId = result?.result?.newVersion?.id || result?.newVersion?.id || null;
+    const candidateVersionId = result?.result?.newVersion?.id || (result as any)?.newVersion?.id || null;
     // ── TRANSITION LEDGER: rewrite_pass_executed ──
     if (projectId) {
       await emitTransition(supabase, {
@@ -5169,7 +5170,7 @@ Deno.serve(async (req) => {
         for (let i = ladderIdx - 1; i >= 0; i--) {
           const { data: fallbackDocs } = await supabase.from("project_documents")
             .select("id, doc_type, plaintext, extracted_text")
-            .eq("project_id", job.project_id).eq("doc_type", jobLadder[i])
+            .eq("project_id", job.project_id).eq("doc_type", jobLadder![i])
             .order("created_at", { ascending: false }).limit(1);
           if (fallbackDocs?.[0]) { doc = fallbackDocs[0]; break; }
         }
@@ -5307,7 +5308,7 @@ Deno.serve(async (req) => {
         .order("created_at", { ascending: false }).limit(1);
       doc = docs?.[0];
       if (!doc) {
-        const jobLadder2 = getLadderForJob(format);
+        const jobLadder2 = getLadderForJob(format)!;
         const ladderIdx = jobLadder2.indexOf(currentDoc);
         for (let i = ladderIdx - 1; i >= 0; i--) {
           const { data: fallbackDocs } = await supabase.from("project_documents")
@@ -6453,7 +6454,7 @@ Deno.serve(async (req) => {
               await supabase.from("decision_ledger").update({
                 status: "active",
                 decision_value: { ...(d.options ? { options: d.options } : {}), selected_option: selectedVal, resolved_by: "auto_run", resolved_at: new Date().toISOString() },
-              }).eq("id", d.id).catch((e: any) => console.warn(`[auto-run][IEL] decision_auto_apply_failed: ${e?.message}`));
+              }).eq("id", d.id).then(() => {}).then(undefined, (e: any) => console.warn(`[auto-run][IEL] decision_auto_apply_failed: ${e?.message}`));
               autoApplied++;
               autoAppliedKeys.push(d.decision_key || d.id);
             }
@@ -7260,7 +7261,7 @@ Deno.serve(async (req) => {
           }
         }
 
-        const runNextLadder = getLadderForJob(format);
+        const runNextLadder = getLadderForJob(format)!;
         const ladderIdx = runNextLadder.indexOf(currentDoc);
         if (ladderIdx <= 0) {
           await updateJob(supabase, jobId, { status: "failed", error: "No source document found for initial stage" });
@@ -7525,7 +7526,7 @@ Deno.serve(async (req) => {
           }
         }
         // Find previous stage to convert from
-        const pipeline2 = getLadderForJob(format);
+        const pipeline2 = getLadderForJob(format)!;
         const stageIdx2 = pipeline2.indexOf(currentDoc);
         const prevStage2 = stageIdx2 > 0 ? pipeline2[stageIdx2 - 1] : null;
         if (!prevStage2) {
@@ -7828,7 +7829,9 @@ Deno.serve(async (req) => {
         if (!isDurationEligibleDocType(currentDoc, format)) {
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "duration_scope_skipped",
             `Skipped duration criteria/repair for non-runtime doc type: ${currentDoc} (format=${format})`,
-            { output_ref: { currentDoc, format, measuredDurationSeconds: measuredDuration, targetMin: latestCriteriaSnapshot.episode_target_duration_min_seconds, targetMax: latestCriteriaSnapshot.episode_target_duration_max_seconds, reason: "NON_DURATION_DOC_TYPE" } },
+            {},
+            undefined,
+            { currentDoc, format, measuredDurationSeconds: measuredDuration, targetMin: latestCriteriaSnapshot.episode_target_duration_min_seconds, targetMax: latestCriteriaSnapshot.episode_target_duration_max_seconds, reason: "NON_DURATION_DOC_TYPE" },
           );
           await updateJob(supabase, jobId, { step_count: stepCount + 1 });
           // Continue to normal analysis flow — no duration repair
@@ -10559,7 +10562,7 @@ async function respondWithJob(supabase: any, jobId: string, hint?: string): Prom
           if (fetchErr) {
             console.error(`[auto-run][IEL] pending_decisions_enrich_failed`, JSON.stringify({ job_id: jobId, error: fetchErr.message }));
           } else {
-            const rowMap = new Map((fullRows || []).map((r: any) => [r.id, r]));
+            const rowMap = new Map<string, any>((fullRows || []).map((r: any) => [r.id, r]));
             const enriched = job.pending_decisions.map((d: any) => {
               if (d.question && d.options) return d; // already enriched
               const row = rowMap.get(d.id);
@@ -10571,15 +10574,15 @@ async function respondWithJob(supabase: any, jobId: string, hint?: string): Prom
                   reason: "MISSING_DECISION_LEDGER_ROW",
                 };
               }
-              const dv = row.decision_value || {};
+              const dv = (row as any).decision_value || {};
               return {
                 ...d,
-                question: dv.question || row.title || row.decision_text || `Decision required: ${row.decision_key}`,
+                question: dv.question || (row as any).title || (row as any).decision_text || `Decision required: ${(row as any).decision_key}`,
                 options: Array.isArray(dv.options) ? dv.options : [],
                 recommended: dv.recommendation?.value || null,
-                decision_key: row.decision_key,
+                decision_key: (row as any).decision_key,
                 classification: dv.classification || "BLOCKING_NOW",
-                reason: row.decision_text || dv.question || null,
+                reason: (row as any).decision_text || dv.question || null,
                 provenance: dv.provenance || null,
                 scope_json: dv.scope_json || null,
               };
