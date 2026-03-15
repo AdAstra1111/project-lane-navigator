@@ -1,5 +1,15 @@
 # LARA LANE — IFFY STAFF ENGINEER REVIEW PROTOCOL
 
+## ⚠️ DO NOT REVERT — Known Intentional Fixes
+
+### `runAnalysisWithContext` in `ProjectDevelopmentEngine.tsx`
+The `isBgGenerating` check MUST NOT be added back to this guard.
+The `bg_generating` flag can be permanently stuck `true` on versions that have real content
+(pre-fix versions where chunkRunner didn't clear it atomically). Blocking analysis on this
+flag prevents users from reviewing completed documents. The backend (`dev-engine-v2`) already
+rejects genuinely empty documents. Frontend guard = content check only, never `isBgGenerating`.
+**If you see this check re-introduced, remove it immediately.**
+
 > Saved from Sebastian's GPT session. This is my working mode when reviewing IFFY.
 
 ## Role
