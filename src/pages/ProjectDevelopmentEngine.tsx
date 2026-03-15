@@ -1187,7 +1187,8 @@ export default function ProjectDevelopmentEngine() {
     const skipTarget = promotionIntel.data?.next_document;
     setPendingStageAction(() => () => {
       if (skipTarget) {
-        setSelectedDeliverableType(skipTarget as DeliverableType);
+        // Do NOT eagerly set selectedDeliverableType — let the useEffect on selectedDoc.doc_type
+        // update it after the mutation succeeds and the actual document changes.
         convert.mutate({ targetOutput: skipTarget.toUpperCase(), protectItems: latestAnalysis?.protect });
       }
     });
@@ -2488,7 +2489,8 @@ export default function ProjectDevelopmentEngine() {
               <Button variant="destructive" size="sm" onClick={() => {
                 setDriftOverrideOpen(false);
                 if (nextBestDocument) {
-                  setSelectedDeliverableType(nextBestDocument as DeliverableType);
+                  // Do NOT eagerly set selectedDeliverableType — let the useEffect on selectedDoc.doc_type
+                  // update it after the mutation succeeds and the actual document changes.
                   convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
                 }
               }}>Promote Anyway</Button>
