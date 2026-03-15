@@ -622,6 +622,10 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
     console.error(`AI error (attempt ${attempt + 1}/${MAX_RETRIES}):`, response.status, text);
     if (response.status === 429) throw new Error("RATE_LIMIT");
     if (response.status === 402) throw new Error("PAYMENT_REQUIRED");
+    if (response.status === 401) {
+      console.error("AI gateway 401: API key rejected");
+      throw new Error("AI_AUTH_FAILED");
+    }
     if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
       const delay = Math.pow(2, attempt) * 2000;
       console.log(`Retrying in ${delay}ms...`);
@@ -34210,6 +34214,11 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
     if (msg === "PAYMENT_REQUIRED") {
       return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds to your workspace under Settings → Usage." }), {
         status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (msg === "AI_AUTH_FAILED") {
+      return new Response(JSON.stringify({ error: "AI authentication failed — API key may be expired. Please check your workspace AI settings or contact support." }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
     // Return 200 for "stale version" errors so the UI can handle gracefully without crashing

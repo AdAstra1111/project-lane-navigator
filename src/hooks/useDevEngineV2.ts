@@ -107,6 +107,7 @@ async function callEngineV2(action: string, extra: Record<string, any> = {}) {
     throw new Error('Engine returned malformed data. Please retry.');
   }
 
+  if (resp.status === 401) throw new Error('AI authentication failed — API key may be expired. Please check your workspace settings or contact support.');
   if (resp.status === 402) throw new Error('AI credits exhausted. Please add funds to your workspace under Settings → Usage.');
   if (resp.status === 429) throw new Error('Rate limit reached. Please try again in a moment.');
   if (!resp.ok) {
