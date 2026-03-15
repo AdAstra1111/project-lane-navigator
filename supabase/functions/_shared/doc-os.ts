@@ -24,11 +24,14 @@ export function computeDefaultResolverHash(docType: string, generatorId: string,
 
 // ── Canonical Doc Type Registry ──
 
+export type DocCategory = "canon" | "support" | "output" | "derived";
+
 export interface DocTypeConfig {
   title: string;
   file_name: string;
   is_seed_core: boolean;
   is_ladder: boolean;
+  doc_category?: DocCategory;
 }
 
 export const DOC_TYPE_REGISTRY: Record<string, DocTypeConfig> = {
