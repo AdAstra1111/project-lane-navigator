@@ -122,14 +122,13 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const sessionId: string = body.sessionId;
     const currentDocumentRaw: string = body.current_document || "concept_brief";
+    const projectFormat: string = body.format || "film";
 
     if (!sessionId) {
       return new Response(JSON.stringify({ error: "sessionId required" }), { status: 400, headers: corsHeaders });
     }
 
-    const currentDocument = (LADDER.includes(currentDocumentRaw as DocStage)
-      ? currentDocumentRaw
-      : "concept_brief") as DocStage;
+    const currentDocument = resolveCurrentStage(currentDocumentRaw, projectFormat);
 
     // ── Fetch session ──
     const { data: session, error: sessErr } = await supabase
