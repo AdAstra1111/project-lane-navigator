@@ -11,8 +11,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CheckCircle, Loader2, Clock, XCircle, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
+import { CheckCircle, Loader2, Clock, XCircle, ChevronDown, ChevronUp, RotateCcw, AlertTriangle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface ChunkRow {
@@ -41,15 +42,22 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   feature_script: 'Feature Script',
 };
 
-const FAILED_STATUSES = new Set(['failed', 'failed_validation', 'error', 'needs_regen', 'skipped']);
+const RETRYABLE_STATUSES = new Set(['failed', 'failed_validation', 'error', 'needs_regen']);
+const TERMINAL_FAIL_STATUSES = new Set(['skipped']);
+const ALL_FAILED_STATUSES = new Set([...RETRYABLE_STATUSES, ...TERMINAL_FAIL_STATUSES]);
 
 function isSectionFailed(status: string) {
-  return FAILED_STATUSES.has(status);
+  return ALL_FAILED_STATUSES.has(status);
+}
+
+function isRetryable(status: string) {
+  return RETRYABLE_STATUSES.has(status);
 }
 
 function sectionIcon(status: string) {
   if (status === 'done') return <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />;
   if (status === 'running') return <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />;
+  if (isRetryable(status)) return <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />;
   if (isSectionFailed(status)) return <XCircle className="h-4 w-4 text-destructive shrink-0" />;
   return <Clock className="h-4 w-4 text-muted-foreground/50 shrink-0" />;
 }
@@ -93,14 +101,25 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
       return (data ?? []) as ChunkRow[];
     },
     enabled: !!versionId,
-    refetchInterval: 8000,
+    // Keep polling while any chunk is non-terminal (pending/running)
+    // Stop only when all chunks are done, failed, or skipped
+    refetchInterval: (query) => {
+      const rows = query.state.data;
+      if (!rows || rows.length === 0) return 8000; // still waiting for chunks
+      const TERMINAL = new Set(['done', 'failed', 'failed_validation', 'error', 'needs_regen', 'skipped']);
+      const allTerminal = rows.every((c: ChunkRow) => TERMINAL.has(c.status));
+      return allTerminal ? false : 8000;
+    },
   });
 
   const safeChunks = Array.isArray(chunks) ? chunks : [];
   const total = safeChunks.length;
   const doneCount = safeChunks.filter(c => c.status === 'done').length;
   const failedChunks = safeChunks.filter(c => isSectionFailed(c.status));
-  const runningChunk = safeChunks.find(c => c.status === 'running');
+  const runningChunks = safeChunks.filter(c => c.status === 'running');
+  const pendingChunks = safeChunks.filter(c => c.status === 'pending');
+  const isStillActive = runningChunks.length > 0 || pendingChunks.length > 0;
+  const runningChunk = runningChunks[0];
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
   const label = DOC_TYPE_LABELS[docType] || docType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
@@ -155,7 +174,25 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
       {/* Header + progress bar */}
       <div className="w-full space-y-2">
         <div className="flex items-center justify-between text-sm">
-          <span className="font-medium text-foreground">Generating {label}</span>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-foreground">Generating {label}</span>
+            {isStillActive && (
+              <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-blue-500/10 text-blue-400 border-blue-500/20 gap-1">
+                <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+                Live
+              </Badge>
+            )}
+            {!isStillActive && failedChunks.length > 0 && doneCount > 0 && (
+              <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-amber-500/10 text-amber-400 border-amber-500/20">
+                Partially complete
+              </Badge>
+            )}
+            {!isStillActive && doneCount === total && total > 0 && (
+              <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                Complete
+              </Badge>
+            )}
+          </div>
           <span className="text-muted-foreground font-mono text-xs">
             {doneCount} / {total || '?'} sections
           </span>
@@ -183,6 +220,7 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
             const isDone = chunk.status === 'done';
             const isRunning = chunk.status === 'running';
             const isFailed = isSectionFailed(chunk.status);
+            const canRetry = isRetryable(chunk.status);
             const isExpanded = expandedId === chunk.id;
             const isRetrying = retryingId === chunk.id;
 
@@ -197,9 +235,11 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
                     ? 'opacity-100 border-border/40 cursor-pointer hover:border-border/60'
                     : isRunning
                       ? 'opacity-90 border-blue-500/30 animate-pulse'
-                      : isFailed
-                        ? 'opacity-100 border-destructive/40'
-                        : 'opacity-40 border-border/20'
+                      : canRetry
+                        ? 'opacity-100 border-amber-500/30'
+                        : isFailed
+                          ? 'opacity-100 border-destructive/40'
+                          : 'opacity-40 border-border/20'
                 }`}
                 onClick={() => isDone && toggleExpand(chunk.id)}
               >
@@ -225,14 +265,14 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
                         </div>
                       </div>
 
-                      {/* Failed: show error + retry */}
-                      {isFailed && (
+                      {/* Retryable failure: softer messaging */}
+                      {canRetry && (
                         <div className="space-y-2">
-                          <p className="text-xs text-destructive/80 italic">
-                            {chunk.status === 'failed_validation' ? 'Failed validation' 
-                              : chunk.status === 'needs_regen' ? 'Needs regeneration'
-                              : chunk.status === 'skipped' ? 'Skipped'
-                              : 'Generation failed'}
+                          <p className="text-xs text-amber-500/80 italic">
+                            {chunk.status === 'failed_validation' ? 'Validation issue — can retry'
+                              : chunk.status === 'needs_regen' ? 'Queued for regeneration'
+                              : isStillActive ? 'Section failed — may recover automatically'
+                              : 'Section failed — tap retry to regenerate'}
                           </p>
                           {projectId && documentId && (
                             <Button
@@ -250,6 +290,11 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
                             </Button>
                           )}
                         </div>
+                      )}
+
+                      {/* Terminal failure (skipped) — no retry */}
+                      {isFailed && !canRetry && (
+                        <p className="text-xs text-destructive/80 italic">Skipped</p>
                       )}
 
                       {/* Done: preview or expanded content */}
@@ -293,7 +338,11 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
       )}
 
       <p className="text-[11px] text-muted-foreground/60 text-center">
-        This may take a few minutes. The page will update automatically when ready.
+        {isStillActive
+          ? 'Generation in progress — status updates every few seconds.'
+          : failedChunks.length > 0
+            ? 'Some sections need attention. Use retry to regenerate failed sections.'
+            : 'This may take a few minutes. The page will update automatically when ready.'}
       </p>
     </div>
   );
