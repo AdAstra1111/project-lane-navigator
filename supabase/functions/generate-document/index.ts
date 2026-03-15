@@ -1050,6 +1050,8 @@ If you find yourself describing what happens in the story, which characters appe
 
         // 4. Fire generation as background task (up to 2h via EdgeRuntime.waitUntil)
         const bgEpTask = (async () => {
+          // Use serviceClient throughout: rlsClient silently blocks writes on
+          // project_document_versions and project_document_chunks via RLS.
           try {
             const genContent = await generateEpisodeBeatsChunked({
               apiKey,
@@ -1059,24 +1061,24 @@ If you find yourself describing what happens in the story, which characters appe
               projectTitle: project.title || "Untitled",
               requestId,
               outputMode: epOutputMode,
-              supabase,
+              supabase: serviceClient,
               versionId: epVersion!.id,
               documentId: epDocRecord!.id,
             });
 
             // Update version with completed content
-            await supabase.from("project_document_versions")
+            await serviceClient.from("project_document_versions")
               .update({ plaintext: genContent, status: "draft", is_current: true, meta_json: { bg_generating: false, bg_completed_at: new Date().toISOString(), episode_count: finalEpisodeCount } })
               .eq("id", epVersion!.id);
 
-            await supabase.from("project_documents")
+            await serviceClient.from("project_documents")
               .update({ updated_at: new Date().toISOString() })
               .eq("id", epDocRecord!.id);
 
             console.log(`[generate-document] Episode beats background generation COMPLETE: ${docType} v${epVersionNum} chars=${genContent.length}`);
           } catch (bgErr: any) {
             console.error(`[generate-document] Episode beats background generation FAILED: ${bgErr?.message}`);
-            await supabase.from("project_document_versions")
+            await serviceClient.from("project_document_versions")
               .update({ status: "draft", is_current: false, meta_json: { bg_generating: false, bg_failed: true, bg_failed_at: new Date().toISOString() } })
               .eq("id", epVersion!.id);
           }
@@ -1230,9 +1232,11 @@ If you find yourself describing what happens in the story, which characters appe
         console.log(`[generate-document] Resume mode: ${docType} versionId=${resumeVersionId} chunks=${resumePlan.totalChunks}`);
 
         const bgResumeTask = (async () => {
+          // Use serviceClient throughout: rlsClient silently blocks writes on
+          // project_document_versions and project_document_chunks via RLS.
           try {
             await resumeChunkedGeneration({
-              supabase, apiKey, projectId,
+              supabase: serviceClient, apiKey, projectId,
               documentId: resumeDocId, versionId: resumeVersionId,
               docType, plan: resumePlan, systemPrompt: system, upstreamContent,
               projectTitle: project.title || "Untitled",
@@ -1241,12 +1245,12 @@ If you find yourself describing what happens in the story, which characters appe
               requestId,
             });
             // chunkRunner clears bg_generating atomically in assembly — ensure is_current is set
-            await supabase.from("project_document_versions").update({ is_current: true }).eq("id", resumeVersionId);
-            await supabase.from("project_documents").update({ updated_at: new Date().toISOString() }).eq("id", resumeDocId);
+            await serviceClient.from("project_document_versions").update({ is_current: true }).eq("id", resumeVersionId);
+            await serviceClient.from("project_documents").update({ updated_at: new Date().toISOString() }).eq("id", resumeDocId);
             console.log(`[generate-document] Resume COMPLETE: ${docType} versionId=${resumeVersionId}`);
           } catch (bgErr: any) {
             console.error(`[generate-document] Resume FAILED: ${docType} — ${bgErr?.message}`);
-            await supabase.from("project_document_versions")
+            await serviceClient.from("project_document_versions")
               .update({ meta_json: { ...rearmedMeta, bg_generating: false, bg_failed: true, bg_failed_at: new Date().toISOString() } })
               .eq("id", resumeVersionId);
           }
@@ -1315,9 +1319,11 @@ If you find yourself describing what happens in the story, which characters appe
 
       // Fire generation as background task
       const bgChunkTask = (async () => {
+        // Use serviceClient throughout: rlsClient silently blocks writes on
+        // project_document_versions and project_document_chunks via RLS.
         try {
           const chunkResult = await runChunkedGeneration({
-            supabase, apiKey, projectId,
+            supabase: serviceClient, apiKey, projectId,
             documentId: chunkDocRecord!.id, versionId: chunkVersion!.id,
             docType, plan, systemPrompt: system, upstreamContent,
             projectTitle: project.title || "Untitled",
@@ -1326,16 +1332,16 @@ If you find yourself describing what happens in the story, which characters appe
             requestId,
           });
           // runChunkedGeneration already writes plaintext to the version — just clear the bg flag
-          await supabase.from("project_document_versions")
+          await serviceClient.from("project_document_versions")
             .update({ is_current: true, meta_json: { bg_generating: false, bg_completed_at: new Date().toISOString(), chunks_total: chunkResult.totalChunks, chunks_completed: chunkResult.completedChunks } })
             .eq("id", chunkVersion!.id);
-          await supabase.from("project_documents")
+          await serviceClient.from("project_documents")
             .update({ updated_at: new Date().toISOString() })
             .eq("id", chunkDocRecord!.id);
           console.log(`[generate-document] Chunked background generation COMPLETE: ${docType} v${chunkVersionNum} chunks=${chunkResult.completedChunks}/${chunkResult.totalChunks}`);
         } catch (bgErr: any) {
           console.error(`[generate-document] Chunked background generation FAILED: ${docType} — ${bgErr?.message}`);
-          await supabase.from("project_document_versions")
+          await serviceClient.from("project_document_versions")
             .update({ meta_json: { bg_generating: false, bg_failed: true, bg_failed_at: new Date().toISOString() } })
             .eq("id", chunkVersion!.id);
         }
