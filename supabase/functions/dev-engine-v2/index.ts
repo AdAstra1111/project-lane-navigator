@@ -22351,7 +22351,7 @@ Rules:
         let error: string | null = null;
 
         try {
-          const imgResp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          const imgResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${LOVABLE_API_KEY}`,
