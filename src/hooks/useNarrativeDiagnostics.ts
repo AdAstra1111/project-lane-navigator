@@ -13,11 +13,30 @@ export interface NarrativeDiagnostic {
   source_system: string;
   severity: 'critical' | 'high' | 'warning' | 'info';
   scope_type: string;
+  scope_level?: string;
   scope_key?: string;
   summary: string;
-  details?: string;
-  recommended_action?: string;
+  details?: string | null;
+  recommended_action?: string | null;
   created_at: string;
+  /* DX2 metadata */
+  diagnostic_type?: string;
+  repairability?: 'auto' | 'guided' | 'manual' | 'unknown';
+  base_severity?: string;
+  load_class?: string;
+  priority_score?: number;
+  /* Affected object refs */
+  affected_axes?: string[];
+  affected_units?: string[];
+  affected_entities?: string[];
+  affected_beats?: string[];
+  affected_relations?: string[];
+  /* DX3 convergence */
+  repair_id?: string | null;
+  repair_status?: string | null;
+  proposal_status?: string | null;
+  resolution_state?: string | null;
+  blocked_reason?: string | null;
 }
 
 const FUNC_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`;
