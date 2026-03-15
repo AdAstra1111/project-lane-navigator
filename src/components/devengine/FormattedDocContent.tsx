@@ -233,7 +233,7 @@ export function FormattedDocContent({ text, editable, onChange, className }: Pro
           </div>
         )}
         <textarea
-          className={className || "w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"}
+          className={className || "w-full min-h-[300px] max-h-[70vh] overflow-y-auto text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"}
           value={text}
           onChange={e => onChange?.(e.target.value)}
           readOnly={!editable}
@@ -251,7 +251,7 @@ export function FormattedDocContent({ text, editable, onChange, className }: Pro
           <Code className="h-3 w-3" /> Raw
         </Button>
       </div>
-      <div style={{ minHeight: 300 }}>
+      <div style={{ minHeight: 300, maxHeight: '70vh', overflowY: 'auto' }}>
         {renderJSON(parsed)}
       </div>
     </div>

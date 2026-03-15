@@ -1863,7 +1863,7 @@ export default function ProjectDevelopmentEngine() {
                               text={editableText}
                               editable={true}
                               onChange={setEditableText}
-                              className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
+                              className="w-full min-h-[300px] max-h-[70vh] overflow-y-auto text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
                             />
                             {editableText !== versionText && (
                               <div className="flex justify-end mt-2">
