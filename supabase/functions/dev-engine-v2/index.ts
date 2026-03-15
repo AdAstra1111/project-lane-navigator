@@ -6,6 +6,7 @@ import { isSectionRepairSupported } from "../_shared/deliverableSectionRegistry.
 import { isCPMEnabled, CPM_EVAL_PROMPT_EXTENSION, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_EVAL_BLOCK } from "../_shared/ciBlockerGate.ts";
 import { getDocPurposeClass, PURPOSE_SCORING_RUBRICS, PURPOSE_REWRITE_GOALS } from "../_shared/docPurposeRegistry.ts";
+import { shouldRunNIE, loadAdjacentDocPack, evaluateNarrativeIntegrity } from "../_shared/narrativeIntegrityEngine.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
@@ -5622,6 +5623,39 @@ ${docTextForScoring}`;
       // Inject criteria_snapshot for traceability
       const criteriaSnapshot = await buildCriteriaSnapshot(supabase, projectId);
       parsed.criteria_snapshot = criteriaSnapshot;
+
+      // ── NARRATIVE INTEGRITY ENGINE (NIE) — Phase 1 diagnostic overlay ──
+      // Feature-flagged behind NIE_V1. Runs post-analyze for eligible doc types.
+      if (shouldRunNIE(effectiveDeliverable)) {
+        let nieEnabled = false;
+        try {
+          const { data: flagResult } = await supabase.rpc("is_feature_flag_enabled", { _key: "NIE_V1" });
+          nieEnabled = flagResult === true;
+        } catch (e) {
+          console.warn("[NIE] Feature flag check failed (defaulting to off):", e);
+        }
+
+        if (nieEnabled) {
+          try {
+            console.log(`[NIE] Running narrative integrity evaluation for ${effectiveDeliverable}`, { projectId, documentId });
+            const adjacentPack = await loadAdjacentDocPack(supabase, projectId, effectiveDeliverable, project?.assigned_lane || null);
+            console.log(`[NIE] Adjacent docs loaded: upstream=${adjacentPack.upstream?.doc_type || "none"}, downstream=${adjacentPack.downstream?.doc_type || "none"}, canon=${!!adjacentPack.canon_text}`);
+
+            const nieResult = await evaluateNarrativeIntegrity(
+              callAI, parseAIJson, LOVABLE_API_KEY, FAST_MODEL,
+              effectiveDeliverable, version.plaintext.slice(0, 12000),
+              adjacentPack,
+            );
+
+            parsed.narrative_integrity = nieResult;
+            console.log(`[NIE] Evaluation complete: score=${nieResult.integrity_score}, state=${nieResult.integrity_state}, blockers=${nieResult.blockers.length}, warnings=${nieResult.warnings.length}`);
+          } catch (nieErr: any) {
+            console.error("[NIE] Evaluation failed (non-fatal):", nieErr?.message);
+            parsed.narrative_integrity = { error: nieErr?.message || "evaluation_failed", engine_version: "nie_v1_phase1" };
+          }
+        }
+      }
+
 
       // Re-verify version still exists before inserting run (guards against race condition where
       // version is deleted during the AI call which can take 30+ seconds)
