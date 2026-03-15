@@ -49,6 +49,21 @@ export interface ChunkRunResult {
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MAX_ASSEMBLY_REPAIR_PASSES = 2;
 
+/**
+ * Pattern used in assembled text when a chunk fails generation.
+ * Exported for fail-closed guards: callers MUST check for this before
+ * promoting assembled content to is_current.
+ */
+export const FAILED_CHUNK_PLACEHOLDER_RE = /\[SECTION \d+ GENERATION FAILED/;
+
+/**
+ * Returns true if assembled text contains one or more failed-chunk placeholders.
+ * Callers should refuse to promote such content to is_current.
+ */
+export function containsFailedPlaceholders(text: string): boolean {
+  return FAILED_CHUNK_PLACEHOLDER_RE.test(text);
+}
+
 // ── Token budgets per strategy/docType ──
 
 function maxTokensForChunk(strategy: string, docType: string): number {
