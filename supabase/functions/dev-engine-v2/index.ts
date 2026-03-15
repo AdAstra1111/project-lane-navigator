@@ -5657,6 +5657,7 @@ ${docTextForScoring}`;
       }
 
 
+      // Re-verify version still exists before inserting run (guards against race condition where
       // version is deleted during the AI call which can take 30+ seconds)
       const { data: versionStillExists } = await supabase.from("project_document_versions")
         .select("id").eq("id", versionId).maybeSingle();
