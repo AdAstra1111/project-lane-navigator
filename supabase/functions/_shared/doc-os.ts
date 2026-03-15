@@ -405,7 +405,11 @@ export async function createVersion(
       }
     } catch (err: any) {
       if (err?.message?.startsWith("CANON_MISMATCH:")) throw err;
-      console.warn(`[doc-os] canon alignment check skipped (non-fatal): ${err?.message}`);
+      // FAIL-CLOSED: unexpected canon-gate errors (DB failures, network errors)
+      // must not silently bypass invariant enforcement.
+      const gateErr = `CANON_GATE_ERROR: doc_type="${key}" generator="${effectiveGeneratorId}" error="${err?.message}"`;
+      console.error(`[doc-os] ${gateErr}`);
+      throw new Error(gateErr);
     }
   }
 
