@@ -48,8 +48,9 @@ const REGISTRY: Record<string, DocPolicy> = {
   feature_script:   { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   beat_sheet:       { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   production_draft: { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
-  blueprint:        { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
-  script:           { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
+  // NOTE: "blueprint" and "script" are ALIASES, not canonical doc types.
+  // They must be resolved via resolveDocType() BEFORE policy lookup.
+  // Do NOT register aliases here — registry is canonical-type only.
   deck:             { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   market_sheet:     { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
   season_arc:       { docClass: "SINGLE", acceptanceProfile: "SINGLE_PROFILE_DEFAULT" },
