@@ -11,7 +11,8 @@ import { assertEquals, assertNotEquals } from "https://deno.land/std@0.168.0/tes
  */
 
 // Import canonical registry (same import used by auto-run/index.ts)
-import stageLadders from "../_shared/stage-ladders.json" with { type: "json" };
+// Read canonical registry inline (Deno JSON import requires assertion which fails type-check)
+const stageLadders = JSON.parse(Deno.readTextFileSync(new URL("../_shared/stage-ladders.json", import.meta.url).pathname));
 const FORMAT_LADDERS: Record<string, string[]> = stageLadders.FORMAT_LADDERS;
 const DOC_TYPE_ALIASES: Record<string, string> = stageLadders.DOC_TYPE_ALIASES;
 
