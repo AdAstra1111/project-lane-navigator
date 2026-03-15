@@ -39,6 +39,7 @@ export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   architecture: 'Series Architecture',
   character_bible: 'Character Bible',
   beat_sheet: 'Episode Beat Sheet',
+  episode_beats: 'Episode Beats',
   feature_script: 'Feature Script',
   episode_script: 'Episode Script',
   season_script: 'Season Script',
