@@ -66,7 +66,7 @@ function parseVersionScores(metaJson: any): { ci: number | null; gp: number | nu
   };
 }
 
-function pickBestScoredVersion<T extends { ci: number; gp: number; version_number: number; blockerCount?: number }>(rows: T[]): T | null {
+function pickBestScoredVersion<T extends { ci: number; gp: number; version_number: number; [key: string]: any }>(rows: T[]): T | null {
   if (!rows.length) return null;
   const sorted = [...rows].sort((a, b) => {
     const aComposite = compositeScore(a.ci, a.gp);
