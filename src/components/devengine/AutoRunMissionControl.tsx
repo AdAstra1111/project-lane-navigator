@@ -1403,7 +1403,7 @@ export function AutoRunMissionControl({
                         {grDist > 0 && <div className="text-[7px] text-muted-foreground/60">+{grDist} to obj</div>}
                       </div>
                       <div className="text-center p-1.5 rounded bg-muted/30">
-                        <div className="text-muted-foreground text-[7px] leading-tight">Narrative</div>
+                        <div className="text-muted-foreground text-[7px] leading-tight">Pipeline</div>
                         <Badge variant="outline" className={`text-[7px] px-1 py-0 ${niColor}`}>{niState}</Badge>
                       </div>
                     </div>
