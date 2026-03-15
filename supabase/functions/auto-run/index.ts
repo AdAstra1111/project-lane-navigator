@@ -5308,7 +5308,7 @@ Deno.serve(async (req) => {
         .order("created_at", { ascending: false }).limit(1);
       doc = docs?.[0];
       if (!doc) {
-        const jobLadder2 = getLadderForJob(format);
+        const jobLadder2 = getLadderForJob(format)!;
         const ladderIdx = jobLadder2.indexOf(currentDoc);
         for (let i = ladderIdx - 1; i >= 0; i--) {
           const { data: fallbackDocs } = await supabase.from("project_documents")
