@@ -253,18 +253,18 @@ function extractEntitiesFromText(text: string): string[] {
   if (!text) return [];
   const entities = new Set<string>();
 
-  // **Name** patterns
-  for (const m of text.matchAll(/\*\*([A-Z][A-Za-z\s'-]{1,30}?)\*\*/g)) {
+  // **Name** patterns — use [ \t] (not \s) to prevent cross-line captures
+  for (const m of text.matchAll(/\*\*([A-Z][A-Za-z \t'-]{1,30}?)\*\*/g)) {
     const name = m[1].trim();
     if (!isStructuralTerm(name)) entities.add(name);
   }
-  // # Name or ## Name headers
-  for (const m of text.matchAll(/^#+\s*([A-Z][A-Za-z\s'-]{1,30})/gm)) {
+  // # Name or ## Name headers — anchor to single line content only
+  for (const m of text.matchAll(/^#+[ \t]*([A-Z][A-Za-z \t'-]{1,30})/gm)) {
     const name = m[1].trim();
     if (!isStructuralTerm(name)) entities.add(name);
   }
   // UPPERCASE NAME (2-25 chars) at start of line followed by : or (
-  for (const m of text.matchAll(/^([A-Z][A-Z\s'-]{1,24})\s*[(:]/gm)) {
+  for (const m of text.matchAll(/^([A-Z][A-Z \t'-]{1,24})[ \t]*[(:]/gm)) {
     const name = m[1].trim();
     if (name.length >= 2 && !name.includes("SCENE") && !name.includes("FADE") && !name.includes("CUT") && !isStructuralTerm(name)) {
       entities.add(name);
