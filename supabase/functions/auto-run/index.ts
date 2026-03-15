@@ -967,8 +967,12 @@ function canonicalDocType(raw: string): string {
 function nextDoc(current: string, format: string): string | null {
   const ladder = getLadderForJob(format);
   if (!ladder) return null;
-  const idx = ladder.indexOf(current);
-  return idx >= 0 && idx < ladder.length - 1 ? ladder[idx + 1] : null;
+  return getCanonicalNextStage({
+    ladder,
+    currentStage: current,
+    format,
+    source: "auto-run:nextDoc",
+  });
 }
 
 // ── Seed Pack doc types ──
