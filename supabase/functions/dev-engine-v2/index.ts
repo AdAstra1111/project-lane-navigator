@@ -4781,7 +4781,10 @@ serve(async (req) => {
       // Guard: refuse to analyze an empty or still-generating document.
       // An LLM analyzing an empty placeholder generates nonsensical "document is empty" blockers
       // that then persist as stale notes even after the real content arrives.
-      if (version.meta_json?.bg_generating === true) {
+      // Exception: if substantial content is present (>500 chars), the bg_generating flag is
+      // likely stuck (pre-fix version) — allow analysis rather than blocking a working document.
+      const isStuckFlag = version.meta_json?.bg_generating === true && version.plaintext && version.plaintext.trim().length > 500;
+      if (version.meta_json?.bg_generating === true && !isStuckFlag) {
         throw new Error("Document is still generating — wait for generation to complete before running analysis.");
       }
       if (!version.plaintext || version.plaintext.trim().length < 100) {

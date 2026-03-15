@@ -311,11 +311,21 @@ export default function ProjectDevelopmentEngine() {
         return data;
       }
 
+      // STUCK FLAG RECOVERY: if bg_generating is still true but plaintext is substantial
+      // (e.g. versions generated before the chunkRunner atomic-clear fix), clear the flag
+      // in the DB now so the UI unblocks. This is a one-time self-heal per version.
+      if (stillGenerating && data.plaintext && data.plaintext.length > 500) {
+        console.log(`[bg-poll] Stuck bg_generating detected on version ${selectedVersionId} — plaintext present (${data.plaintext.length} chars), clearing flag`);
+        await (supabase as any)
+          .from('project_document_versions')
+          .update({ meta_json: { ...(data.meta_json || {}), bg_generating: false, bg_stuck_cleared_at: new Date().toISOString() } })
+          .eq('id', selectedVersionId);
+        qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+        return data;
+      }
+
       // If all chunks are done but backend assembly hasn't written plaintext yet,
       // assemble from chunks locally and inject into cache so content shows NOW.
-      // Do NOT schedule a 3s re-fetch (it causes a flip-flop: DB still has
-      // bg_generating=true → versions re-fetch → isBgGenerating flips back → banner returns).
-      // Instead rely on the next poll tick which will hit the assembled_from_chunks branch above.
       if (stillGenerating) {
         const { data: chunks } = await (supabase as any)
           .from('project_document_chunks')
@@ -332,9 +342,6 @@ export default function ProjectDevelopmentEngine() {
               .map((c: any) => c.content)
               .join('\n\n');
             if (assembled.length > 100) {
-              // Inject assembled content into the version cache so the editor shows it immediately.
-              // Do NOT trigger a versions re-fetch here — the poll will detect assembled_from_chunks
-              // on the next tick once the backend has written it, avoiding a bg_generating flip-flop.
               qc.setQueryData(['dev-v2-versions', selectedDocId], (old: any) => {
                 if (!Array.isArray(old)) return old;
                 return old.map((v: any) =>
@@ -344,9 +351,6 @@ export default function ProjectDevelopmentEngine() {
                 );
               });
             } else {
-              // All chunks terminal but no assembled content — clear bg_generating to unstick UI.
-              // Do NOT use setTimeout + invalidateQueries (causes flip-flop with DB still having
-              // bg_generating=true). Local inject only; backend fix in chunkRunner will clear DB.
               qc.setQueryData(['dev-v2-versions', selectedDocId], (old: any) => {
                 if (!Array.isArray(old)) return old;
                 return old.map((v: any) =>
@@ -826,7 +830,9 @@ export default function ProjectDevelopmentEngine() {
     // Guard: don't analyze while generating or when content is empty.
     // Analyzing an empty placeholder produces "document is empty" blockers that
     // persist as stale notes even after real content arrives.
-    if (isBgGenerating) {
+    // Exception: if there's substantial content (>500 chars), the bg_generating flag
+    // is likely stuck (pre-fix versions) — allow analysis to proceed.
+    if (isBgGenerating && (!versionText || versionText.trim().length < 500)) {
       toast.warning('Generation in progress — wait for it to finish before running analysis.');
       return;
     }
