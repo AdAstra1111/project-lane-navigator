@@ -23,12 +23,15 @@ function nextDocForFormat(currentStage: string, format: string): string | null {
   return idx >= 0 && idx < ladder.length - 1 ? ladder[idx + 1] : null;
 }
 
-function resolveCurrentStage(rawDocType: string, format: string): string {
+function resolveCurrentStage(rawDocType: string, format: string): string | null {
   const ladder = getLadderForFormat(format);
   const normalized = normalizeDocType(rawDocType, null, format);
   if (ladder.includes(normalized)) return normalized;
-  // Fallback: find closest match or default to first stage
-  return ladder[0] || "idea";
+  // ARCHITECTURE-STRICT: no silent fallback — unresolved stages must fail explicitly
+  console.error(
+    `[suggest-promotion] UNRESOLVED STAGE — raw: "${rawDocType}", normalized: "${normalized}", format: "${format}", ladder: [${ladder.join(", ")}]`
+  );
+  return null;
 }
 
 // ── Stage-specific weight profiles (keyed by canonical stage names) ──
