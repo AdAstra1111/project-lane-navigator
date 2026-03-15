@@ -159,7 +159,7 @@ async function handleEmbedScript(
 // ── Embed all pending chunks across all scripts ──────────────────────
 
 async function handleEmbedPending(
-  db: ReturnType<typeof createClient>,
+  db: any,
   userId: string,
   apiKey: string,
   cors: Record<string, string>,
