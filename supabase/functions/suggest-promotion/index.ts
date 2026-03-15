@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
+import { formatToLane, getLaneLadder, normalizeDocType } from "../_shared/documentLadders.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -6,35 +8,42 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── Document ladder (legacy — prefer format-aware ladders) ──
-const LADDER = ["idea", "concept_brief", "blueprint", "architecture", "draft", "coverage"] as const;
-type DocStage = (typeof LADDER)[number];
+// ── Canonical ladder helpers (format-aware) ──
+const FORMAT_LADDERS: Record<string, string[]> = STAGE_LADDERS.FORMAT_LADDERS;
 
-// Format-aware script type mapping
-const FORMAT_SCRIPT_TYPE: Record<string, string> = {
-  film: "feature_script", feature: "feature_script", short: "feature_script", animation: "feature_script",
-  "tv-series": "episode_script", "limited-series": "episode_script", "digital-series": "episode_script",
-  "vertical-drama": "season_script", "anim-series": "episode_script", reality: "episode_script",
-};
-
-function getScriptTypeForFormat(format: string): string {
+function getLadderForFormat(format: string): string[] {
   const key = (format || "film").toLowerCase().replace(/[_ ]+/g, "-");
-  return FORMAT_SCRIPT_TYPE[key] || (key === "vertical-drama" ? "season_script" : "feature_script");
+  return FORMAT_LADDERS[key] ?? FORMAT_LADDERS["film"] ?? [];
 }
 
-function nextDoc(current: DocStage): DocStage | null {
-  const idx = LADDER.indexOf(current);
-  return idx >= 0 && idx < LADDER.length - 1 ? LADDER[idx + 1] : null;
+function nextDocForFormat(currentStage: string, format: string): string | null {
+  const ladder = getLadderForFormat(format);
+  const normalized = normalizeDocType(currentStage, null, format);
+  const idx = ladder.indexOf(normalized);
+  return idx >= 0 && idx < ladder.length - 1 ? ladder[idx + 1] : null;
 }
 
-// ── Stage-specific weight profiles ──
-const WEIGHTS: Record<DocStage, { ci: number; gp: number; gap: number; traj: number; hi: number; pen: number }> = {
-  idea:            { ci: 0.20, gp: 0.30, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
-  concept_brief:   { ci: 0.25, gp: 0.25, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
-  blueprint:       { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
-  architecture:    { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
-  draft:           { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
-  coverage:        { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+function resolveCurrentStage(rawDocType: string, format: string): string {
+  const ladder = getLadderForFormat(format);
+  const normalized = normalizeDocType(rawDocType, null, format);
+  if (ladder.includes(normalized)) return normalized;
+  // Fallback: find closest match or default to first stage
+  return ladder[0] || "idea";
+}
+
+// ── Stage-specific weight profiles (keyed by canonical stage names) ──
+const DEFAULT_WEIGHTS = { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 };
+const WEIGHTS: Record<string, { ci: number; gp: number; gap: number; traj: number; hi: number; pen: number }> = {
+  idea:              { ci: 0.20, gp: 0.30, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
+  concept_brief:     { ci: 0.25, gp: 0.25, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
+  treatment:         { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  story_outline:     { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  character_bible:   { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  beat_sheet:        { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+  feature_script:    { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+  episode_script:    { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+  season_script:     { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+  production_draft:  { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
 };
 
 // ── Trajectory score mapping ──
