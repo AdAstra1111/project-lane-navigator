@@ -312,7 +312,7 @@ async function handleIngest(
     addLog("Generating derived artifacts…");
     try {
       const excerpt = rawText.slice(0, 15_000);
-      const artifactResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const artifactResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
