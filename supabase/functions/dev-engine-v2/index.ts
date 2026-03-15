@@ -7403,6 +7403,15 @@ MATERIAL TO REWRITE:\n${fullText}`;
       const { projectId, documentId, versionId, planRunId, assembledText, rewriteModeSelected, rewriteModeEffective, rewriteModeReason, rewriteModeDebug, rewriteProbe, deliverableType: assembleDeliverableType } = body;
       if (!projectId || !documentId || !versionId || !assembledText) throw new Error("projectId, documentId, versionId, assembledText required");
 
+      // ── FAIL-CLOSED: reject assembled text containing failed-chunk placeholders ──
+      if (containsFailedPlaceholders(assembledText)) {
+        console.error(`[dev-engine-v2][IEL] rewrite-assemble REJECTED: assembled text contains failed-chunk placeholders. Will not create current version.`);
+        return new Response(JSON.stringify({
+          error: "ASSEMBLY_CONTAINS_FAILED_CHUNKS",
+          detail: "Assembled text contains generation failure placeholders. Cannot promote to current version.",
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // Resolve effectiveDeliverable from actual document doc_type — never fall back to generic script type
       const { data: assembleProject } = await supabase.from("projects").select("format").eq("id", projectId).single();
       let effectiveDeliverable = assembleDeliverableType;
