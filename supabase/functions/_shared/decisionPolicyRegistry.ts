@@ -313,7 +313,6 @@ export function buildPendingDecisionKey(format: string, docType: string, semanti
 
 function getNextStage(currentDocType: string, ladder: string[]): string | null {
   // Delegate to shared invariant guard — prevents self-loops, reverse progression, unresolved stages
-  const { getCanonicalNextStage } = await import("./ladder-invariant.ts") as any;
   return getCanonicalNextStage({
     ladder,
     currentStage: currentDocType,
