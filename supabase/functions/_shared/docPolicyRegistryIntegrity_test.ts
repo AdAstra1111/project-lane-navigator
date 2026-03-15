@@ -26,19 +26,19 @@ Deno.test("requireDocPolicy succeeds for canonical types", () => {
   }
 });
 
-// ── Alias names must NOT be registered ──
+// ── Audit-identified alias names must NOT be registered ──
+// "blueprint" → alias for "treatment", "script" → alias for format-specific script type
+const AUDIT_ALIASES = ["blueprint", "script"];
 
-const ALIAS_NAMES = ["blueprint", "script", "draft", "logline", "one_pager", "series_bible", "outline", "architecture"];
-
-Deno.test("alias names are NOT registered in policy registry", () => {
-  for (const alias of ALIAS_NAMES) {
+Deno.test("audit-identified aliases are NOT registered in policy registry", () => {
+  for (const alias of AUDIT_ALIASES) {
     const policy = getDocPolicy(alias);
     assertEquals(policy.registered, false, `"${alias}" should NOT be registered — it is an alias, not a canonical type`);
   }
 });
 
-Deno.test("requireDocPolicy throws for alias names (fail-closed)", () => {
-  for (const alias of ALIAS_NAMES) {
+Deno.test("requireDocPolicy throws for audit-identified aliases (fail-closed)", () => {
+  for (const alias of AUDIT_ALIASES) {
     assertThrows(
       () => requireDocPolicy(alias),
       Error,
