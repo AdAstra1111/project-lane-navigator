@@ -7261,7 +7261,7 @@ Deno.serve(async (req) => {
           }
         }
 
-        const runNextLadder = getLadderForJob(format);
+        const runNextLadder = getLadderForJob(format)!;
         const ladderIdx = runNextLadder.indexOf(currentDoc);
         if (ladderIdx <= 0) {
           await updateJob(supabase, jobId, { status: "failed", error: "No source document found for initial stage" });
