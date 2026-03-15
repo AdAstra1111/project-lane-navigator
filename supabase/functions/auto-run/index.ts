@@ -10574,10 +10574,10 @@ async function respondWithJob(supabase: any, jobId: string, hint?: string): Prom
                   reason: "MISSING_DECISION_LEDGER_ROW",
                 };
               }
-              const dv = row.decision_value || {};
+              const dv = (row as any).decision_value || {};
               return {
                 ...d,
-                question: dv.question || row.title || row.decision_text || `Decision required: ${row.decision_key}`,
+                question: dv.question || (row as any).title || (row as any).decision_text || `Decision required: ${(row as any).decision_key}`,
                 options: Array.isArray(dv.options) ? dv.options : [],
                 recommended: dv.recommendation?.value || null,
                 decision_key: row.decision_key,
