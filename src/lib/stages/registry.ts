@@ -57,6 +57,14 @@ export const FORMAT_LADDERS: Record<string, DeliverableStage[]> =
 // Default fallback (scripted film)
 export const STAGE_ORDER_DEFAULT: DeliverableStage[] = FORMAT_LADDERS['film'];
 
+/**
+ * Set of doc_type keys that are true ladder stages (participate in sequential progression).
+ * Output documents (market_sheet, vertical_market_sheet, deck) are valid doc_types but NOT ladder stages.
+ */
+export const LADDER_STAGE_SET: Set<string> = new Set(
+  Object.values(FORMAT_LADDERS).flat()
+);
+
 /** Normalize a format string to the registry key. Returns '' if input is empty. */
 export function normalizeFormatKey(format: string): string {
   const raw = (format ?? '').trim();

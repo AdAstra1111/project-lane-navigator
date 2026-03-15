@@ -81,32 +81,32 @@ export const BASE_DOC_TYPES: Record<string, DocTypeMeta> = {
  */
 export const LANE_DOC_LADDERS: Record<LaneKey, string[]> = {
   feature_film: [
-    'idea', 'concept_brief', 'market_sheet', 'treatment', 'story_outline',
-    'character_bible', 'beat_sheet', 'feature_script', 'production_draft', 'deck',
+    'idea', 'concept_brief', 'treatment', 'story_outline',
+    'character_bible', 'beat_sheet', 'feature_script', 'production_draft',
   ],
   series: [
-    'idea', 'concept_brief', 'market_sheet', 'treatment', 'story_outline',
+    'idea', 'concept_brief', 'treatment', 'story_outline',
     'character_bible', 'beat_sheet', 'episode_beats', 'episode_script',
     'season_master_script', 'production_draft',
   ],
   vertical_drama: [
-    'idea', 'concept_brief', 'vertical_market_sheet', 'format_rules',
+    'idea', 'concept_brief', 'format_rules',
     'character_bible', 'season_arc', 'episode_grid', 'vertical_episode_beats',
     'season_script',
   ],
   documentary: [
-    'idea', 'concept_brief', 'market_sheet', 'documentary_outline', 'deck',
+    'idea', 'concept_brief', 'documentary_outline',
   ],
   animation: [
-    'idea', 'concept_brief', 'market_sheet', 'treatment',
+    'idea', 'concept_brief', 'treatment',
     'character_bible', 'beat_sheet', 'feature_script',
   ],
   short: [
     'idea', 'concept_brief', 'feature_script',
   ],
   unspecified: [
-    'idea', 'concept_brief', 'market_sheet', 'treatment', 'story_outline',
-    'character_bible', 'beat_sheet', 'feature_script', 'production_draft', 'deck',
+    'idea', 'concept_brief', 'treatment', 'story_outline',
+    'character_bible', 'beat_sheet', 'feature_script', 'production_draft',
   ],
 };
 

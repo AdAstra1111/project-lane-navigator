@@ -41,6 +41,7 @@
  */
 
 import { type LaneKey, LANE_DOC_LADDERS } from "./documentLadders.ts";
+import { DOC_TYPE_REGISTRY } from "./doc-os.ts";
 import { getSectionConfig } from "./deliverableSectionRegistry.ts";
 import { parseSections } from "./sectionRepairEngine.ts";
 import { buildCanonEntitiesFromDB, validateCanonAlignment } from "./docPolicyRegistry.ts";
@@ -402,6 +403,12 @@ function runLaneDocTypeCheck(
 
   for (const doc of docs) {
     if (!ladderSet.has(doc.doc_type)) {
+      // Skip warning for output documents — they are valid but not ladder stages
+      const registryEntry = DOC_TYPE_REGISTRY[doc.doc_type];
+      if (registryEntry && registryEntry.doc_category === "output") {
+        continue;
+      }
+
       violations.push({
         violationKey: `lane:off_ladder:${doc.doc_type}:${request.lane}`,
         violationType: "contradiction",

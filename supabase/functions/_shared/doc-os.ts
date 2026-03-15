@@ -24,45 +24,52 @@ export function computeDefaultResolverHash(docType: string, generatorId: string,
 
 // ── Canonical Doc Type Registry ──
 
+export type DocCategory = "canon" | "support" | "output" | "derived";
+
 export interface DocTypeConfig {
   title: string;
   file_name: string;
   is_seed_core: boolean;
   is_ladder: boolean;
+  doc_category?: DocCategory;
 }
 
 export const DOC_TYPE_REGISTRY: Record<string, DocTypeConfig> = {
-  // Seed core (5)
-  project_overview:      { title: "Project Overview",       file_name: "project_overview.md",      is_seed_core: true,  is_ladder: false },
-  creative_brief:        { title: "Creative Brief",         file_name: "creative_brief.md",        is_seed_core: true,  is_ladder: false },
-  market_positioning:    { title: "Market Positioning",     file_name: "market_positioning.md",     is_seed_core: true,  is_ladder: false },
-  canon:                 { title: "Canon & Constraints",    file_name: "canon.md",                 is_seed_core: true,  is_ladder: false },
-  nec:                   { title: "Narrative Energy Contract", file_name: "nec.md",                is_seed_core: true,  is_ladder: false },
-  // Input docs
-  idea:                  { title: "Idea",                   file_name: "idea.md",                  is_seed_core: false, is_ladder: true },
-  concept_brief:         { title: "Concept Brief",          file_name: "concept_brief.md",         is_seed_core: false, is_ladder: true },
-  // Ladder deliverables
-  market_sheet:          { title: "Market Sheet",           file_name: "market_sheet.md",          is_seed_core: false, is_ladder: true },
-  vertical_market_sheet: { title: "Market Sheet (VD)",      file_name: "vertical_market_sheet.md", is_seed_core: false, is_ladder: true },
-  treatment:             { title: "Treatment",              file_name: "treatment.md",             is_seed_core: false, is_ladder: true },
-  story_outline:         { title: "Story Outline",          file_name: "story_outline.md",         is_seed_core: false, is_ladder: true },
-  character_bible:       { title: "Character Bible",        file_name: "character_bible.md",       is_seed_core: false, is_ladder: true },
-  beat_sheet:            { title: "Beat Sheet",             file_name: "beat_sheet.md",            is_seed_core: false, is_ladder: true },
-  episode_beats:         { title: "Episode Beats",          file_name: "episode_beats.md",         is_seed_core: false, is_ladder: true },
-  feature_script:        { title: "Feature Script",         file_name: "feature_script.md",        is_seed_core: false, is_ladder: true },
-  episode_script:        { title: "Episode Script",         file_name: "episode_script.md",        is_seed_core: false, is_ladder: true },
-  season_script:         { title: "Season Script",          file_name: "season_script.md",         is_seed_core: false, is_ladder: true },
-  season_master_script:       { title: "Master Season Script",        file_name: "season_master_script.md",       is_seed_core: false, is_ladder: true },
-  complete_season_script:     { title: "Complete Season Script",      file_name: "complete_season_script.md",     is_seed_core: false, is_ladder: false },
-  production_draft:           { title: "Production Draft",            file_name: "production_draft.md",           is_seed_core: false, is_ladder: true },
-  deck:                  { title: "Deck",                   file_name: "deck.md",                  is_seed_core: false, is_ladder: true },
-  documentary_outline:   { title: "Documentary Outline",    file_name: "documentary_outline.md",   is_seed_core: false, is_ladder: true },
-  format_rules:          { title: "Format Rules",           file_name: "format_rules.md",          is_seed_core: false, is_ladder: true },
-  season_arc:            { title: "Season Arc",             file_name: "season_arc.md",            is_seed_core: false, is_ladder: true },
-  episode_grid:          { title: "Episode Grid",           file_name: "episode_grid.md",          is_seed_core: false, is_ladder: true },
-  vertical_episode_beats:{ title: "Episode Beats (VD)",     file_name: "vertical_episode_beats.md",is_seed_core: false, is_ladder: true },
-  topline_narrative:     { title: "Topline Narrative",      file_name: "topline_narrative.md",     is_seed_core: false, is_ladder: false },
-  trailer_script:        { title: "Trailer Script",         file_name: "trailer_script.md",        is_seed_core: false, is_ladder: false },
+  // Seed core (5) — support category
+  project_overview:      { title: "Project Overview",       file_name: "project_overview.md",      is_seed_core: true,  is_ladder: false, doc_category: "support" },
+  creative_brief:        { title: "Creative Brief",         file_name: "creative_brief.md",        is_seed_core: true,  is_ladder: false, doc_category: "support" },
+  market_positioning:    { title: "Market Positioning",     file_name: "market_positioning.md",     is_seed_core: true,  is_ladder: false, doc_category: "support" },
+  canon:                 { title: "Canon & Constraints",    file_name: "canon.md",                 is_seed_core: true,  is_ladder: false, doc_category: "support" },
+  nec:                   { title: "Narrative Energy Contract", file_name: "nec.md",                is_seed_core: true,  is_ladder: false, doc_category: "support" },
+  // Input docs — canon category (ladder stages)
+  idea:                  { title: "Idea",                   file_name: "idea.md",                  is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  concept_brief:         { title: "Concept Brief",          file_name: "concept_brief.md",         is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  // Output documents — NOT ladder stages (parallel outputs)
+  market_sheet:          { title: "Market Sheet",           file_name: "market_sheet.md",          is_seed_core: false, is_ladder: false, doc_category: "output" },
+  vertical_market_sheet: { title: "Market Sheet (VD)",      file_name: "vertical_market_sheet.md", is_seed_core: false, is_ladder: false, doc_category: "output" },
+  deck:                  { title: "Deck",                   file_name: "deck.md",                  is_seed_core: false, is_ladder: false, doc_category: "output" },
+  // Ladder deliverables — canon category
+  treatment:             { title: "Treatment",              file_name: "treatment.md",             is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  story_outline:         { title: "Story Outline",          file_name: "story_outline.md",         is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  character_bible:       { title: "Character Bible",        file_name: "character_bible.md",       is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  beat_sheet:            { title: "Beat Sheet",             file_name: "beat_sheet.md",            is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  episode_beats:         { title: "Episode Beats",          file_name: "episode_beats.md",         is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  feature_script:        { title: "Feature Script",         file_name: "feature_script.md",        is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  episode_script:        { title: "Episode Script",         file_name: "episode_script.md",        is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  season_script:         { title: "Season Script",          file_name: "season_script.md",         is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  season_master_script:       { title: "Master Season Script",        file_name: "season_master_script.md",       is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  complete_season_script:     { title: "Complete Season Script",      file_name: "complete_season_script.md",     is_seed_core: false, is_ladder: false, doc_category: "canon" },
+  production_draft:           { title: "Production Draft",            file_name: "production_draft.md",           is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  documentary_outline:   { title: "Documentary Outline",    file_name: "documentary_outline.md",   is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  format_rules:          { title: "Format Rules",           file_name: "format_rules.md",          is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  season_arc:            { title: "Season Arc",             file_name: "season_arc.md",            is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  episode_grid:          { title: "Episode Grid",           file_name: "episode_grid.md",          is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  vertical_episode_beats:{ title: "Episode Beats (VD)",     file_name: "vertical_episode_beats.md",is_seed_core: false, is_ladder: true,  doc_category: "canon" },
+  topline_narrative:     { title: "Topline Narrative",      file_name: "topline_narrative.md",     is_seed_core: false, is_ladder: false, doc_category: "support" },
+  trailer_script:        { title: "Trailer Script",         file_name: "trailer_script.md",        is_seed_core: false, is_ladder: false, doc_category: "output" },
+  // Derived (non-ladder) doc types
+  scene_graph:           { title: "Scene Index",            file_name: "scene_graph.md",           is_seed_core: false, is_ladder: false, doc_category: "derived" },
+  change_report:         { title: "Change Report",          file_name: "change_report.md",         is_seed_core: false, is_ladder: false, doc_category: "derived" },
   // Non-deliverable
   other:                 { title: "Document",               file_name: "document.md",              is_seed_core: false, is_ladder: false },
 };
