@@ -46,13 +46,8 @@ function docLabel(key: string | null | undefined): string {
   if (!key) return 'Document';
   return ALL_DOC_TYPE_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
-const LADDER_LABELS = ALL_DOC_TYPE_LABELS;
-// Output docs (market_sheet, deck, vertical_market_sheet) intentionally excluded —
-// they are not ladder stages and cannot be valid auto-run jump targets.
-const LADDER_OPTIONS = [
-  'idea','topline_narrative','concept_brief','treatment','story_outline',
-  'character_bible','beat_sheet','feature_script','episode_script','production_draft',
-];
+// LADDER_OPTIONS and LADDER_LABELS removed — jump-to-stage select now derives from the
+// live `ladder` computed value (getLadderForFormat(projectFormat)) inside the component.
 
 // ── Provenance badge helper ──
 type InferMethod = 'extracted' | 'inferred' | 'default' | 'project';
@@ -1995,7 +1990,7 @@ export function AutoRunMissionControl({
                   <Select value={jumpStage} onValueChange={setJumpStage}>
                     <SelectTrigger className="h-7 text-xs mt-0.5"><SelectValue placeholder="Select stage…" /></SelectTrigger>
                     <SelectContent>
-                      {LADDER_OPTIONS.map(s => <SelectItem key={s} value={s}>{docLabel(s)}</SelectItem>)}
+                      {ladder.map(s => <SelectItem key={s} value={s}>{docLabel(s)}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
