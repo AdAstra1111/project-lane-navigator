@@ -242,11 +242,7 @@ Focus on the strongest connections in this batch. Return ONLY a JSON array.`,
       state_json: worldState,
     }, { onConflict: "project_id" });
 
-    // Count link types
-    const linkStats: Record<string, number> = {};
-    for (const l of links) {
-      linkStats[l.link_type] = (linkStats[l.link_type] || 0) + 1;
-    }
+    // (linkStats already computed above)
 
     return new Response(JSON.stringify({
       blueprintJson,
