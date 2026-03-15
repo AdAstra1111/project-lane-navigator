@@ -1331,14 +1331,22 @@ If you find yourself describing what happens in the story, which characters appe
             episodeCount: resolvedQuals?.season_episode_count,
             requestId,
           });
-          // runChunkedGeneration already writes plaintext to the version — just clear the bg flag
-          await serviceClient.from("project_document_versions")
-            .update({ is_current: true, meta_json: { bg_generating: false, bg_completed_at: new Date().toISOString(), chunks_total: chunkResult.totalChunks, chunks_completed: chunkResult.completedChunks } })
-            .eq("id", chunkVersion!.id);
-          await serviceClient.from("project_documents")
-            .update({ updated_at: new Date().toISOString() })
-            .eq("id", chunkDocRecord!.id);
-          console.log(`[generate-document] Chunked background generation COMPLETE: ${docType} v${chunkVersionNum} chunks=${chunkResult.completedChunks}/${chunkResult.totalChunks}`);
+          // runChunkedGeneration already writes plaintext to the version — promote only on full success
+          if (chunkResult.success) {
+            await serviceClient.from("project_document_versions")
+              .update({ is_current: true, meta_json: { bg_generating: false, bg_completed_at: new Date().toISOString(), chunks_total: chunkResult.totalChunks, chunks_completed: chunkResult.completedChunks } })
+              .eq("id", chunkVersion!.id);
+            await serviceClient.from("project_documents")
+              .update({ updated_at: new Date().toISOString() })
+              .eq("id", chunkDocRecord!.id);
+            console.log(`[generate-document] Chunked background generation COMPLETE: ${docType} v${chunkVersionNum} chunks=${chunkResult.completedChunks}/${chunkResult.totalChunks}`);
+          } else {
+            // Failed assembly: persist for observability but do NOT promote to is_current
+            await serviceClient.from("project_document_versions")
+              .update({ meta_json: { bg_generating: false, bg_failed: true, bg_failed_at: new Date().toISOString(), chunks_total: chunkResult.totalChunks, chunks_completed: chunkResult.completedChunks, chunks_failed: chunkResult.failedChunks } })
+              .eq("id", chunkVersion!.id);
+            console.error(`[generate-document][IEL] Chunked generation PARTIAL FAILURE — NOT promoting to is_current: ${docType} v${chunkVersionNum} failed=${chunkResult.failedChunks}/${chunkResult.totalChunks}`);
+          }
         } catch (bgErr: any) {
           console.error(`[generate-document] Chunked background generation FAILED: ${docType} — ${bgErr?.message}`);
           await serviceClient.from("project_document_versions")
