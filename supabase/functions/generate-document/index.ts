@@ -140,7 +140,7 @@ const MAX_PER_DOC_CHARS = 12000;
 
 // ─── LLM Gateway ───
 
-const GATEWAY_URL = "https://openrouter.ai/api/v1/chat/completions";
+const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 async function callLLM(apiKey: string, system: string, user: string, model = "google/gemini-2.5-flash"): Promise<string> {
   const res = await fetch(GATEWAY_URL, {

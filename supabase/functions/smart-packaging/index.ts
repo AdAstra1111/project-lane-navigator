@@ -113,7 +113,7 @@ ${crewFields}`;
     const guardrails = buildGuardrailBlock({ productionType: format, engineName: "smart-packaging" });
     console.log(`[smart-packaging] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
     const systemMsg = (isCrew ? "You are a film industry crew packaging expert." : "You are a film industry packaging expert.") + "\n" + guardrails.textBlock;
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,

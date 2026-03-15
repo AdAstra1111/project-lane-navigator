@@ -165,7 +165,7 @@ async function handleIngest(
     }
     const base64Pdf = btoa(binary);
 
-    const aiResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -312,7 +312,7 @@ async function handleIngest(
     addLog("Generating derived artifacts…");
     try {
       const excerpt = rawText.slice(0, 15_000);
-      const artifactResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const artifactResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -441,7 +441,7 @@ async function handleReingest(
   // For PDF: use AI extraction
   if (ingestionSource === 'pdf' && lovableKey) {
     addLog("Extracting text from PDF via AI…");
-    const aiResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({

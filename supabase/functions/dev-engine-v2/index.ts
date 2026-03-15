@@ -555,7 +555,7 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let response: Response;
     try {
-      response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -4752,6 +4752,7 @@ serve(async (req) => {
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    console.log(`[dev-engine-v2] AI key check: len=${LOVABLE_API_KEY.length}, prefix=${LOVABLE_API_KEY.slice(0, 8)}..., gateway=ai.gateway.lovable.dev`);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -22351,7 +22352,7 @@ Rules:
         let error: string | null = null;
 
         try {
-          const imgResp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          const imgResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${LOVABLE_API_KEY}`,

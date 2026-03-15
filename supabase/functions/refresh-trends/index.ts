@@ -373,7 +373,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
 
     // Make both AI calls in parallel
     const [signalResponse, castResponse] = await Promise.all([
-      fetch("https://openrouter.ai/api/v1/chat/completions", {
+      fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${lovableApiKey}`,
@@ -384,7 +384,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
           messages: [{ role: "user", content: signalPrompt }],
         }),
       }),
-      fetch("https://openrouter.ai/api/v1/chat/completions", {
+      fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${lovableApiKey}`,
@@ -642,7 +642,7 @@ Focus on:
 Write in direct, professional prose. No bullet points, no headers. Just a tight paragraph a producer can scan in 30 seconds.`;
 
     try {
-      const briefResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const briefResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${lovableApiKey}`,

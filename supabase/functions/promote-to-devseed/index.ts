@@ -256,7 +256,7 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
       });
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${LOVABLE_API_KEY}`,
@@ -468,7 +468,7 @@ Return the same JSON schema as before with the structural elements strengthened.
       });
 
       try {
-        const repairResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        const repairResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${LOVABLE_API_KEY}`,

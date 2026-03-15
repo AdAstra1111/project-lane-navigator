@@ -289,7 +289,7 @@ async function generateEmbeddings(texts: string[], apiKey: string): Promise<numb
   // Since the gateway is OpenAI-compatible, we use the embeddings endpoint pattern
   // But the Lovable AI gateway only supports chat completions, so we use a tool-calling approach
 
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
