@@ -658,13 +658,31 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
     assembledContent = chunkContents.filter(Boolean).join("\n\n");
   }
 
-  // 5. Store assembled content
+  // 5. Store assembled content AND atomically clear bg_generating.
+  // Fetch existing meta_json first so we preserve fields like bg_started_at, episode_count, etc.
+  // This prevents generate-document's background cleanup from being the single point of failure —
+  // if the edge function times out before cleanup runs, the version is still marked done here.
+  const { data: verForMeta } = await supabase
+    .from("project_document_versions")
+    .select("meta_json")
+    .eq("id", versionId)
+    .maybeSingle();
+
+  const mergedMeta = {
+    ...(verForMeta?.meta_json || {}),
+    bg_generating: false,
+    bg_completed_at: new Date().toISOString(),
+    chunks_total: plan.totalChunks,
+    chunks_completed: completedChunks,
+  };
+
   await supabase
     .from("project_document_versions")
     .update({
       plaintext: assembledContent,
       assembled_from_chunks: true,
       assembled_chunk_count: plan.totalChunks,
+      meta_json: mergedMeta,
     })
     .eq("id", versionId);
 

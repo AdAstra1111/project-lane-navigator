@@ -297,16 +297,25 @@ export default function ProjectDevelopmentEngine() {
 
       const stillGenerating = data.meta_json?.bg_generating === true;
 
-      // If backend has finished writing plaintext, refresh immediately
+      // If backend has finished: plaintext written and bg_generating cleared.
       if (data.plaintext && !stillGenerating) {
         qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
         return data;
       }
 
-      // If all chunks are done but backend assembly is still running,
-      // assemble from chunks and inject into the cache so content shows NOW.
-      // Check whenever stillGenerating — do NOT gate on assembled_from_chunks,
-      // that field isn't reliably set for all generation paths.
+      // If assembled_from_chunks is set with plaintext, the chunkRunner completed
+      // its assembly pass (which now also clears bg_generating atomically).
+      // This catches the brief propagation window before the poll sees bg_generating=false.
+      if (data.assembled_from_chunks && data.plaintext && data.plaintext.length > 100) {
+        qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+        return data;
+      }
+
+      // If all chunks are done but backend assembly hasn't written plaintext yet,
+      // assemble from chunks locally and inject into cache so content shows NOW.
+      // Do NOT schedule a 3s re-fetch (it causes a flip-flop: DB still has
+      // bg_generating=true → versions re-fetch → isBgGenerating flips back → banner returns).
+      // Instead rely on the next poll tick which will hit the assembled_from_chunks branch above.
       if (stillGenerating) {
         const { data: chunks } = await (supabase as any)
           .from('project_document_chunks')
@@ -323,7 +332,9 @@ export default function ProjectDevelopmentEngine() {
               .map((c: any) => c.content)
               .join('\n\n');
             if (assembled.length > 100) {
-              // Inject assembled content into the version cache so the editor shows it
+              // Inject assembled content into the version cache so the editor shows it immediately.
+              // Do NOT trigger a versions re-fetch here — the poll will detect assembled_from_chunks
+              // on the next tick once the backend has written it, avoiding a bg_generating flip-flop.
               qc.setQueryData(['dev-v2-versions', selectedDocId], (old: any) => {
                 if (!Array.isArray(old)) return old;
                 return old.map((v: any) =>
@@ -332,10 +343,10 @@ export default function ProjectDevelopmentEngine() {
                     : v
                 );
               });
-              // Also trigger a real refresh to get the final server version
-              setTimeout(() => qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] }), 3000);
             } else {
-              // All chunks terminal but no content assembled — still clear bg_generating to unstick UI
+              // All chunks terminal but no assembled content — clear bg_generating to unstick UI.
+              // Do NOT use setTimeout + invalidateQueries (causes flip-flop with DB still having
+              // bg_generating=true). Local inject only; backend fix in chunkRunner will clear DB.
               qc.setQueryData(['dev-v2-versions', selectedDocId], (old: any) => {
                 if (!Array.isArray(old)) return old;
                 return old.map((v: any) =>
@@ -344,7 +355,6 @@ export default function ProjectDevelopmentEngine() {
                     : v
                 );
               });
-              setTimeout(() => qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] }), 2000);
             }
           }
         }
