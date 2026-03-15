@@ -10580,9 +10580,9 @@ async function respondWithJob(supabase: any, jobId: string, hint?: string): Prom
                 question: dv.question || (row as any).title || (row as any).decision_text || `Decision required: ${(row as any).decision_key}`,
                 options: Array.isArray(dv.options) ? dv.options : [],
                 recommended: dv.recommendation?.value || null,
-                decision_key: row.decision_key,
+                decision_key: (row as any).decision_key,
                 classification: dv.classification || "BLOCKING_NOW",
-                reason: row.decision_text || dv.question || null,
+                reason: (row as any).decision_text || dv.question || null,
                 provenance: dv.provenance || null,
                 scope_json: dv.scope_json || null,
               };
