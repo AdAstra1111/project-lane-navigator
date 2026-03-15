@@ -309,7 +309,7 @@ Deno.serve(async (req) => {
     // ══════════════════════════════════
 
     let recommendation: "promote" | "stabilise" | "escalate";
-    const next = nextDoc(currentDocument);
+    const next = nextDocForFormat(currentDocument, projectFormat);
 
     if (readinessScore >= 78) {
       recommendation = "promote";
