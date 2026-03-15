@@ -117,7 +117,7 @@ serve(async (req) => {
 
     const systemPrompt = PROMPTS[import_type] || PROMPTS.budget;
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -192,7 +192,7 @@ Include both major players and independent specialists.`;
     ];
 
     const aiResponse = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
+      "https://ai.gateway.lovable.dev/v1/chat/completions",
       {
         method: "POST",
         headers: {
