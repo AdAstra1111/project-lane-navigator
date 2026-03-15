@@ -6709,7 +6709,7 @@ MATERIAL:\n${version.plaintext}`;
     // REWRITE — with doc safety guards + decision options
     // ══════════════════════════════════════════════
     if (action === "rewrite") {
-      const { projectId, documentId, versionId, approvedNotes, protectItems, targetDocType, deliverableType, developmentBehavior, format: reqFormat, selectedOptions, globalDirections } = body;
+      const { projectId, documentId, versionId, approvedNotes, protectItems, targetDocType, deliverableType, developmentBehavior, format: reqFormat, selectedOptions, globalDirections, userNotes, additionalContext, rewriteNotes } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
 
       // ── BLOCKER GATE: if blockers exist, selectedOptions must cover all of them ──
