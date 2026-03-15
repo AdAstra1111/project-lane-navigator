@@ -16,7 +16,7 @@ async function safeParse(text: string, apiKey: string): Promise<any> {
   }
   try { return JSON.parse(text); } catch { /* fall through */ }
   // Ask LLM to extract JSON
-  const fixResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const fixResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({

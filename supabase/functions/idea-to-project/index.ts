@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
     // --- AI parse using tool calling for reliable structured output ---
     const systemPrompt = `You are a film/TV development executive assistant. Given a free-text idea from a producer, extract structured project metadata and call the extract_project_metadata function with the results. Be generous in your interpretation — extract whatever you can from the text and use sensible defaults for missing fields.`;
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
