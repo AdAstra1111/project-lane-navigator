@@ -181,7 +181,7 @@ Deno.serve(async (req) => {
     // WEIGHTED READINESS SCORE (computed first, always)
     // ══════════════════════════════════
 
-    const w = WEIGHTS[currentDocument];
+    const w = WEIGHTS[currentDocument] || DEFAULT_WEIGHTS;
     const gapScore = 100 - clamp(latestGap * 2, 0, 100);
     const trajScore = trajectoryScore(sessionTrajectory);
     const hiScore = 100 - clamp(highImpactCount * 10, 0, 60);
