@@ -942,15 +942,16 @@ function ielValidateTarget(rawTarget: string, format: string): { target: string;
   return { target, corrected, log };
 }
 
-// ── Resolve format string to its ladder (with alias / fallback) ──
+// ── Resolve format string to its ladder (fail-closed, no silent fallback) ──
 function getLadderForJob(format: string): string[] | null {
   const key = (format || "").toLowerCase().replace(/_/g, "-");
   if (FORMAT_LADDERS[key]) return FORMAT_LADDERS[key];
   // Check aliases
   const aliased = DOC_TYPE_ALIASES[key];
   if (aliased && FORMAT_LADDERS[aliased]) return FORMAT_LADDERS[aliased];
-  // Fallback: try "film"
-  return FORMAT_LADDERS["film"] ?? null;
+  // Fail closed: unknown format must not silently route to any ladder
+  console.error(`[auto-run][IEL] getLadderForJob FAIL-CLOSED: unknown format "${format}" (normalized: "${key}"). No ladder returned.`);
+  return null;
 }
 
 // ── Resolve doc-type aliases to canonical names ──
