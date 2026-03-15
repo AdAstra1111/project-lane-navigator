@@ -1172,7 +1172,9 @@ export default function ProjectDevelopmentEngine() {
       toast.error(`"Feature Script" is not available for ${lane.replace(/_/g, ' ')} projects`);
       return;
     }
-    setSelectedDeliverableType(nextBestDocument as DeliverableType);
+    // NOTE: Do NOT eagerly set selectedDeliverableType here.
+    // It will update naturally via the useEffect at L625-628 when selectedDoc changes
+    // after the convert mutation succeeds and queries are invalidated.
     convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: gateAnalysis?.protect });
   };
 
