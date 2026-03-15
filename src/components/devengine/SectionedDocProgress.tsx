@@ -174,7 +174,25 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
       {/* Header + progress bar */}
       <div className="w-full space-y-2">
         <div className="flex items-center justify-between text-sm">
-          <span className="font-medium text-foreground">Generating {label}</span>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-foreground">Generating {label}</span>
+            {isStillActive && (
+              <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-blue-500/10 text-blue-400 border-blue-500/20 gap-1">
+                <RefreshCw className="h-2.5 w-2.5 animate-spin" />
+                Live
+              </Badge>
+            )}
+            {!isStillActive && failedChunks.length > 0 && doneCount > 0 && (
+              <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-amber-500/10 text-amber-400 border-amber-500/20">
+                Partially complete
+              </Badge>
+            )}
+            {!isStillActive && doneCount === total && total > 0 && (
+              <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                Complete
+              </Badge>
+            )}
+          </div>
           <span className="text-muted-foreground font-mono text-xs">
             {doneCount} / {total || '?'} sections
           </span>
@@ -202,6 +220,7 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
             const isDone = chunk.status === 'done';
             const isRunning = chunk.status === 'running';
             const isFailed = isSectionFailed(chunk.status);
+            const canRetry = isRetryable(chunk.status);
             const isExpanded = expandedId === chunk.id;
             const isRetrying = retryingId === chunk.id;
 
@@ -216,9 +235,11 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
                     ? 'opacity-100 border-border/40 cursor-pointer hover:border-border/60'
                     : isRunning
                       ? 'opacity-90 border-blue-500/30 animate-pulse'
-                      : isFailed
-                        ? 'opacity-100 border-destructive/40'
-                        : 'opacity-40 border-border/20'
+                      : canRetry
+                        ? 'opacity-100 border-amber-500/30'
+                        : isFailed
+                          ? 'opacity-100 border-destructive/40'
+                          : 'opacity-40 border-border/20'
                 }`}
                 onClick={() => isDone && toggleExpand(chunk.id)}
               >
@@ -244,14 +265,14 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
                         </div>
                       </div>
 
-                      {/* Failed: show error + retry */}
-                      {isFailed && (
+                      {/* Retryable failure: softer messaging */}
+                      {canRetry && (
                         <div className="space-y-2">
-                          <p className="text-xs text-destructive/80 italic">
-                            {chunk.status === 'failed_validation' ? 'Failed validation' 
-                              : chunk.status === 'needs_regen' ? 'Needs regeneration'
-                              : chunk.status === 'skipped' ? 'Skipped'
-                              : 'Generation failed'}
+                          <p className="text-xs text-amber-500/80 italic">
+                            {chunk.status === 'failed_validation' ? 'Validation issue — can retry'
+                              : chunk.status === 'needs_regen' ? 'Queued for regeneration'
+                              : isStillActive ? 'Section failed — may recover automatically'
+                              : 'Section failed — tap retry to regenerate'}
                           </p>
                           {projectId && documentId && (
                             <Button
@@ -269,6 +290,11 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
                             </Button>
                           )}
                         </div>
+                      )}
+
+                      {/* Terminal failure (skipped) — no retry */}
+                      {isFailed && !canRetry && (
+                        <p className="text-xs text-destructive/80 italic">Skipped</p>
                       )}
 
                       {/* Done: preview or expanded content */}
@@ -312,7 +338,11 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
       )}
 
       <p className="text-[11px] text-muted-foreground/60 text-center">
-        This may take a few minutes. The page will update automatically when ready.
+        {isStillActive
+          ? 'Generation in progress — status updates every few seconds.'
+          : failedChunks.length > 0
+            ? 'Some sections need attention. Use retry to regenerate failed sections.'
+            : 'This may take a few minutes. The page will update automatically when ready.'}
       </p>
     </div>
   );
