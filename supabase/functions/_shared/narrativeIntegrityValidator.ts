@@ -41,6 +41,7 @@
  */
 
 import { type LaneKey, LANE_DOC_LADDERS } from "./documentLadders.ts";
+import { DOC_TYPE_REGISTRY } from "./doc-os.ts";
 import { getSectionConfig } from "./deliverableSectionRegistry.ts";
 import { parseSections } from "./sectionRepairEngine.ts";
 import { buildCanonEntitiesFromDB, validateCanonAlignment } from "./docPolicyRegistry.ts";
