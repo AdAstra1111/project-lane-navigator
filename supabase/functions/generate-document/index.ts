@@ -1007,8 +1007,9 @@ If you find yourself describing what happens in the story, which characters appe
         }
 
         // 3. Create placeholder version (is_current=true so UI can find the slot)
-        // MUST clear existing is_current=true versions first to avoid pdv_one_current_per_doc constraint
-        await supabase.from("project_document_versions")
+        // MUST clear existing is_current=true versions first to avoid pdv_one_current_per_doc constraint.
+        // Use serviceClient: user-scoped rlsClient UPDATE is silently blocked by RLS on this table.
+        await serviceClient.from("project_document_versions")
           .update({ is_current: false })
           .eq("document_id", epDocRecord!.id)
           .eq("is_current", true);
@@ -1269,8 +1270,9 @@ If you find yourself describing what happens in the story, which characters appe
       // ── END RESUME MODE ──
 
       // Create placeholder version
-      // MUST clear existing is_current=true versions first to avoid pdv_one_current_per_doc constraint
-      await supabase.from("project_document_versions")
+      // MUST clear existing is_current=true versions first to avoid pdv_one_current_per_doc constraint.
+      // Use serviceClient: user-scoped rlsClient UPDATE is silently blocked by RLS on this table.
+      await serviceClient.from("project_document_versions")
         .update({ is_current: false })
         .eq("document_id", chunkDocRecord!.id)
         .eq("is_current", true);
