@@ -12,6 +12,8 @@
  *   5. This registry is imported by auto-run and dev-engine-v2.
  */
 
+import { getCanonicalNextStage } from "./ladder-invariant.ts";
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type DecisionClassification = "BLOCKING_NOW" | "DEFERRABLE" | "NEVER_BLOCKING";
