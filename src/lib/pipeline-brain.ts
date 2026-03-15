@@ -82,14 +82,15 @@ const APPROVAL_REQUIRED_STAGES: Set<string> = new Set([
   'format_rules',
 ]);
 
-// ── "All known stages" — used to compute excluded list ─────────────────────
-
+// ── "All known LADDER stages" — used to compute excluded list ─────────────
+// Output documents (market_sheet, vertical_market_sheet, deck, trailer_script)
+// are intentionally excluded: they are not progression stages.
 const ALL_KNOWN_STAGES: DeliverableStage[] = [
-  'idea', 'concept_brief', 'market_sheet', 'vertical_market_sheet',
+  'idea', 'concept_brief',
   'treatment', 'story_outline', 'character_bible', 'beat_sheet',
-  'episode_beats', 'feature_script', 'episode_script', 'season_master_script', 'production_draft', 'deck',
+  'episode_beats', 'feature_script', 'episode_script', 'season_master_script', 'production_draft',
   'documentary_outline', 'format_rules', 'season_arc', 'episode_grid',
-  'vertical_episode_beats',
+  'vertical_episode_beats', 'season_script',
 ];
 
 // ── Series Writer entry stage mapping ──────────────────────────────────────

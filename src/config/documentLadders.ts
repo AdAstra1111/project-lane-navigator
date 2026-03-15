@@ -265,6 +265,30 @@ export function getDocTypeLabel(docTypeKey: string): string {
 }
 
 /**
+ * Returns true if the given docType is an output document for the given lane.
+ * Output documents can be generated on-demand but are NOT ladder stages and
+ * do NOT participate in pipeline progression.
+ *
+ * If lane is not provided, checks across all lanes.
+ */
+export function isOutputDocType(docType: string, lane?: string | null): boolean {
+  if (lane) {
+    const key = (lane || 'unspecified') as LaneKey;
+    return (OUTPUT_DOC_TYPES_BY_LANE[key] ?? []).includes(docType);
+  }
+  return Object.values(OUTPUT_DOC_TYPES_BY_LANE).some(list => list.includes(docType));
+}
+
+/**
+ * Returns the output doc types available for a given lane.
+ * Alias for OUTPUT_DOC_TYPES_BY_LANE[lane] with safe fallback.
+ */
+export function getOutputDocTypesForLane(lane: string | null | undefined): string[] {
+  const key = (lane || 'unspecified') as LaneKey;
+  return OUTPUT_DOC_TYPES_BY_LANE[key] ?? [];
+}
+
+/**
  * Map a format slug (from projects.format) to its corresponding lane key.
  * Used when only the format is available but lane-aware logic is needed.
  */

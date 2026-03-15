@@ -47,9 +47,11 @@ function docLabel(key: string | null | undefined): string {
   return ALL_DOC_TYPE_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 const LADDER_LABELS = ALL_DOC_TYPE_LABELS;
+// Output docs (market_sheet, deck, vertical_market_sheet) intentionally excluded —
+// they are not ladder stages and cannot be valid auto-run jump targets.
 const LADDER_OPTIONS = [
-  'idea','topline_narrative','concept_brief','market_sheet','blueprint',
-  'architecture','character_bible','beat_sheet','script','production_draft',
+  'idea','topline_narrative','concept_brief','treatment','story_outline',
+  'character_bible','beat_sheet','feature_script','episode_script','production_draft',
 ];
 
 // ── Provenance badge helper ──

@@ -7,8 +7,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import LADDERS_JSON from '../../supabase/_shared/stage-ladders.json';
-import { BASE_DOC_TYPES, normalizeDocType, formatToLane } from '@/config/documentLadders';
-import { VERTICAL_DRAMA_PIPELINE_ORDER, DELIVERABLE_PIPELINE_ORDER } from '@/lib/dev-os-config';
+import { BASE_DOC_TYPES, normalizeDocType, formatToLane, LANE_DOC_LADDERS, isOutputDocType, getOutputDocTypesForLane } from '@/config/documentLadders';
+import { VERTICAL_DRAMA_PIPELINE_ORDER, DELIVERABLE_PIPELINE_ORDER, SERIES_PIPELINE_ORDER, VERTICAL_DRAMA_DOC_ORDER } from '@/lib/dev-os-config';
 import { getDocFlowConfig } from '@/lib/docFlowMap';
 
 const FORMAT_LADDERS: Record<string, string[]> = LADDERS_JSON.FORMAT_LADDERS as Record<string, string[]>;
@@ -146,5 +146,95 @@ describe('Stage ladders canonical key guard', () => {
     // grep -n "max_versions_per_doc_per_job" src/hooks/useAutoRunMissionControl.ts
     // must return at least one hit in the start() function.
     expect(true).toBe(true); // Placeholder — actual validation is grep-based tripwire
+  });
+});
+
+// ── Output document separation regression tripwires ───────────────────────
+// These tests assert that output docs NEVER appear in progression-driving surfaces.
+// If any of these fail, a regression has been introduced. DO NOT remove these tests.
+
+const OUTPUT_DOC_TYPES = ['market_sheet', 'vertical_market_sheet', 'deck', 'trailer_script'];
+
+describe('Output doc / ladder separation — regression guard', () => {
+  it('No FORMAT_LADDERS entry contains output doc types', () => {
+    for (const [fmt, ladder] of Object.entries(FORMAT_LADDERS)) {
+      for (const outputDoc of OUTPUT_DOC_TYPES) {
+        expect(ladder, `FORMAT_LADDERS["${fmt}"] must not contain "${outputDoc}"`).not.toContain(outputDoc);
+      }
+    }
+  });
+
+  it('No LANE_DOC_LADDERS entry contains output doc types', () => {
+    for (const [lane, ladder] of Object.entries(LANE_DOC_LADDERS)) {
+      for (const outputDoc of OUTPUT_DOC_TYPES) {
+        expect(ladder, `LANE_DOC_LADDERS["${lane}"] must not contain "${outputDoc}"`).not.toContain(outputDoc);
+      }
+    }
+  });
+
+  it('DELIVERABLE_PIPELINE_ORDER does not contain output doc types', () => {
+    for (const outputDoc of OUTPUT_DOC_TYPES) {
+      expect(DELIVERABLE_PIPELINE_ORDER, `DELIVERABLE_PIPELINE_ORDER must not contain "${outputDoc}"`).not.toContain(outputDoc);
+    }
+  });
+
+  it('SERIES_PIPELINE_ORDER does not contain output doc types', () => {
+    for (const outputDoc of OUTPUT_DOC_TYPES) {
+      expect(SERIES_PIPELINE_ORDER, `SERIES_PIPELINE_ORDER must not contain "${outputDoc}"`).not.toContain(outputDoc);
+    }
+  });
+
+  it('VERTICAL_DRAMA_PIPELINE_ORDER does not contain output doc types', () => {
+    for (const outputDoc of OUTPUT_DOC_TYPES) {
+      expect(VERTICAL_DRAMA_PIPELINE_ORDER, `VERTICAL_DRAMA_PIPELINE_ORDER must not contain "${outputDoc}"`).not.toContain(outputDoc);
+    }
+  });
+
+  it('VERTICAL_DRAMA_DOC_ORDER does not contain output doc types', () => {
+    const types = VERTICAL_DRAMA_DOC_ORDER.map(e => e.type);
+    for (const outputDoc of OUTPUT_DOC_TYPES) {
+      expect(types, `VERTICAL_DRAMA_DOC_ORDER must not contain "${outputDoc}"`).not.toContain(outputDoc);
+    }
+  });
+
+  it('isOutputDocType returns true for all known output docs (no-lane)', () => {
+    for (const outputDoc of OUTPUT_DOC_TYPES) {
+      expect(isOutputDocType(outputDoc), `isOutputDocType("${outputDoc}") must be true`).toBe(true);
+    }
+  });
+
+  it('isOutputDocType returns false for canon ladder docs', () => {
+    const canonDocs = ['idea', 'concept_brief', 'treatment', 'story_outline', 'character_bible',
+      'beat_sheet', 'feature_script', 'production_draft', 'episode_script', 'season_master_script'];
+    for (const canonDoc of canonDocs) {
+      expect(isOutputDocType(canonDoc), `isOutputDocType("${canonDoc}") must be false`).toBe(false);
+    }
+  });
+
+  it('getOutputDocTypesForLane(feature_film) returns market_sheet and deck', () => {
+    const outputDocs = getOutputDocTypesForLane('feature_film');
+    expect(outputDocs).toContain('market_sheet');
+    expect(outputDocs).toContain('deck');
+    expect(outputDocs).not.toContain('treatment');
+    expect(outputDocs).not.toContain('story_outline');
+  });
+
+  it('getOutputDocTypesForLane(vertical_drama) returns vertical_market_sheet only', () => {
+    const outputDocs = getOutputDocTypesForLane('vertical_drama');
+    expect(outputDocs).toContain('vertical_market_sheet');
+    expect(outputDocs).not.toContain('market_sheet');
+    expect(outputDocs).not.toContain('deck');
+  });
+
+  it('market_sheet is not in feature_film LANE_DOC_LADDERS but is in output docs', () => {
+    const ladder = LANE_DOC_LADDERS['feature_film'];
+    expect(ladder).not.toContain('market_sheet');
+    expect(isOutputDocType('market_sheet', 'feature_film')).toBe(true);
+  });
+
+  it('vertical_market_sheet is not in vertical_drama LANE_DOC_LADDERS but is in output docs', () => {
+    const ladder = LANE_DOC_LADDERS['vertical_drama'];
+    expect(ladder).not.toContain('vertical_market_sheet');
+    expect(isOutputDocType('vertical_market_sheet', 'vertical_drama')).toBe(true);
   });
 });

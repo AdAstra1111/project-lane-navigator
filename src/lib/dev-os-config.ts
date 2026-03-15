@@ -79,10 +79,12 @@ export function getDeliverableLabel(deliverable: string, format?: string | null)
   return (DELIVERABLE_LABELS as Record<string, string>)[deliverable] || deliverable;
 }
 
+// ── NOTE: output documents (market_sheet, deck, vertical_market_sheet, trailer_script)
+// are intentionally excluded from all pipeline orders below.
+// They are NOT progression stages — see OUTPUT_DOC_TYPES_BY_LANE in documentLadders.ts.
 export const DELIVERABLE_PIPELINE_ORDER: DeliverableType[] = [
   'idea',
   'concept_brief',
-  'market_sheet',
   'blueprint',
   'architecture',
   'character_bible',
@@ -94,7 +96,6 @@ export const DELIVERABLE_PIPELINE_ORDER: DeliverableType[] = [
 export const SERIES_PIPELINE_ORDER: DeliverableType[] = [
   'idea',
   'concept_brief',
-  'market_sheet',
   'blueprint',
   'architecture',
   'character_bible',
@@ -107,7 +108,6 @@ export const SERIES_PIPELINE_ORDER: DeliverableType[] = [
 export const VERTICAL_DRAMA_PIPELINE_ORDER: DeliverableType[] = [
   'idea',
   'concept_brief',
-  'vertical_market_sheet',
   'format_rules',
   'character_bible',
   'season_arc',
@@ -120,10 +120,11 @@ export const VERTICAL_DRAMA_PIPELINE_ORDER: DeliverableType[] = [
  * Vertical Drama document ordering — enforces prerequisite chain.
  * Each entry lists its required prerequisites.
  */
+// ── NOTE: vertical_market_sheet is an output document — omitted from VERTICAL_DRAMA_DOC_ORDER.
+// It appears in OUTPUT_DOC_TYPES_BY_LANE['vertical_drama'] and is available on-demand.
 export const VERTICAL_DRAMA_DOC_ORDER: Array<{ type: DeliverableType; label: string; prerequisites: DeliverableType[] }> = [
   { type: 'idea', label: 'Idea Brief', prerequisites: [] },
   { type: 'concept_brief', label: 'Concept Brief', prerequisites: ['idea'] },
-  { type: 'vertical_market_sheet', label: 'Market Sheet (VD)', prerequisites: ['concept_brief'] },
   { type: 'format_rules', label: 'Format Rules', prerequisites: ['concept_brief'] },
   { type: 'character_bible', label: 'Character Bible', prerequisites: ['concept_brief'] },
   { type: 'season_arc', label: 'Season Arc', prerequisites: ['concept_brief', 'character_bible'] },

@@ -176,6 +176,21 @@ export function getDocTypeLabel(docTypeKey: string): string {
   return BASE_DOC_TYPES[docTypeKey]?.label ?? docTypeKey.replace(/_/g, ' ');
 }
 
+// ── Output document canonical set (mirrors OUTPUT_DOC_TYPES_BY_LANE in FE config) ──
+// Derived from doc-os.ts doc_category === "output". Single source of truth for BE.
+const OUTPUT_DOC_TYPE_SET: ReadonlySet<string> = new Set([
+  'market_sheet', 'vertical_market_sheet', 'deck', 'trailer_script',
+]);
+
+/**
+ * Returns true if the given docType is an output document.
+ * Output documents can be generated on-demand but are NOT ladder stages and
+ * do NOT participate in pipeline progression or auto-run orchestration.
+ */
+export function isOutputDocType(docType: string): boolean {
+  return OUTPUT_DOC_TYPE_SET.has(docType);
+}
+
 export function formatToLane(format: string | null | undefined): LaneKey {
   const f = (format || '').toLowerCase().replace(/[_ ]+/g, '-');
   switch (f) {
