@@ -1356,7 +1356,7 @@ export function AutoRunMissionControl({
                 const grDist = Math.max(0, target.gp - gr);
                 const primaryConstraint = dqDist > grDist ? 'Document Quality' : grDist > 0 ? 'Greenlight Readiness' : null;
 
-                // Narrative Integrity state — derived from risk flags
+                // Pipeline Health state — derived from risk flags (not NIE-backed yet)
                 const riskFlags = job.last_risk_flags || [];
                 const hasHardGate = riskFlags.some((f: string) => f.startsWith('hard_gate:'));
                 const hasWarningFlags = riskFlags.length > 0;
@@ -1403,7 +1403,7 @@ export function AutoRunMissionControl({
                         {grDist > 0 && <div className="text-[7px] text-muted-foreground/60">+{grDist} to obj</div>}
                       </div>
                       <div className="text-center p-1.5 rounded bg-muted/30">
-                        <div className="text-muted-foreground text-[7px] leading-tight">Narrative</div>
+                        <div className="text-muted-foreground text-[7px] leading-tight">Pipeline</div>
                         <Badge variant="outline" className={`text-[7px] px-1 py-0 ${niColor}`}>{niState}</Badge>
                       </div>
                     </div>
