@@ -1857,7 +1857,7 @@ async function resolveSeriesQualifications(
   let durMin: number | null = null;
   let durMax: number | null = null;
   let durScalar: number | null = null;
-  let durSource: "canon" | "canon_legacy" | "project_column" | "guardrails" | "defaults" | null = null;
+  let durSource: string | null = null;
   let durLocked = false;
 
   // PRIORITY 0: Canon (locked takes absolute precedence)
