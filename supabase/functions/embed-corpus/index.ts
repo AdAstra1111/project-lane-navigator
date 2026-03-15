@@ -57,7 +57,7 @@ serve(async (req) => {
 // ── Embed all chunks for a single script ─────────────────────────────
 
 async function handleEmbedScript(
-  db: ReturnType<typeof createClient>,
+  db: any,
   userId: string,
   params: { script_id: string },
   apiKey: string,
