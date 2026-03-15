@@ -311,22 +311,21 @@ export default function ProjectDevelopmentEngine() {
         return data;
       }
 
-      // STUCK FLAG RECOVERY: if bg_generating is still true but plaintext is substantial
-      // (e.g. versions generated before the chunkRunner atomic-clear fix), clear the flag
-      // in the DB now so the UI unblocks. This is a one-time self-heal per version.
+      // STUCK FLAG RECOVERY: direct frontend writes to project_document_versions are
+      // blocked by RLS (anon key). Instead call dev-engine-v2 fix_stuck_version which
+      // runs as service role and can bypass RLS safely.
+
+      // Case 1: plaintext already in DB but flag stuck
       if (stillGenerating && data.plaintext && data.plaintext.length > 500) {
-        console.log(`[bg-poll] Stuck bg_generating detected on version ${selectedVersionId} — plaintext present (${data.plaintext.length} chars), clearing flag`);
-        await (supabase as any)
-          .from('project_document_versions')
-          .update({ meta_json: { ...(data.meta_json || {}), bg_generating: false, bg_stuck_cleared_at: new Date().toISOString() } })
-          .eq('id', selectedVersionId);
+        console.log(`[bg-poll] Stuck bg_generating on ${selectedVersionId} — plaintext present, calling fix_stuck_version`);
+        await (supabase as any).functions.invoke('dev-engine-v2', {
+          body: { action: 'fix_stuck_version', versionId: selectedVersionId },
+        });
         qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
         return data;
       }
 
-      // If all chunks are done but backend assembly hasn't written plaintext yet,
-      // assemble from chunks and write directly to DB (not just local cache).
-      // This recovers versions where chunkRunner wrote chunks but never persisted plaintext.
+      // Case 2: plaintext missing — check chunks and assemble if all terminal
       if (stillGenerating) {
         const { data: chunks } = await (supabase as any)
           .from('project_document_chunks')
@@ -342,26 +341,16 @@ export default function ProjectDevelopmentEngine() {
               .filter((c: any) => c.content)
               .map((c: any) => c.content)
               .join('\n\n');
-            if (assembled.length > 100) {
-              // Write assembled content + clear flag directly to DB so it persists across re-fetches
-              // and the backend analyze call can read the real content.
-              await (supabase as any)
-                .from('project_document_versions')
-                .update({
-                  plaintext: assembled,
-                  assembled_from_chunks: true,
-                  meta_json: { ...(data.meta_json || {}), bg_generating: false, bg_assembled_by_client: true, bg_assembled_at: new Date().toISOString() },
-                })
-                .eq('id', selectedVersionId);
-              qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
-            } else {
-              // Chunks terminal but no content — just clear the stuck flag
-              await (supabase as any)
-                .from('project_document_versions')
-                .update({ meta_json: { ...(data.meta_json || {}), bg_generating: false, bg_stuck_cleared_at: new Date().toISOString() } })
-                .eq('id', selectedVersionId);
-              qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
-            }
+
+            // Call edge function (service role) to write plaintext + clear flag
+            await (supabase as any).functions.invoke('dev-engine-v2', {
+              body: {
+                action: 'fix_stuck_version',
+                versionId: selectedVersionId,
+                plaintext: assembled.length > 100 ? assembled : undefined,
+              },
+            });
+            qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
           }
         }
       }

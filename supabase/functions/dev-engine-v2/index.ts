@@ -4759,6 +4759,60 @@ serve(async (req) => {
     }
 
     // ══════════════════════════════════════════════
+    // FIX_STUCK_VERSION — clear a permanently stuck bg_generating flag.
+    // Runs as service role so it bypasses RLS (frontend writes would be blocked).
+    // Called by the bg-poll when it detects allChunksDone but bg_generating=true.
+    // ══════════════════════════════════════════════
+    if (action === "fix_stuck_version") {
+      const { versionId: stuckVersionId, plaintext: assembledPlaintext, projectId: stuckProjectId } = body;
+      if (!stuckVersionId) {
+        return new Response(JSON.stringify({ error: "versionId required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Verify the version belongs to the authenticated user's project (security check)
+      const { data: versionOwner } = await serviceClient
+        .from("project_document_versions")
+        .select("id, document_id, meta_json, project_documents!inner(project_id, projects!inner(user_id))")
+        .eq("id", stuckVersionId)
+        .maybeSingle();
+
+      if (!versionOwner) {
+        return new Response(JSON.stringify({ error: "Version not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const updatePayload: Record<string, any> = {
+        meta_json: {
+          ...(versionOwner.meta_json || {}),
+          bg_generating: false,
+          bg_stuck_cleared_at: new Date().toISOString(),
+          bg_cleared_by: "fix_stuck_version",
+        },
+      };
+
+      // If assembled plaintext was passed, write it too (recovers versions with empty plaintext)
+      if (assembledPlaintext && assembledPlaintext.length > 100) {
+        updatePayload.plaintext = assembledPlaintext;
+        updatePayload.assembled_from_chunks = true;
+        updatePayload.meta_json.bg_assembled_by_client = true;
+      }
+
+      const { error: fixErr } = await serviceClient
+        .from("project_document_versions")
+        .update(updatePayload)
+        .eq("id", stuckVersionId);
+
+      if (fixErr) {
+        console.error(`[fix_stuck_version] DB update failed: ${fixErr.message}`);
+        return new Response(JSON.stringify({ error: fixErr.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      console.log(`[fix_stuck_version] Cleared stuck bg_generating for version ${stuckVersionId}${assembledPlaintext ? ` + wrote ${assembledPlaintext.length} chars` : ""}`);
+      return new Response(JSON.stringify({ ok: true, fixed: true, versionId: stuckVersionId }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════
     // ANALYZE — strict routing: deliverable → format → behavior
     // ══════════════════════════════════════════════
     if (action === "analyze") {
