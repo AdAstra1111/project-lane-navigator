@@ -1333,70 +1333,99 @@ export function AutoRunMissionControl({
                 completedStages={pipelineProgress.satisfied}
               />
 
-              {/* Convergence Target */}
+              {/* ── Quality Objective & Scores ── */}
               {(() => {
                 const target = (job as any).converge_target_json || { ci: 100, gp: 100 };
-                const ci = job.last_ci ?? 0;
-                const gp = job.last_gp ?? 0;
-                const ciMet = ci >= target.ci;
-                const gpMet = gp >= target.gp;
-                const isLow = target.ci < 50 || target.gp < 50;
+                const dq = job.last_ci ?? 0;
+                const gr = job.last_gp ?? 0;
+                const dqMet = dq >= target.ci;
+                const grMet = gr >= target.gp;
+
+                // Quality Objective band derivation from stored target
+                const objectiveMin = Math.min(target.ci, target.gp);
+                const objectiveBand = objectiveMin >= 95 ? 'Exceptional' : objectiveMin >= 90 ? 'Premium' : objectiveMin >= 85 ? 'Strong' : 'Viable';
+                const BANDS = [
+                  { label: 'Viable', min: 80, desc: '80+' },
+                  { label: 'Strong', min: 85, desc: '85+' },
+                  { label: 'Premium', min: 90, desc: '90+' },
+                  { label: 'Exceptional', min: 95, desc: '95+' },
+                ] as const;
+
+                // Distance to objective
+                const dqDist = Math.max(0, target.ci - dq);
+                const grDist = Math.max(0, target.gp - gr);
+                const primaryConstraint = dqDist > grDist ? 'Document Quality' : grDist > 0 ? 'Greenlight Readiness' : null;
+
+                // Narrative Integrity state — derived from risk flags
+                const riskFlags = job.last_risk_flags || [];
+                const hasHardGate = riskFlags.some((f: string) => f.startsWith('hard_gate:'));
+                const hasWarningFlags = riskFlags.length > 0;
+                const niState: 'Clear' | 'Warning' | 'Blocked' = hasHardGate ? 'Blocked' : hasWarningFlags ? 'Warning' : 'Clear';
+                const niColor = niState === 'Blocked'
+                  ? 'bg-destructive/15 text-destructive border-destructive/30'
+                  : niState === 'Warning'
+                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                    : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+
                 return (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-3 text-[9px] flex-wrap">
-                      <span className="text-muted-foreground">Target:</span>
-                      <span className={ciMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>CI {ci}/{target.ci}</span>
-                      <span className={gpMet ? 'text-emerald-400 font-semibold' : 'text-foreground'}>GP {gp}/{target.gp}</span>
-                      <Button variant="ghost" size="sm" className="h-4 px-1 text-[8px] text-muted-foreground"
-                        onClick={() => {
-                          const newCi = prompt('CI target (0-100):', String(target.ci));
-                          const newGp = prompt('GP target (0-100):', String(target.gp));
-                          if (newCi !== null && newGp !== null) {
-                            const ciVal = Math.max(0, Math.min(100, parseInt(newCi) || 100));
-                            const gpVal = Math.max(0, Math.min(100, parseInt(newGp) || 100));
-                            onUpdateTarget?.(ciVal, gpVal);
-                          }
-                        }}>
-                        <Settings2 className="h-2.5 w-2.5 mr-0.5" />Edit
-                      </Button>
-                    </div>
-                    {isLow && (
-                      <div className="flex items-center gap-1 text-[8px] text-amber-400">
-                        <AlertTriangle className="h-3 w-3" />
-                        Target is unusually low — <button className="underline" onClick={() => onUpdateTarget?.(100, 100)}>reset to 100/100?</button>
+                  <div className="space-y-2">
+                    {/* Quality Objective selector */}
+                    <div className="flex items-center gap-2 text-[9px] flex-wrap">
+                      <span className="text-muted-foreground font-medium">Quality Objective</span>
+                      <div className="flex gap-0.5">
+                        {BANDS.map(b => (
+                          <button
+                            key={b.label}
+                            onClick={() => onUpdateTarget?.(b.min, b.min)}
+                            className={`px-1.5 py-0.5 rounded text-[8px] font-medium transition-colors border ${
+                              objectiveBand === b.label
+                                ? 'bg-primary/20 text-primary border-primary/40'
+                                : 'bg-muted/30 text-muted-foreground border-border/30 hover:bg-muted/50'
+                            }`}
+                          >
+                            {b.label}
+                          </button>
+                        ))}
                       </div>
-                    )}
+                      <span className="text-[8px] text-muted-foreground/60 ml-auto">{objectiveMin}+</span>
+                    </div>
+
+                    {/* Current scores — Document Quality, Greenlight Readiness, NI */}
+                    <div className="grid grid-cols-3 gap-1 text-[9px]">
+                      <div className="text-center p-1.5 rounded bg-muted/30">
+                        <div className="text-muted-foreground text-[7px] leading-tight">Doc Quality</div>
+                        <div className={`font-semibold ${dqMet ? 'text-emerald-400' : ''}`}>{dq || '—'}</div>
+                        {dqDist > 0 && <div className="text-[7px] text-muted-foreground/60">+{dqDist} to obj</div>}
+                      </div>
+                      <div className="text-center p-1.5 rounded bg-muted/30">
+                        <div className="text-muted-foreground text-[7px] leading-tight">Greenlight</div>
+                        <div className={`font-semibold ${grMet ? 'text-emerald-400' : ''}`}>{gr || '—'}</div>
+                        {grDist > 0 && <div className="text-[7px] text-muted-foreground/60">+{grDist} to obj</div>}
+                      </div>
+                      <div className="text-center p-1.5 rounded bg-muted/30">
+                        <div className="text-muted-foreground text-[7px] leading-tight">Narrative</div>
+                        <Badge variant="outline" className={`text-[7px] px-1 py-0 ${niColor}`}>{niState}</Badge>
+                      </div>
+                    </div>
+
+                    {/* Primary constraint + readiness + confidence */}
+                    <div className="flex items-center gap-3 text-[8px] flex-wrap">
+                      {primaryConstraint && (
+                        <span className="text-amber-400">
+                          <AlertTriangle className="h-2.5 w-2.5 inline mr-0.5" />
+                          {primaryConstraint} +{Math.max(dqDist, grDist)} to objective
+                        </span>
+                      )}
+                      <span className="text-muted-foreground ml-auto flex items-center gap-2">
+                        <span>Readiness <span className="text-foreground font-medium">{job.last_readiness ?? '—'}</span>/100</span>
+                        <span>Confidence <span className="text-foreground font-medium">{job.last_confidence ?? '—'}%</span></span>
+                      </span>
+                    </div>
                   </div>
                 );
               })()}
 
               {/* Stage info + pipeline progress */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/30">
-                  {docLabel(job.current_document)}
-                </Badge>
-                <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[9px] text-muted-foreground">{docLabel(job.target_document)}</span>
-                <span className="text-[9px] ml-auto font-medium">{pipelineProgress.satisfied}/{pipelineProgress.total} stages</span>
-              </div>
-
-              {/* Scores */}
-              {job.last_readiness != null && (
-                <div className="grid grid-cols-5 gap-1 text-[9px]">
-                  {[
-                    { label: 'Readiness', value: job.last_readiness },
-                    { label: 'CI', value: job.last_ci },
-                    { label: 'GP', value: job.last_gp },
-                    { label: 'Gap', value: job.last_gap },
-                    { label: 'Conf', value: job.last_confidence },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="text-center p-1 rounded bg-muted/30">
-                      <div className="text-muted-foreground text-[8px]">{label}</div>
-                      <div className="font-semibold">{value ?? '—'}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
 
               {/* Version Provenance Panel — stage-scoped */}
               {(() => {
