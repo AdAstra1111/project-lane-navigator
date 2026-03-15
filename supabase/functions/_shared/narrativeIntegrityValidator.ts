@@ -403,6 +403,12 @@ function runLaneDocTypeCheck(
 
   for (const doc of docs) {
     if (!ladderSet.has(doc.doc_type)) {
+      // Skip warning for output documents — they are valid but not ladder stages
+      const registryEntry = DOC_TYPE_REGISTRY[doc.doc_type];
+      if (registryEntry && registryEntry.doc_category === "output") {
+        continue;
+      }
+
       violations.push({
         violationKey: `lane:off_ladder:${doc.doc_type}:${request.lane}`,
         violationType: "contradiction",
