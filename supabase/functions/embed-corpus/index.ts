@@ -241,7 +241,7 @@ async function handleEmbedPending(
 // ── Semantic search ──────────────────────────────────────────────────
 
 async function handleSemanticSearch(
-  db: ReturnType<typeof createClient>,
+  db: any,
   userId: string,
   params: { query: string; limit?: number; script_id?: string },
   apiKey: string,

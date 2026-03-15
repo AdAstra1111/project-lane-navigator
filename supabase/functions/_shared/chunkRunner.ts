@@ -406,8 +406,9 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
   // Pre-fill content array from existing done chunks
   const chunkContents: string[] = new Array(plan.totalChunks).fill("");
   for (const [idx, row] of chunkMap.entries()) {
-    if (row.status === "done" && row.content) {
-      chunkContents[idx] = row.content;
+    const r = row as any;
+    if (r.status === "done" && r.content) {
+      chunkContents[idx] = r.content;
     }
   }
 

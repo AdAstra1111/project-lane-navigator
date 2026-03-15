@@ -598,7 +598,7 @@ serve(async (req) => {
       pitchModality = PM.includes(requested) ? requested : "live_action";
       console.log(`[generate-pitch] modality_source=request_preview_default modality=${pitchModality}`);
     }
-    const modalityBlock = buildModalityPromptBlock(pitchModality);
+    const modalityBlock = buildModalityPromptBlock(pitchModality as any);
     const animMetaBlock = buildAnimationMetaPromptBlock(pitchModality, dbAnimMeta);
 
     const isEpisodicPitch = ["vertical-drama", "vertical_drama", "tv-series", "series", "limited-series", "digital-series", "anim-series", "reality"].includes(
