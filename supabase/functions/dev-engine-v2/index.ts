@@ -1561,6 +1561,21 @@ function buildRewriteSystem(deliverable: string, format: string, behavior: strin
 - The output is a story document, not a shooting script.`;
   }
 
+  // Beat sheet format enforcement — must not produce screenplay format
+  let beatSheetEnforcement = "";
+  if (deliverable === "beat_sheet") {
+    beatSheetEnforcement = `\n\nBEAT SHEET FORMAT (MANDATORY — violations cause rejection):
+- This is a BEAT SHEET — a structured prose document, NOT a screenplay.
+- Do NOT use INT./EXT. sluglines, scene headings, character name cues, or formatted dialogue.
+- Organise beats by act: Act 1, Act 2A, Act 2B, Act 3 — or by named structural sections.
+- Each beat should be a short paragraph or clearly labelled line describing: what happens, the dramatic function, the emotional shift.
+- Beats may be numbered or named (e.g. "Opening Image", "Inciting Incident", "Break Into Two", "Midpoint", "All Is Lost", "Break Into Three", "Finale").
+- OUTPUT THE FULL REWRITTEN BEAT SHEET — all acts, all beats.
+- If approved notes require adding new beats (especially Act 3), ADD THEM. Do not truncate or omit acts.
+- If Act 3 beats are identified as missing or underdeveloped in the notes, CREATE the required beats: climax, antagonist arc resolution, character arc resolution, aftermath, and final image.
+- Do not reduce the scope or omit beats not mentioned in the notes.`;
+  }
+
   // Screenplay enforcement for script deliverables
   let scriptEnforcement = "";
   if (deliverable === "script" || deliverable === "production_draft") {
@@ -1658,7 +1673,7 @@ Rules:
 - Match the target deliverable type format expectations.
 - OUTPUT THE FULL REWRITTEN MATERIAL — do NOT summarize or truncate.
 - If repositioning (lane/format) appears in APPROVED STRATEGIC NOTES, reflect it. Otherwise do not stealth-reposition.
-${docGuard}${formatRules}${storyOutlineEnforcement}${scriptEnforcement}${episodeBeatsEnforcement}${characterBibleEnforcement}${episodeGridEnforcement}
+${docGuard}${formatRules}${storyOutlineEnforcement}${beatSheetEnforcement}${scriptEnforcement}${episodeBeatsEnforcement}${characterBibleEnforcement}${episodeGridEnforcement}
 
 Return ONLY valid JSON:
 {
@@ -6699,9 +6714,13 @@ MATERIAL:\n${version.plaintext}`;
 
       const fullText = version.plaintext || "";
       const LONG_THRESHOLD = 30000;
-      // Large-risk doc types only need chunked pipeline when content is actually large.
-      // Small documents (< 8000 chars) can safely use single-pass rewrite.
-      const LARGE_RISK_MIN_CHARS = 8000;
+      // Development docs (beat_sheet, treatment, story_outline, character_bible) are sectioned
+      // large-risk types but the chunked pipeline doesn't properly handle their sectioned strategy
+      // (it falls back to slugline chunking and uses the screenplay system prompt — wrong format).
+      // These docs are safe for single-pass up to 30k chars. Episodic and scene-indexed types
+      // (episode_grid, episode_beats, scripts) still use the lower 8k threshold.
+      const SECTIONED_DEV_TYPES = new Set(["beat_sheet", "treatment", "story_outline", "character_bible", "long_treatment", "long_character_bible"]);
+      const LARGE_RISK_MIN_CHARS = SECTIONED_DEV_TYPES.has(effectiveDeliverable) ? LONG_THRESHOLD : 8000;
 
       // ── SURGICAL EPISODE REWRITE ──
       // For episode-type docs (beats, grids, scripts), rewrite ONLY affected episodes
