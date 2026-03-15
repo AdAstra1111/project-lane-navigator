@@ -6,6 +6,7 @@ import { isSectionRepairSupported } from "../_shared/deliverableSectionRegistry.
 import { isCPMEnabled, CPM_EVAL_PROMPT_EXTENSION, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_EVAL_BLOCK } from "../_shared/ciBlockerGate.ts";
 import { getDocPurposeClass, PURPOSE_SCORING_RUBRICS, PURPOSE_REWRITE_GOALS } from "../_shared/docPurposeRegistry.ts";
+import { shouldRunNIE, loadAdjacentDocPack, evaluateNarrativeIntegrity } from "../_shared/narrativeIntegrityEngine.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
