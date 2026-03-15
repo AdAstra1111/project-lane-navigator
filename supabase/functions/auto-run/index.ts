@@ -1,4 +1,5 @@
 const BUILD = "AUTORUN_BUILD_MARKER_2026_03_07_TRANSITION_LEDGER_V1";
+type DocStage = string;
 // CI is the primary quality signal — always weighted 2x over GP
 const CI_WEIGHT = 2;
 const GP_WEIGHT = 1;
