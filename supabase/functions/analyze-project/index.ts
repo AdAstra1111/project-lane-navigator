@@ -100,7 +100,7 @@ async function ocrWithGemini(pdfBytes: Uint8Array): Promise<string> {
 
   console.log(`[analyze] OCR fallback: sending ${pdfBytes.length} bytes to Gemini Vision`);
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
