@@ -15,6 +15,7 @@ export type DeliverableType =
   | 'architecture'
   | 'character_bible'
   | 'beat_sheet'
+  | 'episode_beats'
   | 'feature_script'
   | 'episode_script'
   | 'season_script'
