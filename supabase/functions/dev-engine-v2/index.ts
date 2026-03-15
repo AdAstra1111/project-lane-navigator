@@ -230,6 +230,7 @@ async function writeVersionSafe(
     const nv = await createVersion(supabaseClient, {
       documentId: opts.documentId,
       docType: opts.deliverableType || "other",
+      format: opts.format || undefined,
       plaintext: opts.plaintext,
       label: opts.label,
       createdBy: opts.createdBy,
