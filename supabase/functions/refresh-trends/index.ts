@@ -373,7 +373,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
 
     // Make both AI calls in parallel
     const [signalResponse, castResponse] = await Promise.all([
-      fetch("https://openrouter.ai/api/v1/chat/completions", {
+      fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${lovableApiKey}`,
