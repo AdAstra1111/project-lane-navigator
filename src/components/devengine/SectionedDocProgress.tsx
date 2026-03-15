@@ -101,14 +101,25 @@ export function SectionedDocProgress({ versionId, docType, projectId, documentId
       return (data ?? []) as ChunkRow[];
     },
     enabled: !!versionId,
-    refetchInterval: 8000,
+    // Keep polling while any chunk is non-terminal (pending/running)
+    // Stop only when all chunks are done, failed, or skipped
+    refetchInterval: (query) => {
+      const rows = query.state.data;
+      if (!rows || rows.length === 0) return 8000; // still waiting for chunks
+      const TERMINAL = new Set(['done', 'failed', 'failed_validation', 'error', 'needs_regen', 'skipped']);
+      const allTerminal = rows.every((c: ChunkRow) => TERMINAL.has(c.status));
+      return allTerminal ? false : 8000;
+    },
   });
 
   const safeChunks = Array.isArray(chunks) ? chunks : [];
   const total = safeChunks.length;
   const doneCount = safeChunks.filter(c => c.status === 'done').length;
   const failedChunks = safeChunks.filter(c => isSectionFailed(c.status));
-  const runningChunk = safeChunks.find(c => c.status === 'running');
+  const runningChunks = safeChunks.filter(c => c.status === 'running');
+  const pendingChunks = safeChunks.filter(c => c.status === 'pending');
+  const isStillActive = runningChunks.length > 0 || pendingChunks.length > 0;
+  const runningChunk = runningChunks[0];
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
   const label = DOC_TYPE_LABELS[docType] || docType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
