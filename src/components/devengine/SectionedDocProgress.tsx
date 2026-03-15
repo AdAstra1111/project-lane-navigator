@@ -42,15 +42,22 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   feature_script: 'Feature Script',
 };
 
-const FAILED_STATUSES = new Set(['failed', 'failed_validation', 'error', 'needs_regen', 'skipped']);
+const RETRYABLE_STATUSES = new Set(['failed', 'failed_validation', 'error', 'needs_regen']);
+const TERMINAL_FAIL_STATUSES = new Set(['skipped']);
+const ALL_FAILED_STATUSES = new Set([...RETRYABLE_STATUSES, ...TERMINAL_FAIL_STATUSES]);
 
 function isSectionFailed(status: string) {
-  return FAILED_STATUSES.has(status);
+  return ALL_FAILED_STATUSES.has(status);
+}
+
+function isRetryable(status: string) {
+  return RETRYABLE_STATUSES.has(status);
 }
 
 function sectionIcon(status: string) {
   if (status === 'done') return <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />;
   if (status === 'running') return <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />;
+  if (isRetryable(status)) return <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />;
   if (isSectionFailed(status)) return <XCircle className="h-4 w-4 text-destructive shrink-0" />;
   return <Clock className="h-4 w-4 text-muted-foreground/50 shrink-0" />;
 }
