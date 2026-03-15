@@ -27,26 +27,19 @@ import {
   syncSpineEntities,
   markEntitiesStaleOnAmendment,
 } from "../_shared/narrativeEntityEngine.ts";
+import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FEATURE_FILM_LADDER = [
-  "idea", "concept_brief", "market_sheet", "treatment", "story_outline",
-  "character_bible", "beat_sheet", "feature_script", "production_draft", "deck",
-];
-
-const TV_LADDER = [
-  "idea", "concept_brief", "vertical_market_sheet", "format_rules",
-  "character_bible", "season_arc", "episode_grid", "vertical_episode_beats", "season_script",
-];
+// ── Canonical ladder retrieval (replaces hardcoded local ladders) ──
+const FORMAT_LADDERS: Record<string, string[]> = STAGE_LADDERS.FORMAT_LADDERS;
 
 function getLadderForFormat(format: string): string[] {
-  const f = (format || "").toLowerCase();
-  if (f.includes("vertical") || f.includes("tv") || f.includes("series")) return TV_LADDER;
-  return FEATURE_FILM_LADDER;
+  const key = (format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+  return FORMAT_LADDERS[key] ?? FORMAT_LADDERS["film"] ?? [];
 }
 
 // Severity human labels

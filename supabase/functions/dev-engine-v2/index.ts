@@ -8634,7 +8634,10 @@ Rules:
       if (!projectId || !from_stage) throw new Error("projectId and from_stage required");
 
       const targetStage = to_stage || from_stage;
-      const LADDER = ["idea", "concept_brief", "blueprint", "architecture", "draft"];
+      // Use canonical format-aware ladder instead of hardcoded legacy stages
+      const { data: rebaseProj } = await supabase.from("projects").select("format").eq("id", projectId).single();
+      const rebaseFormat = (rebaseProj?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const LADDER = getLadderForFormat(rebaseFormat) ?? getLadderForFormat("film") ?? [];
       const fromIdx = LADDER.indexOf(from_stage);
       const toIdx = LADDER.indexOf(targetStage);
       if (fromIdx < 0) throw new Error(`Invalid from_stage: ${from_stage}`);
