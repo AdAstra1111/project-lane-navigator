@@ -5,6 +5,7 @@ import { parseSections, findVerbatimInSections } from "../_shared/sectionRepairE
 import { isSectionRepairSupported } from "../_shared/deliverableSectionRegistry.ts";
 import { isCPMEnabled, CPM_EVAL_PROMPT_EXTENSION, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_EVAL_BLOCK } from "../_shared/ciBlockerGate.ts";
+import { getDocPurposeClass, PURPOSE_SCORING_RUBRICS, PURPOSE_REWRITE_GOALS } from "../_shared/docPurposeRegistry.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
@@ -1175,7 +1176,19 @@ These checks prevent downstream repair loops. Evaluate them NOW at idea stage. D
   vertical_market_sheet: `Evaluate as a VERTICAL MARKET SHEET for mobile-first short-form drama. This is a COMMERCIAL VIABILITY document — GP (Green Potential / commercial viability) is the primary scoring axis; CI should reflect only production quality and clarity, not narrative depth. Score on: (1) Platform targeting — are specific mobile/vertical platforms named (TikTok, YouTube Shorts, Instagram Reels, Webtoon, etc.) with audience size and content fit rationale? (2) Audience demographics — is the target viewer precisely described (age, platform behaviour, viewing context)? (3) Comparable vertical titles — are comps recent vertical-format series with performance data or audience signals? (4) Monetisation model — ad revenue, creator fund, brand deal, platform licensing, subscription? (5) Episode economics — does the sheet address the cost-per-episode vs expected revenue at scale? (6) Cultural / trend fit — does the project align with current content appetite on named platforms? A vertical market sheet that nails platform fit, names real comps, and has a credible monetisation argument should score GP:75+. Do NOT evaluate narrative craft. Do NOT penalise for lacking traditional film/TV market elements.`,
   blueprint: `Evaluate as a BLUEPRINT. Score structural architecture, act breaks, key beats, escalation logic, thematic spine. Do NOT evaluate dialogue quality or specific prose.`,
   architecture: `Evaluate as an ARCHITECTURE document. Score scene-by-scene planning, page allocation, structural balance, pacing blueprint. Do NOT evaluate dialogue.`,
-  character_bible: `Evaluate as a CHARACTER BIBLE. Score character depth, arc design, relationship dynamics, thematic integration. Do NOT evaluate scene structure or pacing.`,
+  character_bible: `Evaluate as a CHARACTER BIBLE. This is a DEVELOPMENT ARCHITECTURE document — its job is to deepen character specificity and unblock the next development stage, not to pitch or package.
+
+Score on:
+(1) CHARACTER DEPTH — Does each major character have: clear wants vs needs (in conflict), a core contradiction, a specific formative wound, a public mask vs private self, and a distinct voice? Shallow or generic characters are blockers.
+(2) ARC DESIGN — Does each principal have a clear transformation arc from opening to resolution? Are internal and external arc trajectories distinct?
+(3) RELATIONSHIP DYNAMICS — Are the key relationship axes between characters mapped? Are power dynamics, tensions, dependencies, and emotional stakes specified?
+(4) THEMATIC INTEGRATION — Does each character embody a thematic question or tension? Is the ensemble's thematic function coherent?
+(5) PRESSURE PATTERNS — How does each character respond under pressure? Are their coping mechanisms and breaking points specified?
+(6) DEVELOPMENT UTILITY — Is this character bible specific and actionable enough to generate the next document (beat sheet, outline, script) without invention?
+
+Do NOT evaluate scene structure, pacing, or commercial packaging language.
+A character bible with deep, specific characters and clear arcs should score CI:80+ and GP (development readiness):75+.
+Missing depth items for major characters are blockers. Vague or generic character descriptions cannot score above CI:70.`,
   beat_sheet: `Evaluate as a BEAT SHEET. Score beat progression, dramatic escalation, turning points, structural completeness. Do NOT evaluate prose quality or dialogue.`,
   script: `Evaluate as a SCRIPT/SCREENPLAY. Score dialogue craft, scene dynamics, pacing, character voice, visual storytelling, structural integrity.`,
   production_draft: `Evaluate as a PRODUCTION DRAFT. Score production readiness, clarity for department heads, scene feasibility, schedule implications. Also evaluate script quality.`,
@@ -1438,24 +1451,12 @@ ${formatExp}
 ${behaviorMod}
 ${verticalRules}${docGuard}${ideaStructuralContext}
 
-SCORING RUBRIC (CANONICAL – v1):
-CI (Creative Integrity) evaluates:
-- Originality of premise relative to genre
-- Emotional conviction and character truth
-- Thematic coherence
-- Structural integrity appropriate to the format
-- Craft quality (dialogue, escalation, clarity) relative to deliverable type
-GP (Greenlight Probability) evaluates:
-- Audience clarity and hook strength
-- Market positioning within declared lane
-- Packaging magnetism (castability, concept clarity, talkability)
-- Production feasibility relative to stated budget
-- Alignment with monetisation lane expectations
+${PURPOSE_SCORING_RUBRICS[getDocPurposeClass(deliverable)]}
 IMPORTANT:
 - Score CI and GP relative to the declared format and lane.
 - Do NOT penalise a vertical drama for not being a feature film.
 - Do NOT reward prestige pacing inside fast-turnaround lanes.
-- CI and GP must reflect format-appropriate standards.
+- CI and GP must reflect format-appropriate standards for this document's purpose.
 
 Return ONLY valid JSON matching this EXACT schema:
 {
@@ -1526,7 +1527,7 @@ RULES FOR NOTE GENERATION:
 - If high_impact_notes <= 3 AND polish_notes <= 5 AND blockers == 0, set convergence.status to "converged".
 - CONVERGENCE RULE: convergence.status = "converged" if and only if blocking_issues with apply_timing="now" is empty.
 
-${(isCharBibleDepthEnabled() && deliverable === "character_bible") ? CHARACTER_BIBLE_DEPTH_EVAL_BLOCK : ""}`;
+${deliverable === "character_bible" ? CHARACTER_BIBLE_DEPTH_EVAL_BLOCK : ""}`;
 }
 
 function buildRewriteSystem(deliverable: string, format: string, behavior: string): string {
@@ -1659,20 +1660,25 @@ Apply the approved notes by changing only the specific episodes those notes affe
 Preserve all episodes not mentioned in the notes exactly as they are.`;
   }
 
+  const purposeClass = getDocPurposeClass(deliverable);
+  const rewriteGoals = PURPOSE_REWRITE_GOALS[purposeClass];
+
   return `You are IFFY. Rewrite the material applying the approved strategic notes.
 DELIVERABLE TYPE: ${deliverable}
 FORMAT: ${format}
 BEHAVIOR: ${behavior}
+DOCUMENT PURPOSE: ${purposeClass}
 
 Rules:
 - Preserve all PROTECT items absolutely.
 - SELECTED DECISION OPTIONS (in the user prompt) are HIGHEST PRIORITY — honour the intent and direction exactly. If a note has option_id "__other__" with a Custom direction, treat it as a direct creative brief from the writer: implement the spirit of what they're asking with full craft, but do not ignore or dilute the direction.
 - Notes with category "user_direction" or severity "blocker" in APPROVED NOTES are also high priority — look for the "note" or "resolution_directive" field and implement what it says.
-- Do not flatten voice for minor commercial gain.
-- Strengthen escalation and improve packaging magnetism organically.
 - Match the target deliverable type format expectations.
 - OUTPUT THE FULL REWRITTEN MATERIAL — do NOT summarize or truncate.
 - If repositioning (lane/format) appears in APPROVED STRATEGIC NOTES, reflect it. Otherwise do not stealth-reposition.
+
+REWRITE OBJECTIVES FOR THIS DOCUMENT PURPOSE:
+${rewriteGoals}
 ${docGuard}${formatRules}${storyOutlineEnforcement}${beatSheetEnforcement}${scriptEnforcement}${episodeBeatsEnforcement}${characterBibleEnforcement}${episodeGridEnforcement}
 
 Return ONLY valid JSON:
