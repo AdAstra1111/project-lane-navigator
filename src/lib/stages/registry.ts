@@ -15,7 +15,6 @@
 
 // ── Import the shared JSON ─────────────────────────────────────────────────────
 import LADDERS_JSON from '../../../supabase/_shared/stage-ladders.json';
-import type { DocCategory } from '../../../supabase/functions/_shared/doc-os';
 
 export type DeliverableStage =
   | 'idea'
