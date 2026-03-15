@@ -6454,7 +6454,7 @@ Deno.serve(async (req) => {
               await supabase.from("decision_ledger").update({
                 status: "active",
                 decision_value: { ...(d.options ? { options: d.options } : {}), selected_option: selectedVal, resolved_by: "auto_run", resolved_at: new Date().toISOString() },
-              }).eq("id", d.id).catch((e: any) => console.warn(`[auto-run][IEL] decision_auto_apply_failed: ${e?.message}`));
+              }).eq("id", d.id).then(() => {}).then(undefined, (e: any) => console.warn(`[auto-run][IEL] decision_auto_apply_failed: ${e?.message}`));
               autoApplied++;
               autoAppliedKeys.push(d.decision_key || d.id);
             }
