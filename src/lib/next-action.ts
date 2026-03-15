@@ -28,6 +28,10 @@ export interface NextAction {
 export const DOC_STAGE_LABELS: Record<string, string> = {
   idea: 'Idea',
   concept_brief: 'Concept Brief',
+  market_sheet: 'Market Sheet',
+  treatment: 'Treatment',
+  story_outline: 'Story Outline',
+  beat_sheet: 'Beat Sheet',
   blueprint: 'Blueprint',
   architecture: 'Architecture',
   draft: 'Draft',
@@ -37,11 +41,15 @@ export const DOC_STAGE_LABELS: Record<string, string> = {
   character_bible: 'Character Bible',
   season_arc: 'Season Arc',
   episode_grid: 'Episode Grid',
+  episode_beats: 'Episode Beats',
   vertical_episode_beats: 'Episode Beats',
   feature_script: 'Feature Script',
   episode_script: 'Episode Script',
+  season_script: 'Season Script',
   script: 'Script',
   production_draft: 'Production Draft',
+  deck: 'Deck',
+  documentary_outline: 'Documentary Outline',
 };
 
 // ── Mode/workflow labels (NOT doc types — these are tools/workflows) ──

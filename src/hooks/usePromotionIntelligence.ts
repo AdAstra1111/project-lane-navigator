@@ -259,6 +259,19 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
         rawNext = null;
         reasons.push(`Computed next stage not valid for ${projectFormat} pipeline`);
       }
+
+      // Sanity check: next_document must be AFTER current doc in the pipeline.
+      // If the pipeline brain returns a stage that is EARLIER than or EQUAL TO the
+      // current doc, something went wrong (e.g. wrong existingDocs state, alias mismatch).
+      // Fall back to the simple "next stage after current" from the raw ladder.
+      if (rawNext && rawNext !== 'series_writer' && currentDocIdxInPipeline >= 0) {
+        const rawNextIdx = pState.pipeline.indexOf(rawNext as any);
+        if (rawNextIdx >= 0 && rawNextIdx <= currentDocIdxInPipeline) {
+          console.warn(`[PromotionIntel] Backwards/same promotion detected: "${mappedCurrentDoc}" → "${rawNext}" (indices ${currentDocIdxInPipeline} → ${rawNextIdx}). Falling back to ladder-next.`);
+          rawNext = pState.pipeline[currentDocIdxInPipeline + 1] ?? null;
+          reasons.push(`Auto-corrected backwards promotion: using next ladder stage`);
+        }
+      }
     } else {
       rawNext = null;
     }
