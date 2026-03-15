@@ -622,6 +622,10 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
     console.error(`AI error (attempt ${attempt + 1}/${MAX_RETRIES}):`, response.status, text);
     if (response.status === 429) throw new Error("RATE_LIMIT");
     if (response.status === 402) throw new Error("PAYMENT_REQUIRED");
+    if (response.status === 401) {
+      console.error("AI gateway 401: API key rejected");
+      throw new Error("AI_AUTH_FAILED");
+    }
     if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
       const delay = Math.pow(2, attempt) * 2000;
       console.log(`Retrying in ${delay}ms...`);
