@@ -199,6 +199,7 @@ async function writeVersionSafe(
     generatorId?: string;
     metaJson?: Record<string, any>;
     deliverableType?: string;
+    format?: string;
     inputsUsed?: Record<string, any>;
   },
 ): Promise<{ data: any; error: any; deduplicated?: boolean }> {
@@ -229,6 +230,7 @@ async function writeVersionSafe(
     const nv = await createVersion(supabaseClient, {
       documentId: opts.documentId,
       docType: opts.deliverableType || "other",
+      format: opts.format || undefined,
       plaintext: opts.plaintext,
       label: opts.label,
       createdBy: opts.createdBy,
@@ -7039,6 +7041,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           generatorId: "dev-engine-v2-rewrite",
           metaJson: rwMetaJson,
           deliverableType: effectiveDeliverable,
+          format: effectiveFormat || undefined,
         });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
@@ -7512,6 +7515,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           generatorId: "dev-engine-v2-rewrite-chunked",
           metaJson: chunkMetaJson,
           deliverableType: effectiveDeliverable,
+          format: assembleProject?.format || undefined,
           dependsOnResolverHash: chunkedResolverHash,
         });
         if (!vErr) { newVersion = nv; break; }
