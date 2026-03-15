@@ -1356,7 +1356,7 @@ export function AutoRunMissionControl({
                 const grDist = Math.max(0, target.gp - gr);
                 const primaryConstraint = dqDist > grDist ? 'Document Quality' : grDist > 0 ? 'Greenlight Readiness' : null;
 
-                // Narrative Integrity state — derived from risk flags
+                // Pipeline Health state — derived from risk flags (not NIE-backed yet)
                 const riskFlags = job.last_risk_flags || [];
                 const hasHardGate = riskFlags.some((f: string) => f.startsWith('hard_gate:'));
                 const hasWarningFlags = riskFlags.length > 0;
