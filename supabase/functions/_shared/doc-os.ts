@@ -363,7 +363,7 @@ export async function createVersion(
   const runAlignment = (() => {
     if (!isSystemGenerated || !opts.plaintext) return false;
     if (opts.format) {
-      return shouldRunCanonAlignment(opts.format, key);
+      return shouldRunCanonAlignment(opts.format, key, effectiveGeneratorId);
     }
     // Legacy fallback: exempt set (for callers that don't pass format)
     return !CANON_ALIGNMENT_EXEMPT_FALLBACK.has(key);
