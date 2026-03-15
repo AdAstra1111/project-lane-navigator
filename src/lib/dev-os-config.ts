@@ -538,6 +538,7 @@ export function defaultDeliverableForDocType(docType: string): DeliverableType {
     season_arc: 'season_arc',
     blueprint: 'blueprint',
     architecture: 'architecture',
+    story_outline: 'architecture',
     character_bible: 'character_bible',
     production_draft: 'production_draft',
     deck_text: 'deck',
