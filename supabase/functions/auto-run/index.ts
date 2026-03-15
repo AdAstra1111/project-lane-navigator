@@ -3607,7 +3607,7 @@ async function chunkedRewrite(
         previousChunkEnding: prevEnding,
       }, token, projectId, format, deliverableType, jobId, stepCount
     );
-    const text = chunkResult?.result?.rewrittenText || chunkResult?.rewrittenText || "";
+    const text = chunkResult?.result?.rewrittenText || (chunkResult as any)?.rewrittenText || "";
     rewrittenChunks.push(text);
   }
 
