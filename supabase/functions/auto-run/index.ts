@@ -7526,7 +7526,7 @@ Deno.serve(async (req) => {
           }
         }
         // Find previous stage to convert from
-        const pipeline2 = getLadderForJob(format);
+        const pipeline2 = getLadderForJob(format)!;
         const stageIdx2 = pipeline2.indexOf(currentDoc);
         const prevStage2 = stageIdx2 > 0 ? pipeline2[stageIdx2 - 1] : null;
         if (!prevStage2) {
