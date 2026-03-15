@@ -7041,6 +7041,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           generatorId: "dev-engine-v2-rewrite",
           metaJson: rwMetaJson,
           deliverableType: effectiveDeliverable,
+          format: effectiveFormat || undefined,
         });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
