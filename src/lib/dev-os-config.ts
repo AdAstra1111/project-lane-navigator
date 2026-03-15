@@ -15,6 +15,7 @@ export type DeliverableType =
   | 'architecture'
   | 'character_bible'
   | 'beat_sheet'
+  | 'episode_beats'
   | 'feature_script'
   | 'episode_script'
   | 'season_script'
@@ -38,6 +39,7 @@ export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   architecture: 'Series Architecture',
   character_bible: 'Character Bible',
   beat_sheet: 'Episode Beat Sheet',
+  episode_beats: 'Episode Beats',
   feature_script: 'Feature Script',
   episode_script: 'Episode Script',
   season_script: 'Season Script',
@@ -552,7 +554,19 @@ export function defaultDeliverableForDocType(docType: string): DeliverableType {
     vertical_episode_beats: 'vertical_episode_beats',
     series_writer: 'series_writer',
     season_master_script: 'season_master_script',
+    season_script: 'season_script',
     complete_season_script: 'season_script',
+    episode_beats: 'episode_beats',
   };
-  return map[normalized] || 'concept_brief';
+  const result = map[normalized];
+  if (!result) {
+    if (import.meta.env?.DEV) {
+      console.warn(
+        `[defaultDeliverableForDocType] UNMAPPED doc type: "${docType}" (normalized: "${normalized}"). ` +
+        `Falling back to concept_brief. If this is a canonical doc type, add it to the map.`
+      );
+    }
+    return 'concept_brief';
+  }
+  return result;
 }
