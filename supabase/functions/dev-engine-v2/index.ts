@@ -4760,42 +4760,44 @@ serve(async (req) => {
 
     // ══════════════════════════════════════════════
     // FIX_STUCK_VERSION — clear a permanently stuck bg_generating flag.
-    // Runs as service role so it bypasses RLS (frontend writes would be blocked).
-    // Called by the bg-poll when it detects allChunksDone but bg_generating=true.
+    // Runs as service role so it bypasses RLS (frontend writes are blocked by RLS).
+    // Security: uses RLS-enabled client to verify ownership, service client to write.
     // ══════════════════════════════════════════════
     if (action === "fix_stuck_version") {
-      const { versionId: stuckVersionId, plaintext: assembledPlaintext, projectId: stuckProjectId } = body;
+      const { versionId: stuckVersionId, plaintext: assembledPlaintext } = body;
       if (!stuckVersionId) {
         return new Response(JSON.stringify({ error: "versionId required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Verify the version belongs to the authenticated user's project (security check)
-      const { data: versionOwner } = await serviceClient
+      // Use RLS-enabled client for ownership check — returns null if user doesn't own it
+      const { data: ownedVersion } = await supabase
         .from("project_document_versions")
-        .select("id, document_id, meta_json, project_documents!inner(project_id, projects!inner(user_id))")
+        .select("id, meta_json")
         .eq("id", stuckVersionId)
         .maybeSingle();
 
-      if (!versionOwner) {
-        return new Response(JSON.stringify({ error: "Version not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (!ownedVersion) {
+        return new Response(JSON.stringify({ error: "Version not found or not owned by user" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // Build update payload
       const updatePayload: Record<string, any> = {
         meta_json: {
-          ...(versionOwner.meta_json || {}),
+          ...(ownedVersion.meta_json || {}),
           bg_generating: false,
           bg_stuck_cleared_at: new Date().toISOString(),
           bg_cleared_by: "fix_stuck_version",
         },
       };
 
-      // If assembled plaintext was passed, write it too (recovers versions with empty plaintext)
+      // If assembled plaintext was passed, write it too (recovers versions with empty plaintext in DB)
       if (assembledPlaintext && assembledPlaintext.length > 100) {
         updatePayload.plaintext = assembledPlaintext;
         updatePayload.assembled_from_chunks = true;
         updatePayload.meta_json.bg_assembled_by_client = true;
       }
 
+      // Use service client for the write — bypasses RLS which blocks user-key updates
       const { error: fixErr } = await serviceClient
         .from("project_document_versions")
         .update(updatePayload)
@@ -4806,7 +4808,7 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: fixErr.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      console.log(`[fix_stuck_version] Cleared stuck bg_generating for version ${stuckVersionId}${assembledPlaintext ? ` + wrote ${assembledPlaintext.length} chars` : ""}`);
+      console.log(`[fix_stuck_version] Cleared version ${stuckVersionId}${assembledPlaintext ? ` + wrote ${assembledPlaintext.length} chars` : ""}`);
       return new Response(JSON.stringify({ ok: true, fixed: true, versionId: stuckVersionId }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
