@@ -5170,7 +5170,7 @@ Deno.serve(async (req) => {
         for (let i = ladderIdx - 1; i >= 0; i--) {
           const { data: fallbackDocs } = await supabase.from("project_documents")
             .select("id, doc_type, plaintext, extracted_text")
-            .eq("project_id", job.project_id).eq("doc_type", jobLadder[i])
+            .eq("project_id", job.project_id).eq("doc_type", jobLadder![i])
             .order("created_at", { ascending: false }).limit(1);
           if (fallbackDocs?.[0]) { doc = fallbackDocs[0]; break; }
         }
