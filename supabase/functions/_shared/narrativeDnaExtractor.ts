@@ -26,6 +26,24 @@ const CHUNK_TARGET_SIZE = 15_000;
 /** Minimum chunk size — avoid tiny trailing chunks. */
 const CHUNK_MIN_SIZE = 3_000;
 
+// ── Constants ──
+
+/** The 12 canonical engine keys. Classification MUST be constrained to this set. */
+export const CANONICAL_ENGINE_KEYS = [
+  "outsider_defends_system",
+  "survival_against_intruder",
+  "revenge_chain",
+  "ambition_corrupts",
+  "forbidden_union",
+  "investigation_reveals_rot",
+  "race_against_time",
+  "power_transfer_succession_struggle",
+  "institutional_rebellion",
+  "false_utopia_hidden_horror",
+  "mentor_betrayal_corrupted_guidance",
+  "descent_into_the_unknown",
+] as const;
+
 // ── Types ──
 
 export interface DnaExtractionResult {
@@ -43,6 +61,8 @@ export interface DnaExtractionResult {
   surface_expression_notes: string | null;
   extraction_confidence: number;
   extraction_json: Record<string, any>;
+  primary_engine_key: string | null;
+  secondary_engine_key: string | null;
 }
 
 export interface ChunkBoundary {
