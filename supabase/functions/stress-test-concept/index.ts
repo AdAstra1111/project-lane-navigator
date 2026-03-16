@@ -11,8 +11,8 @@ serve(async (req) => {
 
   try {
     const { pitchIdea, expansion, productionType } = await req.json();
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
     const guardrails = buildGuardrailBlock({ productionType: productionType || 'film', engineName: "stress-test-concept" });
     console.log(`[stress-test-concept] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
