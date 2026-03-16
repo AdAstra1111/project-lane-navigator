@@ -7799,9 +7799,47 @@ Deno.serve(async (req) => {
       });
 
       if (criteriaResult.classification === 'CRITERIA_STALE_PROVENANCE') {
-        // If Auto-Decide is ON, rebase the latest version to current criteria hash and continue.
+        // If Auto-Decide is ON, auto-trigger canonical regen inline and continue.
         // This prevents deadlocks after canon/criteria tweaks during long-running jobs.
         if (job.allow_defaults) {
+          console.log(`[auto-run][IEL] criteria_stale_auto_regen_triggered`, JSON.stringify({
+            job_id: jobId,
+            doc_type: currentDoc,
+            version_id: latestVersion?.id,
+            criteria_detail: criteriaResult.detail,
+          }));
+
+          // Step 1: Auto-trigger regeneration via dev-engine-v2
+          try {
+            const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+            const regenResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+              body: JSON.stringify({
+                action: "regenerate-insufficient-docs",
+                projectId: job.project_id,
+                dryRun: false,
+                userId: job.user_id,
+              }),
+            });
+            const regenResult = regenResp.ok ? await regenResp.json().catch(() => ({})) : {};
+            const regeneratedCount = Array.isArray(regenResult?.regenerated) ? regenResult.regenerated.length : 0;
+
+            await logStep(supabase, jobId, stepCount + 1, currentDoc, "criteria_stale_auto_regen",
+              `Auto-regen triggered for stale criteria provenance (allow_defaults=true). Regenerated ${regeneratedCount} docs. ${criteriaResult.detail}`,
+              { risk_flags: ["criteria_stale_provenance_auto_resolved"] },
+            );
+            console.log(`[auto-run][IEL] criteria_stale_auto_regen_complete`, JSON.stringify({
+              job_id: jobId, doc_type: currentDoc, regenerated: regeneratedCount,
+            }));
+          } catch (regenErr: any) {
+            console.warn(`[auto-run][IEL] criteria_stale_auto_regen_failed (non-fatal, rebasing hash)`, {
+              job_id: jobId, error: regenErr.message,
+            });
+          }
+
+          // Step 2: Rebase the criteria hash on the latest version (even if regen created a new version,
+          // this ensures the old version won't re-trigger on the next pass if it's still current)
           if (latestVersion?.id && currentCriteriaHash) {
             const { error: rebaseErr } = await supabase
               .from("project_document_versions")
@@ -7809,19 +7847,18 @@ Deno.serve(async (req) => {
               .eq("id", latestVersion.id);
             if (rebaseErr) {
               console.warn(`[auto-run][IEL] criteria_stale_rebase_failed`, JSON.stringify({
-                job_id: jobId,
-                version_id: latestVersion.id,
-                error: rebaseErr.message,
-              }));
-            } else {
-              console.log(`[auto-run][IEL] criteria_stale_auto_rebased`, JSON.stringify({
-                job_id: jobId,
-                doc_type: currentDoc,
-                version_id: latestVersion.id,
-                criteria_hash: currentCriteriaHash,
+                job_id: jobId, version_id: latestVersion.id, error: rebaseErr.message,
               }));
             }
           }
+
+          // Step 3: Update step count and return run-next so the next tick picks up
+          // the freshly regenerated version instead of continuing with stale content
+          await updateJob(supabase, jobId, {
+            step_count: stepCount + 1,
+            last_analyzed_version_id: null, // Force fresh version fetch on next tick
+          });
+          return respondWithJob(supabase, jobId, "run-next");
         } else {
           // True provenance mismatch — criteria changed mid-run and requires explicit user action
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "criteria_stale_provenance",
