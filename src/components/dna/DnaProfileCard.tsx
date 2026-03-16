@@ -131,6 +131,9 @@ export function DnaProfileCard({ profile }: Props) {
       </CardHeader>
 
       <CardContent className="space-y-4 text-sm">
+        {/* Source Material */}
+        <DnaSourceMaterial dnaProfileId={profile.id} isLocked={isLocked} />
+
         {/* Spine Axes */}
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
