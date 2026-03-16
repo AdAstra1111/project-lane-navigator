@@ -6,8 +6,8 @@
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "env": {
-    "VITE_SUPABASE_URL": "https://mbwreoglhudppiwaxlsp.supabase.co",
-    "VITE_SUPABASE_PUBLISHABLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1id3Jlb2dsaHVkcHBpd2F4bHNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1NjQzMTQsImV4cCI6MjA4NjE0MDMxNH0.JHrca9E7mBjWeS-Hyuky68ikEud83V8YWeAZkrIpSzk",
-    "VITE_SUPABASE_PROJECT_ID": "mbwreoglhudppiwaxlsp"
+    "VITE_SUPABASE_URL": "https://tzdxrhklarzccqamxbxw.supabase.co",
+    "VITE_SUPABASE_PUBLISHABLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6ZHhyaGtsYXJ6Y2NxYW14Ynh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4ODI4OTEsImV4cCI6MjA4ODQ1ODg5MX0.g5Dk0dCt-3rdNWgwlTlFw-lcCMvuwvcKx_vK1S70940",
+    "VITE_SUPABASE_PROJECT_ID": "tzdxrhklarzccqamxbxw"
   }
 }
