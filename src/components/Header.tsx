@@ -45,6 +45,8 @@ export function Header() {
     { label: 'Coverage Lab', icon: FlaskConical, path: '/coverage-lab' },
     { label: 'Festivals', icon: Calendar, path: '/festivals' },
     { label: 'Reports', icon: BarChart3, path: '/reports' },
+    { label: 'Narrative DNA', icon: Dna, path: '/narrative-dna' },
+    { label: 'Engine Atlas', icon: Layers, path: '/narrative-engines' },
   ];
 
   return (
