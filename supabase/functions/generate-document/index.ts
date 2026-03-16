@@ -724,6 +724,44 @@ If you find yourself describing what happens in the story, which characters appe
 `;
       }
 
+      // ── PRODUCTION_DRAFT_SCOPE: format-aware scope for production_draft ──
+      let productionDraftScopeBlock = "";
+      if (docType === "production_draft") {
+        const formatStr = (project.format || "film").toLowerCase();
+        const isSeriesFormat = ["tv-series","limited-series","digital-series","anim-series","reality"].includes(formatStr);
+        const isVDFormat = formatStr.includes("vertical");
+
+        if (isVDFormat) {
+          productionDraftScopeBlock = `## PRODUCTION DRAFT — VERTICAL DRAMA (MANDATORY)
+
+You are generating a PRODUCTION DRAFT for a vertical drama series. This is the final production-ready version of the season script.
+Maintain the episodic structure from the season script — each episode is a discrete unit.
+Use proper screenplay format throughout.`;
+        } else if (isSeriesFormat) {
+          productionDraftScopeBlock = `## PRODUCTION DRAFT — SERIES (MANDATORY)
+
+You are generating a PRODUCTION DRAFT for a series episode. This is the final production-ready version of the episode script.
+Maintain proper screenplay format. This is a single episode — do NOT write multiple episodes.`;
+        } else {
+          productionDraftScopeBlock = `## PRODUCTION DRAFT — FEATURE FILM (MANDATORY)
+
+You are generating a PRODUCTION DRAFT for a single, continuous feature film. This is the final production-ready screenplay.
+
+### CRITICAL FORMAT RULES
+1. This is a SINGLE CONTINUOUS FEATURE SCREENPLAY — NOT a series, NOT episodic, NOT a season script
+2. Do NOT divide the script into episodes, episode numbers, or episode titles
+3. Do NOT label any section as "Episode 01", "Episode 02", etc.
+4. Do NOT use season/episode structure of any kind
+5. Structure the screenplay using standard feature film acts (Act 1, Act 2, Act 3)
+6. Use standard screenplay format throughout: INT./EXT. sluglines, action lines, character names, dialogue
+7. The entire document is ONE continuous story from FADE IN to FADE OUT
+8. Target: 95–115 pages (approximately 24,000–28,000 words)
+
+### SCOPE GUARD
+If you find yourself writing "Episode" headings, episode numbers, or dividing the screenplay into discrete episodic units, STOP. This is a feature film — one continuous narrative from beginning to end.`;
+        }
+      }
+
       const isScriptType = ["feature_script","episode_script","season_script","production_draft","screenplay_draft"].includes(docType);
       const screenplayProhibition = !isScriptType
         ? `## SCREENPLAY FORMAT PROHIBITION (MANDATORY)\nThis is a ${docType.replace(/_/g, " ")} — NOT a screenplay. Do NOT use:\n- INT./EXT. scene headings or sluglines\n- Character name cues (CHARACTER NAME on its own line above dialogue)\n- Parenthetical action directions\n- Formatted dialogue blocks\nWrite in prose or structured text only. Violations will cause rejection.`
