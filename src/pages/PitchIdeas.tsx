@@ -471,20 +471,28 @@ export default function PitchIdeas() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredIdeas.map((idea, i) => {
-              const ideaProject = idea.project_id ? projects.find(p => p.id === idea.project_id) : null;
-              return (
-                <SlateCard
-                  key={idea.id}
-                  idea={idea}
-                  rank={i + 1}
-                  onPromote={setPromoteIdea}
-                  onShortlist={handleShortlist}
-                  onDelete={remove}
-                  projectFeatures={(ideaProject as any)?.project_features as Record<string, any> | null | undefined}
-                />
-              );
-            })}
+            <AnimatePresence>
+              {filteredIdeas.map((idea, i) => {
+                const ideaProject = idea.project_id ? projects.find(p => p.id === idea.project_id) : null;
+                return (
+                  <motion.div
+                    key={idea.id}
+                    initial={{ opacity: 0, y: 16, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ duration: 0.35, delay: i < 5 ? i * 0.08 : 0 }}
+                  >
+                    <SlateCard
+                      idea={idea}
+                      rank={i + 1}
+                      onPromote={setPromoteIdea}
+                      onShortlist={handleShortlist}
+                      onDelete={remove}
+                      projectFeatures={(ideaProject as any)?.project_features as Record<string, any> | null | undefined}
+                    />
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
         )}
 
