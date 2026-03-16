@@ -378,6 +378,59 @@ Deno.serve(async (req) => {
       return jsonRes({ success: true, profile: locked });
     }
 
+    // ── LIST_ENGINES ──────────────────────────────────────────────────────
+    if (action === "list_engines") {
+      const { data: engines, error } = await supabase
+        .from("narrative_engines")
+        .select("*")
+        .order("engine_key", { ascending: true });
+
+      if (error) return jsonRes({ error: error.message }, 500);
+
+      // Get profile counts per engine
+      const { data: profiles } = await supabase
+        .from("narrative_dna_profiles")
+        .select("primary_engine_key")
+        .eq("user_id", user.id);
+
+      const counts: Record<string, number> = {};
+      for (const p of (profiles || [])) {
+        if (p.primary_engine_key) {
+          counts[p.primary_engine_key] = (counts[p.primary_engine_key] || 0) + 1;
+        }
+      }
+
+      return jsonRes({
+        engines: (engines || []).map((e: any) => ({
+          ...e,
+          profile_count: counts[e.engine_key] || 0,
+        })),
+      });
+    }
+
+    // ── GET_ENGINE ────────────────────────────────────────────────────────
+    if (action === "get_engine") {
+      const { engine_key } = body;
+      if (!engine_key) return jsonRes({ error: "engine_key is required" }, 400);
+
+      const { data: engine, error } = await supabase
+        .from("narrative_engines")
+        .select("*")
+        .eq("engine_key", engine_key)
+        .single();
+
+      if (error || !engine) return jsonRes({ error: "Engine not found" }, 404);
+
+      const { data: profiles } = await supabase
+        .from("narrative_dna_profiles")
+        .select("id, source_title, source_type, status, extraction_confidence, primary_engine_key, secondary_engine_key, created_at")
+        .eq("user_id", user.id)
+        .or(`primary_engine_key.eq.${engine_key},secondary_engine_key.eq.${engine_key}`)
+        .order("created_at", { ascending: false });
+
+      return jsonRes({ engine, profiles: profiles || [] });
+    }
+
     // ── LIST_SOURCES ──────────────────────────────────────────────────────
     if (action === "list_sources") {
       const { dna_profile_id } = body;
