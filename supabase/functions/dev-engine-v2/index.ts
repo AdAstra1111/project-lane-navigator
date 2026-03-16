@@ -42,7 +42,8 @@ import {
   type RewriteTargetForSequencing,
   SEVERITY_WEIGHTS,
 } from "../_shared/narrativeDependencyGraph.ts";
-import { buildNDGProjectGraph, summariseNDGGraph, type NDGInputData } from "../_shared/ndgProjectGraph.ts";
+import { buildNDGProjectGraph, summariseNDGGraph, type NDGInputData, type SectionInputRow } from "../_shared/ndgProjectGraph.ts";
+import { getSectionConfig } from "../_shared/deliverableSectionRegistry.ts";
 import { classifySceneRoles, type SceneForClassification } from "../_shared/sceneRoleClassifier.ts";
 import { classifySceneGraphState } from "../_shared/sceneGraphClassifier.ts";
 import type { SpineAxis } from "../_shared/narrativeSpine.ts";
@@ -11684,7 +11685,27 @@ Return ONLY valid JSON:
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // ── 4. Build graph via shared pure function ─────────────────────────
+      // ── 4a. Build section inputs from deliverableSectionRegistry ──────
+      // NDG v2: project sections from existing registries. Fail-closed: if no
+      // registry exists for a doc type, zero section rows are emitted.
+      const sectionInputRows: SectionInputRow[] = [];
+      const sectionDocTypes = ["concept_brief", "treatment", "long_treatment", "character_bible", "story_outline", "beat_sheet"];
+      for (const dt of sectionDocTypes) {
+        const config = getSectionConfig(dt);
+        if (!config || !config.section_repair_supported) continue;
+        for (const sec of config.sections) {
+          sectionInputRows.push({
+            doc_type:    dt,
+            section_key: sec.section_key,
+            label:       sec.label,
+            order:       sec.order,
+            repair_mode: sec.repair_mode,
+            present:     true, // registry-derived; presence parsing is a v2.1 enhancement
+          });
+        }
+      }
+
+      // ── 4b. Build graph via shared pure function ────────────────────────
       const ndgInput: NDGInputData = {
         narrative_units:    (unitRes.data    || []) as any[],
         narrative_entities: (entityRes.data  || []) as any[],
@@ -11692,6 +11713,7 @@ Return ONLY valid JSON:
         scene_spine_links:  enrichedSpineLinks,
         scene_entity_links: (entityLinkRes.data || []) as any[],
         scenes:             (sceneRes.data   || []) as any[],
+        sections:           sectionInputRows,
       };
 
       const graph   = buildNDGProjectGraph(ndgInput);

@@ -11,7 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 // ── Types mirroring backend NDGGraph output ──
 
-export type NDGNodeType = 'spine_axis' | 'narrative_unit' | 'narrative_entity' | 'scene';
+export type NDGNodeType = 'spine_axis' | 'narrative_unit' | 'narrative_entity' | 'scene' | 'section';
 
 export type NDGEdgeType =
   | 'axis_downstream_of_axis'
@@ -19,7 +19,8 @@ export type NDGEdgeType =
   | 'entity_relates_to_entity'
   | 'scene_linked_to_axis'
   | 'scene_contains_entity'
-  | 'unit_impacts_scene';
+  | 'unit_impacts_scene'
+  | 'violation_targets_section';
 
 export interface NDGNode {
   node_id:   string;

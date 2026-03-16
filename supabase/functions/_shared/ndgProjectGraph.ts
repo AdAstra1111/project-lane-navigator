@@ -55,6 +55,7 @@ import {
   type SceneImpactEntry,
 } from "./narrativeDependencyGraph.ts";
 import { SPINE_AXES, AXIS_METADATA, type SpineAxis } from "./narrativeSpine.ts";
+import { getSectionConfig, type SectionDefinition } from "./deliverableSectionRegistry.ts";
 
 // ── Input types (raw DB rows) ──────────────────────────────────────────────
 
@@ -106,6 +107,19 @@ export interface SceneRow {
   deprecated_at: string | null;
 }
 
+/** Section input row for NDG v2 section-as-node projection */
+export interface SectionInputRow {
+  doc_type:    string;
+  section_key: string;
+  label:       string;
+  order:       number;
+  repair_mode: string;
+  /** Whether this section was found in current document plaintext */
+  present:     boolean;
+  /** Violation keys targeting this section (from narrativeIntegrityValidator) */
+  violation_keys?: string[];
+}
+
 export interface NDGInputData {
   narrative_units:   NarrativeUnitRow[];
   narrative_entities: NarrativeEntityRow[];
@@ -113,11 +127,13 @@ export interface NDGInputData {
   scene_spine_links: SceneSpineLinkRow[];
   scene_entity_links: SceneEntityLinkRow[];
   scenes:            SceneRow[];
+  /** NDG v2: optional section inputs from deliverableSectionRegistry + parseSections */
+  sections?:         SectionInputRow[];
 }
 
 // ── Output types ───────────────────────────────────────────────────────────
 
-export type NDGNodeType = "spine_axis" | "narrative_unit" | "narrative_entity" | "scene";
+export type NDGNodeType = "spine_axis" | "narrative_unit" | "narrative_entity" | "scene" | "section";
 
 export interface NDGNode {
   /** Stable system key (axis_key / unit_key / entity_key / scene_key) */
@@ -135,7 +151,8 @@ export type NDGEdgeType =
   | "entity_relates_to_entity"
   | "scene_linked_to_axis"
   | "scene_contains_entity"
-  | "unit_impacts_scene";
+  | "unit_impacts_scene"
+  | "violation_targets_section";
 
 export interface NDGEdge {
   /** Unique deterministic edge ID: "{type}:{from}→{to}" */
@@ -144,7 +161,7 @@ export interface NDGEdge {
   from_id:    string;
   to_id:      string;
   /** How this edge was derived */
-  derivation: "canonical_registry" | "unit_type_field" | "db_relation" | "db_spine_link" | "db_entity_link" | "ndg_propagation";
+  derivation: "canonical_registry" | "unit_type_field" | "db_relation" | "db_spine_link" | "db_entity_link" | "ndg_propagation" | "section_registry";
   /** Optional edge metadata */
   meta:       Record<string, unknown>;
 }
@@ -429,6 +446,55 @@ export function buildNDGProjectGraph(data: NDGInputData): NDGGraph {
             meta: { risk_source: "propagated", via_axis: downAxis, source_axis: directAxis, reason: propagatedReason },
           });
         }
+      }
+    }
+  }
+
+  // ── Node Layer 5: section (NDG v2 — from deliverableSectionRegistry) ──
+  // Deterministic: section nodes are emitted from registry definitions +
+  // presence flags. No inference. Fail-closed: no sections input → no nodes.
+  const sectionNodeIds = new Set<string>();
+  if (data.sections && data.sections.length > 0) {
+    for (const sec of data.sections) {
+      const nodeId = `section:${sec.doc_type}:${sec.section_key}`;
+      const violationCount = sec.violation_keys?.length ?? 0;
+      nodes.push({
+        node_id:   nodeId,
+        node_type: "section",
+        label:     sec.label,
+        meta: {
+          doc_type:    sec.doc_type,
+          section_key: sec.section_key,
+          repair_mode: sec.repair_mode,
+          order:       sec.order,
+          present:     sec.present,
+          violation_count: violationCount,
+          ...(violationCount > 0 ? { violation_keys: sec.violation_keys } : {}),
+        },
+      });
+      sectionNodeIds.add(nodeId);
+    }
+  }
+
+  // ── Edge Type 7: violation_targets_section (NDG v2) ────────────────────
+  // Emitted when a section has violation_keys. Uses stable virtual source IDs
+  // following the same deterministic pattern as other NDG edges.
+  // Source is a stable violation reference; target is the section node.
+  if (data.sections) {
+    for (const sec of data.sections) {
+      if (!sec.violation_keys || sec.violation_keys.length === 0) continue;
+      const sectionNodeId = `section:${sec.doc_type}:${sec.section_key}`;
+      if (!sectionNodeIds.has(sectionNodeId)) continue;
+      for (const vk of sec.violation_keys) {
+        const edgeId = `violation_targets_section:${vk}→${sectionNodeId}`;
+        edges.push({
+          edge_id:    edgeId,
+          edge_type:  "violation_targets_section",
+          from_id:    vk,
+          to_id:      sectionNodeId,
+          derivation: "section_registry",
+          meta: { doc_type: sec.doc_type, section_key: sec.section_key },
+        });
       }
     }
   }
