@@ -308,9 +308,26 @@ CHARACTER BIBLE LENGTH — MANDATORY:
 `;
     }
 
+    // ── Format reinforcement for production_draft chunks ────────────────────
+    let formatReinforcement = "";
+    if (docType === "production_draft") {
+      const fmt = (opts as any).projectFormat || "";
+      const fmtLower = fmt.toLowerCase();
+      const isSeriesFmt = ["tv-series","limited-series","digital-series","anim-series","reality"].includes(fmtLower);
+      const isVDFmt = fmtLower.includes("vertical");
+      if (!isSeriesFmt && !isVDFmt) {
+        formatReinforcement = `
+FORMAT LOCK — FEATURE FILM:
+- This is a SINGLE CONTINUOUS FEATURE SCREENPLAY — NOT episodic, NOT a season script.
+- Do NOT use Episode headings, episode numbers, or any episodic structure.
+- Write standard feature film screenplay format: continuous narrative, Act 1/2/3 structure.
+`;
+      }
+    }
+
     chunkPrompt = `You are generating the "${sectionLabel}" section for the project "${projectTitle}".
 Document type: ${docType.replace(/_/g, " ")}
-${lengthGuidance}
+${lengthGuidance}${formatReinforcement}
 CRITICAL RULES:
 - Output ONLY the "${sectionLabel}" section.
 - Write full, complete content — do NOT summarize or abbreviate.
