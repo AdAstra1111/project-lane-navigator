@@ -391,6 +391,33 @@ export default function PitchIdeas() {
 
         <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />
 
+        {/* Generation progress bar */}
+        <AnimatePresence>
+          {generating && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="space-y-2"
+            >
+              <Card className="border-primary/20 bg-primary/5">
+                <CardContent className="py-4 space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-foreground font-medium flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      Generating concepts…
+                    </span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {genProgress.current} / {genProgress.total}
+                    </span>
+                  </div>
+                  <Progress value={(genProgress.current / genProgress.total) * 100} className="h-2" />
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Trends Snapshot — persisted across refresh, visible when data exists */}
         {lastSignalsMetadata && (
           <TrendsSnapshot
