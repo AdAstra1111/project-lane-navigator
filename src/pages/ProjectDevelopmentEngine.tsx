@@ -285,6 +285,12 @@ export default function ProjectDevelopmentEngine() {
   const isBgGenerating = (selectedVersion as any)?.meta_json?.bg_generating === true;
   const isSeasonScript = selectedDoc?.doc_type === 'season_script';
 
+  // Structured viewer support
+  const SECTIONED_VIEW_TYPES = new Set(['feature_script', 'treatment', 'story_outline', 'beat_sheet', 'character_bible', 'production_draft', 'long_treatment', 'long_character_bible']);
+  const isSectionedDocType = !!(selectedDoc?.doc_type && SECTIONED_VIEW_TYPES.has(selectedDoc.doc_type));
+  const { data: hasChunks = false } = useHasChunks(selectedVersionId);
+  const [viewMode, setViewMode] = useState<'structured' | 'raw'>('structured');
+
   // Auto-poll versions every 4s while bg_generating — refresh content when done
   const { data: _polledVersions } = useQuery({
     queryKey: ['dev-v2-bg-poll', selectedVersionId],
