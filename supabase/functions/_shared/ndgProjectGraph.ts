@@ -55,6 +55,7 @@ import {
   type SceneImpactEntry,
 } from "./narrativeDependencyGraph.ts";
 import { SPINE_AXES, AXIS_METADATA, type SpineAxis } from "./narrativeSpine.ts";
+import { getSectionConfig, type SectionDefinition } from "./deliverableSectionRegistry.ts";
 
 // ── Input types (raw DB rows) ──────────────────────────────────────────────
 
