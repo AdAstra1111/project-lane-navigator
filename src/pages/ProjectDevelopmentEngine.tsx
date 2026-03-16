@@ -1186,7 +1186,7 @@ export default function ProjectDevelopmentEngine() {
     // Canonical ladder guard: block promotion if target is not on this format's ladder
     const promoteLadder = getLadderForFormat(projectFormat);
     if (nextBestDocument && promoteLadder && !promoteLadder.includes(nextBestDocument as any)) {
-      toast.error(`"${getDocTypeLabel(nextBestDocument, projectFormat)}" is not available for ${projectFormat} projects`);
+      toast.error(`"${getDocDisplayName(null, nextBestDocument, projectFormat)}" is not available for ${projectFormat} projects`);
       return;
     }
     // NOTE: Do NOT eagerly set selectedDeliverableType here.
