@@ -25515,10 +25515,10 @@ ${scenesForPrompt}`;
         let text = (d.plaintext || d.extracted_text || "").trim();
         if (!text && d.latest_version_id) {
           const { data: ver } = await supabase.from("project_document_versions")
-            .select("plaintext, extracted_text")
+            .select("plaintext")
             .eq("id", d.latest_version_id)
             .single();
-          text = (ver?.plaintext || ver?.extracted_text || "").trim();
+          text = (ver?.plaintext || "").trim();
         }
         if (text) docs.push({ doc_type: d.doc_type, text });
       }
