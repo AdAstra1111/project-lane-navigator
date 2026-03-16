@@ -202,7 +202,7 @@ For EACH incentive program, provide structured data.`;
     ];
 
     const aiResponse = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
+      "https://ai.gateway.lovable.dev/v1/chat/completions",
       {
         method: "POST",
         headers: {
