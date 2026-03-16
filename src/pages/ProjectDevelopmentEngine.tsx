@@ -1183,7 +1183,8 @@ export default function ProjectDevelopmentEngine() {
       }
       return;
     }
-    // Canonical ladder guard: block promotion if target is not on this format's ladder
+    // TAXONOMY BOUNDARY — promotion eligibility MUST use project.format / canonical ladder.
+    // Do NOT gate on assigned_lane here — it is a monetisation taxonomy, not structural.
     const promoteLadder = getLadderForFormat(projectFormat);
     if (nextBestDocument && promoteLadder && !promoteLadder.includes(nextBestDocument as any)) {
       toast.error(`"${getDocTypeLabel(nextBestDocument, projectFormat)}" is not available for ${projectFormat} projects`);
