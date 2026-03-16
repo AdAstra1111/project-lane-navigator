@@ -1183,10 +1183,10 @@ export default function ProjectDevelopmentEngine() {
       }
       return;
     }
-    // Lane gate: block conversion to feature_script for non-feature lanes
-    const lane = project?.assigned_lane;
-    if (nextBestDocument === 'feature_script' && lane && !['feature_film', 'animation', 'short', 'unspecified'].includes(lane)) {
-      toast.error(`"Feature Script" is not available for ${lane.replace(/_/g, ' ')} projects`);
+    // Canonical ladder guard: block promotion if target is not on this format's ladder
+    const promoteLadder = getLadderForFormat(projectFormat);
+    if (nextBestDocument && promoteLadder && !promoteLadder.includes(nextBestDocument as any)) {
+      toast.error(`"${getDocTypeLabel(nextBestDocument, projectFormat)}" is not available for ${projectFormat} projects`);
       return;
     }
     // NOTE: Do NOT eagerly set selectedDeliverableType here.
