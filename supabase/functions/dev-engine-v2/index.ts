@@ -7780,6 +7780,16 @@ MATERIAL:\n${version.plaintext}${convertTemplateBlock}`;
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // ── PATCH C: Belt-and-suspenders guard — screenplay-class docs must never reach single-shot ──
+      const SCREENPLAY_CLASS_GUARD = new Set(["feature_script", "production_draft", "screenplay_draft"]);
+      if (SCREENPLAY_CLASS_GUARD.has(resolvedDocType)) {
+        console.error(`[dev-engine-v2][IEL] CRITICAL: screenplay-class doc "${resolvedDocType}" reached single-shot convert path — this should never happen. Blocking.`);
+        return new Response(JSON.stringify({
+          error: "screenplay_single_shot_blocked",
+          message: `${resolvedDocType} must use chunked generation pipeline. Single-shot path is not permitted for screenplay-class documents.`,
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       const isFeatureScript = FEATURE_SCRIPT_TARGETS.has(normalizedTarget);
       const isDraftScript = targetOutput === "DRAFT_SCRIPT" || normalizedTarget === "SCRIPT" || normalizedTarget === "DRAFT_SCRIPT" || isFeatureScript;
       const model = isDraftScript ? PRO_MODEL : BALANCED_MODEL;
