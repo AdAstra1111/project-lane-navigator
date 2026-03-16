@@ -92,6 +92,8 @@ export default function PitchIdeas() {
     }
     setGenerating(true);
     setGenerateFailed(false);
+    setGenProgress({ current: 0, total: 5 });
+    preGenCountRef.current = ideas.length;
 
     try {
       const normalized = normalizePitchCriteria(criteria as unknown as Record<string, unknown>, editedFields);
