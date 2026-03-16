@@ -41,6 +41,81 @@ serve(async (req) => {
 
     if (ideaErr || !idea) throw new Error("Pitch idea not found or access denied");
 
+    // ── Fetch DNA / Engine provenance from pitch idea ──
+    let dnaConstraintBlock = "";
+    const dnaProfileId: string | null = idea.source_dna_profile_id || null;
+    const engineKey: string | null = idea.source_engine_key || null;
+
+    if (dnaProfileId) {
+      const { data: dnaProfile } = await supabase
+        .from("narrative_dna_profiles")
+        .select("source_title, spine_json, thematic_spine, world_logic_rules, forbidden_carryovers, mutation_constraints")
+        .eq("id", dnaProfileId)
+        .eq("status", "locked")
+        .single();
+
+      if (dnaProfile) {
+        const parts: string[] = [];
+        parts.push("=== NARRATIVE DNA CONSTRAINTS (from locked DNA profile) ===");
+        parts.push("These constraints describe the structural DNA of a source story.");
+        parts.push("The resulting project must remain ORIGINAL.");
+        parts.push("Do not reproduce the same plot, characters, names, or events.");
+        parts.push("Only preserve structural narrative patterns.");
+        parts.push("");
+        parts.push(`Source reference (DO NOT copy plot or characters): ${dnaProfile.source_title}`);
+
+        if (dnaProfile.spine_json && typeof dnaProfile.spine_json === "object") {
+          const spine = dnaProfile.spine_json as Record<string, unknown>;
+          const axes = Object.entries(spine).filter(([, v]) => v != null);
+          if (axes.length > 0) {
+            parts.push("\nStructural Spine (LOCK these narrative axes):");
+            axes.forEach(([k, v]) => parts.push(`  - ${k}: ${v}`));
+          }
+        }
+        if (dnaProfile.thematic_spine) {
+          parts.push(`\nThematic Spine: ${dnaProfile.thematic_spine}`);
+        }
+        if (dnaProfile.world_logic_rules) {
+          parts.push(`\nWorld Logic Rules: ${dnaProfile.world_logic_rules}`);
+        }
+        if (dnaProfile.mutation_constraints) {
+          parts.push(`\nMutation Constraints: ${dnaProfile.mutation_constraints}`);
+        }
+        if (Array.isArray(dnaProfile.forbidden_carryovers) && dnaProfile.forbidden_carryovers.length > 0) {
+          parts.push("\nForbidden Carryovers (NEVER include these):");
+          (dnaProfile.forbidden_carryovers as string[]).forEach((f) => parts.push(`  - ${f}`));
+        }
+        parts.push("=== END DNA CONSTRAINTS ===");
+        dnaConstraintBlock = "\n\n" + parts.join("\n") + "\n";
+        console.log(`[promote-to-devseed] DNA constraint block injected from profile ${dnaProfileId}`);
+      }
+    } else if (engineKey) {
+      const { data: engine } = await supabase
+        .from("narrative_engines")
+        .select("engine_key, label, description, structural_pattern, example_titles")
+        .eq("engine_key", engineKey)
+        .single();
+
+      if (engine) {
+        const parts: string[] = [];
+        parts.push("=== NARRATIVE ENGINE CONSTRAINT (structural pattern only) ===");
+        parts.push("These constraints describe the structural DNA of a source story.");
+        parts.push("The resulting project must remain ORIGINAL.");
+        parts.push("Do not reproduce the same plot, characters, names, or events.");
+        parts.push("Only preserve structural narrative patterns.");
+        parts.push("");
+        parts.push(`Engine: ${engine.label} (${engine.engine_key})`);
+        if (engine.description) parts.push(`Description: ${engine.description}`);
+        if (engine.structural_pattern) parts.push(`Structural Pattern: ${engine.structural_pattern}`);
+        if (Array.isArray(engine.example_titles) && engine.example_titles.length > 0) {
+          parts.push(`Reference titles (tonal anchors only, do NOT clone): ${engine.example_titles.join(", ")}`);
+        }
+        parts.push("=== END ENGINE CONSTRAINT ===");
+        dnaConstraintBlock = "\n\n" + parts.join("\n") + "\n";
+        console.log(`[promote-to-devseed] Engine constraint block injected for engine ${engineKey}`);
+      }
+    }
+
     // Build context for DevSeed generation
     const ideaContext = {
       title: idea.title,
