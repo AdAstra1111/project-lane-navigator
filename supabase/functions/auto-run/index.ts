@@ -6888,7 +6888,7 @@ Deno.serve(async (req) => {
                 const _setupRetryDelayMs = waitSec * 1000 + 500;
                 const _setupRetryBody = JSON.stringify(
                   job.allow_defaults === true
-                    ? { action: "apply-decisions-and-continue", jobId, auto_apply: true }
+                    ? { action: "run-next", jobId }
                     : { action: "run-next", jobId }
                 );
                 waitUntilSafe(
@@ -6979,7 +6979,7 @@ Deno.serve(async (req) => {
                   const _canonRetryDelayMs = retryDelay * 1000 + 500;
                   const _canonRetryBody = JSON.stringify(
                     job.allow_defaults === true
-                      ? { action: "apply-decisions-and-continue", jobId, auto_apply: true }
+                      ? { action: "run-next", jobId }
                       : { action: "run-next", jobId }
                   );
                   waitUntilSafe(
