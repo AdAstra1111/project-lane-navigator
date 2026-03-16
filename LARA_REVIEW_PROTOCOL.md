@@ -64,3 +64,26 @@ Do NOT redesign the product philosophy.
 ## Output Rule
 
 For every finding: failure mode → why it's a problem → smallest safe improvement.
+
+## 🛡️ Protected Files — Hardening in main NOT in lovable branch (as of 2026-03-16)
+
+When reviewing any Lovable PR, these files require line-by-line review.
+If Lovable touches any of these, verify the hardening has NOT been lost:
+
+### New files Lovable doesn't have (must not be removed):
+- `supabase/functions/_shared/ladder-invariant.ts` — canonical ladder guard, 54 tests
+- `supabase/functions/_shared/docPurposeRegistry.ts` — purpose-aware scoring
+- `supabase/functions/_shared/narrativeIntegrityEngine.ts`
+- `supabase/functions/_shared/narrativeIntegrityValidator.ts`
+- `src/test/ladder-invariant-guard.test.ts`
+- `src/test/stage-ladders-canonical.test.ts`
+- `.github/workflows/lara-regression-guard.yml`
+- `vercel.json` — must point to mbwreoglhudppiwaxlsp, NOT tzdxrhklarzccqamxbxw
+
+### Critical modified files — verify key changes survive:
+- `supabase/functions/dev-engine-v2/index.ts` — callAI uses ai.gateway.lovable.dev, purpose-aware scoring, beat_sheet single-pass, BEAT SHEET FORMAT enforcement
+- `supabase/functions/auto-run/index.ts` — routes through ladder-invariant.ts
+- `supabase/functions/_shared/decisionPolicyRegistry.ts` — getNextStage via ladder-invariant
+- `src/pages/ProjectDevelopmentEngine.tsx` — NO isBgGenerating in analysis guard; NO eager setSelectedDeliverableType before convert.mutate()
+- `supabase/functions/generate-document/index.ts` — serviceClient for background DB writes
+- `supabase/functions/_shared/chunkRunner.ts` — atomic bg_generating flag clearing
