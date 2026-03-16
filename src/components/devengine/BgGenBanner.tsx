@@ -6,7 +6,7 @@
  *  2. Detected chunk strategy from chunk keys (scene_indexed → SceneIndexedProgress)
  *  3. Fallback: sectioned prose docs → SectionedDocProgress
  */
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -68,6 +68,11 @@ class BgGenBannerErrorBoundary extends React.Component<
 function BgGenBannerInner({ versionId, episodeCount, docType, projectId, documentId }: BgGenBannerProps) {
   const isSectioned = docType && SECTIONED_PROSE_TYPES.has(docType);
 
+  // Locked strategy: once resolved to a definitive mode, it stays locked for this
+  // component's lifetime. Prevents flicker from re-queries, window focus, or
+  // transient chunk data inconsistencies.
+  const [lockedStrategy, setLockedStrategy] = useState<DetectedStrategy>('unknown');
+
   // For sectioned prose types, detect actual strategy from chunk keys
   // to distinguish scene_indexed (scene batches) from act-based sectioned
   const { data: detectedStrategy = 'unknown', isLoading: isDetecting } = useQuery<DetectedStrategy>({
@@ -79,11 +84,11 @@ function BgGenBannerInner({ versionId, episodeCount, docType, projectId, documen
         .select('chunk_key')
         .eq('version_id', versionId)
         .order('chunk_index', { ascending: true })
-        .limit(3);
+        .limit(10);
       if (error || !data) return 'unknown';
       return detectStrategyFromChunks(data);
     },
-    enabled: !!versionId && !!isSectioned,
+    enabled: !!versionId && !!isSectioned && lockedStrategy === 'unknown',
     staleTime: 30000,
     refetchInterval: (query) => {
       // Keep polling until we get a definitive strategy
@@ -91,13 +96,22 @@ function BgGenBannerInner({ versionId, episodeCount, docType, projectId, documen
     },
   });
 
+  // Lock the strategy once resolved to a non-unknown value
+  useEffect(() => {
+    if (lockedStrategy === 'unknown' && detectedStrategy !== 'unknown') {
+      setLockedStrategy(detectedStrategy);
+    }
+  }, [detectedStrategy, lockedStrategy]);
+
+  const effectiveStrategy = lockedStrategy !== 'unknown' ? lockedStrategy : detectedStrategy;
+
   // Episodic doc types (season_script etc.) → episode progress
   if (!isSectioned) {
     return <SeasonScriptProgress versionId={versionId} episodeCount={episodeCount} />;
   }
 
   // While strategy is unknown (no chunks yet), show neutral loading state
-  if (detectedStrategy === 'unknown' && (isDetecting || !isSectioned)) {
+  if (effectiveStrategy === 'unknown') {
     return (
       <div className="flex flex-col items-center justify-center h-[300px] gap-3 text-muted-foreground">
         <Loader2 className="h-6 w-6 animate-spin" />
@@ -109,7 +123,7 @@ function BgGenBannerInner({ versionId, episodeCount, docType, projectId, documen
   }
 
   // Scene-indexed screenplay docs → scene batch progress
-  if (detectedStrategy === 'scene_indexed') {
+  if (effectiveStrategy === 'scene_indexed') {
     return <SceneIndexedProgress versionId={versionId} docType={docType} />;
   }
 
