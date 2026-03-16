@@ -24,6 +24,8 @@ serve(async (req) => {
       briefNotes, projectId, skipSignals, hardCriteria,
       // New contract fields
       manual_criteria, auto_fields, meta,
+      // DNA / Engine constraint fields
+      source_dna_profile_id, source_engine_key, dna_constraint_mode,
     } = body;
 
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
