@@ -151,7 +151,8 @@ export type NDGEdgeType =
   | "entity_relates_to_entity"
   | "scene_linked_to_axis"
   | "scene_contains_entity"
-  | "unit_impacts_scene";
+  | "unit_impacts_scene"
+  | "violation_targets_section";
 
 export interface NDGEdge {
   /** Unique deterministic edge ID: "{type}:{from}→{to}" */
