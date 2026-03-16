@@ -423,6 +423,12 @@ export async function extractNarrativeDnaChunked(
 
 // ── Shared mapper ──
 
+function validateEngineKey(key: any): string | null {
+  if (typeof key !== "string") return null;
+  const k = key.trim().toLowerCase();
+  return (CANONICAL_ENGINE_KEYS as readonly string[]).includes(k) ? k : null;
+}
+
 function mapRawToResult(raw: any): DnaExtractionResult {
   const spineJson: Record<string, string | null> = {};
   for (const axis of SPINE_AXES) {
@@ -431,6 +437,7 @@ function mapRawToResult(raw: any): DnaExtractionResult {
 
   const ext = raw.extended || {};
   const mut = raw.mutation || {};
+  const eng = raw.engine_classification || {};
 
   const confidence = typeof raw.confidence === "number"
     ? Math.max(0, Math.min(1, raw.confidence))
@@ -451,6 +458,8 @@ function mapRawToResult(raw: any): DnaExtractionResult {
     surface_expression_notes: mut.surface_expression_notes || null,
     extraction_confidence: confidence,
     extraction_json: raw,
+    primary_engine_key: validateEngineKey(eng.primary_engine_key),
+    secondary_engine_key: validateEngineKey(eng.secondary_engine_key),
   };
 }
 
