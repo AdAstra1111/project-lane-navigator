@@ -1019,6 +1019,8 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
           platform_target: platformTarget || '',
           risk_level: idea.risk_level || riskLevel || 'medium',
           project_id: projectId || null,
+          source_dna_profile_id: resolvedDnaProfileId || null,
+          source_engine_key: resolvedEngineKey || null,
           raw_response: {
             ...idea,
             premise: idea.premise || '',
@@ -1027,6 +1029,7 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
             tone_tag: idea.tone_tag || '',
             format_summary: idea.format_summary || '',
             signals_metadata: ideas.signals_metadata || null,
+            dna_constraint_mode: dna_constraint_mode || 'none',
           },
           score_market_heat: idea.score_market_heat || 0,
           score_feasibility: idea.score_feasibility || 0,
