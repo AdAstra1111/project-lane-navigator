@@ -7454,6 +7454,104 @@ export type Database = {
         }
         Relationships: []
       }
+      narrative_dna_profiles: {
+        Row: {
+          antagonist_pattern: string | null
+          created_at: string
+          emotional_cadence: string[] | null
+          ending_logic: string | null
+          escalation_architecture: string | null
+          extraction_confidence: number | null
+          extraction_json: Json
+          extraction_model: string | null
+          forbidden_carryovers: string[] | null
+          id: string
+          locked_at: string | null
+          mutable_variables: string[] | null
+          power_dynamic: string | null
+          set_piece_grammar: string | null
+          source_corpus_script_id: string | null
+          source_ref_json: Json
+          source_text_hash: string | null
+          source_text_length: number | null
+          source_title: string
+          source_type: string
+          spine_json: Json
+          status: string
+          surface_expression_notes: string | null
+          thematic_spine: string | null
+          updated_at: string
+          user_id: string
+          world_logic_rules: string[] | null
+        }
+        Insert: {
+          antagonist_pattern?: string | null
+          created_at?: string
+          emotional_cadence?: string[] | null
+          ending_logic?: string | null
+          escalation_architecture?: string | null
+          extraction_confidence?: number | null
+          extraction_json?: Json
+          extraction_model?: string | null
+          forbidden_carryovers?: string[] | null
+          id?: string
+          locked_at?: string | null
+          mutable_variables?: string[] | null
+          power_dynamic?: string | null
+          set_piece_grammar?: string | null
+          source_corpus_script_id?: string | null
+          source_ref_json?: Json
+          source_text_hash?: string | null
+          source_text_length?: number | null
+          source_title: string
+          source_type?: string
+          spine_json?: Json
+          status?: string
+          surface_expression_notes?: string | null
+          thematic_spine?: string | null
+          updated_at?: string
+          user_id: string
+          world_logic_rules?: string[] | null
+        }
+        Update: {
+          antagonist_pattern?: string | null
+          created_at?: string
+          emotional_cadence?: string[] | null
+          ending_logic?: string | null
+          escalation_architecture?: string | null
+          extraction_confidence?: number | null
+          extraction_json?: Json
+          extraction_model?: string | null
+          forbidden_carryovers?: string[] | null
+          id?: string
+          locked_at?: string | null
+          mutable_variables?: string[] | null
+          power_dynamic?: string | null
+          set_piece_grammar?: string | null
+          source_corpus_script_id?: string | null
+          source_ref_json?: Json
+          source_text_hash?: string | null
+          source_text_length?: number | null
+          source_title?: string
+          source_type?: string
+          spine_json?: Json
+          status?: string
+          surface_expression_notes?: string | null
+          thematic_spine?: string | null
+          updated_at?: string
+          user_id?: string
+          world_logic_rules?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "narrative_dna_profiles_source_corpus_script_id_fkey"
+            columns: ["source_corpus_script_id"]
+            isOneToOne: false
+            referencedRelation: "corpus_scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       narrative_entities: {
         Row: {
           canonical_name: string
