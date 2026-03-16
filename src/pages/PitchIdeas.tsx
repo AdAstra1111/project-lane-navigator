@@ -454,7 +454,8 @@ export default function PitchIdeas() {
           {filteredIdeas.length > 0 && !generating && (
             <Button variant="outline" size="sm" className="gap-1.5" onClick={generate}>
               <RefreshCw className="h-3.5 w-3.5" />
-              Generate 10 More
+              Generate 5 More
+            </Button>
             </Button>
           )}
         </div>
