@@ -37,7 +37,7 @@ import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
 import { approveAndActivate, unapproveVersion } from '@/lib/active-folder/approveAndActivate';
 import { recordResolutions } from '@/lib/decisions/client';
 import { useSeasonTemplate } from '@/hooks/useSeasonTemplate';
-import { canPromoteToScript, getDocDisplayName } from '@/lib/can-promote-to-script';
+import { canPromoteToScript, getDocDisplayName, getDocTypeLabel } from '@/lib/can-promote-to-script';
 import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 import { ChangeReportPanel } from '@/components/devengine/ChangeReportPanel';
