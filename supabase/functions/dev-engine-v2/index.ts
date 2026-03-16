@@ -6766,7 +6766,7 @@ MATERIAL:\n${version.plaintext}`;
       // (it falls back to slugline chunking and uses the screenplay system prompt — wrong format).
       // These docs are safe for single-pass up to 30k chars. Episodic and scene-indexed types
       // (episode_grid, episode_beats, scripts) still use the lower 8k threshold.
-      const SECTIONED_DEV_TYPES = new Set(["beat_sheet", "treatment", "story_outline", "character_bible", "long_treatment", "long_character_bible"]);
+      const SECTIONED_DEV_TYPES = new Set(["treatment", "story_outline", "character_bible", "long_treatment", "long_character_bible"]);
       const LARGE_RISK_MIN_CHARS = SECTIONED_DEV_TYPES.has(effectiveDeliverable) ? LONG_THRESHOLD : 8000;
 
       // ── SURGICAL EPISODE REWRITE ──

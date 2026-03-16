@@ -207,8 +207,14 @@ export function chunkPlanFor(
     if (!context.sceneCount || context.sceneCount < 1) {
       // Fall back to sectioned strategy if no real scene count from DB
       console.warn(`[largeRiskRouter] scene_indexed requested for "${docType}" but no sceneCount — falling back to sectioned`);
-      const sections = SCRIPT_SECTIONS;
-      const chunks: ChunkPlanEntry[] = sections.map((sec, i) => ({
+      // Doc-type-aware fallback sections
+      let fallbackSections: string[];
+      if (docType === "beat_sheet") {
+        fallbackSections = BEAT_SHEET_SECTIONS;
+      } else {
+        fallbackSections = SCRIPT_SECTIONS;
+      }
+      const chunks: ChunkPlanEntry[] = fallbackSections.map((sec, i) => ({
         chunkIndex: i,
         chunkKey: sec,
         label: sec.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
