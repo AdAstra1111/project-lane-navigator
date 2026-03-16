@@ -294,7 +294,7 @@ Deno.serve(async (req) => {
     if (action === "list") {
       const { data: profiles, error } = await supabase
         .from("narrative_dna_profiles")
-        .select("id, source_title, source_type, status, extraction_confidence, created_at, updated_at")
+        .select("id, source_title, source_type, status, extraction_confidence, primary_engine_key, secondary_engine_key, created_at, updated_at")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
