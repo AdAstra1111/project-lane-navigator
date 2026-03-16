@@ -123,7 +123,7 @@ export default function PitchIdeas() {
       const { data, error } = await supabase.functions.invoke('generate-pitch', {
         body: {
           productionType: criteria.productionType,
-          count: 10,
+          count: 5,
           projectId: isProjectMode ? selectedProject : undefined,
           // DNA / Engine constraints
           ...(dnaSelection.mode === 'dna_profile' && dnaSelection.dnaProfileId ? { source_dna_profile_id: dnaSelection.dnaProfileId } : {}),
