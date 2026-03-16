@@ -100,11 +100,12 @@ export function useEpisodeHandoff(projectId: string) {
       // For vertical_drama, use season_script; for series, use episode_script
       const { data: proj } = await supabase
         .from('projects')
-        .select('assigned_lane')
+        .select('format')
         .eq('id', projectId)
         .single();
-      const isVerticalDrama = proj?.assigned_lane === 'vertical_drama';
-      const scriptDocType = isVerticalDrama ? 'season_script' : 'episode_script';
+      const normalizedFmt = ((proj as any)?.format || 'film').toLowerCase().replace(/[_ ]+/g, '-');
+      const isVD = normalizedFmt === 'vertical-drama';
+      const scriptDocType = isVD ? 'season_script' : 'episode_script';
 
       const docTitle = `EP ${String(params.episodeNumber).padStart(2, '0')} — Dev Engine Work`;
       const { data: doc, error: docErr } = await supabase

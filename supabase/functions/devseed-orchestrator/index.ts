@@ -157,8 +157,10 @@ Deno.serve(async (req) => {
       // Get episode count for dev pack
       let episodeCount: number | null = null;
       if (includeDevPack) {
-        const { data: proj } = await sb.from("projects").select("season_episode_count, season_episode_count_locked, assigned_lane").eq("id", projectId).single();
-        if (proj?.assigned_lane && ["vertical_drama", "vertical-drama", "series"].includes(proj.assigned_lane)) {
+        const { data: proj } = await sb.from("projects").select("season_episode_count, season_episode_count_locked, format").eq("id", projectId).single();
+        const normalizedFmt = ((proj as any)?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+        const isSeriesLike = ["tv-series","limited-series","digital-series","vertical-drama","anim-series","reality"].includes(normalizedFmt);
+        if (isSeriesLike) {
           if (!proj.season_episode_count_locked || !proj.season_episode_count) {
             return new Response(JSON.stringify({
               error: "Episode count must be locked before backfilling development pack for series/vertical projects",

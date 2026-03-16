@@ -28294,8 +28294,8 @@ ${upstreamText}`;
         .select("format, assigned_lane, title, genres, tone, target_audience")
         .eq("id", projectId).single();
 
-      const lane = proj?.assigned_lane || "series";
-      const isVertical = lane === "vertical_drama";
+      const fmt = ((proj?.format || "film") as string).toLowerCase().replace(/[_ ]+/g, "-");
+      const isVertical = fmt === "vertical-drama";
 
       // Load upstream docs (character_bible, format_rules, canon, nec, season_arc, episode_grid, treatment)
       const upstreamTypes = ["character_bible", "format_rules", "canon", "nec", "season_arc", "episode_grid", "treatment", "topline_narrative", "creative_brief"];
