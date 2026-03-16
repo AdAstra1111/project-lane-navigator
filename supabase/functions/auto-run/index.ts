@@ -8444,7 +8444,7 @@ Deno.serve(async (req) => {
                 } else {
                   console.log(`[auto-run][IEL] ci_blocker_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${blockerGate.ci} }`);
                   // ── IEL: ACTIONABLE NOTE EXHAUSTION GATE — block promotion if notes remain ──
-                  const noteExhaust = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null);
+                  const noteExhaust = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null, job.allow_defaults === true);
                   if (noteExhaust.hasActionable) {
                     console.warn(`[auto-run][IEL] note_exhaustion_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", actionable_notes: ${noteExhaust.count} }`);
                     await logStep(supabase, jobId, null, currentDoc, "note_exhaustion_blocked",
@@ -8502,7 +8502,7 @@ Deno.serve(async (req) => {
               // Flag off — original promotion path
               console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci} }`);
               // ── IEL: ACTIONABLE NOTE EXHAUSTION GATE (flag-off path) ──
-              const noteExhaustOrig = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null);
+              const noteExhaustOrig = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null, job.allow_defaults === true);
               if (noteExhaustOrig.hasActionable) {
                 console.warn(`[auto-run][IEL] note_exhaustion_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", actionable_notes: ${noteExhaustOrig.count}, path: "flag_off" }`);
                 await logStep(supabase, jobId, null, currentDoc, "note_exhaustion_blocked",
@@ -10389,7 +10389,7 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
           }
 
           // ── IEL: ACTIONABLE NOTE EXHAUSTION GATE (writing promote path) ──
-          const writeNoteExhaust = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null);
+          const writeNoteExhaust = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null, job.allow_defaults === true);
           if (writeNoteExhaust.hasActionable) {
             console.warn(`[auto-run][IEL] note_exhaustion_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", actionable_notes: ${writeNoteExhaust.count}, path: "writing_promote" }`);
             await logStep(supabase, jobId, null, currentDoc, "note_exhaustion_blocked",
