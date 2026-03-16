@@ -288,8 +288,18 @@ export default function ProjectDevelopmentEngine() {
   // Structured viewer support
   const SECTIONED_VIEW_TYPES = new Set(['feature_script', 'treatment', 'story_outline', 'beat_sheet', 'character_bible', 'production_draft', 'long_treatment', 'long_character_bible']);
   const isSectionedDocType = !!(selectedDoc?.doc_type && SECTIONED_VIEW_TYPES.has(selectedDoc.doc_type));
-  const { data: hasChunks = false } = useHasChunks(selectedVersionId);
+  const { data: hasChunks = false, isLoading: isLoadingChunks } = useHasChunks(selectedVersionId);
   const [docViewMode, setDocViewMode] = useState<'structured' | 'raw'>('structured');
+
+  // Reset docViewMode when document or version changes
+  useEffect(() => {
+    if (isLoadingChunks) return; // wait for chunk check to resolve
+    if (isSectionedDocType && hasChunks) {
+      setDocViewMode('structured');
+    } else {
+      setDocViewMode('raw');
+    }
+  }, [selectedDoc?.id, selectedVersionId, isSectionedDocType, hasChunks, isLoadingChunks]);
 
   // Auto-poll versions every 4s while bg_generating — refresh content when done
   const { data: _polledVersions } = useQuery({
