@@ -1882,22 +1882,52 @@ export default function ProjectDevelopmentEngine() {
                               </div>
                             )
                           ) : (<>
-                            <FormattedDocContent
-                              text={editableText}
-                              editable={true}
-                              onChange={setEditableText}
-                              className="w-full min-h-[300px] max-h-[70vh] overflow-y-auto text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
-                            />
-                            {editableText !== versionText && (
-                              <div className="flex justify-end mt-2">
-                                <Button size="sm" variant="outline" className="mr-2 text-xs" onClick={() => setEditableText(versionText)}>
-                                  Discard
+                            {/* Structured / Raw toggle for sectioned doc types with chunks */}
+                            {isSectionedDocType && hasChunks && (
+                              <div className="flex justify-end mb-2 gap-1">
+                                <Button
+                                  variant={docViewMode === 'structured' ? 'secondary' : 'ghost'}
+                                  size="sm"
+                                  className="h-6 text-xs px-2"
+                                  onClick={() => setDocViewMode('structured')}
+                                >
+                                  Structured
                                 </Button>
-                                <Button size="sm" className="text-xs" onClick={saveEditedText} disabled={isSavingText}>
-                                  {isSavingText ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                                  Save
+                                <Button
+                                  variant={docViewMode === 'raw' ? 'secondary' : 'ghost'}
+                                  size="sm"
+                                  className="h-6 text-xs px-2"
+                                  onClick={() => setDocViewMode('raw')}
+                                >
+                                  Raw
                                 </Button>
                               </div>
+                            )}
+
+                            {/* Structured view — read-only section cards */}
+                            {isSectionedDocType && hasChunks && docViewMode === 'structured' && selectedVersionId ? (
+                              <SectionedDocViewer versionId={selectedVersionId} />
+                            ) : (
+                              /* Raw view — editable text */
+                              <>
+                                <FormattedDocContent
+                                  text={editableText}
+                                  editable={true}
+                                  onChange={setEditableText}
+                                  className="w-full min-h-[300px] max-h-[70vh] overflow-y-auto text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
+                                />
+                                {editableText !== versionText && (
+                                  <div className="flex justify-end mt-2">
+                                    <Button size="sm" variant="outline" className="mr-2 text-xs" onClick={() => setEditableText(versionText)}>
+                                      Discard
+                                    </Button>
+                                    <Button size="sm" className="text-xs" onClick={saveEditedText} disabled={isSavingText}>
+                                      {isSavingText ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                                      Save
+                                    </Button>
+                                  </div>
+                                )}
+                              </>
                             )}
                            </>)}
                      </CardContent>
