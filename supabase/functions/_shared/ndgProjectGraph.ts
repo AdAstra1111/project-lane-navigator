@@ -107,6 +107,19 @@ export interface SceneRow {
   deprecated_at: string | null;
 }
 
+/** Section input row for NDG v2 section-as-node projection */
+export interface SectionInputRow {
+  doc_type:    string;
+  section_key: string;
+  label:       string;
+  order:       number;
+  repair_mode: string;
+  /** Whether this section was found in current document plaintext */
+  present:     boolean;
+  /** Violation keys targeting this section (from narrativeIntegrityValidator) */
+  violation_keys?: string[];
+}
+
 export interface NDGInputData {
   narrative_units:   NarrativeUnitRow[];
   narrative_entities: NarrativeEntityRow[];
@@ -114,6 +127,8 @@ export interface NDGInputData {
   scene_spine_links: SceneSpineLinkRow[];
   scene_entity_links: SceneEntityLinkRow[];
   scenes:            SceneRow[];
+  /** NDG v2: optional section inputs from deliverableSectionRegistry + parseSections */
+  sections?:         SectionInputRow[];
 }
 
 // ── Output types ───────────────────────────────────────────────────────────
