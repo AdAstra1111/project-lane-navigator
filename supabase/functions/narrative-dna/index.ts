@@ -220,6 +220,133 @@ Deno.serve(async (req) => {
       return jsonRes({ success: true, profile: locked });
     }
 
+    // ── LIST_SOURCES ──────────────────────────────────────────────────────
+    if (action === "list_sources") {
+      const { dna_profile_id } = body;
+      if (!dna_profile_id) return jsonRes({ error: "dna_profile_id is required" }, 400);
+
+      const { data: links, error } = await supabase
+        .from("dna_source_links")
+        .select("*")
+        .eq("dna_profile_id", dna_profile_id)
+        .eq("user_id", user.id)
+        .order("is_primary", { ascending: false })
+        .order("created_at", { ascending: true });
+
+      if (error) return jsonRes({ error: error.message }, 500);
+      return jsonRes({ links: links || [] });
+    }
+
+    // ── ADD_SOURCE ────────────────────────────────────────────────────────
+    if (action === "add_source") {
+      const { dna_profile_id, source_label, source_url, source_type = "other", is_primary = false, notes = "" } = body;
+      if (!dna_profile_id) return jsonRes({ error: "dna_profile_id is required" }, 400);
+      if (!source_label || typeof source_label !== "string") return jsonRes({ error: "source_label is required" }, 400);
+      if (!source_url || typeof source_url !== "string") return jsonRes({ error: "source_url is required" }, 400);
+
+      try { new URL(source_url); } catch { return jsonRes({ error: "source_url must be a valid URL" }, 400); }
+
+      // Verify ownership of the DNA profile
+      const { data: profile, error: pErr } = await supabase
+        .from("narrative_dna_profiles")
+        .select("id")
+        .eq("id", dna_profile_id)
+        .eq("user_id", user.id)
+        .single();
+      if (pErr || !profile) return jsonRes({ error: "DNA profile not found" }, 404);
+
+      // If marking as primary, clear existing primary
+      if (is_primary) {
+        await serviceClient
+          .from("dna_source_links")
+          .update({ is_primary: false })
+          .eq("dna_profile_id", dna_profile_id)
+          .eq("user_id", user.id)
+          .eq("is_primary", true);
+      }
+
+      const { data: link, error: insertErr } = await serviceClient
+        .from("dna_source_links")
+        .insert({
+          dna_profile_id,
+          user_id: user.id,
+          source_label: source_label.trim(),
+          source_url: source_url.trim(),
+          source_type,
+          is_primary,
+          notes: notes || "",
+        })
+        .select("*")
+        .single();
+
+      if (insertErr) return jsonRes({ error: insertErr.message }, 500);
+      return jsonRes({ success: true, link });
+    }
+
+    // ── UPDATE_SOURCE ─────────────────────────────────────────────────────
+    if (action === "update_source") {
+      const { id, updates } = body;
+      if (!id) return jsonRes({ error: "id is required" }, 400);
+      if (!updates || typeof updates !== "object") return jsonRes({ error: "updates object is required" }, 400);
+
+      // Verify ownership
+      const { data: existing, error: fErr } = await supabase
+        .from("dna_source_links")
+        .select("id, dna_profile_id")
+        .eq("id", id)
+        .eq("user_id", user.id)
+        .single();
+      if (fErr || !existing) return jsonRes({ error: "Source link not found" }, 404);
+
+      const EDITABLE = new Set(["source_label", "source_url", "source_type", "is_primary", "notes"]);
+      const safeUpdates: Record<string, any> = {};
+      for (const [key, val] of Object.entries(updates)) {
+        if (EDITABLE.has(key)) safeUpdates[key] = val;
+      }
+      if (Object.keys(safeUpdates).length === 0) return jsonRes({ error: "No editable fields provided" }, 400);
+
+      // Validate URL if provided
+      if (safeUpdates.source_url) {
+        try { new URL(safeUpdates.source_url); } catch { return jsonRes({ error: "source_url must be a valid URL" }, 400); }
+      }
+
+      // If setting primary, clear others first
+      if (safeUpdates.is_primary === true) {
+        await serviceClient
+          .from("dna_source_links")
+          .update({ is_primary: false })
+          .eq("dna_profile_id", existing.dna_profile_id)
+          .eq("user_id", user.id)
+          .eq("is_primary", true);
+      }
+
+      const { data: updated, error: uErr } = await serviceClient
+        .from("dna_source_links")
+        .update(safeUpdates)
+        .eq("id", id)
+        .eq("user_id", user.id)
+        .select("*")
+        .single();
+
+      if (uErr) return jsonRes({ error: uErr.message }, 500);
+      return jsonRes({ success: true, link: updated });
+    }
+
+    // ── REMOVE_SOURCE ─────────────────────────────────────────────────────
+    if (action === "remove_source") {
+      const { id } = body;
+      if (!id) return jsonRes({ error: "id is required" }, 400);
+
+      const { error: dErr } = await serviceClient
+        .from("dna_source_links")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", user.id);
+
+      if (dErr) return jsonRes({ error: dErr.message }, 500);
+      return jsonRes({ success: true });
+    }
+
     return jsonRes({ error: `Unknown action: ${action}` }, 400);
   } catch (err: any) {
     console.error("[narrative-dna] Error:", err.message);
