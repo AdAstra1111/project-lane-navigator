@@ -37,7 +37,7 @@ import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
 import { approveAndActivate, unapproveVersion } from '@/lib/active-folder/approveAndActivate';
 import { recordResolutions } from '@/lib/decisions/client';
 import { useSeasonTemplate } from '@/hooks/useSeasonTemplate';
-import { canPromoteToScript, getDocDisplayName } from '@/lib/can-promote-to-script';
+import { canPromoteToScript, getDocDisplayName, getDocTypeLabel } from '@/lib/can-promote-to-script';
 import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 import { ChangeReportPanel } from '@/components/devengine/ChangeReportPanel';
@@ -60,7 +60,7 @@ import type { ExistingDoc } from '@/lib/pipeline-brain';
 import { DecisionModePanel } from '@/components/devengine/DecisionModePanel';
 import type { Decision } from '@/components/devengine/DecisionCard';
 import { usePromotionIntelligence, extractNoteCounts } from '@/hooks/usePromotionIntelligence';
-import { getNextStage } from '@/lib/stages/registry';
+import { getNextStage, getLadderForFormat } from '@/lib/stages/registry';
 import { AutoRunMissionControl } from '@/components/devengine/AutoRunMissionControl';
 import { AutoRunBanner } from '@/components/devengine/AutoRunBanner';
 import { AutoRunProgressPanel } from '@/components/devengine/AutoRunProgressPanel';
@@ -1183,10 +1183,10 @@ export default function ProjectDevelopmentEngine() {
       }
       return;
     }
-    // Lane gate: block conversion to feature_script for non-feature lanes
-    const lane = project?.assigned_lane;
-    if (nextBestDocument === 'feature_script' && lane && !['feature_film', 'animation', 'short', 'unspecified'].includes(lane)) {
-      toast.error(`"Feature Script" is not available for ${lane.replace(/_/g, ' ')} projects`);
+    // Canonical ladder guard: block promotion if target is not on this format's ladder
+    const promoteLadder = getLadderForFormat(projectFormat);
+    if (nextBestDocument && promoteLadder && !promoteLadder.includes(nextBestDocument as any)) {
+      toast.error(`"${getDocTypeLabel(nextBestDocument, projectFormat)}" is not available for ${projectFormat} projects`);
       return;
     }
     // NOTE: Do NOT eagerly set selectedDeliverableType here.
