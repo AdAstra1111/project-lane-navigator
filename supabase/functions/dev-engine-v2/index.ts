@@ -27245,13 +27245,32 @@ CRITICAL:
         return STUB_MARKERS.some(marker => lower.includes(marker));
       };
 
-      const classifyInsufficiency = (
+      const classifyInsufficiency = async (
         docType: string,
         docId: string | null,
         ver: any,
-      ): { reason: InsufficientReason | null; charBefore: number } => {
-        if (!docId || !ver) return { reason: "missing_current_version", charBefore: 0 };
-        const plaintext = (ver?.plaintext || "").trim();
+      ): Promise<{ reason: InsufficientReason | null; charBefore: number }> => {
+        if (!docId) return { reason: "missing_current_version", charBefore: 0 };
+        // When ver is null (e.g. latest_version_id not set yet), fall back to
+        // querying project_document_versions directly before declaring insufficient.
+        let resolvedVer = ver;
+        if (!resolvedVer) {
+          const { data: fallbackVer } = await supabase.from("project_document_versions")
+            .select("id, plaintext, approval_status, version_number")
+            .eq("document_id", docId)
+            .order("version_number", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (fallbackVer) {
+            resolvedVer = fallbackVer;
+            // Populate the cache so downstream code can use it
+            verByDocId.set(docId, fallbackVer);
+            console.log(`[dev-engine-v2] classifyInsufficiency: resolved missing ver via fallback query for doc ${docId} (v${fallbackVer.version_number})`);
+          } else {
+            return { reason: "missing_current_version", charBefore: 0 };
+          }
+        }
+        const plaintext = (resolvedVer?.plaintext || "").trim();
         const charBefore = plaintext.length;
         if (containsStubMarker(plaintext)) return { reason: "stub_marker", charBefore };
         const minChars = MIN_CHARS[docType] ?? DEFAULT_MIN;
@@ -27348,7 +27367,7 @@ CRITICAL:
 
         const docId = docSlots.get(stage) || null;
         const ver = docId ? verByDocId.get(docId) : null;
-        const classified = classifyInsufficiency(stage, docId, ver);
+        const classified = await classifyInsufficiency(stage, docId, ver);
 
         let reason = classified.reason;
         if (!reason && !force) {
