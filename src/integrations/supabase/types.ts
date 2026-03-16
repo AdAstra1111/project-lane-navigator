@@ -14051,6 +14051,8 @@ export type Database = {
           secondary_territories: string[]
           signals_apply: Json
           signals_influence: number
+          source_dna_profile_id: string | null
+          source_engine_key: string | null
           source_pitch_idea_id: string | null
           target_audience: string
           target_runtime_minutes: number
@@ -14117,6 +14119,8 @@ export type Database = {
           secondary_territories?: string[]
           signals_apply?: Json
           signals_influence?: number
+          source_dna_profile_id?: string | null
+          source_engine_key?: string | null
           source_pitch_idea_id?: string | null
           target_audience?: string
           target_runtime_minutes?: number
@@ -14183,6 +14187,8 @@ export type Database = {
           secondary_territories?: string[]
           signals_apply?: Json
           signals_influence?: number
+          source_dna_profile_id?: string | null
+          source_engine_key?: string | null
           source_pitch_idea_id?: string | null
           target_audience?: string
           target_runtime_minutes?: number
@@ -14209,6 +14215,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "project_canon_versions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_source_dna_profile_id_fkey"
+            columns: ["source_dna_profile_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_dna_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_source_engine_key_fkey"
+            columns: ["source_engine_key"]
+            isOneToOne: false
+            referencedRelation: "narrative_engines"
+            referencedColumns: ["engine_key"]
           },
           {
             foreignKeyName: "projects_source_pitch_idea_id_fkey"

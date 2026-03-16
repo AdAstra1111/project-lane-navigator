@@ -16,8 +16,8 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
     const supabase = createClient(supabaseUrl, serviceKey);
 
@@ -40,6 +40,81 @@ serve(async (req) => {
       .single();
 
     if (ideaErr || !idea) throw new Error("Pitch idea not found or access denied");
+
+    // ── Fetch DNA / Engine provenance from pitch idea ──
+    let dnaConstraintBlock = "";
+    const dnaProfileId: string | null = idea.source_dna_profile_id || null;
+    const engineKey: string | null = idea.source_engine_key || null;
+
+    if (dnaProfileId) {
+      const { data: dnaProfile } = await supabase
+        .from("narrative_dna_profiles")
+        .select("source_title, spine_json, thematic_spine, world_logic_rules, forbidden_carryovers, mutation_constraints")
+        .eq("id", dnaProfileId)
+        .eq("status", "locked")
+        .single();
+
+      if (dnaProfile) {
+        const parts: string[] = [];
+        parts.push("=== NARRATIVE DNA CONSTRAINTS (from locked DNA profile) ===");
+        parts.push("These constraints describe the structural DNA of a source story.");
+        parts.push("The resulting project must remain ORIGINAL.");
+        parts.push("Do not reproduce the same plot, characters, names, or events.");
+        parts.push("Only preserve structural narrative patterns.");
+        parts.push("");
+        parts.push(`Source reference (DO NOT copy plot or characters): ${dnaProfile.source_title}`);
+
+        if (dnaProfile.spine_json && typeof dnaProfile.spine_json === "object") {
+          const spine = dnaProfile.spine_json as Record<string, unknown>;
+          const axes = Object.entries(spine).filter(([, v]) => v != null);
+          if (axes.length > 0) {
+            parts.push("\nStructural Spine (LOCK these narrative axes):");
+            axes.forEach(([k, v]) => parts.push(`  - ${k}: ${v}`));
+          }
+        }
+        if (dnaProfile.thematic_spine) {
+          parts.push(`\nThematic Spine: ${dnaProfile.thematic_spine}`);
+        }
+        if (dnaProfile.world_logic_rules) {
+          parts.push(`\nWorld Logic Rules: ${dnaProfile.world_logic_rules}`);
+        }
+        if (dnaProfile.mutation_constraints) {
+          parts.push(`\nMutation Constraints: ${dnaProfile.mutation_constraints}`);
+        }
+        if (Array.isArray(dnaProfile.forbidden_carryovers) && dnaProfile.forbidden_carryovers.length > 0) {
+          parts.push("\nForbidden Carryovers (NEVER include these):");
+          (dnaProfile.forbidden_carryovers as string[]).forEach((f) => parts.push(`  - ${f}`));
+        }
+        parts.push("=== END DNA CONSTRAINTS ===");
+        dnaConstraintBlock = "\n\n" + parts.join("\n") + "\n";
+        console.log(`[promote-to-devseed] DNA constraint block injected from profile ${dnaProfileId}`);
+      }
+    } else if (engineKey) {
+      const { data: engine } = await supabase
+        .from("narrative_engines")
+        .select("engine_key, label, description, structural_pattern, example_titles")
+        .eq("engine_key", engineKey)
+        .single();
+
+      if (engine) {
+        const parts: string[] = [];
+        parts.push("=== NARRATIVE ENGINE CONSTRAINT (structural pattern only) ===");
+        parts.push("These constraints describe the structural DNA of a source story.");
+        parts.push("The resulting project must remain ORIGINAL.");
+        parts.push("Do not reproduce the same plot, characters, names, or events.");
+        parts.push("Only preserve structural narrative patterns.");
+        parts.push("");
+        parts.push(`Engine: ${engine.label} (${engine.engine_key})`);
+        if (engine.description) parts.push(`Description: ${engine.description}`);
+        if (engine.structural_pattern) parts.push(`Structural Pattern: ${engine.structural_pattern}`);
+        if (Array.isArray(engine.example_titles) && engine.example_titles.length > 0) {
+          parts.push(`Reference titles (tonal anchors only, do NOT clone): ${engine.example_titles.join(", ")}`);
+        }
+        parts.push("=== END ENGINE CONSTRAINT ===");
+        dnaConstraintBlock = "\n\n" + parts.join("\n") + "\n";
+        console.log(`[promote-to-devseed] Engine constraint block injected for engine ${engineKey}`);
+      }
+    }
 
     // Build context for DevSeed generation
     const ideaContext = {
@@ -157,7 +232,7 @@ SECTIONS TO GENERATE:
    - Buyer Positioning: which buyers/platforms, pitch angle for each
    - Timing: market window, trend alignment
    - Risk Summary: top 3 risks with mitigations
-${convergenceGuidanceBlock}
+${convergenceGuidanceBlock}${dnaConstraintBlock}
 4. NARRATIVE SPINE — Structural lock object (output as "narrative_spine" key):
    - story_engine: the StoryEngine that best matches this story (pressure_cooker / two_hander / slow_burn_investigation / social_realism / moral_trap / character_spiral / rashomon / anti_plot)
    - pressure_system: the CausalGrammar (accumulation / erosion / exchange / mirror / constraint / misalignment / contagion / revelation_without_facts)
@@ -256,7 +331,7 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
       });
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${LOVABLE_API_KEY}`,
@@ -468,7 +543,7 @@ Return the same JSON schema as before with the structural elements strengthened.
       });
 
       try {
-        const repairResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        const repairResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${LOVABLE_API_KEY}`,
