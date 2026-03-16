@@ -133,7 +133,7 @@ export interface NDGInputData {
 
 // ── Output types ───────────────────────────────────────────────────────────
 
-export type NDGNodeType = "spine_axis" | "narrative_unit" | "narrative_entity" | "scene";
+export type NDGNodeType = "spine_axis" | "narrative_unit" | "narrative_entity" | "scene" | "section";
 
 export interface NDGNode {
   /** Stable system key (axis_key / unit_key / entity_key / scene_key) */
