@@ -83,9 +83,7 @@ Deno.serve(async (req) => {
       const productionType = overrides?.productionType || idea.production_type || "feature_film";
       const budgetRange = overrides?.budgetRange || idea.budget_band || "";
 
-      const { data: newProj, error: createErr } = await supabase
-        .from("projects")
-        .insert({
+      const insertPayload: Record<string, any> = {
           user_id: userId,
           title,
           format: productionType,
@@ -98,7 +96,19 @@ Deno.serve(async (req) => {
           confidence: idea.lane_confidence || null,
           pipeline_stage: "Development",
           document_urls: [],
-        })
+        };
+
+      // ── Carry DNA / Engine provenance from pitch idea ──
+      if (idea.source_dna_profile_id) {
+        insertPayload.source_dna_profile_id = idea.source_dna_profile_id;
+      }
+      if (idea.source_engine_key) {
+        insertPayload.source_engine_key = idea.source_engine_key;
+      }
+
+      const { data: newProj, error: createErr } = await supabase
+        .from("projects")
+        .insert(insertPayload)
         .select("id")
         .single();
 
