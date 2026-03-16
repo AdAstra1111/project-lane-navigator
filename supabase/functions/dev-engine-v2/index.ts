@@ -28109,8 +28109,7 @@ ${upstreamText}`;
       const isSeriesLike = ["series","vertical-drama","vertical_drama","limited-series","mini-series","anthology"].includes(fmt);
       if (!isSeriesLike) throw new Error(`Project format '${fmt}' is not a series. Cannot generate season scripts.`);
 
-      const lane = proj.assigned_lane || (fmt.includes("vertical") ? "vertical_drama" : "series");
-      const isVertical = lane === "vertical_drama" || fmt.includes("vertical");
+      const isVertical = fmt === "vertical-drama" || fmt.includes("vertical");
 
       // ── CANONICAL EPISODE COUNT (hard gate — no defaults) ──
       const { getCanonicalEpisodeCountOrThrow, resolveEpisodeCount } = await import("../_shared/episode-count.ts");
