@@ -15,7 +15,7 @@ export const GATEWAY_URL_OPENAI = "https://api.openai.com/v1/chat/completions";
  * Priority: OPENROUTER_API_KEY → LOVABLE_API_KEY → OPENAI_API_KEY
  */
 export function resolveGateway(): { url: string; apiKey: string } {
-  const lovableKey = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("LOVABLE_API_KEY");
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
   if (lovableKey) return { url: GATEWAY_URL_LOVABLE, apiKey: lovableKey };
 
   const openrouterKey = Deno.env.get("OPENROUTER_API_KEY");

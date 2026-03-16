@@ -176,7 +176,7 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const apiKey = Deno.env.get("OPENROUTER_API_KEY") || serviceKey;
+    const apiKey = Deno.env.get("LOVABLE_API_KEY") || Deno.env.get("OPENROUTER_API_KEY") || serviceKey;
 
     const body = await req.json();
     const forwardedUserId = body?.userId ?? body?.user_id ?? null;
