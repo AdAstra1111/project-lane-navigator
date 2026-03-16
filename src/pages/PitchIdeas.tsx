@@ -348,6 +348,9 @@ export default function PitchIdeas() {
           )}
         </div>
 
+        {/* Narrative DNA / Engine Selector */}
+        <DnaEngineSelector value={dnaSelection} onChange={setDnaSelection} />
+
         {/* Hard Criteria Form */}
         <HardCriteriaForm
           criteria={criteria}
