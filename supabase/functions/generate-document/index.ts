@@ -1369,6 +1369,7 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
             additionalContext, model: "google/gemini-2.5-flash",
             episodeCount: resolvedQuals?.season_episode_count,
             requestId,
+            projectFormat: project.format || undefined,
           });
           // runChunkedGeneration already writes plaintext to the version — promote only on full success
           if (chunkResult.success) {
