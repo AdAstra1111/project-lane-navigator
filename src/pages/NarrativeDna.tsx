@@ -117,23 +117,72 @@ export default function NarrativeDna() {
                   </select>
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-muted-foreground">
-                  Source Text ({sourceText.length.toLocaleString()} chars — min 2,000)
-                </label>
-                <Textarea
-                  value={sourceText}
-                  onChange={e => setSourceText(e.target.value)}
-                  placeholder="Paste the source story text here…"
-                  className="mt-1 min-h-[200px] text-sm font-mono"
-                />
+
+              {/* Input mode toggle */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Input:</span>
+                <button
+                  type="button"
+                  onClick={() => setInputMode('text')}
+                  className={`px-2 py-0.5 text-xs rounded-md border transition-colors ${
+                    inputMode === 'text'
+                      ? 'bg-primary/10 border-primary/40 text-primary'
+                      : 'border-border text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Paste Text
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInputMode('url')}
+                  className={`px-2 py-0.5 text-xs rounded-md border transition-colors ${
+                    inputMode === 'url'
+                      ? 'bg-primary/10 border-primary/40 text-primary'
+                      : 'border-border text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Use URL
+                </button>
               </div>
+
+              {inputMode === 'text' ? (
+                <div>
+                  <label className="text-xs text-muted-foreground">
+                    Source Text ({sourceText.length.toLocaleString()} chars — min 2,000)
+                  </label>
+                  <Textarea
+                    value={sourceText}
+                    onChange={e => setSourceText(e.target.value)}
+                    placeholder="Paste the source story text here…"
+                    className="mt-1 min-h-[200px] text-sm font-mono"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs text-muted-foreground">
+                    Source URL
+                  </label>
+                  <Input
+                    value={sourceUrl}
+                    onChange={e => setSourceUrl(e.target.value)}
+                    placeholder="https://www.gutenberg.org/files/16328/16328-h/16328-h.htm"
+                    className="h-8 text-sm mt-1"
+                  />
+                  {sourceUrl.trim() && !isValidHttpUrl(sourceUrl.trim()) && (
+                    <p className="text-[10px] text-destructive mt-0.5">Must be a valid http/https URL</p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Paste a public webpage containing the source text. We'll fetch the text and extract DNA from it.
+                  </p>
+                </div>
+              )}
+
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
                   className="h-8 text-xs gap-1"
                   onClick={handleExtract}
-                  disabled={extractMutation.isPending || !title.trim() || sourceText.length < 2000}
+                  disabled={extractMutation.isPending || !canSubmit}
                 >
                   {extractMutation.isPending ? (
                     <>
