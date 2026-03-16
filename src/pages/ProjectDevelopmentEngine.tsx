@@ -1893,7 +1893,7 @@ export default function ProjectDevelopmentEngine() {
                             )
                           ) : (<>
                             {/* Structured / Raw toggle for sectioned doc types with chunks */}
-                            {isSectionedDocType && hasChunks && (
+                            {isSectionedDocType && hasChunks && !isLoadingChunks && (
                               <div className="flex justify-end mb-2 gap-1">
                                 <Button
                                   variant={docViewMode === 'structured' ? 'secondary' : 'ghost'}
