@@ -34,6 +34,8 @@ export default function PitchIdeas() {
   const qc = useQueryClient();
   const [generating, setGenerating] = useState(false);
   const [generateFailed, setGenerateFailed] = useState(false);
+  const [genProgress, setGenProgress] = useState({ current: 0, total: 5 });
+  const preGenCountRef = useRef(0);
   const [criteria, setCriteria] = useState<HardCriteria>({ ...EMPTY_CRITERIA });
   const [editedFields, setEditedFields] = useState<EditedFieldsMap>(() => initEditedFields());
   const [dnaSelection, setDnaSelection] = useState<DnaEngineSelection>({ ...EMPTY_DNA_SELECTION });
