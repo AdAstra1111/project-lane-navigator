@@ -161,7 +161,7 @@ export interface NDGEdge {
   from_id:    string;
   to_id:      string;
   /** How this edge was derived */
-  derivation: "canonical_registry" | "unit_type_field" | "db_relation" | "db_spine_link" | "db_entity_link" | "ndg_propagation";
+  derivation: "canonical_registry" | "unit_type_field" | "db_relation" | "db_spine_link" | "db_entity_link" | "ndg_propagation" | "section_registry";
   /** Optional edge metadata */
   meta:       Record<string, unknown>;
 }
