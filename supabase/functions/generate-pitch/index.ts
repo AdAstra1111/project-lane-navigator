@@ -752,7 +752,7 @@ EPISODIC PROPULSION:
 ${guardrails.textBlock}
 
 PRODUCTION TYPE: ${typeLabel}
-ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${pitchPropulsionBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}${convergenceBlock}${modalityBlock}${animMetaBlock}
+ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${pitchPropulsionBlock}${dnaConstraintBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}${convergenceBlock}${modalityBlock}${animMetaBlock}
 
 Generate exactly ${batchSize} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
 
