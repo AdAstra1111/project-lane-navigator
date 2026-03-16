@@ -1,6 +1,10 @@
 /**
  * narrativeDnaExtractor.ts — Extracts Narrative DNA from source story text.
  *
+ * Supports:
+ *   - Single-pass extraction for texts under SINGLE_PASS_THRESHOLD
+ *   - Chunked extraction + synthesis for large texts
+ *
  * Produces a structured DNA profile aligned to the existing NarrativeSpine shape
  * (9 axes) plus extended DNA dimensions and mutation constraints.
  *
@@ -10,6 +14,17 @@
 
 import { SPINE_AXES } from "./narrativeSpine.ts";
 import { resolveGateway, callLLMWithJsonRetry, MODELS } from "./llm.ts";
+
+// ── Constants ──
+
+/** Texts under this char count use single-pass extraction. Above → chunked. */
+export const SINGLE_PASS_THRESHOLD = 40_000;
+
+/** Target chunk size in characters (with paragraph-boundary alignment). */
+const CHUNK_TARGET_SIZE = 15_000;
+
+/** Minimum chunk size — avoid tiny trailing chunks. */
+const CHUNK_MIN_SIZE = 3_000;
 
 // ── Types ──
 
@@ -28,6 +43,22 @@ export interface DnaExtractionResult {
   surface_expression_notes: string | null;
   extraction_confidence: number;
   extraction_json: Record<string, any>;
+}
+
+export interface ChunkBoundary {
+  index: number;
+  start: number;
+  end: number;
+  charCount: number;
+}
+
+export interface ExtractionRunMeta {
+  extraction_mode: "single_pass" | "chunked";
+  normalized_text_length: number;
+  chunk_count: number;
+  chunk_boundaries: ChunkBoundary[];
+  chunk_signals: any[];
+  synthesis_model: string | null;
 }
 
 // ── Extraction Prompt ──
@@ -51,21 +82,21 @@ Return a single JSON object with EXACTLY these keys:
     "tonal_gravity": "<string: emotional register — e.g. tragedy, catharsis, triumph, ambiguity, irony, elegy, satire, dark, bittersweet, hopeful, playful>"
   },
   "extended": {
-    "escalation_architecture": "<string: pattern of escalation — e.g. three_escalating_confrontations, rising_betrayals, narrowing_options, expanding_scope>",
-    "antagonist_pattern": "<string: antagonist structural pattern — e.g. successive_greater_threats, hidden_manipulator, mirror_protagonist, systemic_force, absent_antagonist>",
+    "escalation_architecture": "<string: pattern of escalation>",
+    "antagonist_pattern": "<string: antagonist structural pattern>",
     "thematic_spine": "<string: one sentence capturing the core thematic argument>",
-    "emotional_cadence": ["<ordered list of 3-5 dominant emotional beats — e.g. triumph, dread, elegy>"],
-    "world_logic_rules": ["<3-5 rules that govern the story world's internal logic — invariant, not setting-specific>"],
-    "set_piece_grammar": "<string: structural pattern of major sequences — e.g. confrontation_ceremony_aftermath, discovery_chase_revelation, test_failure_growth>",
-    "ending_logic": "<string: structural ending pattern — e.g. torch_passed_at_cost, cycle_repeats, order_restored, protagonist_transcends>",
-    "power_dynamic": "<string: core power relationship — e.g. leader_vs_chaos, individual_vs_institution, mentor_vs_student, equal_rivals>"
+    "emotional_cadence": ["<ordered list of 3-5 dominant emotional beats>"],
+    "world_logic_rules": ["<3-5 rules that govern the story world's internal logic>"],
+    "set_piece_grammar": "<string: structural pattern of major sequences>",
+    "ending_logic": "<string: structural ending pattern>",
+    "power_dynamic": "<string: core power relationship>"
   },
   "mutation": {
-    "forbidden_carryovers": ["<list of specific names, places, creatures, objects from the source that must NOT appear in any derived work>"],
-    "mutable_variables": ["<list of dimensions that SHOULD change in derived works — e.g. setting, era, specific characters, technology, iconography, cultural context>"],
-    "surface_expression_notes": "<string: brief guidance on what constitutes 'surface expression' vs 'engine' for this source>"
+    "forbidden_carryovers": ["<list of specific names, places, creatures from the source>"],
+    "mutable_variables": ["<list of dimensions that SHOULD change in derived works>"],
+    "surface_expression_notes": "<string: brief guidance on surface vs engine>"
   },
-  "confidence": <number 0.0-1.0: how confident you are in this extraction>
+  "confidence": <number 0.0-1.0>
 }
 
 RULES:
@@ -76,7 +107,163 @@ RULES:
 - confidence should be lower for very short or ambiguous texts
 - Return ONLY the JSON object, no commentary`;
 
-// ── Extraction Function ──
+// ── Chunk Signal Prompt (lighter-weight for per-chunk extraction) ──
+
+const CHUNK_SIGNAL_SYSTEM = `You are a structural narrative analyst. You are analysing ONE SECTION of a longer source text.
+
+Extract structural narrative signals from this section. Not every section will contain all signals — only extract what is clearly present.
+
+Return a JSON object:
+{
+  "spine_signals": {
+    "story_engine": "<string or null>",
+    "pressure_system": "<string or null>",
+    "central_conflict": "<string or null>",
+    "inciting_incident": "<string or null>",
+    "resolution_type": "<string or null>",
+    "stakes_class": "<string or null>",
+    "protagonist_arc": "<string or null>",
+    "midpoint_reversal": "<string or null>",
+    "tonal_gravity": "<string or null>"
+  },
+  "extended_signals": {
+    "escalation_architecture": "<string or null>",
+    "antagonist_pattern": "<string or null>",
+    "thematic_hints": ["<thematic elements observed>"],
+    "emotional_beats": ["<emotional beats in this section>"],
+    "world_rules": ["<world logic rules observed>"],
+    "set_piece_pattern": "<string or null>",
+    "power_dynamic": "<string or null>"
+  },
+  "mutation_signals": {
+    "specific_names": ["<character/place/creature names found>"],
+    "setting_elements": ["<setting-specific elements>"]
+  },
+  "section_summary": "<1-2 sentence structural summary of this section>",
+  "signal_confidence": <number 0.0-1.0>
+}
+
+RULES:
+- Only report signals clearly present in THIS section
+- Use null for axes not evidenced in this section
+- spine values should be lowercase_snake_case
+- Return ONLY JSON`;
+
+// ── Synthesis Prompt ──
+
+const SYNTHESIS_SYSTEM = `You are a structural narrative analyst. You are synthesizing Narrative DNA from multiple chunk-level signal extractions of a long source text.
+
+You will receive an array of chunk signals (one per section of the source). Your job is to synthesize these into a single unified DNA profile, resolving conflicts and identifying the dominant patterns across the full work.
+
+Return a single JSON object with EXACTLY these keys:
+
+{
+  "spine": {
+    "story_engine": "<string>",
+    "pressure_system": "<string>",
+    "central_conflict": "<string>",
+    "inciting_incident": "<string>",
+    "resolution_type": "<string>",
+    "stakes_class": "<string>",
+    "protagonist_arc": "<string>",
+    "midpoint_reversal": "<string>",
+    "tonal_gravity": "<string>"
+  },
+  "extended": {
+    "escalation_architecture": "<string>",
+    "antagonist_pattern": "<string>",
+    "thematic_spine": "<single sentence>",
+    "emotional_cadence": ["<3-5 beats>"],
+    "world_logic_rules": ["<3-5 rules>"],
+    "set_piece_grammar": "<string>",
+    "ending_logic": "<string>",
+    "power_dynamic": "<string>"
+  },
+  "mutation": {
+    "forbidden_carryovers": ["<all specific names/places collected across chunks>"],
+    "mutable_variables": ["<dimensions that should change>"],
+    "surface_expression_notes": "<string>"
+  },
+  "confidence": <number 0.0-1.0>
+}
+
+RULES:
+- Synthesize across ALL chunks — don't just use the first or last
+- Resolve conflicting signals by choosing the DOMINANT pattern
+- spine values must be lowercase_snake_case
+- forbidden_carryovers should be the UNION of all specific names found
+- confidence reflects overall extraction quality across all chunks
+- Return ONLY JSON`;
+
+// ── Deterministic Chunking ──
+
+/**
+ * Split text into deterministic chunks at paragraph boundaries.
+ * Chunk order is stable and reproducible for the same input.
+ */
+export function chunkText(text: string): { chunks: string[]; boundaries: ChunkBoundary[] } {
+  if (text.length <= SINGLE_PASS_THRESHOLD) {
+    return {
+      chunks: [text],
+      boundaries: [{ index: 0, start: 0, end: text.length, charCount: text.length }],
+    };
+  }
+
+  const chunks: string[] = [];
+  const boundaries: ChunkBoundary[] = [];
+  let pos = 0;
+  let index = 0;
+
+  while (pos < text.length) {
+    const remaining = text.length - pos;
+
+    // If remaining fits in one chunk or is below min, take it all
+    if (remaining <= CHUNK_TARGET_SIZE + CHUNK_MIN_SIZE) {
+      chunks.push(text.slice(pos));
+      boundaries.push({ index, start: pos, end: text.length, charCount: remaining });
+      break;
+    }
+
+    // Find paragraph boundary near target size
+    let splitAt = pos + CHUNK_TARGET_SIZE;
+
+    // Search backward for double-newline paragraph break
+    let searchFrom = splitAt;
+    let found = false;
+    while (searchFrom > pos + CHUNK_MIN_SIZE) {
+      const doubleNl = text.lastIndexOf("\n\n", searchFrom);
+      if (doubleNl > pos + CHUNK_MIN_SIZE && doubleNl < splitAt) {
+        splitAt = doubleNl + 2; // include the newlines
+        found = true;
+        break;
+      }
+      // Try single newline as fallback
+      const singleNl = text.lastIndexOf("\n", searchFrom);
+      if (singleNl > pos + CHUNK_MIN_SIZE && singleNl < splitAt) {
+        splitAt = singleNl + 1;
+        found = true;
+        break;
+      }
+      searchFrom -= 500;
+    }
+
+    // If no paragraph break found, split at target size
+    if (!found) {
+      splitAt = pos + CHUNK_TARGET_SIZE;
+    }
+
+    const chunk = text.slice(pos, splitAt);
+    chunks.push(chunk);
+    boundaries.push({ index, start: pos, end: splitAt, charCount: chunk.length });
+
+    pos = splitAt;
+    index++;
+  }
+
+  return { chunks, boundaries };
+}
+
+// ── Single-Pass Extraction ──
 
 export async function extractNarrativeDna(
   sourceText: string,
@@ -85,9 +272,9 @@ export async function extractNarrativeDna(
   const model = opts.model || MODELS.BALANCED;
   const { apiKey } = resolveGateway();
 
-  // Truncate to ~50k chars to stay within context window
-  const truncatedText = sourceText.length > 50_000
-    ? sourceText.slice(0, 50_000) + "\n\n[TEXT TRUNCATED AT 50,000 CHARACTERS]"
+  // For single-pass, cap at context-safe limit
+  const safeText = sourceText.length > SINGLE_PASS_THRESHOLD
+    ? sourceText.slice(0, SINGLE_PASS_THRESHOLD)
     : sourceText;
 
   const raw = await callLLMWithJsonRetry<any>(
@@ -95,7 +282,7 @@ export async function extractNarrativeDna(
       apiKey,
       model,
       system: EXTRACTION_SYSTEM,
-      user: `Analyse this source text and extract its Narrative DNA:\n\n${truncatedText}`,
+      user: `Analyse this source text and extract its Narrative DNA:\n\n${safeText}`,
       temperature: 0.3,
       maxTokens: 4000,
     },
@@ -107,7 +294,103 @@ export async function extractNarrativeDna(
     },
   );
 
-  // Map spine to canonical axis names
+  return mapRawToResult(raw);
+}
+
+// ── Chunked Extraction ──
+
+/**
+ * Extract DNA from a large text using chunk-level signal extraction + synthesis.
+ * Returns the final DNA result plus the run metadata for provenance.
+ */
+export async function extractNarrativeDnaChunked(
+  sourceText: string,
+  opts: { model?: string } = {},
+): Promise<{ result: DnaExtractionResult; runMeta: ExtractionRunMeta }> {
+  const model = opts.model || MODELS.BALANCED;
+  const { apiKey } = resolveGateway();
+
+  const { chunks, boundaries } = chunkText(sourceText);
+
+  console.log(`[dna-chunked] Extracting signals from ${chunks.length} chunks`);
+
+  // Step 1: Extract signals from each chunk
+  const chunkSignals: any[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    console.log(`[dna-chunked] Chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`);
+    try {
+      const signal = await callLLMWithJsonRetry<any>(
+        {
+          apiKey,
+          model,
+          system: CHUNK_SIGNAL_SYSTEM,
+          user: `Section ${i + 1} of ${chunks.length} of the source text:\n\n${chunks[i]}`,
+          temperature: 0.3,
+          maxTokens: 3000,
+        },
+        {
+          handler: `dna_chunk_signal_${i}`,
+          validate: (data): data is any => {
+            return data && typeof data === "object";
+          },
+        },
+      );
+      chunkSignals.push({ chunk_index: i, ...signal });
+    } catch (err: any) {
+      console.error(`[dna-chunked] Chunk ${i} failed: ${err.message}`);
+      chunkSignals.push({ chunk_index: i, error: err.message, signal_confidence: 0 });
+    }
+  }
+
+  // Step 2: Filter out fully failed chunks
+  const validSignals = chunkSignals.filter(s => !s.error);
+  if (validSignals.length === 0) {
+    throw new Error("All chunk extractions failed — cannot synthesize DNA");
+  }
+
+  // Step 3: Synthesize chunk signals into final DNA
+  console.log(`[dna-chunked] Synthesizing ${validSignals.length} chunk signals`);
+  const synthesisModel = MODELS.PRO; // Use stronger model for synthesis
+
+  const raw = await callLLMWithJsonRetry<any>(
+    {
+      apiKey,
+      model: synthesisModel,
+      system: SYNTHESIS_SYSTEM,
+      user: `Synthesize these ${validSignals.length} chunk-level signal extractions into a unified Narrative DNA profile:\n\n${JSON.stringify(validSignals, null, 2)}`,
+      temperature: 0.3,
+      maxTokens: 4000,
+    },
+    {
+      handler: "narrative_dna_synthesis",
+      validate: (data): data is any => {
+        return data && typeof data === "object" && data.spine && typeof data.spine === "object";
+      },
+    },
+  );
+
+  const result = mapRawToResult(raw);
+
+  const runMeta: ExtractionRunMeta = {
+    extraction_mode: "chunked",
+    normalized_text_length: sourceText.length,
+    chunk_count: chunks.length,
+    chunk_boundaries: boundaries,
+    chunk_signals: chunkSignals.map(s => ({
+      chunk_index: s.chunk_index,
+      signal_confidence: s.signal_confidence ?? null,
+      section_summary: s.section_summary ?? null,
+      error: s.error ?? null,
+    })),
+    synthesis_model: synthesisModel,
+  };
+
+  return { result, runMeta };
+}
+
+// ── Shared mapper ──
+
+function mapRawToResult(raw: any): DnaExtractionResult {
   const spineJson: Record<string, string | null> = {};
   for (const axis of SPINE_AXES) {
     spineJson[axis] = raw.spine?.[axis] ?? null;

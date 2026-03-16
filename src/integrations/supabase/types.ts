@@ -4401,6 +4401,68 @@ export type Database = {
         }
         Relationships: []
       }
+      dna_extraction_runs: {
+        Row: {
+          chunk_boundaries: Json
+          chunk_count: number
+          chunk_signals: Json
+          created_at: string
+          dna_profile_id: string
+          error: string | null
+          extraction_mode: string
+          id: string
+          normalized_text_length: number
+          provenance: Json
+          source_mode: string
+          source_url: string | null
+          status: string
+          synthesis_model: string | null
+          user_id: string
+        }
+        Insert: {
+          chunk_boundaries?: Json
+          chunk_count?: number
+          chunk_signals?: Json
+          created_at?: string
+          dna_profile_id: string
+          error?: string | null
+          extraction_mode?: string
+          id?: string
+          normalized_text_length?: number
+          provenance?: Json
+          source_mode?: string
+          source_url?: string | null
+          status?: string
+          synthesis_model?: string | null
+          user_id: string
+        }
+        Update: {
+          chunk_boundaries?: Json
+          chunk_count?: number
+          chunk_signals?: Json
+          created_at?: string
+          dna_profile_id?: string
+          error?: string | null
+          extraction_mode?: string
+          id?: string
+          normalized_text_length?: number
+          provenance?: Json
+          source_mode?: string
+          source_url?: string | null
+          status?: string
+          synthesis_model?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dna_extraction_runs_dna_profile_id_fkey"
+            columns: ["dna_profile_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_dna_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dna_source_links: {
         Row: {
           created_at: string
