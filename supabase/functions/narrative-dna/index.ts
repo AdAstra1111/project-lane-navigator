@@ -11,7 +11,13 @@
  * Phase 1 only — does NOT wire into DevSeed, pitch_ideas, or project canon.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { extractNarrativeDna, computeTextHash } from "../_shared/narrativeDnaExtractor.ts";
+import {
+  extractNarrativeDna,
+  extractNarrativeDnaChunked,
+  computeTextHash,
+  SINGLE_PASS_THRESHOLD,
+  type ExtractionRunMeta,
+} from "../_shared/narrativeDnaExtractor.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
