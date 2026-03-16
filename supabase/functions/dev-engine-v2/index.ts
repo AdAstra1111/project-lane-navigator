@@ -28194,7 +28194,7 @@ ${upstreamText}`;
           episode_index: ep,
           episode_title: gridEntry?.title || `Episode ${ep}`,
           target_doc_type: "episode_script",
-          meta_json: { logline: gridEntry?.logline || null, lane, is_vertical: isVertical },
+          meta_json: { logline: gridEntry?.logline || null, format: fmt, is_vertical: isVertical },
         });
       }
 
