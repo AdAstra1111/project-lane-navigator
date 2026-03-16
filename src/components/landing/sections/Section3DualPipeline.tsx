@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SectionShell } from '../shared/SectionShell';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Package } from 'lucide-react';
+
+/** Output docs that should appear as parallel deliverables, not ladder stages */
+const OUTPUT_DOCS = new Set(['Market Sheet', 'Deck']);
 
 interface Pipeline {
   key: string;
@@ -73,6 +76,9 @@ export function Section3DualPipeline() {
   const [active, setActive] = useState(0);
   const pipeline = PIPELINES[active];
 
+  const ladderStages = pipeline.stages.filter(s => !OUTPUT_DOCS.has(s));
+  const outputStages = pipeline.stages.filter(s => OUTPUT_DOCS.has(s));
+
   return (
     <SectionShell id="pipelines" className="bg-[hsl(225,20%,5%)]">
       <div className="text-center mb-12">
@@ -134,13 +140,13 @@ export function Section3DualPipeline() {
                 className="text-[10px] font-mono px-2 py-0.5 rounded-full border"
                 style={{ borderColor: `${pipeline.color}40`, color: pipeline.color, background: `${pipeline.color}10` }}
               >
-                {pipeline.stages.length} stages
+                {ladderStages.length} stages
               </span>
             </div>
 
-            {/* Stage flow */}
+            {/* Ladder stage flow */}
             <div className="flex flex-wrap items-center gap-y-3 gap-x-1">
-              {pipeline.stages.map((stage, i) => (
+              {ladderStages.map((stage, i) => (
                 <div key={stage} className="flex items-center gap-1">
                   <motion.div
                     initial={{ opacity: 0, scale: 0.8 }}
@@ -155,34 +161,72 @@ export function Section3DualPipeline() {
                   >
                     {stage}
                   </motion.div>
-                  {i < pipeline.stages.length - 1 && (
+                  {i < ladderStages.length - 1 && (
                     <ChevronRight className="h-3 w-3 flex-shrink-0" style={{ color: `${pipeline.color}30` }} />
                   )}
                 </div>
               ))}
             </div>
+
+            {/* Output documents — parallel deliverables */}
+            {outputStages.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: ladderStages.length * 0.06 + 0.1, duration: 0.3 }}
+                className="mt-4 pt-4 border-t border-border/10"
+              >
+                <div className="flex items-center gap-2 mb-2.5">
+                  <Package className="h-3 w-3" style={{ color: `${pipeline.color}60` }} />
+                  <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: `${pipeline.color}50` }}>
+                    Packaging Outputs
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {outputStages.map((stage, i) => (
+                    <motion.div
+                      key={stage}
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: ladderStages.length * 0.06 + 0.15 + i * 0.06, duration: 0.3 }}
+                      className="rounded-lg border border-dashed px-3 py-1.5 text-xs font-mono"
+                      style={{
+                        borderColor: `${pipeline.color}25`,
+                        background: `${pipeline.color}06`,
+                        color: `${pipeline.color}90`,
+                      }}
+                    >
+                      {stage}
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
           </motion.div>
         </AnimatePresence>
 
         {/* Format summary grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {PIPELINES.map((p, i) => (
-            <motion.button
-              key={p.key}
-              onClick={() => setActive(i)}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className="rounded-xl border p-3 text-left transition-all duration-200"
-              style={{
-                borderColor: active === i ? `${p.color}40` : 'hsl(225,20%,14%)',
-                background: active === i ? `${p.color}08` : 'hsl(225,20%,6%)',
-              }}
-            >
-              <p className="text-[10px] font-mono mb-1" style={{ color: p.color }}>{p.badge}</p>
-              <p className="text-xs font-display text-foreground/80 leading-tight">{p.label}</p>
-              <p className="text-[10px] text-muted-foreground/40 mt-1">{p.stages.length} stages</p>
-            </motion.button>
-          ))}
+          {PIPELINES.map((p, i) => {
+            const count = p.stages.filter(s => !OUTPUT_DOCS.has(s)).length;
+            return (
+              <motion.button
+                key={p.key}
+                onClick={() => setActive(i)}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="rounded-xl border p-3 text-left transition-all duration-200"
+                style={{
+                  borderColor: active === i ? `${p.color}40` : 'hsl(225,20%,14%)',
+                  background: active === i ? `${p.color}08` : 'hsl(225,20%,6%)',
+                }}
+              >
+                <p className="text-[10px] font-mono mb-1" style={{ color: p.color }}>{p.badge}</p>
+                <p className="text-xs font-display text-foreground/80 leading-tight">{p.label}</p>
+                <p className="text-[10px] text-muted-foreground/40 mt-1">{count} stages</p>
+              </motion.button>
+            );
+          })}
         </div>
       </div>
     </SectionShell>
