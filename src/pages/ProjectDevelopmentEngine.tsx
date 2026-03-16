@@ -60,7 +60,7 @@ import type { ExistingDoc } from '@/lib/pipeline-brain';
 import { DecisionModePanel } from '@/components/devengine/DecisionModePanel';
 import type { Decision } from '@/components/devengine/DecisionCard';
 import { usePromotionIntelligence, extractNoteCounts } from '@/hooks/usePromotionIntelligence';
-import { getNextStage } from '@/lib/stages/registry';
+import { getNextStage, getLadderForFormat } from '@/lib/stages/registry';
 import { AutoRunMissionControl } from '@/components/devengine/AutoRunMissionControl';
 import { AutoRunBanner } from '@/components/devengine/AutoRunBanner';
 import { AutoRunProgressPanel } from '@/components/devengine/AutoRunProgressPanel';
