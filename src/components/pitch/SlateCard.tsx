@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Rocket, ChevronDown, ChevronUp, Bookmark, BookmarkCheck, Trash2, TrendingUp, Zap, Lock, Hash } from 'lucide-react';
+import { Rocket, ChevronDown, ChevronUp, Bookmark, BookmarkCheck, Trash2, TrendingUp, Zap, Lock, Hash, Dna, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
