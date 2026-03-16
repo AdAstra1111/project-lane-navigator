@@ -6880,6 +6880,30 @@ Deno.serve(async (req) => {
                 status: "recovering",
                 last_ui_message: `Recovering: ${gateLabel} retrying in ${waitSec}s (attempt ${existingSetupAttempts}/${MAX_SETUP_ATTEMPTS})`,
               });
+              // ── SELF-CHAIN FIX: fire a delayed self-chain so pipeline recovers without frontend polling ──
+              // The PREP_SETUP gate returns before bgTask is spawned, so the normal self-chain never fires.
+              // Without this, Full Autopilot stalls permanently when no browser tab is active.
+              {
+                const _setupRetryUrl = `${supabaseUrl}/functions/v1/auto-run`;
+                const _setupRetryDelayMs = waitSec * 1000 + 500;
+                const _setupRetryBody = JSON.stringify(
+                  job.allow_defaults === true
+                    ? { action: "apply-decisions-and-continue", jobId, auto_apply: true }
+                    : { action: "run-next", jobId }
+                );
+                waitUntilSafe(
+                  new Promise<void>((res) => setTimeout(res, _setupRetryDelayMs)).then(() =>
+                    fetch(_setupRetryUrl, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+                      body: _setupRetryBody,
+                    }).then((r) => {
+                      if (!r.ok) console.error("[auto-run] setup-backoff self-chain HTTP error", { status: r.status, jobId });
+                      else console.log("[auto-run] setup-backoff self-chain fired", { jobId, waitSec });
+                    }).catch((e: any) => console.error("[auto-run] setup-backoff self-chain failed", { jobId, error: e?.message }))
+                  )
+                );
+              }
               return respondWithJob(supabase, jobId, `${gateLabel.toLowerCase()}-backoff-wait`);
             }
             // Backoff expired — clear next_retry_at, proceed with attempt
@@ -6949,6 +6973,28 @@ Deno.serve(async (req) => {
                   stage_history: stageHist,
                   last_ui_message: `${gateLabel}: Canon extract failed, retrying in ${retryDelay}s (attempt ${existingSetupAttempts + 1}/${MAX_SETUP_ATTEMPTS})`,
                 });
+                // ── SELF-CHAIN FIX: fire delayed self-chain so retry executes without frontend polling ──
+                {
+                  const _canonRetryUrl = `${supabaseUrl}/functions/v1/auto-run`;
+                  const _canonRetryDelayMs = retryDelay * 1000 + 500;
+                  const _canonRetryBody = JSON.stringify(
+                    job.allow_defaults === true
+                      ? { action: "apply-decisions-and-continue", jobId, auto_apply: true }
+                      : { action: "run-next", jobId }
+                  );
+                  waitUntilSafe(
+                    new Promise<void>((res) => setTimeout(res, _canonRetryDelayMs)).then(() =>
+                      fetch(_canonRetryUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+                        body: _canonRetryBody,
+                      }).then((r) => {
+                        if (!r.ok) console.error("[auto-run] canon-retry self-chain HTTP error", { status: r.status, jobId });
+                        else console.log("[auto-run] canon-retry self-chain fired", { jobId, retryDelay });
+                      }).catch((e: any) => console.error("[auto-run] canon-retry self-chain failed", { jobId, error: e?.message }))
+                    )
+                  );
+                }
                 return respondWithJob(supabase, jobId, "run-next");
               } else {
                 setupMissing.push("canon_os_world_rules");
