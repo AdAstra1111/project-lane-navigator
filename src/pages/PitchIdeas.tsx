@@ -334,7 +334,7 @@ export default function PitchIdeas() {
               <Lightbulb className="h-7 w-7 text-primary" />
               Pitch Slate
             </h1>
-            <p className="text-muted-foreground mt-1">Generate batches of 10 concepts with hard criteria, then promote the best to DevSeed</p>
+            <p className="text-muted-foreground mt-1">Generate batches of 5 concepts with hard criteria, then promote the best to DevSeed</p>
           </div>
           <div className="flex items-center gap-2">
             {filteredIdeas.length > 0 && (
