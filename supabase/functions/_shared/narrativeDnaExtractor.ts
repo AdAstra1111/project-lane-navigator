@@ -212,6 +212,10 @@ Return a single JSON object with EXACTLY these keys:
     "mutable_variables": ["<dimensions that should change>"],
     "surface_expression_notes": "<string>"
   },
+  "engine_classification": {
+    "primary_engine_key": "<REQUIRED: exactly one of: ${ENGINE_KEY_LIST}>",
+    "secondary_engine_key": "<one of the same keys above, or null if no strong secondary engine>"
+  },
   "confidence": <number 0.0-1.0>
 }
 
@@ -221,6 +225,7 @@ RULES:
 - spine values must be lowercase_snake_case
 - forbidden_carryovers should be the UNION of all specific names found
 - confidence reflects overall extraction quality across all chunks
+- engine_classification.primary_engine_key MUST be exactly one of the listed engine keys — do NOT invent new keys
 - Return ONLY JSON`;
 
 // ── Deterministic Chunking ──
