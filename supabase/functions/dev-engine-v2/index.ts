@@ -28109,6 +28109,7 @@ ${upstreamText}`;
       const isSeriesLike = ["series","vertical-drama","vertical_drama","limited-series","mini-series","anthology"].includes(fmt);
       if (!isSeriesLike) throw new Error(`Project format '${fmt}' is not a series. Cannot generate season scripts.`);
 
+      // TAXONOMY BOUNDARY — vertical detection MUST use project.format, NOT assigned_lane.
       const isVertical = fmt === "vertical-drama" || fmt.includes("vertical");
 
       // ── CANONICAL EPISODE COUNT (hard gate — no defaults) ──
