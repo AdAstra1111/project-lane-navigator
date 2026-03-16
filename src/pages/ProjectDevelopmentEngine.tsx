@@ -861,6 +861,12 @@ export default function ProjectDevelopmentEngine() {
   };
 
   const handleRunEngine = () => {
+    // Guard: do not trigger analysis while the document is still generating in the background.
+    // The backend will reject the call and the error ("Document is still generating") is confusing.
+    if ((selectedVersion as any)?.meta_json?.bg_generating === true) {
+      toast.info('Document is still generating — analysis will be available once generation completes.');
+      return;
+    }
     runAnalysisWithContext();
   };
 
