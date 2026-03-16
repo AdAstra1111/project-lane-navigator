@@ -7578,6 +7578,8 @@ export type Database = {
           locked_at: string | null
           mutable_variables: string[] | null
           power_dynamic: string | null
+          primary_engine_key: string | null
+          secondary_engine_key: string | null
           set_piece_grammar: string | null
           source_corpus_script_id: string | null
           source_ref_json: Json
@@ -7607,6 +7609,8 @@ export type Database = {
           locked_at?: string | null
           mutable_variables?: string[] | null
           power_dynamic?: string | null
+          primary_engine_key?: string | null
+          secondary_engine_key?: string | null
           set_piece_grammar?: string | null
           source_corpus_script_id?: string | null
           source_ref_json?: Json
@@ -7636,6 +7640,8 @@ export type Database = {
           locked_at?: string | null
           mutable_variables?: string[] | null
           power_dynamic?: string | null
+          primary_engine_key?: string | null
+          secondary_engine_key?: string | null
           set_piece_grammar?: string | null
           source_corpus_script_id?: string | null
           source_ref_json?: Json
@@ -7653,6 +7659,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "narrative_dna_profiles_primary_engine_key_fkey"
+            columns: ["primary_engine_key"]
+            isOneToOne: false
+            referencedRelation: "narrative_engines"
+            referencedColumns: ["engine_key"]
+          },
+          {
+            foreignKeyName: "narrative_dna_profiles_secondary_engine_key_fkey"
+            columns: ["secondary_engine_key"]
+            isOneToOne: false
+            referencedRelation: "narrative_engines"
+            referencedColumns: ["engine_key"]
+          },
+          {
             foreignKeyName: "narrative_dna_profiles_source_corpus_script_id_fkey"
             columns: ["source_corpus_script_id"]
             isOneToOne: false
@@ -7660,6 +7680,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      narrative_engines: {
+        Row: {
+          created_at: string
+          description: string
+          engine_key: string
+          engine_name: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          engine_key: string
+          engine_name: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          engine_key?: string
+          engine_name?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       narrative_entities: {
         Row: {
