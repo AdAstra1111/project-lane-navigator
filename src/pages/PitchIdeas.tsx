@@ -456,7 +456,6 @@ export default function PitchIdeas() {
               <RefreshCw className="h-3.5 w-3.5" />
               Generate 5 More
             </Button>
-            </Button>
           )}
         </div>
 
