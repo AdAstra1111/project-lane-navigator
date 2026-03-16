@@ -122,6 +122,10 @@ export default function PitchIdeas() {
           productionType: criteria.productionType,
           count: 10,
           projectId: isProjectMode ? selectedProject : undefined,
+          // DNA / Engine constraints
+          ...(dnaSelection.mode === 'dna_profile' && dnaSelection.dnaProfileId ? { source_dna_profile_id: dnaSelection.dnaProfileId } : {}),
+          ...(dnaSelection.mode === 'engine_only' && dnaSelection.engineKey ? { source_engine_key: dnaSelection.engineKey } : {}),
+          dna_constraint_mode: dnaSelection.mode,
           // New contract: manual_criteria + auto_fields
           manual_criteria: normalized.manual_criteria,
           auto_fields: normalized.auto_fields,
