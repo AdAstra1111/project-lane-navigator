@@ -1,11 +1,12 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { initEditedFields, normalizePitchCriteria, type EditedFieldsMap } from '@/lib/pitch/normalizePitchCriteria';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Lightbulb, Loader2, Download, RefreshCw, Globe } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { HardCriteriaForm, EMPTY_CRITERIA, type HardCriteria } from '@/components/pitch/HardCriteriaForm';
@@ -33,6 +34,8 @@ export default function PitchIdeas() {
   const qc = useQueryClient();
   const [generating, setGenerating] = useState(false);
   const [generateFailed, setGenerateFailed] = useState(false);
+  const [genProgress, setGenProgress] = useState({ current: 0, total: 5 });
+  const preGenCountRef = useRef(0);
   const [criteria, setCriteria] = useState<HardCriteria>({ ...EMPTY_CRITERIA });
   const [editedFields, setEditedFields] = useState<EditedFieldsMap>(() => initEditedFields());
   const [dnaSelection, setDnaSelection] = useState<DnaEngineSelection>({ ...EMPTY_DNA_SELECTION });
@@ -73,6 +76,22 @@ export default function PitchIdeas() {
   const linkedProject = isProjectMode ? projects.find(p => p.id === selectedProject) : null;
   const projectFeatures = (linkedProject as any)?.project_features as Record<string, any> | null | undefined;
 
+  // Poll for new ideas during generation to show incremental progress
+  useEffect(() => {
+    if (!generating) return;
+    const interval = setInterval(async () => {
+      await qc.invalidateQueries({ queryKey: ['pitch-ideas'] });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [generating, qc]);
+
+  // Update progress counter when ideas array grows during generation
+  useEffect(() => {
+    if (!generating) return;
+    const newCount = Math.max(0, ideas.length - preGenCountRef.current);
+    setGenProgress(prev => ({ ...prev, current: Math.min(newCount, prev.total) }));
+  }, [ideas.length, generating]);
+
   const filteredIdeas = useMemo(() => {
     return ideas
       .filter(i => {
@@ -89,6 +108,8 @@ export default function PitchIdeas() {
     }
     setGenerating(true);
     setGenerateFailed(false);
+    setGenProgress({ current: 0, total: 5 });
+    preGenCountRef.current = ideas.length;
 
     try {
       const normalized = normalizePitchCriteria(criteria as unknown as Record<string, unknown>, editedFields);
@@ -120,7 +141,7 @@ export default function PitchIdeas() {
       const { data, error } = await supabase.functions.invoke('generate-pitch', {
         body: {
           productionType: criteria.productionType,
-          count: 10,
+          count: 5,
           projectId: isProjectMode ? selectedProject : undefined,
           // DNA / Engine constraints
           ...(dnaSelection.mode === 'dna_profile' && dnaSelection.dnaProfileId ? { source_dna_profile_id: dnaSelection.dnaProfileId } : {}),
@@ -313,7 +334,7 @@ export default function PitchIdeas() {
               <Lightbulb className="h-7 w-7 text-primary" />
               Pitch Slate
             </h1>
-            <p className="text-muted-foreground mt-1">Generate batches of 10 concepts with hard criteria, then promote the best to DevSeed</p>
+            <p className="text-muted-foreground mt-1">Generate batches of 5 concepts with hard criteria, then promote the best to DevSeed</p>
           </div>
           <div className="flex items-center gap-2">
             {filteredIdeas.length > 0 && (
@@ -370,6 +391,33 @@ export default function PitchIdeas() {
 
         <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />
 
+        {/* Generation progress bar */}
+        <AnimatePresence>
+          {generating && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="space-y-2"
+            >
+              <Card className="border-primary/20 bg-primary/5">
+                <CardContent className="py-4 space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-foreground font-medium flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      Generating concepts…
+                    </span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {genProgress.current} / {genProgress.total}
+                    </span>
+                  </div>
+                  <Progress value={(genProgress.current / genProgress.total) * 100} className="h-2" />
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Trends Snapshot — persisted across refresh, visible when data exists */}
         {lastSignalsMetadata && (
           <TrendsSnapshot
@@ -406,7 +454,7 @@ export default function PitchIdeas() {
           {filteredIdeas.length > 0 && !generating && (
             <Button variant="outline" size="sm" className="gap-1.5" onClick={generate}>
               <RefreshCw className="h-3.5 w-3.5" />
-              Generate 10 More
+              Generate 5 More
             </Button>
           )}
         </div>
@@ -423,20 +471,28 @@ export default function PitchIdeas() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredIdeas.map((idea, i) => {
-              const ideaProject = idea.project_id ? projects.find(p => p.id === idea.project_id) : null;
-              return (
-                <SlateCard
-                  key={idea.id}
-                  idea={idea}
-                  rank={i + 1}
-                  onPromote={setPromoteIdea}
-                  onShortlist={handleShortlist}
-                  onDelete={remove}
-                  projectFeatures={(ideaProject as any)?.project_features as Record<string, any> | null | undefined}
-                />
-              );
-            })}
+            <AnimatePresence>
+              {filteredIdeas.map((idea, i) => {
+                const ideaProject = idea.project_id ? projects.find(p => p.id === idea.project_id) : null;
+                return (
+                  <motion.div
+                    key={idea.id}
+                    initial={{ opacity: 0, y: 16, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ duration: 0.35, delay: i < 5 ? i * 0.08 : 0 }}
+                  >
+                    <SlateCard
+                      idea={idea}
+                      rank={i + 1}
+                      onPromote={setPromoteIdea}
+                      onShortlist={handleShortlist}
+                      onDelete={remove}
+                      projectFeatures={(ideaProject as any)?.project_features as Record<string, any> | null | undefined}
+                    />
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
         )}
 
