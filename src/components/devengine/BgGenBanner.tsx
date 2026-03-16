@@ -10,7 +10,7 @@ import { SectionedDocProgress } from './SectionedDocProgress';
 
 const SECTIONED_PROSE_TYPES = new Set([
   'story_outline', 'treatment', 'long_treatment', 'beat_sheet',
-  'feature_script', 'screenplay_draft', 'character_bible', 'long_character_bible',
+  'feature_script', 'screenplay_draft', 'production_draft', 'character_bible', 'long_character_bible',
 ]);
 
 interface BgGenBannerProps {
