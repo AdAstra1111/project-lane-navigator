@@ -10402,7 +10402,7 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
           }
 
           // ── IEL: ACTIONABLE NOTE EXHAUSTION GATE (writing promote path) ──
-          const writeNoteExhaust = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null, job.allow_defaults === true);
+          const writeNoteExhaust = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null);
           if (writeNoteExhaust.hasActionable) {
             console.warn(`[auto-run][IEL] note_exhaustion_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", actionable_notes: ${writeNoteExhaust.count}, path: "writing_promote" }`);
             await logStep(supabase, jobId, null, currentDoc, "note_exhaustion_blocked",
