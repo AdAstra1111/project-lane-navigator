@@ -311,8 +311,22 @@ Deno.serve(async (req) => {
       if (Object.keys(safeUpdates).length === 0) return jsonRes({ error: "No editable fields provided" }, 400);
 
       // Validate URL if provided
-      if (safeUpdates.source_url) {
-        try { new URL(safeUpdates.source_url); } catch { return jsonRes({ error: "source_url must be a valid URL" }, 400); }
+      if (safeUpdates.source_url != null) {
+        if (typeof safeUpdates.source_url !== "string" || !safeUpdates.source_url.trim()) {
+          return jsonRes({ error: "source_url cannot be empty" }, 400);
+        }
+        try {
+          const parsed = new URL(safeUpdates.source_url.trim());
+          if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+            return jsonRes({ error: "source_url must use http or https protocol" }, 400);
+          }
+        } catch { return jsonRes({ error: "source_url must be a valid URL" }, 400); }
+      }
+      // Validate label if provided
+      if (safeUpdates.source_label != null) {
+        if (typeof safeUpdates.source_label !== "string" || !safeUpdates.source_label.trim()) {
+          return jsonRes({ error: "source_label cannot be empty" }, 400);
+        }
       }
 
       // If setting primary, clear others first
