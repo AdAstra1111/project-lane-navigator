@@ -8515,7 +8515,7 @@ Deno.serve(async (req) => {
               // Flag off — original promotion path
               console.log(`[auto-run][IEL] ci_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciGate.ci} }`);
               // ── IEL: ACTIONABLE NOTE EXHAUSTION GATE (flag-off path) ──
-              const noteExhaustOrig = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null, job.allow_defaults === true);
+              const noteExhaustOrig = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null);
               if (noteExhaustOrig.hasActionable) {
                 console.warn(`[auto-run][IEL] note_exhaustion_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", actionable_notes: ${noteExhaustOrig.count}, path: "flag_off" }`);
                 await logStep(supabase, jobId, null, currentDoc, "note_exhaustion_blocked",
