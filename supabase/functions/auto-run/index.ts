@@ -5506,6 +5506,13 @@ Deno.serve(async (req) => {
           }
         }
         if (selectedOptions.length === 0) {
+          // When called autonomously (auto_apply=true) with nothing to apply, just continue the pipeline
+          if (body.auto_apply === true) {
+            console.log(`[auto-run][IEL] apply-decisions: no pending decisions in autonomous mode — falling through to run-next`, { jobId });
+            await updateJob(supabase, jobId, { status: "running", stop_reason: null, pause_reason: null, pending_decisions: null });
+            await releaseProcessingLock(supabase, jobId);
+            return respondWithJob(supabase, jobId, "run-next");
+          }
           return respond({ error: "selectedOptions array required" }, 400);
         }
       }
