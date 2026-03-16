@@ -1400,6 +1400,91 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
               .update({ updated_at: new Date().toISOString() })
               .eq("id", chunkDocRecord!.id);
             console.log(`[generate-document] Chunked background generation COMPLETE: ${docType} v${chunkVersionNum} chunks=${chunkResult.completedChunks}/${chunkResult.totalChunks}`);
+
+            // ── POST-GENERATION SCENE GRAPH BOOTSTRAP ──────────────────────────
+            // For screenplay-class docs that fell back to sectioned (no scene graph),
+            // auto-extract scenes from the generated text so the next regeneration
+            // can use scene-indexed strategy. Only runs on full success with assembled output.
+            const SCREENPLAY_BOOTSTRAP_TYPES = new Set(["feature_script", "production_draft"]);
+            if (SCREENPLAY_BOOTSTRAP_TYPES.has(docType) && !resolvedSceneCount) {
+              const bootstrapTag = `[generate-document][scene-bootstrap]`;
+              try {
+                // Gate: verify assembled plaintext exists and has screenplay-class length
+                const { data: assembledVer } = await serviceClient
+                  .from("project_document_versions")
+                  .select("plaintext")
+                  .eq("id", chunkVersion!.id)
+                  .single();
+                const assembledText = assembledVer?.plaintext || "";
+
+                if (assembledText.length < 5000) {
+                  console.log(`${bootstrapTag} SKIP — assembled text too short (${assembledText.length} chars), not a viable screenplay source. versionId=${chunkVersion!.id}`);
+                } else {
+                  console.log(`${bootstrapTag} ATTEMPTING — docType=${docType} versionId=${chunkVersion!.id} textLen=${assembledText.length}`);
+
+                  const sgRes = await fetch(
+                    `${supabaseUrl}/functions/v1/dev-engine-v2`,
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${serviceKey}`,
+                        apikey: anonKey,
+                      },
+                      body: JSON.stringify({
+                        action: "scene_graph_extract",
+                        projectId,
+                        sourceDocumentId: chunkDocRecord!.id,
+                        sourceVersionId: chunkVersion!.id,
+                        mode: "from_text",
+                        text: assembledText,
+                        force: false,
+                      }),
+                    }
+                  );
+
+                  if (sgRes.ok) {
+                    const sgData = await sgRes.json();
+                    const sceneCount = sgData?.scenes?.length ?? sgData?.scene_count ?? "unknown";
+                    console.log(`${bootstrapTag} SUCCESS — extracted ${sceneCount} scenes. versionId=${chunkVersion!.id} docType=${docType}`);
+
+                    // Stamp provenance on version meta so the bootstrap is traceable
+                    const { data: curVer } = await serviceClient
+                      .from("project_document_versions")
+                      .select("meta_json")
+                      .eq("id", chunkVersion!.id)
+                      .single();
+                    await serviceClient
+                      .from("project_document_versions")
+                      .update({
+                        meta_json: {
+                          ...(curVer?.meta_json || {}),
+                          scene_graph_bootstrap: {
+                            status: "success",
+                            scene_count: sceneCount,
+                            source_version_id: chunkVersion!.id,
+                            bootstrapped_at: new Date().toISOString(),
+                          },
+                        },
+                      })
+                      .eq("id", chunkVersion!.id);
+                  } else {
+                    const errText = await sgRes.text().catch(() => "unknown");
+                    // scene_graph_not_empty is expected if scenes already exist — not a failure
+                    if (errText.includes("scene_graph_not_empty")) {
+                      console.log(`${bootstrapTag} SKIP — scene graph already populated for project. versionId=${chunkVersion!.id}`);
+                    } else {
+                      console.warn(`${bootstrapTag} FAILED — HTTP ${sgRes.status}: ${errText.slice(0, 300)}. versionId=${chunkVersion!.id} docType=${docType}`);
+                    }
+                  }
+                }
+              } catch (sgErr: any) {
+                // Non-fatal: bootstrap failure must never affect the generated document
+                console.warn(`${bootstrapTag} ERROR (non-fatal) — ${sgErr?.message}. versionId=${chunkVersion!.id} docType=${docType}`);
+              }
+            }
+            // ── END SCENE GRAPH BOOTSTRAP ───────────────────────────────────────
+
           } else {
             // Failed assembly: persist for observability but do NOT promote to is_current
             await serviceClient.from("project_document_versions")
