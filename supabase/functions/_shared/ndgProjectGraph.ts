@@ -450,6 +450,55 @@ export function buildNDGProjectGraph(data: NDGInputData): NDGGraph {
     }
   }
 
+  // ── Node Layer 5: section (NDG v2 — from deliverableSectionRegistry) ──
+  // Deterministic: section nodes are emitted from registry definitions +
+  // presence flags. No inference. Fail-closed: no sections input → no nodes.
+  const sectionNodeIds = new Set<string>();
+  if (data.sections && data.sections.length > 0) {
+    for (const sec of data.sections) {
+      const nodeId = `section:${sec.doc_type}:${sec.section_key}`;
+      const violationCount = sec.violation_keys?.length ?? 0;
+      nodes.push({
+        node_id:   nodeId,
+        node_type: "section",
+        label:     sec.label,
+        meta: {
+          doc_type:    sec.doc_type,
+          section_key: sec.section_key,
+          repair_mode: sec.repair_mode,
+          order:       sec.order,
+          present:     sec.present,
+          violation_count: violationCount,
+          ...(violationCount > 0 ? { violation_keys: sec.violation_keys } : {}),
+        },
+      });
+      sectionNodeIds.add(nodeId);
+    }
+  }
+
+  // ── Edge Type 7: violation_targets_section (NDG v2) ────────────────────
+  // Emitted when a section has violation_keys. Uses stable virtual source IDs
+  // following the same deterministic pattern as other NDG edges.
+  // Source is a stable violation reference; target is the section node.
+  if (data.sections) {
+    for (const sec of data.sections) {
+      if (!sec.violation_keys || sec.violation_keys.length === 0) continue;
+      const sectionNodeId = `section:${sec.doc_type}:${sec.section_key}`;
+      if (!sectionNodeIds.has(sectionNodeId)) continue;
+      for (const vk of sec.violation_keys) {
+        const edgeId = `violation_targets_section:${vk}→${sectionNodeId}`;
+        edges.push({
+          edge_id:    edgeId,
+          edge_type:  "violation_targets_section",
+          from_id:    vk,
+          to_id:      sectionNodeId,
+          derivation: "section_registry",
+          meta: { doc_type: sec.doc_type, section_key: sec.section_key },
+        });
+      }
+    }
+  }
+
   // ── Assemble meta ──────────────────────────────────────────────────────
   const nodeCountsByType = {} as Record<NDGNodeType, number>;
   for (const n of nodes) {
