@@ -6869,44 +6869,25 @@ Deno.serve(async (req) => {
           const MAX_SETUP_ATTEMPTS = 3;
           const BACKOFF_DELAYS = [5, 15, 30];
 
-          // ── Real backoff: if next_retry_at is in the future, return immediately ──
+          // ── Inline backoff wait: if a prior attempt set a future retry time, await it inline ──
+          // NOTE: We deliberately do NOT use the old waitUntil+setTimeout self-chain here.
+          // That pattern is unreliable — Supabase edge isolates terminate before the setTimeout fires,
+          // leaving the pipeline permanently stuck. Inline await is 100% reliable within edge function limits.
           if (nextRetryAt) {
             const retryTime = new Date(nextRetryAt).getTime();
             const now = Date.now();
             if (now < retryTime) {
-              const waitSec = Math.ceil((retryTime - now) / 1000);
-              console.log(`[auto-run] ${gateLabel}: waiting for backoff (${waitSec}s remaining)`, { jobId, nextRetryAt });
+              const waitMs = retryTime - now;
+              const waitSec = Math.ceil(waitMs / 1000);
+              console.log(`[auto-run] ${gateLabel}: inline backoff wait (${waitSec}s)`, { jobId, nextRetryAt });
               await updateJob(supabase, jobId, {
-                status: "recovering",
-                last_ui_message: `Recovering: ${gateLabel} retrying in ${waitSec}s (attempt ${existingSetupAttempts}/${MAX_SETUP_ATTEMPTS})`,
+                status: "running",
+                last_ui_message: `${gateLabel}: retrying in ${waitSec}s (attempt ${existingSetupAttempts}/${MAX_SETUP_ATTEMPTS})...`,
               });
-              // ── SELF-CHAIN FIX: fire a delayed self-chain so pipeline recovers without frontend polling ──
-              // The PREP_SETUP gate returns before bgTask is spawned, so the normal self-chain never fires.
-              // Without this, Full Autopilot stalls permanently when no browser tab is active.
-              {
-                const _setupRetryUrl = `${supabaseUrl}/functions/v1/auto-run`;
-                const _setupRetryDelayMs = waitSec * 1000 + 500;
-                const _setupRetryBody = JSON.stringify(
-                  job.allow_defaults === true
-                    ? { action: "run-next", jobId }
-                    : { action: "run-next", jobId }
-                );
-                waitUntilSafe(
-                  new Promise<void>((res) => setTimeout(res, _setupRetryDelayMs)).then(() =>
-                    fetch(_setupRetryUrl, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-                      body: _setupRetryBody,
-                    }).then((r) => {
-                      if (!r.ok) console.error("[auto-run] setup-backoff self-chain HTTP error", { status: r.status, jobId });
-                      else console.log("[auto-run] setup-backoff self-chain fired", { jobId, waitSec });
-                    }).catch((e: any) => console.error("[auto-run] setup-backoff self-chain failed", { jobId, error: e?.message }))
-                  )
-                );
-              }
-              return respondWithJob(supabase, jobId, `${gateLabel.toLowerCase()}-backoff-wait`);
+              // Await inline — no self-chain needed, no early return
+              await new Promise<void>(res => setTimeout(res, waitMs + 200));
             }
-            // Backoff expired — clear next_retry_at, proceed with attempt
+            // Backoff expired (or waited inline) — clear next_retry_at and proceed
             stageHist[`${setupKey}_setup_next_retry_at`] = null;
           }
 
@@ -6923,82 +6904,68 @@ Deno.serve(async (req) => {
           const hasCharacters = Array.isArray(cj.characters) && cj.characters.length > 0;
 
           if (!hasWorldRules || !hasLogline || !hasPremise || !hasCharacters) {
-            console.log(`[auto-run] ${gateLabel}: canon OS incomplete, attempting extract (attempt ${existingSetupAttempts + 1}/${MAX_SETUP_ATTEMPTS})`, {
-              hasWorldRules, hasLogline, hasPremise, hasCharacters,
-            });
+            // ── Inline retry loop: attempt up to MAX_SETUP_ATTEMPTS times with inline backoff ──
+            // Replaces the old waitUntil+setTimeout self-chain which was unreliable (isolate terminates
+            // before the timer fires, permanently stalling the pipeline). Inline await is always reliable.
             let extractOk = false;
-            try {
-              const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-              const extractResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-                body: JSON.stringify({
-                  action: "canon_os_extract_from_seed_docs",
-                  projectId: job.project_id,
-                  userId: job.user_id,
-                }),
+            for (let attempt = existingSetupAttempts; attempt < MAX_SETUP_ATTEMPTS; attempt++) {
+              console.log(`[auto-run] ${gateLabel}: canon OS extract attempt ${attempt + 1}/${MAX_SETUP_ATTEMPTS}`, {
+                hasWorldRules, hasLogline, hasPremise, hasCharacters,
               });
-              if (extractResp.ok) {
-                const extractResult = await extractResp.json();
-                console.log(`[auto-run] ${gateLabel}: canon extract result`, extractResult);
-                if (extractResult.updated || extractResult.reason === "already_populated") {
-                  extractOk = true;
-                  setupResolved.push("canon_os");
+              try {
+                const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+                const extractResp = await fetch(`${supabaseUrl}/functions/v1/dev-engine-v2`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+                  body: JSON.stringify({
+                    action: "canon_os_extract_from_seed_docs",
+                    projectId: job.project_id,
+                    userId: job.user_id,
+                  }),
+                });
+                if (extractResp.ok) {
+                  const extractResult = await extractResp.json();
+                  console.log(`[auto-run] ${gateLabel}: canon extract result`, extractResult);
+                  if (extractResult.updated || extractResult.reason === "already_populated") {
+                    extractOk = true;
+                    setupResolved.push("canon_os");
+                    break;
+                  }
                 }
+              } catch (e: any) {
+                console.warn(`[auto-run] ${gateLabel}: canon extract attempt ${attempt + 1} failed`, { error: e.message });
               }
-            } catch (e: any) {
-              console.warn(`[auto-run] ${gateLabel}: canon extract attempt failed`, { attempt: existingSetupAttempts, error: e.message });
-            }
 
-            if (!extractOk) {
-              // Re-check DB in case another process populated it
+              // Re-check DB in case another process already populated it
               const { data: recheck } = await supabase.from("project_canon")
                 .select("canon_json").eq("project_id", job.project_id).maybeSingle();
               const rcj = (recheck?.canon_json || {}) as any;
               const recheckOk = (Array.isArray(rcj.world_rules) && rcj.world_rules.length > 0)
                 && (typeof rcj.logline === "string" && rcj.logline.trim().length > 0);
               if (recheckOk) {
+                extractOk = true;
                 setupResolved.push("canon_os_found_on_recheck");
-              } else if (existingSetupAttempts + 1 < MAX_SETUP_ATTEMPTS) {
-                // Schedule retry with REAL backoff delay
-                const retryDelay = BACKOFF_DELAYS[existingSetupAttempts] || 30;
-                const nextRetry = new Date(Date.now() + retryDelay * 1000).toISOString();
-                console.log(`[auto-run] ${gateLabel}: canon extract failed, scheduling retry`, { attempt: existingSetupAttempts + 1, retryDelay, nextRetry });
+                break;
+              }
+
+              if (attempt + 1 < MAX_SETUP_ATTEMPTS) {
+                const retryDelay = BACKOFF_DELAYS[attempt] || 30;
+                console.log(`[auto-run] ${gateLabel}: canon extract failed, inline wait ${retryDelay}s before retry`, { attempt: attempt + 1 });
                 await logStep(supabase, jobId, stepCount, currentDoc, `${gateLabel.toLowerCase()}_retry`,
-                  `Canon OS extract failed (attempt ${existingSetupAttempts + 1}/${MAX_SETUP_ATTEMPTS}). Next retry at ${nextRetry}.`,
-                  {}, undefined, { attempt: existingSetupAttempts + 1, retryDelaySeconds: retryDelay, nextRetryAt: nextRetry });
-                stageHist[`${setupKey}_setup_attempts`] = existingSetupAttempts + 1;
-                stageHist[`${setupKey}_setup_next_retry_at`] = nextRetry;
+                  `Canon OS extract failed (attempt ${attempt + 1}/${MAX_SETUP_ATTEMPTS}). Retrying in ${retryDelay}s...`,
+                  {}, undefined, { attempt: attempt + 1 });
+                stageHist[`${setupKey}_setup_attempts`] = attempt + 1;
                 await updateJob(supabase, jobId, {
                   stage_history: stageHist,
-                  last_ui_message: `${gateLabel}: Canon extract failed, retrying in ${retryDelay}s (attempt ${existingSetupAttempts + 1}/${MAX_SETUP_ATTEMPTS})`,
+                  last_ui_message: `${gateLabel}: Canon extract retrying (attempt ${attempt + 1}/${MAX_SETUP_ATTEMPTS})...`,
                 });
-                // ── SELF-CHAIN FIX: fire delayed self-chain so retry executes without frontend polling ──
-                {
-                  const _canonRetryUrl = `${supabaseUrl}/functions/v1/auto-run`;
-                  const _canonRetryDelayMs = retryDelay * 1000 + 500;
-                  const _canonRetryBody = JSON.stringify(
-                    job.allow_defaults === true
-                      ? { action: "run-next", jobId }
-                      : { action: "run-next", jobId }
-                  );
-                  waitUntilSafe(
-                    new Promise<void>((res) => setTimeout(res, _canonRetryDelayMs)).then(() =>
-                      fetch(_canonRetryUrl, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-                        body: _canonRetryBody,
-                      }).then((r) => {
-                        if (!r.ok) console.error("[auto-run] canon-retry self-chain HTTP error", { status: r.status, jobId });
-                        else console.log("[auto-run] canon-retry self-chain fired", { jobId, retryDelay });
-                      }).catch((e: any) => console.error("[auto-run] canon-retry self-chain failed", { jobId, error: e?.message }))
-                    )
-                  );
-                }
-                return respondWithJob(supabase, jobId, "run-next");
-              } else {
-                setupMissing.push("canon_os_world_rules");
+                // Inline delay — no self-chain, no edge function re-invocation needed
+                await new Promise<void>(res => setTimeout(res, retryDelay * 1000));
               }
+            }
+
+            if (!extractOk) {
+              setupMissing.push("canon_os_world_rules");
             }
           }
 
