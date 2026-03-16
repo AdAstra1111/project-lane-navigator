@@ -266,3 +266,6 @@ verify_jwt = false
 
 [functions.debug-provenance]
 verify_jwt = false
+
+[functions.narrative-dna]
+verify_jwt = false

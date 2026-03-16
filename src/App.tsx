@@ -86,6 +86,7 @@ const CanonPlaceholder = lazy(() => import("./pages/CanonPlaceholder"));
 const AIContentPage = lazy(() => import("./pages/AIContentPage"));
 const AICastLibrary = lazy(() => import("./pages/AICastLibrary"));
 const ProjectCasting = lazy(() => import("./pages/ProjectCasting"));
+const NarrativeDna = lazy(() => import("./pages/NarrativeDna"));
 const DemoDashboard = lazy(() => import("./pages/DemoDashboard"));
 const IntelDashboard = lazy(() => import("./pages/IntelDashboard"));
 const IntelPolicies = lazy(() => import("./pages/IntelPolicies"));
@@ -217,6 +218,7 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/ai-content" element={<ProtectedRoute><ProjectShell><AIContentPage /></ProjectShell></ProtectedRoute>} />
           <Route path="/projects/:id/casting" element={<ProtectedRoute><ProjectShell><ProjectCasting /></ProjectShell></ProtectedRoute>} />
           <Route path="/showcase" element={<ProtectedRoute><Showcase /></ProtectedRoute>} />
+          <Route path="/narrative-dna" element={<ProtectedRoute><NarrativeDna /></ProtectedRoute>} />
 
           <Route path="/processing" element={<Processing />} />
           {/* Quick/Deep review: preserve projectId context when present */}
