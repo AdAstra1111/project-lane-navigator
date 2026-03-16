@@ -103,6 +103,8 @@ export function useEpisodeHandoff(projectId: string) {
         .select('format')
         .eq('id', projectId)
         .single();
+      // TAXONOMY BOUNDARY — structural decisions (doc_type, ladder) MUST use project.format.
+      // Do NOT use assigned_lane here — it is a monetisation taxonomy, not a structural one.
       const normalizedFmt = ((proj as any)?.format || 'film').toLowerCase().replace(/[_ ]+/g, '-');
       const isVD = normalizedFmt === 'vertical-drama';
       const scriptDocType = isVD ? 'season_script' : 'episode_script';

@@ -158,6 +158,8 @@ Deno.serve(async (req) => {
       let episodeCount: number | null = null;
       if (includeDevPack) {
         const { data: proj } = await sb.from("projects").select("season_episode_count, season_episode_count_locked, format").eq("id", projectId).single();
+        // TAXONOMY BOUNDARY — episode-count gating MUST use project.format (structural).
+        // Do NOT use assigned_lane here — it is a monetisation taxonomy.
         const normalizedFmt = ((proj as any)?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
         const isSeriesLike = ["tv-series","limited-series","digital-series","vertical-drama","anim-series","reality"].includes(normalizedFmt);
         if (isSeriesLike) {
