@@ -341,56 +341,6 @@ UPSTREAM CONTEXT:
 ${upstreamContent}
 
 Generate the "${sectionLabel}" section now. Write to the full page target specified above.`;
-  } else if (plan.strategy === "scene_indexed") {
-    // ── Scene-indexed: doc-type-aware prompt for scene-native docs ──────────
-    const sceneRange = chunk.label; // e.g. "Scenes 1–5"
-    let sceneFormatGuidance = "";
-    let sceneTokenTarget = "";
-
-    if (docType === "beat_sheet") {
-      sceneTokenTarget = "2–4 beats per scene, approximately 80–150 words per scene";
-      sceneFormatGuidance = `
-BEAT SHEET FORMAT — MANDATORY:
-- Output a structured beat sheet covering ${sceneRange}.
-- For EACH scene in the range, output 2–4 named beats.
-- Each beat MUST include: beat name, approximate page number, 2–3 sentence description, dramatic/emotional function.
-- Target: ${sceneTokenTarget}.
-- Do NOT merge beats across scenes. Each scene's beats are a distinct group.
-- Do NOT skip any scene in the range. Every scene must have its beats fully described.
-- Do NOT output screenplay format — this is a BEAT SHEET, not a script.
-`;
-    } else if (["feature_script", "production_draft", "screenplay_draft"].includes(docType)) {
-      sceneTokenTarget = "1–2.5 pages per scene (approximately 250–625 words per scene)";
-      sceneFormatGuidance = `
-FEATURE SCREENPLAY FORMAT — MANDATORY:
-- Output full professional screenplay pages for ${sceneRange}.
-- Every scene MUST include: INT./EXT. slugline, full action paragraphs, complete dialogue with character cues.
-- Target: ${sceneTokenTarget}.
-- Write EVERY scene in FULL. Do NOT compress, summarise, or skip any scene.
-- Maintain continuity with the previous chunk's ending (if provided).
-- A feature film screenplay is 95–115 pages total. Each scene batch must contribute proportionally.
-`;
-    } else {
-      // Generic scene-indexed fallback
-      sceneFormatGuidance = `
-Output full content for ${sceneRange}. Write every scene completely — do NOT summarize or skip.
-`;
-    }
-
-    chunkPrompt = `You are generating ${sceneRange} for the project "${projectTitle}".
-Document type: ${docType.replace(/_/g, " ")}
-${sceneFormatGuidance}
-CRITICAL RULES:
-- Output ONLY content for ${sceneRange}. Do NOT output scenes outside this range.
-- Do NOT summarize, compress, or abbreviate any scene.
-- Do NOT use phrases like "remaining scenes follow similar pattern" or "etc."
-
-${additionalContext ? `CREATIVE DIRECTION:\n${additionalContext}\n` : ""}
-${previousChunkEnding ? `PREVIOUS CHUNK ENDING (for continuity):\n...${previousChunkEnding}\n` : ""}
-UPSTREAM CONTEXT:
-${upstreamContent}
-
-Generate ${sceneRange} now. Full content for each scene.`;
   } else {
     chunkPrompt = `Generate chunk ${chunk.chunkIndex + 1} (${chunk.label}) for "${projectTitle}".
 ${upstreamContent}`;

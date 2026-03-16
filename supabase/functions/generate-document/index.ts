@@ -1193,10 +1193,9 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
       // as episodic beats — return immediately, write content in background.
       console.log(`[generate-document] Large-risk doc type "${docType}" — starting background chunked generation`);
 
-      // ── Resolve scene count for scene-native doc types (scene_indexed strategy) ──
-      const SCENE_NATIVE_TYPES = new Set(["production_draft", "feature_script", "beat_sheet"]);
+      // ── PATCH A: Resolve scene count for production_draft scene_indexed strategy ──
       let resolvedSceneCount: number | null = null;
-      if (SCENE_NATIVE_TYPES.has(docType)) {
+      if (docType === "production_draft") {
         try {
           const { count } = await supabase
             .from("scene_graph_scenes")
@@ -1205,12 +1204,12 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
             .is("deprecated_at", null);
           if (count && count > 0) {
             resolvedSceneCount = count;
-            console.log(`[generate-document] ${docType}: resolved ${resolvedSceneCount} active scenes for scene_indexed strategy`);
+            console.log(`[generate-document] production_draft: resolved ${resolvedSceneCount} active scenes for scene_indexed strategy`);
           } else {
-            console.warn(`[generate-document] ${docType}: no active scenes found — will fall back to sectioned strategy`);
+            console.warn(`[generate-document] production_draft: no active scenes found — will fall back to sectioned strategy`);
           }
         } catch (scErr: any) {
-          console.warn(`[generate-document] ${docType}: scene count query failed (${scErr?.message}) — falling back to sectioned`);
+          console.warn(`[generate-document] production_draft: scene count query failed (${scErr?.message}) — falling back to sectioned`);
         }
       }
 

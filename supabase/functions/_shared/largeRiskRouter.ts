@@ -47,18 +47,18 @@ const EPISODIC_DOC_TYPES = new Set([
 ]);
 
 const SECTIONED_DOC_TYPES = new Set([
+  "feature_script",
   "screenplay_draft",
   "long_treatment",
   "treatment",
   "story_outline",
+  "beat_sheet",
   "character_bible",
   "long_character_bible",
 ]);
 
 const SCENE_INDEXED_DOC_TYPES = new Set([
   "production_draft",
-  "feature_script",
-  "beat_sheet",
 ]);
 
 const ALL_LARGE_RISK = new Set([
@@ -207,14 +207,8 @@ export function chunkPlanFor(
     if (!context.sceneCount || context.sceneCount < 1) {
       // Fall back to sectioned strategy if no real scene count from DB
       console.warn(`[largeRiskRouter] scene_indexed requested for "${docType}" but no sceneCount — falling back to sectioned`);
-      // Doc-type-aware fallback sections
-      let fallbackSections: string[];
-      if (docType === "beat_sheet") {
-        fallbackSections = BEAT_SHEET_SECTIONS;
-      } else {
-        fallbackSections = SCRIPT_SECTIONS;
-      }
-      const chunks: ChunkPlanEntry[] = fallbackSections.map((sec, i) => ({
+      const sections = SCRIPT_SECTIONS;
+      const chunks: ChunkPlanEntry[] = sections.map((sec, i) => ({
         chunkIndex: i,
         chunkKey: sec,
         label: sec.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
