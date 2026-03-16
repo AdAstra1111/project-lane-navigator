@@ -32,6 +32,7 @@ export interface ChunkRunnerOptions {
   maxChunkRepairs?: number;
   episodeCount?: number;
   requestId?: string;
+  projectFormat?: string;
 }
 
 export interface ChunkRunResult {
