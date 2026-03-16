@@ -28295,6 +28295,7 @@ ${upstreamText}`;
         .select("format, assigned_lane, title, genres, tone, target_audience")
         .eq("id", projectId).single();
 
+      // TAXONOMY BOUNDARY — structural format detection MUST use project.format, NOT assigned_lane.
       const fmt = ((proj?.format || "film") as string).toLowerCase().replace(/[_ ]+/g, "-");
       const isVertical = fmt === "vertical-drama";
 
