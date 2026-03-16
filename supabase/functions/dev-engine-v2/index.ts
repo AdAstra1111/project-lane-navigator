@@ -42,7 +42,8 @@ import {
   type RewriteTargetForSequencing,
   SEVERITY_WEIGHTS,
 } from "../_shared/narrativeDependencyGraph.ts";
-import { buildNDGProjectGraph, summariseNDGGraph, type NDGInputData } from "../_shared/ndgProjectGraph.ts";
+import { buildNDGProjectGraph, summariseNDGGraph, type NDGInputData, type SectionInputRow } from "../_shared/ndgProjectGraph.ts";
+import { getSectionConfig } from "../_shared/deliverableSectionRegistry.ts";
 import { classifySceneRoles, type SceneForClassification } from "../_shared/sceneRoleClassifier.ts";
 import { classifySceneGraphState } from "../_shared/sceneGraphClassifier.ts";
 import type { SpineAxis } from "../_shared/narrativeSpine.ts";
