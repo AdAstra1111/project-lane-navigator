@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Lock, Pencil, Save, X, Dna, AlertTriangle } from 'lucide-react';
 import type { DnaProfile } from '@/hooks/useNarrativeDna';
 import { useUpdateDna, useLockDna } from '@/hooks/useNarrativeDna';
+import { DnaSourceMaterial } from './DnaSourceMaterial';
 
 const SPINE_LABELS: Record<string, string> = {
   story_engine: 'Story Engine',
@@ -130,6 +131,9 @@ export function DnaProfileCard({ profile }: Props) {
       </CardHeader>
 
       <CardContent className="space-y-4 text-sm">
+        {/* Source Material */}
+        <DnaSourceMaterial dnaProfileId={profile.id} isLocked={isLocked} />
+
         {/* Spine Axes */}
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">

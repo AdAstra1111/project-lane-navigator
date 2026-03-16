@@ -123,3 +123,82 @@ export function useLockDna() {
     },
   });
 }
+
+// ── Source Links ──────────────────────────────────────────────────────
+
+export interface DnaSourceLink {
+  id: string;
+  dna_profile_id: string;
+  user_id: string;
+  source_label: string;
+  source_url: string;
+  source_type: string;
+  is_primary: boolean;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function useDnaSourceLinks(dnaProfileId: string | undefined) {
+  return useQuery({
+    queryKey: ['dna-source-links', dnaProfileId],
+    queryFn: async () => {
+      if (!dnaProfileId) return [];
+      const res = await callDna('list_sources', { dna_profile_id: dnaProfileId });
+      return (res.links || []) as DnaSourceLink[];
+    },
+    enabled: !!dnaProfileId,
+  });
+}
+
+export function useAddDnaSourceLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      dna_profile_id: string;
+      source_label: string;
+      source_url: string;
+      source_type?: string;
+      is_primary?: boolean;
+      notes?: string;
+    }) => {
+      const res = await callDna('add_source', params);
+      return res.link as DnaSourceLink;
+    },
+    onSuccess: (link) => {
+      qc.invalidateQueries({ queryKey: ['dna-source-links', link.dna_profile_id] });
+      toast.success('Source link added');
+    },
+    onError: (err: Error) => toast.error(`Add failed: ${err.message}`),
+  });
+}
+
+export function useUpdateDnaSourceLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { id: string; dna_profile_id: string; updates: Record<string, any> }) => {
+      const res = await callDna('update_source', { id: params.id, updates: params.updates });
+      return { ...res.link, dna_profile_id: params.dna_profile_id } as DnaSourceLink;
+    },
+    onSuccess: (link) => {
+      qc.invalidateQueries({ queryKey: ['dna-source-links', link.dna_profile_id] });
+      toast.success('Source link updated');
+    },
+    onError: (err: Error) => toast.error(`Update failed: ${err.message}`),
+  });
+}
+
+export function useRemoveDnaSourceLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { id: string; dna_profile_id: string }) => {
+      await callDna('remove_source', { id: params.id });
+      return params;
+    },
+    onSuccess: (params) => {
+      qc.invalidateQueries({ queryKey: ['dna-source-links', params.dna_profile_id] });
+      toast.success('Source link removed');
+    },
+    onError: (err: Error) => toast.error(`Remove failed: ${err.message}`),
+  });
+}

@@ -4401,6 +4401,53 @@ export type Database = {
         }
         Relationships: []
       }
+      dna_source_links: {
+        Row: {
+          created_at: string
+          dna_profile_id: string
+          id: string
+          is_primary: boolean
+          notes: string | null
+          source_label: string
+          source_type: string
+          source_url: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dna_profile_id: string
+          id?: string
+          is_primary?: boolean
+          notes?: string | null
+          source_label: string
+          source_type?: string
+          source_url: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          dna_profile_id?: string
+          id?: string
+          is_primary?: boolean
+          notes?: string | null
+          source_label?: string
+          source_type?: string
+          source_url?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dna_source_links_dna_profile_id_fkey"
+            columns: ["dna_profile_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_dna_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       doc_change_proposals: {
         Row: {
           created_at: string
