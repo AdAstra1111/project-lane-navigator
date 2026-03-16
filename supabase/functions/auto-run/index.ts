@@ -8457,7 +8457,7 @@ Deno.serve(async (req) => {
                 } else {
                   console.log(`[auto-run][IEL] ci_blocker_gate_passed { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${blockerGate.ci} }`);
                   // ── IEL: ACTIONABLE NOTE EXHAUSTION GATE — block promotion if notes remain ──
-                  const noteExhaust = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null, job.allow_defaults === true);
+                  const noteExhaust = await checkActionableNoteExhaustion(supabase, job.project_id, currentDoc, latestVersion?.id || null);
                   if (noteExhaust.hasActionable) {
                     console.warn(`[auto-run][IEL] note_exhaustion_blocked_promote { job_id: "${jobId}", doc_type: "${currentDoc}", actionable_notes: ${noteExhaust.count} }`);
                     await logStep(supabase, jobId, null, currentDoc, "note_exhaustion_blocked",
