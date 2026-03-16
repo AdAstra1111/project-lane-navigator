@@ -70,7 +70,7 @@ function BgGenBannerInner({ versionId, episodeCount, docType, projectId, documen
 
   // For sectioned prose types, detect actual strategy from chunk keys
   // to distinguish scene_indexed (scene batches) from act-based sectioned
-  const { data: detectedStrategy = 'unknown' } = useQuery<DetectedStrategy>({
+  const { data: detectedStrategy = 'unknown', isLoading: isDetecting } = useQuery<DetectedStrategy>({
     queryKey: ['bg-gen-strategy-detect', versionId],
     queryFn: async () => {
       if (!versionId) return 'unknown';
@@ -85,11 +85,27 @@ function BgGenBannerInner({ versionId, episodeCount, docType, projectId, documen
     },
     enabled: !!versionId && !!isSectioned,
     staleTime: 30000,
+    refetchInterval: (query) => {
+      // Keep polling until we get a definitive strategy
+      return query.state.data === 'unknown' ? 3000 : false;
+    },
   });
 
   // Episodic doc types (season_script etc.) → episode progress
   if (!isSectioned) {
     return <SeasonScriptProgress versionId={versionId} episodeCount={episodeCount} />;
+  }
+
+  // While strategy is unknown (no chunks yet), show neutral loading state
+  if (detectedStrategy === 'unknown' && (isDetecting || !isSectioned)) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[300px] gap-3 text-muted-foreground">
+        <Loader2 className="h-6 w-6 animate-spin" />
+        <p className="text-sm text-center max-w-sm">
+          Preparing generation — this will update automatically once writing begins.
+        </p>
+      </div>
+    );
   }
 
   // Scene-indexed screenplay docs → scene batch progress
