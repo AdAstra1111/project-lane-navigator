@@ -278,7 +278,7 @@ export function DnaSourceMaterial({ dnaProfileId, isLocked = false }: Props) {
                       onClick={() => togglePrimary(link)}
                     >
                       {link.is_primary
-                        ? <StarOff className="h-3 w-3 text-amber-500" />
+                        ? <StarOff className="h-3 w-3 text-primary" />
                         : <Star className="h-3 w-3 text-muted-foreground" />
                       }
                     </Button>
