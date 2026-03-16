@@ -6,7 +6,7 @@
 
 // ─── Constants ───
 
-export const GATEWAY_URL_LOVABLE = "https://openrouter.ai/api/v1/chat/completions";
+export const GATEWAY_URL_LOVABLE = "https://ai.gateway.lovable.dev/v1/chat/completions";
 export const GATEWAY_URL_OPENROUTER = "https://openrouter.ai/api/v1/chat/completions";
 export const GATEWAY_URL_OPENAI = "https://api.openai.com/v1/chat/completions";
 
