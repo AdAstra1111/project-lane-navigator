@@ -265,7 +265,7 @@ export default function PitchIdeas() {
     } finally {
       setGenerating(false);
     }
-  }, [criteria, selectedProject, isProjectMode, globalAnimMeta, globalModality, save]);
+  }, [criteria, selectedProject, isProjectMode, globalAnimMeta, globalModality, dnaSelection, save]);
 
   const handleShortlist = useCallback(async (id: string, shortlisted: boolean) => {
     await update({ id, status: shortlisted ? 'shortlisted' : 'draft' });
