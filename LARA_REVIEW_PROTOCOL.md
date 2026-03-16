@@ -1,5 +1,12 @@
 # LARA LANE — IFFY STAFF ENGINEER REVIEW PROTOCOL
 
+## 🚨 PIPELINE DEBUG — READ THIS FIRST
+
+**Before touching `auto-run` or `dev-engine-v2` for ANY pipeline stall:**
+→ Read `docs/PIPELINE_DEBUG_PROTOCOL.md` in full. No exceptions.
+
+Skipping this cost an entire day on 2026-03-16 (PRs #4–#9, all self-inflicted).
+
 ## 🔒 Branch Workflow (MANDATORY — enforced by GitHub)
 
 **Lovable pushes to: `lovable` branch ONLY**
