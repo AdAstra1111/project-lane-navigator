@@ -6,16 +6,16 @@
 
 // ─── Constants ───
 
-export const GATEWAY_URL_LOVABLE = "https://ai.gateway.lovable.dev/v1/chat/completions";
+export const GATEWAY_URL_LOVABLE = "https://openrouter.ai/api/v1/chat/completions";
 export const GATEWAY_URL_OPENROUTER = "https://openrouter.ai/api/v1/chat/completions";
 export const GATEWAY_URL_OPENAI = "https://api.openai.com/v1/chat/completions";
 
 /**
  * Resolve the active gateway URL and API key from environment.
- * Priority: LOVABLE_API_KEY → OPENROUTER_API_KEY → OPENAI_API_KEY
+ * Priority: OPENROUTER_API_KEY → LOVABLE_API_KEY → OPENAI_API_KEY
  */
 export function resolveGateway(): { url: string; apiKey: string } {
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+  const lovableKey = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("LOVABLE_API_KEY");
   if (lovableKey) return { url: GATEWAY_URL_LOVABLE, apiKey: lovableKey };
 
   const openrouterKey = Deno.env.get("OPENROUTER_API_KEY");

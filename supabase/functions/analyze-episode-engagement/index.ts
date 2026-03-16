@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
       episodeLengthMax = 180,
     } = body;
 
-    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
     if (!apiKey) throw new Error("Missing LOVABLE_API_KEY");
 
     const supaUrl = Deno.env.get("SUPABASE_URL")!;

@@ -11,7 +11,7 @@ import { buildStoryboardRepairInstruction } from "../_shared/cinematic-repair.ts
 import { getProjectModality, buildModalityPromptBlock } from "../_shared/productionModality.ts";
 import { getAnimationMeta, buildAnimationMetaPromptBlock } from "../_shared/animationMeta.ts";
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const GATEWAY_URL = "https://openrouter.ai/api/v1/chat/completions";
 const IMAGE_MODEL = "google/gemini-2.5-flash-image";
 const STORAGE_BUCKET = "storyboards";
 
@@ -674,7 +674,7 @@ Deno.serve(async (req) => {
       return json({ error: "Forbidden: no project access" }, 403);
     }
 
-    const apiKey = Deno.env.get("LOVABLE_API_KEY") || "";
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY") || "";
 
     switch (action) {
       case "list_canonical_units": return await handleListCanonicalUnits(db, body);

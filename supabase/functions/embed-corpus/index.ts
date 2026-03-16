@@ -22,8 +22,8 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-    if (!lovableKey) throw new Error("LOVABLE_API_KEY not configured");
+    const lovableKey = Deno.env.get("OPENROUTER_API_KEY");
+    if (!lovableKey) throw new Error("OPENROUTER_API_KEY not configured");
 
     // Verify user
     const userClient = createClient(supabaseUrl, anonKey, {
@@ -289,7 +289,7 @@ async function generateEmbeddings(texts: string[], apiKey: string): Promise<numb
   // Since the gateway is OpenAI-compatible, we use the embeddings endpoint pattern
   // But the Lovable AI gateway only supports chat completions, so we use a tool-calling approach
 
-  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

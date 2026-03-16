@@ -548,7 +548,7 @@ Deno.serve(async (req) => {
     body.projectId = projectId;
 
     const db = adminClient();
-    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
     if (!apiKey && action === "create_run") return json({ error: "AI key not configured" }, 500);
 
     // Verify project access

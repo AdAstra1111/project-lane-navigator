@@ -77,7 +77,7 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY")!;
     const sb = createClient(supabaseUrl, supabaseKey);
 
     // Verify user

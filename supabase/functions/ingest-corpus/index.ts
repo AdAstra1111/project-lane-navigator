@@ -17,7 +17,7 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+    const lovableKey = Deno.env.get("OPENROUTER_API_KEY");
 
     // Verify user
     const userClient = createClient(supabaseUrl, anonKey, {
@@ -165,7 +165,7 @@ async function handleIngest(
     }
     const base64Pdf = btoa(binary);
 
-    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -312,7 +312,7 @@ async function handleIngest(
     addLog("Generating derived artifacts…");
     try {
       const excerpt = rawText.slice(0, 15_000);
-      const artifactResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const artifactResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -441,7 +441,7 @@ async function handleReingest(
   // For PDF: use AI extraction
   if (ingestionSource === 'pdf' && lovableKey) {
     addLog("Extracting text from PDF via AI…");
-    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({

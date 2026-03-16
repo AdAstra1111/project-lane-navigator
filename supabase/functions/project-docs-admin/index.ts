@@ -51,7 +51,7 @@ function hasPlaceholders(text: string): boolean {
 }
 
 // ─── LLM ───
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const GATEWAY_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 async function callLLM(apiKey: string, system: string, user: string): Promise<string> {
   const res = await fetch(GATEWAY_URL, {
@@ -304,7 +304,7 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
     const sb = createClient(supabaseUrl, serviceKey);
 
     const token = authHeader.replace("Bearer ", "");

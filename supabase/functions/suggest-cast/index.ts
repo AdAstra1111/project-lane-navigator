@@ -29,8 +29,8 @@ serve(async (req) => {
     }
 
     const { projectTitle, format, genres, budgetRange, tone, assignedLane, targetCharacter } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
     const genderHint = targetCharacter?.gender && targetCharacter.gender !== 'unknown'
       ? ` This character is ${targetCharacter.gender}. Suggest ONLY ${targetCharacter.gender} actors.`
@@ -66,7 +66,7 @@ For each suggestion provide:
     const guardrails = buildGuardrailBlock({ productionType: format, engineName: "suggest-cast" });
     console.log(`[suggest-cast] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,

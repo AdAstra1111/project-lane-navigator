@@ -7,8 +7,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
-const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
+const AI_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 /* ── helpers ── */
 

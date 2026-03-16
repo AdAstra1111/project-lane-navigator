@@ -557,7 +557,7 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let response: Response;
     try {
-      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -4756,8 +4756,8 @@ serve(async (req) => {
       }
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -17381,7 +17381,7 @@ Return ONLY valid JSON:
       }
 
       // ── LOVABLE_API_KEY guard ─────────────────────────────────────────
-      const RP4_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      const RP4_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
       if (!RP4_API_KEY) {
         return new Response(JSON.stringify({ ok: false, error: "LOVABLE_API_KEY not configured — cannot generate patch proposal" }),
           { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -19726,12 +19726,12 @@ ${patchLayer === "layer_7_beats" ? "IMPORTANT: Include ALL existing beats plus a
       const failedSceneKeys:     string[] = [];
 
       // Load shared project context once before the loop (stale units + API key)
-      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
       if (!LOVABLE_API_KEY) {
         await supabase.from("regeneration_runs").update({
           status: "failed", abort_reason: "missing_api_key", completed_at: new Date().toISOString(),
         }).eq("id", execRunId);
-        throw new Error("LOVABLE_API_KEY not configured");
+        throw new Error("OPENROUTER_API_KEY not configured");
       }
 
       const { data: sharedStaleUnits } = await supabase
@@ -21260,7 +21260,7 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
       }).select().single();
 
       // 4. LLM: Build spine
-      const apiKey = Deno.env.get("LOVABLE_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
+      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
       const spineSystem = `You are a script analysis engine. Given a scene map of a screenplay, produce a Project Spine JSON.
 Output ONLY valid JSON with this structure:
 {
@@ -21446,7 +21446,7 @@ Use ONLY the scene_ids provided. Never invent IDs.`;
         .select("fact_type, subject, predicate, object, confidence")
         .eq("project_id", projectId).eq("is_active", true).limit(100);
 
-      const apiKey = Deno.env.get("LOVABLE_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
+      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
 
       const repairSystem = `You are a script repair advisor. Given a problem, a project spine, a scene map, and canon facts, suggest 3-6 repair OPTIONS.
 Each option MUST be one of: insert_new_scene, rewrite_scene, move_scene, split_scene, merge_scenes.
@@ -21883,7 +21883,7 @@ CANON FACTS: ${JSON.stringify(canonFacts || []).slice(0, 4000)}`;
       // ── LLM semantic coherence check (single pass) ──
       let llmFindings: any[] = [];
       if (docVersions.length > 0 && sceneMapCompact.length > 0) {
-        const apiKey = Deno.env.get("LOVABLE_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
+        const apiKey = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
 
         const docsContext = docVersions.map(d => `[${d.doc_type}|doc:${d.document_id}|ver:${d.version_id}]\n${d.plaintext.slice(0, 3000)}`).join('\n\n---\n\n');
 
@@ -22071,7 +22071,7 @@ Rules:
         .select("fact_type, subject, predicate, object")
         .eq("project_id", projectId).eq("is_active", true).limit(50);
 
-      const apiKey = Deno.env.get("LOVABLE_API_KEY") || '';
+      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || '';
 
       const shotGenSystem = `You are a feature film cinematographer and 1st AD planning a shot list. Mode: ${useMode}. Aspect ratio: ${useAR}.
 Output ONLY valid JSON: { "shots": [{ "order": 1, "shot_type": "shot"|"insert"|"cutaway"|"transition"|"montage", "coverage_role": "master"|"wide"|"two_shot"|"single"|"ots"|"pov"|"insert"|"cutaway", "framing": "WS"|"MS"|"MCU"|"CU"|"ECU", "lens_mm": 35, "camera_support": "tripod"|"handheld"|"steadicam"|"dolly"|"crane"|"drone", "camera_movement": "static"|"pan"|"tilt"|"push"|"pull"|"track"|"crane"|"handheld", "angle": "eye"|"high"|"low"|"dutch"|"overhead", "composition_notes": "", "blocking_notes": "", "emotional_intent": "", "narrative_function": "reveal"|"escalation"|"payoff"|"exposition"|"transition"|"motif", "characters_in_frame": [], "props_required": [], "sfx_vfx_flags": {"vfx":false,"sfx":false,"stunts":false}, "est_duration_seconds": 5, "est_setup_complexity": 2, "lighting_style": "naturalistic" }] }
@@ -22368,7 +22368,7 @@ Rules:
         let error: string | null = null;
 
         try {
-          const imgResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          const imgResp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${LOVABLE_API_KEY}`,
@@ -22743,7 +22743,7 @@ Rules:
         return { n: i + 1, id: o.scene_id, slug: v?.slugline || '', summary: (v?.summary || '').slice(0, 300), chars: v?.characters_present || [], act: o.act };
       });
 
-      const apiKey = Deno.env.get("LOVABLE_API_KEY") || '';
+      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || '';
       const spineSystem = `You are a narrative architect. Analyze the scene map and produce a Story Spine JSON.
 RETURN ONLY valid JSON matching this exact schema:
 {
@@ -22825,7 +22825,7 @@ Use scene IDs from the provided map only. Keep JSON under 20000 chars.`;
         return { n: i + 1, id: o.scene_id, slug: v?.slugline || '', summary: (v?.summary || '').slice(0, 200) };
       });
 
-      const apiKey = Deno.env.get("LOVABLE_API_KEY") || '';
+      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || '';
       const ledgerSystem = `You are a narrative analyst. Identify all story threads from the scene map and spine.
 RETURN ONLY valid JSON:
 {
@@ -22926,7 +22926,7 @@ SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 20000)}`;
       const threadList = (latestLedger?.ledger as any)?.threads || [];
       const threadIds = threadList.map((t: any) => t.thread_id);
 
-      const apiKey = Deno.env.get("LOVABLE_API_KEY") || '';
+      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || '';
       const tagSystem = `You are a scene analyst. Tag this scene with roles and thread links.
 RETURN ONLY valid JSON:
 {
@@ -23035,7 +23035,7 @@ SPINE: ${JSON.stringify(latestSpine?.spine || {}).slice(0, 3000)}`;
       });
 
       const threadList = (latestLedger?.ledger as any)?.threads || [];
-      const apiKey = Deno.env.get("LOVABLE_API_KEY") || '';
+      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || '';
 
       const repairSystem = `You are a narrative repair specialist. Given a problem, produce EXACTLY 3 repair options.
 Option 1: INSERT a new scene.
@@ -27881,7 +27881,7 @@ No stubs, no placeholders, no TODO markers.`;
       };
 
       const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
-      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+      const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
 
       const processed: any[] = [];
 
@@ -28300,7 +28300,7 @@ ${upstreamText}`;
       const constraintPack = await loadConstraintPack(supabase, projectId);
       console.log("[dev-engine-v2] series-scripts-tick: constraint injection", { path: "series-scripts-tick", hasNEC: !!necBlock, hasConstraintPack: !!constraintPack });
       const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
-      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+      const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
 
       const EPISODE_SCRIPT_SYSTEM = `You are IFFY, a professional screenwriter AI. Write a COMPLETE, production-ready episode script in proper teleplay format.
 
@@ -31062,7 +31062,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             const repairInstruction = `Rewrite the ${target.section_key} section to address the identified narrative repair issue (${execCore.resolved_repair_type || repairType || "general improvement"}). Preserve the existing structure, tone, and all narrative elements not directly related to the repair. Maintain consistency with the rest of the document.`;
 
             // Use canonical callAI for section rewrite
-            const execApiKey = Deno.env.get("LOVABLE_API_KEY") || "";
+            const execApiKey = Deno.env.get("OPENROUTER_API_KEY") || "";
             if (!execApiKey) {
               docSequenceFailed = true;
               docTargetResults.push({
