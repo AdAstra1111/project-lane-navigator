@@ -1193,6 +1193,26 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
       // as episodic beats — return immediately, write content in background.
       console.log(`[generate-document] Large-risk doc type "${docType}" — starting background chunked generation`);
 
+      // ── PATCH A: Resolve scene count for production_draft scene_indexed strategy ──
+      let resolvedSceneCount: number | null = null;
+      if (docType === "production_draft") {
+        try {
+          const { count } = await supabase
+            .from("scene_graph_scenes")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", projectId)
+            .eq("is_active", true);
+          if (count && count > 0) {
+            resolvedSceneCount = count;
+            console.log(`[generate-document] production_draft: resolved ${resolvedSceneCount} active scenes for scene_indexed strategy`);
+          } else {
+            console.warn(`[generate-document] production_draft: no active scenes found — will fall back to sectioned strategy`);
+          }
+        } catch (scErr: any) {
+          console.warn(`[generate-document] production_draft: scene count query failed (${scErr?.message}) — falling back to sectioned`);
+        }
+      }
+
       // Ensure doc record exists
       let { data: chunkDocRecord } = await supabase.from("project_documents")
         .select("id").eq("project_id", projectId).eq("doc_type", docType).single();
@@ -1263,7 +1283,7 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
 
         const resumePlan = chunkPlanFor(docType, {
           episodeCount: resolvedQuals?.season_episode_count,
-          sceneCount: null,
+          sceneCount: resolvedSceneCount,
           batchSize: docType === "season_script" ? 1 : undefined,
         });
 
@@ -1349,7 +1369,7 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
 
       const plan = chunkPlanFor(docType, {
         episodeCount: resolvedQuals?.season_episode_count,
-        sceneCount: null,
+        sceneCount: resolvedSceneCount,
         // season_script: 1 episode per chunk — crash-safe, resumable, no JSON transport
         batchSize: docType === "season_script" ? 1 : undefined,
       });

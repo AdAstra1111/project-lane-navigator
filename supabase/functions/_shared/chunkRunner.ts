@@ -702,12 +702,33 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
     .eq("id", versionId)
     .maybeSingle();
 
-  const mergedMeta = {
+  // ── PATCH B: Screenplay word-count floor validation ──
+  const SCREENPLAY_CLASS_DOCS = new Set(["feature_script", "production_draft", "screenplay_draft"]);
+  const SCREENPLAY_WORD_FLOOR = 19800;
+  const assembledWordCount = assembledContent.split(/\s+/).filter(Boolean).length;
+  let belowFloor = false;
+
+  if (SCREENPLAY_CLASS_DOCS.has(docType) && assembledWordCount < SCREENPLAY_WORD_FLOOR) {
+    belowFloor = true;
+    console.error(
+      `[chunkRunner][IEL] SCREENPLAY FLOOR VIOLATION: ${docType} assembled with ${assembledWordCount} words (floor=${SCREENPLAY_WORD_FLOOR}). ` +
+      `This version will be flagged as below_floor in meta_json. Runtime will be significantly shorter than expected.`
+    );
+  } else if (SCREENPLAY_CLASS_DOCS.has(docType)) {
+    console.log(`[chunkRunner] Screenplay floor check PASSED: ${docType} assembled with ${assembledWordCount} words (floor=${SCREENPLAY_WORD_FLOOR})`);
+  }
+
+  const mergedMeta: Record<string, any> = {
     ...(verForMeta?.meta_json || {}),
     bg_generating: false,
     bg_completed_at: new Date().toISOString(),
     chunks_total: plan.totalChunks,
     chunks_completed: completedChunks,
+    ...(SCREENPLAY_CLASS_DOCS.has(docType) ? {
+      assembled_word_count: assembledWordCount,
+      below_floor: belowFloor,
+      screenplay_word_floor: SCREENPLAY_WORD_FLOOR,
+    } : {}),
   };
 
   await supabase
