@@ -4756,8 +4756,8 @@ serve(async (req) => {
       }
     }
 
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
+    const LOVABLE_API_KEY = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY (or LOVABLE_API_KEY) not configured");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -19726,7 +19726,7 @@ ${patchLayer === "layer_7_beats" ? "IMPORTANT: Include ALL existing beats plus a
       const failedSceneKeys:     string[] = [];
 
       // Load shared project context once before the loop (stale units + API key)
-      const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+      const LOVABLE_API_KEY = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) {
         await supabase.from("regeneration_runs").update({
           status: "failed", abort_reason: "missing_api_key", completed_at: new Date().toISOString(),
