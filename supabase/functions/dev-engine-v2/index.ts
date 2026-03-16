@@ -28109,8 +28109,7 @@ ${upstreamText}`;
       const isSeriesLike = ["series","vertical-drama","vertical_drama","limited-series","mini-series","anthology"].includes(fmt);
       if (!isSeriesLike) throw new Error(`Project format '${fmt}' is not a series. Cannot generate season scripts.`);
 
-      const lane = proj.assigned_lane || (fmt.includes("vertical") ? "vertical_drama" : "series");
-      const isVertical = lane === "vertical_drama" || fmt.includes("vertical");
+      const isVertical = fmt === "vertical-drama" || fmt.includes("vertical");
 
       // ── CANONICAL EPISODE COUNT (hard gate — no defaults) ──
       const { getCanonicalEpisodeCountOrThrow, resolveEpisodeCount } = await import("../_shared/episode-count.ts");
@@ -28195,7 +28194,7 @@ ${upstreamText}`;
           episode_index: ep,
           episode_title: gridEntry?.title || `Episode ${ep}`,
           target_doc_type: "episode_script",
-          meta_json: { logline: gridEntry?.logline || null, lane, is_vertical: isVertical },
+          meta_json: { logline: gridEntry?.logline || null, format: fmt, is_vertical: isVertical },
         });
       }
 
@@ -28295,8 +28294,8 @@ ${upstreamText}`;
         .select("format, assigned_lane, title, genres, tone, target_audience")
         .eq("id", projectId).single();
 
-      const lane = proj?.assigned_lane || "series";
-      const isVertical = lane === "vertical_drama";
+      const fmt = ((proj?.format || "film") as string).toLowerCase().replace(/[_ ]+/g, "-");
+      const isVertical = fmt === "vertical-drama";
 
       // Load upstream docs (character_bible, format_rules, canon, nec, season_arc, episode_grid, treatment)
       const upstreamTypes = ["character_bible", "format_rules", "canon", "nec", "season_arc", "episode_grid", "treatment", "topline_narrative", "creative_brief"];
