@@ -72,7 +72,8 @@ export function useExtractDna() {
     mutationFn: async (params: {
       source_title: string;
       source_type?: string;
-      source_text: string;
+      source_text?: string;
+      source_url?: string;
       source_ref_json?: Record<string, any>;
     }) => {
       const res = await callDna('extract', params);

@@ -22,21 +22,40 @@ export default function NarrativeDna() {
   const [title, setTitle] = useState('');
   const [sourceType, setSourceType] = useState('public_domain');
   const [sourceText, setSourceText] = useState('');
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [inputMode, setInputMode] = useState<'text' | 'url'>('text');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data: selectedProfile } = useDnaProfile(selectedId || undefined);
 
+  function isValidHttpUrl(s: string): boolean {
+    try {
+      const u = new URL(s);
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch { return false; }
+  }
+
+  const canSubmit = title.trim().length > 0 && (
+    inputMode === 'text' ? sourceText.length >= 2000 : isValidHttpUrl(sourceUrl.trim())
+  );
+
   async function handleExtract() {
-    if (!title.trim() || sourceText.length < 2000) return;
-    const result = await extractMutation.mutateAsync({
+    if (!canSubmit) return;
+    const params: any = {
       source_title: title.trim(),
       source_type: sourceType,
-      source_text: sourceText,
-    });
+    };
+    if (inputMode === 'url') {
+      params.source_url = sourceUrl.trim();
+    } else {
+      params.source_text = sourceText;
+    }
+    const result = await extractMutation.mutateAsync(params);
     setSelectedId(result.id);
     setShowForm(false);
     setTitle('');
     setSourceText('');
+    setSourceUrl('');
   }
 
   return (
