@@ -24,6 +24,8 @@ serve(async (req) => {
       briefNotes, projectId, skipSignals, hardCriteria,
       // New contract fields
       manual_criteria, auto_fields, meta,
+      // DNA / Engine constraint fields
+      source_dna_profile_id, source_engine_key, dna_constraint_mode,
     } = body;
 
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
@@ -583,6 +585,111 @@ serve(async (req) => {
       }
     }
 
+    // ── DNA / Engine constraint block ──
+    let dnaConstraintBlock = "";
+    let resolvedDnaProfileId: string | null = null;
+    let resolvedEngineKey: string | null = null;
+
+    if (dna_constraint_mode === "dna_profile" && source_dna_profile_id) {
+      try {
+        const { data: dnaRow, error: dnaErr } = await svcClient
+          .from("narrative_dna_profiles")
+          .select("*")
+          .eq("id", source_dna_profile_id)
+          .eq("status", "locked")
+          .single();
+
+        if (!dnaErr && dnaRow) {
+          resolvedDnaProfileId = dnaRow.id;
+          resolvedEngineKey = dnaRow.primary_engine_key || null;
+
+          const spine = dnaRow.spine_json || {};
+          const parts: string[] = [];
+          parts.push(`\n=== NARRATIVE DNA CONSTRAINTS (from locked profile: "${dnaRow.source_title}") ===`);
+          parts.push(`Source Type: ${dnaRow.source_type}`);
+
+          // Structural spine axes
+          const spineEntries = Object.entries(spine).filter(([, v]) => v);
+          if (spineEntries.length > 0) {
+            parts.push(`\nSTRUCTURAL SPINE (invariant axes — new concepts MUST preserve these patterns):`);
+            for (const [axis, val] of spineEntries) {
+              parts.push(`  ${axis}: ${val}`);
+            }
+          }
+
+          if (dnaRow.thematic_spine) parts.push(`\nThematic Spine: ${dnaRow.thematic_spine}`);
+          if (dnaRow.escalation_architecture) parts.push(`Escalation Architecture: ${dnaRow.escalation_architecture}`);
+          if (dnaRow.antagonist_pattern) parts.push(`Antagonist Pattern: ${dnaRow.antagonist_pattern}`);
+          if (dnaRow.power_dynamic) parts.push(`Power Dynamic: ${dnaRow.power_dynamic}`);
+          if (dnaRow.ending_logic) parts.push(`Ending Logic: ${dnaRow.ending_logic}`);
+
+          if (dnaRow.world_logic_rules?.length > 0) {
+            parts.push(`\nWorld Logic Rules:`);
+            for (const r of dnaRow.world_logic_rules) parts.push(`  - ${r}`);
+          }
+
+          if (dnaRow.emotional_cadence?.length > 0) {
+            parts.push(`Emotional Cadence: ${dnaRow.emotional_cadence.join(" → ")}`);
+          }
+
+          // Mutation constraints
+          if (dnaRow.forbidden_carryovers?.length > 0) {
+            parts.push(`\nFORBIDDEN CARRYOVERS (do NOT reproduce from source):`);
+            for (const f of dnaRow.forbidden_carryovers) parts.push(`  ✗ ${f}`);
+          }
+          if (dnaRow.mutable_variables?.length > 0) {
+            parts.push(`\nMUTABLE VARIABLES (free to change):`);
+            for (const m of dnaRow.mutable_variables) parts.push(`  ○ ${m}`);
+          }
+
+          // Engine classification
+          if (dnaRow.primary_engine_key) {
+            const { data: engRow } = await svcClient
+              .from("narrative_engines")
+              .select("engine_name, description")
+              .eq("engine_key", dnaRow.primary_engine_key)
+              .single();
+            if (engRow) {
+              parts.push(`\nNarrative Engine: ${engRow.engine_name} — ${engRow.description}`);
+            }
+          }
+
+          parts.push(`\nIMPORTANT: Generate ORIGINAL concepts that follow these structural patterns. Do NOT retell the source story.`);
+          parts.push(`=== END NARRATIVE DNA CONSTRAINTS ===`);
+
+          dnaConstraintBlock = parts.join("\n");
+          console.log(`[generate-pitch] dna_constraint_mode=dna_profile profile=${dnaRow.id} engine=${dnaRow.primary_engine_key || "none"}`);
+        } else {
+          console.warn(`[generate-pitch] DNA profile not found or not locked: ${source_dna_profile_id}`);
+        }
+      } catch (e: any) {
+        console.warn(`[generate-pitch] DNA profile fetch failed (non-fatal): ${e.message}`);
+      }
+    } else if (dna_constraint_mode === "engine_only" && source_engine_key) {
+      try {
+        const { data: engRow, error: engErr } = await svcClient
+          .from("narrative_engines")
+          .select("engine_key, engine_name, description")
+          .eq("engine_key", source_engine_key)
+          .single();
+
+        if (!engErr && engRow) {
+          resolvedEngineKey = engRow.engine_key;
+          dnaConstraintBlock = `
+=== NARRATIVE ENGINE CONSTRAINT (structural pattern only) ===
+Engine: ${engRow.engine_name}
+Pattern: ${engRow.description}
+
+Generate concepts that follow this structural engine pattern.
+No specific source constraints apply — use the engine as a structural template only.
+=== END ENGINE CONSTRAINT ===`;
+          console.log(`[generate-pitch] dna_constraint_mode=engine_only engine=${engRow.engine_key}`);
+        }
+      } catch (e: any) {
+        console.warn(`[generate-pitch] Engine fetch failed (non-fatal): ${e.message}`);
+      }
+    }
+
     // Inject guardrails
     const guardrails = buildGuardrailBlock({ productionType: typeLabel, engineName: "generate-pitch" });
     console.log(`[generate-pitch] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}, batch=${batchSize}`);
@@ -645,7 +752,7 @@ EPISODIC PROPULSION:
 ${guardrails.textBlock}
 
 PRODUCTION TYPE: ${typeLabel}
-ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${pitchPropulsionBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}${convergenceBlock}${modalityBlock}${animMetaBlock}
+ALL outputs MUST be strictly constrained to this production type.${hardCriteriaBlock}${pitchPropulsionBlock}${dnaConstraintBlock}${autoFieldsBlock}${nuanceBlock}${driftBlock}${convergenceBlock}${modalityBlock}${animMetaBlock}
 
 Generate exactly ${batchSize} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
 
@@ -912,6 +1019,8 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
           platform_target: platformTarget || '',
           risk_level: idea.risk_level || riskLevel || 'medium',
           project_id: projectId || null,
+          source_dna_profile_id: resolvedDnaProfileId || null,
+          source_engine_key: resolvedEngineKey || null,
           raw_response: {
             ...idea,
             premise: idea.premise || '',
@@ -920,6 +1029,7 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
             tone_tag: idea.tone_tag || '',
             format_summary: idea.format_summary || '',
             signals_metadata: ideas.signals_metadata || null,
+            dna_constraint_mode: dna_constraint_mode || 'none',
           },
           score_market_heat: idea.score_market_heat || 0,
           score_feasibility: idea.score_feasibility || 0,

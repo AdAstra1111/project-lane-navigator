@@ -8954,6 +8954,8 @@ export type Database = {
           score_saturation_risk: number | null
           score_total: number | null
           source_coverage_run_id: string | null
+          source_dna_profile_id: string | null
+          source_engine_key: string | null
           status: string
           title: string
           updated_at: string
@@ -8992,6 +8994,8 @@ export type Database = {
           score_saturation_risk?: number | null
           score_total?: number | null
           source_coverage_run_id?: string | null
+          source_dna_profile_id?: string | null
+          source_engine_key?: string | null
           status?: string
           title?: string
           updated_at?: string
@@ -9030,6 +9034,8 @@ export type Database = {
           score_saturation_risk?: number | null
           score_total?: number | null
           source_coverage_run_id?: string | null
+          source_dna_profile_id?: string | null
+          source_engine_key?: string | null
           status?: string
           title?: string
           updated_at?: string
@@ -9078,6 +9084,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "coverage_runs"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitch_ideas_source_dna_profile_id_fkey"
+            columns: ["source_dna_profile_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_dna_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitch_ideas_source_engine_key_fkey"
+            columns: ["source_engine_key"]
+            isOneToOne: false
+            referencedRelation: "narrative_engines"
+            referencedColumns: ["engine_key"]
           },
         ]
       }

@@ -22,6 +22,9 @@ import jsPDF from 'jspdf';
 import { type AnimationMeta, ANIMATION_PRIMARY_LIST, ANIMATION_STYLE_LIST, ANIMATION_TAG_LIST } from '@/config/animationMeta';
 import { type ProductionModality, isAnimationModality } from '@/config/productionModality';
 import { TrendsSnapshot } from '@/components/pitch/TrendsSnapshot';
+import { DnaEngineSelector, type DnaEngineSelection } from '@/components/pitch/DnaEngineSelector';
+
+const EMPTY_DNA_SELECTION: DnaEngineSelection = { mode: 'none', dnaProfileId: null, engineKey: null };
 
 export default function PitchIdeas() {
   const { user } = useAuth();
@@ -32,6 +35,7 @@ export default function PitchIdeas() {
   const [generateFailed, setGenerateFailed] = useState(false);
   const [criteria, setCriteria] = useState<HardCriteria>({ ...EMPTY_CRITERIA });
   const [editedFields, setEditedFields] = useState<EditedFieldsMap>(() => initEditedFields());
+  const [dnaSelection, setDnaSelection] = useState<DnaEngineSelection>({ ...EMPTY_DNA_SELECTION });
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState('');
   const [resolutionMeta, setResolutionMeta] = useState<Record<string, { status: string; scope: string; note?: string }>>({});
@@ -118,6 +122,10 @@ export default function PitchIdeas() {
           productionType: criteria.productionType,
           count: 10,
           projectId: isProjectMode ? selectedProject : undefined,
+          // DNA / Engine constraints
+          ...(dnaSelection.mode === 'dna_profile' && dnaSelection.dnaProfileId ? { source_dna_profile_id: dnaSelection.dnaProfileId } : {}),
+          ...(dnaSelection.mode === 'engine_only' && dnaSelection.engineKey ? { source_engine_key: dnaSelection.engineKey } : {}),
+          dna_constraint_mode: dnaSelection.mode,
           // New contract: manual_criteria + auto_fields
           manual_criteria: normalized.manual_criteria,
           auto_fields: normalized.auto_fields,
@@ -257,7 +265,7 @@ export default function PitchIdeas() {
     } finally {
       setGenerating(false);
     }
-  }, [criteria, selectedProject, isProjectMode, globalAnimMeta, globalModality, save]);
+  }, [criteria, selectedProject, isProjectMode, globalAnimMeta, globalModality, dnaSelection, save]);
 
   const handleShortlist = useCallback(async (id: string, shortlisted: boolean) => {
     await update({ id, status: shortlisted ? 'shortlisted' : 'draft' });
@@ -339,6 +347,9 @@ export default function PitchIdeas() {
             <Badge variant="default" className="text-xs">Project-tuned</Badge>
           )}
         </div>
+
+        {/* Narrative DNA / Engine Selector */}
+        <DnaEngineSelector value={dnaSelection} onChange={setDnaSelection} />
 
         {/* Hard Criteria Form */}
         <HardCriteriaForm

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Rocket, ChevronDown, ChevronUp, Bookmark, BookmarkCheck, Trash2, TrendingUp, Zap, Lock, Hash } from 'lucide-react';
+import { Rocket, ChevronDown, ChevronUp, Bookmark, BookmarkCheck, Trash2, TrendingUp, Zap, Lock, Hash, Dna, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -149,6 +149,12 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete, projec
           <Badge variant={idea.risk_level === 'high' ? 'destructive' : 'secondary'} className="text-xs">{idea.risk_level}</Badge>
           {formatSummary && <Badge variant="outline" className="text-[10px]">{formatSummary}</Badge>}
           {isAnim && <AnimationMetaChips meta={animMeta} />}
+          {idea.source_dna_profile_id && (
+            <Badge variant="outline" className="text-[10px] border-primary/40 gap-1"><Dna className="h-2.5 w-2.5" />DNA</Badge>
+          )}
+          {idea.source_engine_key && (
+            <Badge variant="outline" className="text-[10px] border-accent/40 gap-1"><Cpu className="h-2.5 w-2.5" />{idea.source_engine_key.replace(/_/g, ' ')}</Badge>
+          )}
         </div>
 
         {/* Trend fit bullets */}
