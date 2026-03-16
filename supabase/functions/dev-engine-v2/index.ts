@@ -27367,7 +27367,7 @@ CRITICAL:
 
         const docId = docSlots.get(stage) || null;
         const ver = docId ? verByDocId.get(docId) : null;
-        const classified = classifyInsufficiency(stage, docId, ver);
+        const classified = await classifyInsufficiency(stage, docId, ver);
 
         let reason = classified.reason;
         if (!reason && !force) {
