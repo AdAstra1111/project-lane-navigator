@@ -15,9 +15,9 @@ serve(async (req) => {
     const authHeader = req.headers.get("Authorization") || "";
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+    const lovableKey = Deno.env.get("OPENROUTER_API_KEY");
 
-    if (!lovableKey) throw new Error("LOVABLE_API_KEY not configured");
+    if (!lovableKey) throw new Error("OPENROUTER_API_KEY not configured");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -163,7 +163,7 @@ Adapt your writing tone based on the project:
 
 Generate the content for each slide as a JSON array.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${lovableKey}`,

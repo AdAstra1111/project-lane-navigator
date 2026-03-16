@@ -4,7 +4,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const GATEWAY_URL = "https://openrouter.ai/api/v1/chat/completions";
 const IMAGE_MODEL = "google/gemini-2.5-flash-image";
 const STORAGE_BUCKET = "storyboards";
 
@@ -366,7 +366,7 @@ Deno.serve(async (req) => {
     const hasAccess = await verifyAccess(db, userId, projectId);
     if (!hasAccess) return json({ error: "Forbidden" }, 403);
 
-    const apiKey = Deno.env.get("LOVABLE_API_KEY") || "";
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY") || "";
 
     switch (action) {
       case "enqueue": return await handleEnqueue(db, body, userId);

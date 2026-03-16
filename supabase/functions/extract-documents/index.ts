@@ -23,7 +23,7 @@ interface ExtractionResult {
 
 // ---- Gemini-based PDF extraction / OCR (reliable for all PDFs) ----
 async function extractPDFWithGemini(data: ArrayBuffer, isOCR: boolean = false): Promise<ExtractionResult> {
-  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  const apiKey = Deno.env.get("OPENROUTER_API_KEY");
   if (!apiKey) {
     return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "No API key for AI extraction", sourceType: "ocr" };
   }
@@ -41,7 +41,7 @@ async function extractPDFWithGemini(data: ArrayBuffer, isOCR: boolean = false): 
     ? "This PDF appears to be image-based. Use OCR to read all visible text from each page image, including headers, body text, captions, labels, and any text embedded in graphics or diagrams."
     : "";
 
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({

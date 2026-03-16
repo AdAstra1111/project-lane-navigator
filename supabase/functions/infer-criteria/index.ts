@@ -221,7 +221,7 @@ Deno.serve(async (req) => {
       .filter(k => !criteria[k]);
 
     if (missingFields.length > 0 && hasAnyDoc) {
-      const apiKey = Deno.env.get("LOVABLE_API_KEY");
+      const apiKey = Deno.env.get("OPENROUTER_API_KEY");
       if (apiKey) {
         const combinedText = orderedDocs.map(d => `--- ${d.doc_type} ---\n${d.text}`).join("\n\n").slice(0, 18000);
 

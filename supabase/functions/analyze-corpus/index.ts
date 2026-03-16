@@ -15,7 +15,7 @@ async function callAIWithTools(apiKey: string, systemPrompt: string, userPrompt:
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 55000);
   try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       signal: controller.signal,
@@ -592,8 +592,8 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-    if (!lovableKey) throw new Error("LOVABLE_API_KEY not configured");
+    const lovableKey = Deno.env.get("OPENROUTER_API_KEY");
+    if (!lovableKey) throw new Error("OPENROUTER_API_KEY not configured");
 
     const db = createClient(supabaseUrl, supabaseKey);
     const { action, ...params } = await req.json();

@@ -241,7 +241,7 @@ async function handleGenerateShotMedia(db: any, body: any, userId: string, apiKe
   for (let i = 0; i < variations; i++) {
     try {
       // Generate image via Lovable AI image model
-      const imageResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const imageResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -558,7 +558,7 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
     if (!apiKey) return json({ error: "AI key not configured" }, 500);
 
     // Verify project access

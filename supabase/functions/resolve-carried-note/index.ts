@@ -217,7 +217,7 @@ Deno.serve(async (req) => {
       const noteJson = note.note_json as any;
       const noteText = noteJson?.description || noteJson?.note || JSON.stringify(noteJson);
 
-      const apiKey = Deno.env.get("LOVABLE_API_KEY");
+      const apiKey = Deno.env.get("OPENROUTER_API_KEY");
       if (!apiKey) return json({ error: "AI not configured" }, 500);
 
       const systemPrompt = `You are a script development editor operating in FIX GENERATION MODE.

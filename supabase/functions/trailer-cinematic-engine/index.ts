@@ -3700,7 +3700,7 @@ Deno.serve(async (req) => {
     const hasAccess = await verifyAccess(db, userId, projectId);
     if (!hasAccess) return json({ error: "Forbidden" }, 403);
 
-    const apiKey = Deno.env.get("LOVABLE_API_KEY") || "";
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY") || "";
 
     switch (action) {
       case "create_trailer_script_v2":

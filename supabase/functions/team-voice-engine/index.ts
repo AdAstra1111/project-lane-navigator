@@ -10,7 +10,7 @@ const MODEL = "google/gemini-2.5-flash";
 const MAX_SAMPLE_CHARS = 12000;
 
 async function callAI(apiKey: string, system: string, user: string): Promise<string> {
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -71,7 +71,7 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const apiKey = Deno.env.get("LOVABLE_API_KEY") || serviceKey;
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY") || serviceKey;
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const authHeader = req.headers.get("Authorization");

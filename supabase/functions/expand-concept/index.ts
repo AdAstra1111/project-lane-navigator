@@ -137,8 +137,8 @@ serve(async (req) => {
 
   try {
     const { pitchIdea, productionType } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
     const typeKey = productionType || 'film';
     const typePrompt = PRODUCTION_TYPE_PROMPTS[typeKey] || PRODUCTION_TYPE_PROMPTS.film;
@@ -181,7 +181,7 @@ WHY US: ${pitchIdea.why_us || 'N/A'}
 
 Generate the complete development package with all five sections using the exact headers specified.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,

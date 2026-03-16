@@ -121,7 +121,7 @@ async function uploadImageFromUrl(imageUrl: string, storagePath: string): Promis
 
 // ─── Generate image via Gemini ───
 async function generateImage(apiKey: string, prompt: string): Promise<string | null> {
-  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -369,7 +369,7 @@ async function handleAnimateClip(db: any, body: any, userId: string, apiKey: str
   const motion = options.motion || "push_in";
   const animPrompt = `Take this cinematic keyframe and create a version with a subtle ${motion} camera movement implied. Gentle, cinematic motion. Show slight perspective shift. No lip-sync. NEGATIVES: no text, no watermarks, no logos.`;
 
-  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -560,7 +560,7 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
 
   if (!skipMotionStill && item.ai_suggested_tier !== "C" && item.hook_strength >= 6) {
     try {
-      const animResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const animResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -691,7 +691,7 @@ Deno.serve(async (req) => {
     const { action } = body;
 
     const db = adminClient();
-    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
     if (!apiKey) return json({ error: "AI key not configured" }, 500);
 
     if (body.projectId) {

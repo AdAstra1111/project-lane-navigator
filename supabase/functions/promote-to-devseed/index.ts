@@ -16,8 +16,8 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
     const supabase = createClient(supabaseUrl, serviceKey);
 
@@ -256,7 +256,7 @@ Output as a JSON object with keys: bible_starter, nuance_contract, market_ration
       });
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${LOVABLE_API_KEY}`,
@@ -468,7 +468,7 @@ Return the same JSON schema as before with the structural elements strengthened.
       });
 
       try {
-        const repairResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        const repairResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${LOVABLE_API_KEY}`,

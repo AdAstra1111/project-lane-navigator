@@ -36,7 +36,7 @@ function adminClient() {
   );
 }
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const GATEWAY_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const EXTRACTION_PROMPT = `You are a screenplay text extraction specialist.
 Extract the COMPLETE screenplay/script text from this PDF accurately.
@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
     if (!projectId) return json({ error: "projectId required" }, 400);
 
     const admin = adminClient();
-    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
     if (!apiKey) return json({ error: "AI key not configured" }, 500);
 
     // 1) Lookup project title

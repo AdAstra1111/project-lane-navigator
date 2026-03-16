@@ -12,7 +12,7 @@ const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // Gateway resolution: LOVABLE_API_KEY (OpenRouter) → OPENROUTER_API_KEY → OPENAI_API_KEY
 // Matches the same priority as dev-engine-v2 _shared/llm.ts resolveGateway()
 function resolveGatewayKey(): { key: string; baseUrl: string; model: string } {
-  const lovable = Deno.env.get("LOVABLE_API_KEY");
+  const lovable = Deno.env.get("OPENROUTER_API_KEY");
   if (lovable) return { key: lovable, baseUrl: "https://openrouter.ai/api/v1", model: "google/gemini-2.5-flash" };
   const openrouter = Deno.env.get("OPENROUTER_API_KEY");
   if (openrouter) return { key: openrouter, baseUrl: "https://openrouter.ai/api/v1", model: "google/gemini-2.5-flash" };

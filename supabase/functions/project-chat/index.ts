@@ -75,13 +75,13 @@ ${(docsRes.data || []).filter((d: any) => d.extracted_text).map((d: any) => `---
     `.trim();
 
     // Call AI with streaming
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
+    const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY");
     if (!lovableApiKey) throw new Error("AI not configured");
 
     const guardrails = buildGuardrailBlock({ productionType: project.format, engineName: "project-chat" });
     console.log(`[project-chat] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

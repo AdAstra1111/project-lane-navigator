@@ -3,7 +3,7 @@
  * Calls /v1/embeddings with text-embedding-3-small for deterministic 1536-dim vectors.
  */
 
-const EMBEDDINGS_URL = "https://ai.gateway.lovable.dev/v1/embeddings";
+const EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings";
 const DIMENSION = 1536;
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const MAX_RETRIES = 3;

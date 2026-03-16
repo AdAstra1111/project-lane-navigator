@@ -21,7 +21,7 @@ serve(async (req) => {
       });
     }
 
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
+    const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
 
     const { text, file_name } = await req.json();
     if (!text) {
@@ -53,7 +53,7 @@ Example output:
   {"category": "btl", "line_name": "Camera Department", "amount": 120000}
 ]`;
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

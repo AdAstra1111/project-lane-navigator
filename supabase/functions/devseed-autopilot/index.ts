@@ -681,7 +681,7 @@ async function executeSeedWritingVoice(
   const conceptText = (conceptDoc?.plaintext || "").slice(0, 2000);
   const presetList = relevantPresets.map(p => `- ${p.id}: "${p.label}" — ${p.summary}`).join("\n");
 
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
+  const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY") || "";
   const BALANCED_MODEL = "google/gemini-2.5-flash";
 
   const systemPrompt = `You are a script development expert. Given a project's concept brief and a list of writing voice presets, select the single best matching preset. Respond with ONLY the preset id (e.g. "elevated_genre_feature"). No explanation.`;
@@ -700,7 +700,7 @@ Which preset id best matches this project?`;
 
   let chosenId: string | null = null;
   try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
       body: JSON.stringify({

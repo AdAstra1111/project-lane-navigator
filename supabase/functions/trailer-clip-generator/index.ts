@@ -1713,7 +1713,7 @@ async function handleRunTechnicalClipJudge(db: any, body: any, userId: string) {
   }
 
   // Use Lovable AI for judging
-  const lovableApiKey = Deno.env.get("LOVABLE_API_KEY") || "";
+  const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY") || "";
 
   const results: any[] = [];
   let judged = 0;

@@ -29,7 +29,7 @@ async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, 
   const timeout = setTimeout(() => controller.abort(), 60000);
 
   try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       signal: controller.signal,
@@ -105,8 +105,8 @@ serve(async (req) => {
       });
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
     const isDocumentary = documentaryMode || ['documentary', 'documentary-series', 'hybrid-documentary'].includes(format);
     const formatLabel = FORMAT_LABELS[format] || "Film";

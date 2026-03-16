@@ -22,7 +22,7 @@ serve(async (req) => {
       });
     }
 
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
+    const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
     const { scenes, shootDays, schedule, format, genres, budgetRange } = await req.json();
 
     if (!scenes || scenes.length === 0) {
@@ -76,7 +76,7 @@ ${scheduleSummary}
 Scene data (${scenes.length} total scenes):
 ${JSON.stringify(sceneSummary)}`;
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

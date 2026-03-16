@@ -46,7 +46,7 @@ export interface ChunkRunResult {
 
 // ── Constants ──
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const GATEWAY_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_ASSEMBLY_REPAIR_PASSES = 2;
 
 /**

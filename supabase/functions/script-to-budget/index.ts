@@ -21,7 +21,7 @@ serve(async (req) => {
       });
     }
 
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
+    const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
     const { scriptText, format, genres, budgetRange, lane, totalBudget } = await req.json();
 
     if (!scriptText) {
@@ -71,7 +71,7 @@ Return ONLY valid JSON, no markdown.`;
 Script text (first ~15K words):
 ${truncated}`;
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

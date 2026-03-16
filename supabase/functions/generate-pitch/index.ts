@@ -26,8 +26,8 @@ serve(async (req) => {
       manual_criteria, auto_fields, meta,
     } = body;
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -751,7 +751,7 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
 
       console.log(`[generate-pitch] AI call attempt ${attempt + 1}, batch=${currentBatchSize}`);
 
-      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${LOVABLE_API_KEY}`,
