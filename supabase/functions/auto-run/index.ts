@@ -10525,7 +10525,7 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
               const retryResp = await fetch(selfUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-                body: JSON.stringify(job.allow_defaults === true ? { action: "apply-decisions-and-continue", jobId, auto_apply: true } : { action: "run-next", jobId }),
+                body: JSON.stringify({ action: "run-next", jobId }),
               });
               if (retryResp.ok) {
                 console.log(`[auto-run] DEV_ENGINE_UNAVAILABLE retry ${attempt + 1} succeeded`);
@@ -10578,7 +10578,7 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
                   "Content-Type": "application/json",
                   "Authorization": `Bearer ${serviceKey}`,
                 },
-                body: JSON.stringify(job.allow_defaults === true ? { action: "apply-decisions-and-continue", jobId, auto_apply: true } : { action: "run-next", jobId }),
+                body: JSON.stringify({ action: "run-next", jobId }),
               }).then((r: Response) => {
                 if (!r.ok) console.error("[auto-run] self-chain HTTP error", { status: r.status, jobId });
                 else console.log("[auto-run] self-chain success", { jobId, status: r.status });
