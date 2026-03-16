@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Lock, Pencil, Save, X, Dna, AlertTriangle } from 'lucide-react';
 import type { DnaProfile } from '@/hooks/useNarrativeDna';
 import { useUpdateDna, useLockDna } from '@/hooks/useNarrativeDna';
+import { DnaSourceMaterial } from './DnaSourceMaterial';
 
 const SPINE_LABELS: Record<string, string> = {
   story_engine: 'Story Engine',
