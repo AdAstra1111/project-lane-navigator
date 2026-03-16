@@ -241,10 +241,15 @@ Deno.serve(async (req) => {
     if (action === "add_source") {
       const { dna_profile_id, source_label, source_url, source_type = "other", is_primary = false, notes = "" } = body;
       if (!dna_profile_id) return jsonRes({ error: "dna_profile_id is required" }, 400);
-      if (!source_label || typeof source_label !== "string") return jsonRes({ error: "source_label is required" }, 400);
-      if (!source_url || typeof source_url !== "string") return jsonRes({ error: "source_url is required" }, 400);
+      if (!source_label || typeof source_label !== "string" || !source_label.trim()) return jsonRes({ error: "source_label is required" }, 400);
+      if (!source_url || typeof source_url !== "string" || !source_url.trim()) return jsonRes({ error: "source_url is required" }, 400);
 
-      try { new URL(source_url); } catch { return jsonRes({ error: "source_url must be a valid URL" }, 400); }
+      try {
+        const parsed = new URL(source_url.trim());
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          return jsonRes({ error: "source_url must use http or https protocol" }, 400);
+        }
+      } catch { return jsonRes({ error: "source_url must be a valid URL" }, 400); }
 
       // Verify ownership of the DNA profile
       const { data: profile, error: pErr } = await supabase
