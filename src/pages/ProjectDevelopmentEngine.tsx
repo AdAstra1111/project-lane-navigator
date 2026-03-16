@@ -107,6 +107,7 @@ import { useSeedPackStatus } from '@/hooks/useSeedPackStatus';
 import { normalizeDecisionsForUI } from '@/lib/decisions/normalizeDecisionUI';
 import { useEnrichedPendingDecisions } from '@/hooks/useEnrichedPendingDecisions';
 import { FormattedDocContent } from '@/components/devengine/FormattedDocContent';
+import { SectionedDocViewer, useHasChunks } from '@/components/devengine/SectionedDocViewer';
 
 
 // ── Main Page ──
