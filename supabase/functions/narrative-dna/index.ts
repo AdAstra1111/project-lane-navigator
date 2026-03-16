@@ -207,6 +207,8 @@ Deno.serve(async (req) => {
           extraction_json: extraction.extraction_json,
           extraction_model: "google/gemini-2.5-flash",
           extraction_confidence: extraction.extraction_confidence,
+          primary_engine_key: extraction.primary_engine_key,
+          secondary_engine_key: extraction.secondary_engine_key,
           status: "extracted",
         })
         .select("*")
