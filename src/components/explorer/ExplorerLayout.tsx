@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { PanelLeft, LogOut, Plus, Settings, ChevronDown, Building2, Lightbulb, Radio, Landmark, LayoutGrid, Users, Globe, FlaskConical, Calendar, BarChart3 } from 'lucide-react';
+import { PanelLeft, LogOut, Plus, Settings, ChevronDown, Building2, Lightbulb, Radio, Landmark, LayoutGrid, Users, Globe, FlaskConical, Calendar, BarChart3, Dna, Layers } from 'lucide-react';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { Button } from '@/components/ui/button';
 import { GlobalSearch } from '@/components/GlobalSearch';
@@ -30,6 +30,8 @@ const toolItems = [
   { label: 'Coverage Lab', icon: FlaskConical, path: '/coverage-lab' },
   { label: 'Festivals', icon: Calendar, path: '/festivals' },
   { label: 'Reports', icon: BarChart3, path: '/reports' },
+  { label: 'Narrative DNA', icon: Dna, path: '/narrative-dna' },
+  { label: 'Engine Atlas', icon: Layers, path: '/narrative-engines' },
 ];
 
 export interface BreadcrumbSegment {

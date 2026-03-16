@@ -26,6 +26,24 @@ const CHUNK_TARGET_SIZE = 15_000;
 /** Minimum chunk size — avoid tiny trailing chunks. */
 const CHUNK_MIN_SIZE = 3_000;
 
+// ── Constants ──
+
+/** The 12 canonical engine keys. Classification MUST be constrained to this set. */
+export const CANONICAL_ENGINE_KEYS = [
+  "outsider_defends_system",
+  "survival_against_intruder",
+  "revenge_chain",
+  "ambition_corrupts",
+  "forbidden_union",
+  "investigation_reveals_rot",
+  "race_against_time",
+  "power_transfer_succession_struggle",
+  "institutional_rebellion",
+  "false_utopia_hidden_horror",
+  "mentor_betrayal_corrupted_guidance",
+  "descent_into_the_unknown",
+] as const;
+
 // ── Types ──
 
 export interface DnaExtractionResult {
@@ -43,6 +61,8 @@ export interface DnaExtractionResult {
   surface_expression_notes: string | null;
   extraction_confidence: number;
   extraction_json: Record<string, any>;
+  primary_engine_key: string | null;
+  secondary_engine_key: string | null;
 }
 
 export interface ChunkBoundary {
@@ -62,6 +82,8 @@ export interface ExtractionRunMeta {
 }
 
 // ── Extraction Prompt ──
+
+const ENGINE_KEY_LIST = CANONICAL_ENGINE_KEYS.join(", ");
 
 const EXTRACTION_SYSTEM = `You are a structural narrative analyst. You extract the deep invariant "Narrative DNA" from a source story — the underlying engine, not the surface plot.
 
@@ -96,6 +118,10 @@ Return a single JSON object with EXACTLY these keys:
     "mutable_variables": ["<list of dimensions that SHOULD change in derived works>"],
     "surface_expression_notes": "<string: brief guidance on surface vs engine>"
   },
+  "engine_classification": {
+    "primary_engine_key": "<REQUIRED: exactly one of: ${ENGINE_KEY_LIST}>",
+    "secondary_engine_key": "<one of the same keys above, or null if no strong secondary engine>"
+  },
   "confidence": <number 0.0-1.0>
 }
 
@@ -105,6 +131,8 @@ RULES:
 - thematic_spine must be a single sentence, not a list
 - forbidden_carryovers must list SPECIFIC names/places from the source text
 - confidence should be lower for very short or ambiguous texts
+- engine_classification.primary_engine_key MUST be exactly one of the listed engine keys — do NOT invent new keys
+- engine_classification.secondary_engine_key must also be from the list or null
 - Return ONLY the JSON object, no commentary`;
 
 // ── Chunk Signal Prompt (lighter-weight for per-chunk extraction) ──
@@ -184,6 +212,10 @@ Return a single JSON object with EXACTLY these keys:
     "mutable_variables": ["<dimensions that should change>"],
     "surface_expression_notes": "<string>"
   },
+  "engine_classification": {
+    "primary_engine_key": "<REQUIRED: exactly one of: ${ENGINE_KEY_LIST}>",
+    "secondary_engine_key": "<one of the same keys above, or null if no strong secondary engine>"
+  },
   "confidence": <number 0.0-1.0>
 }
 
@@ -193,6 +225,7 @@ RULES:
 - spine values must be lowercase_snake_case
 - forbidden_carryovers should be the UNION of all specific names found
 - confidence reflects overall extraction quality across all chunks
+- engine_classification.primary_engine_key MUST be exactly one of the listed engine keys — do NOT invent new keys
 - Return ONLY JSON`;
 
 // ── Deterministic Chunking ──
@@ -390,6 +423,12 @@ export async function extractNarrativeDnaChunked(
 
 // ── Shared mapper ──
 
+function validateEngineKey(key: any): string | null {
+  if (typeof key !== "string") return null;
+  const k = key.trim().toLowerCase();
+  return (CANONICAL_ENGINE_KEYS as readonly string[]).includes(k) ? k : null;
+}
+
 function mapRawToResult(raw: any): DnaExtractionResult {
   const spineJson: Record<string, string | null> = {};
   for (const axis of SPINE_AXES) {
@@ -398,6 +437,7 @@ function mapRawToResult(raw: any): DnaExtractionResult {
 
   const ext = raw.extended || {};
   const mut = raw.mutation || {};
+  const eng = raw.engine_classification || {};
 
   const confidence = typeof raw.confidence === "number"
     ? Math.max(0, Math.min(1, raw.confidence))
@@ -418,6 +458,8 @@ function mapRawToResult(raw: any): DnaExtractionResult {
     surface_expression_notes: mut.surface_expression_notes || null,
     extraction_confidence: confidence,
     extraction_json: raw,
+    primary_engine_key: validateEngineKey(eng.primary_engine_key),
+    secondary_engine_key: validateEngineKey(eng.secondary_engine_key),
   };
 }
 

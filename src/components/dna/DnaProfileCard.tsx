@@ -128,6 +128,20 @@ export function DnaProfileCard({ profile }: Props) {
         <p className="text-xs text-muted-foreground mt-1">
           {profile.source_type} · {(profile.source_text_length || 0).toLocaleString()} chars
         </p>
+        {((profile as any).primary_engine_key || (profile as any).secondary_engine_key) && (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            {(profile as any).primary_engine_key && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/30 text-primary">
+                {formatValue((profile as any).primary_engine_key)}
+              </Badge>
+            )}
+            {(profile as any).secondary_engine_key && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                {formatValue((profile as any).secondary_engine_key)}
+              </Badge>
+            )}
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="space-y-4 text-sm">
