@@ -156,9 +156,31 @@ Deno.serve(async (req) => {
       console.log(`[narrative-dna][extract] Starting: "${source_title}" (${resolvedText.length} chars, url=${resolvedUrl ? "yes" : "no"})`);
 
       const textHash = await computeTextHash(resolvedText);
-      const extraction = await extractNarrativeDna(resolvedText);
 
-      console.log(`[narrative-dna][extract] Complete: confidence=${extraction.extraction_confidence}, spine_axes=${Object.values(extraction.spine_json).filter(Boolean).length}/9`);
+      // Deterministic routing: single-pass vs chunked
+      const useChunked = resolvedText.length > SINGLE_PASS_THRESHOLD;
+      let extraction: any;
+      let runMeta: ExtractionRunMeta;
+
+      if (useChunked) {
+        console.log(`[narrative-dna][extract] Large text (${resolvedText.length} chars) → chunked extraction`);
+        const chunkedResult = await extractNarrativeDnaChunked(resolvedText);
+        extraction = chunkedResult.result;
+        runMeta = chunkedResult.runMeta;
+      } else {
+        console.log(`[narrative-dna][extract] Standard text (${resolvedText.length} chars) → single-pass extraction`);
+        extraction = await extractNarrativeDna(resolvedText);
+        runMeta = {
+          extraction_mode: "single_pass" as const,
+          normalized_text_length: resolvedText.length,
+          chunk_count: 1,
+          chunk_boundaries: [{ index: 0, start: 0, end: resolvedText.length, charCount: resolvedText.length }],
+          chunk_signals: [],
+          synthesis_model: null,
+        };
+      }
+
+      console.log(`[narrative-dna][extract] Complete: mode=${runMeta.extraction_mode}, chunks=${runMeta.chunk_count}, confidence=${extraction.extraction_confidence}, spine_axes=${Object.values(extraction.spine_json).filter(Boolean).length}/9`);
 
       const { data: profile, error: insertErr } = await serviceClient
         .from("narrative_dna_profiles")
@@ -195,6 +217,38 @@ Deno.serve(async (req) => {
         return jsonRes({ error: `Failed to save profile: ${insertErr.message}` }, 500);
       }
 
+      // Persist extraction run for provenance
+      if (profile) {
+        const { error: runErr } = await serviceClient
+          .from("dna_extraction_runs")
+          .insert({
+            dna_profile_id: profile.id,
+            user_id: user.id,
+            source_url: resolvedUrl,
+            source_mode: resolvedUrl ? "url" : "text",
+            extraction_mode: runMeta.extraction_mode,
+            normalized_text_length: runMeta.normalized_text_length,
+            chunk_count: runMeta.chunk_count,
+            chunk_boundaries: runMeta.chunk_boundaries,
+            chunk_signals: runMeta.chunk_signals,
+            synthesis_model: runMeta.synthesis_model,
+            provenance: {
+              text_hash: textHash,
+              source_title: source_title.trim(),
+              source_type,
+              threshold_used: SINGLE_PASS_THRESHOLD,
+              extraction_model: "google/gemini-2.5-flash",
+              synthesis_model: runMeta.synthesis_model,
+            },
+            status: "completed",
+          });
+        if (runErr) {
+          console.error(`[narrative-dna][extract] Run metadata insert failed (non-fatal):`, runErr.message);
+        } else {
+          console.log(`[narrative-dna][extract] Run metadata persisted (mode=${runMeta.extraction_mode}, chunks=${runMeta.chunk_count})`);
+        }
+      }
+
       // Auto-create primary source link if extraction was from URL
       if (resolvedUrl && profile) {
         const { error: linkErr } = await serviceClient
@@ -206,7 +260,7 @@ Deno.serve(async (req) => {
             source_url: resolvedUrl,
             source_type: source_type === "public_domain" ? "public_domain_text" : "other",
             is_primary: true,
-            notes: `Auto-created from URL extraction (${resolvedText.length.toLocaleString()} chars extracted)`,
+            notes: `Auto-created from URL extraction (${resolvedText.length.toLocaleString()} chars, ${runMeta.extraction_mode})`,
           });
         if (linkErr) {
           console.error(`[narrative-dna][extract] Source link insert failed (non-fatal):`, linkErr.message);
