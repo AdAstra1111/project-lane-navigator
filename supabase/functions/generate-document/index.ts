@@ -1201,7 +1201,7 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
             .from("scene_graph_scenes")
             .select("id", { count: "exact", head: true })
             .eq("project_id", projectId)
-            .eq("is_active", true);
+            .is("deprecated_at", null);
           if (count && count > 0) {
             resolvedSceneCount = count;
             console.log(`[generate-document] production_draft: resolved ${resolvedSceneCount} active scenes for scene_indexed strategy`);
