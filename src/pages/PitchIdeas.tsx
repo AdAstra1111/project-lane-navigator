@@ -76,6 +76,22 @@ export default function PitchIdeas() {
   const linkedProject = isProjectMode ? projects.find(p => p.id === selectedProject) : null;
   const projectFeatures = (linkedProject as any)?.project_features as Record<string, any> | null | undefined;
 
+  // Poll for new ideas during generation to show incremental progress
+  useEffect(() => {
+    if (!generating) return;
+    const interval = setInterval(async () => {
+      await qc.invalidateQueries({ queryKey: ['pitch-ideas'] });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [generating, qc]);
+
+  // Update progress counter when ideas array grows during generation
+  useEffect(() => {
+    if (!generating) return;
+    const newCount = Math.max(0, ideas.length - preGenCountRef.current);
+    setGenProgress(prev => ({ ...prev, current: Math.min(newCount, prev.total) }));
+  }, [ideas.length, generating]);
+
   const filteredIdeas = useMemo(() => {
     return ideas
       .filter(i => {
