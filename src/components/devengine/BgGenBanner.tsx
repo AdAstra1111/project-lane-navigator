@@ -6,7 +6,7 @@
  *  2. Detected chunk strategy from chunk keys (scene_indexed → SceneIndexedProgress)
  *  3. Fallback: sectioned prose docs → SectionedDocProgress
  */
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
