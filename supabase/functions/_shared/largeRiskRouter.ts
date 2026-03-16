@@ -47,18 +47,18 @@ const EPISODIC_DOC_TYPES = new Set([
 ]);
 
 const SECTIONED_DOC_TYPES = new Set([
-  "feature_script",
   "screenplay_draft",
   "long_treatment",
   "treatment",
   "story_outline",
-  "beat_sheet",
   "character_bible",
   "long_character_bible",
 ]);
 
 const SCENE_INDEXED_DOC_TYPES = new Set([
   "production_draft",
+  "feature_script",
+  "beat_sheet",
 ]);
 
 const ALL_LARGE_RISK = new Set([
