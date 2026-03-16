@@ -1369,7 +1369,7 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
 
       const plan = chunkPlanFor(docType, {
         episodeCount: resolvedQuals?.season_episode_count,
-        sceneCount: null,
+        sceneCount: resolvedSceneCount,
         // season_script: 1 episode per chunk — crash-safe, resumable, no JSON transport
         batchSize: docType === "season_script" ? 1 : undefined,
       });
