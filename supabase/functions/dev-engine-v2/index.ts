@@ -22863,7 +22863,7 @@ Use scene IDs from the provided map only. Keep JSON under 20000 chars.`;
         return { n: i + 1, id: o.scene_id, slug: v?.slugline || '', summary: (v?.summary || '').slice(0, 200) };
       });
 
-      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || '';
+      const apiKey = resolveGateway().apiKey;
       const ledgerSystem = `You are a narrative analyst. Identify all story threads from the scene map and spine.
 RETURN ONLY valid JSON:
 {
