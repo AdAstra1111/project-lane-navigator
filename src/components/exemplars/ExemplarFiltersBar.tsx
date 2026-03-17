@@ -30,7 +30,7 @@ export function ExemplarFiltersBar({ filters, onChange, resultCount }: Props) {
 
   const set = (patch: Partial<ExemplarFilters>) => onChange({ ...filters, ...patch });
   const clear = () => onChange({ ciMin: 95, sortBy: 'ci_desc' });
-  const hasFilters = !!(filters.search || filters.format || filters.lane || filters.genre || filters.engine || filters.budgetBand || filters.approvedOnly);
+  const hasFilters = !!(filters.search || filters.format || filters.lane || filters.genre || filters.engine || filters.budgetBand || filters.approvedOnly || filters.learningPoolOnly);
 
   return (
     <div className="space-y-3">

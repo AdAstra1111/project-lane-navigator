@@ -52,6 +52,11 @@ export function useExemplarIdeas(filters: ExemplarFilters = {}) {
         query = query.eq('is_exemplar', true);
       }
 
+      // Learning-pool-only filter
+      if (filters.learningPoolOnly) {
+        query = query.eq('learning_pool_eligible', true);
+      }
+
       // Metadata filters
       if (filters.format) query = query.eq('production_type', filters.format);
       if (filters.lane) query = query.eq('recommended_lane', filters.lane);
