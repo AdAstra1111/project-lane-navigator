@@ -28155,10 +28155,49 @@ CANONICAL EPISODE COUNT (HARD REQUIREMENT):
 - Do NOT output any episode number above ${canonicalEpisodeCount}.`
             : "";
 
+          // ── CANON INJECTION (regen-tick) ──
+          let canonBlock = "";
+          try {
+            const { data: canonRow } = await supabase
+              .from("project_canon")
+              .select("canon_json")
+              .eq("project_id", projectId)
+              .maybeSingle();
+            const cj = canonRow?.canon_json || {};
+            const canonParts: string[] = [];
+            if (cj.title) canonParts.push(`CANONICAL TITLE: "${cj.title}" — use this exact title throughout. Do NOT rename or create alternate titles.`);
+            if (cj.logline) canonParts.push(`CANONICAL LOGLINE: ${cj.logline}`);
+            if (Array.isArray(cj.characters) && cj.characters.length > 0) {
+              const charLines = cj.characters
+                .filter((c: any) => c.name && c.name.trim())
+                .slice(0, 15)
+                .map((c: any) => `  - ${c.name}${c.role ? ` (${c.role})` : ""}`);
+              if (charLines.length > 0) {
+                canonParts.push(`CANONICAL CHARACTERS (use these exact names):\n${charLines.join("\n")}`);
+              }
+            }
+            if (canonParts.length > 0) {
+              canonBlock = `\n## CANON LOCK (AUTHORITATIVE)\n${canonParts.join("\n")}\n`;
+            }
+          } catch { /* non-fatal */ }
+
+          // ── FORMAT-SPECIFIC GENERATION GUIDANCE ──
+          let formatGuidance = "";
+          const isScreenplayDerivative = SCREENPLAY_DOC_TYPES_TICK.has(stage);
+          if (isScreenplayDerivative) {
+            formatGuidance = `\nFORMAT REQUIREMENT: This is a SCREENPLAY-FORMAT document. You MUST produce:
+- Proper screenplay formatting with INT./EXT. sluglines
+- Character names in CAPS followed by dialogue
+- Action lines in present tense
+- Scene transitions (CUT TO:, FADE IN:, etc.)
+Do NOT produce: scene breakdowns, JSON, outlines, beat lists, or planning artifacts.
+This must read as a professional screenplay, not a structural summary.\n`;
+          }
+
           const userPrompt = `SOURCE FORMAT: ${upstream.upstreamType}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA): []
-${necBlock}
+${canonBlock}${necBlock}${formatGuidance}
 ${episodeCountBlock}
 
 CRITICAL: Produce a FULL, COMPLETE ${stage.replace(/_/g, " ")} document.
