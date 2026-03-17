@@ -3,11 +3,16 @@
  * Input:  { project_id }
  * Output: { criteria, sources }
  *
- * Fetches the latest versions of key project documents (idea, topline_narrative,
- * concept_brief, market_sheet / vertical_market_sheet, blueprint) and extracts
+ * Fetches the latest versions of key project documents and extracts
  * story-setup fields with provenance tracking.
  *
  * Priority order: topline_narrative > concept_brief > market_sheet > idea > blueprint
+ *
+ * Extraction pipeline:
+ *   1. Guardrails / project-metadata (lowest priority)
+ *   2. Per-doc regex heading extraction (deterministic)
+ *   3. LLM inference for still-missing fields (Lovable AI gateway)
+ *   4. Safe defaults for remaining gaps
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -32,7 +37,7 @@ export interface CriteriaResult {
   comparables: string;
 }
 
-export type InferMethod = "extracted" | "inferred" | "default";
+export type InferMethod = "heading_extract" | "llm_infer" | "project_metadata" | "default";
 
 export interface FieldSource {
   source_doc_type: string;
@@ -47,28 +52,89 @@ const EMPTY_CRITERIA: CriteriaResult = {
   antagonist: "", stakes: "", world_rules: "", comparables: "",
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Guardrails: reject known junk matches ──────────────────────────────────
 
-/** Very cheap regex extraction for labelled headings.
- *  Handles both inline (`HEADING: value`) and markdown (`## Heading\n\nvalue`) styles.
+const JUNK_PATTERNS = [
+  /^density\s*[/\\]/i,         // "Density / Scale Constraints"
+  /^\*{2}/,                     // starts with markdown bold syntax
+  /^scale\s*constraints/i,
+  /^summary$/i,                 // bare "Summary"
+  /^n\/a$/i,
+  /^none$/i,
+  /^tbd$/i,
+  /^todo$/i,
+  /^[\-–—]+$/,                  // just dashes
+];
+
+/** Returns null if value is empty, placeholder, or matches known junk */
+function sanitize(value: string): string | null {
+  const v = value?.trim();
+  if (!v || v.length < 3) return null;
+  for (const pat of JUNK_PATTERNS) {
+    if (pat.test(v)) return null;
+  }
+  return v;
+}
+
+// Per-field blocklist patterns — reject matches that are semantically wrong
+const FIELD_BLOCKLIST: Partial<Record<keyof CriteriaResult, RegExp[]>> = {
+  stakes: [/^we\s+specialize/i, /^our\s+team/i],                // "Why Us" content in stakes
+  world_rules: [/density.*constraint/i, /budget.*tier/i],        // market metadata in world_rules
+};
+
+function sanitizeField(field: keyof CriteriaResult, value: string): string | null {
+  const base = sanitize(value);
+  if (!base) return null;
+  const blocklist = FIELD_BLOCKLIST[field];
+  if (blocklist) {
+    for (const pat of blocklist) {
+      if (pat.test(base)) return null;
+    }
+  }
+  return base;
+}
+
+// ─── Heading Extraction ─────────────────────────────────────────────────────
+
+/**
+ * Extract content under a markdown/text heading.
+ * Handles:
+ *   - Inline:  `## Heading: value on same line`  /  `**Heading:** value`
+ *   - Block:   `## Heading\n\nContent paragraph(s)...`
+ * Stops at next heading (#, **, ---) or EOF.
  */
-function extractHeading(text: string, ...variants: string[]): string {
+export function extractHeading(text: string, ...variants: string[]): string {
   for (const heading of variants) {
-    // Pattern 1: inline value on same line as heading  (e.g. "PROTAGONIST: Jane Doe")
-    const inlineRe = new RegExp(`(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–]?\\s*(.+?)(?:\\n|$)`, "im");
+    // Pattern 1: inline value on same line (e.g. "**Protagonist:** Jane Doe")
+    const inlineRe = new RegExp(
+      `(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–—]?\\s*(.+?)(?:\\n|$)`,
+      "im",
+    );
     const inlineM = text.match(inlineRe);
-    if (inlineM?.[1]?.trim()) return inlineM[1].trim().slice(0, 600);
+    if (inlineM?.[1]?.trim()) {
+      // Strip leading markdown bold artifacts and dash/em-dash separators
+      const cleaned = inlineM[1].trim()
+        .replace(/^\*{2}\s*/, "")   // leading **
+        .replace(/\*{2}$/, "")      // trailing **
+        .replace(/^[–—]\s*/, "")    // leading em-dash
+        .trim();
+      if (cleaned.length >= 3) return cleaned.slice(0, 600);
+    }
 
     // Pattern 2: heading on its own line, content on next non-blank line(s)
-    // e.g. "## Premise\n\nActual premise text here..."
-    const blockRe = new RegExp(`(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–]?\\s*\\n+([^\\n#].+?)(?=\\n\\s*(?:#{1,3}\\s|\\*{2}[A-Z])|$)`, "ims");
+    // Captures everything until the next heading marker or EOF
+    const blockRe = new RegExp(
+      `(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–—]?\\s*\\n\\s*\\n` +
+      `([\\s\\S]+?)` +
+      `(?=\\n\\s*(?:#{1,3}\\s|\\*{2}[A-Z]|---)|$)`,
+      "im",
+    );
     const blockM = text.match(blockRe);
     if (blockM?.[1]?.trim()) {
-      // Take first paragraph (up to 600 chars), collapsing internal newlines
       const raw = blockM[1].trim();
-      // Stop at the first blank-line boundary (paragraph break) or take all if single paragraph
+      // Take first paragraph, collapsing internal newlines
       const firstPara = raw.split(/\n\s*\n/)[0].replace(/\n/g, " ").trim();
-      return firstPara.slice(0, 600);
+      if (firstPara.length >= 3) return firstPara.slice(0, 600);
     }
   }
   return "";
@@ -79,6 +145,26 @@ function firstParagraph(text: string): string {
   const paras = text.split(/\n{2,}/).map(p => p.replace(/\n/g, " ").trim()).filter(p => p.length > 20);
   return paras[0]?.slice(0, 300) || "";
 }
+
+// ─── Field extraction config (deterministic priority per heading set) ────────
+
+interface FieldExtractDef {
+  field: keyof CriteriaResult;
+  headings: string[];
+  /** Secondary headings to try in a separate pass if primary fails */
+  fallbackHeadings?: string[];
+}
+
+const FIELD_EXTRACT_DEFS: FieldExtractDef[] = [
+  { field: "logline",     headings: ["LOGLINE", "LOG LINE", "HOOK", "ONE.LINE", "PREMISE IN ONE LINE"] },
+  { field: "premise",     headings: ["PREMISE", "THE CONCEPT", "CONCEPT", "SERIES PREMISE", "SHOW PREMISE", "STORY ENGINE"] },
+  { field: "tone_genre",  headings: ["TONE", "GENRE(?! BLEND)", "TONE.GENRE", "TONE & GENRE", "CORE TROPES", "VIBE"] },
+  { field: "protagonist", headings: ["PROTAGONIST", "LEAD CHARACTER", "HERO", "MAIN CHARACTER", "CENTRAL CHARACTER", "OUR HERO"] },
+  { field: "antagonist",  headings: ["ANTAGONIST", "VILLAIN", "OPPOSITION", "OPPOSING FORCE", "CONFLICT SOURCE"] },
+  { field: "stakes",      headings: ["STAKES", "WHY IT SELLS", "CORE TENSION", "WHAT.S AT STAKE", "CENTRAL TENSION"], fallbackHeadings: ["WHY NOW"] },
+  { field: "world_rules", headings: ["WORLD RULES", "WORLD.BUILDING", "WORLD BUILDING", "SETTING"] },
+  { field: "comparables", headings: ["COMPARABLES", "COMPS", "COMP TITLES", "SIMILAR TO", "INSPIRED BY", "COMP SET"] },
+];
 
 // ─── Main Handler ─────────────────────────────────────────────────────────────
 
@@ -98,7 +184,6 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Local JWT decode for auth (fast, no network hop)
     let userId: string | null = null;
     try {
       const payload = JSON.parse(atob(token.split(".")[1]));
@@ -117,7 +202,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── Verify project ownership / access ──
+    // ── Project ──
     const { data: proj } = await supabase.from("projects")
       .select("id, title, tone, genres, comparable_titles, format, guardrails_config")
       .eq("id", project_id)
@@ -141,13 +226,11 @@ Deno.serve(async (req) => {
       .in("doc_type", DOC_PRIORITY)
       .order("created_at", { ascending: false });
 
-    // Fetch latest version text for each doc
     const docTexts: Record<string, { id: string; text: string; doc_type: string }> = {};
 
     for (const doc of (docs || [])) {
-      if (docTexts[doc.doc_type]) continue; // already have newest (ordered by created_at desc)
+      if (docTexts[doc.doc_type]) continue;
 
-      // Try latest version first
       const { data: vers } = await supabase
         .from("project_document_versions")
         .select("plaintext")
@@ -161,78 +244,72 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Ordered text blocks for LLM ──
     const orderedDocs = DOC_PRIORITY.map(dt => docTexts[dt]).filter(Boolean);
     const hasAnyDoc = orderedDocs.length > 0;
 
-    // ── Step 1: Regex extraction (cheap, no LLM) ──
+    // ── Step 1: Deterministic heading extraction ──
     const criteria: CriteriaResult = { ...EMPTY_CRITERIA };
     const sources: Partial<SourceMap> = {};
 
-    // Helper to set a field if not yet set
     const setField = (
       field: keyof CriteriaResult,
-      value: string,
+      rawValue: string,
       docType: string,
       docId: string | null,
       method: InferMethod,
     ) => {
-      if (!value?.trim() || criteria[field]) return;
-      criteria[field] = value.trim();
+      if (criteria[field]) return; // already set (higher-priority source won)
+      const clean = sanitizeField(field, rawValue);
+      if (!clean) return;
+      criteria[field] = clean;
       sources[field] = { source_doc_type: docType, source_doc_id: docId, method };
     };
 
-    // Pull project-level fallbacks first (lowest priority — overwritten by doc extraction)
+    // 1a. Guardrails (saved story setup — lowest priority, overwritten by doc extraction)
     const gc = proj.guardrails_config || {};
     const gcStory = gc?.overrides?.story_setup || {};
-
-    // Check guardrails for previously saved story setup
     for (const field of Object.keys(EMPTY_CRITERIA) as (keyof CriteriaResult)[]) {
       if (gcStory[field]) {
-        setField(field, gcStory[field], "project_guardrails", null, "extracted");
+        setField(field, gcStory[field], "project_guardrails", null, "project_metadata");
       }
     }
 
-    // Project-level fields (tone, genres, comparable_titles)
+    // 1b. Project-level fields
     if (proj.tone || proj.genres?.length) {
       const tg = [proj.tone, ...(proj.genres || [])].filter(Boolean).join(" / ");
-      setField("tone_genre", tg, "project_metadata", null, "extracted");
+      setField("tone_genre", tg, "project_metadata", null, "project_metadata");
     }
     if (proj.comparable_titles) {
-      setField("comparables", proj.comparable_titles, "project_metadata", null, "extracted");
+      setField("comparables", proj.comparable_titles, "project_metadata", null, "project_metadata");
     }
 
-    // Per-doc regex extraction (priority order)
+    // 1c. Per-doc regex extraction (doc priority order × field priority order)
     for (const docType of DOC_PRIORITY) {
       const entry = docTexts[docType];
       if (!entry) continue;
       const { id: docId, text } = entry;
 
-      setField("logline", extractHeading(text, "LOGLINE", "LOG LINE", "HOOK", "ONE.LINE", "PREMISE IN ONE LINE"), docType, docId, "extracted");
-      setField("premise", extractHeading(text, "PREMISE", "THE CONCEPT", "CONCEPT", "SERIES PREMISE", "SHOW PREMISE", "STORY ENGINE"), docType, docId, "extracted");
-      setField("tone_genre", extractHeading(text, "TONE", "GENRE(?! BLEND)", "TONE.GENRE", "TONE & GENRE", "CORE TROPES", "VIBE"), docType, docId, "extracted");
-      setField("protagonist", extractHeading(text, "PROTAGONIST", "LEAD CHARACTER", "HERO", "MAIN CHARACTER", "CENTRAL CHARACTER", "OUR HERO"), docType, docId, "extracted");
-      setField("antagonist", extractHeading(text, "ANTAGONIST", "VILLAIN", "OPPOSITION", "OPPOSING FORCE", "CONFLICT SOURCE"), docType, docId, "extracted");
-      setField("stakes", extractHeading(text, "STAKES", "WHY IT SELLS", "CORE TENSION", "WHAT.S AT STAKE", "CENTRAL TENSION"), docType, docId, "extracted");
-      setField("world_rules", extractHeading(text, "WORLD RULES", "WORLD.BUILDING", "WORLD BUILDING", "SETTING"), docType, docId, "extracted");
-      setField("comparables", extractHeading(text, "COMPARABLES", "COMPS", "COMP TITLES", "SIMILAR TO", "INSPIRED BY", "COMP SET"), docType, docId, "extracted");
+      // Primary headings
+      for (const def of FIELD_EXTRACT_DEFS) {
+        const val = extractHeading(text, ...def.headings);
+        if (val) setField(def.field, val, docType, docId, "heading_extract");
+      }
 
-      // Second-pass extractions: fields that use alternative heading names as fallback
-      if (!criteria.stakes) {
-        setField("stakes", extractHeading(text, "WHY NOW"), docType, docId, "extracted");
+      // Fallback headings (second pass)
+      for (const def of FIELD_EXTRACT_DEFS) {
+        if (!def.fallbackHeadings || criteria[def.field]) continue;
+        const val = extractHeading(text, ...def.fallbackHeadings);
+        if (val) setField(def.field, val, docType, docId, "heading_extract");
       }
     }
 
-    // Fallback: use first paragraph as logline if still empty
+    // 1d. Last-resort logline from first paragraph
     if (!criteria.logline) {
-      for (const docType of ["topline_narrative", "concept_brief", "idea"]) {
-        const entry = docTexts[docType];
+      for (const dt of ["topline_narrative", "concept_brief", "idea"]) {
+        const entry = docTexts[dt];
         if (!entry) continue;
         const para = firstParagraph(entry.text);
-        if (para) {
-          setField("logline", para, docType, entry.id, "extracted");
-          break;
-        }
+        if (para) { setField("logline", para, dt, entry.id, "heading_extract"); break; }
       }
     }
 
@@ -241,8 +318,15 @@ Deno.serve(async (req) => {
       .filter(k => !criteria[k]);
 
     if (missingFields.length > 0 && hasAnyDoc) {
+      console.warn("DOC_TO_FORM_LLM_FALLBACK", JSON.stringify({
+        project_id,
+        missing_fields: missingFields,
+        available_doc_types: Object.keys(docTexts),
+      }));
+
       let gateway: { url: string; apiKey: string } | null = null;
-      try { gateway = resolveGateway(); } catch { /* no gateway available */ }
+      try { gateway = resolveGateway(); } catch { /* no gateway */ }
+
       if (gateway) {
         const combinedText = orderedDocs.map(d => `--- ${d.doc_type} ---\n${d.text}`).join("\n\n").slice(0, 18000);
 
@@ -270,22 +354,20 @@ Do NOT invent information not present in the documents.`;
             if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
           } catch { /* ignore parse errors */ }
 
-          // Use the best available source doc for attribution
           const bestDoc = orderedDocs[0];
           for (const field of missingFields) {
             const val = parsed[field];
             if (val?.trim()) {
-              setField(field as keyof CriteriaResult, val, bestDoc?.doc_type || "inference", bestDoc?.id || null, "inferred");
+              setField(field as keyof CriteriaResult, val, bestDoc?.doc_type || "llm_inference", bestDoc?.id || null, "llm_infer");
             }
           }
-        } catch (e) {
-          console.warn("LLM inference failed:", e.message);
-          // Non-fatal — we return what we extracted with regex
+        } catch (e: unknown) {
+          console.warn("LLM inference failed:", (e as Error)?.message ?? e);
         }
       }
     }
 
-    // ── Step 3: Apply safe defaults for still-empty fields ──
+    // ── Step 3: Safe defaults for remaining gaps ──
     const remainingMissing = (Object.keys(EMPTY_CRITERIA) as (keyof CriteriaResult)[])
       .filter(k => !criteria[k]);
 
@@ -293,29 +375,21 @@ Do NOT invent information not present in the documents.`;
     const DEFAULTS: Partial<CriteriaResult> = {
       tone_genre: formatLabel,
       world_rules: "Contemporary realistic setting",
-      comparables: "",
     };
 
     for (const field of remainingMissing) {
       const def = DEFAULTS[field];
-      if (def) {
-        setField(field, def, "default", null, "default");
-      }
+      if (def) setField(field, def, "default", null, "default");
     }
 
-    // ── Fill remaining sources (for fields that had no source set) ──
+    // ── Build final response ──
     const fullSources: SourceMap = {} as SourceMap;
     const stillMissing: string[] = [];
     for (const field of Object.keys(EMPTY_CRITERIA) as (keyof CriteriaResult)[]) {
-      fullSources[field] = sources[field] || {
-        source_doc_type: "none",
-        source_doc_id: null,
-        method: "default",
-      };
+      fullSources[field] = sources[field] || { source_doc_type: "none", source_doc_id: null, method: "default" };
       if (!criteria[field]) stillMissing.push(field);
     }
 
-    // ── Diagnostic logging for mapping failures ──
     if (stillMissing.length > 0) {
       console.warn("DOC_TO_FORM_MAPPING_FAILURE", JSON.stringify({
         project_id,
