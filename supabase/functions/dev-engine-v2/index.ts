@@ -22109,7 +22109,7 @@ Rules:
         .select("fact_type, subject, predicate, object")
         .eq("project_id", projectId).eq("is_active", true).limit(50);
 
-      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || '';
+      const apiKey = resolveGateway().apiKey;
 
       const shotGenSystem = `You are a feature film cinematographer and 1st AD planning a shot list. Mode: ${useMode}. Aspect ratio: ${useAR}.
 Output ONLY valid JSON: { "shots": [{ "order": 1, "shot_type": "shot"|"insert"|"cutaway"|"transition"|"montage", "coverage_role": "master"|"wide"|"two_shot"|"single"|"ots"|"pov"|"insert"|"cutaway", "framing": "WS"|"MS"|"MCU"|"CU"|"ECU", "lens_mm": 35, "camera_support": "tripod"|"handheld"|"steadicam"|"dolly"|"crane"|"drone", "camera_movement": "static"|"pan"|"tilt"|"push"|"pull"|"track"|"crane"|"handheld", "angle": "eye"|"high"|"low"|"dutch"|"overhead", "composition_notes": "", "blocking_notes": "", "emotional_intent": "", "narrative_function": "reveal"|"escalation"|"payoff"|"exposition"|"transition"|"motif", "characters_in_frame": [], "props_required": [], "sfx_vfx_flags": {"vfx":false,"sfx":false,"stunts":false}, "est_duration_seconds": 5, "est_setup_complexity": 2, "lighting_style": "naturalistic" }] }
