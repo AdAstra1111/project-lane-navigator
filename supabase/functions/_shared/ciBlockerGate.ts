@@ -338,9 +338,51 @@ export function formatDirectivesAsDirections(directives: RewriteDirective[], doc
   return lines;
 }
 
-// ── Character Bible Depth Checklist (Schema v2) ──
+// ── Character Ontology v2 — Tier Definitions ──
+// Tier 1: Canonical Principal Characters — story-defining, required in Character Bible, canon-sensitive
+// Tier 2: Supporting Narrative Characters — recurring/meaningful, optional in Character Bible, may enter canon
+// Tier 3: Supporting World Roles — world realism, NOT required in Character Bible, NOT canonical by default
+// Tier 4: Functional Scene Roles — scene-serving (guard, driver, clerk), generated on demand, never canonical
+// Tier 5: Environmental Human Presence — crowds, background, no structural tracking
+
+// Functional scene roles allowlist — these are Tier 4 and must never be required in Character Bible
+export const FUNCTIONAL_SCENE_ROLES = new Set([
+  'GUARD', 'SECURITY GUARD', 'DRIVER', 'CLERK', 'BARTENDER', 'SERVER',
+  'RECEPTIONIST', 'OFFICER', 'COP', 'POLICE OFFICER', 'DELIVERY PERSON',
+  'COURIER', 'DOORMAN', 'BOUNCER', 'VENDOR', 'CUSTOMER', 'PATRON',
+  'CASHIER', 'MANAGER', 'MESSENGER', 'ATTENDANT', 'SERVANT', 'MAID',
+  'BUTLER', 'PORTER', 'JANITOR', 'PARAMEDIC', 'FIREFIGHTER', 'JUDGE',
+  'BAILIFF', 'SECRETARY', 'ASSISTANT', 'INTERN', 'TECHNICIAN',
+  'WAITER', 'WAITRESS', 'NURSE', 'DOCTOR', 'HOST', 'HOSTESS',
+  'ANNOUNCER', 'ANCHOR', 'REPORTER', 'INTERVIEWER',
+]);
+
+// ── Character Bible Depth Checklist (Schema v2 + Ontology v2) ──
 export const CHARACTER_BIBLE_DEPTH_PROMPT_BLOCK = `
 ## CHARACTER SCHEMA v2 — MANDATORY STRUCTURE
+
+### CHARACTER ONTOLOGY (TIERED SYSTEM)
+
+The character bible models human presence across narrative tiers:
+
+**Tier 1 — Canonical Principal Characters** (REQUIRED in bible)
+Story-defining characters. Full structural depth required. Canon-sensitive — drift detection applies.
+
+**Tier 2 — Supporting Narrative Characters** (OPTIONAL in bible)
+Recurring characters with meaningful narrative function. Include if they materially affect plot or protagonist arc.
+May be promoted to Tier 1 if their narrative weight increases.
+
+**Tier 3 — Supporting World Roles** (DO NOT include unless narratively significant)
+Characters that create social texture — institutional figures, hierarchy members, environmental presences.
+They may speak and act but do not require Character Bible entries.
+If included for worldbuilding context, mark section as "(NON-CANONICAL)".
+
+**Tier 4 — Functional Scene Roles** (NEVER include)
+Scene-serving roles: guards, drivers, clerks, messengers, attendants.
+Generated on demand at scene level. Props that can deliver dialogue.
+
+**Tier 5 — Environmental Human Presence** (NEVER include)
+Crowds, background figures, atmospheric human presence. No structural tracking.
 
 ### DESCRIPTOR POLICY (STRICTLY ENFORCED)
 DO NOT use:
@@ -353,7 +395,7 @@ INSTEAD use:
 - Relational clarity: power dynamics, leverage, dependency, obligation
 - System-based positioning: where they sit in hierarchy, who they answer to, who answers to them
 
-### CORE CHARACTER REQUIREMENTS (each principal character MUST have ALL):
+### CORE CHARACTER REQUIREMENTS (each Tier 1 character MUST have ALL):
 1. **Social Position** — Where they sit in the hierarchy/class/institution. Be specific (e.g., "junior partner at a mid-tier consulting firm", NOT "ambitious professional").
 2. **Functional Role** — What they DO operationally in the world. Concrete daily activity.
 3. **World Embedding** — Physical location, daily environment, institutional context they move through.
@@ -364,33 +406,38 @@ INSTEAD use:
 8. **Arc** — Start state → breaking point → end state. Concrete, not aspirational.
 9. **Voice** — Speech register, vocabulary level, verbal tics, avoidances.
 
-### WORLD CHARACTER REQUIREMENTS (NON-CANONICAL — supporting/background):
-World characters populate the social ecosystem. They require ONLY:
-- Name or Role Title
+### TIER 2 SUPPORTING CHARACTER REQUIREMENTS (if included):
+Supporting characters require ONLY:
+- Name and Narrative Role
 - Social Position (hierarchy layer)
 - Functional Role (what they do)
 - World Embedding (where they operate)
+- Key relationship to at least one Tier 1 character
 
-Do NOT give world characters full arcs or detailed wounds. They are environmental texture.
+Do NOT give Tier 2 characters full arcs or detailed wounds unless they are candidates for promotion.
 
-### WORLD DENSITY REQUIREMENT:
-The bible MUST include a "WORLD CHARACTERS" section with:
-- At least 2–3 visible hierarchy layers (e.g., management/staff/street, court/church/merchants)
-- At least 5–10 supporting/world roles for prestige or large-scale projects
-- Institutional roles, intermediaries, enforcers, rivals, environmental figures
-- These characters create a lived-in, socially stratified world
+### WORLD DENSITY (SEMANTIC — NOT SECTION-BASED):
+A strong character bible implies a lived-in world through:
+- Institutional context around principal characters (where they work, who governs them)
+- Power structures visible through character relationships
+- Social hierarchy implied by character positions
+- Environmental pressure from the world system
+
+This does NOT require a separate "World Characters" section.
+A tight, well-positioned cast within clear institutional/social systems satisfies world density.
+Incidental scene roles (guards, drivers, attendants) should NOT be defined here — they exist at scene level.
 
 ### CANON SEPARATION:
 - Characters in "PRINCIPAL CHARACTERS" and "ANTAGONIST" sections = CANONICAL (persist in canon)
-- Characters in "WORLD CHARACTERS" section = NON-CANONICAL (generation-only, disposable)
-- CLEARLY label the "WORLD CHARACTERS" section header with "(NON-CANONICAL)"
+- Any optional "SUPPORTING CHARACTERS" section = may enter canon if narratively significant
+- Any world/environmental characters (if present) = NON-CANONICAL (generation-only, disposable)
 `;
 
-// ── Character Bible Depth Eval Extension (Schema v2) ──
+// ── Character Bible Depth Eval Extension (Schema v2 + Ontology v2) ──
 export const CHARACTER_BIBLE_DEPTH_EVAL_BLOCK = `
-## CHARACTER DEPTH SCORING — SCHEMA v2 (MANDATORY for character_bible evaluation)
+## CHARACTER DEPTH SCORING — SCHEMA v2 + ONTOLOGY v2 (MANDATORY for character_bible evaluation)
 
-For each PRINCIPAL character, check these Schema v2 requirements:
+For each PRINCIPAL (Tier 1) character, check these Schema v2 requirements:
 - social_position, functional_role, world_embedding, want_vs_need, wound, flaw, relationships, arc, voice
 - If ANY principal character is missing 3+ items: BLOCKER (severity: blocker, category: character)
 - If ANY principal character is missing 1-2 items: HIGH-IMPACT (severity: high, category: character)
@@ -399,11 +446,28 @@ DESCRIPTOR QUALITY CHECK:
 - If any character uses vague descriptors ("enigmatic", "magnetic", "complex soul", "storm beneath calm"): HIGH-IMPACT penalty
 - Characters must be positioned structurally (hierarchy, institution, function) not poetically
 
-WORLD DENSITY CHECK:
-- If no "WORLD CHARACTERS" section exists: HIGH-IMPACT (severity: high, category: world_density)
-- If fewer than 5 world roles for a prestige project: note as improvement area
-- If no visible hierarchy layers: HIGH-IMPACT
+WORLD DENSITY CHECK (SEMANTIC — NOT LABEL-BASED):
+Evaluate world density by examining whether the CHARACTER RELATIONSHIPS and INSTITUTIONAL CONTEXT
+create an implied social ecosystem. Check:
+- Do principal characters exist within visible power structures or institutions?
+- Are there clear hierarchy/authority relationships?
+- Does the world feel inhabited through character positioning?
+
+DO NOT require a literal "WORLD CHARACTERS" section.
+DO NOT flag absence of world/supporting characters as a blocker.
+DO NOT emit notes like "Add World Characters section" — this is a structural anti-pattern.
+
+World density concerns should be:
+- SUGGESTION (severity: low) if the story could benefit from more social texture
+- HIGH-IMPACT only if principal characters operate in a vacuum with zero institutional context AND the lane requires density (prestige, commercial)
+- NEVER a blocker for contained, intimate, or chamber-piece stories
+
+LANE-AWARE DENSITY RULES:
+- prestige → allow minimal cast with high institutional density; tight ensemble is valid
+- contained/chamber → low density is acceptable and often desirable
+- commercial → moderate density expected but through character positioning, not character count
 
 GP IMPACT: A character bible with isolated characters (no social system, no hierarchy, no institutional context) cannot score above 70 GP regardless of individual character depth.
 CI IMPACT: Missing Schema v2 structural fields = direct CI penalty. Shallow characters cannot score above 75 CI.
+IMPORTANT: World density is measured by QUALITY of institutional embedding, NOT by NUMBER of named characters.
 `;

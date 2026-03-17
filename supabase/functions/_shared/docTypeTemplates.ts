@@ -196,7 +196,10 @@ export function getDocTypeTemplate(docType: string, ctx: TemplateContext = {}): 
     case "character_bible":
       return `# CHARACTER BIBLE: ${title}
 
-## PRINCIPAL CHARACTERS (CANONICAL)
+## PRINCIPAL CHARACTERS (CANONICAL — Tier 1)
+
+> These are the story-defining characters. Each requires full structural depth.
+> Canon-sensitive — changes here affect continuity tracking and drift detection.
 
 ### [CHARACTER NAME 1] — [Narrative Role]
 **Social Position:** [Place in hierarchy / class / institution — e.g. "junior associate at a white-shoe law firm", "second son of a minor aristocratic house"]
@@ -229,7 +232,7 @@ export function getDocTypeTemplate(docType: string, ctx: TemplateContext = {}): 
 
 ---
 
-## ANTAGONIST / OPPOSITION FORCE (CANONICAL)
+## ANTAGONIST / OPPOSITION FORCE (CANONICAL — Tier 1)
 
 ### [Antagonist Name] — [Narrative Role]
 **Social Position:** [Where they sit in the power structure]
@@ -257,25 +260,24 @@ export function getDocTypeTemplate(docType: string, ctx: TemplateContext = {}): 
 
 ---
 
-## WORLD CHARACTERS (NON-CANONICAL — do NOT include in canon)
+## SUPPORTING CHARACTERS (OPTIONAL — Tier 2)
 
-These characters exist to populate the world with social texture. They are NOT story anchors. They are disposable between versions and must not be treated as canonical.
+> Include here ONLY if they are recurring characters with meaningful narrative function.
+> They may be promoted to Principal if their narrative weight increases.
+> Incidental scene roles (guards, drivers, clerks) should NOT appear here — they are generated at scene level.
 
-### HIERARCHY LAYER — [e.g. "The Firm", "The Court", "The Precinct"]
-- **[Role Title]** — [1-line functional description: what they do, where they operate]
-- **[Role Title]** — [1-line functional description]
-- **[Role Title]** — [1-line functional description]
+### [SUPPORTING CHARACTER NAME] — [Narrative Role]
+**Social Position:** [Hierarchy placement]
+**Functional Role:** [What they do]
+**World Embedding:** [Where they operate]
+**Key Relationship:** [Connection to a principal character — dynamic and function]
 
-### HIERARCHY LAYER — [e.g. "Street Level", "Support Staff", "The Community"]
-- **[Role Title]** — [1-line functional description]
-- **[Role Title]** — [1-line functional description]
-- **[Role Title]** — [1-line functional description]
+---
 
-### ENVIRONMENTAL FIGURES
-- **[Role Title]** — [1-line: where they appear, what texture they add]
-- **[Role Title]** — [1-line]
-
-Minimum: 2–3 hierarchy layers, 5–10 world roles for prestige projects.`;
+> **Note on World Density:** A lived-in world is conveyed through the institutional context,
+> power structures, and social systems embedded in principal character descriptions — NOT
+> through a separate list of background characters. Scene-level roles (attendants, officers,
+> vendors) are generated dynamically and do not require Character Bible entries.`;
 
     // ─────────────────────────────────────────────────────────────────────────────
     case "season_arc":
