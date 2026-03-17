@@ -577,6 +577,207 @@ Deno.serve(async (req) => {
       return jsonRes({ success: true });
     }
 
+    // ── RECLASSIFY ── DNA → ENGINE reclassification for legacy profiles ──
+    if (action === "reclassify") {
+      const { id } = body;
+      if (!id) return jsonRes({ error: "profile id is required" }, 400);
+
+      // Fetch the profile with all structural fields
+      const { data: profile, error: pErr } = await supabase
+        .from("narrative_dna_profiles")
+        .select("*")
+        .eq("id", id)
+        .eq("user_id", user.id)
+        .single();
+
+      if (pErr || !profile) return jsonRes({ error: "Profile not found" }, 404);
+
+      // Fetch all engines with structural traits
+      const { data: engines } = await serviceClient
+        .from("narrative_engines")
+        .select("engine_key, engine_name, structural_traits, antagonist_topology, escalation_pattern, protagonist_pressure_mode, spatial_logic, structural_pattern, active")
+        .eq("active", true)
+        .order("engine_key");
+
+      if (!engines || engines.length === 0) {
+        return jsonRes({ error: "No active engines found in taxonomy" }, 500);
+      }
+
+      // Build structural fingerprint from DNA fields
+      const spine = profile.spine_json || {};
+      const fingerprint = {
+        story_engine: spine.story_engine || null,
+        protagonist_arc: spine.protagonist_arc || null,
+        central_conflict: spine.central_conflict || null,
+        pressure_system: spine.pressure_system || null,
+        stakes_class: spine.stakes_class || null,
+        resolution_type: spine.resolution_type || null,
+        escalation_architecture: profile.escalation_architecture || null,
+        antagonist_pattern: profile.antagonist_pattern || null,
+        power_dynamic: profile.power_dynamic || null,
+        ending_logic: profile.ending_logic || null,
+        thematic_spine: profile.thematic_spine || null,
+      };
+
+      // Use LLM to classify based on structural fingerprint + engine taxonomy
+      const { resolveGateway, callLLMWithJsonRetry, MODELS } = await import("../_shared/llm.ts");
+
+      const engineDescriptions = engines.map((e: any) => {
+        const traits = e.structural_traits || {};
+        return `- ${e.engine_key}: ${e.engine_name}\n  Pattern: ${e.structural_pattern || e.description || "N/A"}\n  Traits: containment=${traits.containment || "?"}, isolation=${traits.isolation || "?"}, escalation=${traits.escalation_topology || "?"}, adversary=${traits.adversary_sequencing || "?"}, pressure=${traits.pressure_architecture || "?"}, moral_fracture=${traits.moral_fracture || "?"}\n  Antagonist topology: ${e.antagonist_topology || "N/A"}\n  Escalation: ${e.escalation_pattern || "N/A"}\n  Protagonist pressure: ${e.protagonist_pressure_mode || "N/A"}`;
+      }).join("\n\n");
+
+      const classificationPrompt = `You are a structural narrative analyst. Given a DNA structural fingerprint from a source story, classify it into one or more narrative engine families.
+
+IMPORTANT: Classify based on DEEP STRUCTURAL PATTERNS, not surface content (genre, setting, creatures, era).
+For example, Beowulf and Die Hard may share the same engine (survival_against_intruder / siege escalation) despite radically different surface content, because both involve:
+- contained defender vs escalating adversaries
+- wave-based confrontation structure
+- sacrifice/survival pressure architecture
+
+DNA STRUCTURAL FINGERPRINT:
+${JSON.stringify(fingerprint, null, 2)}
+
+Source title: ${profile.source_title}
+Thematic spine: ${profile.thematic_spine || "N/A"}
+
+AVAILABLE ENGINE FAMILIES:
+${engineDescriptions}
+
+Return JSON only:
+{
+  "primary_engine_key": "<best matching engine_key>",
+  "secondary_engine_key": "<second best engine_key or null>",
+  "candidate_engines": [
+    {"engine_key": "<key>", "confidence": <0.0-1.0>, "matched_traits": ["trait1", "trait2"], "rejected_traits": ["trait3"]}
+  ],
+  "classification_rationale": "<2-3 sentences explaining WHY this structural pattern matches, referencing specific DNA traits>",
+  "ambiguity_flags": ["<flag if classification is uncertain>"],
+  "classification_version": "v1_structural"
+}
+
+Rules:
+- candidate_engines must include ALL engines ranked by fit, top 3-5 minimum
+- confidence must reflect genuine structural match quality
+- if the match is ambiguous, say so in ambiguity_flags
+- primary_engine_key MUST be from the available engine keys
+- DO NOT classify based on genre, setting, or surface imagery`;
+
+      const gw = resolveGateway();
+      const classificationResult = await callLLMWithJsonRetry(
+        {
+          apiKey: gw.apiKey,
+          model: MODELS.BALANCED,
+          system: "You are a structural narrative classification engine. Return only valid JSON.",
+          user: classificationPrompt,
+          temperature: 0.2,
+          maxTokens: 4000,
+        },
+        {
+          handler: "dna_engine_reclassify",
+          validate: (obj: any): obj is any => {
+            if (!obj || typeof obj.primary_engine_key !== "string") return false;
+            if (!Array.isArray(obj.candidate_engines)) return false;
+            return true;
+          },
+        },
+      );
+
+      // callLLMWithJsonRetry throws on failure — result is guaranteed valid here
+
+      // Validate engine keys
+      const { CANONICAL_ENGINE_KEYS } = await import("../_shared/narrativeDnaExtractor.ts");
+      const validKeys = new Set(CANONICAL_ENGINE_KEYS as readonly string[]);
+
+      const primaryKey = validKeys.has(classificationResult.primary_engine_key)
+        ? classificationResult.primary_engine_key
+        : null;
+      const secondaryKey = classificationResult.secondary_engine_key && validKeys.has(classificationResult.secondary_engine_key)
+        ? classificationResult.secondary_engine_key
+        : null;
+
+      if (!primaryKey) {
+        console.warn(`[narrative-dna][reclassify] LLM returned invalid primary_engine_key: ${classificationResult.primary_engine_key}`);
+        return jsonRes({
+          error: "Classification returned invalid engine key",
+          classification: classificationResult,
+        }, 422);
+      }
+
+      // Persist reclassification
+      const previousPrimary = profile.primary_engine_key;
+      const previousSecondary = profile.secondary_engine_key;
+
+      const { data: updated, error: uErr } = await serviceClient
+        .from("narrative_dna_profiles")
+        .update({
+          primary_engine_key: primaryKey,
+          secondary_engine_key: secondaryKey,
+        })
+        .eq("id", id)
+        .select("id, source_title, primary_engine_key, secondary_engine_key, status")
+        .single();
+
+      if (uErr) {
+        console.error(`[narrative-dna][reclassify] Update failed:`, uErr.message);
+        return jsonRes({ error: `Reclassification persist failed: ${uErr.message}` }, 500);
+      }
+
+      // Structured diagnostic
+      const diagnostic = {
+        event: "DNA_ENGINE_RECLASSIFIED",
+        profile_id: id,
+        source_title: profile.source_title,
+        previous_primary_engine_key: previousPrimary,
+        previous_secondary_engine_key: previousSecondary,
+        new_primary_engine_key: primaryKey,
+        new_secondary_engine_key: secondaryKey,
+        confidence: classificationResult.candidate_engines?.find((c: any) => c.engine_key === primaryKey)?.confidence ?? null,
+        candidate_count: classificationResult.candidate_engines?.length ?? 0,
+        ambiguity_flags: classificationResult.ambiguity_flags || [],
+        classification_version: classificationResult.classification_version || "v1_structural",
+        matched_traits: classificationResult.candidate_engines?.find((c: any) => c.engine_key === primaryKey)?.matched_traits || [],
+      };
+
+      if ((classificationResult.ambiguity_flags || []).length > 0) {
+        console.warn(`[narrative-dna][reclassify] DNA_ENGINE_AMBIGUOUS`, JSON.stringify(diagnostic));
+      } else {
+        console.log(`[narrative-dna][reclassify] DNA_ENGINE_RECLASSIFIED`, JSON.stringify(diagnostic));
+      }
+
+      return jsonRes({
+        success: true,
+        profile: updated,
+        classification: {
+          primary_engine_key: primaryKey,
+          secondary_engine_key: secondaryKey,
+          candidate_engines: classificationResult.candidate_engines,
+          classification_rationale: classificationResult.classification_rationale,
+          ambiguity_flags: classificationResult.ambiguity_flags || [],
+          classification_version: classificationResult.classification_version || "v1_structural",
+        },
+        diagnostic,
+      });
+    }
+
+    // ── LIST_BLUEPRINT_FAMILIES ───────────────────────────────────────────
+    if (action === "list_blueprint_families") {
+      const { engine_key } = body;
+      let query = supabase
+        .from("narrative_engine_blueprint_families")
+        .select("*")
+        .eq("active", true)
+        .order("family_key");
+
+      if (engine_key) {
+        query = query.eq("engine_key", engine_key);
+      }
+
+      const { data: families, error } = await query;
+      if (error) return jsonRes({ error: error.message }, 500);
+      return jsonRes({ families: families || [] });
+    }
+
     return jsonRes({ error: `Unknown action: ${action}` }, 400);
   } catch (err: any) {
     console.error("[narrative-dna] Error:", err.message);

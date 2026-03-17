@@ -8,7 +8,18 @@ export interface NarrativeEngine {
   id: string;
   engine_key: string;
   engine_name: string;
+  label: string | null;
   description: string;
+  structural_traits: Record<string, string> | null;
+  antagonist_topology: string | null;
+  escalation_pattern: string | null;
+  protagonist_pressure_mode: string | null;
+  spatial_logic: string | null;
+  failure_modes: string[];
+  example_titles: string[];
+  structural_pattern: string | null;
+  active: boolean;
+  taxonomy_version: number | null;
   profile_count: number;
   created_at: string;
   updated_at: string;
