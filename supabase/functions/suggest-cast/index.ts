@@ -68,7 +68,7 @@ For each suggestion provide:
     const guardrails = buildGuardrailBlock({ productionType: format, engineName: "suggest-cast" });
     console.log(`[suggest-cast] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch(_gw.url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,

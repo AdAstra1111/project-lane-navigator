@@ -183,7 +183,7 @@ WHY US: ${pitchIdea.why_us || 'N/A'}
 
 Generate the complete development package with all five sections using the exact headers specified.`;
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch(_gw.url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
