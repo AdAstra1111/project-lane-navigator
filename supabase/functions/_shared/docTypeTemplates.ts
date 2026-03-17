@@ -31,6 +31,20 @@ export function getDocTypeTemplate(docType: string, ctx: TemplateContext = {}): 
 
   switch (docType) {
     // ─────────────────────────────────────────────────────────────────────────────
+    case "idea":
+      return `# ${title}
+
+## LOGLINE
+[One sentence — active protagonist + specific conflict + concrete stakes.]
+
+## PREMISE
+[2–3 paragraphs maximum. The core dramatic proposition: who, what situation, what's at stake, why now. Keep it concise and commercially legible.]
+
+## GENRE & HOOK
+**Genre:** [Primary genre]
+**Unique hook:** [One sentence — the single element that makes this idea distinctive.]`;
+
+    // ─────────────────────────────────────────────────────────────────────────────
     case "concept_brief":
       return `# CONCEPT BRIEF: ${title}
 
