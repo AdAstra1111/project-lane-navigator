@@ -27283,6 +27283,18 @@ CRITICAL:
         return STUB_MARKERS.some(marker => lower.includes(marker));
       };
 
+      /** Strip markdown code fences (```json ... ```) to get the inner content */
+      const stripCodeFences = (text: string): string => {
+        const fenced = text.match(/^```[\w]*\s*\n?([\s\S]*?)```\s*$/);
+        return fenced ? fenced[1].trim() : text;
+      };
+
+      /** True if text looks like JSON (after stripping code fences) */
+      const looksLikeJson = (text: string): boolean => {
+        const stripped = stripCodeFences(text).trim();
+        return stripped.startsWith("{") || stripped.startsWith("[");
+      };
+
       const classifyInsufficiency = async (
         docType: string,
         docId: string | null,
