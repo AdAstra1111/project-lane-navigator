@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { callLLM, MODELS, composeSystem } from "../_shared/llm.ts";
+import { callLLM, MODELS, composeSystem, resolveGateway } from "../_shared/llm.ts";
 import { fetchCoreDocs } from "../_shared/coreDocs.ts";
 
 const corsHeaders = {
