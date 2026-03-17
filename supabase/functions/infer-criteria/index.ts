@@ -209,13 +209,13 @@ Deno.serve(async (req) => {
       const { id: docId, text } = entry;
 
       setField("logline", extractHeading(text, "LOGLINE", "LOG LINE", "HOOK", "ONE.LINE", "PREMISE IN ONE LINE"), docType, docId, "extracted");
-      setField("premise", extractHeading(text, "PREMISE", "THE CONCEPT", "CONCEPT", "SERIES PREMISE", "SHOW PREMISE"), docType, docId, "extracted");
-      setField("tone_genre", extractHeading(text, "TONE", "GENRE", "TONE.GENRE", "TONE & GENRE", "CORE TROPES", "VIBE"), docType, docId, "extracted");
-      setField("protagonist", extractHeading(text, "PROTAGONIST", "LEAD", "HERO", "MAIN CHARACTER", "CENTRAL CHARACTER"), docType, docId, "extracted");
-      setField("antagonist", extractHeading(text, "ANTAGONIST", "VILLAIN", "OPPOSITION", "THREAT", "CONFLICT SOURCE"), docType, docId, "extracted");
-      setField("stakes", extractHeading(text, "STAKES", "WHY IT SELLS", "CORE TENSION", "RISK", "WHAT.S AT STAKE"), docType, docId, "extracted");
-      setField("world_rules", extractHeading(text, "WORLD", "WORLD.BUILDING", "RULES", "SETTING", "WORLD RULES"), docType, docId, "extracted");
-      setField("comparables", extractHeading(text, "COMPARABLES", "COMPS", "COMP TITLES", "SIMILAR TO", "INSPIRED BY", "COMP SET"), docType, docId, "extracted");
+      setField("premise", extractHeading(text, "PREMISE", "THE CONCEPT", "CONCEPT", "SERIES PREMISE", "SHOW PREMISE", "STORY ENGINE"), docType, docId, "extracted");
+      setField("tone_genre", extractHeading(text, "TONE", "GENRE", "TONE.GENRE", "TONE & GENRE", "CORE TROPES", "VIBE", "GENRE BLEND", "GENRE BLEND EMPHASIS"), docType, docId, "extracted");
+      setField("protagonist", extractHeading(text, "PROTAGONIST", "LEAD", "HERO", "MAIN CHARACTER", "CENTRAL CHARACTER", "OUR HERO", "CHARACTER"), docType, docId, "extracted");
+      setField("antagonist", extractHeading(text, "ANTAGONIST", "VILLAIN", "OPPOSITION", "THREAT", "CONFLICT SOURCE", "OPPOSING FORCE"), docType, docId, "extracted");
+      setField("stakes", extractHeading(text, "STAKES", "WHY IT SELLS", "CORE TENSION", "RISK", "WHAT.S AT STAKE", "WHY NOW", "CENTRAL TENSION"), docType, docId, "extracted");
+      setField("world_rules", extractHeading(text, "WORLD", "WORLD.BUILDING", "RULES", "SETTING", "WORLD RULES", "WORLD DENSITY"), docType, docId, "extracted");
+      setField("comparables", extractHeading(text, "COMPARABLES", "COMPS", "COMP TITLES", "SIMILAR TO", "INSPIRED BY", "COMP SET", "COMP"), docType, docId, "extracted");
     }
 
     // Fallback: use first paragraph as logline if still empty
