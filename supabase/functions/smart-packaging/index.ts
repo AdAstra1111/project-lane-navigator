@@ -31,8 +31,9 @@ serve(async (req) => {
 
     const { projectTitle, format, genres, budgetRange, tone, assignedLane, excludeNames, replacementFor, maxSuggestions, targetCharacter, mode, targetDepartment, customBrief } = await req.json();
     const isCrew = mode === 'crew';
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
+    const _gw = resolveGateway();
+    const LOVABLE_API_KEY = _gw.apiKey;
+    if (!LOVABLE_API_KEY) throw new Error("No AI gateway key configured");
 
     // Production type conditioning
     const FORMAT_LABELS: Record<string, string> = {

@@ -125,7 +125,7 @@ Include bilateral treaties between any pair of these countries, multilateral con
       },
     ];
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch(_gw.url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
