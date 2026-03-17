@@ -49,12 +49,27 @@ const EMPTY_CRITERIA: CriteriaResult = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Very cheap regex extraction for labelled headings */
+/** Very cheap regex extraction for labelled headings.
+ *  Handles both inline (`HEADING: value`) and markdown (`## Heading\n\nvalue`) styles.
+ */
 function extractHeading(text: string, ...variants: string[]): string {
   for (const heading of variants) {
-    const re = new RegExp(`(?:^|\\n)\\s*${heading}[:\\-–]?\\s*(.+?)(?:\\n|$)`, "im");
-    const m = text.match(re);
-    if (m?.[1]?.trim()) return m[1].trim().slice(0, 400);
+    // Pattern 1: inline value on same line as heading  (e.g. "PROTAGONIST: Jane Doe")
+    const inlineRe = new RegExp(`(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–]?\\s*(.+?)(?:\\n|$)`, "im");
+    const inlineM = text.match(inlineRe);
+    if (inlineM?.[1]?.trim()) return inlineM[1].trim().slice(0, 600);
+
+    // Pattern 2: heading on its own line, content on next non-blank line(s)
+    // e.g. "## Premise\n\nActual premise text here..."
+    const blockRe = new RegExp(`(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–]?\\s*\\n+([^\\n#].+?)(?=\\n\\s*(?:#{1,3}\\s|\\*{2}[A-Z])|$)`, "ims");
+    const blockM = text.match(blockRe);
+    if (blockM?.[1]?.trim()) {
+      // Take first paragraph (up to 600 chars), collapsing internal newlines
+      const raw = blockM[1].trim();
+      // Stop at the first blank-line boundary (paragraph break) or take all if single paragraph
+      const firstPara = raw.split(/\n\s*\n/)[0].replace(/\n/g, " ").trim();
+      return firstPara.slice(0, 600);
+    }
   }
   return "";
 }
