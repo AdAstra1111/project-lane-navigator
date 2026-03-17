@@ -120,28 +120,71 @@ serve(async (req) => {
       if (runErr) throw new Error(`Run creation failed: ${runErr.message}`);
       const runId = run.id;
 
-      // 2. Fetch high-CI exemplar ideas for structural patterns
-      // When DNA is active, prefer ideas with matching engine key
-      let exemplarQuery = svcClient
-        .from("pitch_ideas")
-        .select("id, title, production_type, recommended_lane, genre, source_engine_key, source_dna_profile_id, budget_band, score_total, score_market_heat, score_feasibility, score_lane_fit, score_saturation_risk, score_company_fit, logline, comps, packaging_suggestions, risks_mitigations")
-        .gte("score_total", ciMin)
-        .order("score_total", { ascending: false })
-        .limit(30);
+      // 2. Progressive fallback retrieval for source ideas
+      const MIN_SOURCE_TARGET = 5;
+      const selectCols = "id, title, production_type, recommended_lane, genre, source_engine_key, source_dna_profile_id, budget_band, score_total, score_market_heat, score_feasibility, score_lane_fit, score_saturation_risk, score_company_fit, logline, comps, packaging_suggestions, risks_mitigations";
 
-      if (format) exemplarQuery = exemplarQuery.eq("production_type", format);
-      if (lane) exemplarQuery = exemplarQuery.eq("recommended_lane", lane);
-      if (genre) exemplarQuery = exemplarQuery.ilike("genre", `%${genre}%`);
-      if (useExemplars) exemplarQuery = exemplarQuery.eq("is_exemplar", true);
+      // Define fallback stages
+      const fallbackStages = [
+        { label: "exact",         ciFloor: ciMin, useFormat: true,  useLane: !!lane, useGenre: !!genre },
+        { label: "lower_ci_70",   ciFloor: 70,    useFormat: true,  useLane: !!lane, useGenre: !!genre },
+        { label: "lower_ci_60",   ciFloor: 60,    useFormat: true,  useLane: !!lane, useGenre: !!genre },
+        { label: "relax_genre",   ciFloor: 60,    useFormat: true,  useLane: !!lane, useGenre: false },
+        { label: "relax_lane",    ciFloor: 60,    useFormat: true,  useLane: false,  useGenre: false },
+        { label: "format_only",   ciFloor: 50,    useFormat: true,  useLane: false,  useGenre: false },
+        { label: "any",           ciFloor: 50,    useFormat: false, useLane: false,  useGenre: false },
+      ];
 
-      const { data: exemplars, error: exErr } = await exemplarQuery;
-      if (exErr) console.warn(`[ci-blueprint] exemplar fetch error: ${exErr.message}`);
-      let sourceIdeas = exemplars || [];
+      let sourceIdeas: any[] = [];
+      let fallbackStageReached = "exact";
+      let finalCiThreshold = ciMin;
+      let genreRelaxed = false;
+      let laneRelaxed = false;
 
-      // DNA-aware source idea biasing: staged retrieval policy
-      // Tier 1: exact DNA profile match (boost +3)
-      // Tier 2: engine key match (boost +2)
-      // Tier 3: generic CI fallback (boost 0)
+      for (const stage of fallbackStages) {
+        let q = svcClient
+          .from("pitch_ideas")
+          .select(selectCols)
+          .gte("score_total", stage.ciFloor)
+          .order("score_total", { ascending: false })
+          .limit(30);
+
+        if (stage.useFormat && format) q = q.eq("production_type", format);
+        if (stage.useLane && lane) q = q.eq("recommended_lane", lane);
+        if (stage.useGenre && genre) q = q.ilike("genre", `%${genre}%`);
+        if (useExemplars) q = q.eq("is_exemplar", true);
+
+        const { data, error: qErr } = await q;
+        if (qErr) {
+          console.warn(`[ci-blueprint] retrieval error at stage ${stage.label}: ${qErr.message}`);
+          continue;
+        }
+
+        const count = data?.length || 0;
+        console.log(`[ci-blueprint] retrieval stage=${stage.label} ci>=${stage.ciFloor} format=${stage.useFormat} lane=${stage.useLane} genre=${stage.useGenre} → ${count} ideas`);
+
+        if (count >= MIN_SOURCE_TARGET) {
+          sourceIdeas = data!;
+          fallbackStageReached = stage.label;
+          finalCiThreshold = stage.ciFloor;
+          genreRelaxed = (!!genre && !stage.useGenre);
+          laneRelaxed = (!!lane && !stage.useLane);
+          break;
+        }
+
+        // Accept partial results at last stage
+        if (stage === fallbackStages[fallbackStages.length - 1] && count > 0) {
+          sourceIdeas = data!;
+          fallbackStageReached = stage.label;
+          finalCiThreshold = stage.ciFloor;
+          genreRelaxed = (!!genre && !stage.useGenre);
+          laneRelaxed = (!!lane && !stage.useLane);
+        }
+      }
+
+      console.log(`[ci-blueprint] fallback result: stage=${fallbackStageReached} final_ci=${finalCiThreshold} genre_relaxed=${genreRelaxed} lane_relaxed=${laneRelaxed} ideas=${sourceIdeas.length}`);
+
+      // DNA-aware ordering on the retrieved set
       if (dnaProfile && sourceIdeas.length > 0) {
         const scored = sourceIdeas.map((idea: any) => {
           let boost = 0;
@@ -161,17 +204,16 @@ serve(async (req) => {
         });
         sourceIdeas = scored;
 
-        // Explicit tier breakdown logging
         const dnaExact = scored.filter((s: any) => s._dna_tier === "dna_exact").length;
         const engineMatch = scored.filter((s: any) => s._dna_tier === "engine_match").length;
         const generic = scored.filter((s: any) => s._dna_tier === "generic").length;
         console.log(`[ci-blueprint] DNA retrieval breakdown: dna_exact=${dnaExact} engine_match=${engineMatch} generic_fallback=${generic} total=${sourceIdeas.length}`);
 
         if (dnaExact === 0 && engineMatch === 0) {
-          console.warn(`[ci-blueprint] DNA_FALLBACK: no DNA or engine-matched source ideas found. All ${sourceIdeas.length} ideas are generic CI fallback. DNA constraints will rely on prompt only.`);
+          console.warn(`[ci-blueprint] DNA_FALLBACK: no DNA or engine-matched source ideas found. All ${sourceIdeas.length} ideas are generic CI fallback.`);
         }
       } else if (dnaProfile && sourceIdeas.length === 0) {
-        console.warn(`[ci-blueprint] DNA_FALLBACK: DNA profile selected but 0 source ideas found at CI>=${ciMin}. Blueprint will rely entirely on DNA prompt constraints.`);
+        console.warn(`[ci-blueprint] DNA_FALLBACK: DNA profile selected but 0 source ideas found after all fallback stages.`);
       }
 
       console.log(`[ci-blueprint] found ${sourceIdeas.length} source ideas`);
@@ -596,6 +638,10 @@ One-page pitch: ${c.one_page_pitch}
         dna_match_count: dnaExactCount,
         engine_match_count: engineMatchCount,
         generic_fallback_count: genericFallbackCount,
+        fallback_stage: fallbackStageReached,
+        final_ci_threshold: finalCiThreshold,
+        genre_relaxed: genreRelaxed,
+        lane_relaxed: laneRelaxed,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

@@ -160,7 +160,11 @@ export default function CIBlueprintEngine() {
     sourceDnaProfileId: null,
   });
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
-  const [buildResult, setBuildResult] = useState<{ source_idea_count: number; optimizer_mode: string; dna_profile_title: string | null; dna_match_count?: number; engine_match_count?: number; generic_fallback_count?: number } | null>(null);
+  const [buildResult, setBuildResult] = useState<{
+    source_idea_count: number; optimizer_mode: string; dna_profile_title: string | null;
+    dna_match_count?: number; engine_match_count?: number; generic_fallback_count?: number;
+    fallback_stage?: string; final_ci_threshold?: number; genre_relaxed?: boolean; lane_relaxed?: boolean;
+  } | null>(null);
 
   const buildMutation = useBuildBlueprint();
   const promoteMutation = usePromoteCandidate();
@@ -181,6 +185,10 @@ export default function CIBlueprintEngine() {
       dna_match_count: result.dna_match_count,
       engine_match_count: result.engine_match_count,
       generic_fallback_count: result.generic_fallback_count,
+      fallback_stage: result.fallback_stage,
+      final_ci_threshold: result.final_ci_threshold,
+      genre_relaxed: result.genre_relaxed,
+      lane_relaxed: result.lane_relaxed,
     });
   };
 
@@ -397,15 +405,40 @@ export default function CIBlueprintEngine() {
                   </>
                 )}
               </div>
+
+              {/* Fallback telemetry */}
+              <div className="flex items-center gap-3 text-[11px] flex-wrap">
+                <span className="text-muted-foreground">Retrieval:</span>
+                <span>CI ≥ <span className="font-mono font-medium">{buildResult.final_ci_threshold ?? config.ciMin}</span></span>
+                {buildResult.fallback_stage && buildResult.fallback_stage !== 'exact' && (
+                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400">
+                    fallback: {buildResult.fallback_stage.replace(/_/g, ' ')}
+                  </Badge>
+                )}
+                {buildResult.genre_relaxed && (
+                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400">genre relaxed</Badge>
+                )}
+                {buildResult.lane_relaxed && (
+                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400">lane relaxed</Badge>
+                )}
+              </div>
+
               {buildResult.optimizer_mode === 'dna_informed' && (
                 <div className="flex items-center gap-3 text-[11px]">
-                  <span className="text-muted-foreground">Retrieval:</span>
+                  <span className="text-muted-foreground">DNA breakdown:</span>
                   <span><span className="text-violet-400 font-medium">{buildResult.dna_match_count ?? 0}</span> DNA-exact</span>
                   <span><span className="text-primary font-medium">{buildResult.engine_match_count ?? 0}</span> engine</span>
                   <span><span className="text-muted-foreground font-medium">{buildResult.generic_fallback_count ?? 0}</span> generic</span>
                 </div>
               )}
-              {(buildResult.source_idea_count === 0 || (buildResult.optimizer_mode === 'dna_informed' && (buildResult.dna_match_count ?? 0) === 0 && (buildResult.engine_match_count ?? 0) === 0)) && (
+
+              {buildResult.source_idea_count === 0 && (
+                <div className="rounded bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 flex items-center gap-1.5 text-amber-400">
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  <span>No usable source ideas found after all fallback stages</span>
+                </div>
+              )}
+              {buildResult.source_idea_count > 0 && buildResult.optimizer_mode === 'dna_informed' && (buildResult.dna_match_count ?? 0) === 0 && (buildResult.engine_match_count ?? 0) === 0 && (
                 <div className="rounded bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 flex items-center gap-1.5 text-amber-400">
                   <AlertCircle className="h-3 w-3 shrink-0" />
                   <span>Using generic fallback (no DNA-matched source ideas found)</span>
