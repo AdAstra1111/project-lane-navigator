@@ -22,7 +22,8 @@ serve(async (req) => {
       });
     }
 
-    const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+    const _gw = resolveGateway();
+    const lovableApiKey = _gw.apiKey;
     const { scenes, shootDays, schedule, format, genres, budgetRange } = await req.json();
 
     if (!scenes || scenes.length === 0) {
