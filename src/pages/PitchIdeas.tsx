@@ -114,6 +114,26 @@ export default function PitchIdeas() {
     });
   }, [ideasLen]);
 
+  // Scroll to highlighted idea (from Blueprint Engine promotion)
+  useEffect(() => {
+    if (!highlightId || didScrollRef.current || isLoading) return;
+    const el = document.getElementById(`pitch-idea-${highlightId}`);
+    if (el) {
+      didScrollRef.current = true;
+      setTimeout(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+      // Clear the highlight param after 5s
+      setTimeout(() => {
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.delete('highlight');
+          return next;
+        }, { replace: true });
+      }, 5000);
+    }
+  }, [highlightId, isLoading, ideas, setSearchParams]);
+
   const filteredIdeas = useMemo(() => {
     return ideas
       .filter(i => {
