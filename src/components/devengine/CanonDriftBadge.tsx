@@ -29,6 +29,8 @@ interface CanonDriftData {
     domain: string;
     severity: string;
     detail: string;
+    canonical_expected?: string;
+    observed_conflict?: string;
   }>;
 }
 
