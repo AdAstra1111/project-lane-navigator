@@ -4067,21 +4067,34 @@ Deno.serve(async (req) => {
       // ── Guard: check for existing resumable job before creating a new one ──
       if (!body.force_new_run) {
         const { data: existingJobs } = await supabase
-          .from("auto_run_jobs").select("id, status, current_document, step_count, awaiting_approval, created_at")
-          .eq("project_id", projectId).eq("user_id", jobUserId)
+          .from("auto_run_jobs")
+          .select("id, project_id, status, current_document, step_count, awaiting_approval, stop_reason, pause_reason, converge_target_json, created_at")
+          .eq("project_id", projectId)
+          .eq("user_id", jobUserId)
           .in("status", ["running", "paused"])
-          .order("created_at", { ascending: false }).limit(1);
+          .order("created_at", { ascending: false })
+          .limit(1);
         const resumable = existingJobs?.[0];
         if (resumable) {
-          console.log(`[auto-run][IEL] start_vs_resume_decision { project_id: "${projectId}", existing_job_id: "${resumable.id}", existing_status: "${resumable.status}", current_document: "${resumable.current_document}", step_count: ${resumable.step_count}, chosen_action: "blocked_existing_job", reason: "resumable_job_exists" }`);
-          return respond({
-            error: "RESUMABLE_JOB_EXISTS",
-            message: `A resumable job exists at stage '${resumable.current_document}' (step ${resumable.step_count}). Use resume or set force_new_run=true.`,
-            existing_job_id: resumable.id,
-            existing_status: resumable.status,
+          const conflictPayload = {
+            code: "job_already_running",
+            recoverable: true,
+            job_id: resumable.id,
+            status: resumable.status,
             current_document: resumable.current_document,
             step_count: resumable.step_count,
-          }, 409);
+            project_id: resumable.project_id || projectId,
+            stop_reason: resumable.stop_reason,
+            pause_reason: resumable.pause_reason,
+            converge_target_json: resumable.converge_target_json || null,
+            // Legacy compatibility fields for older callers still looking for the previous shape.
+            error: "RESUMABLE_JOB_EXISTS",
+            existing_job_id: resumable.id,
+            existing_status: resumable.status,
+            message: `A resumable job exists at stage '${resumable.current_document}' (step ${resumable.step_count}). Use resume or set force_new_run=true.`,
+          };
+          console.log(`[auto-run][IEL] start_vs_resume_decision { project_id: "${projectId}", existing_job_id: "${resumable.id}", existing_status: "${resumable.status}", current_document: "${resumable.current_document}", step_count: ${resumable.step_count}, chosen_action: "blocked_existing_job", reason: "job_already_running", recoverable: true }`);
+          return respond(conflictPayload, 409);
         }
       }
       console.log(`[auto-run][IEL] start_vs_resume_decision { project_id: "${projectId}", existing_job_id: null, chosen_action: "start_new", reason: "no_resumable_job" }`);

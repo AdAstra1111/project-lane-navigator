@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 import { parseEdgeResponse } from '@/lib/edgeResponseGuard';
+import { extractRecoverableAutoRunConflict } from '@/lib/autoRunConflict';
 
 export interface PendingDecision {
   id: string;
@@ -54,7 +55,6 @@ export interface AutoRunJob {
   follow_latest: boolean;
   resume_document_id: string | null;
   resume_version_id: string | null;
-  // Stage 6.9: pipeline-aware fields
   pipeline_key: string | null;
   current_stage_index: number;
   stage_history: AutoRunStageHistoryEntry[];
@@ -69,7 +69,6 @@ export interface AutoRunJob {
   is_processing: boolean;
   max_versions_per_doc_per_job: number | null;
   processing_started_at: string | null;
-  // Frontier exploration fields
   frontier_version_id: string | null;
   best_document_id: string | null;
   frontier_ci: number | null;
@@ -108,17 +107,20 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
     },
     body: JSON.stringify({ action, ...extra }),
   });
-  // ── IEL: Hardened JSON boundary — never pass HTML/non-JSON to .json() ──
   const result = await parseEdgeResponse(resp, 'auto-run', action);
-  // Handle 409 STALE_DECISION gracefully (must parse body only once)
   if (resp.status === 409 && result?.code === 'STALE_DECISION') {
     return { ...result, _stale: true };
   }
-  // Handle 409 RESUMABLE_JOB_EXISTS — return structured result instead of throwing
-  if (resp.status === 409 && (result?.error === 'RESUMABLE_JOB_EXISTS' || result?.existing_job_id)) {
-    return { ...result, _resumable: true };
+  const recoverableConflict = resp.status === 409
+    ? extractRecoverableAutoRunConflict(result, extra.projectId)
+    : null;
+  if (recoverableConflict) {
+    return { ...result, ...recoverableConflict, _resumable: true };
   }
-  if (!resp.ok) throw new Error(result.error || 'Auto-run error');
+  if (resp.status === 409 && (result?.code === 'job_already_running' || result?.recoverable === true || result?.error === 'RESUMABLE_JOB_EXISTS')) {
+    throw new Error('Auto-Run conflict received without resumable job data.');
+  }
+  if (!resp.ok) throw new Error(result.error || result.message || 'Auto-run error');
   return result;
 }
 
@@ -166,14 +168,17 @@ export function useAutoRun(projectId: string | undefined) {
         allow_defaults: true,
       });
 
-      // Handle RESUMABLE_JOB_EXISTS: auto-resume existing job
-      if (result._resumable && result.existing_job_id) {
-        console.log(`[useAutoRun][IEL] auto_resume { existing_job_id: "${result.existing_job_id}", current_document: "${result.current_document}" }`);
-        const statusResult = await callAutoRun('status', { projectId });
+      // Handle recoverable conflict: attach to the existing job and continue polling.
+      const existingJobId = result.job_id || result.existing_job_id;
+      if (result._resumable && existingJobId) {
+        console.log(`[useAutoRun][IEL] auto_attach_existing_job { job_id: "${existingJobId}", current_document: "${result.current_document}" }`);
+        const statusResult = await callAutoRun('status', { jobId: existingJobId, projectId });
         if (statusResult?.job) {
           setJob(statusResult.job);
           setSteps(statusResult.latest_steps || []);
-          await callAutoRun('resume', { jobId: statusResult.job.id, followLatest: true });
+          if (statusResult.job.status === 'paused') {
+            await callAutoRun('resume', { jobId: statusResult.job.id, followLatest: true });
+          }
           setIsRunning(true);
           runLoopRef.current?.(statusResult.job.id);
           return;

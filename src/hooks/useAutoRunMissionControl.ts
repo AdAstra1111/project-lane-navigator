@@ -5,6 +5,7 @@ import type { AutoRunJob, AutoRunStep } from '@/hooks/useAutoRun';
 import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 import { AUTO_RUN_EXECUTION_MODE } from '@/lib/autoRunConfig';
 import { parseEdgeResponse } from '@/lib/edgeResponseGuard';
+import { extractRecoverableAutoRunConflict } from '@/lib/autoRunConflict';
 
 // ── API helper ──
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
@@ -29,11 +30,16 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
   if (resp.status === 409 && result?.code === 'STALE_DECISION') {
     return { ...result, _stale: true };
   }
-  // Handle 409 RESUMABLE_JOB_EXISTS — return structured result instead of throwing
-  if (resp.status === 409 && (result?.error === 'RESUMABLE_JOB_EXISTS' || result?.existing_job_id)) {
-    return { ...result, _resumable: true };
+  const recoverableConflict = resp.status === 409
+    ? extractRecoverableAutoRunConflict(result, extra.projectId)
+    : null;
+  if (recoverableConflict) {
+    return { ...result, ...recoverableConflict, _resumable: true };
   }
-  if (!resp.ok) throw new Error(result.error || `Auto-run error (${resp.status})`);
+  if (resp.status === 409 && (result?.code === 'job_already_running' || result?.recoverable === true || result?.error === 'RESUMABLE_JOB_EXISTS')) {
+    throw new Error('Auto-Run conflict received without resumable job data.');
+  }
+  if (!resp.ok) throw new Error(result.error || result.message || `Auto-run error (${resp.status})`);
   return result;
 }
 
@@ -368,14 +374,15 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   }, [job?.id, job?.status, job?.awaiting_approval, job?.allow_defaults, shouldPausePollingForDecisions, doPoll]);
 
   // ── Core actions ──
-  const refreshStatus = useCallback(async () => {
-    if (!job) return;
+  const refreshStatus = useCallback(async (preferredJobId?: string) => {
+    const lookupJobId = preferredJobId || job?.id;
+    if (!lookupJobId && !projectId) return;
     try {
-      const result = await callAutoRun('status', { jobId: job.id });
+      const result = await callAutoRun('status', lookupJobId ? { jobId: lookupJobId, projectId } : { projectId });
       setJob(result.job);
       setSteps(result.latest_steps || []);
     } catch {}
-  }, [job]);
+  }, [job?.id, projectId]);
 
   const activate = useCallback(() => setActivated(true), []);
 
@@ -395,7 +402,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       try {
         const existing = await callAutoRun('status', { projectId });
         if (existing?.job && ['paused', 'running', 'queued'].includes(existing.job.status)) {
-          console.log(`[mission-control][IEL] start_vs_resume_decision { action: "preflight_resume", reason: "resumable_job_exists", existing_job_id: "${existing.job.id}", current_document: "${existing.job.current_document}", step_count: ${existing.job.step_count} }`);
+          console.log(`[mission-control][IEL] start_vs_resume_decision { action: "preflight_resume", reason: "job_already_running", existing_job_id: "${existing.job.id}", current_document: "${existing.job.current_document}", step_count: ${existing.job.step_count} }`);
           setJob(existing.job);
           setSteps(existing.latest_steps || []);
 
@@ -404,7 +411,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
           }
 
           setIsRunning(true);
-          refreshStatus();
+          await refreshStatus(existing.job.id);
           return;
         }
       } catch {
@@ -418,21 +425,23 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
         max_versions_per_doc_per_job: 60,
       });
 
-      // Fallback guard (legacy callers / races): if backend still returns resumable, recover gracefully.
-      if ((result._resumable || result?.error === 'RESUMABLE_JOB_EXISTS') && result.existing_job_id) {
-        console.log(`[mission-control][IEL] start_vs_resume_decision { action: "auto_resume", reason: "resumable_job_exists", existing_job_id: "${result.existing_job_id}", current_document: "${result.current_document}", step_count: ${result.step_count} }`);
+      const existingJobId = result.job_id || result.existing_job_id;
+      if (result._resumable && existingJobId) {
+        console.log(`[mission-control][IEL] start_vs_resume_decision { action: "auto_attach_existing_job", reason: "job_already_running", existing_job_id: "${existingJobId}", current_document: "${result.current_document}", step_count: ${result.step_count} }`);
         try {
-          const statusResult = await callAutoRun('status', { projectId });
+          const statusResult = await callAutoRun('status', { jobId: existingJobId, projectId });
           if (statusResult?.job) {
             setJob(statusResult.job);
             setSteps(statusResult.latest_steps || []);
-            await callAutoRun('resume', { jobId: statusResult.job.id, followLatest: true });
+            if (statusResult.job.status === 'paused') {
+              await callAutoRun('resume', { jobId: statusResult.job.id, followLatest: true });
+            }
             setIsRunning(true);
-            refreshStatus();
+            await refreshStatus(statusResult.job.id);
             return;
           }
         } catch (resumeErr: any) {
-          setError(`Failed to resume existing job: ${resumeErr.message}`);
+          setError(`Failed to attach to existing job: ${resumeErr.message}`);
           throw resumeErr;
         }
       }

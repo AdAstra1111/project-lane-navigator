@@ -22,6 +22,8 @@ import { AutopilotProgress, type AutopilotState } from '@/components/pitch/Autop
 import { Loader2, Play, Pause, Rocket, AlertTriangle, Mic, Search, ExternalLink, CheckCircle, Clock, ArrowRight, FileText, Zap } from 'lucide-react';
 import { getDefaultVoiceForLane } from '@/lib/writingVoices/select';
 import { loadProjectLaneRulesetPrefs, saveProjectLaneRulesetPrefs } from '@/lib/rulesets/uiState';
+import { parseEdgeResponse } from '@/lib/edgeResponseGuard';
+import { extractRecoverableAutoRunConflict } from '@/lib/autoRunConflict';
 
 interface Props {
   projectId: string;
@@ -47,16 +49,21 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
     },
     body: JSON.stringify({ action, ...extra }),
   });
-  const result = await resp.json();
+  const result = await parseEdgeResponse(resp, 'auto-run', action);
   // Handle 409 STALE_DECISION gracefully
   if (resp.status === 409 && result?.code === 'STALE_DECISION') {
     return { ...result, _stale: true };
   }
-  // Handle 409 RESUMABLE_JOB_EXISTS — return structured result instead of throwing
-  if (resp.status === 409 && (result?.error === 'RESUMABLE_JOB_EXISTS' || result?.existing_job_id)) {
-    return { ...result, _resumable: true };
+  const recoverableConflict = resp.status === 409
+    ? extractRecoverableAutoRunConflict(result, extra.projectId)
+    : null;
+  if (recoverableConflict) {
+    return { ...result, ...recoverableConflict, _resumable: true };
   }
-  if (!resp.ok) throw new Error(result.error || 'Auto-run error');
+  if (resp.status === 409 && (result?.code === 'job_already_running' || result?.recoverable === true || result?.error === 'RESUMABLE_JOB_EXISTS')) {
+    throw new Error('Auto-Run conflict received without resumable job data.');
+  }
+  if (!resp.ok) throw new Error(result.error || result.message || 'Auto-run error');
   return result;
 }
 
@@ -348,17 +355,20 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
           projectId,
           allow_defaults: true,
         });
-        // Handle 409 RESUMABLE_JOB_EXISTS — auto-resume instead of failing
-        if (result?._resumable && result?.existing_job_id) {
-          console.log('[ProjectAutopilot] Resumable job detected, auto-resuming', result.existing_job_id);
+        const existingJobId = result?.job_id || result?.existing_job_id;
+        if (result?._resumable && existingJobId) {
+          console.log('[ProjectAutopilot] Reattaching to existing Auto-Run job', existingJobId);
           try {
-            const resumeResult = await callAutoRun('resume', { jobId: result.existing_job_id, followLatest: true });
-            if (mountedRef.current && resumeResult?.job) setAutoRunJob(resumeResult.job);
-            callAutoRun('run-next', { jobId: result.existing_job_id }).then(tickResult => {
+            const status = await callAutoRun('status', { jobId: existingJobId, projectId });
+            if (mountedRef.current && status?.job) setAutoRunJob(status.job);
+            if (status?.job?.status === 'paused') {
+              const resumeResult = await callAutoRun('resume', { jobId: existingJobId, followLatest: true });
+              if (mountedRef.current && resumeResult?.job) setAutoRunJob(resumeResult.job);
+            }
+            callAutoRun('run-next', { jobId: existingJobId }).then(tickResult => {
               if (mountedRef.current && tickResult?.job) setAutoRunJob(tickResult.job);
             }).catch(() => {});
           } catch {
-            // Fallback: fetch status
             const status = await callAutoRun('status', { projectId });
             if (mountedRef.current && status?.job) setAutoRunJob(status.job);
           }
