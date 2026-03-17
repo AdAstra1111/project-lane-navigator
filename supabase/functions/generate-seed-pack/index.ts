@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, extractJSON, MODELS } from "../_shared/llm.ts";
+import { callLLM, extractJSON, MODELS, resolveGateway } from "../_shared/llm.ts";
 import { upsertDoc, SEED_CORE_TYPES } from "../_shared/doc-os.ts";
 
 const corsHeaders = {
