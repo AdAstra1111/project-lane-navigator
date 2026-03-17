@@ -7124,6 +7124,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           metaJson: rwMetaJson,
           deliverableType: effectiveDeliverable,
           format: effectiveFormat || undefined,
+          projectId,
         });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
