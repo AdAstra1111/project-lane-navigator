@@ -27830,9 +27830,22 @@ No stubs, no placeholders, no TODO markers.`;
       }).select().single();
       if (jobErr) throw new Error(`Failed to create regen job: ${jobErr.message}`);
 
+      // Sort items by ladder position (upstream-first) so claim_regen_items processes in dependency order
+      const ladderOrder = new Map<string, number>();
+      for (let i = 0; i < ladder.length; i++) ladderOrder.set(ladder[i], i);
+      // SEED_CORE_TYPES get negative indices (processed first, before ladder stages)
+      const seedOrder: Record<string, number> = { project_overview: -5, creative_brief: -4, market_positioning: -3, canon: -2, nec: -1 };
+      items.sort((a, b) => {
+        const aIdx = seedOrder[a.doc_type] ?? ladderOrder.get(a.doc_type) ?? 999;
+        const bIdx = seedOrder[b.doc_type] ?? ladderOrder.get(b.doc_type) ?? 999;
+        return aIdx - bIdx;
+      });
+
       // Create items — dry_run uses 'preview' status (immutable); live uses 'queued'
+      // Insert sequentially with staggered created_at so claim_regen_items (ORDER BY created_at ASC) respects ladder order
       if (items.length > 0) {
-        const rows = items.map(it => ({
+        const baseTime = new Date();
+        const rows = items.map((it, idx) => ({
           job_id: job.id,
           doc_type: it.doc_type,
           document_id: it.document_id,
@@ -27841,6 +27854,7 @@ No stubs, no placeholders, no TODO markers.`;
           char_before: it.char_before,
           char_after: isDryRun ? it.char_before : 0,
           upstream: it.upstream,
+          created_at: new Date(baseTime.getTime() + idx).toISOString(),
         }));
         const { error: itemsErr } = await supabase.from("regen_job_items").insert(rows);
         if (itemsErr) throw new Error(`Failed to create regen items: ${itemsErr.message}`);
