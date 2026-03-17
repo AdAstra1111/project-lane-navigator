@@ -10527,19 +10527,21 @@ Return ONLY valid JSON:
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       const rewrittenText = parsed.rewritten_text || version.plaintext;
 
-      // Create new version via doc-os
+      // Create new version via doc-os + CCE drift check
       const bundleLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const bundleTvCtx = await loadTeamVoiceContext(supabase, projectId, bundleLane);
       const bundleMetaJson = bundleTvCtx.metaStamp ? { ...bundleTvCtx.metaStamp } : undefined;
       const { data: bundleDocRow } = await supabase.from("project_documents").select("doc_type").eq("id", documentId).single();
+      const bundleDocType = bundleDocRow?.doc_type || "other";
+      const bundleCCE = await runCCEPostGeneration(supabase, projectId, rewrittenText, bundleDocType, "dev-engine-v2:bundle");
       const newVersion = await createVersion(supabase, {
         documentId,
-        docType: bundleDocRow?.doc_type || "other",
+        docType: bundleDocType,
         plaintext: rewrittenText,
         label: `Bundle fix — ${bundle_id || "bundle"}`,
         createdBy: user.id,
         changeSummary: parsed.changes_summary || "Bundle fix applied",
-        metaJson: bundleMetaJson,
+        metaJson: { ...(bundleMetaJson || {}), ...bundleCCE.metaPatch },
         generatorId: "dev-engine-v2-bundle",
         inputsUsed: { generator_id: "dev-engine-v2-bundle", document_id: documentId, parent_version_id: versionId, bundle_id, project_id: projectId },
       });
