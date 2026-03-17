@@ -6768,7 +6768,6 @@ Deno.serve(async (req) => {
                     options: [
                       { value: "regenerate", why: `Regenerate as a valid ${currentDoc}-stage artifact with correct constraints` },
                       { value: "compress", why: sidResult.violation === "IDEA_TOO_EXPANDED" ? "Compress the document back to idea-stage density" : `Strip invalid formatting and regenerate as proper ${currentDoc}` },
-                      { value: "force_continue", why: "Override stage identity check and continue (not recommended — may cause downstream failures)" },
                     ],
                     recommended: "regenerate",
                     impact: "blocking",
