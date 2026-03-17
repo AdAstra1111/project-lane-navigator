@@ -75,20 +75,27 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
       <CardContent className="px-3 pb-3 space-y-3">
         {/* Scores row */}
         {latestAnalysis && (
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div>
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Creative Integrity</p>
-              <p className="text-lg font-display font-bold text-foreground">{ci}</p>
+          <>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Creative Integrity</p>
+                <p className="text-lg font-display font-bold text-foreground">{ci}</p>
+              </div>
+              <div>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Greenlight Prob.</p>
+                <p className="text-lg font-display font-bold text-foreground">{gp}</p>
+              </div>
+              <div>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Gap</p>
+                <p className={`text-lg font-display font-bold ${statusColor}`}>{gap}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Greenlight Prob.</p>
-              <p className="text-lg font-display font-bold text-foreground">{gp}</p>
-            </div>
-            <div>
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Gap</p>
-              <p className={`text-lg font-display font-bold ${statusColor}`}>{gap}</p>
-            </div>
-          </div>
+            {isSelectiveRewrite && (
+              <p className="text-[8px] text-muted-foreground/60 text-center italic -mt-1">
+                Scores reflect full merged document (selective rewrite)
+              </p>
+            )}
+          </>
         )}
 
         {/* Sparkline */}
