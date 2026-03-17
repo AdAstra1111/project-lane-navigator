@@ -35,6 +35,7 @@ function ScoreBar({ label, value, max = 100 }: { label: string; value: number; m
 }
 
 function CandidateCard({ candidate, onPromote, promoting }: { candidate: BlueprintCandidate; onPromote: () => void; promoting: boolean }) {
+  const scoringMethod = (candidate as any).scoring_method || 'unknown';
   const [expanded, setExpanded] = useState(false);
   const meetsThresholds = Number(candidate.score_total) >= 95 && Number(candidate.score_market_heat) >= 80 && Number(candidate.score_feasibility) >= 75 && Number(candidate.score_lane_fit) >= 80;
 
