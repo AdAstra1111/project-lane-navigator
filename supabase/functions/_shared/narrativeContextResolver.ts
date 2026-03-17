@@ -469,6 +469,7 @@ export function buildNarrativeContextBlock(ctx: NarrativeContext): string {
   return [
     ctx.nec.blockText,
     ctx.canon.blockText,
+    ctx.canonConstraintBlock,
     ctx.effectiveProfile.blockText,
     ctx.signals.blockText,
     ctx.lockedDecisions.blockText,
