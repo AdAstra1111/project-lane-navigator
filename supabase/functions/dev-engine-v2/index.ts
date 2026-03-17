@@ -27356,6 +27356,25 @@ CRITICAL:
         episode_grid: ["season_arc", "character_bible", "format_rules", "concept_brief"],
         vertical_episode_beats: ["episode_grid", "season_arc", "character_bible", "format_rules"],
         episode_script: ["vertical_episode_beats", "episode_grid", "season_arc", "character_bible"],
+        // ── FEATURE FILM UPSTREAM ENFORCEMENT ──
+        // production_draft MUST derive from feature_script for feature-film formats.
+        // beat_sheet should derive from story_outline, not jump to concept_brief.
+        // feature_script should derive from beat_sheet.
+        production_draft: ["feature_script"],
+        feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"],
+        story_outline: ["treatment", "concept_brief"],
+        treatment: ["concept_brief", "idea"],
+        character_bible: ["treatment", "concept_brief", "idea"],
+      };
+
+      // ── STRICT UPSTREAM REQUIREMENTS ──
+      // For specific doc types in specific formats, the upstream MUST be one of these.
+      // If none are available, fail explicitly rather than falling back to a wrong source.
+      const STRICT_UPSTREAM_REQUIREMENTS: Record<string, Record<string, string[]>> = {
+        // format → doc_type → required upstream types
+        "film":    { production_draft: ["feature_script"], feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"] },
+        "feature": { production_draft: ["feature_script"], feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"] },
+        "short":   { production_draft: ["feature_script"], feature_script: ["beat_sheet", "concept_brief"] },
       };
 
       const findUpstream = (stage: string): { upstreamDocId: string; upstreamVersionId: string; upstreamType: string } | null => {
@@ -27374,6 +27393,24 @@ CRITICAL:
 
         const deduped = Array.from(new Set(candidates.filter(t => t && t !== stage)));
 
+        // ── STRICT UPSTREAM ENFORCEMENT ──
+        // If this format+stage has strict requirements, only allow those specific upstream types.
+        const strictReqs = STRICT_UPSTREAM_REQUIREMENTS[fmt]?.[stage];
+        if (strictReqs) {
+          for (const t of strictReqs) {
+            const prevDocId = docSlots.get(t);
+            if (!prevDocId) continue;
+            const prevVer = verByDocId.get(prevDocId);
+            const prevText = (prevVer?.plaintext || "").trim();
+            if (prevText.length < 80) continue;
+            if (containsStubMarker(prevText)) continue;
+            return { upstreamDocId: prevDocId, upstreamVersionId: prevVer.id, upstreamType: t };
+          }
+          // Strict requirements exist but none satisfied — fail explicitly
+          console.error(`[dev-engine-v2][IEL] strict_upstream_missing { stage: "${stage}", format: "${fmt}", required: ${JSON.stringify(strictReqs)}, available: ${JSON.stringify([...docSlots.keys()])} }`);
+          return null;
+        }
+
         for (const t of deduped) {
           const prevDocId = docSlots.get(t);
           if (!prevDocId) continue;
@@ -27387,11 +27424,33 @@ CRITICAL:
         return null;
       };
 
+      const SCREENPLAY_DOC_TYPES = new Set(["feature_script", "production_draft", "episode_script", "season_script", "season_master_script"]);
+
       const validateOutput = (docType: string, text: string): InsufficientReason | null => {
         const trimmed = (text || "").trim();
         if (containsStubMarker(trimmed)) return "stub_marker";
         const minChars = MIN_CHARS[docType] ?? DEFAULT_MIN;
         if (trimmed.length < minChars) return "too_short";
+
+        // ── SCREENPLAY-DERIVATIVE VALIDATION ──
+        // For screenplay-class docs, require actual screenplay formatting.
+        // Reject scene-breakdown JSON, outlines, or planning artifacts.
+        if (SCREENPLAY_DOC_TYPES.has(docType)) {
+          // Check if output is JSON (scene breakdown) instead of screenplay prose
+          const isJsonOutput = trimmed.startsWith("{") || trimmed.startsWith("[");
+          if (isJsonOutput) {
+            console.error(`[dev-engine-v2][IEL] screenplay_format_violation { doc_type: "${docType}", reason: "json_output", chars: ${trimmed.length} }`);
+            return "stub_marker"; // reuse existing reason to trigger retry
+          }
+          // Require minimum slugline density for screenplay format
+          const sluglineCount = (trimmed.match(/^(INT\.|EXT\.|INT\/EXT\.)\s/gm) || []).length;
+          if (sluglineCount < 8) {
+            console.warn(`[dev-engine-v2][IEL] screenplay_slugline_sparse { doc_type: "${docType}", sluglines: ${sluglineCount}, min_required: 8 }`);
+            // Only fail hard if very few sluglines (probably an outline, not a screenplay)
+            if (sluglineCount < 3) return "stub_marker";
+          }
+        }
+
         return null;
       };
 
@@ -27454,13 +27513,58 @@ CRITICAL:
           const targetOutput = stage.toUpperCase();
           const necBlock = await loadNECGuardrailBlock(supabase, projectId);
           const constraintPack = await loadConstraintPack(supabase, projectId);
-          console.log("[dev-engine-v2] regen-insufficient: constraint injection", { path: "regen-insufficient", hasNEC: !!necBlock, hasConstraintPack: !!constraintPack });
+
+          // ── CANON INJECTION: Load canonical title + characters to prevent drift ──
+          let canonBlock = "";
+          try {
+            const { data: canonRow } = await supabase
+              .from("project_canon")
+              .select("canon_json")
+              .eq("project_id", projectId)
+              .maybeSingle();
+            const cj = canonRow?.canon_json || {};
+            const canonParts: string[] = [];
+            if (cj.title) canonParts.push(`CANONICAL TITLE: "${cj.title}" — use this exact title throughout. Do NOT rename or create alternate titles.`);
+            if (cj.logline) canonParts.push(`CANONICAL LOGLINE: ${cj.logline}`);
+            if (cj.premise) canonParts.push(`CANONICAL PREMISE: ${cj.premise}`);
+            if (Array.isArray(cj.characters) && cj.characters.length > 0) {
+              const charLines = cj.characters
+                .filter((c: any) => c.name && c.name.trim())
+                .slice(0, 15)
+                .map((c: any) => {
+                  const details = [c.role, c.goals, c.traits].filter(Boolean).join("; ");
+                  return `  - ${c.name}${details ? ` (${details})` : ""}`;
+                });
+              if (charLines.length > 0) {
+                canonParts.push(`CANONICAL CHARACTERS (use these exact names — do NOT rename, merge, or invent new named characters):\n${charLines.join("\n")}`);
+              }
+            }
+            if (canonParts.length > 0) {
+              canonBlock = `\n## CANON LOCK (AUTHORITATIVE — these are non-negotiable)\n${canonParts.join("\n")}\n`;
+            }
+          } catch (canonErr) {
+            console.warn("[dev-engine-v2] regen-insufficient: canon load failed (non-fatal):", canonErr);
+          }
+
+          console.log("[dev-engine-v2] regen-insufficient: constraint injection", { path: "regen-insufficient", hasNEC: !!necBlock, hasConstraintPack: !!constraintPack, hasCanon: !!canonBlock });
+
+          // ── FORMAT-SPECIFIC GENERATION GUIDANCE ──
+          let formatGuidance = "";
+          const isScreenplayDerivative = ["feature_script", "production_draft", "episode_script", "season_script", "season_master_script"].includes(stage);
+          if (isScreenplayDerivative) {
+            formatGuidance = `\nFORMAT REQUIREMENT: This is a SCREENPLAY-FORMAT document. You MUST produce:
+- Proper screenplay formatting with INT./EXT. sluglines
+- Character names in CAPS followed by dialogue
+- Action lines in present tense
+- Scene transitions (CUT TO:, FADE IN:, etc.)
+Do NOT produce: scene breakdowns, JSON, outlines, beat lists, or planning artifacts.
+This must read as a professional screenplay, not a structural summary.\n`;
+          }
 
           const userPrompt = `SOURCE FORMAT: ${upstream.upstreamType}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA): []
-${necBlock}${constraintPack}
-
+${canonBlock}${necBlock}${constraintPack}${formatGuidance}
 CRITICAL: Produce a FULL, COMPLETE ${stage.replace(/_/g, " ")} document.
 Do NOT produce stubs, placeholders, or TODO markers.
 Include all required sections with substantive content.
