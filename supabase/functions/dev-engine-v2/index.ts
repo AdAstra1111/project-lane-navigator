@@ -31601,7 +31601,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
           // Write ONE consolidated version + CCE drift check
           try {
             const patchDocType = orderedTargets[0].doc_type;
-            const patchCCE = await runCCEPostGeneration(supabase, execProjectId, runningContent, patchDocType, "dev-engine-v2:patch-execution");
+            const patchCCE = await runCCEPostGeneration(supabase, projectId, runningContent, patchDocType, "dev-engine-v2:patch-execution");
             const newVersion = await createVersion(supabase, {
               documentId: documentId,
               docType: patchDocType,
