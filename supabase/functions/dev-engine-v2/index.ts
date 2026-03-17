@@ -27745,7 +27745,7 @@ No stubs, no placeholders, no TODO markers.`;
       let currentVersions: any[] = [];
       if (allDocIds.length > 0) {
         const { data: vers } = await supabase.from("project_document_versions")
-          .select("id, document_id, plaintext, approval_status, version_number")
+          .select("id, document_id, plaintext, approval_status, version_number, is_stale, stale_reason")
           .in("document_id", allDocIds).eq("is_current", true);
         currentVersions = vers || [];
       }
@@ -27804,6 +27804,7 @@ No stubs, no placeholders, no TODO markers.`;
 
         let reason: string | null = null;
         if (!docId || !ver) reason = "missing_current_version";
+        else if (ver.is_stale === true) reason = "stale_version";
         else if (containsStubMarker(plaintext)) reason = "stub_marker";
         else {
           const minChars = MIN_CHARS[stage] ?? DEFAULT_MIN;
@@ -28290,6 +28291,14 @@ ${upstreamText}`;
             char_after: convertedText.length,
             document_id: slot.documentId,
           }).eq("id", item.id);
+
+          // Clear stale flag on old version (if it was stale-triggered)
+          if (item.reason === "stale_version" && item.document_id) {
+            const oldVerId = verByDocId.get(item.document_id)?.id;
+            if (oldVerId) {
+              await supabase.from("project_document_versions").update({ is_stale: false, stale_reason: null }).eq("id", oldVerId);
+            }
+          }
 
           // Refresh verByDocId for subsequent items that may use this as upstream
           verByDocId.set(slot.documentId, { id: newVersion.id, document_id: slot.documentId, plaintext: convertedText, version_number: newVersion.version_number });
