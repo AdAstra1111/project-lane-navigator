@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/Header';
-import { Loader2, Zap, TrendingUp, Award, Rocket, ChevronDown, FlaskConical, Sparkles, AlertCircle } from 'lucide-react';
+import { Loader2, Zap, TrendingUp, Award, Rocket, ChevronDown, FlaskConical, Sparkles, AlertCircle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
