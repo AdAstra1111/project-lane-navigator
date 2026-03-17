@@ -1,6 +1,6 @@
 /**
  * Narrative Context Resolver — single shared loader for NEC, canon, signals,
- * locked decisions, voice, and format-specific structure.
+ * locked decisions, voice, canon constraint enforcement, and format-specific structure.
  *
  * Used by dev-engine-v2 (rewrite) and generate-document to achieve context
  * parity with the analyze path.
@@ -10,11 +10,18 @@
  * - No silent fallbacks: every fallback is logged with provenance.
  * - Capped outputs to prevent prompt bloat.
  * - Reuses existing loaders (prefs, teamVoice, canonContext, effective-profile).
+ * - Canon Constraint Enforcement (CCE): extracts binding constraints from canon
+ *   and injects anti-drift prompt block into every generation.
  */
 
 import { loadLanePrefs, loadTeamVoiceProfile } from "./prefs.ts";
 import { buildTeamVoicePromptBlock } from "./teamVoice.ts";
 import { buildEffectiveProfileContextBlock } from "./effective-profile-context.ts";
+import {
+  extractCanonConstraints,
+  buildCanonConstraintBlock,
+  type CanonConstraints,
+} from "./canonConstraintEnforcement.ts";
 
 // ── Caps ──
 const SIGNALS_CAP = 6;
