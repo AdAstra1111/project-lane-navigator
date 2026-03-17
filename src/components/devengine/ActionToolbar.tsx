@@ -78,6 +78,8 @@ interface ActionToolbarProps {
   generateDocumentPending?: boolean;
   /** True while background generation is running (bg_generating flag on version) */
   isBgGenerating?: boolean;
+  /** Stage identity failure blocks all progression actions */
+  stageIdentityBlocked?: boolean;
 }
 
 export function ActionToolbar({
