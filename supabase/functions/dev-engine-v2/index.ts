@@ -28029,6 +28029,24 @@ No stubs, no placeholders, no TODO markers.`;
         if (containsStubMarker(trimmed)) return "stub_marker";
         const minChars = MIN_CHARS[docType] ?? DEFAULT_MIN;
         if (trimmed.length < minChars) return "too_short";
+
+        // ── SCREENPLAY-DERIVATIVE VALIDATION (regen-tick mirror) ──
+        if (SCREENPLAY_DOC_TYPES_TICK.has(docType)) {
+          if (looksLikeJson(trimmed)) {
+            console.error(`[regen-tick][IEL] screenplay_format_violation { doc_type: "${docType}", reason: "json_output" }`);
+            return "stub_marker";
+          }
+          if (trimmed.toLowerCase().includes('"scene_breakdown"')) {
+            console.error(`[regen-tick][IEL] screenplay_format_violation { doc_type: "${docType}", reason: "scene_breakdown_artifact" }`);
+            return "stub_marker";
+          }
+          const sluglineCount = (trimmed.match(/^(INT\.|EXT\.|INT\/EXT\.)\s/gm) || []).length;
+          if (sluglineCount < 3) {
+            console.warn(`[regen-tick][IEL] screenplay_slugline_sparse { doc_type: "${docType}", sluglines: ${sluglineCount} }`);
+            return "stub_marker";
+          }
+        }
+
         return null;
       };
 
