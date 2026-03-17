@@ -1713,6 +1713,19 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
       similarity_risk: simRisk,
     }));
 
+    // ── STAGE IDENTITY VALIDATION ──
+    const stageIdResult = validateStageIdentity(docType, content);
+    if (stageIdResult && !stageIdResult.pass) {
+      const diag = buildDiagnostic(stageIdResult);
+      console.error(JSON.stringify({
+        diag: "STAGE_IDENTITY_VIOLATION",
+        requestId,
+        project_id: projectId,
+        ...diag,
+      }));
+      // Log violation but still persist — downstream consumers (auto-run, UI) will gate on meta_json.stage_identity
+    }
+
     // ── CANON DRIFT DETECTION (CCE Phase 1) ──
     const driftResult = detectCanonDrift(content, narrativeCtx.canonConstraints);
     logDriftResult("generate-document", projectId, docType, driftResult);
