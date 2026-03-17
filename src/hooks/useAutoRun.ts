@@ -5,7 +5,97 @@ import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 import { parseEdgeResponse } from '@/lib/edgeResponseGuard';
 import { extractRecoverableAutoRunConflict } from '@/lib/autoRunConflict';
-...
+
+export interface PendingDecision {
+  id: string;
+  question: string;
+  options: { value: string; why: string }[];
+  recommended?: string;
+  impact: 'blocking' | 'non_blocking';
+}
+
+export interface AutoRunStageHistoryEntry {
+  doc_type: string;
+  base_version_id: string | null;
+  output_version_id: string | null;
+  started_at: string;
+  completed_at: string | null;
+  status: 'completed' | 'failed' | 'skipped' | 'in_progress';
+}
+
+export interface AutoRunJob {
+  id: string;
+  user_id: string;
+  project_id: string;
+  status: 'queued' | 'running' | 'paused' | 'stopped' | 'completed' | 'failed';
+  mode: 'fast' | 'balanced' | 'premium';
+  start_document: string;
+  target_document: string;
+  current_document: string;
+  max_stage_loops: number;
+  max_total_steps: number;
+  step_count: number;
+  stage_loop_count: number;
+  last_ci: number | null;
+  last_gp: number | null;
+  last_gap: number | null;
+  last_readiness: number | null;
+  last_confidence: number | null;
+  last_risk_flags: string[];
+  stop_reason: string | null;
+  error: string | null;
+  pending_decisions: PendingDecision[] | null;
+  awaiting_approval: boolean;
+  approval_type: string | null;
+  approval_payload: any;
+  pending_doc_id: string | null;
+  pending_version_id: string | null;
+  pending_doc_type: string | null;
+  pending_next_doc_type: string | null;
+  follow_latest: boolean;
+  resume_document_id: string | null;
+  resume_version_id: string | null;
+  pipeline_key: string | null;
+  current_stage_index: number;
+  stage_history: AutoRunStageHistoryEntry[];
+  pinned_inputs: Record<string, string>;
+  last_ui_message: string | null;
+  approval_required_for_doc_type: string | null;
+  pause_reason: string | null;
+  converge_target_json: { ci: number; gp: number };
+  stage_exhaustion_remaining: number;
+  stage_exhaustion_default: number;
+  allow_defaults: boolean;
+  is_processing: boolean;
+  max_versions_per_doc_per_job: number | null;
+  processing_started_at: string | null;
+  frontier_version_id: string | null;
+  best_document_id: string | null;
+  frontier_ci: number | null;
+  frontier_gp: number | null;
+  frontier_attempts: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutoRunStep {
+  id: string;
+  job_id: string;
+  step_index: number;
+  document: string;
+  action: string;
+  summary: string | null;
+  ci: number | null;
+  gp: number | null;
+  gap: number | null;
+  readiness: number | null;
+  confidence: number | null;
+  risk_flags: string[];
+  output_text: string | null;
+  output_ref: any;
+  created_at: string;
+}
+
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
@@ -17,9 +107,7 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
     },
     body: JSON.stringify({ action, ...extra }),
   });
-  // ── IEL: Hardened JSON boundary — never pass HTML/non-JSON to .json() ──
   const result = await parseEdgeResponse(resp, 'auto-run', action);
-  // Handle 409 STALE_DECISION gracefully (must parse body only once)
   if (resp.status === 409 && result?.code === 'STALE_DECISION') {
     return { ...result, _stale: true };
   }

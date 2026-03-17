@@ -374,14 +374,15 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   }, [job?.id, job?.status, job?.awaiting_approval, job?.allow_defaults, shouldPausePollingForDecisions, doPoll]);
 
   // ── Core actions ──
-  const refreshStatus = useCallback(async () => {
-    if (!job) return;
+  const refreshStatus = useCallback(async (preferredJobId?: string) => {
+    const lookupJobId = preferredJobId || job?.id;
+    if (!lookupJobId && !projectId) return;
     try {
-      const result = await callAutoRun('status', { jobId: job.id });
+      const result = await callAutoRun('status', lookupJobId ? { jobId: lookupJobId, projectId } : { projectId });
       setJob(result.job);
       setSteps(result.latest_steps || []);
     } catch {}
-  }, [job]);
+  }, [job?.id, projectId]);
 
   const activate = useCallback(() => setActivated(true), []);
 
