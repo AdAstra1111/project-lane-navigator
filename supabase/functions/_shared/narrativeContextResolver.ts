@@ -44,6 +44,8 @@ export interface NarrativeContext {
     entityAnchors: string[];
     blockText: string;
   };
+  canonConstraints: CanonConstraints;
+  canonConstraintBlock: string;
   signals: { topSignals: any[]; blockText: string };
   lockedDecisions: { items: any[]; blockText: string };
   voice: { voiceId: string | null; blockText: string };
