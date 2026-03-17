@@ -1035,7 +1035,8 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
             const normalized = normalizePitchScores(idea);
             const drift = checkScoreDrift(normalized, Number(idea.score_total) || 0);
             if (drift) console.warn(`[generate-pitch] ${drift} title="${idea.title}"`);
-            return normalized;
+            const lpFields = computeLearningPoolEligibility(normalized.score_total);
+            return { ...normalized, ...lpFields };
           })(),
         };
         const { data: saved, error: saveErr } = await svcClient
