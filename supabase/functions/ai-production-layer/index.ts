@@ -9,7 +9,7 @@
  *   assemble_taster_trailer — Assemble a taster trailer package
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { callLLMWithJsonRetry, MODELS, resolveGateway } from "../_shared/llm.ts";
 import { isObject, hasArray } from "../_shared/validators.ts";
 
 const corsHeaders = {
