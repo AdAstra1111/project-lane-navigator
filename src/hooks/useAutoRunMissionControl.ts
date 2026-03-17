@@ -455,7 +455,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       console.log(`[mission-control][IEL] start_new_job { job_id: "${result.job?.id}", current_document: "${result.job?.current_document}" }`);
     } catch (e: any) {
       setError(e.message);
-      throw e;
+      // Don't re-throw — let the UI show the error gracefully instead of blank screen
     }
   }, [projectId, refreshStatus]);
 
