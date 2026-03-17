@@ -90,12 +90,12 @@ function useOutcomeData(profileId: string) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('pitch_ideas')
-        .select('id, title, score_total, score_market_heat, score_feasibility, score_lane_fit, lane, genre, generation_mode, source_blueprint_id, source_blueprint_run_id, created_at')
+        .select('id, title, score_total, score_market_heat, score_feasibility, score_lane_fit, recommended_lane, genre, generation_mode, source_blueprint_id, source_blueprint_run_id, created_at')
         .eq('source_dna_profile_id', profileId)
         .order('score_total', { ascending: false })
         .limit(20);
       if (error) throw error;
-      return (data || []) as PitchOutcome[];
+      return (data || []).map((d: any) => ({ ...d, lane: d.recommended_lane })) as PitchOutcome[];
     },
   });
 
