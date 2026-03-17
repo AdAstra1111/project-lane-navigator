@@ -7671,6 +7671,38 @@ MATERIAL TO REWRITE:\n${fullText}`;
         console.warn(`[dev-engine-v2][IEL] missing_dependsOnResolverHash { project_id: "${projectId}", deliverableType: "${effectiveDeliverable}", generator: "dev-engine-v2-rewrite-chunked" }`);
       }
 
+      // ── STAGE IDENTITY GATE — block persistence of malformed chunked stage artifacts ──
+      if (effectiveDeliverable && ["idea", "concept_brief"].includes(effectiveDeliverable)) {
+        const sidResult = validateStageIdentity(effectiveDeliverable, assembledText);
+        if (sidResult && !sidResult.pass) {
+          console.error(JSON.stringify({
+            diag: "STAGE_IDENTITY_BLOCKED",
+            action: "rewrite_chunked_persist",
+            project_id: projectId,
+            document_id: documentId,
+            source_version_id: versionId,
+            deliverable: effectiveDeliverable,
+            violation: sidResult.violation,
+            char_count: sidResult.details.char_count,
+            word_count: sidResult.details.word_count,
+            section_count: sidResult.details.section_count,
+            violations: sidResult.details.violations,
+            repair_hint: sidResult.repair_hint || null,
+          }));
+          return new Response(JSON.stringify({
+            error: `STAGE_IDENTITY_BLOCKED: ${sidResult.violation}`,
+            stage_identity_blocked: true,
+            violation: sidResult.violation,
+            violations: sidResult.details.violations,
+            repair_hint: sidResult.repair_hint,
+            detail: `Chunked rewrite output for ${effectiveDeliverable} exceeded stage identity constraints and was not saved. ${sidResult.repair_hint || "Regenerate with correct stage constraints."}`,
+          }), {
+            status: 422,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
       let newVersion: any = null;
       for (let _retry = 0; _retry < 3; _retry++) {
         const { data: maxRow } = await supabase.from("project_document_versions")
