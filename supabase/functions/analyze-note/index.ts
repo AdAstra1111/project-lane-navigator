@@ -108,7 +108,7 @@ INSTRUCTIONS:
 - Be calm, confident, and producer-facing — no buzzwords
 - End with one clear recommendation`;
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch(resolveGateway().url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${lovableApiKey}`,

@@ -442,7 +442,7 @@ async function handleReingest(
   // For PDF: use AI extraction
   if (ingestionSource === 'pdf' && lovableKey) {
     addLog("Extracting text from PDF via AI…");
-    const aiResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResp = await fetch(resolveGateway().url, {
       method: "POST",
       headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({

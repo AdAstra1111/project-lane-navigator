@@ -82,7 +82,7 @@ ${(docsRes.data || []).filter((d: any) => d.extracted_text).map((d: any) => `---
     const guardrails = buildGuardrailBlock({ productionType: project.format, engineName: "project-chat" });
     console.log(`[project-chat] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch(resolveGateway().url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

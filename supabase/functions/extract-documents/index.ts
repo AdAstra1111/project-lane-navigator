@@ -42,7 +42,7 @@ async function extractPDFWithGemini(data: ArrayBuffer, isOCR: boolean = false): 
     ? "This PDF appears to be image-based. Use OCR to read all visible text from each page image, including headers, body text, captions, labels, and any text embedded in graphics or diagrams."
     : "";
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await fetch(resolveGateway().url, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({

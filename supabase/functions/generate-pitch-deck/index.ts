@@ -164,7 +164,7 @@ Adapt your writing tone based on the project:
 
 Generate the content for each slide as a JSON array.`;
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch(resolveGateway().url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${lovableKey}`,
