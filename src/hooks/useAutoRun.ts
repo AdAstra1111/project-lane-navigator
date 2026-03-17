@@ -207,8 +207,10 @@ export function useAutoRun(projectId: string | undefined) {
         const result = await callAutoRun('run-next', { jobId });
         setJob(result.job);
         setSteps(result.latest_steps || []);
-        // Refresh doc list + seed versions mid-loop so seed pack chips update live
+        // Refresh doc list + versions + seed versions mid-loop so sidebar updates live
         qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+        qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
+        qc.invalidateQueries({ queryKey: ['dev-v2-approved', projectId] });
         qc.invalidateQueries({ queryKey: ['seed-pack-versions', projectId] });
 
         const jobStatus = result.job?.status;
