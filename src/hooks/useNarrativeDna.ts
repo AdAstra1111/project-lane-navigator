@@ -125,6 +125,76 @@ export function useLockDna() {
   });
 }
 
+// ── Reclassify DNA → Engine ──────────────────────────────────────────
+
+export interface EngineClassificationResult {
+  primary_engine_key: string;
+  secondary_engine_key: string | null;
+  candidate_engines: Array<{
+    engine_key: string;
+    confidence: number;
+    matched_traits: string[];
+    rejected_traits: string[];
+  }>;
+  classification_rationale: string;
+  ambiguity_flags: string[];
+  classification_version: string;
+}
+
+export function useReclassifyDna() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await callDna('reclassify', { id });
+      return res as {
+        success: boolean;
+        profile: any;
+        classification: EngineClassificationResult;
+        diagnostic: any;
+      };
+    },
+    onSuccess: (data, id) => {
+      qc.invalidateQueries({ queryKey: ['dna-profile', id] });
+      qc.invalidateQueries({ queryKey: ['dna-profiles'] });
+      qc.invalidateQueries({ queryKey: ['narrative-engines'] });
+      toast.success(`Reclassified → ${data.classification.primary_engine_key}`);
+    },
+    onError: (err: Error) => {
+      toast.error(`Reclassification failed: ${err.message}`);
+    },
+  });
+}
+
+// ── Blueprint Families ───────────────────────────────────────────────
+
+export interface BlueprintFamily {
+  id: string;
+  engine_key: string;
+  family_key: string;
+  label: string;
+  description: string;
+  execution_pattern: Record<string, any>;
+  lane_suitability: string[];
+  budget_suitability: string[];
+  structural_strengths: string[];
+  structural_risks: string[];
+  when_to_use: string;
+  when_not_to_use: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export function useBlueprintFamilies(engineKey?: string) {
+  return useQuery({
+    queryKey: ['blueprint-families', engineKey || 'all'],
+    queryFn: async () => {
+      const res = await callDna('list_blueprint_families', engineKey ? { engine_key: engineKey } : {});
+      return (res.families || []) as BlueprintFamily[];
+    },
+  });
+}
+
 // ── Source Links ──────────────────────────────────────────────────────
 
 export interface DnaSourceLink {
