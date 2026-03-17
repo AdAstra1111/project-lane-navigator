@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { isLearningPoolEligible, LEARNING_POOL_CI_THRESHOLD } from '@/lib/learningPool';
 
 export interface PitchIdea {
   id: string;
@@ -84,9 +85,17 @@ export function usePitchIdeas() {
 
   const saveMutation = useMutation({
     mutationFn: async (idea: Partial<PitchIdea>) => {
+      const scoreTotal = Number(idea.score_total) || 0;
+      const eligible = isLearningPoolEligible(scoreTotal);
       const { data, error } = await supabase
         .from('pitch_ideas')
-        .insert({ ...idea, user_id: user!.id } as any)
+        .insert({
+          ...idea,
+          user_id: user!.id,
+          learning_pool_eligible: eligible,
+          learning_pool_eligibility_reason: eligible ? 'ci_95_threshold_met' : 'ci_below_threshold',
+          learning_pool_qualified_at: eligible ? new Date().toISOString() : null,
+        } as any)
         .select()
         .single();
       if (error) throw error;
@@ -97,9 +106,18 @@ export function usePitchIdeas() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, ...updates }: { id: string } & Partial<PitchIdea>) => {
+      // Re-evaluate learning pool eligibility if score_total is being updated
+      const finalUpdates: any = { ...updates };
+      if (updates.score_total != null) {
+        const scoreTotal = Number(updates.score_total) || 0;
+        const eligible = isLearningPoolEligible(scoreTotal);
+        finalUpdates.learning_pool_eligible = eligible;
+        finalUpdates.learning_pool_eligibility_reason = eligible ? 'ci_95_threshold_met' : 'ci_below_threshold';
+        finalUpdates.learning_pool_qualified_at = eligible ? new Date().toISOString() : null;
+      }
       const { error } = await supabase
         .from('pitch_ideas')
-        .update(updates as any)
+        .update(finalUpdates)
         .eq('id', id);
       if (error) throw error;
     },
