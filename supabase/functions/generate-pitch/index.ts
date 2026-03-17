@@ -757,11 +757,9 @@ ALL outputs MUST be strictly constrained to this production type.${hardCriteriaB
 
 Generate exactly ${batchSize} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
 
-For each idea, provide weighted scores (0-100):
-- market_heat, feasibility, lane_fit, saturation_risk (inverse), company_fit
-- total_score = (market_heat × 0.30) + (feasibility × 0.25) + (lane_fit × 0.20) + (saturation_risk × 0.15) + (company_fit × 0.10)
+${buildPitchScoringRubric()}
 
-RANK by total_score descending.
+RANK by score_total descending.
 
 CRITICAL: Every character must have a DISTINCT name fitting the story's cultural setting. Never reuse generic names across pitches.
 
