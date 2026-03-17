@@ -5939,7 +5939,15 @@ Deno.serve(async (req) => {
         _requestScopedUserId = job.user_id;
       }
 
-      const currentDoc = job.current_document as DocStage;
+      // Strip __generating__: sentinel prefix if persisted from a previous tick
+      const rawCurrentDoc = job.current_document as DocStage;
+      const currentDoc = (isGeneratingSentinel(rawCurrentDoc) ? stageFromSentinel(rawCurrentDoc) : rawCurrentDoc) as DocStage;
+      if (rawCurrentDoc !== currentDoc) {
+        console.warn(`[auto-run][IEL] sentinel_cleanup { job_id: "${jobId}", raw: "${rawCurrentDoc}", resolved: "${currentDoc}" }`);
+        // Fix the persisted value so future ticks don't need this cleanup
+        await supabase.from("auto_run_jobs").update({ current_document: currentDoc }).eq("id", jobId);
+        job.current_document = currentDoc;
+      }
       const stepCount = job.step_count;
       const stageLoopCount = job.stage_loop_count;
 
