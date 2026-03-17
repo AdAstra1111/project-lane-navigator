@@ -343,6 +343,16 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
         }}
       />
 
+      <SimilarExemplarsDrawer
+        open={comparePickerOpen}
+        onOpenChange={setComparePickerOpen}
+        sourceIdea={idea}
+        onCompare={exemplar => {
+          setComparePickerOpen(false);
+          setCompareExemplar(exemplar);
+        }}
+      />
+
       <ExemplarCompareDrawer
         open={!!compareExemplar}
         onOpenChange={open => { if (!open) setCompareExemplar(null); }}
