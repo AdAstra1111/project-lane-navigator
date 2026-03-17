@@ -2,7 +2,7 @@
  * propose-retcon-patches — Generates minimal patch suggestions for impacted episodes.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { composeSystem, callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { composeSystem, callLLMWithJsonRetry, MODELS, resolveGateway } from "../_shared/llm.ts";
 import { isObject, hasArray } from "../_shared/validators.ts";
 
 const corsHeaders = {
