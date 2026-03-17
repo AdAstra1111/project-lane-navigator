@@ -224,7 +224,7 @@ export function downloadDocument(
   title: string,
   format: ExportFormat,
 ) {
-  const filename = sanitizeFilename(title);
+  const filename = sanitizeFilename(title) + '-' + new Date().toISOString().slice(0, 10);
 
   let blob: Blob;
   let ext = format as string;
