@@ -27283,6 +27283,18 @@ CRITICAL:
         return STUB_MARKERS.some(marker => lower.includes(marker));
       };
 
+      /** Strip markdown code fences (```json ... ```) to get the inner content */
+      const stripCodeFences = (text: string): string => {
+        const fenced = text.match(/^```[\w]*\s*\n?([\s\S]*?)```\s*$/);
+        return fenced ? fenced[1].trim() : text;
+      };
+
+      /** True if text looks like JSON (after stripping code fences) */
+      const looksLikeJson = (text: string): boolean => {
+        const stripped = stripCodeFences(text).trim();
+        return stripped.startsWith("{") || stripped.startsWith("[");
+      };
+
       const classifyInsufficiency = async (
         docType: string,
         docId: string | null,
@@ -27433,21 +27445,19 @@ CRITICAL:
         if (trimmed.length < minChars) return "too_short";
 
         // ── SCREENPLAY-DERIVATIVE VALIDATION ──
-        // For screenplay-class docs, require actual screenplay formatting.
-        // Reject scene-breakdown JSON, outlines, or planning artifacts.
         if (SCREENPLAY_DOC_TYPES.has(docType)) {
-          // Check if output is JSON (scene breakdown) instead of screenplay prose
-          const isJsonOutput = trimmed.startsWith("{") || trimmed.startsWith("[");
-          if (isJsonOutput) {
+          if (looksLikeJson(trimmed)) {
             console.error(`[dev-engine-v2][IEL] screenplay_format_violation { doc_type: "${docType}", reason: "json_output", chars: ${trimmed.length} }`);
-            return "stub_marker"; // reuse existing reason to trigger retry
+            return "stub_marker";
           }
-          // Require minimum slugline density for screenplay format
+          if (trimmed.toLowerCase().includes('"scene_breakdown"')) {
+            console.error(`[dev-engine-v2][IEL] screenplay_format_violation { doc_type: "${docType}", reason: "scene_breakdown_artifact" }`);
+            return "stub_marker";
+          }
           const sluglineCount = (trimmed.match(/^(INT\.|EXT\.|INT\/EXT\.)\s/gm) || []).length;
-          if (sluglineCount < 8) {
-            console.warn(`[dev-engine-v2][IEL] screenplay_slugline_sparse { doc_type: "${docType}", sluglines: ${sluglineCount}, min_required: 8 }`);
-            // Only fail hard if very few sluglines (probably an outline, not a screenplay)
-            if (sluglineCount < 3) return "stub_marker";
+          if (sluglineCount < 3) {
+            console.warn(`[dev-engine-v2][IEL] screenplay_slugline_sparse { doc_type: "${docType}", sluglines: ${sluglineCount} }`);
+            return "stub_marker";
           }
         }
 
@@ -27580,8 +27590,17 @@ ${upstreamText}`;
             if (typeof ct === "string" && ct.trim().length > 0) return ct.trim();
             if (Array.isArray(ct)) { const j = ct.join("\n").trim(); if (j.length > 0) return j; }
             if (ct && typeof ct === "object") {
+              // Try known text keys
               const inner = ct.text ?? ct.content ?? ct.document ?? ct.body ?? ct.output ?? null;
               if (typeof inner === "string" && inner.trim().length > 0) return inner.trim();
+              // Try target-keyed sub-object (e.g. ct.PRODUCTION_DRAFT.text)
+              const targetSub = ct[stage.toUpperCase()];
+              if (targetSub && typeof targetSub === "object") {
+                const subInner = targetSub.text ?? targetSub.content ?? targetSub.body ?? null;
+                if (typeof subInner === "string" && subInner.trim().length > 0) return subInner.trim();
+              }
+              // If ct is an object without extractable text, do NOT stringify it — it's structured data, not prose
+              console.warn(`[dev-engine-v2] extractConvertedText: converted_text is object without text keys, skipping`);
             }
             if (p && typeof p === "object") {
               for (const key of ["text", "content", "document", "body", "output", stage]) {
@@ -27589,8 +27608,9 @@ ${upstreamText}`;
                 if (typeof v === "string" && v.trim().length > 100) return v.trim();
               }
             }
-            const raw_ = (rawText || "").trim();
-            if (raw_.length > 100 && !raw_.startsWith("{") && !raw_.startsWith("[")) return raw_;
+            // Raw-text fallback: strip markdown code fences, then check for JSON
+            const raw_ = stripCodeFences((rawText || "").trim());
+            if (raw_.length > 100 && !looksLikeJson(raw_)) return raw_;
             return "";
           };
           let convertedText = extractConvertedText(parsed, raw);
@@ -27918,6 +27938,14 @@ No stubs, no placeholders, no TODO markers.`;
         const lower = (text || "").toLowerCase();
         return STUB_MARKERS.some(marker => lower.includes(marker));
       };
+      const stripCodeFences = (text: string): string => {
+        const fenced = text.match(/^```[\w]*\s*\n?([\s\S]*?)```\s*$/);
+        return fenced ? fenced[1].trim() : text;
+      };
+      const looksLikeJson = (text: string): boolean => {
+        const stripped = stripCodeFences(text).trim();
+        return stripped.startsWith("{") || stripped.startsWith("[");
+      };
 
       const { data: allDocs } = await supabase.from("project_documents")
         .select("id, doc_type").eq("project_id", projectId);
@@ -27946,7 +27974,22 @@ No stubs, no placeholders, no TODO markers.`;
         episode_grid: ["season_arc", "character_bible", "format_rules", "concept_brief"],
         vertical_episode_beats: ["episode_grid", "season_arc", "character_bible", "format_rules"],
         episode_script: ["vertical_episode_beats", "episode_grid", "season_arc", "character_bible"],
+        production_draft: ["feature_script"],
+        feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"],
+        story_outline: ["treatment", "concept_brief"],
+        treatment: ["concept_brief", "idea"],
+        character_bible: ["treatment", "concept_brief", "idea"],
       };
+
+      // ── STRICT UPSTREAM REQUIREMENTS (regen-tick mirror) ──
+      const STRICT_UPSTREAM_REQUIREMENTS: Record<string, Record<string, string[]>> = {
+        "film":    { production_draft: ["feature_script"], feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"] },
+        "feature": { production_draft: ["feature_script"], feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"] },
+        "short":   { production_draft: ["feature_script"], feature_script: ["beat_sheet", "concept_brief"] },
+      };
+
+      const SCREENPLAY_DOC_TYPES_TICK = new Set(["feature_script", "production_draft", "episode_script", "season_script", "season_master_script"]);
+
       const findUpstream = (stage: string): { upstreamDocId: string; upstreamVersionId: string; upstreamType: string } | null => {
         const candidates: string[] = [];
         if (upstreamHints[stage]) candidates.push(...upstreamHints[stage]);
@@ -27954,6 +27997,22 @@ No stubs, no placeholders, no TODO markers.`;
         if (stageIdx > 0) { for (let i = stageIdx - 1; i >= 0; i--) candidates.push(ladder[i]); }
         candidates.push("concept_brief", "idea", ...SEED_CORE_TYPES);
         const deduped = Array.from(new Set(candidates.filter(t => t && t !== stage)));
+
+        // ── STRICT UPSTREAM ENFORCEMENT ──
+        const strictReqs = STRICT_UPSTREAM_REQUIREMENTS[fmt]?.[stage];
+        if (strictReqs) {
+          for (const t of strictReqs) {
+            const prevDocId = docSlots.get(t);
+            if (!prevDocId) continue;
+            const prevVer = verByDocId.get(prevDocId);
+            const prevText = (prevVer?.plaintext || "").trim();
+            if (prevText.length < 80 || containsStubMarker(prevText)) continue;
+            return { upstreamDocId: prevDocId, upstreamVersionId: prevVer.id, upstreamType: t };
+          }
+          console.error(`[regen-tick][IEL] strict_upstream_missing { stage: "${stage}", format: "${fmt}", required: ${JSON.stringify(strictReqs)} }`);
+          return null;
+        }
+
         for (const t of deduped) {
           const prevDocId = docSlots.get(t);
           if (!prevDocId) continue;
@@ -27978,6 +28037,24 @@ No stubs, no placeholders, no TODO markers.`;
         if (containsStubMarker(trimmed)) return "stub_marker";
         const minChars = MIN_CHARS[docType] ?? DEFAULT_MIN;
         if (trimmed.length < minChars) return "too_short";
+
+        // ── SCREENPLAY-DERIVATIVE VALIDATION (regen-tick mirror) ──
+        if (SCREENPLAY_DOC_TYPES_TICK.has(docType)) {
+          if (looksLikeJson(trimmed)) {
+            console.error(`[regen-tick][IEL] screenplay_format_violation { doc_type: "${docType}", reason: "json_output" }`);
+            return "stub_marker";
+          }
+          if (trimmed.toLowerCase().includes('"scene_breakdown"')) {
+            console.error(`[regen-tick][IEL] screenplay_format_violation { doc_type: "${docType}", reason: "scene_breakdown_artifact" }`);
+            return "stub_marker";
+          }
+          const sluglineCount = (trimmed.match(/^(INT\.|EXT\.|INT\/EXT\.)\s/gm) || []).length;
+          if (sluglineCount < 3) {
+            console.warn(`[regen-tick][IEL] screenplay_slugline_sparse { doc_type: "${docType}", sluglines: ${sluglineCount} }`);
+            return "stub_marker";
+          }
+        }
+
         return null;
       };
 
@@ -28086,10 +28163,49 @@ CANONICAL EPISODE COUNT (HARD REQUIREMENT):
 - Do NOT output any episode number above ${canonicalEpisodeCount}.`
             : "";
 
+          // ── CANON INJECTION (regen-tick) ──
+          let canonBlock = "";
+          try {
+            const { data: canonRow } = await supabase
+              .from("project_canon")
+              .select("canon_json")
+              .eq("project_id", projectId)
+              .maybeSingle();
+            const cj = canonRow?.canon_json || {};
+            const canonParts: string[] = [];
+            if (cj.title) canonParts.push(`CANONICAL TITLE: "${cj.title}" — use this exact title throughout. Do NOT rename or create alternate titles.`);
+            if (cj.logline) canonParts.push(`CANONICAL LOGLINE: ${cj.logline}`);
+            if (Array.isArray(cj.characters) && cj.characters.length > 0) {
+              const charLines = cj.characters
+                .filter((c: any) => c.name && c.name.trim())
+                .slice(0, 15)
+                .map((c: any) => `  - ${c.name}${c.role ? ` (${c.role})` : ""}`);
+              if (charLines.length > 0) {
+                canonParts.push(`CANONICAL CHARACTERS (use these exact names):\n${charLines.join("\n")}`);
+              }
+            }
+            if (canonParts.length > 0) {
+              canonBlock = `\n## CANON LOCK (AUTHORITATIVE)\n${canonParts.join("\n")}\n`;
+            }
+          } catch { /* non-fatal */ }
+
+          // ── FORMAT-SPECIFIC GENERATION GUIDANCE ──
+          let formatGuidance = "";
+          const isScreenplayDerivative = SCREENPLAY_DOC_TYPES_TICK.has(stage);
+          if (isScreenplayDerivative) {
+            formatGuidance = `\nFORMAT REQUIREMENT: This is a SCREENPLAY-FORMAT document. You MUST produce:
+- Proper screenplay formatting with INT./EXT. sluglines
+- Character names in CAPS followed by dialogue
+- Action lines in present tense
+- Scene transitions (CUT TO:, FADE IN:, etc.)
+Do NOT produce: scene breakdowns, JSON, outlines, beat lists, or planning artifacts.
+This must read as a professional screenplay, not a structural summary.\n`;
+          }
+
           const userPrompt = `SOURCE FORMAT: ${upstream.upstreamType}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA): []
-${necBlock}
+${canonBlock}${necBlock}${formatGuidance}
 ${episodeCountBlock}
 
 CRITICAL: Produce a FULL, COMPLETE ${stage.replace(/_/g, " ")} document.
@@ -28110,18 +28226,21 @@ ${upstreamText}`;
             if (ct && typeof ct === "object") {
               const inner = ct.text ?? ct.content ?? ct.document ?? ct.body ?? ct.output ?? null;
               if (typeof inner === "string" && inner.trim().length > 0) return inner.trim();
+              const targetSub = ct[stage.toUpperCase()];
+              if (targetSub && typeof targetSub === "object") {
+                const subInner = targetSub.text ?? targetSub.content ?? targetSub.body ?? null;
+                if (typeof subInner === "string" && subInner.trim().length > 0) return subInner.trim();
+              }
+              console.warn(`[regen-tick] extractConvertedText: converted_text is object without text keys, skipping`);
             }
-            // Try alternative top-level keys (model may return "text", "content", stage key, etc.)
             if (p && typeof p === "object") {
               for (const key of ["text", "content", "document", "body", "output", stage]) {
                 const v = (p as Record<string, unknown>)[key];
                 if (typeof v === "string" && v.trim().length > 100) return v.trim();
               }
             }
-            // Raw-text fallback: if the model returned prose instead of JSON (common for character_bible,
-            // treatment, story_outline), use the raw output directly.
-            const raw_ = (rawText || "").trim();
-            if (raw_.length > 100 && !raw_.startsWith("{") && !raw_.startsWith("[")) return raw_;
+            const raw_ = stripCodeFences((rawText || "").trim());
+            if (raw_.length > 100 && !looksLikeJson(raw_)) return raw_;
             return "";
           };
           let convertedText = extractConvertedText(parsed, raw);
