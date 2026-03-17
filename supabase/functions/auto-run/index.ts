@@ -2800,6 +2800,12 @@ async function autoResolveActionableNotes(
 
 
 async function updateJob(supabase: any, jobId: string, fields: Record<string, any>) {
+  // SAFETY: Never persist __generating__: sentinel in current_document
+  if (fields.current_document && typeof fields.current_document === "string" && fields.current_document.startsWith("__generating__:")) {
+    const cleanDoc = fields.current_document.replace(/^__generating__:/, "");
+    console.warn(`[auto-run][IEL] sentinel_persist_blocked { job_id: "${jobId}", raw: "${fields.current_document}", cleaned: "${cleanDoc}" }`);
+    fields.current_document = cleanDoc;
+  }
   // PATCH 5: Intercept completion — run gates before allowing status="completed"
   if (fields.status === "completed") {
     try {
