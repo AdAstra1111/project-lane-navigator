@@ -28292,6 +28292,14 @@ ${upstreamText}`;
             document_id: slot.documentId,
           }).eq("id", item.id);
 
+          // Clear stale flag on old version (if it was stale-triggered)
+          if (item.reason === "stale_version" && item.document_id) {
+            const oldVerId = verByDocId.get(item.document_id)?.id;
+            if (oldVerId) {
+              await supabase.from("project_document_versions").update({ is_stale: false, stale_reason: null }).eq("id", oldVerId);
+            }
+          }
+
           // Refresh verByDocId for subsequent items that may use this as upstream
           verByDocId.set(slot.documentId, { id: newVersion.id, document_id: slot.documentId, plaintext: convertedText, version_number: newVersion.version_number });
           if (!docSlots.has(stage)) docSlots.set(stage, slot.documentId);
