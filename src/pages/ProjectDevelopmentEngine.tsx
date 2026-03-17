@@ -1779,6 +1779,16 @@ export default function ProjectDevelopmentEngine() {
                     <WorldRulesAccordion projectId={projectId!} lane={rulesetLane} userId={rulesetUserId} />
                   )}
 
+                  {/* Stage Identity Blocker — blocks all progression if stage artifact is malformed */}
+                  {selectedVersion && selectedDoc && (
+                    <StageIdentityBlocker
+                      metaJson={(selectedVersion as any)?.meta_json}
+                      docType={selectedDoc.doc_type || 'unknown'}
+                      onRegenerate={handleGenerateDocument}
+                      regenerating={isGeneratingDocument}
+                    />
+                  )}
+
                   <ActionToolbar
                     projectId={projectId}
                     hasAnalysis={!!latestAnalysis}
@@ -1817,6 +1827,7 @@ export default function ProjectDevelopmentEngine() {
                     onGenerateDocument={handleGenerateDocument}
                     generateDocumentPending={isGeneratingDocument}
                     isBgGenerating={isBgGenerating}
+                    stageIdentityBlocked={(selectedVersion as any)?.meta_json?.stage_identity?.passed === false}
                   />
 
                   {/* Resume auto-run handled by banner above */}
