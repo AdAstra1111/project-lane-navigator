@@ -30,8 +30,9 @@ serve(async (req) => {
     }
 
     const { projectTitle, format, genres, budgetRange, tone, assignedLane, targetCharacter } = await req.json();
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
+    const _gw = resolveGateway();
+    const LOVABLE_API_KEY = _gw.apiKey;
+    if (!LOVABLE_API_KEY) throw new Error("No AI gateway key configured");
 
     const genderHint = targetCharacter?.gender && targetCharacter.gender !== 'unknown'
       ? ` This character is ${targetCharacter.gender}. Suggest ONLY ${targetCharacter.gender} actors.`
