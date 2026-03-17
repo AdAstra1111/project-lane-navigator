@@ -590,9 +590,9 @@ const MAX_STAGE_ITERATIONS = 5;
 
 /**
  * Resolve the effective CI target for a job.
- * Reads converge_target_json.ci from the job; falls back to 100 (aspirational).
+ * Reads converge_target_json.ci from the job; falls back to 95 (Exceptional).
  * NOTE: This is the *aspiration* target the rewrite loop drives toward.
- * GLOBAL_MIN_CI (85) is the separate force-promote floor used only when
+ * GLOBAL_MIN_CI (90) is the separate force-promote floor used only when
  * genuinely stuck (plateau + notes exhausted).
  */
 function resolveTargetCI(job: any): number {
