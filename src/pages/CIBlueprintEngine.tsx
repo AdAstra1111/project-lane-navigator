@@ -304,6 +304,7 @@ export default function CIBlueprintEngine() {
                 <Sparkles className="h-4 w-4 text-primary" />
                 Generated Candidates
                 {candidates.length > 0 && <Badge variant="secondary" className="text-[10px]">{candidates.length}</Badge>}
+                {promotedCount > 0 && <Badge variant="default" className="text-[10px] bg-emerald-500/20 text-emerald-400 border-emerald-500/30">{promotedCount} promoted</Badge>}
               </h2>
             </div>
 
