@@ -21,7 +21,7 @@ serve(async (req) => {
       });
     }
 
-    const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+    const lovableApiKey = resolveGateway().apiKey;
 
     const { text, file_name } = await req.json();
     if (!text) {
