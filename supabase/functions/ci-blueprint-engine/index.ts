@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildPitchScoringRubric, normalizePitchScores, calculatePitchScoreTotal, checkScoreDrift, PITCH_SCORE_WEIGHTS } from "../_shared/pitchScoring.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -321,14 +322,7 @@ ${engine ? `Engine: ${engine}` : ""}`;
       const scoringPrompt = `You are an authoritative pitch idea evaluator for the film/TV industry. Score each candidate idea on the following dimensions (0-100 each):
 
 SCORING RUBRIC:
-- score_market_heat (0-100): Current market demand for this concept. Consider genre cycles, buyer appetite, platform needs, audience trends. 90+ = urgent market gap this fills.
-- score_feasibility (0-100): Production feasibility given budget band. Consider cast requirements, locations, VFX, schedule complexity. 90+ = easily producible at stated budget.
-- score_lane_fit (0-100): How well this fits the stated monetization lane. Consider buyer expectations, format norms, audience positioning. 90+ = perfect lane alignment.
-- score_saturation_risk (0-100): INVERSE of saturation — higher = LESS saturated/more distinctive. 90+ = highly original in current market.
-- score_company_fit (0-100): Suitability for an independent production company. Consider packaging difficulty, financing complexity, sales potential. 90+ = ideal indie producer project.
-- score_total: Weighted composite. Formula: (market_heat * 0.30) + (feasibility * 0.25) + (lane_fit * 0.20) + (saturation_risk * 0.15) + (company_fit * 0.10). Calculate precisely. THIS FORMULA MUST MATCH THE AUTHORITATIVE generate-pitch WEIGHTS EXACTLY.
-
-CRITICAL: Be rigorous. Most ideas score 50-80. Only genuinely exceptional ideas score 90+. Do not inflate.
+${buildPitchScoringRubric({ includeFormulaWarning: true })}
 
 Evaluate these candidates:
 ${savedCandidates.map((c: any, i: number) => `
@@ -408,41 +402,40 @@ One-page pitch: ${c.one_page_pitch}
           const candidate = savedCandidates.find((c: any) => c.id === candidateId);
           if (!candidate) continue;
 
-          // Recalculate total using AUTHORITATIVE generate-pitch weights
-          const recalcTotal = (
-            (Number(es.score_market_heat) || 0) * 0.30 +
-            (Number(es.score_feasibility) || 0) * 0.25 +
-            (Number(es.score_lane_fit) || 0) * 0.20 +
-            (Number(es.score_saturation_risk) || 0) * 0.15 +
-            (Number(es.score_company_fit) || 0) * 0.10
-          );
+          // Recalculate total using shared canonical scorer
+          const normalizedScores = normalizePitchScores(es);
+          const recalcTotal = normalizedScores.score_total;
+          const drift = checkScoreDrift(normalizedScores, Number(es.score_total) || 0);
+          if (drift) console.warn(`[ci-blueprint] ${drift} candidate=${candidateId}`);
 
           await svcClient
             .from("idea_blueprint_candidates")
             .update({
-              score_market_heat: Number(es.score_market_heat) || 0,
-              score_feasibility: Number(es.score_feasibility) || 0,
-              score_lane_fit: Number(es.score_lane_fit) || 0,
-              score_saturation_risk: Number(es.score_saturation_risk) || 0,
-              score_company_fit: Number(es.score_company_fit) || 0,
+              score_market_heat: normalizedScores.score_market_heat,
+              score_feasibility: normalizedScores.score_feasibility,
+              score_lane_fit: normalizedScores.score_lane_fit,
+              score_saturation_risk: normalizedScores.score_saturation_risk,
+              score_company_fit: normalizedScores.score_company_fit,
               score_total: recalcTotal,
               scoring_method: "independent_evaluation",
               evaluated_scores: {
                 raw_llm_scores: es,
                 recalculated_total: recalcTotal,
+                scoring_module: "pitchScoring.ts",
                 evaluator_model: "google/gemini-2.5-flash",
                 evaluated_at: new Date().toISOString(),
                 rationale: es.scoring_rationale || null,
+                drift_warning: drift || null,
               },
             })
             .eq("id", candidateId);
 
           // Update in-memory for response
-          candidate.score_market_heat = Number(es.score_market_heat) || 0;
-          candidate.score_feasibility = Number(es.score_feasibility) || 0;
-          candidate.score_lane_fit = Number(es.score_lane_fit) || 0;
-          candidate.score_saturation_risk = Number(es.score_saturation_risk) || 0;
-          candidate.score_company_fit = Number(es.score_company_fit) || 0;
+          candidate.score_market_heat = normalizedScores.score_market_heat;
+          candidate.score_feasibility = normalizedScores.score_feasibility;
+          candidate.score_lane_fit = normalizedScores.score_lane_fit;
+          candidate.score_saturation_risk = normalizedScores.score_saturation_risk;
+          candidate.score_company_fit = normalizedScores.score_company_fit;
           candidate.score_total = recalcTotal;
           candidate.scoring_method = "independent_evaluation";
         }

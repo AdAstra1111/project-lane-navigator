@@ -5,6 +5,7 @@ import type { EdgeTrendSignal, EdgeCastTrend } from "../_shared/convergence-prof
 import { buildModalityPromptBlock } from "../_shared/productionModality.ts";
 import { getAnimationMeta, buildAnimationMetaPromptBlock } from "../_shared/animationMeta.ts";
 import { fetchTrendSignalsLadder, fetchCastTrends, modalityToTrendsProductionTypeFilter } from "../_shared/trendsContext.ts";
+import { buildPitchScoringRubric, normalizePitchScores, checkScoreDrift } from "../_shared/pitchScoring.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -756,11 +757,9 @@ ALL outputs MUST be strictly constrained to this production type.${hardCriteriaB
 
 Generate exactly ${batchSize} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
 
-For each idea, provide weighted scores (0-100):
-- market_heat, feasibility, lane_fit, saturation_risk (inverse), company_fit
-- total_score = (market_heat × 0.30) + (feasibility × 0.25) + (lane_fit × 0.20) + (saturation_risk × 0.15) + (company_fit × 0.10)
+${buildPitchScoringRubric()}
 
-RANK by total_score descending.
+RANK by score_total descending.
 
 CRITICAL: Every character must have a DISTINCT name fitting the story's cultural setting. Never reuse generic names across pitches.
 
@@ -1031,12 +1030,12 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
             signals_metadata: ideas.signals_metadata || null,
             dna_constraint_mode: dna_constraint_mode || 'none',
           },
-          score_market_heat: idea.score_market_heat || 0,
-          score_feasibility: idea.score_feasibility || 0,
-          score_lane_fit: idea.score_lane_fit || 0,
-          score_saturation_risk: idea.score_saturation_risk || 0,
-          score_company_fit: idea.score_company_fit || 0,
-          score_total: idea.score_total || 0,
+          ...(() => {
+            const normalized = normalizePitchScores(idea);
+            const drift = checkScoreDrift(normalized, Number(idea.score_total) || 0);
+            if (drift) console.warn(`[generate-pitch] ${drift} title="${idea.title}"`);
+            return normalized;
+          })(),
         };
         const { data: saved, error: saveErr } = await svcClient
           .from('pitch_ideas')
