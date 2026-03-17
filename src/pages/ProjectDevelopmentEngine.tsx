@@ -1706,6 +1706,7 @@ export default function ProjectDevelopmentEngine() {
                       )}
                       {/* Canon drift indicator */}
                       <CanonDriftBadge metaJson={(selectedVersion as any)?.meta_json} />
+                      <StageIdentityBadge metaJson={(selectedVersion as any)?.meta_json} />
                     </div>
                   )}
 
