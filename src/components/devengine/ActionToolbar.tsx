@@ -128,7 +128,7 @@ export function ActionToolbar({
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg bg-muted/30 border border-border/50">
         {/* Run Review */}
-        <Button size="sm" className="h-8 text-xs gap-1.5" onClick={onRunReview} disabled={anyPending}>
+        <Button size="sm" className="h-8 text-xs gap-1.5" onClick={onRunReview} disabled={actionsDisabled}>
           {analyzePending ? <Loader2 className="h-3 w-3 animate-spin" /> : hasAnalysis ? <RefreshCw className="h-3 w-3" /> : <Play className="h-3 w-3" />}
           {hasAnalysis ? 'Re-review' : 'Run Review'}
         </Button>
