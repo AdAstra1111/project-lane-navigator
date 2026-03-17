@@ -6385,6 +6385,7 @@ Deno.serve(async (req) => {
                 pause_reason: "MAX_ITERATIONS_REACHED",
                 error: `Stage ${currentDoc} reached max ${MAX_STAGE_ITERATIONS} iterations at CI=${ciGate.bestCiSoFar} (target: ${targetCiForIterCap}).`,
               });
+              persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: ciGate.bestCiSoFar, finalCi: ciGate.ci, targetCi: targetCiForIterCap, targetGp: extractTargetGP(job), haltReason: "MAX_ITERATIONS_REACHED", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
               await releaseProcessingLock(supabase, jobId);
               return respondWithJob(supabase, jobId);
             }
