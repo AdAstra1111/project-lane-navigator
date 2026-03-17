@@ -13,6 +13,8 @@ export interface DocumentVersion {
   status: string;
   approval_status: string | null;
   change_summary: string | null;
+  label: string | null;
+  generator_id: string | null;
   created_at: string;
   meta_json?: Record<string, any> | null;
 }
