@@ -441,8 +441,11 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
             return;
           }
         } catch (resumeErr: any) {
-          setError(`Failed to attach to existing job: ${resumeErr.message}`);
-          throw resumeErr;
+          console.warn('[mission-control][IEL] reattach_fallback', resumeErr.message);
+          // Fallback: use the conflict payload directly instead of crashing
+          setJob({ id: existingJobId, status: result.status || 'running', current_document: result.current_document, step_count: result.step_count ?? 0, project_id: projectId } as any);
+          setIsRunning(true);
+          return;
         }
       }
 
@@ -452,7 +455,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       console.log(`[mission-control][IEL] start_new_job { job_id: "${result.job?.id}", current_document: "${result.job?.current_document}" }`);
     } catch (e: any) {
       setError(e.message);
-      throw e;
+      // Don't re-throw — let the UI show the error gracefully instead of blank screen
     }
   }, [projectId, refreshStatus]);
 
