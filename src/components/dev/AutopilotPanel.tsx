@@ -333,16 +333,30 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
     handoffInFlightRef.current = true;
 
     const doHandoff = async () => {
-      // Double-check via fresh DB status to prevent duplicate starts
-      try {
-        const freshStatus = await callAutoRun('status', { projectId });
-        if (freshStatus?.job && !['failed', 'stopped'].includes(freshStatus.job.status)) {
-          if (mountedRef.current) setAutoRunJob(freshStatus.job);
-          handoffInFlightRef.current = false;
-          return;
+      const detectExistingJob = async () => {
+        const settleDelays = [0, 400, 1200];
+        for (const delayMs of settleDelays) {
+          if (delayMs > 0) {
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+          }
+          try {
+            const freshStatus = await callAutoRun('status', { projectId });
+            if (freshStatus?.job && !['failed', 'stopped'].includes(freshStatus.job.status)) {
+              return freshStatus.job;
+            }
+          } catch {
+            // No existing job yet — keep checking through the settle window.
+          }
         }
-      } catch {
-        // No existing job — proceed to start
+        return null;
+      };
+
+      const existingJob = await detectExistingJob();
+      if (existingJob) {
+        console.info('[ProjectAutopilot] Handoff detected existing Auto-Run job, skipping duplicate start', existingJob.id);
+        if (mountedRef.current) setAutoRunJob(existingJob);
+        handoffInFlightRef.current = false;
+        return;
       }
 
       // Canon baseline population (non-blocking, best-effort, idempotent)
