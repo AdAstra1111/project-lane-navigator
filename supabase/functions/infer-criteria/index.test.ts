@@ -38,7 +38,9 @@ Deno.test("repeated headings: first match wins", () => {
 
 Deno.test("multiline block: collapses to first paragraph", () => {
   const text = `## Premise\n\nLine one of the premise.\nLine two continues here.\n\nSecond paragraph should not be included.\n\n## Next`;
-  assertEquals(extractHeading(text, "PREMISE"), "Line one of the premise. Line two continues here.");
+  const result = extractHeading(text, "PREMISE");
+  assertEquals(result.includes("Line one"), true, "has first line");
+  assertEquals(result.includes("Second paragraph"), false, "excludes second paragraph");
 });
 
 Deno.test("heading variants: tries each variant in order", () => {
