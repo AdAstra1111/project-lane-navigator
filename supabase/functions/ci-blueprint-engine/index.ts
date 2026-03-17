@@ -655,6 +655,8 @@ One-page pitch: ${c.one_page_pitch}
         final_ci_threshold: finalCiThreshold,
         genre_relaxed: genreRelaxed,
         lane_relaxed: laneRelaxed,
+        learning_pool_only: useLearningPoolOnly,
+        learning_pool_match_count: learningPoolMatchCount,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
