@@ -590,9 +590,9 @@ const MAX_STAGE_ITERATIONS = 5;
 
 /**
  * Resolve the effective CI target for a job.
- * Reads converge_target_json.ci from the job; falls back to 100 (aspirational).
+ * Reads converge_target_json.ci from the job; falls back to 95 (Exceptional).
  * NOTE: This is the *aspiration* target the rewrite loop drives toward.
- * GLOBAL_MIN_CI (85) is the separate force-promote floor used only when
+ * GLOBAL_MIN_CI (90) is the separate force-promote floor used only when
  * genuinely stuck (plateau + notes exhausted).
  */
 function resolveTargetCI(job: any): number {
@@ -601,7 +601,7 @@ function resolveTargetCI(job: any): number {
     const ci = Number(ct.ci); // coerce string "81" to number 81
     if (!isNaN(ci) && ci >= 0 && ci <= 100) return ci;
   }
-  return 90; // default 90, not 100 — requiring 100 is unrealistic and causes infinite loops
+  return 95; // Exceptional default — matches job creation default
 }
 
 /**
@@ -4079,7 +4079,7 @@ Deno.serve(async (req) => {
             const ci = Number(ct.ci); const gp = Number(ct.gp);
             if (!isNaN(ci) && ci >= 0 && ci <= 100) return { ci, gp: !isNaN(gp) ? gp : 85 };
           }
-          return { ci: 90, gp: 85 }; // sensible default, not {ci:100,gp:100}
+          return { ci: 95, gp: 95 }; // Exceptional band default — user can manually downgrade via UI
         })(),
         allow_defaults: body.allow_defaults === true,
         follow_latest: body.follow_latest === true ? true : false,
@@ -4088,7 +4088,7 @@ Deno.serve(async (req) => {
           ? Math.max(MIN_VERSION_CAP, Math.min(MAX_VERSION_CAP, body.max_versions_per_doc_per_job))
           : DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB,
       };
-      console.log(`[IEL] job insert pipeline_key=${insertPayload.pipeline_key} fmt=${fmt}`);
+      console.log(`[IEL] job insert pipeline_key=${insertPayload.pipeline_key} fmt=${fmt} converge_target=${JSON.stringify(insertPayload.converge_target_json)} quality_objective=Exceptional_default`);
       const { data: job, error } = await supabase.from("auto_run_jobs").insert(insertPayload).select("*").single();
 
       if (error) throw new Error(`Failed to create job: ${error.message}`);
