@@ -28359,7 +28359,7 @@ ${upstreamText}`;
       const constraintPack = await loadConstraintPack(supabase, projectId);
       console.log("[dev-engine-v2] series-scripts-tick: constraint injection", { path: "series-scripts-tick", hasNEC: !!necBlock, hasConstraintPack: !!constraintPack });
       const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
-      const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
+      const OPENROUTER_API_KEY = resolveGateway().apiKey;
 
       const EPISODE_SCRIPT_SYSTEM = `You are IFFY, a professional screenwriter AI. Write a COMPLETE, production-ready episode script in proper teleplay format.
 
