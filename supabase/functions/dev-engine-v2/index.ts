@@ -555,12 +555,16 @@ function extractJSON(raw: string): string {
 
 async function callAI(apiKey: string, model: string, system: string, user: string, temperature = 0.3, maxTokens = 32000): Promise<string> {
   const MAX_RETRIES = 3;
+  // Resolve gateway dynamically — prefer Lovable AI Gateway over OpenRouter
+  const gw = (() => { try { return resolveGateway(); } catch { return { url: "https://openrouter.ai/api/v1/chat/completions", apiKey }; } })();
+  const effectiveUrl = gw.url;
+  const effectiveKey = gw.apiKey || apiKey;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let response: Response;
     try {
-      response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      response = await fetch(effectiveUrl, {
         method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${effectiveKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
           messages: [{ role: "system", content: system }, { role: "user", content: user }],
