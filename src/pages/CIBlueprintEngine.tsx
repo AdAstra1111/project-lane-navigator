@@ -328,6 +328,10 @@ export default function CIBlueprintEngine() {
                 <Switch checked={config.useExemplars} onCheckedChange={(v) => setConfig(c => ({ ...c, useExemplars: v }))} />
                 <Label className="text-xs flex items-center gap-1"><Award className="h-3 w-3" /> Exemplars Only</Label>
               </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={config.useLearningPoolOnly} onCheckedChange={(v) => setConfig(c => ({ ...c, useLearningPoolOnly: v }))} />
+                <Label className="text-xs flex items-center gap-1">🎯 Learning Pool Only</Label>
+              </div>
             </div>
 
             <div className="flex items-center gap-3 pt-1">
