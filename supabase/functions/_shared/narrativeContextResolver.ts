@@ -490,7 +490,46 @@ export function buildNarrativeContextBlock(ctx: NarrativeContext): string {
     ctx.signals.blockText,
     ctx.lockedDecisions.blockText,
     ctx.voice.blockText,
+    ctx.worldPopulation.blockText,
   ].filter(Boolean).join("\n");
+}
+
+// ── World Population Prompt Block (NON-CANONICAL) ──
+
+const WORLD_POP_MODERATE = `
+=== WORLD POPULATION LAYER (NON-CANONICAL — do NOT treat as canon) ===
+Include a supporting world with secondary and background characters (e.g., guards, attendants, courtiers, soldiers, advisors, servants, townspeople, messengers).
+These characters should:
+- create a lived-in, socially complex environment
+- reinforce hierarchy, scale, and realism
+- appear naturally within scenes and interactions
+Constraints:
+- they are NOT core narrative anchors
+- they should NOT introduce new canonical dependencies
+- they should NOT alter or conflict with established canon
+- they should remain flexible and non-binding
+Intensity: MODERATE — light presence, occasional references.
+=== END WORLD POPULATION LAYER ===`;
+
+const WORLD_POP_RICH = `
+=== WORLD POPULATION LAYER (NON-CANONICAL — do NOT treat as canon) ===
+Include a rich, densely populated supporting world with multiple layers of secondary and background characters (e.g., guards, attendants, courtiers, soldiers, advisors, servants, townspeople, messengers, traders, officials, clergy, laborers).
+These characters should:
+- create a lived-in, socially complex, visually dense environment
+- reinforce hierarchy, scale, political texture, and production realism
+- appear frequently within scenes with distinct behaviors and social roles
+- suggest a world that continues beyond the frame
+Constraints:
+- they are NOT core narrative anchors
+- they should NOT introduce new canonical dependencies
+- they should NOT alter or conflict with established canon
+- they should remain flexible and non-binding
+Intensity: RICH — frequent presence, multiple layers of world activity, visible social structure.
+=== END WORLD POPULATION LAYER ===`;
+
+function buildWorldPopulationBlock(density: string): string {
+  if (density === "rich") return WORLD_POP_RICH;
+  return WORLD_POP_MODERATE; // default for anything non-minimal
 }
 
 // ── Internal NEC block builders ──
