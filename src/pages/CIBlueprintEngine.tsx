@@ -435,6 +435,7 @@ export default function CIBlueprintEngine() {
                 {buildResult.learning_pool_match_count != null && (
                   <span className="text-[11px] text-muted-foreground">LP matches: <span className="font-mono font-medium text-foreground">{buildResult.learning_pool_match_count}</span></span>
                 )}
+              </div>
 
               {buildResult.optimizer_mode === 'dna_informed' && (
                 <div className="flex items-center gap-3 text-[11px]">
