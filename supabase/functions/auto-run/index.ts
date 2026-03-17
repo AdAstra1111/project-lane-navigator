@@ -6219,6 +6219,22 @@ Deno.serve(async (req) => {
 
                 // In Full Autopilot (allow_defaults=true), auto-force-promote instead of pausing.
                 // No notes remain → this is as good as it gets. Promote and keep running.
+                // ── EXCEPTIONAL GUARD: Never auto-force-promote in Exceptional mode ──
+                if (job.allow_defaults && isExceptionalObjective(job)) {
+                  console.warn(`[auto-run][IEL] EXCEPTIONAL_PLATEAU_BLOCK { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${plateauV2.currentCI}, target: ${targetCi}, plateau_version: "v2", path: "notes_unresolvable" }`);
+                  await logStep(supabase, jobId, stepCount + 2, currentDoc, "exceptional_plateau_block",
+                    `EXCEPTIONAL_PLATEAU_BLOCK: CI=${plateauV2.currentCI} plateaued (V2) with no actionable notes but below Exceptional target ${targetCi}. Escalation required — will NOT auto-promote.`,
+                    { ci: plateauV2.currentCI }, undefined,
+                    { target_ci: targetCi, best_ci: bestAvail?.ci, quality_objective: "Exceptional", action: "plateau_escalation_required", plateau_version: "v2" });
+                  await updateJob(supabase, jobId, {
+                    status: "paused",
+                    stop_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
+                    pause_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
+                    error: `Exceptional mode: CI=${plateauV2.currentCI} plateaued below target ${targetCi} for ${currentDoc}. Escalation required — auto-promote blocked.`,
+                  });
+                  await releaseProcessingLock(supabase, jobId);
+                  return respondWithJob(supabase, jobId);
+                }
                 if (job.allow_defaults) {
                   const nextStage = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
                   await logStep(supabase, jobId, stepCount + 2, currentDoc, "auto_force_promote",
