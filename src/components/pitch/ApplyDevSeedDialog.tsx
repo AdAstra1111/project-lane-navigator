@@ -850,10 +850,23 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           if (seedStateValid) {
             try {
               console.log(`[DevSeed][GUARD] Seed state validated — expected: [${expectedDocTypes.join(', ')}], actual: [${[...existingDocTypes].join(', ')}], autopilot: ${lastAutopilotStatus || 'tick-loop-exited'}. Starting Auto-Run.`);
-              await supabase.functions.invoke('auto-run', {
+              const { data: arData, error: arInvokeErr } = await supabase.functions.invoke('auto-run', {
                 body: { action: 'start', projectId: project.id, allow_defaults: true },
               });
-              parts.push('auto-run started');
+              if (arInvokeErr) {
+                // Check if it's a RESUMABLE_JOB_EXISTS 409 — not a real error
+                const errBody = arData || arInvokeErr;
+                const isResumable = (errBody as any)?.error === 'RESUMABLE_JOB_EXISTS' || (errBody as any)?.existing_job_id;
+                if (isResumable) {
+                  const existingJobId = (errBody as any)?.existing_job_id;
+                  console.log(`[DevSeed] Resumable auto-run job exists (${existingJobId}), skipping start — AutopilotPanel will resume.`);
+                  parts.push('auto-run resumable (existing job)');
+                } else {
+                  console.error('[DevSeed] auto-run start failed (non-fatal):', arInvokeErr);
+                }
+              } else {
+                parts.push('auto-run started');
+              }
             } catch (arErr: any) {
               console.error('[DevSeed] auto-run start failed (non-fatal):', arErr?.message);
             }
