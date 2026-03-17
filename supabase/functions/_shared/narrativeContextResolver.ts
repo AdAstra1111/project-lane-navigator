@@ -50,6 +50,7 @@ export interface NarrativeContext {
   lockedDecisions: { items: any[]; blockText: string };
   voice: { voiceId: string | null; blockText: string };
   effectiveProfile: { blockText: string };
+  worldPopulation: { density: string; blockText: string };
   metadata: {
     provenance: Record<string, string>;
     counts: Record<string, number>;
