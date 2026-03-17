@@ -709,8 +709,9 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
               const canSuggest = canGenerateSuggestions(suggestionCtx);
               const handleAutoFill = () => {
                 const suggestions = generateSuggestions(suggestionCtx);
+                if (suggestions._debug) console.log('[InputIntelligence v2]', suggestions._debug);
                 const merged: Partial<HardCriteria> = {};
-                // Merge must-includes as tropes (append, don't overwrite)
+                // Merge must-includes (append, don't overwrite)
                 const existing = new Set(criteria.mustHaveTropes.map(t => t.toLowerCase()));
                 merged.mustHaveTropes = [
                   ...criteria.mustHaveTropes,
@@ -722,6 +723,14 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
                   ...criteria.avoidTropes,
                   ...suggestions.avoid.filter(s => !existingAvoid.has(s.toLowerCase())),
                 ];
+                // Merge prohibited comps (append)
+                if (suggestions.prohibitedComps.length > 0) {
+                  const existingComps = new Set(criteria.prohibitedComps.map(c => c.toLowerCase()));
+                  merged.prohibitedComps = [
+                    ...criteria.prohibitedComps,
+                    ...suggestions.prohibitedComps.filter(c => !existingComps.has(c.toLowerCase())),
+                  ];
+                }
                 // Direction: append if user has existing notes
                 merged.notes = criteria.notes
                   ? criteria.notes + '\n\n' + suggestions.additionalDirection
@@ -730,9 +739,11 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
               };
               const handleRefresh = () => {
                 const suggestions = generateSuggestions(suggestionCtx);
+                if (suggestions._debug) console.log('[InputIntelligence v2]', suggestions._debug);
                 update({
                   mustHaveTropes: suggestions.mustInclude,
                   avoidTropes: suggestions.avoid,
+                  prohibitedComps: suggestions.prohibitedComps,
                   notes: suggestions.additionalDirection,
                 });
               };
