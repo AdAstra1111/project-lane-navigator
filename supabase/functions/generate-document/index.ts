@@ -1769,6 +1769,15 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
         generator_run_id: generatorRunId || null,
         source_document_ids: Object.values(inputsUsed).map((v: any) => v.version_id),
         style_template_version_id: project.season_style_template_version_id || null,
+        meta_json: driftResult.constraintsUsed ? {
+          canon_drift: {
+            passed: driftResult.passed,
+            violations: driftResult.findings.filter((f: any) => f.severity === "violation").length,
+            warnings: driftResult.findings.filter((f: any) => f.severity === "warning").length,
+            domains_checked: driftResult.domains_checked,
+            checked_at: driftResult.checkedAt,
+          },
+        } : {},
       })
       .select("id")
       .single();
