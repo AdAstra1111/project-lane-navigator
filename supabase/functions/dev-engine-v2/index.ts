@@ -21921,7 +21921,7 @@ CANON FACTS: ${JSON.stringify(canonFacts || []).slice(0, 4000)}`;
       // ── LLM semantic coherence check (single pass) ──
       let llmFindings: any[] = [];
       if (docVersions.length > 0 && sceneMapCompact.length > 0) {
-        const apiKey = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
+        const apiKey = resolveGateway().apiKey;
 
         const docsContext = docVersions.map(d => `[${d.doc_type}|doc:${d.document_id}|ver:${d.version_id}]\n${d.plaintext.slice(0, 3000)}`).join('\n\n---\n\n');
 
