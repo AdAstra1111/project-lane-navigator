@@ -663,20 +663,25 @@ Rules:
 - primary_engine_key MUST be from the available engine keys
 - DO NOT classify based on genre, setting, or surface imagery`;
 
-      const gateway = resolveGateway();
-      const classificationResult = await callLLMWithJsonRetry({
-        gateway,
-        model: MODELS.flash,
-        systemPrompt: "You are a structural narrative classification engine. Return only valid JSON.",
-        userPrompt: classificationPrompt,
-        validator: (obj: any) => {
-          if (!obj.primary_engine_key || typeof obj.primary_engine_key !== "string") return false;
-          if (!Array.isArray(obj.candidate_engines)) return false;
-          return true;
+      const gw = resolveGateway();
+      const classificationResult = await callLLMWithJsonRetry(
+        {
+          apiKey: gw.apiKey,
+          model: MODELS.BALANCED,
+          system: "You are a structural narrative classification engine. Return only valid JSON.",
+          user: classificationPrompt,
+          temperature: 0.2,
+          maxTokens: 4000,
         },
-        maxAttempts: 2,
-        temperature: 0.2,
-      });
+        {
+          handler: "dna_engine_reclassify",
+          validate: (obj: any): obj is any => {
+            if (!obj || typeof obj.primary_engine_key !== "string") return false;
+            if (!Array.isArray(obj.candidate_engines)) return false;
+            return true;
+          },
+        },
+      );
 
       if (!classificationResult) {
         return jsonRes({ error: "Engine classification failed after retries" }, 500);
