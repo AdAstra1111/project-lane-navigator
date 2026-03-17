@@ -22781,7 +22781,7 @@ Rules:
         return { n: i + 1, id: o.scene_id, slug: v?.slugline || '', summary: (v?.summary || '').slice(0, 300), chars: v?.characters_present || [], act: o.act };
       });
 
-      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || '';
+      const apiKey = resolveGateway().apiKey;
       const spineSystem = `You are a narrative architect. Analyze the scene map and produce a Story Spine JSON.
 RETURN ONLY valid JSON matching this exact schema:
 {
