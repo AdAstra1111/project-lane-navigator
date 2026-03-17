@@ -11,6 +11,8 @@ import { usePitchFeedback } from '@/hooks/usePitchIdeas';
 import { LANE_LABELS, type MonetisationLane } from '@/lib/types';
 import { ConceptLockPanel } from '@/components/ConceptLockPanel';
 import { SendToProjectDialog } from '@/components/SendToProjectDialog';
+import { SimilarExemplarsDrawer } from '@/components/exemplars/SimilarExemplarsDrawer';
+import { ExemplarCompareDrawer } from '@/components/exemplars/ExemplarCompareDrawer';
 
 const FEEDBACK_TAGS = ['character', 'world', 'hook', 'tone', 'budget', 'market fit'];
 
