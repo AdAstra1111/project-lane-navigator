@@ -314,7 +314,7 @@ export default function CIBlueprintEngine() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">CI Threshold ({config.ciMin})</Label>
-                <Slider min={80} max={100} step={1} value={[config.ciMin]} onValueChange={([v]) => setConfig(c => ({ ...c, ciMin: v }))} />
+                <Slider min={50} max={100} step={5} value={[config.ciMin]} onValueChange={([v]) => setConfig(c => ({ ...c, ciMin: v }))} />
               </div>
               <div className="flex items-center gap-2">
                 <Switch checked={config.useTrends} onCheckedChange={(v) => setConfig(c => ({ ...c, useTrends: v }))} />
