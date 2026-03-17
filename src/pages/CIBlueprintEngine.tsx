@@ -191,6 +191,8 @@ export default function CIBlueprintEngine() {
       final_ci_threshold: result.final_ci_threshold,
       genre_relaxed: result.genre_relaxed,
       lane_relaxed: result.lane_relaxed,
+      learning_pool_only: result.learning_pool_only,
+      learning_pool_match_count: result.learning_pool_match_count,
     });
   };
 
