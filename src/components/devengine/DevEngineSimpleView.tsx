@@ -175,7 +175,7 @@ export function DevEngineSimpleView({
                 <div className="flex-1 min-w-0">
                   <p className="text-[11px] font-medium truncate">{SEED_LABELS[doc.doc_type] || doc.doc_type}</p>
                   <p className="text-[9px] text-muted-foreground">
-                    {doc.status === 'missing' ? 'Not created' :
+                    {doc.status === 'missing' ? 'Pending — auto-generated on start' :
                      doc.status === 'short' ? `${doc.char_count} chars (short)` :
                      `${doc.char_count.toLocaleString()} chars`}
                     {doc.approval_status === 'approved' && ' · ✓ Approved'}
