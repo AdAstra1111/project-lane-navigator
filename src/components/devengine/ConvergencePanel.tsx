@@ -11,7 +11,9 @@ interface ConvergencePanelProps {
   convergenceStatus: string;
   tieredNotes: { blockers: any[]; high: any[]; polish: any[] };
   /** DB-persisted meta_json scores — primary source of truth */
-  versionMetaJson?: { ci?: number; gp?: number } | null;
+  versionMetaJson?: { ci?: number; gp?: number; [key: string]: any } | null;
+  /** Version label — used to detect selective rewrites and annotate score scope */
+  versionLabel?: string | null;
 }
 
 function Sparkline({ history }: { history: any[] }) {
