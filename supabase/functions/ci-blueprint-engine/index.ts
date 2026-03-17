@@ -106,7 +106,7 @@ serve(async (req) => {
         .insert({
           user_id: user.id,
           status: "running",
-          config: { format, lane, genre, engine, budgetBand, candidateCount, useTrends, useExemplars, ciMin, sourceDnaProfileId },
+          config: { format, lane, genre, engine, budgetBand, candidateCount, useTrends, useExemplars, ciMin, sourceDnaProfileId, useLearningPoolOnly },
           source_dna_profile_id: sourceDnaProfileId || null,
           dna_inputs: dnaProfile ? [{
             profile_id: dnaProfile.id,
@@ -116,6 +116,7 @@ serve(async (req) => {
             confidence: dnaProfile.extraction_confidence,
           }] : [],
           optimizer_mode: optimizerMode,
+          learning_pool_only: useLearningPoolOnly,
         })
         .select("id")
         .single();
