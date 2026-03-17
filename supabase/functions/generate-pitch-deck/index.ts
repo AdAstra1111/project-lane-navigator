@@ -16,9 +16,9 @@ serve(async (req) => {
     const authHeader = req.headers.get("Authorization") || "";
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableKey = Deno.env.get("OPENROUTER_API_KEY");
-
-    if (!lovableKey) throw new Error("OPENROUTER_API_KEY not configured");
+    const _gw = resolveGateway();
+    const lovableKey = _gw.apiKey;
+    if (!lovableKey) throw new Error("No AI gateway key configured");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
