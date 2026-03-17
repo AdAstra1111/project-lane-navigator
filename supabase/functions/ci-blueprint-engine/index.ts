@@ -408,13 +408,13 @@ One-page pitch: ${c.one_page_pitch}
           const candidate = savedCandidates.find((c: any) => c.id === candidateId);
           if (!candidate) continue;
 
-          // Recalculate total using our formula to prevent LLM math errors
+          // Recalculate total using AUTHORITATIVE generate-pitch weights
           const recalcTotal = (
-            (Number(es.score_market_heat) || 0) * 0.25 +
-            (Number(es.score_feasibility) || 0) * 0.2 +
-            (Number(es.score_lane_fit) || 0) * 0.2 +
+            (Number(es.score_market_heat) || 0) * 0.30 +
+            (Number(es.score_feasibility) || 0) * 0.25 +
+            (Number(es.score_lane_fit) || 0) * 0.20 +
             (Number(es.score_saturation_risk) || 0) * 0.15 +
-            (Number(es.score_company_fit) || 0) * 0.2
+            (Number(es.score_company_fit) || 0) * 0.10
           );
 
           await svcClient
