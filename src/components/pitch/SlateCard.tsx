@@ -156,6 +156,9 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete, projec
           {idea.source_engine_key && (
             <Badge variant="outline" className="text-[10px] border-accent/40 gap-1"><Cpu className="h-2.5 w-2.5" />{idea.source_engine_key.replace(/_/g, ' ')}</Badge>
           )}
+          {isFromBlueprint && (
+            <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-400 gap-1"><FlaskConical className="h-2.5 w-2.5" />From Blueprint</Badge>
+          )}
         </div>
 
         {/* Trend fit bullets */}

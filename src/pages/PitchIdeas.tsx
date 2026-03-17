@@ -33,6 +33,10 @@ export default function PitchIdeas() {
   const { ideas, isLoading, save, update, remove } = usePitchIdeas();
   const { projects } = useProjects();
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const highlightId = searchParams.get('highlight');
+  const highlightRef = useRef<HTMLDivElement | null>(null);
+  const didScrollRef = useRef(false);
   const [generating, setGenerating] = useState(false);
   const [generateFailed, setGenerateFailed] = useState(false);
   const [genProgress, setGenProgress] = useState({ current: 0, total: 5 });
