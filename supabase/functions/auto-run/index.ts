@@ -3098,6 +3098,186 @@ async function resolveBestScoredEligibleVersionForDoc(
     gp: best.gp,
   };
 }
+// ── PLATEAU DIAGNOSIS ENGINE (DevSeed Optimizer MVP) ──
+// Deterministic, rule-based diagnosis of WHY a run plateaued.
+// Pure heuristics — no LLM dependency.
+
+const DIAG_CAUSE_CLASSES = [
+  'weak_hook', 'weak_conflict_engine', 'weak_lane_fit', 'weak_market_heat',
+  'weak_feasibility', 'canon_scaffold_weak', 'escalation_architecture_weak',
+  'blueprint_mismatch', 'dna_mismatch', 'rewrite_exhausted', 'seed_limited', 'unknown',
+] as const;
+type DiagCause = typeof DIAG_CAUSE_CLASSES[number];
+
+interface DiagInput {
+  job: any;
+  jobId: string;
+  currentDoc: string;
+  bestCi: number;
+  finalCi: number;
+  targetCi: number;
+  targetGp: number;
+  haltReason: string;
+  stepCount: number;
+  stageLoopCount: number;
+  totalVersionsForDoc?: number;
+  blockerNoteCount?: number;
+  highNoteCount?: number;
+  recentStepActions?: string[];
+}
+
+interface DiagRecommendation {
+  recommendation_type: string;
+  short_label: string;
+  rationale: string;
+  recommended_mutations: string[];
+  recommended_quality_target?: { ci: number; gp: number } | null;
+  dna_action?: string | null;
+  blueprint_action?: string | null;
+}
+
+function computePlateauDiagnosisBackend(input: DiagInput): {
+  primary_cause: DiagCause;
+  secondary_causes: DiagCause[];
+  rewriteable: boolean;
+  seed_limited: boolean;
+  confidence: string;
+  evidence_summary: string[];
+  recommendation_bundle: DiagRecommendation;
+} {
+  const evidence: string[] = [];
+  const secondary: DiagCause[] = [];
+  let primary: DiagCause = "unknown";
+  let confidence = "low";
+
+  const ciGap = input.targetCi - input.bestCi;
+  const isEarly = ["idea", "brief", "concept"].includes(input.currentDoc);
+  const versions = input.totalVersionsForDoc ?? 0;
+  const rewriteExhausted = versions >= 4 && input.stepCount >= 8 && ciGap > 8;
+
+  evidence.push(`Best CI: ${input.bestCi}, Target: ${input.targetCi}, Gap: ${ciGap}`);
+  evidence.push(`Halted on: ${input.currentDoc}, Reason: ${input.haltReason}`);
+  evidence.push(`Steps: ${input.stepCount}, Stage loops: ${input.stageLoopCount}`);
+  if (versions > 0) evidence.push(`Versions for doc: ${versions}`);
+  if (input.blockerNoteCount) evidence.push(`Blocker notes: ${input.blockerNoteCount}`);
+
+  if (rewriteExhausted) {
+    secondary.push("rewrite_exhausted");
+    evidence.push("Rewrite exhaustion: multiple versions + steps without CI convergence");
+  }
+
+  if (isEarly && ciGap > 15) {
+    primary = "seed_limited"; confidence = "high";
+    evidence.push(`Large CI gap (${ciGap}) on early doc — seed architecture likely limiting`);
+  } else if (!isEarly && ciGap > 15 && rewriteExhausted) {
+    primary = "seed_limited"; confidence = "high";
+    evidence.push(`Large CI gap persists after exhaustive rewrites — seed constraining ceiling`);
+  } else if (ciGap > 8 && rewriteExhausted) {
+    primary = "escalation_architecture_weak"; confidence = "medium";
+    evidence.push(`CI gap ${ciGap} with ${versions} versions — escalation architecture insufficient`);
+  } else if (ciGap > 0 && (input.blockerNoteCount ?? 0) === 0 && (input.highNoteCount ?? 0) === 0) {
+    primary = isEarly ? "canon_scaffold_weak" : "rewrite_exhausted";
+    confidence = "medium";
+    evidence.push("No actionable notes remain but CI below target");
+  } else {
+    primary = "rewrite_exhausted"; confidence = "low";
+  }
+
+  // Lineage checks
+  const proj = input.job;
+  const hasBP = !!(proj?.source_blueprint_id || proj?.pinned_inputs?.source_blueprint_id);
+  const hasDNA = !!(proj?.source_dna_profile_id || proj?.pinned_inputs?.source_dna_profile_id);
+  if (hasBP && primary === "seed_limited") { secondary.push("blueprint_mismatch"); evidence.push("Blueprint lineage present but plateau hit"); }
+  if (hasDNA && primary === "seed_limited") { secondary.push("dna_mismatch"); evidence.push("DNA lineage present but plateau hit"); }
+
+  const seedLimited = primary === "seed_limited" || (["weak_hook", "weak_conflict_engine"].includes(primary) && rewriteExhausted);
+  const rewriteable = !seedLimited && ciGap <= 8;
+
+  // Recommendation
+  let rec: DiagRecommendation;
+  if (seedLimited) {
+    rec = {
+      recommendation_type: "regenerate_devseed", short_label: "Regenerate DevSeed",
+      rationale: `Seed architecture caps quality at CI ~${input.bestCi}. A new seed is more likely to reach ${input.targetCi}+.`,
+      recommended_mutations: ["Create new pitch idea with stronger hook/conflict", hasBP ? "Try different blueprint" : "Consider CI Blueprint", hasDNA ? "Review DNA constraints" : "Consider DNA profile"],
+      dna_action: hasDNA ? "review_constraints" : "consider_applying",
+      blueprint_action: hasBP ? "switch_pattern" : "consider_using",
+    };
+  } else if (rewriteable && ciGap <= 5) {
+    rec = {
+      recommendation_type: "continue_rewrite", short_label: "Continue targeted rewrites",
+      rationale: `Small CI gap (${ciGap}). Targeted rewrites may close the gap.`,
+      recommended_mutations: ["Focus on specific blocker areas"],
+    };
+  } else {
+    const suggestedCi = input.bestCi >= 90 ? 90 : input.bestCi >= 85 ? 85 : 80;
+    rec = {
+      recommendation_type: "lower_quality_objective", short_label: "Lower quality target",
+      rationale: `CI gap of ${ciGap} may not close with current seed.`,
+      recommended_mutations: [],
+      recommended_quality_target: { ci: suggestedCi, gp: suggestedCi },
+    };
+  }
+
+  return { primary_cause: primary, secondary_causes: secondary, rewriteable, seed_limited: seedLimited, confidence, evidence_summary: evidence, recommendation_bundle: rec };
+}
+
+/**
+ * persistPlateauDiagnosis — Fire-and-forget diagnosis write.
+ * Never blocks halt completion. Logs on failure.
+ */
+async function persistPlateauDiagnosis(supabase: any, input: DiagInput): Promise<void> {
+  try {
+    const diag = computePlateauDiagnosisBackend(input);
+    const job = input.job;
+
+    // Fetch version count for the halted doc
+    let totalVersions = input.totalVersionsForDoc ?? 0;
+    if (!totalVersions) {
+      const { count } = await supabase.from("project_document_versions")
+        .select("id", { count: "exact", head: true })
+        .eq("document_id", (await supabase.from("project_documents").select("id").eq("project_id", job.project_id).eq("doc_type", input.currentDoc).limit(1).maybeSingle()).then((r: any) => r?.data?.id))
+        .then(undefined, () => ({ count: 0 }));
+      totalVersions = count ?? 0;
+    }
+
+    // Fetch lineage from project
+    const { data: proj } = await supabase.from("projects")
+      .select("source_dna_profile_id, source_engine_key, pitch_idea_id")
+      .eq("id", job.project_id).maybeSingle()
+      .then(undefined, () => ({ data: null }));
+
+    const row = {
+      user_id: job.user_id,
+      project_id: job.project_id,
+      auto_run_job_id: input.jobId,
+      pitch_idea_id: proj?.pitch_idea_id ?? null,
+      source_dna_profile_id: proj?.source_dna_profile_id ?? null,
+      source_blueprint_id: job.pinned_inputs?.source_blueprint_id ?? null,
+      source_blueprint_run_id: job.pinned_inputs?.source_blueprint_run_id ?? null,
+      generation_mode: job.pinned_inputs?.generation_mode ?? null,
+      optimizer_mode: job.pinned_inputs?.optimizer_mode ?? null,
+      final_ci: input.finalCi,
+      final_gp: null,
+      target_ci: input.targetCi,
+      target_gp: input.targetGp,
+      best_ci_seen: input.bestCi,
+      halted_doc_type: input.currentDoc,
+      halted_reason: input.haltReason,
+      diagnosis_version: "v1",
+      ...diag,
+    };
+
+    const { error } = await supabase.from("devseed_plateau_diagnoses").insert(row);
+    if (error) {
+      console.error(`[auto-run][DIAG] persist_failed { job_id: "${input.jobId}", error: "${error.message}" }`);
+    } else {
+      console.log(`[auto-run][DIAG] DEVSEED_PLATEAU_DIAGNOSIS_CREATED { job_id: "${input.jobId}", project_id: "${job.project_id}", primary_cause: "${diag.primary_cause}", seed_limited: ${diag.seed_limited}, recommendation: "${diag.recommendation_bundle.recommendation_type}" }`);
+    }
+  } catch (e: any) {
+    console.error(`[auto-run][DIAG] persist_error { job_id: "${input.jobId}", error: "${e?.message}" }`);
+  }
+}
 
 async function tryPlateauForcePromote(
   supabase: any,
