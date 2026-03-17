@@ -6,6 +6,7 @@ const GP_WEIGHT = 1;
 function compositeScore(ci: number, gp: number): number { return ci * CI_WEIGHT + gp * GP_WEIGHT; }
 import { emitTransition, TRANSITION_EVENTS } from "../_shared/transitionLedger.ts";
 import { getCanonicalNextStage } from "../_shared/ladder-invariant.ts";
+import { validateStageIdentity, buildDiagnostic } from "../_shared/stageIdentityContracts.ts";
 import { spineToPromptBlock } from "../_shared/narrativeSpine.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isCPMEnabled, buildCPRepairDirections, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
