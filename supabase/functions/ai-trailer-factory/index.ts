@@ -121,7 +121,7 @@ async function uploadImageFromUrl(imageUrl: string, storagePath: string): Promis
 
 // ─── Generate image via Gemini ───
 async function generateImage(apiKey: string, prompt: string): Promise<string | null> {
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const resp = await fetch(resolveGateway().url, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
