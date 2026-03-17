@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
 import { formatToLane, getLaneLadder, normalizeDocType } from "../_shared/documentLadders.ts";
 import { getCanonicalNextStage, assertValidLadder } from "../_shared/ladder-invariant.ts";
+import { validateStageIdentity } from "../_shared/stageIdentityContracts.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
