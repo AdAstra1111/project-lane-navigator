@@ -20,6 +20,7 @@ import { DevSeedBackfillProgress } from '@/components/pitch/DevSeedBackfillProgr
 import { AutopilotProgress, type AutopilotState } from '@/components/pitch/AutopilotProgress';
 import { buildSeedIntelPack } from '@/lib/trends/seed-intel-pack';
 import { useActiveSignals, useActiveCastTrends } from '@/hooks/useTrends';
+import { extractRecoverableAutoRunConflict } from '@/lib/autoRunConflict';
 
 interface Props {
   idea: PitchIdea | null;

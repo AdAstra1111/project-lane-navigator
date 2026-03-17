@@ -5,6 +5,7 @@ import type { AutoRunJob, AutoRunStep } from '@/hooks/useAutoRun';
 import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 import { AUTO_RUN_EXECUTION_MODE } from '@/lib/autoRunConfig';
 import { parseEdgeResponse } from '@/lib/edgeResponseGuard';
+import { extractRecoverableAutoRunConflict } from '@/lib/autoRunConflict';
 
 // ── API helper ──
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
@@ -29,11 +30,16 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
   if (resp.status === 409 && result?.code === 'STALE_DECISION') {
     return { ...result, _stale: true };
   }
-  // Handle 409 RESUMABLE_JOB_EXISTS — return structured result instead of throwing
-  if (resp.status === 409 && (result?.error === 'RESUMABLE_JOB_EXISTS' || result?.existing_job_id)) {
-    return { ...result, _resumable: true };
+  const recoverableConflict = resp.status === 409
+    ? extractRecoverableAutoRunConflict(result, extra.projectId)
+    : null;
+  if (recoverableConflict) {
+    return { ...result, ...recoverableConflict, _resumable: true };
   }
-  if (!resp.ok) throw new Error(result.error || `Auto-run error (${resp.status})`);
+  if (resp.status === 409 && (result?.code === 'job_already_running' || result?.recoverable === true || result?.error === 'RESUMABLE_JOB_EXISTS')) {
+    throw new Error('Auto-Run conflict received without resumable job data.');
+  }
+  if (!resp.ok) throw new Error(result.error || result.message || `Auto-run error (${resp.status})`);
   return result;
 }
 
