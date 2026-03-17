@@ -31598,11 +31598,13 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             execution_message: `Dry run: ${appliedSectionKeys.length} section(s) simulated [${appliedSectionKeys.join("+")}]`,
           });
         } else if (successfulResults.length > 0) {
-          // Write ONE consolidated version
+          // Write ONE consolidated version + CCE drift check
           try {
+            const patchDocType = orderedTargets[0].doc_type;
+            const patchCCE = await runCCEPostGeneration(supabase, execProjectId, runningContent, patchDocType, "dev-engine-v2:patch-execution");
             const newVersion = await createVersion(supabase, {
               documentId: documentId,
-              docType: orderedTargets[0].doc_type,
+              docType: patchDocType,
               plaintext: runningContent,
               label: `patch_execution_v1.1_sections_${appliedSectionKeys.join("+")}`,
               createdBy: execUserId,
@@ -31624,6 +31626,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
                 patch_section_keys: appliedSectionKeys,
                 patch_repair_type: execCore.resolved_repair_type || repairType || null,
                 multi_section_execution: appliedSectionKeys.length > 1,
+                ...patchCCE.metaPatch,
               },
             });
 
