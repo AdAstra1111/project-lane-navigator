@@ -27937,7 +27937,8 @@ No stubs, no placeholders, no TODO markers.`;
       };
 
       const { ensureDocSlot, createVersion: createVer } = await import("../_shared/doc-os.ts");
-      const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
+      const _regenGw = resolveGateway();
+      const OPENROUTER_API_KEY = _regenGw.apiKey;
 
       const processed: any[] = [];
 
