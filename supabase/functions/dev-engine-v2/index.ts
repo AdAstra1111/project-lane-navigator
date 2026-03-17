@@ -10,7 +10,7 @@ import { shouldRunNIE, loadAdjacentDocPack, evaluateNarrativeIntegrity } from ".
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
-import { composeSystem } from "../_shared/llm.ts";
+import { composeSystem, resolveGateway } from "../_shared/llm.ts";
 import { buildBeatGuidanceBlock, computeBeatTargets } from "../_shared/verticalDramaBeats.ts";
 import { loadLanePrefs, loadTeamVoiceProfile } from "../_shared/prefs.ts";
 import { buildTeamVoicePromptBlock } from "../_shared/teamVoice.ts";
