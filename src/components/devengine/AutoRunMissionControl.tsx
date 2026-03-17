@@ -762,9 +762,14 @@ export function AutoRunMissionControl({
     ? activeDecisions.find(d => d.impact === 'blocking') || activeDecisions[0]
     : null;
 
+  const hasExceptionalPlateau = job?.status === 'paused' && (
+    job?.stop_reason === 'EXCEPTIONAL_PLATEAU_ESCALATION' || job?.pause_reason === 'EXCEPTIONAL_PLATEAU_ESCALATION'
+  );
+
   const hasEscalation = !hasDecisions && job?.pause_reason !== 'step_limit' && job?.pause_reason !== 'stage_exhausted' && (job?.status === 'paused' || job?.status === 'stopped' || job?.status === 'failed') && (
     job?.last_risk_flags?.some((f: string) => f.startsWith('hard_gate:'))
     || job?.stop_reason?.includes('Executive Strategy')
+    || hasExceptionalPlateau
   );
 
   const statusStyle = STATUS_STYLES[job?.status || 'queued'] || STATUS_STYLES.queued;
