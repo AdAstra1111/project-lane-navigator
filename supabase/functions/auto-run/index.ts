@@ -6364,6 +6364,7 @@ Deno.serve(async (req) => {
                 pause_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
                 error: `Exceptional mode: ${currentDoc} reached max ${MAX_STAGE_ITERATIONS} iterations at CI=${ciGate.bestCiSoFar} (target: ${targetCiForIterCap}). Escalation required — auto-promote blocked.`,
               });
+              persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: ciGate.bestCiSoFar, finalCi: ciGate.ci, targetCi: targetCiForIterCap, targetGp: extractTargetGP(job), haltReason: "EXCEPTIONAL_PLATEAU_ESCALATION", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
               await releaseProcessingLock(supabase, jobId);
               return respondWithJob(supabase, jobId);
             } else if (job.allow_defaults && ciGate.bestCiSoFar >= GLOBAL_MIN_CI) {
