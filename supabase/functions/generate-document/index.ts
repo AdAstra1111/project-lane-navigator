@@ -8,6 +8,7 @@ import { EPISODE_DOC_TYPES, extractEpisodeNumbersFromOutput, detectCollapsedRang
 import { isLargeRiskDocType, isEpisodicDocType as isLargeRiskEpisodic, chunkPlanFor, strategyFor } from "../_shared/largeRiskRouter.ts";
 import { runChunkedGeneration, resumeChunkedGeneration } from "../_shared/chunkRunner.ts";
 import { validateEpisodicContent, hasBannedSummarizationLanguage } from "../_shared/chunkValidator.ts";
+import { validateCharacterCues } from "../_shared/coreDocs.ts";
 import {
   buildNuancePromptBlock, computeMetrics, melodramaScore, nuanceScore,
   runGate, buildRepairInstruction, computeFingerprint, computeSimilarityRisk,
