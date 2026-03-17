@@ -358,7 +358,20 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
         const existingJobId = result?.job_id || result?.existing_job_id;
         if (result?._resumable && existingJobId) {
           console.info('[ProjectAutopilot] Reattaching to existing Auto-Run job', existingJobId);
-          await attachToExistingJob(existingJobId, mountedRef, projectId, setAutoRunJob);
+          try {
+            const status = await callAutoRun('status', { jobId: existingJobId, projectId });
+            if (mountedRef.current && status?.job) setAutoRunJob(status.job);
+            if (status?.job?.status === 'paused') {
+              const resumeResult = await callAutoRun('resume', { jobId: existingJobId, followLatest: true });
+              if (mountedRef.current && resumeResult?.job) setAutoRunJob(resumeResult.job);
+            }
+            callAutoRun('run-next', { jobId: existingJobId }).then(tickResult => {
+              if (mountedRef.current && tickResult?.job) setAutoRunJob(tickResult.job);
+            }).catch(() => {});
+          } catch {
+            const status = await callAutoRun('status', { projectId });
+            if (mountedRef.current && status?.job) setAutoRunJob(status.job);
+          }
         } else if (result?.job) {
           if (mountedRef.current) {
             setAutoRunJob(result.job);
