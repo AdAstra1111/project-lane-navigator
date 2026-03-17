@@ -73,23 +73,26 @@ serve(async (req) => {
             .map(([k, v]) => `  - ${k}: ${v}`)
             .join("\n");
 
-          dnaPromptBlock = `\n\nNARRATIVE DNA CONSTRAINTS (from "${profile.source_title}"):
-These constraints define the STRUCTURAL IDENTITY of the story DNA. Generated ideas must preserve these narrative patterns while creating COMPLETELY ORIGINAL stories. Do NOT reproduce the source story's plot, characters, or setting.
+          const dnaLines: string[] = [
+            `NARRATIVE DNA CONSTRAINTS (from "${profile.source_title}"):`,
+            `These constraints define the STRUCTURAL IDENTITY of the story DNA. Generated ideas must preserve these narrative patterns while creating COMPLETELY ORIGINAL stories. Do NOT reproduce the source story's plot, characters, or setting.`,
+            ``,
+            `ORIGINALITY GUARDRAIL: You are extracting structural DNA patterns only. Generated ideas must be wholly original — new characters, new world, new plot. The DNA provides narrative architecture, not content to clone.`,
+          ];
+          if (spineLines) dnaLines.push(``, `NARRATIVE SPINE:`, spineLines);
+          if (profile.thematic_spine) dnaLines.push(`THEMATIC SPINE: ${profile.thematic_spine}`);
+          if (profile.escalation_architecture) dnaLines.push(`ESCALATION ARCHITECTURE: ${profile.escalation_architecture}`);
+          if (profile.antagonist_pattern) dnaLines.push(`ANTAGONIST PATTERN: ${profile.antagonist_pattern}`);
+          if (profile.power_dynamic) dnaLines.push(`POWER DYNAMIC: ${profile.power_dynamic}`);
+          if (profile.ending_logic) dnaLines.push(`ENDING LOGIC: ${profile.ending_logic}`);
+          if (profile.set_piece_grammar) dnaLines.push(`SET PIECE GRAMMAR: ${profile.set_piece_grammar}`);
+          if (profile.emotional_cadence?.length) dnaLines.push(`EMOTIONAL CADENCE: ${profile.emotional_cadence.join(" → ")}`);
+          if (profile.world_logic_rules?.length) dnaLines.push(`WORLD LOGIC RULES:`, ...profile.world_logic_rules.map((r: string) => `  - ${r}`));
+          if (profile.forbidden_carryovers?.length) dnaLines.push(`FORBIDDEN CARRYOVERS (do NOT use these from the source):`, ...profile.forbidden_carryovers.map((f: string) => `  - ${f}`));
+          if (profile.mutable_variables?.length) dnaLines.push(`MUTABLE VARIABLES (may be adapted freely):`, ...profile.mutable_variables.map((m: string) => `  - ${m}`));
+          if (dnaEngineKey) dnaLines.push(`ENGINE PATTERN: ${dnaEngineKey}`);
 
-ORIGINALITY GUARDRAIL: You are extracting structural DNA patterns only. Generated ideas must be wholly original — new characters, new world, new plot. The DNA provides narrative architecture, not content to clone.
-
-${spineLines ? `NARRATIVE SPINE:\n${spineLines}` : ""}
-${profile.thematic_spine ? `THEMATIC SPINE: ${profile.thematic_spine}` : ""}
-${profile.escalation_architecture ? `ESCALATION ARCHITECTURE: ${profile.escalation_architecture}` : ""}
-${profile.antagonist_pattern ? `ANTAGONIST PATTERN: ${profile.antagonist_pattern}` : ""}
-${profile.power_dynamic ? `POWER DYNAMIC: ${profile.power_dynamic}` : ""}
-${profile.ending_logic ? `ENDING LOGIC: ${profile.ending_logic}` : ""}
-${profile.set_piece_grammar ? `SET PIECE GRAMMAR: ${profile.set_piece_grammar}` : ""}
-${(profile.emotional_cadence?.length) ? `EMOTIONAL CADENCE: ${profile.emotional_cadence.join(" → ")}` : ""}
-${(profile.world_logic_rules?.length) ? `WORLD LOGIC RULES:\n${profile.world_logic_rules.map((r: string) => `  - ${r}`).join("\n")}` : ""}
-${(profile.forbidden_carryovers?.length) ? `FORBIDDEN CARRYOVERS (do NOT use these from the source):\n${profile.forbidden_carryovers.map((f: string) => `  - ${f}`).join("\n")}` : ""}
-${(profile.mutable_variables?.length) ? `MUTABLE VARIABLES (may be adapted freely):\n${profile.mutable_variables.map((m: string) => `  - ${m}`).join("\n")}` : ""}
-${dnaEngineKey ? `ENGINE PATTERN: ${dnaEngineKey}` : ""}`;
+          dnaPromptBlock = "\n\n" + dnaLines.join("\n");
         }
       }
 
