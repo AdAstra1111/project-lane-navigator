@@ -1861,6 +1861,12 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
         repaired: !!attempt1,
         failures: finalGate.failures,
       },
+      canon_drift: driftResult.constraintsUsed ? {
+        passed: driftResult.passed,
+        violations: driftResult.findings.filter((f: any) => f.severity === "violation").length,
+        warnings: driftResult.findings.filter((f: any) => f.severity === "warning").length,
+        findings: driftResult.findings.map((f: any) => ({ domain: f.domain, severity: f.severity, detail: f.detail })),
+      } : null,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
