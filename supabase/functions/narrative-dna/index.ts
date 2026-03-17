@@ -683,9 +683,7 @@ Rules:
         },
       );
 
-      if (!classificationResult) {
-        return jsonRes({ error: "Engine classification failed after retries" }, 500);
-      }
+      // callLLMWithJsonRetry throws on failure — result is guaranteed valid here
 
       // Validate engine keys
       const { CANONICAL_ENGINE_KEYS } = await import("../_shared/narrativeDnaExtractor.ts");
