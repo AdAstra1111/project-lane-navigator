@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { emitTransition, TRANSITION_EVENTS } from "../_shared/transitionLedger.ts";
+import { extractCanonConstraints, detectCanonDrift, logDriftResult } from "../_shared/canonConstraintEnforcement.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
