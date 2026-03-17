@@ -135,21 +135,40 @@ ${dnaEngineKey ? `ENGINE PATTERN: ${dnaEngineKey}` : ""}`;
       if (exErr) console.warn(`[ci-blueprint] exemplar fetch error: ${exErr.message}`);
       let sourceIdeas = exemplars || [];
 
-      // DNA-aware source idea biasing: prioritize ideas with matching engine/DNA
+      // DNA-aware source idea biasing: staged retrieval policy
+      // Tier 1: exact DNA profile match (boost +3)
+      // Tier 2: engine key match (boost +2)
+      // Tier 3: generic CI fallback (boost 0)
       if (dnaProfile && sourceIdeas.length > 0) {
         const scored = sourceIdeas.map((idea: any) => {
           let boost = 0;
-          if (dnaEngineKey && idea.source_engine_key === dnaEngineKey) boost += 2;
-          if (sourceDnaProfileId && idea.source_dna_profile_id === sourceDnaProfileId) boost += 3;
-          return { ...idea, _dna_boost: boost };
+          let tier = "generic";
+          if (sourceDnaProfileId && idea.source_dna_profile_id === sourceDnaProfileId) {
+            boost += 3;
+            tier = "dna_exact";
+          } else if (dnaEngineKey && idea.source_engine_key === dnaEngineKey) {
+            boost += 2;
+            tier = "engine_match";
+          }
+          return { ...idea, _dna_boost: boost, _dna_tier: tier };
         });
         scored.sort((a: any, b: any) => {
           if (b._dna_boost !== a._dna_boost) return b._dna_boost - a._dna_boost;
           return (Number(b.score_total) || 0) - (Number(a.score_total) || 0);
         });
         sourceIdeas = scored;
-        const boosted = scored.filter((s: any) => s._dna_boost > 0).length;
-        console.log(`[ci-blueprint] DNA-biased source ideas: ${boosted} boosted out of ${sourceIdeas.length}`);
+
+        // Explicit tier breakdown logging
+        const dnaExact = scored.filter((s: any) => s._dna_tier === "dna_exact").length;
+        const engineMatch = scored.filter((s: any) => s._dna_tier === "engine_match").length;
+        const generic = scored.filter((s: any) => s._dna_tier === "generic").length;
+        console.log(`[ci-blueprint] DNA retrieval breakdown: dna_exact=${dnaExact} engine_match=${engineMatch} generic_fallback=${generic} total=${sourceIdeas.length}`);
+
+        if (dnaExact === 0 && engineMatch === 0) {
+          console.warn(`[ci-blueprint] DNA_FALLBACK: no DNA or engine-matched source ideas found. All ${sourceIdeas.length} ideas are generic CI fallback. DNA constraints will rely on prompt only.`);
+        }
+      } else if (dnaProfile && sourceIdeas.length === 0) {
+        console.warn(`[ci-blueprint] DNA_FALLBACK: DNA profile selected but 0 source ideas found at CI>=${ciMin}. Blueprint will rely entirely on DNA prompt constraints.`);
       }
 
       console.log(`[ci-blueprint] found ${sourceIdeas.length} source ideas`);
