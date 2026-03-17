@@ -644,7 +644,7 @@ Focus on:
 Write in direct, professional prose. No bullet points, no headers. Just a tight paragraph a producer can scan in 30 seconds.`;
 
     try {
-      const briefResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const briefResponse = await fetch(_gw.url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${lovableApiKey}`,
