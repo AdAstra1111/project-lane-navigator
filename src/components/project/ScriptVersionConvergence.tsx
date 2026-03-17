@@ -260,6 +260,9 @@ export function ScriptVersionConvergence({ projectId }: ScriptVersionConvergence
                         </Badge>
                       )}
 
+                      {/* Canon drift indicator */}
+                      <CanonDriftBadge metaJson={meta} />
+
                       {/* Note breakdown */}
                       {hasNotes && (
                         <span className="text-[10px] text-muted-foreground ml-1">
