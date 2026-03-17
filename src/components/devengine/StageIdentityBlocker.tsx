@@ -29,7 +29,7 @@ const VIOLATION_EXPLANATIONS: Record<string, string> = {
   IDEA_TOO_EXPANDED:
     'This idea document has expanded beyond idea-stage density and resembles a concept brief. It must be compressed or regenerated to stay within the idea stage boundary.',
   IDEA_STAGE_IDENTITY_VIOLATION:
-    'This idea document's structure doesn't match the idea stage contract. It needs to be regenerated with correct stage constraints.',
+    'This idea document structure does not match the idea stage contract. It needs to be regenerated with correct stage constraints.',
   CONCEPT_BRIEF_STAGE_SHAPE_VIOLATION:
     'This concept brief contains screenplay formatting which is invalid for the concept brief stage. It must be regenerated as structured development prose.',
 };
