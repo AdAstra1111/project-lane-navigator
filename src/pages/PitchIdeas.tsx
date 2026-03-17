@@ -77,20 +77,37 @@ export default function PitchIdeas() {
   const projectFeatures = (linkedProject as any)?.project_features as Record<string, any> | null | undefined;
 
   // Poll for new ideas during generation to show incremental progress
+  const generatingRef = useRef(false);
+  generatingRef.current = generating;
+
   useEffect(() => {
-    if (!generating) return;
-    const interval = setInterval(async () => {
-      await qc.invalidateQueries({ queryKey: ['pitch-ideas'] });
-    }, 3000);
-    return () => clearInterval(interval);
+    if (!generating) {
+      setGenProgress({ current: 0, total: 5 });
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      while (!cancelled && generatingRef.current) {
+        await new Promise(r => setTimeout(r, 3000));
+        if (cancelled || !generatingRef.current) break;
+        await qc.invalidateQueries({ queryKey: ['pitch-ideas'] });
+      }
+    };
+    poll();
+    return () => { cancelled = true; };
   }, [generating, qc]);
 
   // Update progress counter when ideas array grows during generation
+  const ideasLen = ideas.length;
   useEffect(() => {
-    if (!generating) return;
-    const newCount = Math.max(0, ideas.length - preGenCountRef.current);
-    setGenProgress(prev => ({ ...prev, current: Math.min(newCount, prev.total) }));
-  }, [ideas.length, generating]);
+    if (!generatingRef.current) return;
+    const newCount = Math.max(0, ideasLen - preGenCountRef.current);
+    setGenProgress(prev => {
+      const clamped = Math.min(newCount, prev.total);
+      if (clamped === prev.current) return prev;
+      return { ...prev, current: clamped };
+    });
+  }, [ideasLen]);
 
   const filteredIdeas = useMemo(() => {
     return ideas
