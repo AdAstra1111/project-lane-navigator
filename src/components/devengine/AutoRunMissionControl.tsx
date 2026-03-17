@@ -955,6 +955,15 @@ export function AutoRunMissionControl({
               ⚠ Connection lost — backend continues independently. Retrying…
             </div>
           )}
+          {hasExceptionalPlateau && (
+            <div className="p-2.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 space-y-1">
+              <div className="font-semibold flex items-center gap-1.5">⚠ Plateau — Escalation Required</div>
+              <div className="text-amber-300/80">
+                Exceptional quality target not met. CI plateaued at {job?.last_ci ?? '?'} (target: {(job?.converge_target_json as any)?.ci ?? 95}).
+                Auto-promote blocked. Consider lowering quality objective or manually intervening.
+              </div>
+            </div>
+          )}
           {job?.status === 'completed' && (
             <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400">
               ✓ {job.stop_reason || 'Target reached'} · {job.step_count} steps
