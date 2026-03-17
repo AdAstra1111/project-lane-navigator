@@ -125,7 +125,7 @@ serve(async (req) => {
 
       // 2. Progressive fallback retrieval for source ideas
       const MIN_SOURCE_TARGET = 5;
-      const selectCols = "id, title, production_type, recommended_lane, genre, source_engine_key, source_dna_profile_id, budget_band, score_total, score_market_heat, score_feasibility, score_lane_fit, score_saturation_risk, score_company_fit, logline, comps, packaging_suggestions, risks_mitigations";
+      const selectCols = "id, title, production_type, recommended_lane, genre, source_engine_key, source_dna_profile_id, budget_band, score_total, score_market_heat, score_feasibility, score_lane_fit, score_saturation_risk, score_company_fit, logline, comps, packaging_suggestions, risks_mitigations, learning_pool_eligible";
 
       // Define fallback stages
       const fallbackStages = [
