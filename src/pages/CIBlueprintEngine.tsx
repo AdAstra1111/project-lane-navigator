@@ -156,10 +156,11 @@ export default function CIBlueprintEngine() {
     candidateCount: 5,
     useTrends: true,
     useExemplars: false,
-    ciMin: 95,
+    ciMin: 80,
     sourceDnaProfileId: null,
   });
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [buildResult, setBuildResult] = useState<{ source_idea_count: number; optimizer_mode: string; dna_profile_title: string | null; dna_match_count?: number; engine_match_count?: number; generic_fallback_count?: number } | null>(null);
 
   const buildMutation = useBuildBlueprint();
   const promoteMutation = usePromoteCandidate();
@@ -173,6 +174,14 @@ export default function CIBlueprintEngine() {
   const handleBuild = async () => {
     const result = await buildMutation.mutateAsync(config);
     setActiveRunId(result.run_id);
+    setBuildResult({
+      source_idea_count: result.source_idea_count,
+      optimizer_mode: result.optimizer_mode,
+      dna_profile_title: result.dna_profile_title,
+      dna_match_count: result.dna_match_count,
+      engine_match_count: result.engine_match_count,
+      generic_fallback_count: result.generic_fallback_count,
+    });
   };
 
   const handleOpenPitchIdea = (pitchIdeaId: string) => {
@@ -368,6 +377,42 @@ export default function CIBlueprintEngine() {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {/* Retrieval Breakdown */}
+        {buildResult && activeRunId && (
+          <div className="space-y-2">
+            <div className="rounded-md border border-border/40 bg-muted/20 px-4 py-3 text-xs space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-muted-foreground">Source Ideas:</span>
+                <span className="font-mono font-medium">{buildResult.source_idea_count}</span>
+                <span className="text-muted-foreground ml-2">Mode:</span>
+                <Badge variant="outline" className={`text-[10px] ${buildResult.optimizer_mode === 'dna_informed' ? 'border-violet-500/30 text-violet-400' : ''}`}>
+                  {buildResult.optimizer_mode === 'dna_informed' ? '🧬 DNA-Informed' : '📊 CI Pattern'}
+                </Badge>
+                {buildResult.dna_profile_title && (
+                  <>
+                    <span className="text-muted-foreground ml-2">DNA:</span>
+                    <span className="font-medium text-violet-400">{buildResult.dna_profile_title}</span>
+                  </>
+                )}
+              </div>
+              {buildResult.optimizer_mode === 'dna_informed' && (
+                <div className="flex items-center gap-3 text-[11px]">
+                  <span className="text-muted-foreground">Retrieval:</span>
+                  <span><span className="text-violet-400 font-medium">{buildResult.dna_match_count ?? 0}</span> DNA-exact</span>
+                  <span><span className="text-primary font-medium">{buildResult.engine_match_count ?? 0}</span> engine</span>
+                  <span><span className="text-muted-foreground font-medium">{buildResult.generic_fallback_count ?? 0}</span> generic</span>
+                </div>
+              )}
+              {(buildResult.source_idea_count === 0 || (buildResult.optimizer_mode === 'dna_informed' && (buildResult.dna_match_count ?? 0) === 0 && (buildResult.engine_match_count ?? 0) === 0)) && (
+                <div className="rounded bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 flex items-center gap-1.5 text-amber-400">
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  <span>Using generic fallback (no DNA-matched source ideas found)</span>
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Candidates */}

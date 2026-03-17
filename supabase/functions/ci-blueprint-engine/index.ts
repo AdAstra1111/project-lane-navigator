@@ -580,6 +580,11 @@ One-page pitch: ${c.one_page_pitch}
 
       console.log(`[ci-blueprint] completed: ${savedCandidates.length} candidates saved and scored (mode=${optimizerMode})`);
 
+      // Compute retrieval breakdown for response
+      const dnaExactCount = sourceIdeas.filter((s: any) => s._dna_tier === "dna_exact").length;
+      const engineMatchCount = sourceIdeas.filter((s: any) => s._dna_tier === "engine_match").length;
+      const genericFallbackCount = sourceIdeas.filter((s: any) => s._dna_tier === "generic" || !s._dna_tier).length;
+
       return new Response(JSON.stringify({
         run_id: runId,
         blueprint_id: blueprint.id,
@@ -588,6 +593,9 @@ One-page pitch: ${c.one_page_pitch}
         trend_count: trendSignalIds.length,
         optimizer_mode: optimizerMode,
         dna_profile_title: dnaProfile?.source_title || null,
+        dna_match_count: dnaExactCount,
+        engine_match_count: engineMatchCount,
+        generic_fallback_count: genericFallbackCount,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
