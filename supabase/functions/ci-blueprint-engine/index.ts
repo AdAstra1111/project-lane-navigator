@@ -367,7 +367,27 @@ serve(async (req) => {
         idea_count: sourceIdeas.length,
       };
 
-      // 5. Create blueprint record with enriched design schema
+      // 5. Create blueprint record with family lineage
+      const familyKey = selectedFamily?.family_key || null;
+      const executionPattern = selectedFamily?.execution_pattern || null;
+      const familyConfidence = familySelectionLog.selection_confidence ?? null;
+      const familyRationale = familySelectionLog.rationale ?? null;
+
+      // IEL: If engine exists, family must have been selected
+      if (resolvedEngineKey && !familyKey) {
+        console.error(`[ci-blueprint][IEL] INVARIANT_VIOLATION: engine=${resolvedEngineKey} but no family selected. Blocking insert.`);
+        throw new Error(`Invariant violation: engine ${resolvedEngineKey} resolved but no blueprint family was selected.`);
+      }
+      // IEL: If family selected, execution_pattern must be present
+      if (familyKey && (!executionPattern || Object.keys(executionPattern).length === 0)) {
+        console.error(`[ci-blueprint][IEL] INVARIANT_VIOLATION: family=${familyKey} has no execution_pattern. Blocking insert.`);
+        throw new Error(`Invariant violation: blueprint family ${familyKey} has no execution_pattern.`);
+      }
+
+      const structuralSummary = selectedFamily
+        ? `${selectedFamily.label}: ${selectedFamily.description}. Strengths: ${(selectedFamily.structural_strengths || []).join(", ")}. Risks: ${(selectedFamily.structural_risks || []).join(", ")}.`
+        : null;
+
       const { data: blueprint, error: bpErr } = await svcClient
         .from("idea_blueprints")
         .insert({
@@ -376,12 +396,24 @@ serve(async (req) => {
           format,
           lane: lane || scorePatterns.common_lanes[0] || "",
           genre: genre || scorePatterns.common_genres[0] || "",
-          engine: engine || dnaEngineKey || null,
+          engine: resolvedEngineKey,
           budget_band: budgetBand || scorePatterns.common_budget_bands[0] || "",
           source_dna_profile_id: sourceDnaProfileId || null,
           source_engine_key: dnaEngineKey || null,
           dna_constraint_mode: dnaConstraintMode,
           blueprint_mode: optimizerMode,
+          // Blueprint family lineage
+          blueprint_family_key: familyKey,
+          execution_pattern: executionPattern,
+          family_selection_confidence: familyConfidence,
+          family_selection_rationale: familyRationale,
+          structural_summary: structuralSummary,
+          family_candidates_considered: familyCandidates.map((f: any) => ({
+            family_key: f.family_key,
+            label: f.label,
+            lane_suitability: f.lane_suitability,
+            budget_suitability: f.budget_suitability,
+          })),
           structural_patterns: scorePatterns,
           market_design: {
             useTrends,
