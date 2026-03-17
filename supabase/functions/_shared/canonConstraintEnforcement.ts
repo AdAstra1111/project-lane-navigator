@@ -1,5 +1,5 @@
 /**
- * Canon Constraint Enforcement (CCE) — Phase 1
+ * Canon Constraint Enforcement (CCE) — Phase 2
  *
  * Anti-drift architecture for IFFY. Ensures downstream document generation
  * cannot silently mutate canonical project truth.
@@ -7,13 +7,23 @@
  * Three responsibilities:
  *   1. extractCanonConstraints() — deterministic extraction from canon_json
  *   2. buildCanonConstraintBlock() — prompt injection block for LLM generation
- *   3. detectCanonDrift() — post-generation validation against constraints
+ *   3. detectCanonDrift() — post-generation semantic validation against constraints
  *
  * INVARIANTS:
  *   - Deterministic: same canon → same constraints → same drift results
  *   - Single source of truth: canon_json from project_canon (via narrativeContextResolver)
  *   - No silent fallbacks: drift always surfaces explicitly
  *   - No duplicated logic: this module is the sole authority for constraint enforcement
+ *
+ * Phase 2 upgrades:
+ *   - Semantic fact extraction from generated text (not just name presence)
+ *   - Protagonist role/profession/background contradiction detection
+ *   - Relationship meaning drift (not just character name presence)
+ *   - Graduated world-rule escalation detection
+ *   - Active tone classification comparison
+ *   - Core incident fact contradiction detection
+ *   - Forbidden change active checking
+ *   - All findings include canonical_expected + observed_conflict
  */
 
 // ── Types ──
@@ -54,6 +64,10 @@ export interface DriftFinding {
   severity: "warning" | "violation";
   detail: string;
   evidence: string;
+  /** What canon says */
+  canonical_expected?: string;
+  /** What the generated text asserts */
+  observed_conflict?: string;
 }
 
 export interface DriftResult {
@@ -83,6 +97,276 @@ const SCOPE_ESCALATION_PATTERNS = [
   /\b(nuclear (?:war|apocalypse|launch)|world war|genocide)\b/i,
   /\b(superpower|superhuman|supernatur)\b/i,
 ];
+
+/** Profession/role extraction patterns for generated text analysis */
+const PROFESSION_PATTERNS = [
+  /\b(?:works? as|is|was|becomes?|serves? as|employed as|practicing|retired)\s+(?:an?\s+)?([a-z][a-z\s-]{2,30}?)(?:[.,;:!?\s—\-]|who\b|that\b|and\b|but\b|with\b|\bin\b)/gi,
+  /\b(?:profession|occupation|job|career|calling|trade|vocation)[:\s]+([a-z][a-z\s-]{2,30}?)(?:[.,;:!?\n])/gi,
+];
+
+/** Relationship type keywords for semantic comparison */
+const RELATIONSHIP_TYPES: Record<string, string[]> = {
+  parent: ["father", "mother", "dad", "mom", "parent", "papa", "mama", "mum", "daddy", "mommy"],
+  child: ["son", "daughter", "child", "kid", "offspring", "boy", "girl"],
+  sibling: ["brother", "sister", "sibling", "twin"],
+  spouse: ["husband", "wife", "spouse", "partner", "married", "fiancé", "fiancee", "betrothed"],
+  romantic: ["lover", "girlfriend", "boyfriend", "romantic", "affair", "love interest", "ex-girlfriend", "ex-boyfriend"],
+  friend: ["friend", "companion", "ally", "confidant", "confidante", "best friend", "mate"],
+  enemy: ["enemy", "rival", "nemesis", "antagonist", "adversary", "foe", "opponent"],
+  mentor: ["mentor", "teacher", "master", "guide", "instructor", "tutor"],
+  professional: ["colleague", "boss", "employee", "coworker", "partner", "associate", "client", "patient"],
+};
+
+/** Tone register keywords */
+const TONE_REGISTERS: Record<string, string[]> = {
+  dark: ["dark", "bleak", "grim", "harrowing", "brutal", "unflinching", "stark", "noir", "nihilistic"],
+  light: ["light", "comedic", "playful", "whimsical", "fun", "upbeat", "cheerful", "breezy"],
+  tense: ["tense", "suspenseful", "thriller", "gripping", "pulse-pounding", "edge-of-seat"],
+  dramatic: ["dramatic", "emotional", "poignant", "heartfelt", "moving", "intense", "passionate"],
+  satirical: ["satirical", "ironic", "sardonic", "darkly comic", "black comedy", "absurdist", "wry"],
+  lyrical: ["lyrical", "poetic", "meditative", "contemplative", "ethereal", "dreamlike"],
+  grounded: ["grounded", "realistic", "naturalistic", "restrained", "understated", "observational"],
+};
+
+// ── Helper: Sentence extraction around a name ──
+
+function extractSentencesAround(text: string, keyword: string, windowChars = 400): string[] {
+  const lower = text.toLowerCase();
+  const kw = keyword.toLowerCase();
+  const results: string[] = [];
+  let idx = 0;
+  while (true) {
+    const pos = lower.indexOf(kw, idx);
+    if (pos === -1) break;
+    const start = Math.max(0, pos - windowChars);
+    const end = Math.min(text.length, pos + kw.length + windowChars);
+    const chunk = text.slice(start, end);
+    // Extract sentences containing the keyword
+    const sentences = chunk.split(/[.!?\n]+/).filter(s => s.toLowerCase().includes(kw));
+    results.push(...sentences.map(s => s.trim()).filter(Boolean));
+    idx = pos + kw.length;
+  }
+  return results;
+}
+
+/** Extract what role/profession the text asserts for a named character */
+function extractAssertedProfessions(text: string, charName: string): string[] {
+  const sentences = extractSentencesAround(text, charName, 300);
+  const context = sentences.join(". ").toLowerCase();
+  const professions: string[] = [];
+  
+  for (const pat of PROFESSION_PATTERNS) {
+    pat.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = pat.exec(context)) !== null) {
+      const prof = m[1].trim().toLowerCase();
+      // Filter structural noise
+      if (prof.length > 2 && prof.length < 35 && !prof.match(/^(the|this|that|very|quite|also|even|just|still|yet|been|being|would|could|should|going|having|looking|trying|about|after|before|since|while|where|which|their|there|these|those|every|other|another|anyone|someone|everyone)$/)) {
+        professions.push(prof);
+      }
+    }
+  }
+  return [...new Set(professions)];
+}
+
+/** Classify the relationship type from free text */
+function classifyRelationshipType(relText: string): string[] {
+  const lower = relText.toLowerCase();
+  const types: string[] = [];
+  for (const [type, keywords] of Object.entries(RELATIONSHIP_TYPES)) {
+    if (keywords.some(k => lower.includes(k))) {
+      types.push(type);
+    }
+  }
+  return types;
+}
+
+/** Check if two relationship type sets are contradictory */
+function areRelationshipsContradictory(canonTypes: string[], observedTypes: string[]): { contradicts: boolean; reason: string } {
+  if (canonTypes.length === 0 || observedTypes.length === 0) return { contradicts: false, reason: "" };
+  
+  // Contradictory pairs: if canon says X, observed saying Y is a contradiction
+  const contradictions: [string, string][] = [
+    ["parent", "child"], // parent becoming child or vice versa is wrong direction, but parent↔child could mean the rel is described from either side
+    ["spouse", "sibling"], 
+    ["friend", "enemy"],
+    ["parent", "spouse"],
+    ["parent", "romantic"],
+    ["sibling", "romantic"],
+    ["sibling", "spouse"],
+    ["child", "spouse"],
+    ["child", "romantic"],
+    ["mentor", "child"],
+  ];
+  
+  for (const ct of canonTypes) {
+    for (const ot of observedTypes) {
+      if (ct === ot) continue; // Same type, no contradiction
+      for (const [a, b] of contradictions) {
+        if ((ct === a && ot === b) || (ct === b && ot === a)) {
+          return { contradicts: true, reason: `Canon: ${ct}, Observed: ${ot}` };
+        }
+      }
+    }
+  }
+  return { contradicts: false, reason: "" };
+}
+
+/** Extract the dominant supernatural classification from generated text */
+function classifyGeneratedSupernatural(text: string): { level: "none" | "ambiguous" | "present"; keywords: string[]; confirmations: string[] } {
+  const lower = text.toLowerCase();
+  const found = SUPERNATURAL_KEYWORDS.filter(k => lower.includes(k));
+  
+  // Look for disambiguation/confirmation patterns
+  const confirmPatterns = [
+    /\b(?:the ghost (?:is|was) real)\b/i,
+    /\b(?:confirmed to be supernatural)\b/i,
+    /\b(?:is actually (?:a |an )?(?:ghost|spirit|demon|angel|witch|wizard))\b/i,
+    /\b(?:reveals? (?:their|his|her) (?:true |supernatural )?(?:powers?|abilities|nature))\b/i,
+    /\b(?:(?:uses?|unleash(?:es)?|summon(?:s)?) (?:their |his |her )?(?:magic|powers?|supernatural abilities))\b/i,
+    /\b(?:transforms? into|shapeshifts? into|teleports? (?:to|away|across))\b/i,
+    /\b(?:casts? (?:a )?spell|performs? (?:a )?ritual|invokes? (?:the )?(?:spirits?|dead|demon))\b/i,
+    /\b(?:risen? from the dead|comes? back to life|returns? from (?:the )?(?:dead|grave|afterlife))\b/i,
+    /\b(?:the (?:curse|prophecy|spell) (?:is|was|proves?) real)\b/i,
+    /\b(?:truly haunted|actual(?:ly)? possessed|genuine(?:ly)? supernatural)\b/i,
+  ];
+  
+  // Look for ambiguity-preserving patterns
+  const ambiguousPatterns = [
+    /\b(?:might be|could be|possibly|perhaps|seemingly|apparently|allegedly)\s+(?:supernatural|haunted|cursed|magical|possessed)\b/i,
+    /\b(?:imagin(?:es?|ing|ation)|hallucin(?:ates?|ation)|delusion|psycho(?:sis|logical|somatic))\b/i,
+    /\b(?:or (?:is it|was it|could it be)\s+(?:just|merely|simply))\b/i,
+    /\b(?:rational explanation|logical explanation|explained by|attribut(?:es?|ed) to)\b/i,
+  ];
+  
+  const confirmations: string[] = [];
+  for (const pat of confirmPatterns) {
+    const m = text.match(pat);
+    if (m) confirmations.push(m[0]);
+  }
+  
+  const hasAmbiguity = ambiguousPatterns.some(p => p.test(text));
+  
+  if (confirmations.length > 0 && !hasAmbiguity) return { level: "present", keywords: found, confirmations };
+  if (found.length >= 3 && !hasAmbiguity) return { level: "present", keywords: found, confirmations };
+  if (found.length >= 1 || confirmations.length > 0) return { level: "ambiguous", keywords: found, confirmations };
+  return { level: "none", keywords: found, confirmations };
+}
+
+/** Classify the dominant tone register of a text */
+function classifyToneRegister(text: string): string[] {
+  const lower = text.toLowerCase();
+  const scores: [string, number][] = [];
+  
+  for (const [register, keywords] of Object.entries(TONE_REGISTERS)) {
+    const count = keywords.reduce((sum, k) => sum + (lower.split(k).length - 1), 0);
+    if (count > 0) scores.push([register, count]);
+  }
+  
+  scores.sort((a, b) => b[1] - a[1]);
+  return scores.slice(0, 3).map(([r]) => r);
+}
+
+/** Check if observed tone contradicts canonical tone */
+function isToneContradiction(canonTone: string, observedRegisters: string[]): { contradicts: boolean; reason: string } {
+  const canonLower = canonTone.toLowerCase();
+  
+  // Map canon tone descriptions to expected registers
+  const canonRegisters = classifyToneRegister(canonTone);
+  
+  // Check for hard contradictions
+  const toneContradictions: [string[], string[]][] = [
+    [["dark", "grim", "bleak"], ["light", "comedic", "playful", "whimsical"]],
+    [["light", "comedic", "playful"], ["dark", "bleak", "grim", "noir", "nihilistic"]],
+    [["grounded", "realistic", "naturalistic"], ["whimsical", "fantastical", "dreamlike"]],
+    [["tense", "suspenseful"], ["breezy", "light", "playful"]],
+  ];
+  
+  for (const [canonGroup, conflictGroup] of toneContradictions) {
+    const canonMatch = canonGroup.some(t => canonLower.includes(t));
+    const observedMatch = observedRegisters.some(r => conflictGroup.includes(r));
+    if (canonMatch && observedMatch) {
+      return { contradicts: true, reason: `Canon tone "${canonTone}" conflicts with observed registers: ${observedRegisters.join(", ")}` };
+    }
+  }
+  
+  return { contradicts: false, reason: "" };
+}
+
+/** Check if a canonical fact is contradicted in generated text */
+function checkFactContradiction(generatedText: string, canonFact: string): { contradicted: boolean; evidence: string } {
+  // Extract key entities/assertions from the canonical fact
+  const factLower = canonFact.toLowerCase();
+  const textLower = generatedText.toLowerCase();
+  
+  // Extract subject-verb-object triples from fact (simple heuristic)
+  // Look for negation of key fact elements
+  const factWords = factLower.split(/\s+/).filter(w => w.length > 3);
+  const keyNouns = factWords.filter(w => !w.match(/^(that|this|with|from|into|have|been|were|when|what|which|where|there|their|these|those|about|after|before|could|would|should|being|having|doing|going|other|another|every|never|always|often|still|also|just|even|very|much|many|some|such|most|only|than|more|less|each|both)$/));
+  
+  if (keyNouns.length < 2) return { contradicted: false, evidence: "" };
+  
+  // Check if text contains negation or replacement of key fact elements
+  // e.g., "X is NOT a Y" when canon says "X is a Y"
+  const negationPatterns = [
+    /\b(?:not|never|no longer|isn't|wasn't|aren't|weren't|hasn't|haven't|hadn't|doesn't|didn't|won't|wouldn't|can't|couldn't|shouldn't)\b/i,
+  ];
+  
+  // Get sentences containing at least 2 key nouns from the fact
+  const sentences = generatedText.split(/[.!?\n]+/);
+  for (const sentence of sentences) {
+    const sentLower = sentence.toLowerCase();
+    const matchedNouns = keyNouns.filter(n => sentLower.includes(n));
+    if (matchedNouns.length >= 2) {
+      // This sentence references the same entities as the fact
+      // Check for negation
+      const hasNegation = negationPatterns.some(p => p.test(sentence));
+      if (hasNegation) {
+        return { contradicted: true, evidence: sentence.trim().slice(0, 200) };
+      }
+    }
+  }
+  
+  return { contradicted: false, evidence: "" };
+}
+
+/** Check if a specific fact from forbidden_changes is violated */
+function checkForbiddenChangeViolation(text: string, forbiddenFact: string): { violated: boolean; evidence: string } {
+  const factLower = forbiddenFact.toLowerCase();
+  const textLower = text.toLowerCase();
+  
+  // Parse the forbidden change to understand what must NOT change
+  // Common patterns: "X must remain Y", "do not change X", "X stays Y", "never alter X"
+  const preservePatterns = [
+    /(?:must (?:remain|stay|be|keep)|always (?:is|be|remains?)|do not (?:change|alter|modify|remove)|never (?:change|alter|modify|remove))\s+(.+)/i,
+    /(.+?)(?:\s+must not\s+|\s+cannot\s+|\s+should not\s+)(?:change|be changed|be altered|be modified)/i,
+  ];
+  
+  let protectedSubject: string | null = null;
+  for (const pat of preservePatterns) {
+    const m = forbiddenFact.match(pat);
+    if (m) { protectedSubject = m[1].trim().toLowerCase(); break; }
+  }
+  
+  // If we can't parse the forbidden change, do negation check
+  if (!protectedSubject) {
+    return checkFactContradiction(text, forbiddenFact);
+  }
+  
+  // Check if the protected subject's state has been altered
+  const sentences = text.split(/[.!?\n]+/);
+  for (const s of sentences) {
+    const sLower = s.toLowerCase();
+    if (sLower.includes(protectedSubject.slice(0, 20))) {
+      // Found reference to protected subject — check for state change language
+      if (/\b(now|becomes?|changed|turned|transformed|no longer|formerly|once was|used to be|switched|converted|evolved|shifted)\b/i.test(s)) {
+        return { violated: true, evidence: s.trim().slice(0, 200) };
+      }
+    }
+  }
+  
+  return { violated: false, evidence: "" };
+}
 
 // ── 1. Constraint Extraction ──
 
@@ -167,14 +451,12 @@ function findProtagonist(characters: unknown[]): CanonConstraints["protagonist"]
     if (role.includes("protagonist") || role.includes("lead") || role.includes("main character") || role.includes("hero")) {
       result.name = c.name || null;
       result.role = c.role || null;
-      // Try to extract profession from traits/goals/description
       const detail = [c.traits, c.goals, c.description].filter(Boolean).join(" ");
       result.profession = extractProfession(detail);
       result.background = c.backstory || c.background || null;
       return result;
     }
   }
-  // Fallback: first character is protagonist
   if (characters.length > 0) {
     const c = characters[0] as Record<string, any>;
     result.name = c.name || null;
@@ -188,7 +470,6 @@ function findProtagonist(characters: unknown[]): CanonConstraints["protagonist"]
 
 function extractProfession(text: string | null): string | null {
   if (!text) return null;
-  // Look for common profession patterns
   const profMatch = text.match(/\b(?:works as|profession:|is a|career as)\s+(?:an?\s+)?([a-zA-Z\s]+?)(?:[.,;]|$)/i);
   return profMatch ? profMatch[1].trim() : null;
 }
@@ -203,7 +484,6 @@ function classifySupernatural(worldRules: string[], canonJson: Record<string, un
 
   if (!allText.trim()) return "unknown";
 
-  // Explicit classification from canon
   if (allText.includes("no supernatural") || allText.includes("grounded realism") || allText.includes("purely realistic")) return "none";
   if (allText.includes("ambiguous supernatural") || allText.includes("magical realism") || allText.includes("may or may not be real")) return "ambiguous";
 
@@ -301,12 +581,20 @@ export function buildCanonConstraintBlock(constraints: CanonConstraints): string
   return "\n" + sections.join("\n");
 }
 
-// ── 3. Drift Detection ──
+// ── 3. Drift Detection — Phase 2: Semantic Integrity ──
 
 /**
- * Deterministic post-generation drift detection.
- * Checks generated output against canonical constraints.
- * Returns pass/fail with explicit findings.
+ * Semantic post-generation drift detection.
+ * Checks generated output against canonical constraints using structured fact comparison.
+ * Returns pass/fail with explicit, decision-useful findings.
+ *
+ * Phase 2 upgrades over Phase 1:
+ * - Identity: checks role/profession/background, not just name presence
+ * - Relationship: checks relationship type contradictions, not just name presence
+ * - World-rule: graduated escalation with contextual confirmation detection
+ * - Tone: active tone register comparison
+ * - Core event: semantic contradiction detection
+ * - Forbidden changes: active fact-checking
  */
 export function detectCanonDrift(
   generatedText: string,
@@ -326,118 +614,278 @@ export function detectCanonDrift(
   const domainsChecked: string[] = [];
   const textLower = generatedText.toLowerCase();
 
-  // ── Identity drift ──
+  // ── Identity drift (semantic) ──
   if (constraints.protagonist.name) {
     domainsChecked.push("identity");
     const nameL = constraints.protagonist.name.toLowerCase();
-    // Check if protagonist name appears in generated text
+
+    // Phase 1 check: name presence
     if (!textLower.includes(nameL)) {
       findings.push({
         domain: "identity",
         severity: "violation",
-        detail: `Protagonist name "${constraints.protagonist.name}" not found in generated output — possible identity replacement`,
+        detail: `Protagonist "${constraints.protagonist.name}" not found in output — possible identity replacement.`,
         evidence: `Canon protagonist: ${constraints.protagonist.name}`,
+        canonical_expected: `Protagonist name: ${constraints.protagonist.name}`,
+        observed_conflict: "Name absent from generated text",
       });
+    } else {
+      // Phase 2: name is present — check role/profession/background integrity
+      
+      // Check profession drift
+      if (constraints.protagonist.profession) {
+        const canonProf = constraints.protagonist.profession.toLowerCase();
+        const assertedProfs = extractAssertedProfessions(generatedText, constraints.protagonist.name);
+        
+        if (assertedProfs.length > 0) {
+          // Check if any asserted profession contradicts canon
+          const matchesCanon = assertedProfs.some(p => {
+            // Fuzzy match: either contains the other or shares significant words
+            return p.includes(canonProf) || canonProf.includes(p) ||
+              canonProf.split(/\s+/).some(w => w.length > 3 && p.includes(w));
+          });
+          
+          if (!matchesCanon) {
+            findings.push({
+              domain: "identity",
+              severity: "violation",
+              detail: `Protagonist "${constraints.protagonist.name}" profession drifted: canon says "${constraints.protagonist.profession}" but output asserts "${assertedProfs[0]}".`,
+              evidence: `Extracted professions: ${assertedProfs.join(", ")}`,
+              canonical_expected: `Profession: ${constraints.protagonist.profession}`,
+              observed_conflict: `Asserted: ${assertedProfs[0]}`,
+            });
+          }
+        }
+      }
+      
+      // Check background drift
+      if (constraints.protagonist.background) {
+        const bgCheck = checkFactContradiction(generatedText, `${constraints.protagonist.name} ${constraints.protagonist.background}`);
+        if (bgCheck.contradicted) {
+          findings.push({
+            domain: "identity",
+            severity: "violation",
+            detail: `Protagonist "${constraints.protagonist.name}" background contradicted in output.`,
+            evidence: bgCheck.evidence,
+            canonical_expected: `Background: ${constraints.protagonist.background}`,
+            observed_conflict: bgCheck.evidence,
+          });
+        }
+      }
+      
+      // Check role drift (if a specific role like "detective", "doctor" etc is stated)
+      if (constraints.protagonist.role) {
+        const canonRole = constraints.protagonist.role.toLowerCase();
+        // Extract role-like assertions
+        const roleKeywords = canonRole.split(/[\s,;/]+/).filter(w => w.length > 3 && !w.match(/^(protagonist|lead|main|character|hero|heroine)$/));
+        if (roleKeywords.length > 0) {
+          const sentences = extractSentencesAround(generatedText, constraints.protagonist.name, 300);
+          const context = sentences.join(" ").toLowerCase();
+          // Check for explicit contradiction of role
+          for (const rk of roleKeywords) {
+            if (context.includes(`not a ${rk}`) || context.includes(`no longer a ${rk}`) || context.includes(`former ${rk}`) || context.includes(`ex-${rk}`)) {
+              findings.push({
+                domain: "identity",
+                severity: "warning",
+                detail: `Protagonist "${constraints.protagonist.name}" role may be contradicted — canon role "${constraints.protagonist.role}" appears negated.`,
+                evidence: `Found negation of role keyword: ${rk}`,
+                canonical_expected: `Role: ${constraints.protagonist.role}`,
+                observed_conflict: `Negation of "${rk}" near protagonist name`,
+              });
+            }
+          }
+        }
+      }
     }
   }
 
-  // ── Relationship drift ──
+  // ── Relationship drift (semantic) ──
   if (constraints.relationships.length > 0) {
     domainsChecked.push("relationship");
-    // Check each canonical character appears
     for (const rel of constraints.relationships) {
       const charL = rel.character.toLowerCase();
-      if (charL.length > 2 && !textLower.includes(charL)) {
+      if (charL.length <= 2) continue;
+
+      if (!textLower.includes(charL)) {
+        // Phase 1: name missing
         findings.push({
           domain: "relationship",
           severity: "warning",
-          detail: `Canonical character "${rel.character}" with relationship "${rel.relation}" not referenced in output`,
+          detail: `Canonical character "${rel.character}" not referenced in output.`,
           evidence: `Canon relationship: ${rel.character} — ${rel.relation}`,
+          canonical_expected: `Character "${rel.character}" with relationship: ${rel.relation}`,
+          observed_conflict: "Character absent from generated text",
         });
-      }
-    }
-  }
-
-  // ── World-rule drift ──
-  if (constraints.worldRuleMode.supernatural !== "unknown") {
-    domainsChecked.push("world_rule");
-    if (constraints.worldRuleMode.supernatural === "none") {
-      // Check for supernatural elements in grounded canon
-      const supFound = SUPERNATURAL_KEYWORDS.filter(k => textLower.includes(k));
-      if (supFound.length >= 2) {
-        findings.push({
-          domain: "world_rule",
-          severity: "violation",
-          detail: `Canon is grounded realism but generated text contains supernatural elements: ${supFound.join(", ")}`,
-          evidence: `Supernatural keywords found: ${supFound.join(", ")}`,
-        });
-      } else if (supFound.length === 1) {
-        findings.push({
-          domain: "world_rule",
-          severity: "warning",
-          detail: `Canon is grounded realism but generated text references: "${supFound[0]}" — may be metaphorical`,
-          evidence: `Word found: ${supFound[0]}`,
-        });
-      }
-    } else if (constraints.worldRuleMode.supernatural === "ambiguous") {
-      // Ambiguous: supernatural confirmed/resolved = drift
-      const confirmPatterns = [
-        /\b(?:the ghost (?:is|was) real)\b/i,
-        /\b(?:confirmed to be supernatural)\b/i,
-        /\b(?:is actually (?:a |an )?(?:ghost|spirit|demon|angel))\b/i,
-        /\b(?:reveals? (?:their|his|her) (?:true |supernatural )?(?:powers?|abilities|nature))\b/i,
-      ];
-      for (const pat of confirmPatterns) {
-        const match = generatedText.match(pat);
-        if (match) {
+      } else {
+        // Phase 2: name present — check relationship TYPE integrity
+        const canonTypes = classifyRelationshipType(rel.relation);
+        
+        // Extract how this character is described in the generated text
+        const charSentences = extractSentencesAround(generatedText, rel.character, 300);
+        const charContext = charSentences.join(". ");
+        const observedTypes = classifyRelationshipType(charContext);
+        
+        if (canonTypes.length > 0 && observedTypes.length > 0) {
+          const contradictionCheck = areRelationshipsContradictory(canonTypes, observedTypes);
+          if (contradictionCheck.contradicts) {
+            findings.push({
+              domain: "relationship",
+              severity: "violation",
+              detail: `Relationship for "${rel.character}" contradicts canon: ${contradictionCheck.reason}.`,
+              evidence: `Canon: "${rel.relation}" → types [${canonTypes.join(",")}]. Observed types: [${observedTypes.join(",")}]`,
+              canonical_expected: `Relationship: ${rel.relation} (${canonTypes.join(", ")})`,
+              observed_conflict: `Observed: ${observedTypes.join(", ")}`,
+            });
+          }
+        }
+        
+        // Also check for negation of the canonical relationship
+        const relNegationCheck = checkFactContradiction(charContext, `${rel.character} ${rel.relation}`);
+        if (relNegationCheck.contradicted) {
           findings.push({
-            domain: "world_rule",
+            domain: "relationship",
             severity: "violation",
-            detail: `Canon classifies supernatural as ambiguous but output resolves ambiguity: "${match[0]}"`,
-            evidence: `Pattern matched: ${match[0]}`,
+            detail: `Canonical relationship "${rel.character}: ${rel.relation}" appears contradicted in output.`,
+            evidence: relNegationCheck.evidence,
+            canonical_expected: `${rel.character}: ${rel.relation}`,
+            observed_conflict: relNegationCheck.evidence,
           });
         }
       }
     }
   }
 
-  // ── Scope escalation ──
+  // ── World-rule drift (graduated semantic) ──
+  if (constraints.worldRuleMode.supernatural !== "unknown") {
+    domainsChecked.push("world_rule");
+    const canonLevel = constraints.worldRuleMode.supernatural;
+    const observed = classifyGeneratedSupernatural(generatedText);
+    
+    // Escalation matrix:
+    // none → ambiguous = warning, none → present = violation
+    // ambiguous → present = violation (ambiguity resolved)
+    // present → none = violation (de-escalation / contradiction)
+    // present → ambiguous = warning (weakening established elements)
+    
+    if (canonLevel === "none") {
+      if (observed.level === "present") {
+        findings.push({
+          domain: "world_rule",
+          severity: "violation",
+          detail: `Canon is grounded realism but output introduces confirmed supernatural elements.`,
+          evidence: `Keywords: ${observed.keywords.join(", ")}. Confirmations: ${observed.confirmations.join("; ") || "high keyword density"}`,
+          canonical_expected: "World mode: grounded realism (no supernatural)",
+          observed_conflict: `Supernatural elements detected: ${observed.keywords.slice(0, 5).join(", ")}`,
+        });
+      } else if (observed.level === "ambiguous") {
+        findings.push({
+          domain: "world_rule",
+          severity: "warning",
+          detail: `Canon is grounded realism but output contains ambiguous supernatural references.`,
+          evidence: `Keywords: ${observed.keywords.join(", ")}`,
+          canonical_expected: "World mode: grounded realism",
+          observed_conflict: `Ambiguous supernatural: ${observed.keywords.join(", ")}`,
+        });
+      }
+    } else if (canonLevel === "ambiguous") {
+      if (observed.level === "present") {
+        findings.push({
+          domain: "world_rule",
+          severity: "violation",
+          detail: `Canon classifies supernatural as ambiguous but output resolves ambiguity — supernatural is confirmed.`,
+          evidence: `Confirmations: ${observed.confirmations.join("; ")}`,
+          canonical_expected: "World mode: ambiguous (supernatural unconfirmed)",
+          observed_conflict: `Supernatural confirmed: ${observed.confirmations.join("; ")}`,
+        });
+      }
+    } else if (canonLevel === "present") {
+      if (observed.level === "none") {
+        findings.push({
+          domain: "world_rule",
+          severity: "warning",
+          detail: `Canon establishes supernatural elements but output appears entirely grounded — possible de-escalation.`,
+          evidence: "No supernatural keywords or confirmations found in output",
+          canonical_expected: "World mode: supernatural present",
+          observed_conflict: "Output appears fully grounded",
+        });
+      }
+    }
+  }
+
+  // ── Scope escalation (enhanced) ──
   domainsChecked.push("scope_escalation");
-  // Only flag scope escalation for grounded/intimate stories (non-supernatural, non-action genres)
-  if (constraints.worldRuleMode.supernatural === "none" || constraints.worldRuleMode.supernatural === "unknown") {
+  if (constraints.worldRuleMode.supernatural === "none" || constraints.worldRuleMode.supernatural === "unknown" || constraints.worldRuleMode.supernatural === "ambiguous") {
     for (const pat of SCOPE_ESCALATION_PATTERNS) {
       const match = generatedText.match(pat);
       if (match) {
-        // Check if this escalation exists in canon (premise/logline)
-        const inCanon = constraints.coreIncidentFacts.some(f =>
-          pat.test(f)
-        );
+        const inCanon = constraints.coreIncidentFacts.some(f => pat.test(f));
         if (!inCanon) {
           findings.push({
             domain: "scope_escalation",
             severity: "warning",
-            detail: `Possible scope escalation beyond canon: "${match[0]}" — not present in canonical premise/logline`,
+            detail: `Possible scope escalation beyond canon: "${match[0]}" — not present in canonical premise/logline.`,
             evidence: `Pattern: ${match[0]}`,
+            canonical_expected: constraints.logline || constraints.premise || "No scope escalation permitted",
+            observed_conflict: match[0],
           });
         }
       }
     }
   }
 
-  // ── Forbidden changes ──
-  if (constraints.forbiddenChanges.length > 0) {
-    domainsChecked.push("forbidden_change");
-    // Forbidden changes are explicit — we can only warn that they exist.
-    // A more sophisticated check would parse the semantics, but Phase 1
-    // relies on the prompt constraint + explicit logging.
+  // ── Core event fact drift ──
+  if (constraints.coreIncidentFacts.length > 0) {
+    domainsChecked.push("core_event");
+    for (const fact of constraints.coreIncidentFacts) {
+      const contradictionCheck = checkFactContradiction(generatedText, fact);
+      if (contradictionCheck.contradicted) {
+        findings.push({
+          domain: "core_event",
+          severity: "violation",
+          detail: `Core narrative fact contradicted in output.`,
+          evidence: contradictionCheck.evidence,
+          canonical_expected: fact.slice(0, 200),
+          observed_conflict: contradictionCheck.evidence,
+        });
+      }
+    }
   }
 
-  // ── Tone drift ──
+  // ── Forbidden changes (active checking) ──
+  if (constraints.forbiddenChanges.length > 0) {
+    domainsChecked.push("forbidden_change");
+    for (const fc of constraints.forbiddenChanges) {
+      const violationCheck = checkForbiddenChangeViolation(generatedText, fc);
+      if (violationCheck.violated) {
+        findings.push({
+          domain: "forbidden_change",
+          severity: "violation",
+          detail: `Forbidden change violated: "${fc.slice(0, 100)}"`,
+          evidence: violationCheck.evidence,
+          canonical_expected: `FORBIDDEN: ${fc}`,
+          observed_conflict: violationCheck.evidence,
+        });
+      }
+    }
+  }
+
+  // ── Tone drift (active comparison) ──
   if (constraints.toneClass) {
     domainsChecked.push("tone");
-    // Phase 1: tone drift detection is advisory.
-    // The prompt constraint is the primary enforcement.
-    // Future: compare tone classifier output vs canon tone.
+    const observedRegisters = classifyToneRegister(generatedText);
+    if (observedRegisters.length > 0) {
+      const toneCheck = isToneContradiction(constraints.toneClass, observedRegisters);
+      if (toneCheck.contradicts) {
+        findings.push({
+          domain: "tone",
+          severity: "warning",
+          detail: `Tone register drift detected: ${toneCheck.reason}`,
+          evidence: `Canon tone: "${constraints.toneClass}". Observed dominant registers: ${observedRegisters.join(", ")}`,
+          canonical_expected: `Tone: ${constraints.toneClass}`,
+          observed_conflict: `Observed: ${observedRegisters.join(", ")}`,
+        });
+      }
+    }
   }
 
   const hasViolation = findings.some(f => f.severity === "violation");
@@ -479,6 +927,8 @@ export function logDriftResult(
       domain: f.domain,
       severity: f.severity,
       detail: f.detail,
+      canonical_expected: f.canonical_expected,
+      observed_conflict: f.observed_conflict,
     })),
   };
 
