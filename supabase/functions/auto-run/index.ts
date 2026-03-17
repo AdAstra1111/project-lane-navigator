@@ -6117,10 +6117,10 @@ Deno.serve(async (req) => {
         const iterCount = reviewCallCount ?? 0;
         if (iterCount >= MAX_STAGE_ITERATIONS) {
           const ciGate = await evaluateCIGate(supabase, jobId, currentDoc, targetCiForIterCap, job.project_id, job);
-          if (!ciGate.pass) {
+            if (!ciGate.pass) {
             // Over the iteration cap and still below target — force-promote best or pause
             console.warn(`[auto-run] max_stage_iterations_reached { job_id: "${jobId}", doc_type: "${currentDoc}", iterations: ${iterCount}, best_ci: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap} }`);
-            if (job.allow_defaults && ciGate.bestCiSoFar >= GLOBAL_MIN_CI) {
+            if (job.allow_defaults && ciGate.bestCiSoFar >= GLOBAL_MIN_CI && !isExceptionalObjective(job)) {
               const iterCapForcePromote = await tryPlateauForcePromote(supabase, {
                 jobId, job, currentDoc, format, stepCount,
                 targetCi: targetCiForIterCap,
