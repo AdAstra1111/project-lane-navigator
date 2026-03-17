@@ -150,7 +150,7 @@ export function useBuildBlueprint() {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      return data as { run_id: string; blueprint_id: string; candidates: BlueprintCandidate[]; source_idea_count: number; trend_count: number; optimizer_mode: string; dna_profile_title: string | null };
+      return data as { run_id: string; blueprint_id: string; candidates: BlueprintCandidate[]; source_idea_count: number; trend_count: number; optimizer_mode: string; dna_profile_title: string | null; dna_match_count?: number; engine_match_count?: number; generic_fallback_count?: number };
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['blueprint-runs'] });

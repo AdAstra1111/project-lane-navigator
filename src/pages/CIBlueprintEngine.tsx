@@ -156,7 +156,7 @@ export default function CIBlueprintEngine() {
     candidateCount: 5,
     useTrends: true,
     useExemplars: false,
-    ciMin: 95,
+    ciMin: 80,
     sourceDnaProfileId: null,
   });
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
