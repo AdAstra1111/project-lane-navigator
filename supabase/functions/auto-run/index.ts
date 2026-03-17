@@ -6536,6 +6536,7 @@ Deno.serve(async (req) => {
               pause_reason: "CI_PLATEAU_BELOW_TARGET",
               error: `Plateau V2: CI=${plateauV2.currentCI}, blockers not shrinking, high-impact not shrinking for ${currentDoc}. Target: CI>=${targetCi}.`,
             });
+            persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: plateauV2.currentCI, finalCi: plateauV2.currentCI, targetCi, targetGp: extractTargetGP(job), haltReason: "CI_PLATEAU_BELOW_TARGET", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
             await releaseProcessingLock(supabase, jobId);
             return respondWithJob(supabase, jobId);
             }
