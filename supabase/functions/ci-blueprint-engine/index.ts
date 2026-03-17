@@ -638,6 +638,10 @@ One-page pitch: ${c.one_page_pitch}
         dna_match_count: dnaExactCount,
         engine_match_count: engineMatchCount,
         generic_fallback_count: genericFallbackCount,
+        fallback_stage: fallbackStageReached,
+        final_ci_threshold: finalCiThreshold,
+        genre_relaxed: genreRelaxed,
+        lane_relaxed: laneRelaxed,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
