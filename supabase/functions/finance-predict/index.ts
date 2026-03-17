@@ -113,8 +113,8 @@ serve(async (req) => {
       });
     }
 
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
+    const _gw = resolveGateway();
+    const LOVABLE_API_KEY = _gw.apiKey;
 
     const guardrails = buildGuardrailBlock({ productionType: format, engineName: "finance-predict" });
     console.log(`[finance-predict] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
