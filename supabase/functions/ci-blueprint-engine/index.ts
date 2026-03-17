@@ -701,6 +701,9 @@ One-page pitch: ${c.one_page_pitch}
       // Derive lineage fields
       const resolvedGenerationMode = provenance.optimizer_mode || "ci_pattern";
 
+      // Compute learning pool eligibility for promoted idea
+      const lpFields = computeLearningPoolEligibility(Number(candidate.score_total) || 0);
+
       // Create pitch idea from candidate
       const { data: pitchIdea, error: piErr } = await svcClient
         .from("pitch_ideas")
@@ -736,6 +739,10 @@ One-page pitch: ${c.one_page_pitch}
           source_blueprint_id: candidate.blueprint_id || null,
           source_blueprint_run_id: candidate.run_id || null,
           generation_mode: resolvedGenerationMode,
+          // Learning pool eligibility
+          learning_pool_eligible: lpFields.learning_pool_eligible,
+          learning_pool_eligibility_reason: lpFields.learning_pool_eligibility_reason,
+          learning_pool_qualified_at: lpFields.learning_pool_qualified_at,
           raw_response: {
             ...((candidate.raw_response as Record<string, unknown>) || {}),
             promotion_source: "ci_blueprint_engine",
