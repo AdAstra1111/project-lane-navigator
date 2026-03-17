@@ -35,10 +35,11 @@ function ScoreBar({ label, value, max = 100 }: { label: string; value: number; m
   );
 }
 
-function CandidateCard({ candidate, onPromote, promoting }: { candidate: BlueprintCandidate; onPromote: () => void; promoting: boolean }) {
+function CandidateCard({ candidate, onPromote, promoting, onOpenPitchIdea }: { candidate: BlueprintCandidate; onPromote: () => void; promoting: boolean; onOpenPitchIdea?: (pitchIdeaId: string) => void }) {
   const scoringMethod = (candidate as any).scoring_method || 'unknown';
   const [expanded, setExpanded] = useState(false);
   const meetsThresholds = Number(candidate.score_total) >= 95 && Number(candidate.score_market_heat) >= 80 && Number(candidate.score_feasibility) >= 75 && Number(candidate.score_lane_fit) >= 80;
+  const promotedPitchIdeaId = candidate.promoted_pitch_idea_id || candidate.pitch_idea_id;
 
   return (
     <Card className="border-border/30 hover:border-primary/30 transition-colors">
@@ -100,7 +101,15 @@ function CandidateCard({ candidate, onPromote, promoting }: { candidate: Bluepri
           </Button>
           <div className="flex items-center gap-2">
             {candidate.promotion_status === 'promoted' ? (
-              <Badge variant="default" className="text-[10px] bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Promoted to Pitch Idea</Badge>
+              <div className="flex items-center gap-1.5">
+                <Badge variant="default" className="text-[10px] bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Promoted</Badge>
+                {promotedPitchIdeaId && onOpenPitchIdea && (
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => onOpenPitchIdea(promotedPitchIdeaId)}>
+                    <ExternalLink className="h-3 w-3" />
+                    Open Pitch Idea
+                  </Button>
+                )}
+              </div>
             ) : candidate.scoring_method === 'scoring_failed' ? (
               <Badge variant="outline" className="text-[10px] text-destructive">Scoring failed</Badge>
             ) : candidate.scoring_method === 'pending' ? (
