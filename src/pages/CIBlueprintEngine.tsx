@@ -63,6 +63,7 @@ function CandidateCard({ candidate, onPromote, promoting }: { candidate: Bluepri
             {scoringMethod === 'scoring_failed' && (
               <div className="text-[9px] text-destructive/70">⚠ Unscored</div>
             )}
+          </div>
         </div>
 
         <div className="grid grid-cols-5 gap-2">
