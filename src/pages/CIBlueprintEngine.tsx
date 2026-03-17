@@ -160,7 +160,11 @@ export default function CIBlueprintEngine() {
     sourceDnaProfileId: null,
   });
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
-  const [buildResult, setBuildResult] = useState<{ source_idea_count: number; optimizer_mode: string; dna_profile_title: string | null; dna_match_count?: number; engine_match_count?: number; generic_fallback_count?: number } | null>(null);
+  const [buildResult, setBuildResult] = useState<{
+    source_idea_count: number; optimizer_mode: string; dna_profile_title: string | null;
+    dna_match_count?: number; engine_match_count?: number; generic_fallback_count?: number;
+    fallback_stage?: string; final_ci_threshold?: number; genre_relaxed?: boolean; lane_relaxed?: boolean;
+  } | null>(null);
 
   const buildMutation = useBuildBlueprint();
   const promoteMutation = usePromoteCandidate();
@@ -181,6 +185,10 @@ export default function CIBlueprintEngine() {
       dna_match_count: result.dna_match_count,
       engine_match_count: result.engine_match_count,
       generic_fallback_count: result.generic_fallback_count,
+      fallback_stage: result.fallback_stage,
+      final_ci_threshold: result.final_ci_threshold,
+      genre_relaxed: result.genre_relaxed,
+      lane_relaxed: result.lane_relaxed,
     });
   };
 
