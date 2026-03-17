@@ -6623,6 +6623,8 @@ export type Database = {
           error: string | null
           exemplar_ids: string[] | null
           id: string
+          learning_pool_match_count: number | null
+          learning_pool_only: boolean
           optimizer_mode: string | null
           source_dna_profile_id: string | null
           source_idea_ids: string[] | null
@@ -6640,6 +6642,8 @@ export type Database = {
           error?: string | null
           exemplar_ids?: string[] | null
           id?: string
+          learning_pool_match_count?: number | null
+          learning_pool_only?: boolean
           optimizer_mode?: string | null
           source_dna_profile_id?: string | null
           source_idea_ids?: string[] | null
@@ -6657,6 +6661,8 @@ export type Database = {
           error?: string | null
           exemplar_ids?: string[] | null
           id?: string
+          learning_pool_match_count?: number | null
+          learning_pool_only?: boolean
           optimizer_mode?: string | null
           source_dna_profile_id?: string | null
           source_idea_ids?: string[] | null
@@ -9228,6 +9234,9 @@ export type Database = {
           id: string
           is_exemplar: boolean
           lane_confidence: number
+          learning_pool_eligibility_reason: string | null
+          learning_pool_eligible: boolean
+          learning_pool_qualified_at: string | null
           logline: string
           mode: string
           one_page_pitch: string
@@ -9274,6 +9283,9 @@ export type Database = {
           id?: string
           is_exemplar?: boolean
           lane_confidence?: number
+          learning_pool_eligibility_reason?: string | null
+          learning_pool_eligible?: boolean
+          learning_pool_qualified_at?: string | null
           logline?: string
           mode?: string
           one_page_pitch?: string
@@ -9320,6 +9332,9 @@ export type Database = {
           id?: string
           is_exemplar?: boolean
           lane_confidence?: number
+          learning_pool_eligibility_reason?: string | null
+          learning_pool_eligible?: boolean
+          learning_pool_qualified_at?: string | null
           logline?: string
           mode?: string
           one_page_pitch?: string
