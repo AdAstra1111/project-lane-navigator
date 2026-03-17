@@ -106,9 +106,18 @@ export function usePitchIdeas() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, ...updates }: { id: string } & Partial<PitchIdea>) => {
+      // Re-evaluate learning pool eligibility if score_total is being updated
+      const finalUpdates: any = { ...updates };
+      if (updates.score_total != null) {
+        const scoreTotal = Number(updates.score_total) || 0;
+        const eligible = isLearningPoolEligible(scoreTotal);
+        finalUpdates.learning_pool_eligible = eligible;
+        finalUpdates.learning_pool_eligibility_reason = eligible ? 'ci_95_threshold_met' : 'ci_below_threshold';
+        finalUpdates.learning_pool_qualified_at = eligible ? new Date().toISOString() : null;
+      }
       const { error } = await supabase
         .from('pitch_ideas')
-        .update(updates as any)
+        .update(finalUpdates)
         .eq('id', id);
       if (error) throw error;
     },
