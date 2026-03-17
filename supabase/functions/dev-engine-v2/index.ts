@@ -6830,6 +6830,27 @@ MATERIAL:\n${version.plaintext}`;
       const { projectId, documentId, versionId, approvedNotes, protectItems, targetDocType, deliverableType, developmentBehavior, format: reqFormat, selectedOptions, globalDirections, userNotes, additionalContext, rewriteNotes } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
 
+      // ── STAGE IDENTITY GATE — block rewrite on malformed stage artifacts ──
+      {
+        const effectiveDocType = deliverableType || targetDocType;
+        if (effectiveDocType && ["idea", "concept_brief"].includes(effectiveDocType)) {
+          const { data: rwVer } = await supabase.from("project_document_versions")
+            .select("plaintext").eq("id", versionId).maybeSingle();
+          if (rwVer?.plaintext) {
+            const sidResult = validateStageIdentity(effectiveDocType, rwVer.plaintext);
+            if (sidResult && !sidResult.pass) {
+              console.error(`[dev-engine-v2][IEL] STAGE_IDENTITY_BLOCKED { action: "rewrite", deliverable: "${effectiveDocType}", violation: "${sidResult.violation}" }`);
+              return new Response(JSON.stringify({
+                error: `STAGE_IDENTITY_BLOCKED: ${sidResult.violation}`,
+                stage_identity_blocked: true,
+                violation: sidResult.violation,
+                repair_hint: sidResult.repair_hint,
+              }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            }
+          }
+        }
+      }
+
       // ── BLOCKER GATE: if blockers exist, selectedOptions must cover all of them ──
       const { data: latestNotesRun } = await supabase.from("development_runs")
         .select("output_json").eq("document_id", documentId).eq("run_type", "NOTES")
