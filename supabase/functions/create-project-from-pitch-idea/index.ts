@@ -122,41 +122,61 @@ Deno.serve(async (req) => {
     }
 
     // 3) Build idea text for document version
-    const sections = [
+    // Stage identity contract: idea max 4000 chars, 600 words, 6 sections.
+    // Include only: title, logline, brief premise, genre/budget line, comps (if short).
+    const IDEA_MAX_CHARS = 4000;
+    const IDEA_MAX_WORDS = 600;
+
+    const sections: string[] = [
       `# ${idea.title || "Untitled"}`,
       "",
       `**Logline:** ${idea.logline || ""}`,
       `**Genre:** ${idea.genre || "N/A"} | **Budget:** ${idea.budget_band || "N/A"} | **Lane:** ${idea.recommended_lane || "N/A"} (${idea.lane_confidence || 0}%)`,
       "",
     ];
+
+    // Add premise from one_page_pitch — truncate to ~2 paragraphs if needed
     if (idea.one_page_pitch) {
-      sections.push("## One-Page Pitch", idea.one_page_pitch, "");
+      const paragraphs = (idea.one_page_pitch as string).split(/\n\n+/).filter((p: string) => p.trim());
+      const premise = paragraphs.slice(0, 2).join("\n\n");
+      sections.push("## Premise", premise, "");
     }
+
+    // Add comps as a single line if available (lightweight)
     if (idea.comps?.length) {
       sections.push("## Comparables", (idea.comps as string[]).join(", "), "");
     }
+
+    // Why Us — only if we still have budget
     if (idea.why_us) {
-      sections.push("## Why Us", idea.why_us, "");
+      const whyUsShort = (idea.why_us as string).split(/\n\n+/)[0]?.trim() || "";
+      if (whyUsShort) {
+        sections.push("## Why Us", whyUsShort, "");
+      }
     }
-    // Packaging suggestions
-    const pkgSuggestions = idea.packaging_suggestions as any[] || [];
-    if (pkgSuggestions.length) {
-      sections.push("## Packaging Suggestions");
-      pkgSuggestions.forEach((p: any) => {
-        sections.push(`- ${p.role || ""} — ${p.archetype || ""}${p.names?.length ? ` (${p.names.join(", ")})` : ""}: ${p.rationale || ""}`);
-      });
-      sections.push("");
+
+    // Assemble and enforce hard limits
+    let ideaText = sections.join("\n");
+
+    // Trim sections from the end until within limits
+    const countWords = (t: string) => t.trim().split(/\s+/).filter(Boolean).length;
+    while (
+      (ideaText.length > IDEA_MAX_CHARS || countWords(ideaText) > IDEA_MAX_WORDS) &&
+      sections.length > 5
+    ) {
+      // Remove last 3 entries (section header + content + blank line)
+      sections.splice(-3, 3);
+      ideaText = sections.join("\n");
     }
-    // Risks
-    const risks = idea.risks_mitigations as any[] || [];
-    if (risks.length) {
-      sections.push("## Risks & Mitigations");
-      risks.forEach((r: any) => {
-        sections.push(`- [${r.severity || "medium"}] ${r.risk || ""} — ${r.mitigation || ""}`);
-      });
-      sections.push("");
+
+    // Final hard truncation if still over (word-boundary safe)
+    if (ideaText.length > IDEA_MAX_CHARS) {
+      ideaText = ideaText.slice(0, IDEA_MAX_CHARS);
+      const lastSpace = ideaText.lastIndexOf(" ");
+      if (lastSpace > IDEA_MAX_CHARS - 200) {
+        ideaText = ideaText.slice(0, lastSpace);
+      }
     }
-    const ideaText = sections.join("\n");
 
     // 4) Create project_documents row
     const fileName = `pitch-idea-${idea.title?.toLowerCase().replace(/\s+/g, "-").slice(0, 30) || "untitled"}`;
