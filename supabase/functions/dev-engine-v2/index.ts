@@ -4963,7 +4963,22 @@ serve(async (req) => {
         throw new Error("Cannot analyze an empty document. Generate content first.");
       }
 
-      const { data: project } = await supabase.from("projects")
+      // ── STAGE IDENTITY GATE — block analyze/review on malformed stage artifacts ──
+      if (deliverableType && ["idea", "concept_brief"].includes(deliverableType)) {
+        const sidResult = validateStageIdentity(deliverableType, version.plaintext);
+        if (sidResult && !sidResult.pass) {
+          console.error(`[dev-engine-v2][IEL] STAGE_IDENTITY_BLOCKED { action: "analyze", deliverable: "${deliverableType}", violation: "${sidResult.violation}" }`);
+          return new Response(JSON.stringify({
+            error: `STAGE_IDENTITY_BLOCKED: ${sidResult.violation}`,
+            stage_identity_blocked: true,
+            violation: sidResult.violation,
+            violations: sidResult.details.violations,
+            repair_hint: sidResult.repair_hint,
+            detail: `Cannot analyze ${deliverableType} — document fails stage identity: ${sidResult.violation}. ${sidResult.repair_hint || "Regenerate with correct stage constraints."}`,
+          }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
         .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config, canon_version_id")
         .eq("id", projectId).single();
 
