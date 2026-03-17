@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 import { fetchCoreDocs, validateCharacterCues, type CoreDocs } from "../_shared/coreDocs.ts";
 import { BEAT_DEFINITION_TEXT, buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
+import { resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
