@@ -350,7 +350,8 @@ function checkForbiddenChangeViolation(text: string, forbiddenFact: string): { v
   
   // If we can't parse the forbidden change, do negation check
   if (!protectedSubject) {
-    return checkFactContradiction(text, forbiddenFact);
+    const fc = checkFactContradiction(text, forbiddenFact);
+    return { violated: fc.contradicted, evidence: fc.evidence };
   }
   
   // Check if the protected subject's state has been altered
