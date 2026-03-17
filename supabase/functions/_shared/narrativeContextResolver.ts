@@ -228,13 +228,13 @@ export async function resolveNarrativeContext(
             }
             // Extract character names from markdown headings and bold declarations.
             // Patterns handle: ## Name, ### I. NAME, **NAME (Role)**, **NAME** — desc, **NAME:**
-            const headingMatches = cbVer.plaintext.match(/^#{2,4}\s+(?:[IVXLC]+\.\s+)?(?:THE\s+)?([A-Z][a-zA-Z' -]{1,30})$/gm) || [];
+            const headingMatches = cbText.match(/^#{2,4}\s+(?:[IVXLC]+\.\s+)?(?:THE\s+)?([A-Z][a-zA-Z' -]{1,30})$/gm) || [];
             // Pattern 1: **NAME** followed by separator outside bold (original)
-            const boldMatches1 = cbVer.plaintext.match(/\*\*([A-Z][a-zA-Z' -]{1,30})\*\*\s*(?:[—–:\(])/g) || [];
+            const boldMatches1 = cbText.match(/\*\*([A-Z][a-zA-Z' -]{1,30})\*\*\s*(?:[—–:\(])/g) || [];
             // Pattern 2: **NAME (Role)** or **NAME / 'ALIAS' (Role)** — parens inside bold
-            const boldMatches2 = cbVer.plaintext.match(/\*\*([A-Z][a-zA-Z' -]{1,30})\s*(?:\/[^*]*)?\([^)]*\)\*\*/g) || [];
+            const boldMatches2 = cbText.match(/\*\*([A-Z][a-zA-Z' -]{1,30})\s*(?:\/[^*]*)?\([^)]*\)\*\*/g) || [];
             // Pattern 3: **THE NAME / 'ALIAS' (Role)** — with THE prefix and alias
-            const boldMatches3 = cbVer.plaintext.match(/\*\*THE\s+([A-Z][a-zA-Z' -]{1,30})\s*\/\s*'([A-Z][a-zA-Z' -]{1,20})'/g) || [];
+            const boldMatches3 = cbText.match(/\*\*THE\s+([A-Z][a-zA-Z' -]{1,30})\s*\/\s*'([A-Z][a-zA-Z' -]{1,20})'/g) || [];
             const STRUCTURAL_TERMS = new Set([
               "CHARACTER BIBLE", "CHARACTERS", "SERIES OVERVIEW", "OVERVIEW", "INTRODUCTION",
               "MAIN CHARACTERS", "SUPPORTING CHARACTERS", "RECURRING CHARACTERS", "MINOR CHARACTERS",
