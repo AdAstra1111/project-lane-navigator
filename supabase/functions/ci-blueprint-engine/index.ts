@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildPitchScoringRubric, normalizePitchScores, calculatePitchScoreTotal, checkScoreDrift, PITCH_SCORE_WEIGHTS } from "../_shared/pitchScoring.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
