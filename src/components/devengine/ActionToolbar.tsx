@@ -219,7 +219,7 @@ export function ActionToolbar({
         {onApproveVersion && (
           <Button size="sm" variant={isVersionApproved ? "default" : "outline"}
             className={`h-8 text-xs gap-1 ${isVersionApproved ? 'bg-yellow-500 hover:bg-yellow-600 text-black border-yellow-500' : ''}`}
-            onClick={isVersionApproved ? onUnapproveVersion : onApproveVersion} disabled={anyPending || approvePending || unapproving}>
+            onClick={isVersionApproved ? onUnapproveVersion : onApproveVersion} disabled={actionsDisabled || approvePending || unapproving}>
             {(approvePending || unapproving) ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
             {isVersionApproved ? 'Approved' : 'Approve Version'}
           </Button>
