@@ -6478,7 +6478,8 @@ Deno.serve(async (req) => {
                     stop_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
                     pause_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
                     error: `Exceptional mode: CI=${plateauV2.currentCI} plateaued below target ${targetCi} for ${currentDoc}. Escalation required — auto-promote blocked.`,
-                  });
+                   });
+                  persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: plateauV2.currentCI, finalCi: plateauV2.currentCI, targetCi, targetGp: extractTargetGP(job), haltReason: "EXCEPTIONAL_PLATEAU_ESCALATION", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
                   await releaseProcessingLock(supabase, jobId);
                   return respondWithJob(supabase, jobId);
                 }
