@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { usePlateauDiagnosis } from '@/hooks/usePlateauDiagnosis';
+import { PlateauDiagnosisPanel } from '@/components/devengine/PlateauDiagnosisPanel';
 import { useRunSnapshot } from '@/hooks/useRunSnapshot';
 import { ChunkProgressPanel } from '@/components/documents/ChunkProgressPanel';
 import { StepBudgetControl } from './StepBudgetControl';
