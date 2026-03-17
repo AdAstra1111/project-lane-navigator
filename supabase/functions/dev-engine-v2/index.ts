@@ -31121,7 +31121,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             const repairInstruction = `Rewrite the ${target.section_key} section to address the identified narrative repair issue (${execCore.resolved_repair_type || repairType || "general improvement"}). Preserve the existing structure, tone, and all narrative elements not directly related to the repair. Maintain consistency with the rest of the document.`;
 
             // Use canonical callAI for section rewrite
-            const execApiKey = Deno.env.get("OPENROUTER_API_KEY") || "";
+            const execApiKey = resolveGateway().apiKey;
             if (!execApiKey) {
               docSequenceFailed = true;
               docTargetResults.push({
