@@ -30,8 +30,8 @@ serve(async (req) => {
 
     const { title, format, genres, budget_range, tone, comparable_titles } = await req.json();
 
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
+    const _gw = resolveGateway();
+    const LOVABLE_API_KEY = _gw.apiKey;
     const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
 
     // ── STEP 1: Perplexity grounded research (if available) ──
