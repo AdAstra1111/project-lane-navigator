@@ -188,7 +188,7 @@ export async function resolveNarrativeContext(
         return `  - ${c.name}${details ? `: ${details}` : ""}`;
       });
       parts.push(`Characters:\n${charLines.join("\n")}`);
-      characterLockBlock = `\nCHARACTER INVENTION LOCK: Use ONLY the canonical characters listed above. Do NOT invent, hallucinate, or introduce any new named characters not in the list. Unnamed extras must use generic descriptors (e.g., WAITER, GUARD, PASSERBY). If a scene requires a new named character, flag it as [NEW CHARACTER NEEDED] instead of inventing one.`;
+      characterLockBlock = `\nCHARACTER INVENTION LOCK: Use ONLY the canonical characters listed above. Do NOT invent, hallucinate, or introduce any new named characters — including offscreen relatives, backstory figures, or referenced-but-unseen people. Unnamed extras must use generic descriptors (e.g., WAITER, GUARD, PASSERBY, "his sister", "a former colleague"). If a scene requires a new named character, flag it as [NEW CHARACTER NEEDED] instead of inventing one. This applies to ALL names mentioned in dialogue, narration, flashbacks, and backstory.`;
       provenance.characterLock = "canon_characters";
     } else {
       // Fallback: attempt to derive character names from character_bible upstream doc
