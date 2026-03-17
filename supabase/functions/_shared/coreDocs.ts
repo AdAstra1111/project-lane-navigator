@@ -125,8 +125,11 @@ export async function fetchCoreDocs(
   return result;
 }
 
-// ─── Generic Extras Allowlist ───
+// ─── Generic Extras Allowlist (Tier 4 — Functional Scene Roles + Tier 5 — Environmental) ───
+// These are non-canonical human presences that may appear in scripts without
+// requiring Character Bible entries. They are generated on demand at scene level.
 const GENERIC_EXTRAS = new Set([
+  // Tier 4 — Functional Scene Roles (props that can deliver dialogue)
   'WAITER', 'WAITRESS', 'GUARD', 'SECURITY GUARD', 'DRIVER', 'PASSERBY',
   'CROWD', 'NURSE', 'DOCTOR', 'CLERK', 'BARTENDER', 'SERVER', 'RECEPTIONIST',
   'OFFICER', 'COP', 'POLICE OFFICER', 'DELIVERY PERSON', 'COURIER',
@@ -137,6 +140,14 @@ const GENERIC_EXTRAS = new Set([
   'VOICE', 'V.O.', 'O.S.', 'NARRATOR', 'SUPER', 'TITLE', 'CHYRON',
   'NEWS ANCHOR', 'PEDESTRIAN', 'CASHIER', 'MANAGER', 'BOSS',
   'NEIGHBOR', 'FRIEND', 'STUDENT', 'TEACHER', 'PROFESSOR',
+  // Extended Tier 4 roles
+  'MESSENGER', 'ATTENDANT', 'SERVANT', 'MAID', 'BUTLER', 'PORTER',
+  'JANITOR', 'PARAMEDIC', 'FIREFIGHTER', 'JUDGE', 'BAILIFF',
+  'SECRETARY', 'ASSISTANT', 'INTERN', 'TECHNICIAN', 'PILOT',
+  'FLIGHT ATTENDANT', 'TAXI DRIVER', 'BUS DRIVER', 'SHOPKEEPER',
+  'BARISTA', 'CONCIERGE', 'VALET', 'USHER', 'TICKET AGENT',
+  'CUSTOMS OFFICER', 'BORDER GUARD', 'PRISON GUARD', 'WARDEN',
+  'SOLDIER', 'SAILOR', 'PRIEST', 'NUN', 'MONK', 'MINISTER',
 ]);
 
 /**
