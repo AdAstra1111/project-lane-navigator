@@ -86,6 +86,7 @@ export interface BuildConfig {
   useExemplars: boolean;
   ciMin: number;
   sourceDnaProfileId: string | null;
+  useLearningPoolOnly: boolean;
 }
 
 export function useBlueprintRuns() {
