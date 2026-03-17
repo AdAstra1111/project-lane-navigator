@@ -1940,7 +1940,11 @@ export default function ProjectDevelopmentEngine() {
 
                             {/* Structured view — read-only section cards */}
                             {isSectionedDocType && hasChunks && docViewMode === 'structured' && selectedVersionId ? (
-                              <SectionedDocViewer versionId={selectedVersionId} />
+                              <SectionedDocViewer
+                                versionId={selectedVersionId}
+                                versionLabel={(selectedVersion as any)?.label}
+                                onSwitchToRaw={() => setDocViewMode('raw')}
+                              />
                             ) : (
                               /* Raw view — editable text */
                               <>

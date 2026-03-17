@@ -2,13 +2,16 @@
  * SectionedDocViewer — Persistent read-only structured viewer for completed sectioned documents.
  * Renders section cards from project_document_chunks, with expand/collapse per section.
  * This is the POST-generation counterpart to SectionedDocProgress (which handles in-flight generation).
+ *
+ * v2: Detects selective rewrites with partial chunks and shows a banner guiding users
+ *     to the Raw view for the full merged document.
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { ChevronDown, ChevronUp, ChevronsUpDown, FileText } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronsUpDown, FileText, AlertTriangle } from 'lucide-react';
 
 interface ChunkRow {
   id: string;
@@ -22,6 +25,10 @@ interface ChunkRow {
 
 interface SectionedDocViewerProps {
   versionId: string;
+  /** Version label — used to detect selective rewrites */
+  versionLabel?: string | null;
+  /** Callback to switch parent to raw view */
+  onSwitchToRaw?: () => void;
 }
 
 function formatSectionTitle(chunk: ChunkRow): string {
@@ -40,7 +47,7 @@ function cleanContent(raw: string): string {
   return text.trim();
 }
 
-export function SectionedDocViewer({ versionId }: SectionedDocViewerProps) {
+export function SectionedDocViewer({ versionId, versionLabel, onSwitchToRaw }: SectionedDocViewerProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const { data: chunks = [], isLoading } = useQuery<ChunkRow[]>({
@@ -61,6 +68,9 @@ export function SectionedDocViewer({ versionId }: SectionedDocViewerProps) {
 
   const safeChunks = Array.isArray(chunks) ? chunks : [];
   const doneChunks = safeChunks.filter((c) => c.status === 'done' && c.content);
+
+  // Detect selective rewrite: version label pattern or very few chunks relative to a typical full doc
+  const isSelectiveRewrite = !!(versionLabel && /selective scene rewrite/i.test(versionLabel));
 
   const toggleSection = (id: string) => {
     setExpandedIds((prev) => {
@@ -95,6 +105,30 @@ export function SectionedDocViewer({ versionId }: SectionedDocViewerProps) {
 
   return (
     <div>
+      {/* Selective rewrite partial-content banner */}
+      {isSelectiveRewrite && (
+        <div className="mb-3 flex items-start gap-2 p-2.5 rounded-md border border-amber-500/20 bg-amber-500/5">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] text-amber-300 font-medium">Partial View — Selective Rewrite</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Only rewritten sections are shown below. Scores reflect the full merged document.
+              {onSwitchToRaw && ' Switch to Raw view to see the complete document.'}
+            </p>
+            {onSwitchToRaw && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 text-[10px] mt-1 px-2 text-amber-400 hover:text-amber-300"
+                onClick={onSwitchToRaw}
+              >
+                View full document →
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Expand/Collapse all */}
       <div className="flex justify-end mb-2">
         <Button
@@ -159,7 +193,6 @@ export function SectionedDocViewer({ versionId }: SectionedDocViewerProps) {
     </div>
   );
 }
-
 /**
  * Hook to check if chunks exist for a version.
  * Used by the parent to decide whether to show structured view toggle.
