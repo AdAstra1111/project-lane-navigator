@@ -1,6 +1,5 @@
 /**
- * NarrativeDna — Phase 1 entry point for DNA extraction and review.
- * Lets users paste source text, extract DNA, review/edit/lock profiles.
+ * NarrativeDna — Entry point for DNA extraction, review, and outcome analytics.
  */
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -8,9 +7,11 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dna, Plus, Loader2, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { DnaProfileCard } from '@/components/dna/DnaProfileCard';
+import { DnaOutcomeAnalytics } from '@/components/dna/DnaOutcomeAnalytics';
 import { useDnaProfiles, useDnaProfile, useExtractDna } from '@/hooks/useNarrativeDna';
 
 export default function NarrativeDna() {
@@ -250,10 +251,34 @@ export default function NarrativeDna() {
             )}
           </div>
 
-          {/* Selected profile detail */}
+          {/* Selected profile detail with tabs */}
           <div className="lg:col-span-2">
             {selectedProfile ? (
-              <DnaProfileCard profile={selectedProfile} />
+              <Tabs defaultValue="profile" className="w-full">
+                <TabsList className="mb-3">
+                  <TabsTrigger value="profile" className="text-xs">Profile</TabsTrigger>
+                  <TabsTrigger value="outcomes" className="text-xs">Outcomes</TabsTrigger>
+                </TabsList>
+                <TabsContent value="profile">
+                  <DnaProfileCard profile={selectedProfile} />
+                </TabsContent>
+                <TabsContent value="outcomes">
+                  <Card className="border-border/50 bg-card/60">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-2">
+                        <Dna className="h-4 w-4 text-primary" />
+                        <CardTitle className="text-base">Blueprint Outcomes</CardTitle>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        How blueprints and pitch ideas perform when constrained by this DNA.
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      <DnaOutcomeAnalytics profile={selectedProfile} />
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
             ) : (
               <div className="flex items-center justify-center h-[300px] text-sm text-muted-foreground border border-dashed border-border/40 rounded-lg">
                 Select a profile or extract a new one

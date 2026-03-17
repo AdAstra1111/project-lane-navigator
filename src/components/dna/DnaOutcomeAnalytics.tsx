@@ -366,7 +366,7 @@ export function DnaOutcomeAnalytics({ profile }: Props) {
                       </Badge>
                     )}
                     {p.source_blueprint_id && (
-                      <Badge variant="outline" className="text-[9px] px-1 py-0 border-emerald-500/30 text-emerald-400">
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 border-primary/30 text-primary">
                         <FlaskConical className="h-2.5 w-2.5 mr-0.5" />
                         Blueprint
                       </Badge>
