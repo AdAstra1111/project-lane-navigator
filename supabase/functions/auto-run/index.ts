@@ -605,6 +605,19 @@ function resolveTargetCI(job: any): number {
 }
 
 /**
+ * Returns true when the job's quality objective is Exceptional (CI >= 95).
+ * Used to gate auto-force-promote: Exceptional mode NEVER promotes below target.
+ */
+function isExceptionalObjective(job: any): boolean {
+  const ct = job?.converge_target_json;
+  if (ct !== null && ct !== undefined && typeof ct === "object") {
+    const ci = Number(ct.ci);
+    if (!isNaN(ci)) return ci >= 95;
+  }
+  return true; // default is Exceptional
+}
+
+/**
  * Evaluate promotion gate for stage advancement.
  *
  * For most doc types: CI-only gate using job converge_target_json / GLOBAL_MIN_CI.
