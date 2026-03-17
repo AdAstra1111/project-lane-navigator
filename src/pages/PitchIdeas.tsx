@@ -519,9 +519,11 @@ export default function PitchIdeas() {
                 return (
                   <motion.div
                     key={idea.id}
+                    id={`pitch-idea-${idea.id}`}
                     initial={{ opacity: 0, y: 16, scale: 0.97 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ duration: 0.35, delay: i < 5 ? i * 0.08 : 0 }}
+                    className={highlightId === idea.id ? 'ring-2 ring-primary rounded-lg transition-shadow duration-700' : ''}
                   >
                     <SlateCard
                       idea={idea}
