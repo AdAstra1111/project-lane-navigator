@@ -158,6 +158,7 @@ export default function CIBlueprintEngine() {
     useExemplars: false,
     ciMin: 80,
     sourceDnaProfileId: null,
+    useLearningPoolOnly: false,
   });
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [buildResult, setBuildResult] = useState<{
