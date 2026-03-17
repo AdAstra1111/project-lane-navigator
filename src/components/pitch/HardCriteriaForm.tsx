@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Filter, Sparkles, ChevronRight, X, Plus, Palette } from 'lucide-react';
+import { generateSuggestions, canGenerateSuggestions, type InputSuggestions } from '@/lib/pitch/inputIntelligence';
+import { Filter, Sparkles, ChevronRight, X, Plus, Palette, Zap, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -692,6 +693,62 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
               </div>
             </div>
 
+            {/* Auto-fill Intelligence */}
+            {(() => {
+              const suggestionCtx = {
+                productionType: criteria.productionType,
+                genre: criteria.genre,
+                subgenre: criteria.subgenre,
+                budgetBand: criteria.budgetBand,
+                lane: criteria.lane,
+                toneAnchor: criteria.toneAnchor,
+                settingType: criteria.settingType,
+                riskLevel: criteria.riskLevel,
+                audience: criteria.audience,
+              };
+              const canSuggest = canGenerateSuggestions(suggestionCtx);
+              const handleAutoFill = () => {
+                const suggestions = generateSuggestions(suggestionCtx);
+                const merged: Partial<HardCriteria> = {};
+                // Merge must-includes as tropes (append, don't overwrite)
+                const existing = new Set(criteria.mustHaveTropes.map(t => t.toLowerCase()));
+                merged.mustHaveTropes = [
+                  ...criteria.mustHaveTropes,
+                  ...suggestions.mustInclude.filter(s => !existing.has(s.toLowerCase())),
+                ];
+                // Merge avoid (append)
+                const existingAvoid = new Set(criteria.avoidTropes.map(t => t.toLowerCase()));
+                merged.avoidTropes = [
+                  ...criteria.avoidTropes,
+                  ...suggestions.avoid.filter(s => !existingAvoid.has(s.toLowerCase())),
+                ];
+                // Direction: append if user has existing notes
+                merged.notes = criteria.notes
+                  ? criteria.notes + '\n\n' + suggestions.additionalDirection
+                  : suggestions.additionalDirection;
+                update(merged);
+              };
+              const handleRefresh = () => {
+                const suggestions = generateSuggestions(suggestionCtx);
+                update({
+                  mustHaveTropes: suggestions.mustInclude,
+                  avoidTropes: suggestions.avoid,
+                  notes: suggestions.additionalDirection,
+                });
+              };
+              return canSuggest ? (
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={handleAutoFill}>
+                    <Zap className="h-3 w-3" /> Auto-fill (High-Value)
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 text-xs gap-1.5 text-muted-foreground" onClick={handleRefresh}>
+                    <RefreshCw className="h-3 w-3" /> Refresh
+                  </Button>
+                  <span className="text-[10px] text-muted-foreground">Score-optimised suggestions based on your criteria</span>
+                </div>
+              ) : null;
+            })()}
+
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Must-Have Tropes / Themes</Label>
               <TagInput value={criteria.mustHaveTropes} onChange={v => update({ mustHaveTropes: v })} placeholder='e.g. "enemies to lovers"' />
@@ -707,7 +764,7 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
 
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Additional Direction</Label>
-              <Textarea value={criteria.notes} onChange={e => update({ notes: e.target.value })} placeholder="Any specific constraints, themes, or inspirations…" rows={2} />
+              <Textarea value={criteria.notes} onChange={e => update({ notes: e.target.value })} placeholder="Any specific constraints, themes, or inspirations…" rows={3} />
             </div>
           </TabsContent>
         </Tabs>
