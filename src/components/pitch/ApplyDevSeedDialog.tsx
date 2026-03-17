@@ -855,7 +855,9 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
                 body: { action: 'start', projectId: project.id, allow_defaults: true },
               });
               if (arInvokeErr) {
-                const recoverableConflict = extractRecoverableAutoRunConflict(arData || arInvokeErr, project.id);
+                // supabase.functions.invoke puts the JSON body in error.context for non-2xx
+                const errorBody = (arInvokeErr as any)?.context ?? arData ?? arInvokeErr;
+                const recoverableConflict = extractRecoverableAutoRunConflict(errorBody, project.id);
                 if (recoverableConflict) {
                   console.log(`[DevSeed] Auto-Run already active (${recoverableConflict.job_id}), treating start as reattach.`);
                   parts.push('auto-run reattached');
