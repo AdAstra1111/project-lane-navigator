@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
-import { MODELS } from "../_shared/llm.ts";
+import { MODELS, resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
