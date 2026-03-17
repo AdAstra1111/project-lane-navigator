@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap, FlaskConical, Lightbulb, Film, Zap, Search as SearchIcon, Sparkles, ArrowLeft, Dna, Layers } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap, FlaskConical, Lightbulb, Film, Zap, Search as SearchIcon, Sparkles, ArrowLeft, Dna, Layers, Award } from 'lucide-react';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
@@ -33,6 +33,7 @@ export function Header() {
   const toolItems = [
     { label: 'Companies', icon: Building2, path: '/companies' },
     { label: 'Pitch Ideas', icon: Lightbulb, path: '/pitch-ideas' },
+    { label: 'Exemplar Ideas', icon: Award, path: '/exemplars' },
     { label: 'Trends', icon: Radio, path: '/trends' },
     { label: 'Trends Explorer', icon: Radio, path: '/trends/explorer' },
     { label: 'Trend Governance', icon: Settings, path: '/trends/governance' },

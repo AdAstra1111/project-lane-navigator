@@ -29,6 +29,7 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
   const [conceptLockOpen, setConceptLockOpen] = useState(false);
   const [sendToProjectOpen, setSendToProjectOpen] = useState(false);
   const [similarOpen, setSimilarOpen] = useState(false);
+  const [comparePickerOpen, setComparePickerOpen] = useState(false);
   const [compareExemplar, setCompareExemplar] = useState<PitchIdea | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const { feedback, submitFeedback } = usePitchFeedback(idea.id);
@@ -232,7 +233,7 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
           <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setSimilarOpen(true)}>
             <Search className="h-3 w-3" /> Find Similar Exemplars
           </Button>
-          <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setCompareExemplar(idea)}>
+          <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setComparePickerOpen(true)}>
             <GitCompare className="h-3 w-3" /> Compare to Exemplars
           </Button>
         </div>
@@ -338,6 +339,16 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
         sourceIdea={idea}
         onCompare={exemplar => {
           setSimilarOpen(false);
+          setCompareExemplar(exemplar);
+        }}
+      />
+
+      <SimilarExemplarsDrawer
+        open={comparePickerOpen}
+        onOpenChange={setComparePickerOpen}
+        sourceIdea={idea}
+        onCompare={exemplar => {
+          setComparePickerOpen(false);
           setCompareExemplar(exemplar);
         }}
       />
