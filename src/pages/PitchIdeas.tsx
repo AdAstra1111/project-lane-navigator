@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { initEditedFields, normalizePitchCriteria, type EditedFieldsMap } from '@/lib/pitch/normalizePitchCriteria';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -32,6 +33,10 @@ export default function PitchIdeas() {
   const { ideas, isLoading, save, update, remove } = usePitchIdeas();
   const { projects } = useProjects();
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const highlightId = searchParams.get('highlight');
+  const highlightRef = useRef<HTMLDivElement | null>(null);
+  const didScrollRef = useRef(false);
   const [generating, setGenerating] = useState(false);
   const [generateFailed, setGenerateFailed] = useState(false);
   const [genProgress, setGenProgress] = useState({ current: 0, total: 5 });
@@ -108,6 +113,26 @@ export default function PitchIdeas() {
       return { ...prev, current: clamped };
     });
   }, [ideasLen]);
+
+  // Scroll to highlighted idea (from Blueprint Engine promotion)
+  useEffect(() => {
+    if (!highlightId || didScrollRef.current || isLoading) return;
+    const el = document.getElementById(`pitch-idea-${highlightId}`);
+    if (el) {
+      didScrollRef.current = true;
+      setTimeout(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+      // Clear the highlight param after 5s
+      setTimeout(() => {
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.delete('highlight');
+          return next;
+        }, { replace: true });
+      }, 5000);
+    }
+  }, [highlightId, isLoading, ideas, setSearchParams]);
 
   const filteredIdeas = useMemo(() => {
     return ideas
@@ -494,9 +519,11 @@ export default function PitchIdeas() {
                 return (
                   <motion.div
                     key={idea.id}
+                    id={`pitch-idea-${idea.id}`}
                     initial={{ opacity: 0, y: 16, scale: 0.97 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ duration: 0.35, delay: i < 5 ? i * 0.08 : 0 }}
+                    className={highlightId === idea.id ? 'ring-2 ring-primary rounded-lg transition-shadow duration-700' : ''}
                   >
                     <SlateCard
                       idea={idea}

@@ -170,10 +170,15 @@ export function usePromoteCandidate() {
       }
       return data as { pitch_idea_id: string; candidate_id: string };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['blueprint-candidates'] });
       qc.invalidateQueries({ queryKey: ['pitch-ideas'] });
-      toast.success('Candidate promoted to Pitch Idea');
+      toast.success('Candidate promoted to Pitch Idea', {
+        action: {
+          label: 'View',
+          onClick: () => window.location.assign(`/pitch-ideas?highlight=${data.pitch_idea_id}`),
+        },
+      });
     },
     onError: (e: any) => toast.error(e.message || 'Promotion failed'),
   });

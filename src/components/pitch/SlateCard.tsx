@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Rocket, ChevronDown, ChevronUp, Bookmark, BookmarkCheck, Trash2, TrendingUp, Zap, Lock, Hash, Dna, Cpu } from 'lucide-react';
+import { Rocket, ChevronDown, ChevronUp, Bookmark, BookmarkCheck, Trash2, TrendingUp, Zap, Lock, Hash, Dna, Cpu, FlaskConical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -110,6 +110,7 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete, projec
   const differentiationMove: string = raw.differentiation_move || '';
   const toneTag: string = raw.tone_tag || '';
   const formatSummary: string = raw.format_summary || '';
+  const isFromBlueprint = raw.promotion_source === 'ci_blueprint_engine';
 
   return (
     <Card className="border-border/40 bg-card/60 backdrop-blur-sm hover:border-primary/30 transition-colors group">
@@ -154,6 +155,9 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete, projec
           )}
           {idea.source_engine_key && (
             <Badge variant="outline" className="text-[10px] border-accent/40 gap-1"><Cpu className="h-2.5 w-2.5" />{idea.source_engine_key.replace(/_/g, ' ')}</Badge>
+          )}
+          {isFromBlueprint && (
+            <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-400 gap-1"><FlaskConical className="h-2.5 w-2.5" />From Blueprint</Badge>
           )}
         </div>
 
