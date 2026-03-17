@@ -388,6 +388,7 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
     method: "POST",
     headers: {
       Authorization: `Bearer ${_gw.apiKey}`,
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
       model,
