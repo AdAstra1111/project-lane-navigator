@@ -120,7 +120,7 @@ ${scriptText.length > 30000 ? "\n[...truncated at 30,000 chars]" : ""}
 
 Analyse the treatment as a proposed rewrite direction. Evaluate how adopting its changes would affect the story strength, package viability, and commercial positioning. Provide your deep comparison now.`;
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch(_gw.url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
