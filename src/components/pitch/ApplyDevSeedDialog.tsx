@@ -941,6 +941,9 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             <p>• Genre: <span className="text-foreground">{idea.genre}</span> | Budget: <span className="text-foreground">{idea.budget_band}</span></p>
             {(() => {
               const dc = (idea as any).devseed_canon_json || {};
+              const prodType = (idea.production_type || '').toLowerCase();
+              const isEpisodic = ['series', 'vertical-drama', 'vertical_drama', 'limited-series', 'limited_series', 'miniseries'].some(f => prodType.includes(f));
+              if (!isEpisodic) return null;
               let epCount = dc.season_episode_count;
               if (!epCount) {
                 const raw = idea.raw_response as any || {};
