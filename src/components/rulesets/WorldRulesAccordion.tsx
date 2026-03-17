@@ -12,7 +12,7 @@ import { WorldRulesPanel } from './WorldRulesPanel';
 import { ConflictsPanel } from './ConflictsPanel';
 import { OverridesEditor } from './OverridesEditor';
 import { ResolvedRulesPreview } from './ResolvedRulesPreview';
-import { ActiveRulesetBadge } from './ActiveRulesetBadge';
+import { WorldPopulationControl } from './WorldPopulationControl';
 import { WritingVoiceSelector } from './WritingVoiceSelector';
 import { TeamVoiceSelector } from './TeamVoiceSelector';
 import { TeamVoiceManager } from './TeamVoiceManager';
