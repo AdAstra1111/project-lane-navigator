@@ -6672,6 +6672,7 @@ Deno.serve(async (req) => {
             error: `CI plateaued at ${ciProgress.currentCi} (best: ${ciProgress.bestCi}) for ${currentDoc}. ${ciProgress.plateauCount} ticks without improvement. Target: CI>=${targetCi}.`,
           });
           await releaseProcessingLock(supabase, jobId);
+          persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: ciProgress.bestCi, finalCi: ciProgress.currentCi, targetCi, targetGp: extractTargetGP(job), haltReason: "CI_PLATEAU_BELOW_TARGET", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
           return respondWithJob(supabase, jobId);
           }
         } else if (ciProgress.improving) {
