@@ -8,6 +8,7 @@ import { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_EVAL_BLOCK } from "../_s
 import { getDocPurposeClass, PURPOSE_SCORING_RUBRICS, PURPOSE_REWRITE_GOALS } from "../_shared/docPurposeRegistry.ts";
 import { shouldRunNIE, loadAdjacentDocPack, evaluateNarrativeIntegrity } from "../_shared/narrativeIntegrityEngine.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
+import { extractCanonConstraints, detectCanonDrift, logDriftResult, type CanonConstraints, type DriftResult } from "../_shared/canonConstraintEnforcement.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
 import { composeSystem, resolveGateway } from "../_shared/llm.ts";
@@ -202,6 +203,7 @@ async function writeVersionSafe(
     deliverableType?: string;
     format?: string;
     inputsUsed?: Record<string, any>;
+    projectId?: string;
   },
 ): Promise<{ data: any; error: any; deduplicated?: boolean }> {
   const generatorId = opts.generatorId || "dev-engine-v2";
@@ -227,6 +229,19 @@ async function writeVersionSafe(
     console.warn("[DEDUP] Dedupe check failed (non-fatal):", dedupeErr?.message);
   }
 
+  // ── CCE: Canon Constraint Enforcement post-generation drift check ──
+  let cceMeta: Record<string, any> = {};
+  if (opts.projectId && opts.plaintext && opts.plaintext.length > 100) {
+    const cceResult = await runCCEPostGeneration(
+      supabaseClient,
+      opts.projectId,
+      opts.plaintext,
+      opts.deliverableType || "other",
+      `dev-engine-v2:${generatorId}`,
+    );
+    cceMeta = cceResult.metaPatch;
+  }
+
   try {
     const nv = await createVersion(supabaseClient, {
       documentId: opts.documentId,
@@ -240,7 +255,7 @@ async function writeVersionSafe(
       dependsOnResolverHash: opts.dependsOnResolverHash || undefined,
       generatorId,
       deliverableType: opts.deliverableType,
-      metaJson: { ...(opts.metaJson || {}), content_hash: contentHash },
+      metaJson: { ...(opts.metaJson || {}), content_hash: contentHash, ...cceMeta },
       parentVersionId: opts.parentVersionId || undefined,
       inputsUsed: opts.inputsUsed || {
         generator_id: generatorId,
@@ -264,7 +279,68 @@ async function writeVersionSafe(
   }
 }
 
-// ── NEC (Narrative Energy Contract) Guardrail Loader ──
+// ── CCE Post-Generation Helper ──
+// Loads canon constraints for a project, runs drift detection, and returns
+// a meta_json patch + drift result. Violation policy: PERSIST WITH FLAG.
+// Content is always saved but canon_drift metadata records any violations.
+async function runCCEPostGeneration(
+  supabaseClient: any,
+  projectId: string,
+  generatedText: string,
+  docType: string,
+  tag: string,
+): Promise<{ driftResult: DriftResult; metaPatch: Record<string, any> }> {
+  try {
+    // Load canon_json
+    const { data: canonRow } = await supabaseClient
+      .from("project_canon")
+      .select("canon_json")
+      .eq("project_id", projectId)
+      .maybeSingle();
+    const canonJson = canonRow?.canon_json || {};
+    const constraints = extractCanonConstraints(canonJson);
+    const driftResult = detectCanonDrift(generatedText, constraints);
+    logDriftResult(tag, projectId, docType, driftResult);
+
+    const metaPatch: Record<string, any> = {};
+    if (driftResult.constraintsUsed) {
+      metaPatch.canon_drift = {
+        passed: driftResult.passed,
+        violations: driftResult.findings.filter(f => f.severity === "violation").length,
+        warnings: driftResult.findings.filter(f => f.severity === "warning").length,
+        domains_checked: driftResult.domains_checked,
+        checked_at: driftResult.checkedAt,
+        findings: driftResult.findings.map(f => ({
+          domain: f.domain,
+          severity: f.severity,
+          detail: f.detail,
+        })),
+      };
+    }
+
+    if (!driftResult.passed) {
+      console.error(JSON.stringify({
+        diag: "CANON_DRIFT_VIOLATION",
+        tag,
+        project_id: projectId,
+        doc_type: docType,
+        violation_count: driftResult.findings.filter(f => f.severity === "violation").length,
+        policy: "persist_with_flag",
+      }));
+    }
+
+    return { driftResult, metaPatch };
+  } catch (cceErr: any) {
+    // Non-fatal: CCE failure must not block persistence
+    console.warn(`[${tag}][CCE] drift check failed (non-fatal):`, cceErr?.message);
+    return {
+      driftResult: { passed: true, findings: [], constraintsUsed: false, checkedAt: new Date().toISOString(), domains_checked: [] },
+      metaPatch: { canon_drift_error: cceErr?.message || "unknown" },
+    };
+  }
+}
+
+
 const NEC_MAX_CHARS = 3000;
 
 const NEC_HARD_ENFORCEMENT = `If your proposal introduces blackmail, public spectacle, mass-casualty/catastrophic stakes, life-ruin stakes, assassinations, or supernatural escalation and the NEC does not explicitly permit it, you MUST replace it with an alternative that stays at or below the Preferred Operating Tier, preserving tone and nuance.`;
@@ -7048,6 +7124,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           metaJson: rwMetaJson,
           deliverableType: effectiveDeliverable,
           format: effectiveFormat || undefined,
+          projectId,
         });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
@@ -7532,6 +7609,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           deliverableType: effectiveDeliverable,
           format: assembleProject?.format || undefined,
           dependsOnResolverHash: chunkedResolverHash,
+          projectId,
         });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
@@ -9646,6 +9724,7 @@ Previous attempt problems: ${validation.reasons.join("; ")}`;
       }).select().single();
       if (dErr) throw dErr;
 
+      const epScriptCCE = await runCCEPostGeneration(supabase, projectId, scriptText, "episode_script", "dev-engine-v2:episode-script");
       const newVersion = await createVersion(supabase, {
         documentId: newDoc.id,
         docType: "episode_script",
@@ -9656,6 +9735,7 @@ Previous attempt problems: ${validation.reasons.join("; ")}`;
         sourceDocumentIds: [documentId],
         deliverableType: "episode_script",
         generatorId: "dev-engine-v2-episode-script",
+        metaJson: { ...epScriptCCE.metaPatch },
         inputsUsed: { generator_id: "dev-engine-v2-episode-script", document_id: newDoc.id, source_document_id: documentId, source_version_id: versionId, project_id: projectId, episode_number: epNum },
       });
 
@@ -10272,19 +10352,21 @@ Return ONLY valid JSON:
       const decisionParsed = await parseAIJson(LOVABLE_API_KEY, decisionRaw);
       const rewrittenText = decisionParsed.rewritten_text || baseVersion.plaintext;
 
-      // Create new version via doc-os
+      // Create new version via doc-os + CCE drift check
       const decLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const decTvCtx = await loadTeamVoiceContext(supabase, projectId, decLane);
       const decMetaJson = decTvCtx.metaStamp ? { ...decTvCtx.metaStamp } : undefined;
       const { data: decDocRow } = await supabase.from("project_documents").select("doc_type").eq("id", documentId).single();
+      const decDocType = decDocRow?.doc_type || doc_type || "other";
+      const decCCE = await runCCEPostGeneration(supabase, projectId, rewrittenText, decDocType, "dev-engine-v2:decision");
       const newVersion = await createVersion(supabase, {
         documentId,
-        docType: decDocRow?.doc_type || doc_type || "other",
+        docType: decDocType,
         plaintext: rewrittenText,
         label: `Decision fix — option ${option_id}`,
         createdBy: user.id,
         changeSummary: decisionParsed.changes_summary || `Applied decision option ${option_id}`,
-        metaJson: decMetaJson,
+        metaJson: { ...(decMetaJson || {}), ...decCCE.metaPatch },
         generatorId: "dev-engine-v2-decision",
         inputsUsed: { generator_id: "dev-engine-v2-decision", document_id: documentId, parent_version_id: base_version_id, decision_id, option_id, project_id: projectId },
       });
@@ -10447,19 +10529,21 @@ Return ONLY valid JSON:
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       const rewrittenText = parsed.rewritten_text || version.plaintext;
 
-      // Create new version via doc-os
+      // Create new version via doc-os + CCE drift check
       const bundleLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const bundleTvCtx = await loadTeamVoiceContext(supabase, projectId, bundleLane);
       const bundleMetaJson = bundleTvCtx.metaStamp ? { ...bundleTvCtx.metaStamp } : undefined;
       const { data: bundleDocRow } = await supabase.from("project_documents").select("doc_type").eq("id", documentId).single();
+      const bundleDocType = bundleDocRow?.doc_type || "other";
+      const bundleCCE = await runCCEPostGeneration(supabase, projectId, rewrittenText, bundleDocType, "dev-engine-v2:bundle");
       const newVersion = await createVersion(supabase, {
         documentId,
-        docType: bundleDocRow?.doc_type || "other",
+        docType: bundleDocType,
         plaintext: rewrittenText,
         label: `Bundle fix — ${bundle_id || "bundle"}`,
         createdBy: user.id,
         changeSummary: parsed.changes_summary || "Bundle fix applied",
-        metaJson: bundleMetaJson,
+        metaJson: { ...(bundleMetaJson || {}), ...bundleCCE.metaPatch },
         generatorId: "dev-engine-v2-bundle",
         inputsUsed: { generator_id: "dev-engine-v2-bundle", document_id: documentId, parent_version_id: versionId, bundle_id, project_id: projectId },
       });
@@ -26948,21 +27032,23 @@ CRITICAL:
         rewriteScopePlan.target_scene_numbers.length > 0 &&
         rewriteScopePlan.target_scene_numbers.length < totalScenesInAssembly;
 
-      // Create new version via doc-os
+      // Create new version via doc-os + CCE drift check
       const sceneRwLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const sceneRwTvCtx = await loadTeamVoiceContext(supabase, projectId, sceneRwLane);
       const sceneRwMetaJson = sceneRwTvCtx.metaStamp ? { ...sceneRwTvCtx.metaStamp } : undefined;
       const { data: sceneRwDocRow } = await supabase.from("project_documents").select("doc_type").eq("id", sourceDocId).single();
+      const sceneRwDocType = sceneRwDocRow?.doc_type || "other";
+      const sceneRwCCE = await runCCEPostGeneration(supabase, projectId, assembledText, sceneRwDocType, "dev-engine-v2:scene-rewrite");
       const newVersion = await createVersion(supabase, {
         documentId: sourceDocId,
-        docType: sceneRwDocRow?.doc_type || "other",
+        docType: sceneRwDocType,
         plaintext: assembledText,
         label: trulySelective ? `Selective scene rewrite (${outputs.length}/${totalScenesInAssembly} scenes)` : `Scene rewrite`,
         createdBy: user.id,
         changeSummary: trulySelective
           ? `Selective scene-level rewrite: ${outputs.length} of ${totalScenesInAssembly} scenes rewritten.`
           : `Scene-level rewrite across ${outputs.length} scenes.`,
-        metaJson: sceneRwMetaJson,
+        metaJson: { ...(sceneRwMetaJson || {}), ...sceneRwCCE.metaPatch },
         generatorId: "dev-engine-v2-scene-rewrite",
         inputsUsed: { generator_id: "dev-engine-v2-scene-rewrite", document_id: sourceDocId, parent_version_id: sourceVersionId, run_id: runId, project_id: projectId },
       });
@@ -31514,11 +31600,13 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
             execution_message: `Dry run: ${appliedSectionKeys.length} section(s) simulated [${appliedSectionKeys.join("+")}]`,
           });
         } else if (successfulResults.length > 0) {
-          // Write ONE consolidated version
+          // Write ONE consolidated version + CCE drift check
           try {
+            const patchDocType = orderedTargets[0].doc_type;
+            const patchCCE = await runCCEPostGeneration(supabase, projectId, runningContent, patchDocType, "dev-engine-v2:patch-execution");
             const newVersion = await createVersion(supabase, {
               documentId: documentId,
-              docType: orderedTargets[0].doc_type,
+              docType: patchDocType,
               plaintext: runningContent,
               label: `patch_execution_v1.1_sections_${appliedSectionKeys.join("+")}`,
               createdBy: execUserId,
@@ -31540,6 +31628,7 @@ Write the COMPLETE teleplay for Episode ${epIdx} NOW.`;
                 patch_section_keys: appliedSectionKeys,
                 patch_repair_type: execCore.resolved_repair_type || repairType || null,
                 multi_section_execution: appliedSectionKeys.length > 1,
+                ...patchCCE.metaPatch,
               },
             });
 
