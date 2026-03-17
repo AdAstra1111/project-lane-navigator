@@ -411,29 +411,31 @@ One-page pitch: ${c.one_page_pitch}
           await svcClient
             .from("idea_blueprint_candidates")
             .update({
-              score_market_heat: Number(es.score_market_heat) || 0,
-              score_feasibility: Number(es.score_feasibility) || 0,
-              score_lane_fit: Number(es.score_lane_fit) || 0,
-              score_saturation_risk: Number(es.score_saturation_risk) || 0,
-              score_company_fit: Number(es.score_company_fit) || 0,
+              score_market_heat: normalizedScores.score_market_heat,
+              score_feasibility: normalizedScores.score_feasibility,
+              score_lane_fit: normalizedScores.score_lane_fit,
+              score_saturation_risk: normalizedScores.score_saturation_risk,
+              score_company_fit: normalizedScores.score_company_fit,
               score_total: recalcTotal,
               scoring_method: "independent_evaluation",
               evaluated_scores: {
                 raw_llm_scores: es,
                 recalculated_total: recalcTotal,
+                scoring_module: "pitchScoring.ts",
                 evaluator_model: "google/gemini-2.5-flash",
                 evaluated_at: new Date().toISOString(),
                 rationale: es.scoring_rationale || null,
+                drift_warning: drift || null,
               },
             })
             .eq("id", candidateId);
 
           // Update in-memory for response
-          candidate.score_market_heat = Number(es.score_market_heat) || 0;
-          candidate.score_feasibility = Number(es.score_feasibility) || 0;
-          candidate.score_lane_fit = Number(es.score_lane_fit) || 0;
-          candidate.score_saturation_risk = Number(es.score_saturation_risk) || 0;
-          candidate.score_company_fit = Number(es.score_company_fit) || 0;
+          candidate.score_market_heat = normalizedScores.score_market_heat;
+          candidate.score_feasibility = normalizedScores.score_feasibility;
+          candidate.score_lane_fit = normalizedScores.score_lane_fit;
+          candidate.score_saturation_risk = normalizedScores.score_saturation_risk;
+          candidate.score_company_fit = normalizedScores.score_company_fit;
           candidate.score_total = recalcTotal;
           candidate.scoring_method = "independent_evaluation";
         }
