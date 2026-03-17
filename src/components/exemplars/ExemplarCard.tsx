@@ -72,6 +72,12 @@ export function ExemplarCard({ idea, onCompare, onFindSimilar, onOpen, showSimil
               {(idea as any)._similarityScore}% match
             </Badge>
           )}
+          {isApproved && (
+            <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">Manual Exemplar</Badge>
+          )}
+          {isLearningPool && (
+            <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-400">Learning Pool</Badge>
+          )}
         </div>
 
         {/* Score breakdown */}
