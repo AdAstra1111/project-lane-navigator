@@ -186,7 +186,7 @@ export function ActionToolbar({
         {/* Skip stage */}
         {hasAnalysis && !isConverged && nextBestDocument && (
           <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 text-amber-500"
-            onClick={onSkipStage} disabled={anyPending}>
+            onClick={onSkipStage} disabled={actionsDisabled}>
             <AlertTriangle className="h-3 w-3" /> Skip
           </Button>
         )}
