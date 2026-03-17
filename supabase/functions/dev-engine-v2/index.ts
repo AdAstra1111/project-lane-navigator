@@ -21298,7 +21298,7 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
       }).select().single();
 
       // 4. LLM: Build spine
-      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
+      const apiKey = resolveGateway().apiKey;
       const spineSystem = `You are a script analysis engine. Given a scene map of a screenplay, produce a Project Spine JSON.
 Output ONLY valid JSON with this structure:
 {
