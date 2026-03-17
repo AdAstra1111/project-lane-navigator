@@ -17418,7 +17418,8 @@ Return ONLY valid JSON:
       }
 
       // ── LOVABLE_API_KEY guard ─────────────────────────────────────────
-      const RP4_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+      const _rp4Gw = resolveGateway();
+      const RP4_API_KEY = _rp4Gw.apiKey;
       if (!RP4_API_KEY) {
         return new Response(JSON.stringify({ ok: false, error: "LOVABLE_API_KEY not configured — cannot generate patch proposal" }),
           { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
