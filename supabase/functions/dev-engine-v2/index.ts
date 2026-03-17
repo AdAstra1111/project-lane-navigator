@@ -27745,7 +27745,7 @@ No stubs, no placeholders, no TODO markers.`;
       let currentVersions: any[] = [];
       if (allDocIds.length > 0) {
         const { data: vers } = await supabase.from("project_document_versions")
-          .select("id, document_id, plaintext, approval_status, version_number")
+          .select("id, document_id, plaintext, approval_status, version_number, is_stale, stale_reason")
           .in("document_id", allDocIds).eq("is_current", true);
         currentVersions = vers || [];
       }
