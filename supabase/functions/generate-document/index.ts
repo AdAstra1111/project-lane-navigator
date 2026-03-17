@@ -1708,7 +1708,21 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
       similarity_risk: simRisk,
     }));
 
-    let { data: docRecord } = await supabase.from("project_documents")
+    // ── CANON DRIFT DETECTION (CCE Phase 1) ──
+    const driftResult = detectCanonDrift(content, narrativeCtx.canonConstraints);
+    logDriftResult("generate-document", projectId, docType, driftResult);
+    if (!driftResult.passed) {
+      console.error(JSON.stringify({
+        diag: "CANON_DRIFT_VIOLATION",
+        requestId,
+        project_id: projectId,
+        doc_type: docType,
+        violations: driftResult.findings.filter(f => f.severity === "violation").map(f => f.detail),
+        warnings: driftResult.findings.filter(f => f.severity === "warning").map(f => f.detail),
+      }));
+    }
+
+
       .select("id")
       .eq("project_id", projectId)
       .eq("doc_type", docType)
