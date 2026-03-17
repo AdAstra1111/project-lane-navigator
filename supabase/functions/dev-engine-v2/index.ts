@@ -4979,6 +4979,7 @@ serve(async (req) => {
         }
       }
 
+      const { data: project } = await supabase.from("projects")
         .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config, canon_version_id")
         .eq("id", projectId).single();
 
