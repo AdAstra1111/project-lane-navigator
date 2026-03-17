@@ -194,9 +194,11 @@ serve(async (req) => {
     const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
-
-    if (!apiKey) {
+    let apiKey: string;
+    try {
+      const gw = resolveGateway();
+      apiKey = gw.apiKey;
+    } catch {
       return jsonRes({ error: "AI API key not configured" }, 500);
     }
 
