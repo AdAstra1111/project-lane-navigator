@@ -28,6 +28,9 @@ export interface PitchIdea {
   source_coverage_run_id: string | null;
   source_dna_profile_id: string | null;
   source_engine_key: string | null;
+  source_blueprint_id: string | null;
+  source_blueprint_run_id: string | null;
+  generation_mode: string | null;
   raw_response: any;
   status: string;
   score_market_heat: number;
