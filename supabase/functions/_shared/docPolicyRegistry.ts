@@ -275,9 +275,33 @@ function extractEntitiesFromText(text: string): string[] {
 }
 
 /**
+ * Strip the "WORLD CHARACTERS (NON-CANONICAL)" section and everything after it
+ * from character_bible text to prevent non-canonical world characters from
+ * entering the canon entity set.
+ */
+function stripWorldCharactersSection(text: string): string {
+  // Match common heading patterns for the world characters section
+  const patterns = [
+    /^#{1,3}\s+WORLD CHARACTERS\b.*$/mi,
+    /^#{1,3}\s+World Characters\b.*$/mi,
+    /^\*\*WORLD CHARACTERS\b.*$/mi,
+  ];
+  for (const pat of patterns) {
+    const m = text.match(pat);
+    if (m && m.index !== undefined) {
+      return text.slice(0, m.index).trimEnd();
+    }
+  }
+  return text;
+}
+
+/**
  * Build canon entity list from DB current versions of key doc types.
  * Sources (in order): canon, character_bible, vertical_episode_beats, season_arc.
  * Returns null if no source docs found (caller should use INPUT_INCOMPLETE stop).
+ *
+ * For character_bible: strips the "WORLD CHARACTERS" section to prevent
+ * non-canonical world characters from entering the entity set.
  */
 export async function buildCanonEntitiesFromDB(
   supabase: any,
@@ -307,7 +331,12 @@ export async function buildCanonEntitiesFromDB(
       .maybeSingle();
 
     if (ver?.plaintext) {
-      const docEntities = extractEntitiesFromText(ver.plaintext);
+      // Strip world characters section from character_bible to prevent
+      // non-canonical entities entering the canon entity set
+      const textForExtraction = docType === "character_bible"
+        ? stripWorldCharactersSection(ver.plaintext)
+        : ver.plaintext;
+      const docEntities = extractEntitiesFromText(textForExtraction);
       entities.push(...docEntities);
       sources.push(docType);
     }
