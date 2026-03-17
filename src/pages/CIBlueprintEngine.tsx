@@ -57,7 +57,12 @@ function CandidateCard({ candidate, onPromote, promoting }: { candidate: Bluepri
               {Number(candidate.score_total).toFixed(0)}
             </div>
             <div className="text-[10px] text-muted-foreground">CI Score</div>
-          </div>
+            {scoringMethod === 'independent_evaluation' && (
+              <div className="text-[9px] text-emerald-500/70">✓ Evaluated</div>
+            )}
+            {scoringMethod === 'scoring_failed' && (
+              <div className="text-[9px] text-destructive/70">⚠ Unscored</div>
+            )}
         </div>
 
         <div className="grid grid-cols-5 gap-2">
