@@ -7609,6 +7609,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           deliverableType: effectiveDeliverable,
           format: assembleProject?.format || undefined,
           dependsOnResolverHash: chunkedResolverHash,
+          projectId,
         });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
