@@ -10350,19 +10350,21 @@ Return ONLY valid JSON:
       const decisionParsed = await parseAIJson(LOVABLE_API_KEY, decisionRaw);
       const rewrittenText = decisionParsed.rewritten_text || baseVersion.plaintext;
 
-      // Create new version via doc-os
+      // Create new version via doc-os + CCE drift check
       const decLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const decTvCtx = await loadTeamVoiceContext(supabase, projectId, decLane);
       const decMetaJson = decTvCtx.metaStamp ? { ...decTvCtx.metaStamp } : undefined;
       const { data: decDocRow } = await supabase.from("project_documents").select("doc_type").eq("id", documentId).single();
+      const decDocType = decDocRow?.doc_type || doc_type || "other";
+      const decCCE = await runCCEPostGeneration(supabase, projectId, rewrittenText, decDocType, "dev-engine-v2:decision");
       const newVersion = await createVersion(supabase, {
         documentId,
-        docType: decDocRow?.doc_type || doc_type || "other",
+        docType: decDocType,
         plaintext: rewrittenText,
         label: `Decision fix — option ${option_id}`,
         createdBy: user.id,
         changeSummary: decisionParsed.changes_summary || `Applied decision option ${option_id}`,
-        metaJson: decMetaJson,
+        metaJson: { ...(decMetaJson || {}), ...decCCE.metaPatch },
         generatorId: "dev-engine-v2-decision",
         inputsUsed: { generator_id: "dev-engine-v2-decision", document_id: documentId, parent_version_id: base_version_id, decision_id, option_id, project_id: projectId },
       });
