@@ -37,9 +37,63 @@ serve(async (req) => {
       const {
         format = "film", lane = "", genre = "", engine = "", budgetBand = "",
         candidateCount = 5, useTrends = false, useExemplars = false, ciMin = 95,
+        sourceDnaProfileId = null,
       } = body;
 
-      console.log(`[ci-blueprint] build start: format=${format} lane=${lane} genre=${genre} count=${candidateCount}`);
+      console.log(`[ci-blueprint] build start: format=${format} lane=${lane} genre=${genre} count=${candidateCount} dna=${sourceDnaProfileId || 'none'}`);
+
+      // ── DNA RETRIEVAL ──
+      let dnaProfile: any = null;
+      let dnaConstraintMode = "none";
+      let dnaEngineKey: string | null = null;
+      let dnaPromptBlock = "";
+
+      if (sourceDnaProfileId) {
+        const { data: profile, error: dnaErr } = await svcClient
+          .from("narrative_dna_profiles")
+          .select("id, source_title, source_type, status, spine_json, thematic_spine, escalation_architecture, antagonist_pattern, emotional_cadence, world_logic_rules, set_piece_grammar, ending_logic, power_dynamic, forbidden_carryovers, mutable_variables, primary_engine_key, secondary_engine_key, extraction_confidence")
+          .eq("id", sourceDnaProfileId)
+          .eq("user_id", user.id)
+          .single();
+
+        if (dnaErr || !profile) {
+          console.warn(`[ci-blueprint] DNA profile not found or not owned: ${sourceDnaProfileId}`);
+        } else if (profile.status !== "locked") {
+          console.warn(`[ci-blueprint] DNA profile not locked: ${sourceDnaProfileId} status=${profile.status}`);
+        } else {
+          dnaProfile = profile;
+          dnaConstraintMode = "dna_profile";
+          dnaEngineKey = profile.primary_engine_key || null;
+          console.log(`[ci-blueprint] DNA loaded: "${profile.source_title}" engine=${dnaEngineKey || 'none'} confidence=${profile.extraction_confidence}`);
+
+          // Build structured DNA constraint block for prompt
+          const spineAxes = profile.spine_json || {};
+          const spineLines = Object.entries(spineAxes)
+            .filter(([_, v]) => v)
+            .map(([k, v]) => `  - ${k}: ${v}`)
+            .join("\n");
+
+          dnaPromptBlock = `\n\nNARRATIVE DNA CONSTRAINTS (from "${profile.source_title}"):
+These constraints define the STRUCTURAL IDENTITY of the story DNA. Generated ideas must preserve these narrative patterns while creating COMPLETELY ORIGINAL stories. Do NOT reproduce the source story's plot, characters, or setting.
+
+ORIGINALITY GUARDRAIL: You are extracting structural DNA patterns only. Generated ideas must be wholly original — new characters, new world, new plot. The DNA provides narrative architecture, not content to clone.
+
+${spineLines ? `NARRATIVE SPINE:\n${spineLines}` : ""}
+${profile.thematic_spine ? `THEMATIC SPINE: ${profile.thematic_spine}` : ""}
+${profile.escalation_architecture ? `ESCALATION ARCHITECTURE: ${profile.escalation_architecture}` : ""}
+${profile.antagonist_pattern ? `ANTAGONIST PATTERN: ${profile.antagonist_pattern}` : ""}
+${profile.power_dynamic ? `POWER DYNAMIC: ${profile.power_dynamic}` : ""}
+${profile.ending_logic ? `ENDING LOGIC: ${profile.ending_logic}` : ""}
+${profile.set_piece_grammar ? `SET PIECE GRAMMAR: ${profile.set_piece_grammar}` : ""}
+${(profile.emotional_cadence?.length) ? `EMOTIONAL CADENCE: ${profile.emotional_cadence.join(" → ")}` : ""}
+${(profile.world_logic_rules?.length) ? `WORLD LOGIC RULES:\n${profile.world_logic_rules.map((r: string) => `  - ${r}`).join("\n")}` : ""}
+${(profile.forbidden_carryovers?.length) ? `FORBIDDEN CARRYOVERS (do NOT use these from the source):\n${profile.forbidden_carryovers.map((f: string) => `  - ${f}`).join("\n")}` : ""}
+${(profile.mutable_variables?.length) ? `MUTABLE VARIABLES (may be adapted freely):\n${profile.mutable_variables.map((m: string) => `  - ${m}`).join("\n")}` : ""}
+${dnaEngineKey ? `ENGINE PATTERN: ${dnaEngineKey}` : ""}`;
+        }
+      }
+
+      const optimizerMode = dnaProfile ? "dna_informed" : "ci_pattern";
 
       // 1. Create run record
       const { data: run, error: runErr } = await svcClient
@@ -47,7 +101,16 @@ serve(async (req) => {
         .insert({
           user_id: user.id,
           status: "running",
-          config: { format, lane, genre, engine, budgetBand, candidateCount, useTrends, useExemplars, ciMin },
+          config: { format, lane, genre, engine, budgetBand, candidateCount, useTrends, useExemplars, ciMin, sourceDnaProfileId },
+          source_dna_profile_id: sourceDnaProfileId || null,
+          dna_inputs: dnaProfile ? [{
+            profile_id: dnaProfile.id,
+            source_title: dnaProfile.source_title,
+            engine_key: dnaEngineKey,
+            thematic_spine: dnaProfile.thematic_spine,
+            confidence: dnaProfile.extraction_confidence,
+          }] : [],
+          optimizer_mode: optimizerMode,
         })
         .select("id")
         .single();
@@ -55,9 +118,10 @@ serve(async (req) => {
       const runId = run.id;
 
       // 2. Fetch high-CI exemplar ideas for structural patterns
+      // When DNA is active, prefer ideas with matching engine key
       let exemplarQuery = svcClient
         .from("pitch_ideas")
-        .select("id, title, production_type, recommended_lane, genre, source_engine_key, budget_band, score_total, score_market_heat, score_feasibility, score_lane_fit, score_saturation_risk, score_company_fit, logline, comps, packaging_suggestions, risks_mitigations")
+        .select("id, title, production_type, recommended_lane, genre, source_engine_key, source_dna_profile_id, budget_band, score_total, score_market_heat, score_feasibility, score_lane_fit, score_saturation_risk, score_company_fit, logline, comps, packaging_suggestions, risks_mitigations")
         .gte("score_total", ciMin)
         .order("score_total", { ascending: false })
         .limit(30);
@@ -69,7 +133,25 @@ serve(async (req) => {
 
       const { data: exemplars, error: exErr } = await exemplarQuery;
       if (exErr) console.warn(`[ci-blueprint] exemplar fetch error: ${exErr.message}`);
-      const sourceIdeas = exemplars || [];
+      let sourceIdeas = exemplars || [];
+
+      // DNA-aware source idea biasing: prioritize ideas with matching engine/DNA
+      if (dnaProfile && sourceIdeas.length > 0) {
+        const scored = sourceIdeas.map((idea: any) => {
+          let boost = 0;
+          if (dnaEngineKey && idea.source_engine_key === dnaEngineKey) boost += 2;
+          if (sourceDnaProfileId && idea.source_dna_profile_id === sourceDnaProfileId) boost += 3;
+          return { ...idea, _dna_boost: boost };
+        });
+        scored.sort((a: any, b: any) => {
+          if (b._dna_boost !== a._dna_boost) return b._dna_boost - a._dna_boost;
+          return (Number(b.score_total) || 0) - (Number(a.score_total) || 0);
+        });
+        sourceIdeas = scored;
+        const boosted = scored.filter((s: any) => s._dna_boost > 0).length;
+        console.log(`[ci-blueprint] DNA-biased source ideas: ${boosted} boosted out of ${sourceIdeas.length}`);
+      }
+
       console.log(`[ci-blueprint] found ${sourceIdeas.length} source ideas`);
 
       // 3. Fetch trend signals if requested
@@ -114,14 +196,19 @@ serve(async (req) => {
           format,
           lane: lane || scorePatterns.common_lanes[0] || "",
           genre: genre || scorePatterns.common_genres[0] || "",
-          engine: engine || null,
+          engine: engine || dnaEngineKey || null,
           budget_band: budgetBand || scorePatterns.common_budget_bands[0] || "",
+          source_dna_profile_id: sourceDnaProfileId || null,
+          source_engine_key: dnaEngineKey || null,
+          dna_constraint_mode: dnaConstraintMode,
+          blueprint_mode: optimizerMode,
           structural_patterns: scorePatterns,
           market_design: {
             useTrends,
             trendCount: trendSignalIds.length,
             trend_signal_ids: trendSignalIds,
             positioning_strategy: lane ? `${lane}-optimized` : "best-fit",
+            dna_informed: !!dnaProfile,
           },
           protagonist_design: {
             instruction: "Protagonist must have a clear want, a deep need, and a defining flaw that drives conflict.",
@@ -141,6 +228,7 @@ serve(async (req) => {
             no_clone_from_exemplars: true,
             differentiation_required: true,
             source_idea_count: sourceIdeas.length,
+            dna_originality_guardrail: !!dnaProfile,
           },
           derived_from_idea_ids: sourceIdeas.map((i: any) => i.id),
           trend_inputs: trendSignalIds.map((id: string) => ({ signal_id: id })),
@@ -172,13 +260,14 @@ CRITICAL RULES:
 - Do NOT self-score. Scores will be evaluated independently by a separate system.
 - Prioritize: hook clarity, protagonist distinctiveness, conflict engine strength, market positioning, and feasibility.
 - For each idea, explicitly describe: protagonist_design, conflict_design, hook_type, market_positioning, feasibility_notes.
-${structuralContext}${trendContext}
+${structuralContext}${trendContext}${dnaPromptBlock}
 
 Format: ${format}
 Lane: ${lane || "best fit"}
 Genre: ${genre || "best fit"}
 Budget band: ${budgetBand || "flexible"}
-${engine ? `Engine: ${engine}` : ""}`;
+${engine ? `Engine: ${engine}` : dnaEngineKey ? `Engine (from DNA): ${dnaEngineKey}` : ""}
+${dnaProfile ? `\nBLUEPRINT MODE: DNA-Informed — ideas must structurally align with the DNA constraints above while being completely original.` : ""}`;
 
       const userPrompt = `Generate exactly ${Math.min(candidateCount, 10)} original pitch idea candidates. Each must be structurally strong and market-aligned. Include rich design metadata for each.`;
 
@@ -220,7 +309,7 @@ ${engine ? `Engine: ${engine}` : ""}`;
         },
       }];
 
-      console.log(`[ci-blueprint] calling AI for ${candidateCount} candidates`);
+      console.log(`[ci-blueprint] calling AI for ${candidateCount} candidates (mode=${optimizerMode})`);
       const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
@@ -280,7 +369,7 @@ ${engine ? `Engine: ${engine}` : ""}`;
             genre: c.genre || genre || "",
             format: c.format || format || "",
             lane: c.lane || lane || "",
-            engine: engine || null,
+            engine: engine || dnaEngineKey || null,
             budget_band: c.budget_band || budgetBand || "",
             // Scores start at 0 — will be filled by independent evaluation
             score_market_heat: 0,
@@ -297,6 +386,10 @@ ${engine ? `Engine: ${engine}` : ""}`;
               source_idea_count: sourceIdeas.length,
               trend_signal_count: trendSignalIds.length,
               promotion_source: "ci_blueprint_engine",
+              optimizer_mode: optimizerMode,
+              source_dna_profile_id: sourceDnaProfileId || null,
+              source_engine_key: dnaEngineKey || null,
+              dna_source_title: dnaProfile?.source_title || null,
               design_metadata: {
                 protagonist_design: c.protagonist_design || null,
                 conflict_design: c.conflict_design || null,
@@ -463,7 +556,7 @@ One-page pitch: ${c.one_page_pitch}
         })
         .eq("id", runId);
 
-      console.log(`[ci-blueprint] completed: ${savedCandidates.length} candidates saved and scored`);
+      console.log(`[ci-blueprint] completed: ${savedCandidates.length} candidates saved and scored (mode=${optimizerMode})`);
 
       return new Response(JSON.stringify({
         run_id: runId,
@@ -471,6 +564,8 @@ One-page pitch: ${c.one_page_pitch}
         candidates: savedCandidates,
         source_idea_count: sourceIdeas.length,
         trend_count: trendSignalIds.length,
+        optimizer_mode: optimizerMode,
+        dna_profile_title: dnaProfile?.source_title || null,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -509,6 +604,9 @@ One-page pitch: ${c.one_page_pitch}
         });
       }
 
+      // Extract DNA provenance from candidate
+      const provenance = (candidate.provenance as Record<string, any>) || {};
+
       // Create pitch idea from candidate
       const { data: pitchIdea, error: piErr } = await svcClient
         .from("pitch_ideas")
@@ -538,13 +636,21 @@ One-page pitch: ${c.one_page_pitch}
           score_saturation_risk: candidate.score_saturation_risk,
           score_company_fit: candidate.score_company_fit,
           score_total: candidate.score_total,
+          source_engine_key: provenance.source_engine_key || candidate.engine || null,
+          source_dna_profile_id: provenance.source_dna_profile_id || null,
           raw_response: {
             ...((candidate.raw_response as Record<string, unknown>) || {}),
             promotion_source: "ci_blueprint_engine",
             blueprint_candidate_id: candidate.id,
             blueprint_id: candidate.blueprint_id,
+            blueprint_run_id: candidate.run_id,
             scoring_method: candidate.scoring_method,
             evaluated_scores: candidate.evaluated_scores,
+            optimizer_mode: provenance.optimizer_mode || "ci_pattern",
+            source_dna_profile_id: provenance.source_dna_profile_id || null,
+            source_engine_key: provenance.source_engine_key || null,
+            dna_source_title: provenance.dna_source_title || null,
+            generation_mode: provenance.optimizer_mode || "ci_pattern",
           },
         })
         .select("id")

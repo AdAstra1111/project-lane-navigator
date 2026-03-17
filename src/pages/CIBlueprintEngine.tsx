@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/Header';
-import { Loader2, Zap, TrendingUp, Award, Rocket, ChevronDown, FlaskConical, Sparkles, AlertCircle, ExternalLink } from 'lucide-react';
+import { Loader2, Zap, TrendingUp, Award, Rocket, ChevronDown, FlaskConical, Sparkles, AlertCircle, ExternalLink, Dna } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +18,7 @@ import {
   type BuildConfig,
   type BlueprintCandidate,
 } from '@/hooks/useBlueprintEngine';
+import { useDnaProfiles } from '@/hooks/useNarrativeDna';
 
 function ScoreBar({ label, value, max = 100 }: { label: string; value: number; max?: number }) {
   const pct = Math.min(100, (Number(value) / max) * 100);
@@ -40,6 +41,8 @@ function CandidateCard({ candidate, onPromote, promoting, onOpenPitchIdea }: { c
   const [expanded, setExpanded] = useState(false);
   const meetsThresholds = Number(candidate.score_total) >= 95 && Number(candidate.score_market_heat) >= 80 && Number(candidate.score_feasibility) >= 75 && Number(candidate.score_lane_fit) >= 80;
   const promotedPitchIdeaId = candidate.promoted_pitch_idea_id || candidate.pitch_idea_id;
+  const provenance = candidate.provenance || {};
+  const isDnaInformed = provenance.optimizer_mode === 'dna_informed' || !!provenance.source_dna_profile_id;
 
   return (
     <Card className="border-border/30 hover:border-primary/30 transition-colors">
@@ -51,6 +54,11 @@ function CandidateCard({ candidate, onPromote, promoting, onOpenPitchIdea }: { c
               <Badge variant="outline" className="text-[10px] shrink-0">{candidate.format}</Badge>
               <Badge variant="secondary" className="text-[10px] shrink-0">{candidate.genre}</Badge>
               {candidate.lane && <Badge variant="outline" className="text-[10px] shrink-0">{candidate.lane}</Badge>}
+              {isDnaInformed && (
+                <Badge variant="outline" className="text-[10px] shrink-0 border-violet-500/30 text-violet-400">
+                  <Dna className="h-2.5 w-2.5 mr-0.5" />DNA
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{candidate.logline}</p>
           </div>
@@ -88,8 +96,16 @@ function CandidateCard({ candidate, onPromote, promoting, onOpenPitchIdea }: { c
             {candidate.raw_response?.hook_clarity && (
               <p className="text-xs"><span className="text-muted-foreground">Hook: </span>{candidate.raw_response.hook_clarity}</p>
             )}
+            {isDnaInformed && provenance.dna_source_title && (
+              <div className="flex items-center gap-1.5 text-[10px] text-violet-400/80">
+                <Dna className="h-3 w-3" />
+                <span>DNA: {provenance.dna_source_title}</span>
+                {provenance.source_engine_key && <span>· Engine: {provenance.source_engine_key}</span>}
+              </div>
+            )}
             <div className="pt-1 text-[10px] text-muted-foreground/60 font-mono">
               Provenance: blueprint={candidate.blueprint_id?.slice(0, 8)} | run={candidate.run_id?.slice(0, 8)}
+              {provenance.optimizer_mode ? ` | mode=${provenance.optimizer_mode}` : ''}
             </div>
           </div>
         )}
@@ -141,6 +157,7 @@ export default function CIBlueprintEngine() {
     useTrends: true,
     useExemplars: false,
     ciMin: 95,
+    sourceDnaProfileId: null,
   });
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
@@ -148,6 +165,10 @@ export default function CIBlueprintEngine() {
   const promoteMutation = usePromoteCandidate();
   const { data: candidates = [], isLoading: loadingCandidates } = useBlueprintCandidates(activeRunId);
   const { data: blueprints = [] } = useBlueprints(activeRunId);
+  const { data: dnaProfiles = [] } = useDnaProfiles();
+
+  const lockedProfiles = dnaProfiles.filter(p => p.status === 'locked');
+  const selectedDna = lockedProfiles.find(p => p.id === config.sourceDnaProfileId);
 
   const handleBuild = async () => {
     const result = await buildMutation.mutateAsync(config);
@@ -161,6 +182,8 @@ export default function CIBlueprintEngine() {
   const promotedCount = candidates.filter(c => c.promotion_status === 'promoted').length;
 
   const blueprint = blueprints[0];
+  const isDnaMode = !!config.sourceDnaProfileId;
+  const blueprintMode = blueprint?.blueprint_mode || (isDnaMode ? 'dna_informed' : 'ci_pattern');
 
   return (
     <div className="min-h-screen bg-background">
@@ -228,6 +251,45 @@ export default function CIBlueprintEngine() {
               </div>
             </div>
 
+            {/* DNA Profile Selector */}
+            <div className="rounded-md border border-border/40 bg-muted/20 p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <Dna className="h-3.5 w-3.5 text-violet-400" />
+                <Label className="text-xs font-medium">Narrative DNA Constraint</Label>
+                <Badge variant="outline" className="text-[9px] ml-auto">Optional</Badge>
+              </div>
+              <Select
+                value={config.sourceDnaProfileId || '__none'}
+                onValueChange={(v) => setConfig(c => ({ ...c, sourceDnaProfileId: v === '__none' ? null : v }))}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="No DNA constraint" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none" className="text-xs">None — generic CI patterns</SelectItem>
+                  {lockedProfiles.map(p => (
+                    <SelectItem key={p.id} value={p.id} className="text-xs">
+                      {p.source_title}
+                      {(p as any).primary_engine_key ? ` [${(p as any).primary_engine_key}]` : ''}
+                      {p.extraction_confidence != null ? ` (${Math.round(p.extraction_confidence * 100)}%)` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedDna && (
+                <div className="rounded border border-violet-500/20 bg-violet-500/5 px-2.5 py-1.5 text-[11px] space-y-0.5">
+                  <div className="font-medium text-violet-300/90">{selectedDna.source_title}</div>
+                  {selectedDna.thematic_spine && (
+                    <div className="text-muted-foreground"><span className="text-violet-400/60">Spine:</span> {selectedDna.thematic_spine}</div>
+                  )}
+                  <div className="text-muted-foreground/70 italic">Blueprint will be optimized for this DNA's structural patterns</div>
+                </div>
+              )}
+              {lockedProfiles.length === 0 && (
+                <p className="text-[10px] text-muted-foreground/60">No locked DNA profiles available. Lock a profile at /narrative-dna first.</p>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
               <div className="space-y-1.5">
                 <Label className="text-xs">Candidates ({config.candidateCount})</Label>
@@ -250,10 +312,12 @@ export default function CIBlueprintEngine() {
             <div className="flex items-center gap-3 pt-1">
               <Button onClick={handleBuild} disabled={buildMutation.isPending} className="gap-1.5">
                 {buildMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {buildMutation.isPending ? 'Generating...' : 'Build Blueprint & Generate'}
+                {buildMutation.isPending ? 'Generating...' : isDnaMode ? 'Build DNA-Informed Blueprint' : 'Build Blueprint & Generate'}
               </Button>
               {buildMutation.isPending && (
-                <span className="text-xs text-muted-foreground animate-pulse">Analyzing patterns and generating candidates…</span>
+                <span className="text-xs text-muted-foreground animate-pulse">
+                  {isDnaMode ? 'Analyzing DNA patterns and generating candidates…' : 'Analyzing patterns and generating candidates…'}
+                </span>
               )}
             </div>
           </CardContent>
@@ -266,6 +330,9 @@ export default function CIBlueprintEngine() {
               <div className="flex items-center gap-2 mb-2">
                 <FlaskConical className="h-4 w-4 text-primary" />
                 <h3 className="text-sm font-semibold">Blueprint Pattern</h3>
+                <Badge variant="outline" className={`text-[10px] ml-auto ${blueprintMode === 'dna_informed' ? 'border-violet-500/30 text-violet-400' : ''}`}>
+                  {blueprintMode === 'dna_informed' ? '🧬 DNA-Informed' : '📊 CI Pattern'}
+                </Badge>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                 <div>
@@ -285,6 +352,13 @@ export default function CIBlueprintEngine() {
                   <span className="font-medium">{(blueprint.market_design as any)?.trendCount || 0}</span>
                 </div>
               </div>
+              {blueprint.source_dna_profile_id && (
+                <div className="flex items-center gap-1.5 mt-2 text-[11px] text-violet-400/80">
+                  <Dna className="h-3 w-3" />
+                  <span>DNA: {blueprint.source_engine_key ? `${blueprint.source_engine_key} engine` : 'profile active'}</span>
+                  {blueprint.dna_constraint_mode && <span>· mode: {blueprint.dna_constraint_mode}</span>}
+                </div>
+              )}
               {(blueprint.score_pattern as any)?.common_genres?.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
                   {(blueprint.score_pattern as any).common_genres.map((g: string) => (
@@ -344,6 +418,7 @@ export default function CIBlueprintEngine() {
               <h3 className="text-sm font-medium text-muted-foreground mb-1">No blueprint built yet</h3>
               <p className="text-xs text-muted-foreground/70 max-w-sm">
                 Configure your parameters above and click "Build Blueprint & Generate" to derive patterns from high-CI ideas and generate new candidates.
+                {lockedProfiles.length > 0 && ' You can also select a DNA profile to constrain generation.'}
               </p>
             </CardContent>
           </Card>

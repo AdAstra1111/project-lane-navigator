@@ -14,6 +14,9 @@ export interface BlueprintRun {
   blueprint_count: number;
   candidate_count: number;
   error: string | null;
+  source_dna_profile_id: string | null;
+  optimizer_mode: string | null;
+  dna_inputs: any[];
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +36,10 @@ export interface Blueprint {
   trend_inputs: any[];
   exemplar_inputs: any[];
   score_pattern: Record<string, any>;
+  source_dna_profile_id: string | null;
+  source_engine_key: string | null;
+  dna_constraint_mode: string | null;
+  blueprint_mode: string;
   status: string;
   created_at: string;
 }
@@ -78,6 +85,7 @@ export interface BuildConfig {
   useTrends: boolean;
   useExemplars: boolean;
   ciMin: number;
+  sourceDnaProfileId: string | null;
 }
 
 export function useBlueprintRuns() {
@@ -142,13 +150,14 @@ export function useBuildBlueprint() {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      return data as { run_id: string; blueprint_id: string; candidates: BlueprintCandidate[]; source_idea_count: number; trend_count: number };
+      return data as { run_id: string; blueprint_id: string; candidates: BlueprintCandidate[]; source_idea_count: number; trend_count: number; optimizer_mode: string; dna_profile_title: string | null };
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['blueprint-runs'] });
       qc.invalidateQueries({ queryKey: ['blueprint-candidates', data.run_id] });
       qc.invalidateQueries({ queryKey: ['blueprints', data.run_id] });
-      toast.success(`Generated ${data.candidates.length} candidates from ${data.source_idea_count} elite ideas`);
+      const modeLabel = data.optimizer_mode === 'dna_informed' ? ' (DNA-informed)' : '';
+      toast.success(`Generated ${data.candidates.length} candidates from ${data.source_idea_count} elite ideas${modeLabel}`);
     },
     onError: (e: any) => toast.error(e.message || 'Blueprint generation failed'),
   });
