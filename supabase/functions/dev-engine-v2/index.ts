@@ -27356,6 +27356,25 @@ CRITICAL:
         episode_grid: ["season_arc", "character_bible", "format_rules", "concept_brief"],
         vertical_episode_beats: ["episode_grid", "season_arc", "character_bible", "format_rules"],
         episode_script: ["vertical_episode_beats", "episode_grid", "season_arc", "character_bible"],
+        // ── FEATURE FILM UPSTREAM ENFORCEMENT ──
+        // production_draft MUST derive from feature_script for feature-film formats.
+        // beat_sheet should derive from story_outline, not jump to concept_brief.
+        // feature_script should derive from beat_sheet.
+        production_draft: ["feature_script"],
+        feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"],
+        story_outline: ["treatment", "concept_brief"],
+        treatment: ["concept_brief", "idea"],
+        character_bible: ["treatment", "concept_brief", "idea"],
+      };
+
+      // ── STRICT UPSTREAM REQUIREMENTS ──
+      // For specific doc types in specific formats, the upstream MUST be one of these.
+      // If none are available, fail explicitly rather than falling back to a wrong source.
+      const STRICT_UPSTREAM_REQUIREMENTS: Record<string, Record<string, string[]>> = {
+        // format → doc_type → required upstream types
+        "film":    { production_draft: ["feature_script"], feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"] },
+        "feature": { production_draft: ["feature_script"], feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"] },
+        "short":   { production_draft: ["feature_script"], feature_script: ["beat_sheet", "concept_brief"] },
       };
 
       const findUpstream = (stage: string): { upstreamDocId: string; upstreamVersionId: string; upstreamType: string } | null => {
@@ -27373,6 +27392,24 @@ CRITICAL:
         candidates.push("concept_brief", "idea", ...SEED_CORE_TYPES);
 
         const deduped = Array.from(new Set(candidates.filter(t => t && t !== stage)));
+
+        // ── STRICT UPSTREAM ENFORCEMENT ──
+        // If this format+stage has strict requirements, only allow those specific upstream types.
+        const strictReqs = STRICT_UPSTREAM_REQUIREMENTS[fmt]?.[stage];
+        if (strictReqs) {
+          for (const t of strictReqs) {
+            const prevDocId = docSlots.get(t);
+            if (!prevDocId) continue;
+            const prevVer = verByDocId.get(prevDocId);
+            const prevText = (prevVer?.plaintext || "").trim();
+            if (prevText.length < 80) continue;
+            if (containsStubMarker(prevText)) continue;
+            return { upstreamDocId: prevDocId, upstreamVersionId: prevVer.id, upstreamType: t };
+          }
+          // Strict requirements exist but none satisfied — fail explicitly
+          console.error(`[dev-engine-v2][IEL] strict_upstream_missing { stage: "${stage}", format: "${fmt}", required: ${JSON.stringify(strictReqs)}, available: ${JSON.stringify([...docSlots.keys()])} }`);
+          return null;
+        }
 
         for (const t of deduped) {
           const prevDocId = docSlots.get(t);
