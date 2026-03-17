@@ -52,7 +52,7 @@ function hasPlaceholders(text: string): boolean {
 }
 
 // ─── LLM ───
-const GATEWAY_URL = "https://openrouter.ai/api/v1/chat/completions";
+function getGatewayUrl() { return resolveGateway().url; }
 
 async function callLLM(apiKey: string, system: string, user: string): Promise<string> {
   const res = await fetch(GATEWAY_URL, {
