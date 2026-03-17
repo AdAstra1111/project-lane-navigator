@@ -13,6 +13,7 @@ import { ConflictsPanel } from './ConflictsPanel';
 import { OverridesEditor } from './OverridesEditor';
 import { ResolvedRulesPreview } from './ResolvedRulesPreview';
 import { ActiveRulesetBadge } from './ActiveRulesetBadge';
+import { WorldPopulationControl } from './WorldPopulationControl';
 import { WritingVoiceSelector } from './WritingVoiceSelector';
 import { TeamVoiceSelector } from './TeamVoiceSelector';
 import { TeamVoiceManager } from './TeamVoiceManager';
@@ -143,6 +144,15 @@ export function WorldRulesAccordion({ projectId, lane, userId, className }: Prop
               <span className="text-muted-foreground">Auto-diversify</span>
             </div>
           </div>
+
+          {/* World Population Density — non-canonical prompt control */}
+          {!isLocked && (
+            <WorldPopulationControl
+              value={prefs.world_population_density || 'moderate'}
+              onChange={(v) => savePrefs.mutate({ world_population_density: v })}
+              disabled={savePrefs.isPending}
+            />
+          )}
 
           {/* Team Voice — auto-saves on select with race protection */}
           {!isLocked && (

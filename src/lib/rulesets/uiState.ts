@@ -4,12 +4,15 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 
+export type WorldPopulationDensity = 'minimal' | 'moderate' | 'rich';
+
 export interface RulesetPrefs {
   active_engine_profile_id?: string | null;
   auto_diversify?: boolean;
   lock_ruleset?: boolean;
   pacing_feel?: string;
   style_benchmark?: string | null;
+  world_population_density?: WorldPopulationDensity;
   last_ui?: {
     restraint?: number;
     conflict_mode?: string;
