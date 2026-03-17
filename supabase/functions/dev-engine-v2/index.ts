@@ -8050,6 +8050,16 @@ MATERIAL:\n${version.plaintext}${convertTemplateBlock}`;
       });
       if (!newVersion) throw new Error("Failed to create version for converted document");
 
+      // ── CCE: Post-generation drift detection for convert path ──
+      const convertCCE = await runCCEPostGeneration(supabase, projectId, newVersion.plaintext || parsed.converted_text || "", resolvedDocType, "dev-engine-v2:convert");
+      if (Object.keys(convertCCE.metaPatch).length > 0 && newVersion?.id) {
+        const { data: cvExMeta } = await supabase.from("project_document_versions")
+          .select("meta_json").eq("id", newVersion.id).maybeSingle();
+        await supabase.from("project_document_versions").update({
+          meta_json: { ...(cvExMeta?.meta_json || {}), ...convertCCE.metaPatch },
+        }).eq("id", newVersion.id);
+      }
+
       await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: newDoc.id,
