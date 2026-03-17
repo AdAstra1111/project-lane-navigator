@@ -805,15 +805,51 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
             if (!tickDone) await new Promise(r => setTimeout(r, 1000));
           }
 
-          // Only start Auto-Run AFTER devseed-autopilot completes seed generation
-          try {
-            console.log('[DevSeed] Seed stages complete, starting Auto-Run...');
-            await supabase.functions.invoke('auto-run', {
-              body: { action: 'start', projectId: project.id, allow_defaults: true },
-            });
-            parts.push('auto-run started');
-          } catch (arErr: any) {
-            console.error('[DevSeed] auto-run start failed (non-fatal):', arErr?.message);
+          // ── Seed-state validation guard before Auto-Run ──
+          // Auto-Run must only start from an explicitly validated seed state.
+          const lastAutopilotStatus = autopilotState?.status;
+          const hasAutopilotError = lastAutopilotStatus === 'error' ||
+            (autopilotState?.stages && Object.values(autopilotState.stages).some(
+              (s: any) => s.status === 'error'
+            ));
+
+          // Verify required seed docs actually exist in the DB
+          const { data: seedDocs, error: seedCheckErr } = await supabase
+            .from('project_documents')
+            .select('doc_type')
+            .eq('project_id', project.id)
+            .in('doc_type', ['idea', 'concept_brief', 'treatment', 'character_bible', 'market_sheet']);
+
+          const existingDocTypes = new Set((seedDocs || []).map((d: any) => d.doc_type));
+          const hasIdeaDoc = existingDocTypes.has('idea');
+          // If applyDocs was on, we need at least concept_brief too
+          const hasMinimumSeedDocs = hasIdeaDoc && (!applyDocs || existingDocTypes.size >= 2);
+
+          if (seedCheckErr) {
+            console.error('[DevSeed][GUARD] Seed doc verification query failed:', seedCheckErr.message);
+          }
+
+          const seedStateValid = !hasAutopilotError && !seedCheckErr && hasMinimumSeedDocs;
+
+          if (seedStateValid) {
+            try {
+              console.log(`[DevSeed][GUARD] Seed state validated — docs: [${[...existingDocTypes].join(', ')}], autopilot: ${lastAutopilotStatus || 'tick-loop-exited'}. Starting Auto-Run.`);
+              await supabase.functions.invoke('auto-run', {
+                body: { action: 'start', projectId: project.id, allow_defaults: true },
+              });
+              parts.push('auto-run started');
+            } catch (arErr: any) {
+              console.error('[DevSeed] auto-run start failed (non-fatal):', arErr?.message);
+            }
+          } else {
+            // Explicit block — do NOT start Auto-Run from invalid state
+            const reasons: string[] = [];
+            if (hasAutopilotError) reasons.push(`autopilot_error (status=${lastAutopilotStatus})`);
+            if (seedCheckErr) reasons.push(`seed_check_query_failed: ${seedCheckErr.message}`);
+            if (!hasIdeaDoc) reasons.push('missing_idea_doc');
+            if (applyDocs && existingDocTypes.size < 2) reasons.push(`insufficient_seed_docs (found=${[...existingDocTypes].join(',') || 'none'})`);
+            console.error(`[DevSeed][GUARD] Auto-Run BLOCKED — seed state invalid. Reasons: ${reasons.join('; ')}`);
+            toast.error('Auto-Run blocked: seed documents were not created successfully. Check project and retry.');
           }
         } catch (apErr: any) {
           console.error('[DevSeed] autopilot start failed (non-fatal):', apErr?.message);
