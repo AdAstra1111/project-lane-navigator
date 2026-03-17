@@ -6619,9 +6619,12 @@ export type Database = {
           candidate_count: number
           config: Json
           created_at: string
+          dna_inputs: Json
           error: string | null
           exemplar_ids: string[] | null
           id: string
+          optimizer_mode: string | null
+          source_dna_profile_id: string | null
           source_idea_ids: string[] | null
           status: string
           trend_signal_ids: string[] | null
@@ -6633,9 +6636,12 @@ export type Database = {
           candidate_count?: number
           config?: Json
           created_at?: string
+          dna_inputs?: Json
           error?: string | null
           exemplar_ids?: string[] | null
           id?: string
+          optimizer_mode?: string | null
+          source_dna_profile_id?: string | null
           source_idea_ids?: string[] | null
           status?: string
           trend_signal_ids?: string[] | null
@@ -6647,24 +6653,37 @@ export type Database = {
           candidate_count?: number
           config?: Json
           created_at?: string
+          dna_inputs?: Json
           error?: string | null
           exemplar_ids?: string[] | null
           id?: string
+          optimizer_mode?: string | null
+          source_dna_profile_id?: string | null
           source_idea_ids?: string[] | null
           status?: string
           trend_signal_ids?: string[] | null
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "idea_blueprint_runs_source_dna_profile_id_fkey"
+            columns: ["source_dna_profile_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_dna_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       idea_blueprints: {
         Row: {
+          blueprint_mode: string
           budget_band: string
           conflict_design: Json | null
           conflict_engine: string | null
           created_at: string
           derived_from_idea_ids: string[] | null
+          dna_constraint_mode: string | null
           engine: string | null
           exemplar_inputs: Json | null
           feasibility_constraints: Json
@@ -6680,6 +6699,8 @@ export type Database = {
           protagonist_design: Json | null
           run_id: string
           score_pattern: Json | null
+          source_dna_profile_id: string | null
+          source_engine_key: string | null
           status: string
           structural_patterns: Json
           trend_inputs: Json | null
@@ -6687,11 +6708,13 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          blueprint_mode?: string
           budget_band?: string
           conflict_design?: Json | null
           conflict_engine?: string | null
           created_at?: string
           derived_from_idea_ids?: string[] | null
+          dna_constraint_mode?: string | null
           engine?: string | null
           exemplar_inputs?: Json | null
           feasibility_constraints?: Json
@@ -6707,6 +6730,8 @@ export type Database = {
           protagonist_design?: Json | null
           run_id: string
           score_pattern?: Json | null
+          source_dna_profile_id?: string | null
+          source_engine_key?: string | null
           status?: string
           structural_patterns?: Json
           trend_inputs?: Json | null
@@ -6714,11 +6739,13 @@ export type Database = {
           user_id: string
         }
         Update: {
+          blueprint_mode?: string
           budget_band?: string
           conflict_design?: Json | null
           conflict_engine?: string | null
           created_at?: string
           derived_from_idea_ids?: string[] | null
+          dna_constraint_mode?: string | null
           engine?: string | null
           exemplar_inputs?: Json | null
           feasibility_constraints?: Json
@@ -6734,6 +6761,8 @@ export type Database = {
           protagonist_design?: Json | null
           run_id?: string
           score_pattern?: Json | null
+          source_dna_profile_id?: string | null
+          source_engine_key?: string | null
           status?: string
           structural_patterns?: Json
           trend_inputs?: Json | null
@@ -6746,6 +6775,13 @@ export type Database = {
             columns: ["run_id"]
             isOneToOne: false
             referencedRelation: "idea_blueprint_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "idea_blueprints_source_dna_profile_id_fkey"
+            columns: ["source_dna_profile_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_dna_profiles"
             referencedColumns: ["id"]
           },
         ]
