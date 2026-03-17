@@ -326,6 +326,19 @@ export async function resolveNarrativeContext(
     counts.characters = canon.characters.length;
     counts.worldRules = canon.worldRules.length;
 
+    // ── 2b. Canon Constraint Enforcement (CCE) — deterministic extraction ──
+    const canonConstraints = extractCanonConstraints(cj as Record<string, unknown>);
+    const canonConstraintBlock = buildCanonConstraintBlock(canonConstraints);
+    if (canonConstraints.extractedFrom !== "empty") {
+      provenance.canonConstraints = "cce_extracted";
+      counts.cceConstraintChars = canonConstraintBlock.length;
+      console.log(`[narrative-context] CCE: protagonist=${canonConstraints.protagonist.name || "none"} characters=${canonConstraints.canonicalCharacterNames.length} worldMode=${canonConstraints.worldRuleMode.supernatural} relationships=${canonConstraints.relationships.length}`);
+    } else {
+      provenance.canonConstraints = "empty";
+      counts.cceConstraintChars = 0;
+    }
+    counts.worldRules = canon.worldRules.length;
+
     // ── 3. Signals ──
     let signals = { topSignals: [] as any[], blockText: "" };
     if (opts.includeSignals !== false) {
