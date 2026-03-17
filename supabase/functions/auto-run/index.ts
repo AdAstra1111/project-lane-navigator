@@ -2811,6 +2811,15 @@ async function autoResolveActionableNotes(
   }
 }
 
+function extractTargetGP(job: any): number {
+  const ct = job?.converge_target_json;
+  if (ct !== null && ct !== undefined && typeof ct === "object") {
+    const gp = Number(ct.gp);
+    if (!isNaN(gp) && gp >= 0 && gp <= 100) return gp;
+  }
+  return 95;
+}
+
 
 async function updateJob(supabase: any, jobId: string, fields: Record<string, any>) {
   // SAFETY: Never persist __generating__: sentinel in current_document
