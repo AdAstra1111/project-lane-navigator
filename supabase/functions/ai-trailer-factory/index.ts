@@ -15,7 +15,7 @@
  *   get_trailer_pack           — Get a single pack with items
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, callLLMWithJsonRetry } from "../_shared/llm.ts";
+import { callLLM, MODELS, callLLMWithJsonRetry, resolveGateway } from "../_shared/llm.ts";
 import { compileTrailerContext } from "../_shared/trailerContext.ts";
 
 const corsHeaders = {
