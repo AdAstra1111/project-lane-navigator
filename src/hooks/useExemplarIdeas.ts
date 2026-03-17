@@ -39,17 +39,16 @@ export function useExemplarIdeas(filters: ExemplarFilters = {}) {
   const { data: exemplars = [], isLoading, error } = useQuery({
     queryKey: ['exemplar-ideas', filters],
     queryFn: async () => {
+      const ciMin = filters.ciMin ?? 95;
+
       let query = supabase
         .from('pitch_ideas')
-        .select('*');
-
-      // CI threshold — default 95
-      const ciMin = filters.ciMin ?? 95;
-      query = query.gte('score_total', ciMin);
+        .select('*')
+        .gte('score_total', ciMin) as any;
 
       // Approved-only filter
       if (filters.approvedOnly) {
-        query = query.eq('is_exemplar' as any, true);
+        query = query.eq('is_exemplar', true);
       }
 
       // Metadata filters
