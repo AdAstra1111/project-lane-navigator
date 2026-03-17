@@ -27804,6 +27804,7 @@ No stubs, no placeholders, no TODO markers.`;
 
         let reason: string | null = null;
         if (!docId || !ver) reason = "missing_current_version";
+        else if (ver.is_stale === true) reason = "stale_version";
         else if (containsStubMarker(plaintext)) reason = "stub_marker";
         else {
           const minChars = MIN_CHARS[stage] ?? DEFAULT_MIN;
