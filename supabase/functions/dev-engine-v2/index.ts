@@ -27433,21 +27433,19 @@ CRITICAL:
         if (trimmed.length < minChars) return "too_short";
 
         // ── SCREENPLAY-DERIVATIVE VALIDATION ──
-        // For screenplay-class docs, require actual screenplay formatting.
-        // Reject scene-breakdown JSON, outlines, or planning artifacts.
         if (SCREENPLAY_DOC_TYPES.has(docType)) {
-          // Check if output is JSON (scene breakdown) instead of screenplay prose
-          const isJsonOutput = trimmed.startsWith("{") || trimmed.startsWith("[");
-          if (isJsonOutput) {
+          if (looksLikeJson(trimmed)) {
             console.error(`[dev-engine-v2][IEL] screenplay_format_violation { doc_type: "${docType}", reason: "json_output", chars: ${trimmed.length} }`);
-            return "stub_marker"; // reuse existing reason to trigger retry
+            return "stub_marker";
           }
-          // Require minimum slugline density for screenplay format
+          if (trimmed.toLowerCase().includes('"scene_breakdown"')) {
+            console.error(`[dev-engine-v2][IEL] screenplay_format_violation { doc_type: "${docType}", reason: "scene_breakdown_artifact" }`);
+            return "stub_marker";
+          }
           const sluglineCount = (trimmed.match(/^(INT\.|EXT\.|INT\/EXT\.)\s/gm) || []).length;
-          if (sluglineCount < 8) {
-            console.warn(`[dev-engine-v2][IEL] screenplay_slugline_sparse { doc_type: "${docType}", sluglines: ${sluglineCount}, min_required: 8 }`);
-            // Only fail hard if very few sluglines (probably an outline, not a screenplay)
-            if (sluglineCount < 3) return "stub_marker";
+          if (sluglineCount < 3) {
+            console.warn(`[dev-engine-v2][IEL] screenplay_slugline_sparse { doc_type: "${docType}", sluglines: ${sluglineCount} }`);
+            return "stub_marker";
           }
         }
 
