@@ -233,7 +233,7 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
           <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setSimilarOpen(true)}>
             <Search className="h-3 w-3" /> Find Similar Exemplars
           </Button>
-          <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setCompareExemplar(idea)}>
+          <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setComparePickerOpen(true)}>
             <GitCompare className="h-3 w-3" /> Compare to Exemplars
           </Button>
         </div>
