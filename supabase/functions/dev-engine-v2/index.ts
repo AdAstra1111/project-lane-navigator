@@ -28448,6 +28448,20 @@ ${upstreamText}`;
             },
           });
 
+          // ── CCE: Post-generation drift detection for regen-tick path ──
+          try {
+            const regenCCE = await runCCEPostGeneration(supabase, projectId, convertedText, stage, "dev-engine-v2:regen-tick");
+            if (Object.keys(regenCCE.metaPatch).length > 0 && newVersion?.id) {
+              const { data: rtExMeta } = await supabase.from("project_document_versions")
+                .select("meta_json").eq("id", newVersion.id).maybeSingle();
+              await supabase.from("project_document_versions").update({
+                meta_json: { ...(rtExMeta?.meta_json || {}), ...regenCCE.metaPatch },
+              }).eq("id", newVersion.id);
+            }
+          } catch (regenCceErr: any) {
+            console.warn(`[regen-tick][CCE] drift check failed (non-fatal):`, regenCceErr?.message);
+          }
+
           await supabase.from("regen_job_items").update({
             status: "regenerated",
             char_after: convertedText.length,
