@@ -8087,29 +8087,124 @@ export type Database = {
           },
         ]
       }
+      narrative_engine_blueprint_families: {
+        Row: {
+          active: boolean | null
+          budget_suitability: string[] | null
+          created_at: string
+          description: string
+          engine_key: string
+          execution_pattern: Json | null
+          family_key: string
+          id: string
+          label: string
+          lane_suitability: string[] | null
+          structural_risks: string[] | null
+          structural_strengths: string[] | null
+          updated_at: string
+          when_not_to_use: string | null
+          when_to_use: string | null
+        }
+        Insert: {
+          active?: boolean | null
+          budget_suitability?: string[] | null
+          created_at?: string
+          description?: string
+          engine_key: string
+          execution_pattern?: Json | null
+          family_key: string
+          id?: string
+          label: string
+          lane_suitability?: string[] | null
+          structural_risks?: string[] | null
+          structural_strengths?: string[] | null
+          updated_at?: string
+          when_not_to_use?: string | null
+          when_to_use?: string | null
+        }
+        Update: {
+          active?: boolean | null
+          budget_suitability?: string[] | null
+          created_at?: string
+          description?: string
+          engine_key?: string
+          execution_pattern?: Json | null
+          family_key?: string
+          id?: string
+          label?: string
+          lane_suitability?: string[] | null
+          structural_risks?: string[] | null
+          structural_strengths?: string[] | null
+          updated_at?: string
+          when_not_to_use?: string | null
+          when_to_use?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "narrative_engine_blueprint_families_engine_key_fkey"
+            columns: ["engine_key"]
+            isOneToOne: false
+            referencedRelation: "narrative_engines"
+            referencedColumns: ["engine_key"]
+          },
+        ]
+      }
       narrative_engines: {
         Row: {
+          active: boolean | null
+          antagonist_topology: string | null
           created_at: string
           description: string
           engine_key: string
           engine_name: string
+          escalation_pattern: string | null
+          example_titles: string[] | null
+          failure_modes: string[] | null
           id: string
+          label: string | null
+          protagonist_pressure_mode: string | null
+          spatial_logic: string | null
+          structural_pattern: string | null
+          structural_traits: Json | null
+          taxonomy_version: number | null
           updated_at: string
         }
         Insert: {
+          active?: boolean | null
+          antagonist_topology?: string | null
           created_at?: string
           description: string
           engine_key: string
           engine_name: string
+          escalation_pattern?: string | null
+          example_titles?: string[] | null
+          failure_modes?: string[] | null
           id?: string
+          label?: string | null
+          protagonist_pressure_mode?: string | null
+          spatial_logic?: string | null
+          structural_pattern?: string | null
+          structural_traits?: Json | null
+          taxonomy_version?: number | null
           updated_at?: string
         }
         Update: {
+          active?: boolean | null
+          antagonist_topology?: string | null
           created_at?: string
           description?: string
           engine_key?: string
           engine_name?: string
+          escalation_pattern?: string | null
+          example_titles?: string[] | null
+          failure_modes?: string[] | null
           id?: string
+          label?: string | null
+          protagonist_pressure_mode?: string | null
+          spatial_logic?: string | null
+          structural_pattern?: string | null
+          structural_traits?: Json | null
+          taxonomy_version?: number | null
           updated_at?: string
         }
         Relationships: []
