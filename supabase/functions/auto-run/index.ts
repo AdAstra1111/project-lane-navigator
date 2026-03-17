@@ -6,6 +6,7 @@ const GP_WEIGHT = 1;
 function compositeScore(ci: number, gp: number): number { return ci * CI_WEIGHT + gp * GP_WEIGHT; }
 import { emitTransition, TRANSITION_EVENTS } from "../_shared/transitionLedger.ts";
 import { getCanonicalNextStage } from "../_shared/ladder-invariant.ts";
+import { validateStageIdentity, buildDiagnostic } from "../_shared/stageIdentityContracts.ts";
 import { spineToPromptBlock } from "../_shared/narrativeSpine.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isCPMEnabled, buildCPRepairDirections, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
@@ -6729,6 +6730,37 @@ Deno.serve(async (req) => {
           });
           await releaseProcessingLock(supabase, jobId);
           return respondWithJob(supabase, jobId, "run-next");
+        }
+      }
+
+      // ── IEL: STAGE IDENTITY GATE — reject malformed documents before review ──
+      {
+        const stageIdDocTypes = new Set(["idea", "concept_brief"]);
+        if (stageIdDocTypes.has(currentDoc)) {
+          const { data: sidDoc } = await supabase.from("project_documents")
+            .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+            .order("created_at", { ascending: false }).limit(1).maybeSingle();
+          if (sidDoc) {
+            const { data: sidVer } = await supabase.from("project_document_versions")
+              .select("id, plaintext, meta_json").eq("document_id", sidDoc.id).eq("is_current", true).maybeSingle();
+            if (sidVer?.plaintext) {
+              const sidResult = validateStageIdentity(currentDoc, sidVer.plaintext);
+              if (sidResult && !sidResult.pass) {
+                const diag = buildDiagnostic(sidResult);
+                console.error(`[auto-run][IEL] STAGE_IDENTITY_VIOLATION ${JSON.stringify({ job_id: jobId, ...diag })}`);
+                await logStep(supabase, jobId, stepCount, currentDoc, "stage_identity_violation",
+                  `${currentDoc} failed stage identity: ${sidResult.violation}. ${sidResult.repair_hint || ""}`,
+                  {}, undefined, diag);
+                // Persist violation in version meta_json for UI consumption
+                const existingMeta = (sidVer.meta_json && typeof sidVer.meta_json === "object") ? sidVer.meta_json as Record<string, any> : {};
+                await supabase.from("project_document_versions").update({
+                  meta_json: { ...existingMeta, stage_identity: { passed: false, violation: sidResult.violation, violations: sidResult.details.violations, repair_hint: sidResult.repair_hint } },
+                }).eq("id", sidVer.id);
+                // Don't block — let the review/rewrite cycle attempt to fix it.
+                // The violation is now logged and persisted for downstream consumers.
+              }
+            }
+          }
         }
       }
 

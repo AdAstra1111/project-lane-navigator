@@ -3,6 +3,7 @@ import { isCPMEnabled, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/ch
 import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { detectCanonDrift, logDriftResult } from "../_shared/canonConstraintEnforcement.ts";
+import { validateStageIdentity, getStageIdentityPromptBlock, buildDiagnostic } from "../_shared/stageIdentityContracts.ts";
 import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
 import { buildLadderPromptBlock, formatToLane } from "../_shared/documentLadders.ts";
 import { EPISODE_DOC_TYPES, extractEpisodeNumbersFromOutput, detectCollapsedRangeSummaries } from "../_shared/episodeScope.ts";
@@ -773,11 +774,15 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
         ? `## STORY OUTLINE FORMAT (MANDATORY)\nWrite 12–20 scene summaries as present-tense prose paragraphs. Each scene: 3–5 sentences describing what happens, the dramatic purpose, and the emotional shift. No sluglines. No character cues. No dialogue formatting. Example: "Elias arrives at the outpost at dawn, exhausted from the helicopter transfer..."`
         : "";
 
+      // ── Stage Identity Prompt Injection ──
+      const stageIdentityBlock = getStageIdentityPromptBlock(docType) || "";
+
       system = [
         `You are a professional development document generator for film/TV projects. Creative direction in this prompt must be honoured — implement the intent with full craft across the full document. Never ignore, dilute, or reinterpret creative direction away from what was asked.`,
         `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
         `Production type: ${project.format || "film"}`,
         `## OUTPUT FORMAT RULE (MANDATORY)\nOutput PLAIN MARKDOWN TEXT only. Do NOT output JSON, XML, code blocks, or any structured data format. Do NOT wrap your response in \`\`\`json or \`\`\`markdown fences. Begin directly with the document content (e.g. a heading like "# CONCEPT BRIEF" or "## LOGLINE"). No preamble.`,
+        stageIdentityBlock,
         screenplayProhibition,
         storyOutlineRule,
         completenessBlock,
@@ -1708,6 +1713,19 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
       similarity_risk: simRisk,
     }));
 
+    // ── STAGE IDENTITY VALIDATION ──
+    const stageIdResult = validateStageIdentity(docType, content);
+    if (stageIdResult && !stageIdResult.pass) {
+      const diag = buildDiagnostic(stageIdResult);
+      console.error(JSON.stringify({
+        diag: "STAGE_IDENTITY_VIOLATION",
+        requestId,
+        project_id: projectId,
+        ...diag,
+      }));
+      // Log violation but still persist — downstream consumers (auto-run, UI) will gate on meta_json.stage_identity
+    }
+
     // ── CANON DRIFT DETECTION (CCE Phase 1) ──
     const driftResult = detectCanonDrift(content, narrativeCtx.canonConstraints);
     logDriftResult("generate-document", projectId, docType, driftResult);
@@ -1769,15 +1787,30 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
         generator_run_id: generatorRunId || null,
         source_document_ids: Object.values(inputsUsed).map((v: any) => v.version_id),
         style_template_version_id: project.season_style_template_version_id || null,
-        meta_json: driftResult.constraintsUsed ? {
-          canon_drift: {
-            passed: driftResult.passed,
-            violations: driftResult.findings.filter((f: any) => f.severity === "violation").length,
-            warnings: driftResult.findings.filter((f: any) => f.severity === "warning").length,
-            domains_checked: driftResult.domains_checked,
-            checked_at: driftResult.checkedAt,
-          },
-        } : {},
+        meta_json: {
+          ...(driftResult.constraintsUsed ? {
+            canon_drift: {
+              passed: driftResult.passed,
+              violations: driftResult.findings.filter((f: any) => f.severity === "violation").length,
+              warnings: driftResult.findings.filter((f: any) => f.severity === "warning").length,
+              domains_checked: driftResult.domains_checked,
+              checked_at: driftResult.checkedAt,
+            },
+          } : {}),
+          ...(stageIdResult ? {
+            stage_identity: {
+              passed: stageIdResult.pass,
+              violation: stageIdResult.violation,
+              char_count: stageIdResult.details.char_count,
+              word_count: stageIdResult.details.word_count,
+              section_count: stageIdResult.details.section_count,
+              screenplay_contamination: stageIdResult.details.has_screenplay_formatting,
+              density_class: stageIdResult.details.density_class,
+              violations: stageIdResult.details.violations,
+              repair_hint: stageIdResult.repair_hint || null,
+            },
+          } : {}),
+        },
       })
       .select("id")
       .single();
