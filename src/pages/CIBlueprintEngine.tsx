@@ -405,15 +405,40 @@ export default function CIBlueprintEngine() {
                   </>
                 )}
               </div>
+
+              {/* Fallback telemetry */}
+              <div className="flex items-center gap-3 text-[11px] flex-wrap">
+                <span className="text-muted-foreground">Retrieval:</span>
+                <span>CI ≥ <span className="font-mono font-medium">{buildResult.final_ci_threshold ?? config.ciMin}</span></span>
+                {buildResult.fallback_stage && buildResult.fallback_stage !== 'exact' && (
+                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400">
+                    fallback: {buildResult.fallback_stage.replace(/_/g, ' ')}
+                  </Badge>
+                )}
+                {buildResult.genre_relaxed && (
+                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400">genre relaxed</Badge>
+                )}
+                {buildResult.lane_relaxed && (
+                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400">lane relaxed</Badge>
+                )}
+              </div>
+
               {buildResult.optimizer_mode === 'dna_informed' && (
                 <div className="flex items-center gap-3 text-[11px]">
-                  <span className="text-muted-foreground">Retrieval:</span>
+                  <span className="text-muted-foreground">DNA breakdown:</span>
                   <span><span className="text-violet-400 font-medium">{buildResult.dna_match_count ?? 0}</span> DNA-exact</span>
                   <span><span className="text-primary font-medium">{buildResult.engine_match_count ?? 0}</span> engine</span>
                   <span><span className="text-muted-foreground font-medium">{buildResult.generic_fallback_count ?? 0}</span> generic</span>
                 </div>
               )}
-              {(buildResult.source_idea_count === 0 || (buildResult.optimizer_mode === 'dna_informed' && (buildResult.dna_match_count ?? 0) === 0 && (buildResult.engine_match_count ?? 0) === 0)) && (
+
+              {buildResult.source_idea_count === 0 && (
+                <div className="rounded bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 flex items-center gap-1.5 text-amber-400">
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  <span>No usable source ideas found after all fallback stages</span>
+                </div>
+              )}
+              {buildResult.source_idea_count > 0 && buildResult.optimizer_mode === 'dna_informed' && (buildResult.dna_match_count ?? 0) === 0 && (buildResult.engine_match_count ?? 0) === 0 && (
                 <div className="rounded bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 flex items-center gap-1.5 text-amber-400">
                   <AlertCircle className="h-3 w-3 shrink-0" />
                   <span>Using generic fallback (no DNA-matched source ideas found)</span>
