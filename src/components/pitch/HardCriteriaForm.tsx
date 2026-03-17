@@ -713,10 +713,8 @@ export function HardCriteriaForm({ criteria, onChange, onGenerate, generating, h
         </Tabs>
 
         {/* Generate */}
-        <div className="flex items-center justify-between pt-3 border-t border-border/30">
-          <div className="text-xs text-muted-foreground">
-            Generates <span className="font-medium text-foreground">10 concepts</span> per batch
-          </div>
+        <div className="flex items-center justify-end pt-3 border-t border-border/30">
+
           <Button onClick={onGenerate} disabled={!isValid || generating} className="gap-2">
             <Sparkles className="h-4 w-4" />
             {generating ? 'Generating…' : 'Generate Slate'}
