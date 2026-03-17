@@ -429,7 +429,12 @@ export default function CIBlueprintEngine() {
                 {buildResult.lane_relaxed && (
                   <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400">lane relaxed</Badge>
                 )}
-              </div>
+                {buildResult.learning_pool_only && (
+                  <Badge variant="outline" className="text-[9px] border-emerald-500/30 text-emerald-400">🎯 learning pool only</Badge>
+                )}
+                {buildResult.learning_pool_match_count != null && (
+                  <span className="text-[11px] text-muted-foreground">LP matches: <span className="font-mono font-medium text-foreground">{buildResult.learning_pool_match_count}</span></span>
+                )}
 
               {buildResult.optimizer_mode === 'dna_informed' && (
                 <div className="flex items-center gap-3 text-[11px]">
