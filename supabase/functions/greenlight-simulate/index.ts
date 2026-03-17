@@ -428,8 +428,9 @@ serve(async (req) => {
       });
     }
 
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
+    const _gw2 = resolveGateway();
+    const LOVABLE_API_KEY = _gw2.apiKey;
+    if (!LOVABLE_API_KEY) throw new Error("No AI gateway key configured");
 
     const { projectTitle, format, genres, lane, budget, scoringGrid, riskFlags, developmentTier, financeReadiness, coverageSummary } = await req.json();
 
