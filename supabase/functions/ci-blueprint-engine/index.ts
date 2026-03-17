@@ -452,6 +452,23 @@ serve(async (req) => {
       if (bpErr) throw new Error(`Blueprint creation failed: ${bpErr.message}`);
 
       // 6. Generate candidates via LLM (generation only, no self-scoring)
+      // Build blueprint family execution context for prompt injection
+      let familyPromptBlock = "";
+      if (selectedFamily) {
+        const ep = selectedFamily.execution_pattern || {};
+        familyPromptBlock = `\n\nBLUEPRINT FAMILY EXECUTION PATTERN (structural constraint — ideas MUST follow this architecture):
+Family: ${selectedFamily.label} (${selectedFamily.family_key})
+Engine: ${resolvedEngineKey}
+Description: ${selectedFamily.description}
+${ep.act_structure ? `Act Structure: ${JSON.stringify(ep.act_structure)}` : ""}
+${ep.spatial_mode ? `Spatial Mode: ${ep.spatial_mode}` : ""}
+${ep.confrontation_rhythm ? `Confrontation Rhythm: ${ep.confrontation_rhythm}` : ""}
+Structural Strengths: ${(selectedFamily.structural_strengths || []).join(", ")}
+Structural Risks to mitigate: ${(selectedFamily.structural_risks || []).join(", ")}
+${selectedFamily.when_to_use ? `When to use: ${selectedFamily.when_to_use}` : ""}
+${selectedFamily.when_not_to_use ? `When NOT to use: ${selectedFamily.when_not_to_use}` : ""}`;
+      }
+
       const structuralContext = sourceIdeas.length > 0
         ? `\nHIGH-PERFORMING IDEA STRUCTURAL PATTERNS (use as design signals, do NOT copy text or plots):
 - Average CI Score: ${scorePatterns.avg_total.toFixed(1)}
