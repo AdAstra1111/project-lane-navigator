@@ -617,7 +617,16 @@ function isExceptionalObjective(job: any): boolean {
   return true; // default is Exceptional
 }
 
-/**
+function extractTargetGP(job: any): number {
+  const ct = job?.converge_target_json;
+  if (ct !== null && ct !== undefined && typeof ct === "object") {
+    const gp = Number(ct.gp);
+    if (!isNaN(gp) && gp >= 0 && gp <= 100) return gp;
+  }
+  return 95;
+}
+
+
  * Evaluate promotion gate for stage advancement.
  *
  * For most doc types: CI-only gate using job converge_target_json / GLOBAL_MIN_CI.
