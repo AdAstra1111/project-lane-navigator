@@ -6650,6 +6650,7 @@ Deno.serve(async (req) => {
                 pause_reason: "NOTES_UNRESOLVABLE",
                 error: `No blocker/high notes remain but CI=${ciProgress.currentCi} (best: ${ciProgress.bestCi}) still below target ${targetCi} for ${currentDoc}.`,
               });
+              persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: ciProgress.bestCi, finalCi: ciProgress.currentCi, targetCi, targetGp: extractTargetGP(job), haltReason: "NOTES_UNRESOLVABLE", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
               await releaseProcessingLock(supabase, jobId);
               return respondWithJob(supabase, jobId);
             }
