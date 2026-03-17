@@ -4401,6 +4401,115 @@ export type Database = {
         }
         Relationships: []
       }
+      devseed_plateau_diagnoses: {
+        Row: {
+          auto_run_job_id: string | null
+          best_ci_seen: number | null
+          confidence: string
+          created_at: string
+          diagnosis_version: string
+          evidence_summary: Json
+          final_ci: number | null
+          final_gp: number | null
+          generation_mode: string | null
+          halted_doc_type: string | null
+          halted_reason: string | null
+          id: string
+          optimizer_mode: string | null
+          pitch_idea_id: string | null
+          primary_cause: string
+          project_id: string
+          recommendation_bundle: Json
+          rewriteable: boolean
+          secondary_causes: Json
+          seed_limited: boolean
+          source_blueprint_id: string | null
+          source_blueprint_run_id: string | null
+          source_dna_profile_id: string | null
+          target_ci: number
+          target_gp: number
+          user_id: string
+        }
+        Insert: {
+          auto_run_job_id?: string | null
+          best_ci_seen?: number | null
+          confidence?: string
+          created_at?: string
+          diagnosis_version?: string
+          evidence_summary?: Json
+          final_ci?: number | null
+          final_gp?: number | null
+          generation_mode?: string | null
+          halted_doc_type?: string | null
+          halted_reason?: string | null
+          id?: string
+          optimizer_mode?: string | null
+          pitch_idea_id?: string | null
+          primary_cause?: string
+          project_id: string
+          recommendation_bundle?: Json
+          rewriteable?: boolean
+          secondary_causes?: Json
+          seed_limited?: boolean
+          source_blueprint_id?: string | null
+          source_blueprint_run_id?: string | null
+          source_dna_profile_id?: string | null
+          target_ci?: number
+          target_gp?: number
+          user_id: string
+        }
+        Update: {
+          auto_run_job_id?: string | null
+          best_ci_seen?: number | null
+          confidence?: string
+          created_at?: string
+          diagnosis_version?: string
+          evidence_summary?: Json
+          final_ci?: number | null
+          final_gp?: number | null
+          generation_mode?: string | null
+          halted_doc_type?: string | null
+          halted_reason?: string | null
+          id?: string
+          optimizer_mode?: string | null
+          pitch_idea_id?: string | null
+          primary_cause?: string
+          project_id?: string
+          recommendation_bundle?: Json
+          rewriteable?: boolean
+          secondary_causes?: Json
+          seed_limited?: boolean
+          source_blueprint_id?: string | null
+          source_blueprint_run_id?: string | null
+          source_dna_profile_id?: string | null
+          target_ci?: number
+          target_gp?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "devseed_plateau_diagnoses_auto_run_job_id_fkey"
+            columns: ["auto_run_job_id"]
+            isOneToOne: false
+            referencedRelation: "auto_run_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "devseed_plateau_diagnoses_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "devseed_plateau_diagnoses_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dna_extraction_runs: {
         Row: {
           chunk_boundaries: Json
