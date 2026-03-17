@@ -27938,6 +27938,14 @@ No stubs, no placeholders, no TODO markers.`;
         const lower = (text || "").toLowerCase();
         return STUB_MARKERS.some(marker => lower.includes(marker));
       };
+      const stripCodeFences = (text: string): string => {
+        const fenced = text.match(/^```[\w]*\s*\n?([\s\S]*?)```\s*$/);
+        return fenced ? fenced[1].trim() : text;
+      };
+      const looksLikeJson = (text: string): boolean => {
+        const stripped = stripCodeFences(text).trim();
+        return stripped.startsWith("{") || stripped.startsWith("[");
+      };
 
       const { data: allDocs } = await supabase.from("project_documents")
         .select("id, doc_type").eq("project_id", projectId);
