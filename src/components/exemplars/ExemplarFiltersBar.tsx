@@ -30,7 +30,7 @@ export function ExemplarFiltersBar({ filters, onChange, resultCount }: Props) {
 
   const set = (patch: Partial<ExemplarFilters>) => onChange({ ...filters, ...patch });
   const clear = () => onChange({ ciMin: 95, sortBy: 'ci_desc' });
-  const hasFilters = !!(filters.search || filters.format || filters.lane || filters.genre || filters.engine || filters.budgetBand || filters.approvedOnly);
+  const hasFilters = !!(filters.search || filters.format || filters.lane || filters.genre || filters.engine || filters.budgetBand || filters.approvedOnly || filters.learningPoolOnly);
 
   return (
     <div className="space-y-3">
@@ -77,7 +77,16 @@ export function ExemplarFiltersBar({ filters, onChange, resultCount }: Props) {
           className="cursor-pointer h-9 px-3 flex items-center"
           onClick={() => set({ approvedOnly: !filters.approvedOnly })}
         >
-          Approved Only
+          Manual Exemplar
+        </Badge>
+
+        {/* Learning-pool toggle */}
+        <Badge
+          variant={filters.learningPoolOnly ? 'default' : 'outline'}
+          className="cursor-pointer h-9 px-3 flex items-center"
+          onClick={() => set({ learningPoolOnly: !filters.learningPoolOnly })}
+        >
+          🎯 Learning Pool
         </Badge>
 
         {/* Advanced toggle */}

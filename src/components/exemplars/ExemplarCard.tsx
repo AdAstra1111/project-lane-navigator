@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { LANE_LABELS, type MonetisationLane } from '@/lib/types';
 import type { PitchIdea } from '@/hooks/usePitchIdeas';
-import { Star, GitCompare, Search, Eye, Award } from 'lucide-react';
+import { Star, GitCompare, Search, Eye, Award, GraduationCap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function scoreColor(score: number) {
@@ -25,6 +25,7 @@ export function ExemplarCard({ idea, onCompare, onFindSimilar, onOpen, showSimil
   const ci = Number(idea.score_total) || 0;
   const feasibility = Number(idea.score_feasibility) || 0;
   const isApproved = (idea as any).is_exemplar === true;
+  const isLearningPool = (idea as any).learning_pool_eligible === true;
   const strengthTags: string[] = (idea as any).strength_tags || [];
 
   return (
@@ -36,6 +37,9 @@ export function ExemplarCard({ idea, onCompare, onFindSimilar, onOpen, showSimil
             <div className="flex items-center gap-2">
               {isApproved && (
                 <Award className="h-4 w-4 text-primary shrink-0" />
+              )}
+              {isLearningPool && (
+                <GraduationCap className="h-4 w-4 text-emerald-400 shrink-0" />
               )}
               <h3 className="font-semibold text-foreground truncate text-sm leading-tight">
                 {idea.title}
@@ -67,6 +71,12 @@ export function ExemplarCard({ idea, onCompare, onFindSimilar, onOpen, showSimil
             <Badge className="bg-primary/15 text-primary border-primary/30 text-[10px]">
               {(idea as any)._similarityScore}% match
             </Badge>
+          )}
+          {isApproved && (
+            <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">Manual Exemplar</Badge>
+          )}
+          {isLearningPool && (
+            <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-400">Learning Pool</Badge>
           )}
         </div>
 

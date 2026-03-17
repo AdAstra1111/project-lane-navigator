@@ -86,6 +86,7 @@ export interface BuildConfig {
   useExemplars: boolean;
   ciMin: number;
   sourceDnaProfileId: string | null;
+  useLearningPoolOnly: boolean;
 }
 
 export function useBlueprintRuns() {
@@ -150,7 +151,7 @@ export function useBuildBlueprint() {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      return data as { run_id: string; blueprint_id: string; candidates: BlueprintCandidate[]; source_idea_count: number; trend_count: number; optimizer_mode: string; dna_profile_title: string | null; dna_match_count?: number; engine_match_count?: number; generic_fallback_count?: number; fallback_stage?: string; final_ci_threshold?: number; genre_relaxed?: boolean; lane_relaxed?: boolean };
+      return data as { run_id: string; blueprint_id: string; candidates: BlueprintCandidate[]; source_idea_count: number; trend_count: number; optimizer_mode: string; dna_profile_title: string | null; dna_match_count?: number; engine_match_count?: number; generic_fallback_count?: number; fallback_stage?: string; final_ci_threshold?: number; genre_relaxed?: boolean; lane_relaxed?: boolean; learning_pool_only?: boolean; learning_pool_match_count?: number };
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['blueprint-runs'] });

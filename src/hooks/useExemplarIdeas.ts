@@ -14,6 +14,7 @@ export interface ExemplarFilters {
   engine?: string;
   budgetBand?: string;
   approvedOnly?: boolean;
+  learningPoolOnly?: boolean;
   sortBy?: 'relevance' | 'ci_desc' | 'gp_desc' | 'newest';
 }
 
@@ -49,6 +50,11 @@ export function useExemplarIdeas(filters: ExemplarFilters = {}) {
       // Approved-only filter
       if (filters.approvedOnly) {
         query = query.eq('is_exemplar', true);
+      }
+
+      // Learning-pool-only filter
+      if (filters.learningPoolOnly) {
+        query = query.eq('learning_pool_eligible', true);
       }
 
       // Metadata filters

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildPitchScoringRubric, normalizePitchScores, calculatePitchScoreTotal, checkScoreDrift, PITCH_SCORE_WEIGHTS } from "../_shared/pitchScoring.ts";
+import { computeLearningPoolEligibility, LEARNING_POOL_CI_THRESHOLD } from "../_shared/learningPool.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,6 +39,7 @@ serve(async (req) => {
         format = "film", lane = "", genre = "", engine = "", budgetBand = "",
         candidateCount = 5, useTrends = false, useExemplars = false, ciMin = 95,
         sourceDnaProfileId = null,
+        useLearningPoolOnly = false,
       } = body;
 
       console.log(`[ci-blueprint] build start: format=${format} lane=${lane} genre=${genre} count=${candidateCount} dna=${sourceDnaProfileId || 'none'}`);
@@ -104,7 +106,7 @@ serve(async (req) => {
         .insert({
           user_id: user.id,
           status: "running",
-          config: { format, lane, genre, engine, budgetBand, candidateCount, useTrends, useExemplars, ciMin, sourceDnaProfileId },
+          config: { format, lane, genre, engine, budgetBand, candidateCount, useTrends, useExemplars, ciMin, sourceDnaProfileId, useLearningPoolOnly },
           source_dna_profile_id: sourceDnaProfileId || null,
           dna_inputs: dnaProfile ? [{
             profile_id: dnaProfile.id,
@@ -114,6 +116,7 @@ serve(async (req) => {
             confidence: dnaProfile.extraction_confidence,
           }] : [],
           optimizer_mode: optimizerMode,
+          learning_pool_only: useLearningPoolOnly,
         })
         .select("id")
         .single();
@@ -122,7 +125,7 @@ serve(async (req) => {
 
       // 2. Progressive fallback retrieval for source ideas
       const MIN_SOURCE_TARGET = 5;
-      const selectCols = "id, title, production_type, recommended_lane, genre, source_engine_key, source_dna_profile_id, budget_band, score_total, score_market_heat, score_feasibility, score_lane_fit, score_saturation_risk, score_company_fit, logline, comps, packaging_suggestions, risks_mitigations";
+      const selectCols = "id, title, production_type, recommended_lane, genre, source_engine_key, source_dna_profile_id, budget_band, score_total, score_market_heat, score_feasibility, score_lane_fit, score_saturation_risk, score_company_fit, logline, comps, packaging_suggestions, risks_mitigations, learning_pool_eligible";
 
       // Define fallback stages
       const fallbackStages = [
@@ -141,6 +144,8 @@ serve(async (req) => {
       let genreRelaxed = false;
       let laneRelaxed = false;
 
+      let learningPoolMatchCount = 0;
+
       for (const stage of fallbackStages) {
         let q = svcClient
           .from("pitch_ideas")
@@ -153,6 +158,9 @@ serve(async (req) => {
         if (stage.useLane && lane) q = q.eq("recommended_lane", lane);
         if (stage.useGenre && genre) q = q.ilike("genre", `%${genre}%`);
         if (useExemplars) q = q.eq("is_exemplar", true);
+
+        // Learning-pool-only mode: hard gate, never relaxed
+        if (useLearningPoolOnly) q = q.eq("learning_pool_eligible", true);
 
         const { data, error: qErr } = await q;
         if (qErr) {
@@ -607,6 +615,9 @@ One-page pitch: ${c.one_page_pitch}
         }
       }
 
+      // Count learning-pool matches in final source set
+      learningPoolMatchCount = sourceIdeas.filter((i: any) => i.learning_pool_eligible === true).length;
+
       // 9. Update run
       await svcClient
         .from("idea_blueprint_runs")
@@ -617,6 +628,8 @@ One-page pitch: ${c.one_page_pitch}
           exemplar_ids: sourceIdeas.map((i: any) => i.id),
           trend_signal_ids: trendSignalIds,
           source_idea_ids: sourceIdeas.map((i: any) => i.id),
+          learning_pool_only: useLearningPoolOnly,
+          learning_pool_match_count: learningPoolMatchCount,
         })
         .eq("id", runId);
 
@@ -642,6 +655,8 @@ One-page pitch: ${c.one_page_pitch}
         final_ci_threshold: finalCiThreshold,
         genre_relaxed: genreRelaxed,
         lane_relaxed: laneRelaxed,
+        learning_pool_only: useLearningPoolOnly,
+        learning_pool_match_count: learningPoolMatchCount,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -686,6 +701,9 @@ One-page pitch: ${c.one_page_pitch}
       // Derive lineage fields
       const resolvedGenerationMode = provenance.optimizer_mode || "ci_pattern";
 
+      // Compute learning pool eligibility for promoted idea
+      const lpFields = computeLearningPoolEligibility(Number(candidate.score_total) || 0);
+
       // Create pitch idea from candidate
       const { data: pitchIdea, error: piErr } = await svcClient
         .from("pitch_ideas")
@@ -721,6 +739,10 @@ One-page pitch: ${c.one_page_pitch}
           source_blueprint_id: candidate.blueprint_id || null,
           source_blueprint_run_id: candidate.run_id || null,
           generation_mode: resolvedGenerationMode,
+          // Learning pool eligibility
+          learning_pool_eligible: lpFields.learning_pool_eligible,
+          learning_pool_eligibility_reason: lpFields.learning_pool_eligibility_reason,
+          learning_pool_qualified_at: lpFields.learning_pool_qualified_at,
           raw_response: {
             ...((candidate.raw_response as Record<string, unknown>) || {}),
             promotion_source: "ci_blueprint_engine",

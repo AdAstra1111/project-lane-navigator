@@ -6,6 +6,7 @@ import { buildModalityPromptBlock } from "../_shared/productionModality.ts";
 import { getAnimationMeta, buildAnimationMetaPromptBlock } from "../_shared/animationMeta.ts";
 import { fetchTrendSignalsLadder, fetchCastTrends, modalityToTrendsProductionTypeFilter } from "../_shared/trendsContext.ts";
 import { buildPitchScoringRubric, normalizePitchScores, checkScoreDrift } from "../_shared/pitchScoring.ts";
+import { computeLearningPoolEligibility } from "../_shared/learningPool.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1034,7 +1035,8 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
             const normalized = normalizePitchScores(idea);
             const drift = checkScoreDrift(normalized, Number(idea.score_total) || 0);
             if (drift) console.warn(`[generate-pitch] ${drift} title="${idea.title}"`);
-            return normalized;
+            const lpFields = computeLearningPoolEligibility(normalized.score_total);
+            return { ...normalized, ...lpFields };
           })(),
         };
         const { data: saved, error: saveErr } = await svcClient

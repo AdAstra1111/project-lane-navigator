@@ -158,12 +158,14 @@ export default function CIBlueprintEngine() {
     useExemplars: false,
     ciMin: 80,
     sourceDnaProfileId: null,
+    useLearningPoolOnly: false,
   });
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [buildResult, setBuildResult] = useState<{
     source_idea_count: number; optimizer_mode: string; dna_profile_title: string | null;
     dna_match_count?: number; engine_match_count?: number; generic_fallback_count?: number;
     fallback_stage?: string; final_ci_threshold?: number; genre_relaxed?: boolean; lane_relaxed?: boolean;
+    learning_pool_only?: boolean; learning_pool_match_count?: number;
   } | null>(null);
 
   const buildMutation = useBuildBlueprint();
@@ -189,6 +191,8 @@ export default function CIBlueprintEngine() {
       final_ci_threshold: result.final_ci_threshold,
       genre_relaxed: result.genre_relaxed,
       lane_relaxed: result.lane_relaxed,
+      learning_pool_only: result.learning_pool_only,
+      learning_pool_match_count: result.learning_pool_match_count,
     });
   };
 
@@ -324,6 +328,10 @@ export default function CIBlueprintEngine() {
                 <Switch checked={config.useExemplars} onCheckedChange={(v) => setConfig(c => ({ ...c, useExemplars: v }))} />
                 <Label className="text-xs flex items-center gap-1"><Award className="h-3 w-3" /> Exemplars Only</Label>
               </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={config.useLearningPoolOnly} onCheckedChange={(v) => setConfig(c => ({ ...c, useLearningPoolOnly: v }))} />
+                <Label className="text-xs flex items-center gap-1">🎯 Learning Pool Only</Label>
+              </div>
             </div>
 
             <div className="flex items-center gap-3 pt-1">
@@ -420,6 +428,12 @@ export default function CIBlueprintEngine() {
                 )}
                 {buildResult.lane_relaxed && (
                   <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400">lane relaxed</Badge>
+                )}
+                {buildResult.learning_pool_only && (
+                  <Badge variant="outline" className="text-[9px] border-emerald-500/30 text-emerald-400">🎯 learning pool only</Badge>
+                )}
+                {buildResult.learning_pool_match_count != null && (
+                  <span className="text-[11px] text-muted-foreground">LP matches: <span className="font-mono font-medium text-foreground">{buildResult.learning_pool_match_count}</span></span>
                 )}
               </div>
 
