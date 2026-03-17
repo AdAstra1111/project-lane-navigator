@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-export type RegenReason = 'stub_marker' | 'too_short' | 'missing_current_version';
+export type RegenReason = 'stub_marker' | 'too_short' | 'missing_current_version' | 'stale_version';
 
 export interface RegenResult {
   doc_type: string;
