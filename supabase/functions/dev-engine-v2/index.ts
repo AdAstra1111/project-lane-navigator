@@ -5913,6 +5913,20 @@ ${docTextForScoring}`;
         .select("plaintext").eq("id", versionId).single();
       if (!version) throw new Error("Version not found");
 
+      // ── STAGE IDENTITY GATE — block notes on malformed stage artifacts ──
+      if (deliverableType && ["idea", "concept_brief"].includes(deliverableType) && version.plaintext) {
+        const sidResult = validateStageIdentity(deliverableType, version.plaintext);
+        if (sidResult && !sidResult.pass) {
+          console.error(`[dev-engine-v2][IEL] STAGE_IDENTITY_BLOCKED { action: "notes", deliverable: "${deliverableType}", violation: "${sidResult.violation}" }`);
+          return new Response(JSON.stringify({
+            error: `STAGE_IDENTITY_BLOCKED: ${sidResult.violation}`,
+            stage_identity_blocked: true,
+            violation: sidResult.violation,
+            repair_hint: sidResult.repair_hint,
+          }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
       // Fetch project format so notes are format-aware (e.g. vertical drama ≠ feature film)
       const { data: notesProject } = await supabase.from("projects")
         .select("format, development_behavior, assigned_lane, budget_range, title")
