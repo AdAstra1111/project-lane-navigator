@@ -161,7 +161,7 @@ function extractAssertedProfessions(text: string, charName: string): string[] {
     while ((m = pat.exec(context)) !== null) {
       const prof = m[1].trim().toLowerCase();
       // Filter structural noise
-      if (prof.length > 2 && prof.length < 35 && !prof.match(/^(the|this|that|very|quite|also|even|just|still|yet|been|being|would|could|should|going|having|looking|trying|about|after|before|since|while|where|which|their|there|these|those|every|other|another|anyone|someone|everyone)$/)) {
+      if (prof.length > 2 && prof.length < 35 && !prof.match(/^(the|this|that|very|quite|also|even|just|still|yet|been|being|would|could|should|going|having|looking|trying|about|after|before|since|while|where|which|their|there|these|those|every|other|another|anyone|someone|everyone|not|actually|now|then|once|already|really|truly|merely|simply|perhaps|possibly|seemingly|apparently|destined|forced|caught|torn|chosen|doomed|collapsing|revealed|discovered|supposed|meant|said|told|known|thought|believed)$/)) {
         professions.push(prof);
       }
     }
