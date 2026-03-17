@@ -691,7 +691,7 @@ Deno.serve(async (req) => {
     const { action } = body;
 
     const db = adminClient();
-    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
+    const apiKey = resolveGateway().apiKey;
     if (!apiKey) return json({ error: "AI key not configured" }, 500);
 
     if (body.projectId) {
