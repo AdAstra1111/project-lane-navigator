@@ -19764,7 +19764,7 @@ ${patchLayer === "layer_7_beats" ? "IMPORTANT: Include ALL existing beats plus a
       const failedSceneKeys:     string[] = [];
 
       // Load shared project context once before the loop (stale units + API key)
-      const LOVABLE_API_KEY = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("LOVABLE_API_KEY");
+      const LOVABLE_API_KEY = resolveGateway().apiKey;
       if (!LOVABLE_API_KEY) {
         await supabase.from("regeneration_runs").update({
           status: "failed", abort_reason: "missing_api_key", completed_at: new Date().toISOString(),
