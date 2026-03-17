@@ -196,7 +196,7 @@ IMPORTANT PAGE COUNT RULES:
       };
     }
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch(resolveGateway().url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
