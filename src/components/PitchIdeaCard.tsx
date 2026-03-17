@@ -227,6 +227,16 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
           </CollapsibleContent>
         </Collapsible>
 
+        {/* Exemplar actions */}
+        <div className="flex flex-wrap gap-1.5">
+          <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setSimilarOpen(true)}>
+            <Search className="h-3 w-3" /> Find Similar Exemplars
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setCompareExemplar(idea)}>
+            <GitCompare className="h-3 w-3" /> Compare to Exemplars
+          </Button>
+        </div>
+
         {/* Expandable details */}
         <Collapsible open={expanded} onOpenChange={setExpanded}>
           <CollapsibleTrigger asChild>
