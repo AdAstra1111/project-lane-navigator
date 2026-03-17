@@ -23073,7 +23073,7 @@ SPINE: ${JSON.stringify(latestSpine?.spine || {}).slice(0, 3000)}`;
       });
 
       const threadList = (latestLedger?.ledger as any)?.threads || [];
-      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || '';
+      const apiKey = resolveGateway().apiKey;
 
       const repairSystem = `You are a narrative repair specialist. Given a problem, produce EXACTLY 3 repair options.
 Option 1: INSERT a new scene.
