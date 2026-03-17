@@ -6792,6 +6792,7 @@ export type Database = {
       }
       idea_blueprints: {
         Row: {
+          blueprint_family_key: string | null
           blueprint_mode: string
           budget_band: string
           conflict_design: Json | null
@@ -6800,7 +6801,11 @@ export type Database = {
           derived_from_idea_ids: string[] | null
           dna_constraint_mode: string | null
           engine: string | null
+          execution_pattern: Json | null
           exemplar_inputs: Json | null
+          family_candidates_considered: Json | null
+          family_selection_confidence: number | null
+          family_selection_rationale: string | null
           feasibility_constraints: Json
           feasibility_design: Json | null
           format: string
@@ -6818,11 +6823,13 @@ export type Database = {
           source_engine_key: string | null
           status: string
           structural_patterns: Json
+          structural_summary: string | null
           trend_inputs: Json | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          blueprint_family_key?: string | null
           blueprint_mode?: string
           budget_band?: string
           conflict_design?: Json | null
@@ -6831,7 +6838,11 @@ export type Database = {
           derived_from_idea_ids?: string[] | null
           dna_constraint_mode?: string | null
           engine?: string | null
+          execution_pattern?: Json | null
           exemplar_inputs?: Json | null
+          family_candidates_considered?: Json | null
+          family_selection_confidence?: number | null
+          family_selection_rationale?: string | null
           feasibility_constraints?: Json
           feasibility_design?: Json | null
           format?: string
@@ -6849,11 +6860,13 @@ export type Database = {
           source_engine_key?: string | null
           status?: string
           structural_patterns?: Json
+          structural_summary?: string | null
           trend_inputs?: Json | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          blueprint_family_key?: string | null
           blueprint_mode?: string
           budget_band?: string
           conflict_design?: Json | null
@@ -6862,7 +6875,11 @@ export type Database = {
           derived_from_idea_ids?: string[] | null
           dna_constraint_mode?: string | null
           engine?: string | null
+          execution_pattern?: Json | null
           exemplar_inputs?: Json | null
+          family_candidates_considered?: Json | null
+          family_selection_confidence?: number | null
+          family_selection_rationale?: string | null
           feasibility_constraints?: Json
           feasibility_design?: Json | null
           format?: string
@@ -6880,6 +6897,7 @@ export type Database = {
           source_engine_key?: string | null
           status?: string
           structural_patterns?: Json
+          structural_summary?: string | null
           trend_inputs?: Json | null
           updated_at?: string
           user_id?: string

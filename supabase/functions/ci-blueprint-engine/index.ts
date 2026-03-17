@@ -98,6 +98,114 @@ serve(async (req) => {
         }
       }
 
+      // ── BLUEPRINT FAMILY SELECTION (deterministic) ──
+      const resolvedEngineKey = engine || dnaEngineKey || null;
+      let selectedFamily: any = null;
+      let familyCandidates: any[] = [];
+      let familySelectionLog: Record<string, any> = {};
+
+      if (resolvedEngineKey) {
+        // Fetch all active families for this engine
+        const { data: families, error: famErr } = await svcClient
+          .from("narrative_engine_blueprint_families")
+          .select("*")
+          .eq("engine_key", resolvedEngineKey)
+          .eq("active", true)
+          .order("family_key", { ascending: true });
+
+        if (famErr) {
+          console.error(`[ci-blueprint][IEL] BLUEPRINT_FAMILY_SELECTION_BLOCKED { run_id: pending, engine_key: "${resolvedEngineKey}", error: "${famErr.message}" }`);
+          throw new Error(`Blueprint family retrieval failed for engine ${resolvedEngineKey}: ${famErr.message}`);
+        }
+
+        if (!families || families.length === 0) {
+          console.error(`[ci-blueprint][IEL] BLUEPRINT_FAMILY_SELECTION_BLOCKED { engine_key: "${resolvedEngineKey}", reason: "no_active_families" }`);
+          throw new Error(`No active blueprint families found for engine ${resolvedEngineKey}. Cannot proceed without structural family.`);
+        }
+
+        familyCandidates = families;
+
+        // Deterministic scoring: lane match + budget match + tie-break on family_key (alphabetical)
+        const scored = families.map((f: any) => {
+          let score = 0;
+          const laneSuit: string[] = f.lane_suitability || [];
+          const budgetSuit: string[] = f.budget_suitability || [];
+          const effectiveLane = lane || "";
+          const effectiveBudget = budgetBand || "";
+
+          // Lane match: +3 for exact, +1 for having any lane suitability
+          if (effectiveLane && laneSuit.includes(effectiveLane)) {
+            score += 3;
+          } else if (laneSuit.length > 0) {
+            score += 1;
+          }
+
+          // Budget match: +3 for exact, +1 for having any budget suitability
+          if (effectiveBudget && budgetSuit.includes(effectiveBudget)) {
+            score += 3;
+          } else if (budgetSuit.length > 0) {
+            score += 1;
+          }
+
+          // Execution pattern presence: +2 if present
+          if (f.execution_pattern && Object.keys(f.execution_pattern).length > 0) {
+            score += 2;
+          }
+
+          return { ...f, _selection_score: score };
+        });
+
+        // Sort: highest score first, then alphabetical family_key for deterministic tie-breaking
+        scored.sort((a: any, b: any) => {
+          if (b._selection_score !== a._selection_score) return b._selection_score - a._selection_score;
+          return (a.family_key as string).localeCompare(b.family_key as string);
+        });
+
+        selectedFamily = scored[0];
+        const isTie = scored.length > 1 && scored[0]._selection_score === scored[1]._selection_score;
+
+        // Compute selection confidence
+        const maxPossibleScore = 8; // 3 lane + 3 budget + 2 execution_pattern
+        const selectionConfidence = Math.round((selectedFamily._selection_score / maxPossibleScore) * 100) / 100;
+
+        // Build rationale
+        const rationale = [
+          `Selected ${selectedFamily.family_key} for engine ${resolvedEngineKey}`,
+          `score=${selectedFamily._selection_score}/${maxPossibleScore}`,
+          lane ? `lane=${lane} match=${(selectedFamily.lane_suitability || []).includes(lane)}` : "lane=unspecified",
+          budgetBand ? `budget=${budgetBand} match=${(selectedFamily.budget_suitability || []).includes(budgetBand)}` : "budget=unspecified",
+          isTie ? `tie_broken_by=alphabetical_family_key` : "no_tie",
+          `candidates_evaluated=${scored.length}`,
+        ].join(", ");
+
+        familySelectionLog = {
+          event: isTie ? "BLUEPRINT_FAMILY_AMBIGUOUS" : "BLUEPRINT_FAMILY_SELECTED",
+          engine_key: resolvedEngineKey,
+          blueprint_family_key: selectedFamily.family_key,
+          selection_confidence: selectionConfidence,
+          candidates_evaluated: scored.map((s: any) => ({ family_key: s.family_key, score: s._selection_score })),
+          tie_broken: isTie,
+          rationale,
+          source_dna_profile_id: sourceDnaProfileId || null,
+        };
+
+        console.log(`[ci-blueprint][IEL] ${familySelectionLog.event} ${JSON.stringify(familySelectionLog)}`);
+      } else {
+        // No engine key — if DNA was provided, this is an error
+        if (sourceDnaProfileId && dnaProfile) {
+          console.error(`[ci-blueprint][IEL] BLUEPRINT_FAMILY_SELECTION_BLOCKED { source_dna_profile_id: "${sourceDnaProfileId}", reason: "dna_present_but_no_engine_key" }`);
+          throw new Error(`DNA profile ${sourceDnaProfileId} is present but no engine key was resolved. Cannot select blueprint family without engine.`);
+        }
+        // No DNA, no engine — proceed without family (non-DNA mode)
+        console.log(`[ci-blueprint] no engine key — skipping blueprint family selection (mode=ad_hoc)`);
+        familySelectionLog = {
+          event: "BLUEPRINT_FAMILY_SKIPPED",
+          reason: "no_engine_key_no_dna",
+          engine_key: null,
+          blueprint_family_key: null,
+        };
+      }
+
       const optimizerMode = dnaProfile ? "dna_informed" : "ci_pattern";
 
       // 1. Create run record
@@ -259,7 +367,27 @@ serve(async (req) => {
         idea_count: sourceIdeas.length,
       };
 
-      // 5. Create blueprint record with enriched design schema
+      // 5. Create blueprint record with family lineage
+      const familyKey = selectedFamily?.family_key || null;
+      const executionPattern = selectedFamily?.execution_pattern || null;
+      const familyConfidence = familySelectionLog.selection_confidence ?? null;
+      const familyRationale = familySelectionLog.rationale ?? null;
+
+      // IEL: If engine exists, family must have been selected
+      if (resolvedEngineKey && !familyKey) {
+        console.error(`[ci-blueprint][IEL] INVARIANT_VIOLATION: engine=${resolvedEngineKey} but no family selected. Blocking insert.`);
+        throw new Error(`Invariant violation: engine ${resolvedEngineKey} resolved but no blueprint family was selected.`);
+      }
+      // IEL: If family selected, execution_pattern must be present
+      if (familyKey && (!executionPattern || Object.keys(executionPattern).length === 0)) {
+        console.error(`[ci-blueprint][IEL] INVARIANT_VIOLATION: family=${familyKey} has no execution_pattern. Blocking insert.`);
+        throw new Error(`Invariant violation: blueprint family ${familyKey} has no execution_pattern.`);
+      }
+
+      const structuralSummary = selectedFamily
+        ? `${selectedFamily.label}: ${selectedFamily.description}. Strengths: ${(selectedFamily.structural_strengths || []).join(", ")}. Risks: ${(selectedFamily.structural_risks || []).join(", ")}.`
+        : null;
+
       const { data: blueprint, error: bpErr } = await svcClient
         .from("idea_blueprints")
         .insert({
@@ -268,12 +396,24 @@ serve(async (req) => {
           format,
           lane: lane || scorePatterns.common_lanes[0] || "",
           genre: genre || scorePatterns.common_genres[0] || "",
-          engine: engine || dnaEngineKey || null,
+          engine: resolvedEngineKey,
           budget_band: budgetBand || scorePatterns.common_budget_bands[0] || "",
           source_dna_profile_id: sourceDnaProfileId || null,
           source_engine_key: dnaEngineKey || null,
           dna_constraint_mode: dnaConstraintMode,
           blueprint_mode: optimizerMode,
+          // Blueprint family lineage
+          blueprint_family_key: familyKey,
+          execution_pattern: executionPattern,
+          family_selection_confidence: familyConfidence,
+          family_selection_rationale: familyRationale,
+          structural_summary: structuralSummary,
+          family_candidates_considered: familyCandidates.map((f: any) => ({
+            family_key: f.family_key,
+            label: f.label,
+            lane_suitability: f.lane_suitability,
+            budget_suitability: f.budget_suitability,
+          })),
           structural_patterns: scorePatterns,
           market_design: {
             useTrends,
@@ -312,6 +452,23 @@ serve(async (req) => {
       if (bpErr) throw new Error(`Blueprint creation failed: ${bpErr.message}`);
 
       // 6. Generate candidates via LLM (generation only, no self-scoring)
+      // Build blueprint family execution context for prompt injection
+      let familyPromptBlock = "";
+      if (selectedFamily) {
+        const ep = selectedFamily.execution_pattern || {};
+        familyPromptBlock = `\n\nBLUEPRINT FAMILY EXECUTION PATTERN (structural constraint — ideas MUST follow this architecture):
+Family: ${selectedFamily.label} (${selectedFamily.family_key})
+Engine: ${resolvedEngineKey}
+Description: ${selectedFamily.description}
+${ep.act_structure ? `Act Structure: ${JSON.stringify(ep.act_structure)}` : ""}
+${ep.spatial_mode ? `Spatial Mode: ${ep.spatial_mode}` : ""}
+${ep.confrontation_rhythm ? `Confrontation Rhythm: ${ep.confrontation_rhythm}` : ""}
+Structural Strengths: ${(selectedFamily.structural_strengths || []).join(", ")}
+Structural Risks to mitigate: ${(selectedFamily.structural_risks || []).join(", ")}
+${selectedFamily.when_to_use ? `When to use: ${selectedFamily.when_to_use}` : ""}
+${selectedFamily.when_not_to_use ? `When NOT to use: ${selectedFamily.when_not_to_use}` : ""}`;
+      }
+
       const structuralContext = sourceIdeas.length > 0
         ? `\nHIGH-PERFORMING IDEA STRUCTURAL PATTERNS (use as design signals, do NOT copy text or plots):
 - Average CI Score: ${scorePatterns.avg_total.toFixed(1)}
@@ -332,7 +489,7 @@ CRITICAL RULES:
 - Do NOT self-score. Scores will be evaluated independently by a separate system.
 - Prioritize: hook clarity, protagonist distinctiveness, conflict engine strength, market positioning, and feasibility.
 - For each idea, explicitly describe: protagonist_design, conflict_design, hook_type, market_positioning, feasibility_notes.
-${structuralContext}${trendContext}${dnaPromptBlock}
+${structuralContext}${trendContext}${dnaPromptBlock}${familyPromptBlock}
 
 Format: ${format}
 Lane: ${lane || "best fit"}
@@ -462,6 +619,10 @@ ${dnaProfile ? `\nBLUEPRINT MODE: DNA-Informed — ideas must structurally align
               source_dna_profile_id: sourceDnaProfileId || null,
               source_engine_key: dnaEngineKey || null,
               dna_source_title: dnaProfile?.source_title || null,
+              // Blueprint family lineage
+              blueprint_family_key: familyKey || null,
+              execution_pattern_summary: structuralSummary || null,
+              family_selection_confidence: familyConfidence || null,
               design_metadata: {
                 protagonist_design: c.protagonist_design || null,
                 conflict_design: c.conflict_design || null,
@@ -657,6 +818,13 @@ One-page pitch: ${c.one_page_pitch}
         lane_relaxed: laneRelaxed,
         learning_pool_only: useLearningPoolOnly,
         learning_pool_match_count: learningPoolMatchCount,
+        // Blueprint family lineage
+        engine_key: resolvedEngineKey || null,
+        blueprint_family_key: familyKey || null,
+        blueprint_family_label: selectedFamily?.label || null,
+        family_selection_confidence: familyConfidence || null,
+        structural_summary: structuralSummary || null,
+        family_candidates_evaluated: familyCandidates.length,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
