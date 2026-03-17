@@ -22,7 +22,8 @@ serve(async (req) => {
       });
     }
 
-    const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+    const _gw = resolveGateway();
+    const lovableApiKey = _gw.apiKey;
     const { scriptText, format, genres, budgetRange, lane, totalBudget } = await req.json();
 
     if (!scriptText) {
