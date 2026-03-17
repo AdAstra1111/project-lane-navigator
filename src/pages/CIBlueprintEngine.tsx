@@ -130,6 +130,7 @@ function CandidateCard({ candidate, onPromote, promoting, onOpenPitchIdea }: { c
 }
 
 export default function CIBlueprintEngine() {
+  const navigate = useNavigate();
   const [config, setConfig] = useState<BuildConfig>({
     format: 'film',
     lane: '',
@@ -152,6 +153,12 @@ export default function CIBlueprintEngine() {
     const result = await buildMutation.mutateAsync(config);
     setActiveRunId(result.run_id);
   };
+
+  const handleOpenPitchIdea = (pitchIdeaId: string) => {
+    navigate(`/pitch-ideas?highlight=${pitchIdeaId}`);
+  };
+
+  const promotedCount = candidates.filter(c => c.promotion_status === 'promoted').length;
 
   const blueprint = blueprints[0];
 
