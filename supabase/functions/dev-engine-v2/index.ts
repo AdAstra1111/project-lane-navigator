@@ -27534,7 +27534,9 @@ CRITICAL:
               .maybeSingle();
             const cj = canonRow?.canon_json || {};
             const canonParts: string[] = [];
-            if (cj.title) canonParts.push(`CANONICAL TITLE: "${cj.title}" — use this exact title throughout. Do NOT rename or create alternate titles.`);
+            // Title: prefer canon_json.title, fallback to projects.title
+            const canonTitle = cj.title || proj?.title || "";
+            if (canonTitle) canonParts.push(`CANONICAL TITLE: "${canonTitle}" — use this exact title throughout. Do NOT rename or create alternate titles.`);
             if (cj.logline) canonParts.push(`CANONICAL LOGLINE: ${cj.logline}`);
             if (cj.premise) canonParts.push(`CANONICAL PREMISE: ${cj.premise}`);
             if (Array.isArray(cj.characters) && cj.characters.length > 0) {
