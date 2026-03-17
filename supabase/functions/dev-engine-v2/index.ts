@@ -21484,7 +21484,7 @@ Use ONLY the scene_ids provided. Never invent IDs.`;
         .select("fact_type, subject, predicate, object, confidence")
         .eq("project_id", projectId).eq("is_active", true).limit(100);
 
-      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
+      const apiKey = resolveGateway().apiKey;
 
       const repairSystem = `You are a script repair advisor. Given a problem, a project spine, a scene map, and canon facts, suggest 3-6 repair OPTIONS.
 Each option MUST be one of: insert_new_scene, rewrite_scene, move_scene, split_scene, merge_scenes.
