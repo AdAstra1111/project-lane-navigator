@@ -384,6 +384,7 @@ export function AutoRunMissionControl({
   const navigate = useNavigate();
   const qc = useQueryClient();
   const runSnapshot = useRunSnapshot(job, steps);
+  const { data: plateauDiagnosis } = usePlateauDiagnosis(projectId, job?.id);
   const [safeMode, setSafeMode] = useState(false);
   const [startDocument, setStartDocument] = useState(currentDeliverable as string);
 
