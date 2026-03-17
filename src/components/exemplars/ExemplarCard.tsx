@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { LANE_LABELS, type MonetisationLane } from '@/lib/types';
 import type { PitchIdea } from '@/hooks/usePitchIdeas';
-import { Star, GitCompare, Search, Eye, Award } from 'lucide-react';
+import { Star, GitCompare, Search, Eye, Award, GraduationCap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function scoreColor(score: number) {
