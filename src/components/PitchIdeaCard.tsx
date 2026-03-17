@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2, Bookmark, BookmarkCheck, Lock, Shield, Rocket, Send } from 'lucide-react';
+import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2, Bookmark, BookmarkCheck, Lock, Shield, Rocket, Send, GitCompare, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
