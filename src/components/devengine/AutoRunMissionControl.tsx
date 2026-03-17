@@ -1535,7 +1535,7 @@ export function AutoRunMissionControl({
                       {prov.candidates_seen_count > 0 && (
                         <>
                           <span className="text-muted-foreground">Reviewed:</span>
-                          <span>{prov.candidates_seen_count} versions</span>
+                          <span>{prov.candidates_seen_count} {prov.candidates_seen_count === 1 ? 'pass' : 'passes'}</span>
                         </>
                       )}
                     </div>
