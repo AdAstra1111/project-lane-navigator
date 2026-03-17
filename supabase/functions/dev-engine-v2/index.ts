@@ -4761,8 +4761,9 @@ serve(async (req) => {
       }
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("OPENROUTER_API_KEY") || Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY (or LOVABLE_API_KEY) not configured");
+    const _gw = resolveGateway();
+    const LOVABLE_API_KEY = _gw.apiKey;
+    if (!LOVABLE_API_KEY) throw new Error("No AI gateway key configured (LOVABLE_API_KEY / OPENROUTER_API_KEY)");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
