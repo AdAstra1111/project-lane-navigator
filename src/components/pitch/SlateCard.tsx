@@ -110,6 +110,7 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete, projec
   const differentiationMove: string = raw.differentiation_move || '';
   const toneTag: string = raw.tone_tag || '';
   const formatSummary: string = raw.format_summary || '';
+  const isFromBlueprint = raw.promotion_source === 'ci_blueprint_engine';
 
   return (
     <Card className="border-border/40 bg-card/60 backdrop-blur-sm hover:border-primary/30 transition-colors group">
