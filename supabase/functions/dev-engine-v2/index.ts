@@ -8,6 +8,7 @@ import { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_EVAL_BLOCK } from "../_s
 import { getDocPurposeClass, PURPOSE_SCORING_RUBRICS, PURPOSE_REWRITE_GOALS } from "../_shared/docPurposeRegistry.ts";
 import { shouldRunNIE, loadAdjacentDocPack, evaluateNarrativeIntegrity } from "../_shared/narrativeIntegrityEngine.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
+import { extractCanonConstraints, detectCanonDrift, logDriftResult, type CanonConstraints, type DriftResult } from "../_shared/canonConstraintEnforcement.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
 import { composeSystem, resolveGateway } from "../_shared/llm.ts";
