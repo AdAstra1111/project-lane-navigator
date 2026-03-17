@@ -77,7 +77,16 @@ export function ExemplarFiltersBar({ filters, onChange, resultCount }: Props) {
           className="cursor-pointer h-9 px-3 flex items-center"
           onClick={() => set({ approvedOnly: !filters.approvedOnly })}
         >
-          Approved Only
+          Manual Exemplar
+        </Badge>
+
+        {/* Learning-pool toggle */}
+        <Badge
+          variant={filters.learningPoolOnly ? 'default' : 'outline'}
+          className="cursor-pointer h-9 px-3 flex items-center"
+          onClick={() => set({ learningPoolOnly: !filters.learningPoolOnly })}
+        >
+          🎯 Learning Pool
         </Badge>
 
         {/* Advanced toggle */}
