@@ -5,6 +5,7 @@ import type { EdgeTrendSignal, EdgeCastTrend } from "../_shared/convergence-prof
 import { buildModalityPromptBlock } from "../_shared/productionModality.ts";
 import { getAnimationMeta, buildAnimationMetaPromptBlock } from "../_shared/animationMeta.ts";
 import { fetchTrendSignalsLadder, fetchCastTrends, modalityToTrendsProductionTypeFilter } from "../_shared/trendsContext.ts";
+import { buildPitchScoringRubric, normalizePitchScores, checkScoreDrift } from "../_shared/pitchScoring.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
