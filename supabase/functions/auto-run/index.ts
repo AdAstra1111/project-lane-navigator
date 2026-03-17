@@ -2820,15 +2820,7 @@ async function autoResolveActionableNotes(
     return { resolved: 0, notes: [] };
   }
 }
-
-function extractTargetGP(job: any): number {
-  const ct = job?.converge_target_json;
-  if (ct !== null && ct !== undefined && typeof ct === "object") {
-    const gp = Number(ct.gp);
-    if (!isNaN(gp) && gp >= 0 && gp <= 100) return gp;
-  }
-  return 95;
-}
+// extractTargetGP already declared above — duplicate removed
 
 
 async function updateJob(supabase: any, jobId: string, fields: Record<string, any>) {
