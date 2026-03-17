@@ -6349,6 +6349,22 @@ Deno.serve(async (req) => {
                 .order("created_at", { ascending: false }).limit(1).maybeSingle();
               if (docForCap) await finalizeBest(supabase, jobId, job, docForCap.id);
 
+              // ── EXCEPTIONAL GUARD: Never auto-force-promote in Exceptional mode ──
+              if (job.allow_defaults && isExceptionalObjective(job)) {
+                console.warn(`[auto-run][IEL] EXCEPTIONAL_PLATEAU_BLOCK { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, target: ${targetCi}, plateau_version: "v1", path: "notes_unresolvable" }`);
+                await logStep(supabase, jobId, stepCount + 2, currentDoc, "exceptional_plateau_block",
+                  `EXCEPTIONAL_PLATEAU_BLOCK: CI=${ciProgress.currentCi} plateaued (V1) with no actionable notes but below Exceptional target ${targetCi}. Escalation required — will NOT auto-promote.`,
+                  { ci: ciProgress.currentCi }, undefined,
+                  { target_ci: targetCi, best_ci: ciProgress.bestCi, quality_objective: "Exceptional", action: "plateau_escalation_required", plateau_version: "v1" });
+                await updateJob(supabase, jobId, {
+                  status: "paused",
+                  stop_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
+                  pause_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
+                  error: `Exceptional mode: CI=${ciProgress.currentCi} plateaued below target ${targetCi} for ${currentDoc}. Escalation required — auto-promote blocked.`,
+                });
+                await releaseProcessingLock(supabase, jobId);
+                return respondWithJob(supabase, jobId);
+              }
               // In Full Autopilot (allow_defaults=true), auto-force-promote instead of pausing.
               if (job.allow_defaults) {
                 const nextStageV1 = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
