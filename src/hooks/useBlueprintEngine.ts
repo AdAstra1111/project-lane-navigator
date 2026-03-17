@@ -63,6 +63,8 @@ export interface BlueprintCandidate {
   promoted_at: string | null;
   promoted_pitch_idea_id: string | null;
   provenance: Record<string, any>;
+  evaluated_scores: Record<string, any> | null;
+  scoring_method: string;
   created_at: string;
 }
 

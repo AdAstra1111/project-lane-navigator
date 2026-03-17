@@ -92,11 +92,15 @@ function CandidateCard({ candidate, onPromote, promoting }: { candidate: Bluepri
           </Button>
           <div className="flex items-center gap-2">
             {candidate.promotion_status === 'promoted' ? (
-              <Badge variant="default" className="text-[10px] bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Promoted</Badge>
+              <Badge variant="default" className="text-[10px] bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Promoted to Pitch Idea</Badge>
+            ) : candidate.scoring_method === 'scoring_failed' ? (
+              <Badge variant="outline" className="text-[10px] text-destructive">Scoring failed</Badge>
+            ) : candidate.scoring_method === 'pending' ? (
+              <Badge variant="outline" className="text-[10px] text-muted-foreground">Scoring…</Badge>
             ) : meetsThresholds ? (
               <Button size="sm" className="h-7 text-xs gap-1" onClick={onPromote} disabled={promoting}>
                 {promoting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />}
-                Promote to DevSeed
+                Promote to Pitch Idea
               </Button>
             ) : (
               <Badge variant="outline" className="text-[10px] text-muted-foreground">Below threshold</Badge>
