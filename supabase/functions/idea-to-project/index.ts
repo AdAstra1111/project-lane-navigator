@@ -1,13 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createVersion } from "../_shared/doc-os.ts";
+import { resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
