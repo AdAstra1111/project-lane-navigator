@@ -6,6 +6,7 @@ import { buildModalityPromptBlock } from "../_shared/productionModality.ts";
 import { getAnimationMeta, buildAnimationMetaPromptBlock } from "../_shared/animationMeta.ts";
 import { fetchTrendSignalsLadder, fetchCastTrends, modalityToTrendsProductionTypeFilter } from "../_shared/trendsContext.ts";
 import { buildPitchScoringRubric, normalizePitchScores, checkScoreDrift } from "../_shared/pitchScoring.ts";
+import { computeLearningPoolEligibility } from "../_shared/learningPool.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
