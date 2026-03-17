@@ -338,33 +338,72 @@ export function formatDirectivesAsDirections(directives: RewriteDirective[], doc
   return lines;
 }
 
-// ── Character Bible Depth Checklist ──
+// ── Character Bible Depth Checklist (Schema v2) ──
 export const CHARACTER_BIBLE_DEPTH_PROMPT_BLOCK = `
-## CHARACTER DEPTH CHECKLIST (MANDATORY — each named character MUST have ALL of these)
-For EVERY significant character in the bible, you MUST explicitly address:
-1. **Clear Wants/Needs** — What do they consciously want vs what they truly need? These must conflict.
-2. **Core Contradiction** — What internal contradiction defines them? (e.g., craves connection but sabotages intimacy)
-3. **Wound/Backstory** — What formative wound drives their behavior? Be specific, not vague.
-4. **Masks/Public Self** — How do they present to the world vs who they really are?
-5. **Key Relationships** — Map their dynamic with at least 2 other characters. Show power dynamics, tensions, dependencies.
-6. **Pressure Patterns** — How do they respond under pressure? What's their default coping mechanism?
-7. **Escalation Arc** — How do they change across the season? What's the trajectory from pilot to finale?
-8. **Distinctive Voice** — What makes their dialogue recognizable? Speech patterns, verbal tics, register.
-9. **Physicality** — How do they carry themselves? What's their relationship with their body/space?
-10. **Moral Line** — What line won't they cross? And what would make them cross it?
-11. **Secrets** — What do they hide from other characters? From the audience (if any)?
-12. **Thematic Function** — What theme or question does this character embody in the story?
+## CHARACTER SCHEMA v2 — MANDATORY STRUCTURE
 
-Missing ANY of these for a major character is a structural failure. Minor/recurring characters need at least items 1, 2, 5, 7, 8.
+### DESCRIPTOR POLICY (STRICTLY ENFORCED)
+DO NOT use:
+- Vague personality descriptors ("enigmatic", "magnetic presence", "complex soul")
+- Poetic or metaphorical language ("storm beneath calm", "fire and ice")
+- Ambiguous emotional phrasing ("deeply conflicted", "haunted by the past")
+
+INSTEAD use:
+- Structural descriptors: social position, institutional role, operational function
+- Relational clarity: power dynamics, leverage, dependency, obligation
+- System-based positioning: where they sit in hierarchy, who they answer to, who answers to them
+
+### CORE CHARACTER REQUIREMENTS (each principal character MUST have ALL):
+1. **Social Position** — Where they sit in the hierarchy/class/institution. Be specific (e.g., "junior partner at a mid-tier consulting firm", NOT "ambitious professional").
+2. **Functional Role** — What they DO operationally in the world. Concrete daily activity.
+3. **World Embedding** — Physical location, daily environment, institutional context they move through.
+4. **Want vs Need** — External goal (specific, measurable) vs internal truth (must conflict with Want).
+5. **Wound** — The specific formative event (name the event, not a vague feeling).
+6. **Flaw** — Internal limitation that generates story friction. Behavioral, not poetic.
+7. **Key Relationships** — Map dynamics with at least 2 other characters. Show power dynamics, obligations, tensions.
+8. **Arc** — Start state → breaking point → end state. Concrete, not aspirational.
+9. **Voice** — Speech register, vocabulary level, verbal tics, avoidances.
+
+### WORLD CHARACTER REQUIREMENTS (NON-CANONICAL — supporting/background):
+World characters populate the social ecosystem. They require ONLY:
+- Name or Role Title
+- Social Position (hierarchy layer)
+- Functional Role (what they do)
+- World Embedding (where they operate)
+
+Do NOT give world characters full arcs or detailed wounds. They are environmental texture.
+
+### WORLD DENSITY REQUIREMENT:
+The bible MUST include a "WORLD CHARACTERS" section with:
+- At least 2–3 visible hierarchy layers (e.g., management/staff/street, court/church/merchants)
+- At least 5–10 supporting/world roles for prestige or large-scale projects
+- Institutional roles, intermediaries, enforcers, rivals, environmental figures
+- These characters create a lived-in, socially stratified world
+
+### CANON SEPARATION:
+- Characters in "PRINCIPAL CHARACTERS" and "ANTAGONIST" sections = CANONICAL (persist in canon)
+- Characters in "WORLD CHARACTERS" section = NON-CANONICAL (generation-only, disposable)
+- CLEARLY label the "WORLD CHARACTERS" section header with "(NON-CANONICAL)"
 `;
 
-// ── Character Bible Depth Eval Extension ──
+// ── Character Bible Depth Eval Extension (Schema v2) ──
 export const CHARACTER_BIBLE_DEPTH_EVAL_BLOCK = `
-## CHARACTER DEPTH SCORING (MANDATORY for character_bible evaluation)
-For each major character, check the Character Depth Checklist:
-- wants_needs, contradiction, wound, masks, relationships, pressure_patterns, escalation_arc, voice, physicality, moral_line, secrets, thematic_function
-- If ANY major character is missing 3+ items: this is a BLOCKER (severity: blocker, category: character)
-- If ANY major character is missing 1-2 items: this is HIGH-IMPACT (severity: high, category: character)  
-- Score CI harshly: missing depth items = direct CI penalty. A character bible with shallow characters cannot score above 75 CI regardless of other qualities.
-- In your blocking_issues or high_impact_notes, specify WHICH character and WHICH items are missing.
+## CHARACTER DEPTH SCORING — SCHEMA v2 (MANDATORY for character_bible evaluation)
+
+For each PRINCIPAL character, check these Schema v2 requirements:
+- social_position, functional_role, world_embedding, want_vs_need, wound, flaw, relationships, arc, voice
+- If ANY principal character is missing 3+ items: BLOCKER (severity: blocker, category: character)
+- If ANY principal character is missing 1-2 items: HIGH-IMPACT (severity: high, category: character)
+
+DESCRIPTOR QUALITY CHECK:
+- If any character uses vague descriptors ("enigmatic", "magnetic", "complex soul", "storm beneath calm"): HIGH-IMPACT penalty
+- Characters must be positioned structurally (hierarchy, institution, function) not poetically
+
+WORLD DENSITY CHECK:
+- If no "WORLD CHARACTERS" section exists: HIGH-IMPACT (severity: high, category: world_density)
+- If fewer than 5 world roles for a prestige project: note as improvement area
+- If no visible hierarchy layers: HIGH-IMPACT
+
+GP IMPACT: A character bible with isolated characters (no social system, no hierarchy, no institutional context) cannot score above 70 GP regardless of individual character depth.
+CI IMPACT: Missing Schema v2 structural fields = direct CI penalty. Shallow characters cannot score above 75 CI.
 `;
