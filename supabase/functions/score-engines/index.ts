@@ -33,7 +33,7 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+    const lovableApiKey = resolveGateway().apiKey;
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
