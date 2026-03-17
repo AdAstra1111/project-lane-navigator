@@ -144,6 +144,8 @@ serve(async (req) => {
       let genreRelaxed = false;
       let laneRelaxed = false;
 
+      let learningPoolMatchCount = 0;
+
       for (const stage of fallbackStages) {
         let q = svcClient
           .from("pitch_ideas")
@@ -156,6 +158,9 @@ serve(async (req) => {
         if (stage.useLane && lane) q = q.eq("recommended_lane", lane);
         if (stage.useGenre && genre) q = q.ilike("genre", `%${genre}%`);
         if (useExemplars) q = q.eq("is_exemplar", true);
+
+        // Learning-pool-only mode: hard gate, never relaxed
+        if (useLearningPoolOnly) q = q.eq("learning_pool_eligible", true);
 
         const { data, error: qErr } = await q;
         if (qErr) {
