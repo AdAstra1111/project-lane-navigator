@@ -105,9 +105,11 @@ export function ActionToolbar({
   onGenerateDocument,
   generateDocumentPending,
   isBgGenerating,
+  stageIdentityBlocked = false,
 }: ActionToolbarProps) {
   const navigate = useNavigate();
   const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
+  const actionsDisabled = anyPending || stageIdentityBlocked;
   const hasMissingPrereqs = verticalDramaGating && verticalDramaGating.missing_prerequisites.length > 0;
 
   const [episodeNum, setEpisodeNum] = useState('1');
