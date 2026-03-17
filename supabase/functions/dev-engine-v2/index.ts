@@ -27491,13 +27491,58 @@ CRITICAL:
           const targetOutput = stage.toUpperCase();
           const necBlock = await loadNECGuardrailBlock(supabase, projectId);
           const constraintPack = await loadConstraintPack(supabase, projectId);
-          console.log("[dev-engine-v2] regen-insufficient: constraint injection", { path: "regen-insufficient", hasNEC: !!necBlock, hasConstraintPack: !!constraintPack });
+
+          // ── CANON INJECTION: Load canonical title + characters to prevent drift ──
+          let canonBlock = "";
+          try {
+            const { data: canonRow } = await supabase
+              .from("project_canon")
+              .select("canon_json")
+              .eq("project_id", projectId)
+              .maybeSingle();
+            const cj = canonRow?.canon_json || {};
+            const canonParts: string[] = [];
+            if (cj.title) canonParts.push(`CANONICAL TITLE: "${cj.title}" — use this exact title throughout. Do NOT rename or create alternate titles.`);
+            if (cj.logline) canonParts.push(`CANONICAL LOGLINE: ${cj.logline}`);
+            if (cj.premise) canonParts.push(`CANONICAL PREMISE: ${cj.premise}`);
+            if (Array.isArray(cj.characters) && cj.characters.length > 0) {
+              const charLines = cj.characters
+                .filter((c: any) => c.name && c.name.trim())
+                .slice(0, 15)
+                .map((c: any) => {
+                  const details = [c.role, c.goals, c.traits].filter(Boolean).join("; ");
+                  return `  - ${c.name}${details ? ` (${details})` : ""}`;
+                });
+              if (charLines.length > 0) {
+                canonParts.push(`CANONICAL CHARACTERS (use these exact names — do NOT rename, merge, or invent new named characters):\n${charLines.join("\n")}`);
+              }
+            }
+            if (canonParts.length > 0) {
+              canonBlock = `\n## CANON LOCK (AUTHORITATIVE — these are non-negotiable)\n${canonParts.join("\n")}\n`;
+            }
+          } catch (canonErr) {
+            console.warn("[dev-engine-v2] regen-insufficient: canon load failed (non-fatal):", canonErr);
+          }
+
+          console.log("[dev-engine-v2] regen-insufficient: constraint injection", { path: "regen-insufficient", hasNEC: !!necBlock, hasConstraintPack: !!constraintPack, hasCanon: !!canonBlock });
+
+          // ── FORMAT-SPECIFIC GENERATION GUIDANCE ──
+          let formatGuidance = "";
+          const isScreenplayDerivative = ["feature_script", "production_draft", "episode_script", "season_script", "season_master_script"].includes(stage);
+          if (isScreenplayDerivative) {
+            formatGuidance = `\nFORMAT REQUIREMENT: This is a SCREENPLAY-FORMAT document. You MUST produce:
+- Proper screenplay formatting with INT./EXT. sluglines
+- Character names in CAPS followed by dialogue
+- Action lines in present tense
+- Scene transitions (CUT TO:, FADE IN:, etc.)
+Do NOT produce: scene breakdowns, JSON, outlines, beat lists, or planning artifacts.
+This must read as a professional screenplay, not a structural summary.\n`;
+          }
 
           const userPrompt = `SOURCE FORMAT: ${upstream.upstreamType}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA): []
-${necBlock}${constraintPack}
-
+${canonBlock}${necBlock}${constraintPack}${formatGuidance}
 CRITICAL: Produce a FULL, COMPLETE ${stage.replace(/_/g, " ")} document.
 Do NOT produce stubs, placeholders, or TODO markers.
 Include all required sections with substantive content.
