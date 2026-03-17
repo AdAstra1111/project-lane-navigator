@@ -203,6 +203,7 @@ async function writeVersionSafe(
     deliverableType?: string;
     format?: string;
     inputsUsed?: Record<string, any>;
+    projectId?: string;
   },
 ): Promise<{ data: any; error: any; deduplicated?: boolean }> {
   const generatorId = opts.generatorId || "dev-engine-v2";
@@ -228,6 +229,19 @@ async function writeVersionSafe(
     console.warn("[DEDUP] Dedupe check failed (non-fatal):", dedupeErr?.message);
   }
 
+  // ── CCE: Canon Constraint Enforcement post-generation drift check ──
+  let cceMeta: Record<string, any> = {};
+  if (opts.projectId && opts.plaintext && opts.plaintext.length > 100) {
+    const cceResult = await runCCEPostGeneration(
+      supabaseClient,
+      opts.projectId,
+      opts.plaintext,
+      opts.deliverableType || "other",
+      `dev-engine-v2:${generatorId}`,
+    );
+    cceMeta = cceResult.metaPatch;
+  }
+
   try {
     const nv = await createVersion(supabaseClient, {
       documentId: opts.documentId,
@@ -241,7 +255,7 @@ async function writeVersionSafe(
       dependsOnResolverHash: opts.dependsOnResolverHash || undefined,
       generatorId,
       deliverableType: opts.deliverableType,
-      metaJson: { ...(opts.metaJson || {}), content_hash: contentHash },
+      metaJson: { ...(opts.metaJson || {}), content_hash: contentHash, ...cceMeta },
       parentVersionId: opts.parentVersionId || undefined,
       inputsUsed: opts.inputsUsed || {
         generator_id: generatorId,
