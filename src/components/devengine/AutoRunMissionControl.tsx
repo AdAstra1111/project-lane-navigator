@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { usePlateauDiagnosis } from '@/hooks/usePlateauDiagnosis';
+import { PlateauDiagnosisPanel } from '@/components/devengine/PlateauDiagnosisPanel';
 import { useRunSnapshot } from '@/hooks/useRunSnapshot';
 import { ChunkProgressPanel } from '@/components/documents/ChunkProgressPanel';
 import { StepBudgetControl } from './StepBudgetControl';
@@ -382,6 +384,7 @@ export function AutoRunMissionControl({
   const navigate = useNavigate();
   const qc = useQueryClient();
   const runSnapshot = useRunSnapshot(job, steps);
+  const { data: plateauDiagnosis } = usePlateauDiagnosis(projectId, job?.id);
   const [safeMode, setSafeMode] = useState(false);
   const [startDocument, setStartDocument] = useState(currentDeliverable as string);
 
@@ -955,7 +958,16 @@ export function AutoRunMissionControl({
               ⚠ Connection lost — backend continues independently. Retrying…
             </div>
           )}
-          {hasExceptionalPlateau && (
+          {hasExceptionalPlateau && plateauDiagnosis ? (
+            <PlateauDiagnosisPanel
+              diagnosis={plateauDiagnosis}
+              onLowerTarget={(ci, gp) => {
+                onUpdateTarget?.(ci, gp);
+                toast({ title: `Quality objective lowered to ${ci}+`, description: 'Resume the run to continue with the new target.' });
+              }}
+              onStop={() => onStop?.()}
+            />
+          ) : hasExceptionalPlateau ? (
             <div className="p-2.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 space-y-2">
               <div className="font-semibold flex items-center gap-1.5">⚠ Plateau — Escalation Required</div>
               <div className="text-amber-300/80">
@@ -963,40 +975,21 @@ export function AutoRunMissionControl({
                 Auto-promote blocked. The run has halted — choose an action below.
               </div>
               <div className="flex flex-wrap gap-1.5 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 text-[10px] px-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
-                  onClick={() => {
-                    onUpdateTarget?.(90, 90);
-                    toast({ title: 'Quality objective lowered to Premium (90+)', description: 'Resume the run to continue with the new target.' });
-                  }}
-                >
+                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
+                  onClick={() => { onUpdateTarget?.(90, 90); toast({ title: 'Quality objective lowered to Premium (90+)', description: 'Resume the run to continue with the new target.' }); }}>
                   Lower to Premium (90+)
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 text-[10px] px-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
-                  onClick={() => {
-                    onUpdateTarget?.(85, 85);
-                    toast({ title: 'Quality objective lowered to Strong (85+)', description: 'Resume the run to continue with the new target.' });
-                  }}
-                >
+                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
+                  onClick={() => { onUpdateTarget?.(85, 85); toast({ title: 'Quality objective lowered to Strong (85+)', description: 'Resume the run to continue with the new target.' }); }}>
                   Lower to Strong (85+)
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 text-[10px] px-2 border-border/50 text-muted-foreground hover:bg-muted/30"
-                  onClick={() => onStop?.()}
-                >
-                  <Square className="h-2.5 w-2.5 mr-1" />
-                  Stop Run
+                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 border-border/50 text-muted-foreground hover:bg-muted/30"
+                  onClick={() => onStop?.()}>
+                  <Square className="h-2.5 w-2.5 mr-1" /> Stop Run
                 </Button>
               </div>
             </div>
-          )}
+          ) : null}
           {job?.status === 'completed' && (
             <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400">
               ✓ {job.stop_reason || 'Target reached'} · {job.step_count} steps
