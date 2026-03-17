@@ -9724,6 +9724,7 @@ Previous attempt problems: ${validation.reasons.join("; ")}`;
       }).select().single();
       if (dErr) throw dErr;
 
+      const epScriptCCE = await runCCEPostGeneration(supabase, projectId, scriptText, "episode_script", "dev-engine-v2:episode-script");
       const newVersion = await createVersion(supabase, {
         documentId: newDoc.id,
         docType: "episode_script",
@@ -9734,6 +9735,7 @@ Previous attempt problems: ${validation.reasons.join("; ")}`;
         sourceDocumentIds: [documentId],
         deliverableType: "episode_script",
         generatorId: "dev-engine-v2-episode-script",
+        metaJson: { ...epScriptCCE.metaPatch },
         inputsUsed: { generator_id: "dev-engine-v2-episode-script", document_id: newDoc.id, source_document_id: documentId, source_version_id: versionId, project_id: projectId, episode_number: epNum },
       });
 
