@@ -328,6 +328,7 @@ export default function CIBlueprintEngine() {
                     candidate={c}
                     onPromote={() => promoteMutation.mutate(c.id)}
                     promoting={promoteMutation.isPending}
+                    onOpenPitchIdea={handleOpenPitchIdea}
                   />
                 ))}
               </div>
