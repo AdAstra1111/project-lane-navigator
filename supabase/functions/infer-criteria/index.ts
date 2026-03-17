@@ -219,7 +219,7 @@ Deno.serve(async (req) => {
 
       // Second-pass extractions: fields that use alternative heading names as fallback
       if (!criteria.stakes) {
-        setField("stakes", extractHeading(text, "WHY NOW", "WHY US", "RISK SUMMARY"), docType, docId, "extracted");
+        setField("stakes", extractHeading(text, "WHY NOW"), docType, docId, "extracted");
       }
     }
 
