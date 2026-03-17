@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, Upload, Loader2, FileText, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
+import { CanonDriftBadge } from '@/components/devengine/CanonDriftBadge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -258,6 +259,9 @@ export function ScriptVersionConvergence({ projectId }: ScriptVersionConvergence
                           {gpDelta > 0 ? <TrendingUp className="h-2.5 w-2.5" /> : gpDelta < 0 ? <TrendingDown className="h-2.5 w-2.5" /> : <Minus className="h-2.5 w-2.5" />}
                         </Badge>
                       )}
+
+                      {/* Canon drift indicator */}
+                      <CanonDriftBadge metaJson={meta} />
 
                       {/* Note breakdown */}
                       {hasNotes && (
