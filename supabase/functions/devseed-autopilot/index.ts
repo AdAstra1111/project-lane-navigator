@@ -17,6 +17,7 @@
  * State stored in: canon_json.autopilot (NO new tables)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { resolveGateway } from "../_shared/llm.ts";
 
 // ── Dynamic CORS ──
 function getCorsHeaders(req: Request) {
