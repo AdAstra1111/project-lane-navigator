@@ -6146,20 +6146,13 @@ Deno.serve(async (req) => {
             if (!ciGate.pass) {
             // Over the iteration cap and still below target — force-promote best or pause
             console.warn(`[auto-run] max_stage_iterations_reached { job_id: "${jobId}", doc_type: "${currentDoc}", iterations: ${iterCount}, best_ci: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap} }`);
-            if (job.allow_defaults && ciGate.bestCiSoFar >= GLOBAL_MIN_CI && !isExceptionalObjective(job)) {
-              const iterCapForcePromote = await tryPlateauForcePromote(supabase, {
-                jobId, job, currentDoc, format, stepCount,
-                targetCi: targetCiForIterCap,
-                detectedCi: ciGate.ci,
-                detectedBestCi: ciGate.bestCiSoFar,
-                plateauVersion: "v1",
-              });
-              if (iterCapForcePromote) return iterCapForcePromote;
-            } else if (isExceptionalObjective(job) && job.allow_defaults) {
-              // ── EXCEPTIONAL GUARD: max iterations reached but CI below Exceptional target ──
+
+            // ── EXCEPTIONAL ALWAYS WINS: semantic plateau escalation regardless of allow_defaults ──
+            if (isExceptionalObjective(job)) {
               console.warn(`[auto-run][IEL] EXCEPTIONAL_MAX_ITER_BLOCK { job_id: "${jobId}", doc_type: "${currentDoc}", iterations: ${iterCount}, best_ci: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap} }`);
               await logStep(supabase, jobId, stepCount, currentDoc, "exceptional_plateau_block",
-                `MAX_STAGE_ITERATIONS (${MAX_STAGE_ITERATIONS}) reached for ${currentDoc} in Exceptional mode. Best CI: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap}. Escalation required.`
+                `MAX_STAGE_ITERATIONS (${MAX_STAGE_ITERATIONS}) reached for ${currentDoc} in Exceptional mode. Best CI: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap}. Escalation required.`,
+                undefined, undefined, { termination_source: "iteration_cap", termination_semantics: "exceptional_plateau" }
               );
               await updateJob(supabase, jobId, {
                 status: "paused",
@@ -6169,6 +6162,15 @@ Deno.serve(async (req) => {
               });
               await releaseProcessingLock(supabase, jobId);
               return respondWithJob(supabase, jobId);
+            } else if (job.allow_defaults && ciGate.bestCiSoFar >= GLOBAL_MIN_CI) {
+              const iterCapForcePromote = await tryPlateauForcePromote(supabase, {
+                jobId, job, currentDoc, format, stepCount,
+                targetCi: targetCiForIterCap,
+                detectedCi: ciGate.ci,
+                detectedBestCi: ciGate.bestCiSoFar,
+                plateauVersion: "v1",
+              });
+              if (iterCapForcePromote) return iterCapForcePromote;
             } else if (!job.allow_defaults) {
               await logStep(supabase, jobId, stepCount, currentDoc, "stop",
                 `MAX_STAGE_ITERATIONS (${MAX_STAGE_ITERATIONS}) reached for ${currentDoc}. Best CI: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap}. Pausing — manual review required.`
