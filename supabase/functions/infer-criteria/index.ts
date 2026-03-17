@@ -352,8 +352,8 @@ Do NOT invent information not present in the documents.`;
               setField(field as keyof CriteriaResult, val, bestDoc?.doc_type || "llm_inference", bestDoc?.id || null, "llm_infer");
             }
           }
-        } catch (e) {
-          console.warn("LLM inference failed:", e.message);
+        } catch (e: unknown) {
+          console.warn("LLM inference failed:", (e as Error)?.message ?? e);
         }
       }
     }
