@@ -383,7 +383,8 @@ function tierToModel(tier: ModelTier): string {
 }
 
 async function callAI(apiKey: string, model: string, system: string, user: string, temperature = 0.3): Promise<string> {
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const _gw = resolveGateway();
+  const response = await fetch(_gw.url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
