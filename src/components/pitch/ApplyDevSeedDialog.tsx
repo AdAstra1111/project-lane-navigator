@@ -851,21 +851,39 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           if (seedStateValid) {
             try {
               console.log(`[DevSeed][GUARD] Seed state validated — expected: [${expectedDocTypes.join(', ')}], actual: [${[...existingDocTypes].join(', ')}], autopilot: ${lastAutopilotStatus || 'tick-loop-exited'}. Starting Auto-Run.`);
-              const { data: arData, error: arInvokeErr } = await supabase.functions.invoke('auto-run', {
-                body: { action: 'start', projectId: project.id, allow_defaults: true },
-              });
-              if (arInvokeErr) {
-                // supabase.functions.invoke puts the JSON body in error.context for non-2xx
-                const errorBody = (arInvokeErr as any)?.context ?? arData ?? arInvokeErr;
-                const recoverableConflict = extractRecoverableAutoRunConflict(errorBody, project.id);
-                if (recoverableConflict) {
-                  console.log(`[DevSeed] Auto-Run already active (${recoverableConflict.job_id}), treating start as reattach.`);
+
+              // Preflight: check for existing running job before calling start to avoid 409
+              let alreadyRunning = false;
+              try {
+                const { data: statusData } = await supabase.functions.invoke('auto-run', {
+                  body: { action: 'status', projectId: project.id },
+                });
+                if (statusData?.job && ['running', 'queued', 'paused'].includes(statusData.job.status)) {
+                  console.log(`[DevSeed] Auto-Run already active (${statusData.job.id}), skipping start — will reattach on navigation.`);
                   parts.push('auto-run reattached');
-                } else {
-                  console.error('[DevSeed] auto-run start failed (non-fatal):', arInvokeErr);
+                  alreadyRunning = true;
                 }
-              } else {
-                parts.push('auto-run started');
+              } catch {
+                // Status check failed — proceed with start attempt
+              }
+
+              if (!alreadyRunning) {
+                const { data: arData, error: arInvokeErr } = await supabase.functions.invoke('auto-run', {
+                  body: { action: 'start', projectId: project.id, allow_defaults: true },
+                });
+                if (arInvokeErr) {
+                  // supabase.functions.invoke puts the JSON body in error.context for non-2xx
+                  const errorBody = (arInvokeErr as any)?.context ?? arData ?? arInvokeErr;
+                  const recoverableConflict = extractRecoverableAutoRunConflict(errorBody, project.id);
+                  if (recoverableConflict) {
+                    console.log(`[DevSeed] Auto-Run already active (${recoverableConflict.job_id}), treating start as reattach.`);
+                    parts.push('auto-run reattached');
+                  } else {
+                    console.error('[DevSeed] auto-run start failed (non-fatal):', arInvokeErr);
+                  }
+                } else {
+                  parts.push('auto-run started');
+                }
               }
             } catch (arErr: any) {
               console.error('[DevSeed] auto-run start failed (non-fatal):', arErr?.message);
