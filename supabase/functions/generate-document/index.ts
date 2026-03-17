@@ -1722,7 +1722,7 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
       }));
     }
 
-
+    let { data: docRecord } = await supabase.from("project_documents")
       .select("id")
       .eq("project_id", projectId)
       .eq("doc_type", docType)
