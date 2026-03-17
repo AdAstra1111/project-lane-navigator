@@ -326,7 +326,7 @@ SCORING RUBRIC:
 - score_lane_fit (0-100): How well this fits the stated monetization lane. Consider buyer expectations, format norms, audience positioning. 90+ = perfect lane alignment.
 - score_saturation_risk (0-100): INVERSE of saturation — higher = LESS saturated/more distinctive. 90+ = highly original in current market.
 - score_company_fit (0-100): Suitability for an independent production company. Consider packaging difficulty, financing complexity, sales potential. 90+ = ideal indie producer project.
-- score_total: Weighted composite. Formula: (market_heat * 0.25) + (feasibility * 0.2) + (lane_fit * 0.2) + (saturation_risk * 0.15) + (company_fit * 0.2). Calculate precisely.
+- score_total: Weighted composite. Formula: (market_heat * 0.30) + (feasibility * 0.25) + (lane_fit * 0.20) + (saturation_risk * 0.15) + (company_fit * 0.10). Calculate precisely. THIS FORMULA MUST MATCH THE AUTHORITATIVE generate-pitch WEIGHTS EXACTLY.
 
 CRITICAL: Be rigorous. Most ideas score 50-80. Only genuinely exceptional ideas score 90+. Do not inflate.
 
