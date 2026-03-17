@@ -619,6 +619,10 @@ ${dnaProfile ? `\nBLUEPRINT MODE: DNA-Informed — ideas must structurally align
               source_dna_profile_id: sourceDnaProfileId || null,
               source_engine_key: dnaEngineKey || null,
               dna_source_title: dnaProfile?.source_title || null,
+              // Blueprint family lineage
+              blueprint_family_key: familyKey || null,
+              execution_pattern_summary: structuralSummary || null,
+              family_selection_confidence: familyConfidence || null,
               design_metadata: {
                 protagonist_design: c.protagonist_design || null,
                 conflict_design: c.conflict_design || null,
