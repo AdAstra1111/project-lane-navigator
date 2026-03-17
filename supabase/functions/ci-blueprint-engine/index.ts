@@ -73,23 +73,26 @@ serve(async (req) => {
             .map(([k, v]) => `  - ${k}: ${v}`)
             .join("\n");
 
-          dnaPromptBlock = `\n\nNARRATIVE DNA CONSTRAINTS (from "${profile.source_title}"):
-These constraints define the STRUCTURAL IDENTITY of the story DNA. Generated ideas must preserve these narrative patterns while creating COMPLETELY ORIGINAL stories. Do NOT reproduce the source story's plot, characters, or setting.
+          const dnaLines: string[] = [
+            `NARRATIVE DNA CONSTRAINTS (from "${profile.source_title}"):`,
+            `These constraints define the STRUCTURAL IDENTITY of the story DNA. Generated ideas must preserve these narrative patterns while creating COMPLETELY ORIGINAL stories. Do NOT reproduce the source story's plot, characters, or setting.`,
+            ``,
+            `ORIGINALITY GUARDRAIL: You are extracting structural DNA patterns only. Generated ideas must be wholly original — new characters, new world, new plot. The DNA provides narrative architecture, not content to clone.`,
+          ];
+          if (spineLines) dnaLines.push(``, `NARRATIVE SPINE:`, spineLines);
+          if (profile.thematic_spine) dnaLines.push(`THEMATIC SPINE: ${profile.thematic_spine}`);
+          if (profile.escalation_architecture) dnaLines.push(`ESCALATION ARCHITECTURE: ${profile.escalation_architecture}`);
+          if (profile.antagonist_pattern) dnaLines.push(`ANTAGONIST PATTERN: ${profile.antagonist_pattern}`);
+          if (profile.power_dynamic) dnaLines.push(`POWER DYNAMIC: ${profile.power_dynamic}`);
+          if (profile.ending_logic) dnaLines.push(`ENDING LOGIC: ${profile.ending_logic}`);
+          if (profile.set_piece_grammar) dnaLines.push(`SET PIECE GRAMMAR: ${profile.set_piece_grammar}`);
+          if (profile.emotional_cadence?.length) dnaLines.push(`EMOTIONAL CADENCE: ${profile.emotional_cadence.join(" → ")}`);
+          if (profile.world_logic_rules?.length) dnaLines.push(`WORLD LOGIC RULES:`, ...profile.world_logic_rules.map((r: string) => `  - ${r}`));
+          if (profile.forbidden_carryovers?.length) dnaLines.push(`FORBIDDEN CARRYOVERS (do NOT use these from the source):`, ...profile.forbidden_carryovers.map((f: string) => `  - ${f}`));
+          if (profile.mutable_variables?.length) dnaLines.push(`MUTABLE VARIABLES (may be adapted freely):`, ...profile.mutable_variables.map((m: string) => `  - ${m}`));
+          if (dnaEngineKey) dnaLines.push(`ENGINE PATTERN: ${dnaEngineKey}`);
 
-ORIGINALITY GUARDRAIL: You are extracting structural DNA patterns only. Generated ideas must be wholly original — new characters, new world, new plot. The DNA provides narrative architecture, not content to clone.
-
-${spineLines ? `NARRATIVE SPINE:\n${spineLines}` : ""}
-${profile.thematic_spine ? `THEMATIC SPINE: ${profile.thematic_spine}` : ""}
-${profile.escalation_architecture ? `ESCALATION ARCHITECTURE: ${profile.escalation_architecture}` : ""}
-${profile.antagonist_pattern ? `ANTAGONIST PATTERN: ${profile.antagonist_pattern}` : ""}
-${profile.power_dynamic ? `POWER DYNAMIC: ${profile.power_dynamic}` : ""}
-${profile.ending_logic ? `ENDING LOGIC: ${profile.ending_logic}` : ""}
-${profile.set_piece_grammar ? `SET PIECE GRAMMAR: ${profile.set_piece_grammar}` : ""}
-${(profile.emotional_cadence?.length) ? `EMOTIONAL CADENCE: ${profile.emotional_cadence.join(" → ")}` : ""}
-${(profile.world_logic_rules?.length) ? `WORLD LOGIC RULES:\n${profile.world_logic_rules.map((r: string) => `  - ${r}`).join("\n")}` : ""}
-${(profile.forbidden_carryovers?.length) ? `FORBIDDEN CARRYOVERS (do NOT use these from the source):\n${profile.forbidden_carryovers.map((f: string) => `  - ${f}`).join("\n")}` : ""}
-${(profile.mutable_variables?.length) ? `MUTABLE VARIABLES (may be adapted freely):\n${profile.mutable_variables.map((m: string) => `  - ${m}`).join("\n")}` : ""}
-${dnaEngineKey ? `ENGINE PATTERN: ${dnaEngineKey}` : ""}`;
+          dnaPromptBlock = "\n\n" + dnaLines.join("\n");
         }
       }
 
@@ -135,21 +138,40 @@ ${dnaEngineKey ? `ENGINE PATTERN: ${dnaEngineKey}` : ""}`;
       if (exErr) console.warn(`[ci-blueprint] exemplar fetch error: ${exErr.message}`);
       let sourceIdeas = exemplars || [];
 
-      // DNA-aware source idea biasing: prioritize ideas with matching engine/DNA
+      // DNA-aware source idea biasing: staged retrieval policy
+      // Tier 1: exact DNA profile match (boost +3)
+      // Tier 2: engine key match (boost +2)
+      // Tier 3: generic CI fallback (boost 0)
       if (dnaProfile && sourceIdeas.length > 0) {
         const scored = sourceIdeas.map((idea: any) => {
           let boost = 0;
-          if (dnaEngineKey && idea.source_engine_key === dnaEngineKey) boost += 2;
-          if (sourceDnaProfileId && idea.source_dna_profile_id === sourceDnaProfileId) boost += 3;
-          return { ...idea, _dna_boost: boost };
+          let tier = "generic";
+          if (sourceDnaProfileId && idea.source_dna_profile_id === sourceDnaProfileId) {
+            boost += 3;
+            tier = "dna_exact";
+          } else if (dnaEngineKey && idea.source_engine_key === dnaEngineKey) {
+            boost += 2;
+            tier = "engine_match";
+          }
+          return { ...idea, _dna_boost: boost, _dna_tier: tier };
         });
         scored.sort((a: any, b: any) => {
           if (b._dna_boost !== a._dna_boost) return b._dna_boost - a._dna_boost;
           return (Number(b.score_total) || 0) - (Number(a.score_total) || 0);
         });
         sourceIdeas = scored;
-        const boosted = scored.filter((s: any) => s._dna_boost > 0).length;
-        console.log(`[ci-blueprint] DNA-biased source ideas: ${boosted} boosted out of ${sourceIdeas.length}`);
+
+        // Explicit tier breakdown logging
+        const dnaExact = scored.filter((s: any) => s._dna_tier === "dna_exact").length;
+        const engineMatch = scored.filter((s: any) => s._dna_tier === "engine_match").length;
+        const generic = scored.filter((s: any) => s._dna_tier === "generic").length;
+        console.log(`[ci-blueprint] DNA retrieval breakdown: dna_exact=${dnaExact} engine_match=${engineMatch} generic_fallback=${generic} total=${sourceIdeas.length}`);
+
+        if (dnaExact === 0 && engineMatch === 0) {
+          console.warn(`[ci-blueprint] DNA_FALLBACK: no DNA or engine-matched source ideas found. All ${sourceIdeas.length} ideas are generic CI fallback. DNA constraints will rely on prompt only.`);
+        }
+      } else if (dnaProfile && sourceIdeas.length === 0) {
+        console.warn(`[ci-blueprint] DNA_FALLBACK: DNA profile selected but 0 source ideas found at CI>=${ciMin}. Blueprint will rely entirely on DNA prompt constraints.`);
       }
 
       console.log(`[ci-blueprint] found ${sourceIdeas.length} source ideas`);
