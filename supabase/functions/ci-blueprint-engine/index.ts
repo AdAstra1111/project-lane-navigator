@@ -615,6 +615,9 @@ One-page pitch: ${c.one_page_pitch}
         }
       }
 
+      // Count learning-pool matches in final source set
+      learningPoolMatchCount = sourceIdeas.filter((i: any) => i.learning_pool_eligible === true).length;
+
       // 9. Update run
       await svcClient
         .from("idea_blueprint_runs")
@@ -625,6 +628,8 @@ One-page pitch: ${c.one_page_pitch}
           exemplar_ids: sourceIdeas.map((i: any) => i.id),
           trend_signal_ids: trendSignalIds,
           source_idea_ids: sourceIdeas.map((i: any) => i.id),
+          learning_pool_only: useLearningPoolOnly,
+          learning_pool_match_count: learningPoolMatchCount,
         })
         .eq("id", runId);
 
