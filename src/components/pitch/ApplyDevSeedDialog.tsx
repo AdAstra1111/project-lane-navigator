@@ -297,12 +297,14 @@ async function createDocWithVersion(
   };
   versionPayload.meta_json = metaWithProvenance;
 
+  // The ensure_project_document_initial_version trigger may have already created v1.
+  // Use upsert on (document_id, version_number) to avoid duplicate key errors.
   const { error: verErr } = await supabase
     .from('project_document_versions')
-    .insert(versionPayload as any);
+    .upsert(versionPayload as any, { onConflict: 'document_id,version_number' });
 
   if (verErr) {
-    console.error(`Version insert failed [${docType}]:`, verErr.message);
+    console.error(`Version upsert failed [${docType}]:`, verErr.message);
   }
 
   return doc;
