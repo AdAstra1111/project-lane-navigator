@@ -161,7 +161,7 @@ function extractAssertedProfessions(text: string, charName: string): string[] {
     while ((m = pat.exec(context)) !== null) {
       const prof = m[1].trim().toLowerCase();
       // Filter structural noise
-      if (prof.length > 2 && prof.length < 35 && !prof.match(/^(the|this|that|very|quite|also|even|just|still|yet|been|being|would|could|should|going|having|looking|trying|about|after|before|since|while|where|which|their|there|these|those|every|other|another|anyone|someone|everyone)$/)) {
+      if (prof.length > 2 && prof.length < 35 && !prof.match(/^(the|this|that|very|quite|also|even|just|still|yet|been|being|would|could|should|going|having|looking|trying|about|after|before|since|while|where|which|their|there|these|those|every|other|another|anyone|someone|everyone|not|actually|now|then|once|already|really|truly|merely|simply|perhaps|possibly|seemingly|apparently|destined|forced|caught|torn|chosen|doomed|collapsing|revealed|discovered|supposed|meant|said|told|known|thought|believed|possessed|cursed|haunted|transformed)$/)) {
         professions.push(prof);
       }
     }
@@ -350,7 +350,8 @@ function checkForbiddenChangeViolation(text: string, forbiddenFact: string): { v
   
   // If we can't parse the forbidden change, do negation check
   if (!protectedSubject) {
-    return checkFactContradiction(text, forbiddenFact);
+    const fc = checkFactContradiction(text, forbiddenFact);
+    return { violated: fc.contradicted, evidence: fc.evidence };
   }
   
   // Check if the protected subject's state has been altered
@@ -380,12 +381,53 @@ export function extractCanonConstraints(
   const characters = Array.isArray(canonJson.characters) ? canonJson.characters : [];
   const protagonist = findProtagonist(characters);
 
-  // Relationships
+  // Relationships — extract from explicit relationships field, role field, and description
   const relationships: CanonConstraints["relationships"] = [];
+  const protagonistName = protagonist.name || "";
   for (const char of characters) {
     const c = char as Record<string, any>;
+    const charName = c.name || "unknown";
+    
+    // Explicit relationships field
     if (c.relationships && typeof c.relationships === "string") {
-      relationships.push({ character: c.name || "unknown", relation: c.relationships });
+      relationships.push({ character: charName, relation: c.relationships });
+    }
+    
+    // Derive relationship from role field (e.g., "Love Interest", "Hana's Handler", "Mentor")
+    const role = (c.role || "") as string;
+    if (role && charName !== protagonistName) {
+      const roleLower = role.toLowerCase();
+      // Check for relationship-indicating keywords in role
+      const relIndicators = [
+        { pattern: /love interest/i, relation: `love interest / romantic partner of ${protagonistName}` },
+        { pattern: /handler/i, relation: `handler / supervisor of ${protagonistName}` },
+        { pattern: /mentor/i, relation: `mentor to ${protagonistName}` },
+        { pattern: /(?:mother|father|parent|dad|mom)\b/i, relation: `parent of ${protagonistName}` },
+        { pattern: /(?:brother|sister|sibling)\b/i, relation: `sibling of ${protagonistName}` },
+        { pattern: /(?:husband|wife|spouse)\b/i, relation: `spouse of ${protagonistName}` },
+        { pattern: /(?:friend|companion|ally)\b/i, relation: `friend / ally of ${protagonistName}` },
+        { pattern: /(?:rival|enemy|nemesis|antagonist|adversary)\b/i, relation: `antagonist / rival of ${protagonistName}` },
+      ];
+      for (const { pattern, relation } of relIndicators) {
+        if (pattern.test(roleLower)) {
+          relationships.push({ character: charName, relation });
+          break;
+        }
+      }
+    }
+    
+    // Derive from description mentioning protagonist by name
+    const desc = (c.description || "") as string;
+    if (desc && protagonistName && desc.toLowerCase().includes(protagonistName.toLowerCase())) {
+      // Already captured via role? Check if we have this character
+      const alreadyCaptured = relationships.some(r => r.character === charName);
+      if (!alreadyCaptured) {
+        // Extract relationship description near protagonist name
+        const sentences = desc.split(/[.!]+/).filter(s => s.toLowerCase().includes(protagonistName.toLowerCase()));
+        if (sentences.length > 0) {
+          relationships.push({ character: charName, relation: sentences[0].trim() });
+        }
+      }
     }
   }
 
@@ -452,7 +494,7 @@ function findProtagonist(characters: unknown[]): CanonConstraints["protagonist"]
       result.name = c.name || null;
       result.role = c.role || null;
       const detail = [c.traits, c.goals, c.description].filter(Boolean).join(" ");
-      result.profession = extractProfession(detail);
+      result.profession = extractProfession(detail) || extractProfessionFromRole(c.role) || extractProfessionFromDescription(c.description);
       result.background = c.backstory || c.background || null;
       return result;
     }
@@ -462,10 +504,27 @@ function findProtagonist(characters: unknown[]): CanonConstraints["protagonist"]
     result.name = c.name || null;
     result.role = c.role || null;
     const detail = [c.traits, c.goals, c.description].filter(Boolean).join(" ");
-    result.profession = extractProfession(detail);
+    result.profession = extractProfession(detail) || extractProfessionFromRole(c.role) || extractProfessionFromDescription(c.description);
     result.background = c.backstory || c.background || null;
   }
   return result;
+}
+
+/** Extract profession from role field like "Lead Protagonist, Courtesan & Spy" */
+function extractProfessionFromRole(role: string | null): string | null {
+  if (!role) return null;
+  // Remove meta-role labels and extract actual profession terms
+  const metaLabels = /\b(lead|protagonist|main character|hero|heroine|antagonist|supporting|secondary|love interest|villain)\b/gi;
+  const cleaned = role.replace(metaLabels, "").replace(/[,&;/]+/g, ",").split(",").map(s => s.trim()).filter(s => s.length > 1);
+  return cleaned.length > 0 ? cleaned.join(" & ") : null;
+}
+
+/** Extract profession from description like "A young courtesan trained..." */
+function extractProfessionFromDescription(desc: string | null): string | null {
+  if (!desc) return null;
+  // Pattern: "A/An [adjective*] <profession> [who/that/trained/...]"
+  const m = desc.match(/^(?:A|An|The)\s+(?:\w+\s+){0,3}?([a-z][a-z\s-]{2,25}?)(?:\s+(?:who|that|trained|working|living|seeking|struggling|caught|forced|torn|secretly|from|in|with)\b)/i);
+  return m ? m[1].trim() : null;
 }
 
 function extractProfession(text: string | null): string | null {
