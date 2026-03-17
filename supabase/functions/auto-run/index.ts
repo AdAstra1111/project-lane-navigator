@@ -3315,6 +3315,12 @@ async function tryPlateauForcePromote(
       pause_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
       error: `Exceptional mode: CI=${detectedCi} (best: ${detectedBestCi}) plateaued below target ${targetCi} for ${currentDoc}. Escalation required — auto-promote blocked.`,
     });
+    // Fire-and-forget plateau diagnosis
+    persistPlateauDiagnosis(supabase, {
+      job, jobId, currentDoc, bestCi: detectedBestCi, finalCi: detectedCi,
+      targetCi, targetGp: extractTargetGP(job), haltReason: "EXCEPTIONAL_PLATEAU_ESCALATION",
+      stepCount, stageLoopCount: job.stage_loop_count ?? 0,
+    }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget_error: ${e?.message}`));
     await releaseProcessingLock(supabase, jobId);
     return respondWithJob(supabase, jobId);
   }
