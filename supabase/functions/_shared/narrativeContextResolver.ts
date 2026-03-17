@@ -267,7 +267,7 @@ export async function resolveNarrativeContext(
       if (derivedNames.length > 0) {
         canon.entityAnchors = derivedNames;
         parts.push(`Characters (derived from Character Bible): ${derivedNames.join(", ")}`);
-        characterLockBlock = `\nCHARACTER INVENTION LOCK (DERIVED): The following character names were extracted from the Character Bible: ${derivedNames.join(", ")}. Use ONLY these characters. Do NOT invent, hallucinate, or introduce any new named characters not in this list. Unnamed extras must use generic descriptors (e.g., WAITER, GUARD, PASSERBY). If a scene requires a new named character, flag it as [NEW CHARACTER NEEDED] instead of inventing one.`;
+        characterLockBlock = `\nCHARACTER INVENTION LOCK (DERIVED): The following character names were extracted from the Character Bible: ${derivedNames.join(", ")}. Use ONLY these characters plus any names appearing in the upstream source documents provided below. Do NOT invent, hallucinate, or introduce any new named characters — including offscreen relatives, backstory figures, or referenced-but-unseen people. Use generic descriptors instead (e.g., "his sister", "a former colleague", WAITER, GUARD). If a scene requires a new named character, flag it as [NEW CHARACTER NEEDED] instead of inventing one. This applies to ALL names mentioned in dialogue, narration, flashbacks, and backstory.`;
         provenance.characterLock = "derived_from_character_bible";
         console.log(`[narrative-context] character_lock: derived ${derivedNames.length} names from character_bible`);
       } else {
