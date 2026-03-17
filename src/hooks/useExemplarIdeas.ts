@@ -98,13 +98,13 @@ export function useSimilarExemplars(sourceIdea: PitchIdea | null) {
     queryFn: async () => {
       if (!sourceIdea) return [];
       // Fetch all high-CI ideas (excluding self)
-      const { data, error } = await supabase
+      const { data, error } = await (supabase
         .from('pitch_ideas')
         .select('*')
         .gte('score_total', 90)
         .neq('id', sourceIdea.id)
         .order('score_total', { ascending: false, nullsFirst: false })
-        .limit(200);
+        .limit(200) as any);
       if (error) throw error;
       const candidates = (data || []) as PitchIdea[];
       // Score and rank
