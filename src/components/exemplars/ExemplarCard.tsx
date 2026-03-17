@@ -25,6 +25,7 @@ export function ExemplarCard({ idea, onCompare, onFindSimilar, onOpen, showSimil
   const ci = Number(idea.score_total) || 0;
   const feasibility = Number(idea.score_feasibility) || 0;
   const isApproved = (idea as any).is_exemplar === true;
+  const isLearningPool = (idea as any).learning_pool_eligible === true;
   const strengthTags: string[] = (idea as any).strength_tags || [];
 
   return (
