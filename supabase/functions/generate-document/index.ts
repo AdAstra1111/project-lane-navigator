@@ -3,6 +3,7 @@ import { isCPMEnabled, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/ch
 import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
 import { detectCanonDrift, logDriftResult } from "../_shared/canonConstraintEnforcement.ts";
+import { validateStageIdentity, getStageIdentityPromptBlock, buildDiagnostic } from "../_shared/stageIdentityContracts.ts";
 import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
 import { buildLadderPromptBlock, formatToLane } from "../_shared/documentLadders.ts";
 import { EPISODE_DOC_TYPES, extractEpisodeNumbersFromOutput, detectCollapsedRangeSummaries } from "../_shared/episodeScope.ts";
