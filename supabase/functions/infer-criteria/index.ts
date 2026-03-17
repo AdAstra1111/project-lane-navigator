@@ -99,7 +99,7 @@ function sanitizeField(field: keyof CriteriaResult, value: string): string | nul
 /**
  * Extract content under a markdown/text heading.
  * Handles:
- *   - Inline:  `## Heading: value on same line`
+ *   - Inline:  `## Heading: value on same line`  /  `**Heading:** value`
  *   - Block:   `## Heading\n\nContent paragraph(s)...`
  * Stops at next heading (#, **, ---) or EOF.
  */
@@ -107,23 +107,32 @@ export function extractHeading(text: string, ...variants: string[]): string {
   for (const heading of variants) {
     // Pattern 1: inline value on same line (e.g. "**Protagonist:** Jane Doe")
     const inlineRe = new RegExp(
-      `(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–]?\\s*(.+?)(?:\\n|$)`,
+      `(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–—]?\\s*(.+?)(?:\\n|$)`,
       "im",
     );
     const inlineM = text.match(inlineRe);
-    const inlineVal = inlineM?.[1]?.trim();
-    if (inlineVal && inlineVal.length >= 3) return inlineVal.slice(0, 600);
+    if (inlineM?.[1]?.trim()) {
+      // Strip leading markdown bold artifacts and dash/em-dash separators
+      const cleaned = inlineM[1].trim()
+        .replace(/^\*{2}\s*/, "")   // leading **
+        .replace(/\*{2}$/, "")      // trailing **
+        .replace(/^[–—]\s*/, "")    // leading em-dash
+        .trim();
+      if (cleaned.length >= 3) return cleaned.slice(0, 600);
+    }
 
     // Pattern 2: heading on its own line, content on next non-blank line(s)
+    // Captures everything until the next heading marker or EOF
     const blockRe = new RegExp(
-      `(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–]?\\s*\\n+` +
-      `([^\\n#*\\-].+?)` +
+      `(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–—]?\\s*\\n\\s*\\n` +
+      `([\\s\\S]+?)` +
       `(?=\\n\\s*(?:#{1,3}\\s|\\*{2}[A-Z]|---)|$)`,
-      "ims",
+      "im",
     );
     const blockM = text.match(blockRe);
     if (blockM?.[1]?.trim()) {
       const raw = blockM[1].trim();
+      // Take first paragraph, collapsing internal newlines
       const firstPara = raw.split(/\n\s*\n/)[0].replace(/\n/g, " ").trim();
       if (firstPara.length >= 3) return firstPara.slice(0, 600);
     }
