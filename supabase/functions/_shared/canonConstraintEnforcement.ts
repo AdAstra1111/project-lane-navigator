@@ -453,7 +453,7 @@ function findProtagonist(characters: unknown[]): CanonConstraints["protagonist"]
       result.name = c.name || null;
       result.role = c.role || null;
       const detail = [c.traits, c.goals, c.description].filter(Boolean).join(" ");
-      result.profession = extractProfession(detail);
+      result.profession = extractProfession(detail) || extractProfessionFromRole(c.role) || extractProfessionFromDescription(c.description);
       result.background = c.backstory || c.background || null;
       return result;
     }
@@ -463,7 +463,7 @@ function findProtagonist(characters: unknown[]): CanonConstraints["protagonist"]
     result.name = c.name || null;
     result.role = c.role || null;
     const detail = [c.traits, c.goals, c.description].filter(Boolean).join(" ");
-    result.profession = extractProfession(detail);
+    result.profession = extractProfession(detail) || extractProfessionFromRole(c.role) || extractProfessionFromDescription(c.description);
     result.background = c.backstory || c.background || null;
   }
   return result;
