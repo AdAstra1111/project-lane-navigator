@@ -73,7 +73,7 @@ Return ONLY valid JSON, no markdown.`;
 Script text (first ~15K words):
 ${truncated}`;
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch(_gw.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

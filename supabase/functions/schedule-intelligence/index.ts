@@ -77,7 +77,7 @@ ${scheduleSummary}
 Scene data (${scenes.length} total scenes):
 ${JSON.stringify(sceneSummary)}`;
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch(_gw.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
