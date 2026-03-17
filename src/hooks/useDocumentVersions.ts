@@ -13,6 +13,8 @@ export interface DocumentVersion {
   status: string;
   approval_status: string | null;
   change_summary: string | null;
+  label: string | null;
+  generator_id: string | null;
   created_at: string;
   meta_json?: Record<string, any> | null;
 }
@@ -24,7 +26,7 @@ export function useDocumentVersions(documentId: string | undefined) {
       if (!documentId) return [];
       const { data, error } = await (supabase as any)
         .from('project_document_versions')
-        .select('id, document_id, version_number, is_current, status, approval_status, change_summary, created_at, meta_json')
+        .select('id, document_id, version_number, is_current, status, approval_status, change_summary, label, generator_id, created_at, meta_json')
         .eq('document_id', documentId)
         .order('version_number', { ascending: false });
       if (error) throw error;

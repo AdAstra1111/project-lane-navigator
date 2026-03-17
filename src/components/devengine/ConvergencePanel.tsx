@@ -11,7 +11,9 @@ interface ConvergencePanelProps {
   convergenceStatus: string;
   tieredNotes: { blockers: any[]; high: any[]; polish: any[] };
   /** DB-persisted meta_json scores — primary source of truth */
-  versionMetaJson?: { ci?: number; gp?: number } | null;
+  versionMetaJson?: { ci?: number; gp?: number; [key: string]: any } | null;
+  /** Version label — used to detect selective rewrites and annotate score scope */
+  versionLabel?: string | null;
 }
 
 function Sparkline({ history }: { history: any[] }) {
@@ -38,7 +40,7 @@ function Sparkline({ history }: { history: any[] }) {
   );
 }
 
-export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergenceStatus, tieredNotes, versionMetaJson }: ConvergencePanelProps) {
+export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergenceStatus, tieredNotes, versionMetaJson, versionLabel }: ConvergencePanelProps) {
   // DB meta_json is source of truth; analysis is fallback
   const metaCi = typeof versionMetaJson?.ci === 'number' ? versionMetaJson.ci : null;
   const metaGp = typeof versionMetaJson?.gp === 'number' ? versionMetaJson.gp : null;
@@ -46,6 +48,9 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
   const analysisGp = latestAnalysis?.gp_score || latestAnalysis?.scores?.gp_score || 0;
   const ci = metaCi ?? analysisCi;
   const gp = metaGp ?? analysisGp;
+
+  // Detect selective rewrite to annotate score scope
+  const isSelectiveRewrite = !!(versionLabel && /selective scene rewrite/i.test(versionLabel));
   const gap = Math.abs(ci - gp);
   const statusColor = convergenceStatus === 'Converged' ? 'text-emerald-400' :
     convergenceStatus === 'In Progress' ? 'text-amber-400' : 'text-muted-foreground';
@@ -70,20 +75,27 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
       <CardContent className="px-3 pb-3 space-y-3">
         {/* Scores row */}
         {latestAnalysis && (
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div>
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Creative Integrity</p>
-              <p className="text-lg font-display font-bold text-foreground">{ci}</p>
+          <>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Creative Integrity</p>
+                <p className="text-lg font-display font-bold text-foreground">{ci}</p>
+              </div>
+              <div>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Greenlight Prob.</p>
+                <p className="text-lg font-display font-bold text-foreground">{gp}</p>
+              </div>
+              <div>
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Gap</p>
+                <p className={`text-lg font-display font-bold ${statusColor}`}>{gap}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Greenlight Prob.</p>
-              <p className="text-lg font-display font-bold text-foreground">{gp}</p>
-            </div>
-            <div>
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Gap</p>
-              <p className={`text-lg font-display font-bold ${statusColor}`}>{gap}</p>
-            </div>
-          </div>
+            {isSelectiveRewrite && (
+              <p className="text-[8px] text-muted-foreground/60 text-center italic -mt-1">
+                Scores reflect full merged document (selective rewrite)
+              </p>
+            )}
+          </>
         )}
 
         {/* Sparkline */}
