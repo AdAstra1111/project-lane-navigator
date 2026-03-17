@@ -27578,8 +27578,17 @@ ${upstreamText}`;
             if (typeof ct === "string" && ct.trim().length > 0) return ct.trim();
             if (Array.isArray(ct)) { const j = ct.join("\n").trim(); if (j.length > 0) return j; }
             if (ct && typeof ct === "object") {
+              // Try known text keys
               const inner = ct.text ?? ct.content ?? ct.document ?? ct.body ?? ct.output ?? null;
               if (typeof inner === "string" && inner.trim().length > 0) return inner.trim();
+              // Try target-keyed sub-object (e.g. ct.PRODUCTION_DRAFT.text)
+              const targetSub = ct[stage.toUpperCase()];
+              if (targetSub && typeof targetSub === "object") {
+                const subInner = targetSub.text ?? targetSub.content ?? targetSub.body ?? null;
+                if (typeof subInner === "string" && subInner.trim().length > 0) return subInner.trim();
+              }
+              // If ct is an object without extractable text, do NOT stringify it — it's structured data, not prose
+              console.warn(`[dev-engine-v2] extractConvertedText: converted_text is object without text keys, skipping`);
             }
             if (p && typeof p === "object") {
               for (const key of ["text", "content", "document", "body", "output", stage]) {
@@ -27587,8 +27596,9 @@ ${upstreamText}`;
                 if (typeof v === "string" && v.trim().length > 100) return v.trim();
               }
             }
-            const raw_ = (rawText || "").trim();
-            if (raw_.length > 100 && !raw_.startsWith("{") && !raw_.startsWith("[")) return raw_;
+            // Raw-text fallback: strip markdown code fences, then check for JSON
+            const raw_ = stripCodeFences((rawText || "").trim());
+            if (raw_.length > 100 && !looksLikeJson(raw_)) return raw_;
             return "";
           };
           let convertedText = extractConvertedText(parsed, raw);
