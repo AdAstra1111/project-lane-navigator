@@ -627,6 +627,7 @@ function extractTargetGP(job: any): number {
 }
 
 
+/**
  * Evaluate promotion gate for stage advancement.
  *
  * For most doc types: CI-only gate using job converge_target_json / GLOBAL_MIN_CI.
