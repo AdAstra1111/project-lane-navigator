@@ -99,6 +99,7 @@ import { useProjectRuleset } from '@/hooks/useProjectRuleset';
 import { SeedAppliedBanner } from '@/components/devengine/SeedAppliedBanner';
 import { StyleSourcesPanel } from '@/components/devengine/StyleSourcesPanel';
 import { StyleScoreBadge, StyleEvalPanel } from '@/components/devengine/StyleEvalPanel';
+import { CanonDriftBadge } from '@/components/devengine/CanonDriftBadge';
 import { AutopilotPanel } from '@/components/dev/AutopilotPanel';
 import { DevEngineSimpleView } from '@/components/devengine/DevEngineSimpleView';
 import { EngineBar, deriveExecutionMode, type ExecutionMode } from '@/components/devengine/EngineBar';
