@@ -64,6 +64,7 @@ export type ConnectionState = 'online' | 'reconnecting' | 'disconnected';
 const HUMAN_REQUIRED_PAUSES = [
   'COMPLETED', 'ERROR', 'VERSION_CAP_REACHED',
   'SAFE_MODE_GATE', 'STEP_LIMIT_REACHED',
+  'EXCEPTIONAL_PLATEAU_ESCALATION',
 ];
 
 function isHumanRequiredPause(job: AutoRunJob): boolean {
