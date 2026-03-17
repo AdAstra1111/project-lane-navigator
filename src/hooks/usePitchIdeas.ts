@@ -85,9 +85,17 @@ export function usePitchIdeas() {
 
   const saveMutation = useMutation({
     mutationFn: async (idea: Partial<PitchIdea>) => {
+      const scoreTotal = Number(idea.score_total) || 0;
+      const eligible = isLearningPoolEligible(scoreTotal);
       const { data, error } = await supabase
         .from('pitch_ideas')
-        .insert({ ...idea, user_id: user!.id } as any)
+        .insert({
+          ...idea,
+          user_id: user!.id,
+          learning_pool_eligible: eligible,
+          learning_pool_eligibility_reason: eligible ? 'ci_95_threshold_met' : 'ci_below_threshold',
+          learning_pool_qualified_at: eligible ? new Date().toISOString() : null,
+        } as any)
         .select()
         .single();
       if (error) throw error;
