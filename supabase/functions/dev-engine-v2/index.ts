@@ -27966,7 +27966,22 @@ No stubs, no placeholders, no TODO markers.`;
         episode_grid: ["season_arc", "character_bible", "format_rules", "concept_brief"],
         vertical_episode_beats: ["episode_grid", "season_arc", "character_bible", "format_rules"],
         episode_script: ["vertical_episode_beats", "episode_grid", "season_arc", "character_bible"],
+        production_draft: ["feature_script"],
+        feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"],
+        story_outline: ["treatment", "concept_brief"],
+        treatment: ["concept_brief", "idea"],
+        character_bible: ["treatment", "concept_brief", "idea"],
       };
+
+      // ── STRICT UPSTREAM REQUIREMENTS (regen-tick mirror) ──
+      const STRICT_UPSTREAM_REQUIREMENTS: Record<string, Record<string, string[]>> = {
+        "film":    { production_draft: ["feature_script"], feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"] },
+        "feature": { production_draft: ["feature_script"], feature_script: ["beat_sheet", "story_outline", "character_bible", "treatment"] },
+        "short":   { production_draft: ["feature_script"], feature_script: ["beat_sheet", "concept_brief"] },
+      };
+
+      const SCREENPLAY_DOC_TYPES_TICK = new Set(["feature_script", "production_draft", "episode_script", "season_script", "season_master_script"]);
+
       const findUpstream = (stage: string): { upstreamDocId: string; upstreamVersionId: string; upstreamType: string } | null => {
         const candidates: string[] = [];
         if (upstreamHints[stage]) candidates.push(...upstreamHints[stage]);
@@ -27974,6 +27989,22 @@ No stubs, no placeholders, no TODO markers.`;
         if (stageIdx > 0) { for (let i = stageIdx - 1; i >= 0; i--) candidates.push(ladder[i]); }
         candidates.push("concept_brief", "idea", ...SEED_CORE_TYPES);
         const deduped = Array.from(new Set(candidates.filter(t => t && t !== stage)));
+
+        // ── STRICT UPSTREAM ENFORCEMENT ──
+        const strictReqs = STRICT_UPSTREAM_REQUIREMENTS[fmt]?.[stage];
+        if (strictReqs) {
+          for (const t of strictReqs) {
+            const prevDocId = docSlots.get(t);
+            if (!prevDocId) continue;
+            const prevVer = verByDocId.get(prevDocId);
+            const prevText = (prevVer?.plaintext || "").trim();
+            if (prevText.length < 80 || containsStubMarker(prevText)) continue;
+            return { upstreamDocId: prevDocId, upstreamVersionId: prevVer.id, upstreamType: t };
+          }
+          console.error(`[regen-tick][IEL] strict_upstream_missing { stage: "${stage}", format: "${fmt}", required: ${JSON.stringify(strictReqs)} }`);
+          return null;
+        }
+
         for (const t of deduped) {
           const prevDocId = docSlots.get(t);
           if (!prevDocId) continue;
