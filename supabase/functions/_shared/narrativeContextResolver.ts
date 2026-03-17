@@ -231,10 +231,15 @@ export async function resolveNarrativeContext(
             ]);
             const nameSet = new Set<string>();
             const addName = (raw: string) => {
-              const name = raw.trim();
-              if (name.length > 1 && name.length <= 30 && !STRUCTURAL_TERMS.has(name.toUpperCase())) {
-                nameSet.add(name);
-              }
+              let name = raw.trim();
+              // Strip leading "THE " for structural matching but preserve for character names like "THE CLERK"
+              const nameUpper = name.toUpperCase();
+              const nameNoThe = nameUpper.replace(/^THE\s+/, "");
+              if (name.length <= 1 || name.length > 30) return;
+              if (STRUCTURAL_TERMS.has(nameUpper) || STRUCTURAL_TERMS.has(nameNoThe)) return;
+              // Skip names that look like section descriptors rather than characters
+              if (/^(DARK[- ]STREAM|VISUAL|SETTING|LOCATION|THEME|FORMAT|SERIES)/i.test(name)) return;
+              nameSet.add(name);
             };
             for (const m of headingMatches) {
               addName(m.replace(/^#{2,4}\s+(?:[IVXLC]+\.\s+)?(?:THE\s+)?/, ""));
