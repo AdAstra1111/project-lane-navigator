@@ -265,7 +265,68 @@ async function writeVersionSafe(
   }
 }
 
-// ── NEC (Narrative Energy Contract) Guardrail Loader ──
+// ── CCE Post-Generation Helper ──
+// Loads canon constraints for a project, runs drift detection, and returns
+// a meta_json patch + drift result. Violation policy: PERSIST WITH FLAG.
+// Content is always saved but canon_drift metadata records any violations.
+async function runCCEPostGeneration(
+  supabaseClient: any,
+  projectId: string,
+  generatedText: string,
+  docType: string,
+  tag: string,
+): Promise<{ driftResult: DriftResult; metaPatch: Record<string, any> }> {
+  try {
+    // Load canon_json
+    const { data: canonRow } = await supabaseClient
+      .from("project_canon")
+      .select("canon_json")
+      .eq("project_id", projectId)
+      .maybeSingle();
+    const canonJson = canonRow?.canon_json || {};
+    const constraints = extractCanonConstraints(canonJson);
+    const driftResult = detectCanonDrift(generatedText, constraints);
+    logDriftResult(tag, projectId, docType, driftResult);
+
+    const metaPatch: Record<string, any> = {};
+    if (driftResult.constraintsUsed) {
+      metaPatch.canon_drift = {
+        passed: driftResult.passed,
+        violations: driftResult.findings.filter(f => f.severity === "violation").length,
+        warnings: driftResult.findings.filter(f => f.severity === "warning").length,
+        domains_checked: driftResult.domains_checked,
+        checked_at: driftResult.checkedAt,
+        findings: driftResult.findings.map(f => ({
+          domain: f.domain,
+          severity: f.severity,
+          detail: f.detail,
+        })),
+      };
+    }
+
+    if (!driftResult.passed) {
+      console.error(JSON.stringify({
+        diag: "CANON_DRIFT_VIOLATION",
+        tag,
+        project_id: projectId,
+        doc_type: docType,
+        violation_count: driftResult.findings.filter(f => f.severity === "violation").length,
+        policy: "persist_with_flag",
+      }));
+    }
+
+    return { driftResult, metaPatch };
+  } catch (cceErr: any) {
+    // Non-fatal: CCE failure must not block persistence
+    console.warn(`[${tag}][CCE] drift check failed (non-fatal):`, cceErr?.message);
+    return {
+      driftResult: { passed: true, findings: [], constraintsUsed: false, checkedAt: new Date().toISOString(), domains_checked: [] },
+      metaPatch: { canon_drift_error: cceErr?.message || "unknown" },
+    };
+  }
+}
+
+
 const NEC_MAX_CHARS = 3000;
 
 const NEC_HARD_ENFORCEMENT = `If your proposal introduces blackmail, public spectacle, mass-casualty/catastrophic stakes, life-ruin stakes, assassinations, or supernatural escalation and the NEC does not explicitly permit it, you MUST replace it with an alternative that stays at or below the Preferred Operating Tier, preserving tone and nuance.`;
