@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { isCPMEnabled, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 import { resolveNarrativeContext, buildNarrativeContextBlock } from "../_shared/narrativeContextResolver.ts";
+import { detectCanonDrift, logDriftResult } from "../_shared/canonConstraintEnforcement.ts";
 import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
 import { buildLadderPromptBlock, formatToLane } from "../_shared/documentLadders.ts";
 import { EPISODE_DOC_TYPES, extractEpisodeNumbersFromOutput, detectCollapsedRangeSummaries } from "../_shared/episodeScope.ts";
@@ -1707,7 +1708,21 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
       similarity_risk: simRisk,
     }));
 
-    let { data: docRecord } = await supabase.from("project_documents")
+    // ── CANON DRIFT DETECTION (CCE Phase 1) ──
+    const driftResult = detectCanonDrift(content, narrativeCtx.canonConstraints);
+    logDriftResult("generate-document", projectId, docType, driftResult);
+    if (!driftResult.passed) {
+      console.error(JSON.stringify({
+        diag: "CANON_DRIFT_VIOLATION",
+        requestId,
+        project_id: projectId,
+        doc_type: docType,
+        violations: driftResult.findings.filter(f => f.severity === "violation").map(f => f.detail),
+        warnings: driftResult.findings.filter(f => f.severity === "warning").map(f => f.detail),
+      }));
+    }
+
+
       .select("id")
       .eq("project_id", projectId)
       .eq("doc_type", docType)
@@ -1754,6 +1769,15 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
         generator_run_id: generatorRunId || null,
         source_document_ids: Object.values(inputsUsed).map((v: any) => v.version_id),
         style_template_version_id: project.season_style_template_version_id || null,
+        meta_json: driftResult.constraintsUsed ? {
+          canon_drift: {
+            passed: driftResult.passed,
+            violations: driftResult.findings.filter((f: any) => f.severity === "violation").length,
+            warnings: driftResult.findings.filter((f: any) => f.severity === "warning").length,
+            domains_checked: driftResult.domains_checked,
+            checked_at: driftResult.checkedAt,
+          },
+        } : {},
       })
       .select("id")
       .single();
@@ -1837,6 +1861,12 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
         repaired: !!attempt1,
         failures: finalGate.failures,
       },
+      canon_drift: driftResult.constraintsUsed ? {
+        passed: driftResult.passed,
+        violations: driftResult.findings.filter((f: any) => f.severity === "violation").length,
+        warnings: driftResult.findings.filter((f: any) => f.severity === "warning").length,
+        findings: driftResult.findings.map((f: any) => ({ domain: f.domain, severity: f.severity, detail: f.detail })),
+      } : null,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

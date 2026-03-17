@@ -1,6 +1,6 @@
 /**
  * Narrative Context Resolver — single shared loader for NEC, canon, signals,
- * locked decisions, voice, and format-specific structure.
+ * locked decisions, voice, canon constraint enforcement, and format-specific structure.
  *
  * Used by dev-engine-v2 (rewrite) and generate-document to achieve context
  * parity with the analyze path.
@@ -10,11 +10,18 @@
  * - No silent fallbacks: every fallback is logged with provenance.
  * - Capped outputs to prevent prompt bloat.
  * - Reuses existing loaders (prefs, teamVoice, canonContext, effective-profile).
+ * - Canon Constraint Enforcement (CCE): extracts binding constraints from canon
+ *   and injects anti-drift prompt block into every generation.
  */
 
 import { loadLanePrefs, loadTeamVoiceProfile } from "./prefs.ts";
 import { buildTeamVoicePromptBlock } from "./teamVoice.ts";
 import { buildEffectiveProfileContextBlock } from "./effective-profile-context.ts";
+import {
+  extractCanonConstraints,
+  buildCanonConstraintBlock,
+  type CanonConstraints,
+} from "./canonConstraintEnforcement.ts";
 
 // ── Caps ──
 const SIGNALS_CAP = 6;
@@ -37,6 +44,8 @@ export interface NarrativeContext {
     entityAnchors: string[];
     blockText: string;
   };
+  canonConstraints: CanonConstraints;
+  canonConstraintBlock: string;
   signals: { topSignals: any[]; blockText: string };
   lockedDecisions: { items: any[]; blockText: string };
   voice: { voiceId: string | null; blockText: string };
@@ -317,6 +326,19 @@ export async function resolveNarrativeContext(
     counts.characters = canon.characters.length;
     counts.worldRules = canon.worldRules.length;
 
+    // ── 2b. Canon Constraint Enforcement (CCE) — deterministic extraction ──
+    const canonConstraints = extractCanonConstraints(cj as Record<string, unknown>);
+    const canonConstraintBlock = buildCanonConstraintBlock(canonConstraints);
+    if (canonConstraints.extractedFrom !== "empty") {
+      provenance.canonConstraints = "cce_extracted";
+      counts.cceConstraintChars = canonConstraintBlock.length;
+      console.log(`[narrative-context] CCE: protagonist=${canonConstraints.protagonist.name || "none"} characters=${canonConstraints.canonicalCharacterNames.length} worldMode=${canonConstraints.worldRuleMode.supernatural} relationships=${canonConstraints.relationships.length}`);
+    } else {
+      provenance.canonConstraints = "empty";
+      counts.cceConstraintChars = 0;
+    }
+    counts.worldRules = canon.worldRules.length;
+
     // ── 3. Signals ──
     let signals = { topSignals: [] as any[], blockText: "" };
     if (opts.includeSignals !== false) {
@@ -412,6 +434,8 @@ export async function resolveNarrativeContext(
     return {
       nec,
       canon,
+      canonConstraints,
+      canonConstraintBlock,
       signals,
       lockedDecisions,
       voice,
@@ -420,11 +444,14 @@ export async function resolveNarrativeContext(
     };
   } catch (e) {
     console.error("[narrative-context] canon load failed:", e);
-    // Return minimal context on failure
+    // Return minimal context on failure — CCE empty constraints (fail-open for generation, fail-closed for drift)
+    const emptyConstraints = extractCanonConstraints({});
     const resolverHash = djb2(`error|${projectId}`);
     return {
       nec,
       canon,
+      canonConstraints: emptyConstraints,
+      canonConstraintBlock: "",
       signals: { topSignals: [], blockText: "" },
       lockedDecisions: { items: [], blockText: "" },
       voice: { voiceId: null, blockText: "" },
@@ -442,6 +469,7 @@ export function buildNarrativeContextBlock(ctx: NarrativeContext): string {
   return [
     ctx.nec.blockText,
     ctx.canon.blockText,
+    ctx.canonConstraintBlock,
     ctx.effectiveProfile.blockText,
     ctx.signals.blockText,
     ctx.lockedDecisions.blockText,
