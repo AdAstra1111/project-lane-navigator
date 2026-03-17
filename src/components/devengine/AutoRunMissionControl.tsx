@@ -1018,58 +1018,75 @@ export function AutoRunMissionControl({
           )}
 
           {/* ── Seed Core Status ── */}
-          <div className={`p-2.5 rounded-md border text-xs space-y-1.5 ${
-            seedPack.allApproved
+          {(() => {
+            const allMissing = seedStatus.missing.length === SEED_DOC_TYPES.length;
+            const someMissing = seedStatus.missing.length > 0;
+            const pendingGeneration = someMissing; // auto-run will generate via ensureSeedPack
+            const containerCls = seedPack.allApproved
               ? 'bg-emerald-500/5 border-emerald-500/20'
               : seedStatus.allPresent
               ? 'bg-primary/5 border-primary/20'
-              : 'bg-amber-500/5 border-amber-500/20'
-          }`}>
-            <div className="flex items-center gap-1.5">
-              {seedPack.allApproved
-                ? <><Shield className="h-3.5 w-3.5 text-emerald-400" /><span className="text-emerald-400 font-medium">Seed Core Official</span></>
-                : seedStatus.allPresent
-                ? <><Shield className="h-3.5 w-3.5 text-primary" /><span className="text-primary font-medium">Seed Core Ready — Needs Approval</span></>
-                : <><AlertTriangle className="h-3.5 w-3.5 text-amber-400" /><span className="text-amber-400 font-medium">Seed Pack Incomplete</span></>
-              }
-              <span className="text-muted-foreground ml-auto text-[10px]">{seedStatus.present.length}/{SEED_DOC_TYPES.length}</span>
-            </div>
-            <div className="flex gap-1 flex-wrap">
-              {seedStatus.docs.map(doc => {
-                const isApproved = doc.approval_status === 'approved';
-                const icon = doc.status === 'missing' ? '✗' : doc.status === 'short' ? '⚠' : isApproved ? '✓' : '○';
-                const colorCls = doc.status === 'missing'
-                  ? 'bg-destructive/10 text-destructive border-destructive/30'
-                  : doc.status === 'short'
-                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                  : isApproved
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                  : 'bg-primary/10 text-primary border-primary/30';
-                return (
-                  <Badge key={doc.doc_type} variant="outline" className={`text-[8px] px-1.5 py-0 ${colorCls}`}
-                    title={doc.status === 'short' ? `Only ${doc.char_count} chars` : isApproved ? 'Approved' : 'Draft — needs approval'}>
-                    {icon} {SEED_LABELS[doc.doc_type] || doc.doc_type}
-                  </Badge>
-                );
-              })}
-            </div>
-            {seedStatus.allPresent && !seedPack.allApproved && (
-              <Button
-                size="sm"
-                className="w-full h-8 text-xs gap-1.5 mt-1"
-                onClick={handleApproveSeedCore}
-                disabled={approvingSeedCore}
-              >
-                {approvingSeedCore
-                  ? <><Loader2 className="h-3 w-3 animate-spin" /> Approving…</>
-                  : <><Shield className="h-3.5 w-3.5" /> Approve Seed Core</>
-                }
-              </Button>
-            )}
-            {seedStatus.missing.length > 0 && (
-              <span className="text-[9px] text-muted-foreground">Missing docs will be auto-generated on start</span>
-            )}
-          </div>
+              : allMissing
+              ? 'bg-muted/30 border-border/40'
+              : 'bg-amber-500/5 border-amber-500/20';
+            return (
+              <div className={`p-2.5 rounded-md border text-xs space-y-1.5 ${containerCls}`}>
+                <div className="flex items-center gap-1.5">
+                  {seedPack.allApproved
+                    ? <><Shield className="h-3.5 w-3.5 text-emerald-400" /><span className="text-emerald-400 font-medium">Seed Core Official</span></>
+                    : seedStatus.allPresent
+                    ? <><Shield className="h-3.5 w-3.5 text-primary" /><span className="text-primary font-medium">Seed Core Ready — Needs Approval</span></>
+                    : allMissing
+                    ? <><Clock className="h-3.5 w-3.5 text-muted-foreground" /><span className="text-muted-foreground font-medium">Seed Pack Pending</span></>
+                    : <><AlertTriangle className="h-3.5 w-3.5 text-amber-400" /><span className="text-amber-400 font-medium">Seed Pack Incomplete</span></>
+                  }
+                  <span className="text-muted-foreground ml-auto text-[10px]">{seedStatus.present.length}/{SEED_DOC_TYPES.length}</span>
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                  {seedStatus.docs.map(doc => {
+                    const isApproved = doc.approval_status === 'approved';
+                    const isPending = doc.status === 'missing' && allMissing;
+                    const icon = doc.status === 'missing' ? (isPending ? '◌' : '✗') : doc.status === 'short' ? '⚠' : isApproved ? '✓' : '○';
+                    const colorCls = doc.status === 'missing'
+                      ? isPending
+                        ? 'bg-muted/20 text-muted-foreground border-border/30'
+                        : 'bg-destructive/10 text-destructive border-destructive/30'
+                      : doc.status === 'short'
+                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      : isApproved
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : 'bg-primary/10 text-primary border-primary/30';
+                    return (
+                      <Badge key={doc.doc_type} variant="outline" className={`text-[8px] px-1.5 py-0 ${colorCls}`}
+                        title={isPending ? 'Will be auto-generated on start' : doc.status === 'short' ? `Only ${doc.char_count} chars` : isApproved ? 'Approved' : 'Draft — needs approval'}>
+                        {icon} {SEED_LABELS[doc.doc_type] || doc.doc_type}
+                      </Badge>
+                    );
+                  })}
+                </div>
+                {seedStatus.allPresent && !seedPack.allApproved && (
+                  <Button
+                    size="sm"
+                    className="w-full h-8 text-xs gap-1.5 mt-1"
+                    onClick={handleApproveSeedCore}
+                    disabled={approvingSeedCore}
+                  >
+                    {approvingSeedCore
+                      ? <><Loader2 className="h-3 w-3 animate-spin" /> Approving…</>
+                      : <><Shield className="h-3.5 w-3.5" /> Approve Seed Core</>
+                    }
+                  </Button>
+                )}
+                {pendingGeneration && (
+                  <span className="text-[9px] text-muted-foreground">
+                    {allMissing
+                      ? 'Seed docs will be auto-generated when Auto-Run starts'
+                      : 'Missing docs will be auto-generated on start'}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ── Seed short warning ── */}
           {seedPack.warningCount > 0 && (
