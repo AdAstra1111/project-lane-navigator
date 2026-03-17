@@ -36,7 +36,10 @@ export function ExemplarCard({ idea, onCompare, onFindSimilar, onOpen, showSimil
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               {isApproved && (
-                <Award className="h-4 w-4 text-primary shrink-0" />
+                <Award className="h-4 w-4 text-primary shrink-0" title="Manual Exemplar" />
+              )}
+              {isLearningPool && (
+                <GraduationCap className="h-4 w-4 text-emerald-400 shrink-0" title="Learning Pool" />
               )}
               <h3 className="font-semibold text-foreground truncate text-sm leading-tight">
                 {idea.title}
