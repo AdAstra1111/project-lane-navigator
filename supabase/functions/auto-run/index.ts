@@ -3116,6 +3116,16 @@ async function tryPlateauForcePromote(
   const { jobId, job, currentDoc, format, stepCount, targetCi, detectedCi, detectedBestCi, plateauVersion } = params;
   if (!job.allow_defaults) return null;
 
+  // ── EXCEPTIONAL PLATEAU BLOCK: never force-promote below target in Exceptional mode ──
+  if (isExceptionalObjective(job) && (typeof detectedBestCi === "number" ? detectedBestCi : detectedCi) < targetCi) {
+    console.warn(`[auto-run][IEL] EXCEPTIONAL_PLATEAU_BLOCK { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${detectedCi}, best_ci: ${detectedBestCi}, target: ${targetCi}, plateau_version: "${plateauVersion}" }`);
+    await logStep(supabase, jobId, stepCount + 1, currentDoc, "exceptional_plateau_block",
+      `EXCEPTIONAL_PLATEAU_BLOCK: CI=${detectedCi} (best: ${detectedBestCi}) below Exceptional target ${targetCi}. Force-promote blocked — escalation required.`,
+      { ci: detectedCi }, undefined,
+      { target_ci: targetCi, best_ci: detectedBestCi, plateau_version: plateauVersion, quality_objective: "Exceptional", action: "plateau_escalation_required" });
+    return null; // Block force-promote — caller will handle escalation
+  }
+
   // ── Note exhaustion gate: do NOT force-promote if actionable notes remain ──
   try {
     const { data: actionableNotes } = await supabase
