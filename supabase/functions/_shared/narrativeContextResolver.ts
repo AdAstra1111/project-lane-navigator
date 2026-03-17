@@ -172,7 +172,8 @@ export async function resolveNarrativeContext(
     if (epCount) parts.push(`Episode count: ${epCount}`);
     if (epMin != null && epMax != null) parts.push(`Episode duration range: ${epMin}–${epMax}s`);
 
-    // Characters
+    // Characters — canon_json.characters is the primary source
+    let characterLockBlock = "";
     if (Array.isArray(cj.characters) && cj.characters.length > 0) {
       const chars = cj.characters
         .filter((c: any) => c.name && c.name.trim())
@@ -187,6 +188,69 @@ export async function resolveNarrativeContext(
         return `  - ${c.name}${details ? `: ${details}` : ""}`;
       });
       parts.push(`Characters:\n${charLines.join("\n")}`);
+      characterLockBlock = `\nCHARACTER INVENTION LOCK: Use ONLY the canonical characters listed above. Do NOT invent, hallucinate, or introduce any new named characters not in the list. Unnamed extras must use generic descriptors (e.g., WAITER, GUARD, PASSERBY). If a scene requires a new named character, flag it as [NEW CHARACTER NEEDED] instead of inventing one.`;
+      provenance.characterLock = "canon_characters";
+    } else {
+      // Fallback: attempt to derive character names from character_bible upstream doc
+      let derivedNames: string[] = [];
+      try {
+        const { data: cbDoc } = await supabase
+          .from("project_documents")
+          .select("id")
+          .eq("project_id", projectId)
+          .eq("doc_type", "character_bible")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (cbDoc) {
+          const { data: cbVer } = await supabase
+            .from("project_document_versions")
+            .select("plaintext")
+            .eq("document_id", cbDoc.id)
+            .eq("is_current", true)
+            .maybeSingle();
+          if (cbVer?.plaintext && cbVer.plaintext.length > 50) {
+            // Extract character names from markdown headings (## Name, ### Name) and
+            // bold character declarations (**Name** — Role, **Name:**)
+            const headingMatches = cbVer.plaintext.match(/^#{2,4}\s+([A-Z][a-zA-Z' -]{1,30})$/gm) || [];
+            const boldMatches = cbVer.plaintext.match(/\*\*([A-Z][a-zA-Z' -]{1,30})\*\*\s*(?:[—–:\(])/g) || [];
+            const STRUCTURAL_TERMS = new Set([
+              "CHARACTER BIBLE", "CHARACTERS", "SERIES OVERVIEW", "OVERVIEW", "INTRODUCTION",
+              "MAIN CHARACTERS", "SUPPORTING CHARACTERS", "RECURRING CHARACTERS", "MINOR CHARACTERS",
+              "NOTES", "APPENDIX", "SUMMARY", "CONCLUSION", "ROLE", "BACKSTORY", "ACT ONE",
+              "ACT TWO", "ACT THREE", "RELATIONSHIPS", "CHARACTER DYNAMICS", "THEMES",
+            ]);
+            const nameSet = new Set<string>();
+            for (const m of headingMatches) {
+              const name = m.replace(/^#{2,4}\s+/, "").trim();
+              if (name.length > 1 && name.length <= 30 && !STRUCTURAL_TERMS.has(name.toUpperCase())) {
+                nameSet.add(name);
+              }
+            }
+            for (const m of boldMatches) {
+              const name = m.replace(/\*\*/g, "").replace(/\s*[—–:\(].*$/, "").trim();
+              if (name.length > 1 && name.length <= 30 && !STRUCTURAL_TERMS.has(name.toUpperCase())) {
+                nameSet.add(name);
+              }
+            }
+            derivedNames = [...nameSet].slice(0, CHARACTERS_CAP);
+          }
+        }
+      } catch (e) {
+        console.warn("[narrative-context] character_bible fallback extraction failed:", e);
+      }
+
+      if (derivedNames.length > 0) {
+        canon.entityAnchors = derivedNames;
+        parts.push(`Characters (derived from Character Bible): ${derivedNames.join(", ")}`);
+        characterLockBlock = `\nCHARACTER INVENTION LOCK (DERIVED): The following character names were extracted from the Character Bible: ${derivedNames.join(", ")}. Use ONLY these characters. Do NOT invent, hallucinate, or introduce any new named characters not in this list. Unnamed extras must use generic descriptors (e.g., WAITER, GUARD, PASSERBY). If a scene requires a new named character, flag it as [NEW CHARACTER NEEDED] instead of inventing one.`;
+        provenance.characterLock = "derived_from_character_bible";
+        console.log(`[narrative-context] character_lock: derived ${derivedNames.length} names from character_bible`);
+      } else {
+        characterLockBlock = `\nCHARACTER INVENTION LOCK (NO CANON): No canonical character list is established for this project. You MUST use only character names that appear in the upstream source documents provided. Do NOT invent or hallucinate new named characters. If you need a character not mentioned in the source material, use a generic descriptor (e.g., THE STRANGER, A DETECTIVE) or flag as [NEW CHARACTER NEEDED]. This constraint prevents cross-contamination from model training data.`;
+        provenance.characterLock = "empty_no_characters";
+        console.log(`[narrative-context] character_lock: no canon characters and no character_bible fallback available`);
+      }
     }
 
     if (cj.timeline && typeof cj.timeline === "string" && cj.timeline.trim()) parts.push(`Timeline: ${cj.timeline}`);
@@ -207,10 +271,10 @@ export async function resolveNarrativeContext(
     if (cj.format_constraints && typeof cj.format_constraints === "string" && cj.format_constraints.trim()) parts.push(`Format constraints: ${cj.format_constraints}`);
 
     if (parts.length > 0) {
-      canon.blockText = clamp(`\nCANON OS (authoritative — these values override any other references):\n${parts.join("\n")}`, CANON_BLOCK_MAX_CHARS);
+      canon.blockText = clamp(`\nCANON OS (authoritative — these values override any other references):\n${parts.join("\n")}${characterLockBlock}`, CANON_BLOCK_MAX_CHARS);
       provenance.canon = "project_canon";
     } else {
-      canon.blockText = `\nCANON OS: No canonical logline, premise, or characters established. Do NOT assert specific details as canonical facts.`;
+      canon.blockText = `\nCANON OS: No canonical logline, premise, or characters established. Do NOT assert specific details as canonical facts.${characterLockBlock}`;
       provenance.canon = "empty";
     }
 
