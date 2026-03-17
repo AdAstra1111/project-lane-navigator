@@ -225,8 +225,7 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
   const response = await fetch(_gw.url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+      Authorization: `Bearer ${_gw.apiKey}`,
     },
     body: JSON.stringify({
       model, messages: [

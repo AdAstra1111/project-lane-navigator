@@ -116,7 +116,7 @@ Return a JSON array of objects with:
 
 Return ONLY the JSON array. No markdown fences, no explanation outside the array.`;
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch(resolveGateway().url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${lovableApiKey}`,
