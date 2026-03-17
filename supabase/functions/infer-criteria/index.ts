@@ -11,7 +11,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS } from "../_shared/llm.ts";
+import { callLLM, MODELS, resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,12 +49,27 @@ const EMPTY_CRITERIA: CriteriaResult = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Very cheap regex extraction for labelled headings */
+/** Very cheap regex extraction for labelled headings.
+ *  Handles both inline (`HEADING: value`) and markdown (`## Heading\n\nvalue`) styles.
+ */
 function extractHeading(text: string, ...variants: string[]): string {
   for (const heading of variants) {
-    const re = new RegExp(`(?:^|\\n)\\s*${heading}[:\\-–]?\\s*(.+?)(?:\\n|$)`, "im");
-    const m = text.match(re);
-    if (m?.[1]?.trim()) return m[1].trim().slice(0, 400);
+    // Pattern 1: inline value on same line as heading  (e.g. "PROTAGONIST: Jane Doe")
+    const inlineRe = new RegExp(`(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–]?\\s*(.+?)(?:\\n|$)`, "im");
+    const inlineM = text.match(inlineRe);
+    if (inlineM?.[1]?.trim()) return inlineM[1].trim().slice(0, 600);
+
+    // Pattern 2: heading on its own line, content on next non-blank line(s)
+    // e.g. "## Premise\n\nActual premise text here..."
+    const blockRe = new RegExp(`(?:^|\\n)\\s*(?:#{1,3}\\s*)?(?:\\*{2})?${heading}(?:\\*{2})?[:\\-–]?\\s*\\n+([^\\n#].+?)(?=\\n\\s*(?:#{1,3}\\s|\\*{2}[A-Z])|$)`, "ims");
+    const blockM = text.match(blockRe);
+    if (blockM?.[1]?.trim()) {
+      // Take first paragraph (up to 600 chars), collapsing internal newlines
+      const raw = blockM[1].trim();
+      // Stop at the first blank-line boundary (paragraph break) or take all if single paragraph
+      const firstPara = raw.split(/\n\s*\n/)[0].replace(/\n/g, " ").trim();
+      return firstPara.slice(0, 600);
+    }
   }
   return "";
 }
@@ -194,13 +209,18 @@ Deno.serve(async (req) => {
       const { id: docId, text } = entry;
 
       setField("logline", extractHeading(text, "LOGLINE", "LOG LINE", "HOOK", "ONE.LINE", "PREMISE IN ONE LINE"), docType, docId, "extracted");
-      setField("premise", extractHeading(text, "PREMISE", "THE CONCEPT", "CONCEPT", "SERIES PREMISE", "SHOW PREMISE"), docType, docId, "extracted");
-      setField("tone_genre", extractHeading(text, "TONE", "GENRE", "TONE.GENRE", "TONE & GENRE", "CORE TROPES", "VIBE"), docType, docId, "extracted");
-      setField("protagonist", extractHeading(text, "PROTAGONIST", "LEAD", "HERO", "MAIN CHARACTER", "CENTRAL CHARACTER"), docType, docId, "extracted");
-      setField("antagonist", extractHeading(text, "ANTAGONIST", "VILLAIN", "OPPOSITION", "THREAT", "CONFLICT SOURCE"), docType, docId, "extracted");
-      setField("stakes", extractHeading(text, "STAKES", "WHY IT SELLS", "CORE TENSION", "RISK", "WHAT.S AT STAKE"), docType, docId, "extracted");
-      setField("world_rules", extractHeading(text, "WORLD", "WORLD.BUILDING", "RULES", "SETTING", "WORLD RULES"), docType, docId, "extracted");
+      setField("premise", extractHeading(text, "PREMISE", "THE CONCEPT", "CONCEPT", "SERIES PREMISE", "SHOW PREMISE", "STORY ENGINE"), docType, docId, "extracted");
+      setField("tone_genre", extractHeading(text, "TONE", "GENRE(?! BLEND)", "TONE.GENRE", "TONE & GENRE", "CORE TROPES", "VIBE"), docType, docId, "extracted");
+      setField("protagonist", extractHeading(text, "PROTAGONIST", "LEAD CHARACTER", "HERO", "MAIN CHARACTER", "CENTRAL CHARACTER", "OUR HERO"), docType, docId, "extracted");
+      setField("antagonist", extractHeading(text, "ANTAGONIST", "VILLAIN", "OPPOSITION", "OPPOSING FORCE", "CONFLICT SOURCE"), docType, docId, "extracted");
+      setField("stakes", extractHeading(text, "STAKES", "WHY IT SELLS", "CORE TENSION", "WHAT.S AT STAKE", "CENTRAL TENSION"), docType, docId, "extracted");
+      setField("world_rules", extractHeading(text, "WORLD RULES", "WORLD.BUILDING", "WORLD BUILDING", "SETTING"), docType, docId, "extracted");
       setField("comparables", extractHeading(text, "COMPARABLES", "COMPS", "COMP TITLES", "SIMILAR TO", "INSPIRED BY", "COMP SET"), docType, docId, "extracted");
+
+      // Second-pass extractions: fields that use alternative heading names as fallback
+      if (!criteria.stakes) {
+        setField("stakes", extractHeading(text, "WHY NOW"), docType, docId, "extracted");
+      }
     }
 
     // Fallback: use first paragraph as logline if still empty
@@ -221,8 +241,9 @@ Deno.serve(async (req) => {
       .filter(k => !criteria[k]);
 
     if (missingFields.length > 0 && hasAnyDoc) {
-      const apiKey = Deno.env.get("OPENROUTER_API_KEY");
-      if (apiKey) {
+      let gateway: { url: string; apiKey: string } | null = null;
+      try { gateway = resolveGateway(); } catch { /* no gateway available */ }
+      if (gateway) {
         const combinedText = orderedDocs.map(d => `--- ${d.doc_type} ---\n${d.text}`).join("\n\n").slice(0, 18000);
 
         const systemPrompt = `You are a film/TV development assistant. Extract story setup fields from the provided documents.
@@ -235,8 +256,8 @@ Do NOT invent information not present in the documents.`;
 
         try {
           const result = await callLLM({
-            apiKey,
-            model: MODELS.FAST,
+            apiKey: gateway.apiKey,
+            model: MODELS.FAST_LITE,
             system: systemPrompt,
             user: userPrompt,
             temperature: 0.1,
@@ -284,12 +305,23 @@ Do NOT invent information not present in the documents.`;
 
     // ── Fill remaining sources (for fields that had no source set) ──
     const fullSources: SourceMap = {} as SourceMap;
+    const stillMissing: string[] = [];
     for (const field of Object.keys(EMPTY_CRITERIA) as (keyof CriteriaResult)[]) {
       fullSources[field] = sources[field] || {
         source_doc_type: "none",
         source_doc_id: null,
         method: "default",
       };
+      if (!criteria[field]) stillMissing.push(field);
+    }
+
+    // ── Diagnostic logging for mapping failures ──
+    if (stillMissing.length > 0) {
+      console.warn("DOC_TO_FORM_MAPPING_FAILURE", JSON.stringify({
+        project_id,
+        missing_fields: stillMissing,
+        available_doc_types: Object.keys(docTexts),
+      }));
     }
 
     return new Response(JSON.stringify({ criteria, sources: fullSources }), {
