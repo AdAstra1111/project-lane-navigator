@@ -355,17 +355,20 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
           projectId,
           allow_defaults: true,
         });
-        // Handle 409 RESUMABLE_JOB_EXISTS — auto-resume instead of failing
-        if (result?._resumable && result?.existing_job_id) {
-          console.log('[ProjectAutopilot] Resumable job detected, auto-resuming', result.existing_job_id);
+        const existingJobId = result?.job_id || result?.existing_job_id;
+        if (result?._resumable && existingJobId) {
+          console.log('[ProjectAutopilot] Reattaching to existing Auto-Run job', existingJobId);
           try {
-            const resumeResult = await callAutoRun('resume', { jobId: result.existing_job_id, followLatest: true });
-            if (mountedRef.current && resumeResult?.job) setAutoRunJob(resumeResult.job);
-            callAutoRun('run-next', { jobId: result.existing_job_id }).then(tickResult => {
+            const status = await callAutoRun('status', { jobId: existingJobId, projectId });
+            if (mountedRef.current && status?.job) setAutoRunJob(status.job);
+            if (status?.job?.status === 'paused') {
+              const resumeResult = await callAutoRun('resume', { jobId: existingJobId, followLatest: true });
+              if (mountedRef.current && resumeResult?.job) setAutoRunJob(resumeResult.job);
+            }
+            callAutoRun('run-next', { jobId: existingJobId }).then(tickResult => {
               if (mountedRef.current && tickResult?.job) setAutoRunJob(tickResult.job);
             }).catch(() => {});
           } catch {
-            // Fallback: fetch status
             const status = await callAutoRun('status', { projectId });
             if (mountedRef.current && status?.job) setAutoRunJob(status.job);
           }

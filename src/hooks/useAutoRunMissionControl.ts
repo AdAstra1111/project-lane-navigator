@@ -402,7 +402,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       try {
         const existing = await callAutoRun('status', { projectId });
         if (existing?.job && ['paused', 'running', 'queued'].includes(existing.job.status)) {
-          console.log(`[mission-control][IEL] start_vs_resume_decision { action: "preflight_resume", reason: "resumable_job_exists", existing_job_id: "${existing.job.id}", current_document: "${existing.job.current_document}", step_count: ${existing.job.step_count} }`);
+          console.log(`[mission-control][IEL] start_vs_resume_decision { action: "preflight_resume", reason: "job_already_running", existing_job_id: "${existing.job.id}", current_document: "${existing.job.current_document}", step_count: ${existing.job.step_count} }`);
           setJob(existing.job);
           setSteps(existing.latest_steps || []);
 
@@ -411,7 +411,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
           }
 
           setIsRunning(true);
-          refreshStatus();
+          await refreshStatus(existing.job.id);
           return;
         }
       } catch {
@@ -425,21 +425,23 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
         max_versions_per_doc_per_job: 60,
       });
 
-      // Fallback guard (legacy callers / races): if backend still returns resumable, recover gracefully.
-      if ((result._resumable || result?.error === 'RESUMABLE_JOB_EXISTS') && result.existing_job_id) {
-        console.log(`[mission-control][IEL] start_vs_resume_decision { action: "auto_resume", reason: "resumable_job_exists", existing_job_id: "${result.existing_job_id}", current_document: "${result.current_document}", step_count: ${result.step_count} }`);
+      const existingJobId = result.job_id || result.existing_job_id;
+      if (result._resumable && existingJobId) {
+        console.log(`[mission-control][IEL] start_vs_resume_decision { action: "auto_attach_existing_job", reason: "job_already_running", existing_job_id: "${existingJobId}", current_document: "${result.current_document}", step_count: ${result.step_count} }`);
         try {
-          const statusResult = await callAutoRun('status', { projectId });
+          const statusResult = await callAutoRun('status', { jobId: existingJobId, projectId });
           if (statusResult?.job) {
             setJob(statusResult.job);
             setSteps(statusResult.latest_steps || []);
-            await callAutoRun('resume', { jobId: statusResult.job.id, followLatest: true });
+            if (statusResult.job.status === 'paused') {
+              await callAutoRun('resume', { jobId: statusResult.job.id, followLatest: true });
+            }
             setIsRunning(true);
-            refreshStatus();
+            await refreshStatus(statusResult.job.id);
             return;
           }
         } catch (resumeErr: any) {
-          setError(`Failed to resume existing job: ${resumeErr.message}`);
+          setError(`Failed to attach to existing job: ${resumeErr.message}`);
           throw resumeErr;
         }
       }

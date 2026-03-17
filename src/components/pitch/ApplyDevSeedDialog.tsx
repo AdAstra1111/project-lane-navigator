@@ -855,13 +855,13 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
                 body: { action: 'start', projectId: project.id, allow_defaults: true },
               });
               if (arInvokeErr) {
-                // Check if it's a RESUMABLE_JOB_EXISTS 409 — not a real error
-                const errBody = arData || arInvokeErr;
-                const isResumable = (errBody as any)?.error === 'RESUMABLE_JOB_EXISTS' || (errBody as any)?.existing_job_id;
-                if (isResumable) {
-                  const existingJobId = (errBody as any)?.existing_job_id;
-                  console.log(`[DevSeed] Resumable auto-run job exists (${existingJobId}), skipping start — AutopilotPanel will resume.`);
-                  parts.push('auto-run resumable (existing job)');
+                const recoverableConflict = extractRecoverableAutoRunConflict(arData || arInvokeErr, project.id);
+                if (recoverableConflict) {
+                  console.log(`[DevSeed] Auto-Run already active (${recoverableConflict.job_id}), treating start as reattach.`);
+                  parts.push('auto-run reattached');
+                } else {
+                  console.error('[DevSeed] auto-run start failed (non-fatal):', arInvokeErr);
+                }
                 } else {
                   console.error('[DevSeed] auto-run start failed (non-fatal):', arInvokeErr);
                 }

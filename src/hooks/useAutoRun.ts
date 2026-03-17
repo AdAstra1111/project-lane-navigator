@@ -168,14 +168,17 @@ export function useAutoRun(projectId: string | undefined) {
         allow_defaults: true,
       });
 
-      // Handle RESUMABLE_JOB_EXISTS: auto-resume existing job
-      if (result._resumable && result.existing_job_id) {
-        console.log(`[useAutoRun][IEL] auto_resume { existing_job_id: "${result.existing_job_id}", current_document: "${result.current_document}" }`);
-        const statusResult = await callAutoRun('status', { projectId });
+      // Handle recoverable conflict: attach to the existing job and continue polling.
+      const existingJobId = result.job_id || result.existing_job_id;
+      if (result._resumable && existingJobId) {
+        console.log(`[useAutoRun][IEL] auto_attach_existing_job { job_id: "${existingJobId}", current_document: "${result.current_document}" }`);
+        const statusResult = await callAutoRun('status', { jobId: existingJobId, projectId });
         if (statusResult?.job) {
           setJob(statusResult.job);
           setSteps(statusResult.latest_steps || []);
-          await callAutoRun('resume', { jobId: statusResult.job.id, followLatest: true });
+          if (statusResult.job.status === 'paused') {
+            await callAutoRun('resume', { jobId: statusResult.job.id, followLatest: true });
+          }
           setIsRunning(true);
           runLoopRef.current?.(statusResult.job.id);
           return;
