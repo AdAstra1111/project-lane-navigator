@@ -818,6 +818,13 @@ One-page pitch: ${c.one_page_pitch}
         lane_relaxed: laneRelaxed,
         learning_pool_only: useLearningPoolOnly,
         learning_pool_match_count: learningPoolMatchCount,
+        // Blueprint family lineage
+        engine_key: resolvedEngineKey || null,
+        blueprint_family_key: familyKey || null,
+        blueprint_family_label: selectedFamily?.label || null,
+        family_selection_confidence: familyConfidence || null,
+        structural_summary: structuralSummary || null,
+        family_candidates_evaluated: familyCandidates.length,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
