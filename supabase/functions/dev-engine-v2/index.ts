@@ -27424,11 +27424,33 @@ CRITICAL:
         return null;
       };
 
+      const SCREENPLAY_DOC_TYPES = new Set(["feature_script", "production_draft", "episode_script", "season_script", "season_master_script"]);
+
       const validateOutput = (docType: string, text: string): InsufficientReason | null => {
         const trimmed = (text || "").trim();
         if (containsStubMarker(trimmed)) return "stub_marker";
         const minChars = MIN_CHARS[docType] ?? DEFAULT_MIN;
         if (trimmed.length < minChars) return "too_short";
+
+        // ── SCREENPLAY-DERIVATIVE VALIDATION ──
+        // For screenplay-class docs, require actual screenplay formatting.
+        // Reject scene-breakdown JSON, outlines, or planning artifacts.
+        if (SCREENPLAY_DOC_TYPES.has(docType)) {
+          // Check if output is JSON (scene breakdown) instead of screenplay prose
+          const isJsonOutput = trimmed.startsWith("{") || trimmed.startsWith("[");
+          if (isJsonOutput) {
+            console.error(`[dev-engine-v2][IEL] screenplay_format_violation { doc_type: "${docType}", reason: "json_output", chars: ${trimmed.length} }`);
+            return "stub_marker"; // reuse existing reason to trigger retry
+          }
+          // Require minimum slugline density for screenplay format
+          const sluglineCount = (trimmed.match(/^(INT\.|EXT\.|INT\/EXT\.)\s/gm) || []).length;
+          if (sluglineCount < 8) {
+            console.warn(`[dev-engine-v2][IEL] screenplay_slugline_sparse { doc_type: "${docType}", sluglines: ${sluglineCount}, min_required: 8 }`);
+            // Only fail hard if very few sluglines (probably an outline, not a screenplay)
+            if (sluglineCount < 3) return "stub_marker";
+          }
+        }
+
         return null;
       };
 
