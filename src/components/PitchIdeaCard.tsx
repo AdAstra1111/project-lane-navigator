@@ -331,6 +331,23 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
       </CardContent>
 
       <SendToProjectDialog idea={idea} open={sendToProjectOpen} onOpenChange={setSendToProjectOpen} />
+
+      <SimilarExemplarsDrawer
+        open={similarOpen}
+        onOpenChange={setSimilarOpen}
+        sourceIdea={idea}
+        onCompare={exemplar => {
+          setSimilarOpen(false);
+          setCompareExemplar(exemplar);
+        }}
+      />
+
+      <ExemplarCompareDrawer
+        open={!!compareExemplar}
+        onOpenChange={open => { if (!open) setCompareExemplar(null); }}
+        currentIdea={idea}
+        exemplar={compareExemplar}
+      />
     </Card>
   );
 }
