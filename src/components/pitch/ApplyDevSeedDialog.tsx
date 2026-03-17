@@ -862,9 +862,6 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
                 } else {
                   console.error('[DevSeed] auto-run start failed (non-fatal):', arInvokeErr);
                 }
-                } else {
-                  console.error('[DevSeed] auto-run start failed (non-fatal):', arInvokeErr);
-                }
               } else {
                 parts.push('auto-run started');
               }
