@@ -6495,6 +6495,243 @@ export type Database = {
         }
         Relationships: []
       }
+      idea_blueprint_candidates: {
+        Row: {
+          blueprint_id: string
+          budget_band: string
+          created_at: string
+          engine: string | null
+          format: string
+          genre: string
+          id: string
+          lane: string
+          logline: string
+          one_page_pitch: string
+          pitch_idea_id: string | null
+          promoted_at: string | null
+          promoted_pitch_idea_id: string | null
+          promotion_source: string | null
+          promotion_status: string
+          provenance: Json
+          raw_response: Json | null
+          run_id: string
+          score_company_fit: number
+          score_feasibility: number
+          score_lane_fit: number
+          score_market_heat: number
+          score_saturation_risk: number
+          score_total: number
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          blueprint_id: string
+          budget_band?: string
+          created_at?: string
+          engine?: string | null
+          format?: string
+          genre?: string
+          id?: string
+          lane?: string
+          logline?: string
+          one_page_pitch?: string
+          pitch_idea_id?: string | null
+          promoted_at?: string | null
+          promoted_pitch_idea_id?: string | null
+          promotion_source?: string | null
+          promotion_status?: string
+          provenance?: Json
+          raw_response?: Json | null
+          run_id: string
+          score_company_fit?: number
+          score_feasibility?: number
+          score_lane_fit?: number
+          score_market_heat?: number
+          score_saturation_risk?: number
+          score_total?: number
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          blueprint_id?: string
+          budget_band?: string
+          created_at?: string
+          engine?: string | null
+          format?: string
+          genre?: string
+          id?: string
+          lane?: string
+          logline?: string
+          one_page_pitch?: string
+          pitch_idea_id?: string | null
+          promoted_at?: string | null
+          promoted_pitch_idea_id?: string | null
+          promotion_source?: string | null
+          promotion_status?: string
+          provenance?: Json
+          raw_response?: Json | null
+          run_id?: string
+          score_company_fit?: number
+          score_feasibility?: number
+          score_lane_fit?: number
+          score_market_heat?: number
+          score_saturation_risk?: number
+          score_total?: number
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "idea_blueprint_candidates_blueprint_id_fkey"
+            columns: ["blueprint_id"]
+            isOneToOne: false
+            referencedRelation: "idea_blueprints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "idea_blueprint_candidates_pitch_idea_id_fkey"
+            columns: ["pitch_idea_id"]
+            isOneToOne: false
+            referencedRelation: "pitch_ideas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "idea_blueprint_candidates_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "idea_blueprint_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      idea_blueprint_runs: {
+        Row: {
+          blueprint_count: number
+          candidate_count: number
+          config: Json
+          created_at: string
+          error: string | null
+          exemplar_ids: string[] | null
+          id: string
+          source_idea_ids: string[] | null
+          status: string
+          trend_signal_ids: string[] | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          blueprint_count?: number
+          candidate_count?: number
+          config?: Json
+          created_at?: string
+          error?: string | null
+          exemplar_ids?: string[] | null
+          id?: string
+          source_idea_ids?: string[] | null
+          status?: string
+          trend_signal_ids?: string[] | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          blueprint_count?: number
+          candidate_count?: number
+          config?: Json
+          created_at?: string
+          error?: string | null
+          exemplar_ids?: string[] | null
+          id?: string
+          source_idea_ids?: string[] | null
+          status?: string
+          trend_signal_ids?: string[] | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      idea_blueprints: {
+        Row: {
+          budget_band: string
+          conflict_engine: string | null
+          created_at: string
+          derived_from_idea_ids: string[] | null
+          engine: string | null
+          exemplar_inputs: Json | null
+          feasibility_constraints: Json
+          format: string
+          genre: string
+          id: string
+          lane: string
+          market_design: Json
+          novelty_constraints: Json
+          protagonist_archetype: string | null
+          run_id: string
+          score_pattern: Json | null
+          status: string
+          structural_patterns: Json
+          trend_inputs: Json | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          budget_band?: string
+          conflict_engine?: string | null
+          created_at?: string
+          derived_from_idea_ids?: string[] | null
+          engine?: string | null
+          exemplar_inputs?: Json | null
+          feasibility_constraints?: Json
+          format?: string
+          genre?: string
+          id?: string
+          lane?: string
+          market_design?: Json
+          novelty_constraints?: Json
+          protagonist_archetype?: string | null
+          run_id: string
+          score_pattern?: Json | null
+          status?: string
+          structural_patterns?: Json
+          trend_inputs?: Json | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          budget_band?: string
+          conflict_engine?: string | null
+          created_at?: string
+          derived_from_idea_ids?: string[] | null
+          engine?: string | null
+          exemplar_inputs?: Json | null
+          feasibility_constraints?: Json
+          format?: string
+          genre?: string
+          id?: string
+          lane?: string
+          market_design?: Json
+          novelty_constraints?: Json
+          protagonist_archetype?: string | null
+          run_id?: string
+          score_pattern?: Json | null
+          status?: string
+          structural_patterns?: Json
+          trend_inputs?: Json | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "idea_blueprints_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "idea_blueprint_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       impact_partners: {
         Row: {
           contact_email: string | null
