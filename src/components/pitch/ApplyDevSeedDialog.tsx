@@ -783,13 +783,32 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           if (autopilotRes?.autopilot) {
             setAutopilotState(autopilotRes.autopilot);
             parts.push('autopilot started');
-            // Run devseed tick loop to completion, then start Auto-Run
-            runAutopilotTicks(project.id);
           }
 
-          // Start Auto-Run job for ongoing development + fire first tick
+          // Run devseed tick loop to completion BEFORE starting Auto-Run
+          // This ensures seed artifacts exist before Auto-Run begins
+          let tickDone = false;
+          let tickIterations = 0;
+          const MAX_TICK_ITERATIONS = 25;
+          while (!tickDone && tickIterations < MAX_TICK_ITERATIONS && !autopilotAbortRef.current) {
+            tickIterations++;
+            const { data: tickData, error: tickErr } = await supabase.functions.invoke('devseed-autopilot', {
+              body: { action: 'tick', projectId: project.id },
+            });
+            if (tickErr) {
+              console.error('[DevSeed] autopilot tick error:', tickErr.message);
+              break;
+            }
+            const result = tickData as any;
+            if (result?.autopilot) setAutopilotState(result.autopilot);
+            tickDone = result?.done === true || result?.message === 'not_running';
+            if (!tickDone) await new Promise(r => setTimeout(r, 1000));
+          }
+
+          // Only start Auto-Run AFTER devseed-autopilot completes seed generation
           try {
-           await supabase.functions.invoke('auto-run', {
+            console.log('[DevSeed] Seed stages complete, starting Auto-Run...');
+            await supabase.functions.invoke('auto-run', {
               body: { action: 'start', projectId: project.id, allow_defaults: true },
             });
             parts.push('auto-run started');

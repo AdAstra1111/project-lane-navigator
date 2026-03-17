@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, extractJSON, MODELS } from "../_shared/llm.ts";
+import { callLLM, extractJSON, MODELS, resolveGateway } from "../_shared/llm.ts";
 import { upsertDoc, SEED_CORE_TYPES } from "../_shared/doc-os.ts";
 
 const corsHeaders = {
@@ -194,9 +194,11 @@ serve(async (req) => {
     const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
-
-    if (!apiKey) {
+    let apiKey: string;
+    try {
+      const gw = resolveGateway();
+      apiKey = gw.apiKey;
+    } catch {
       return jsonRes({ error: "AI API key not configured" }, 500);
     }
 
