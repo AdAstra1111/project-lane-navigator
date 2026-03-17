@@ -241,8 +241,9 @@ Deno.serve(async (req) => {
       .filter(k => !criteria[k]);
 
     if (missingFields.length > 0 && hasAnyDoc) {
-      const apiKey = Deno.env.get("OPENROUTER_API_KEY");
-      if (apiKey) {
+      let gateway: { url: string; apiKey: string } | null = null;
+      try { gateway = resolveGateway(); } catch { /* no gateway available */ }
+      if (gateway) {
         const combinedText = orderedDocs.map(d => `--- ${d.doc_type} ---\n${d.text}`).join("\n\n").slice(0, 18000);
 
         const systemPrompt = `You are a film/TV development assistant. Extract story setup fields from the provided documents.
