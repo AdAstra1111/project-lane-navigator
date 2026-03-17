@@ -14,6 +14,7 @@ export interface ExemplarFilters {
   engine?: string;
   budgetBand?: string;
   approvedOnly?: boolean;
+  learningPoolOnly?: boolean;
   sortBy?: 'relevance' | 'ci_desc' | 'gp_desc' | 'newest';
 }
 
