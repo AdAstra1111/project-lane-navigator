@@ -55,7 +55,7 @@ function hasPlaceholders(text: string): boolean {
 function getGatewayUrl() { return resolveGateway().url; }
 
 async function callLLM(apiKey: string, system: string, user: string): Promise<string> {
-  const res = await fetch(GATEWAY_URL, {
+  const res = await fetch(getGatewayUrl(), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
