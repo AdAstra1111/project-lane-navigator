@@ -4079,7 +4079,7 @@ Deno.serve(async (req) => {
             const ci = Number(ct.ci); const gp = Number(ct.gp);
             if (!isNaN(ci) && ci >= 0 && ci <= 100) return { ci, gp: !isNaN(gp) ? gp : 85 };
           }
-          return { ci: 90, gp: 85 }; // sensible default, not {ci:100,gp:100}
+          return { ci: 95, gp: 95 }; // Exceptional band default — user can manually downgrade via UI
         })(),
         allow_defaults: body.allow_defaults === true,
         follow_latest: body.follow_latest === true ? true : false,
