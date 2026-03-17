@@ -256,8 +256,8 @@ Do NOT invent information not present in the documents.`;
 
         try {
           const result = await callLLM({
-            apiKey,
-            model: MODELS.FAST,
+            apiKey: gateway.apiKey,
+            model: MODELS.FAST_LITE,
             system: systemPrompt,
             user: userPrompt,
             temperature: 0.1,
