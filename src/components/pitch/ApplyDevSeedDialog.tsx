@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, FolderPlus, ArrowRight, Zap, Bot } from 'lucide-react';
+import { Loader2, FolderPlus, ArrowRight, Zap, Bot, FlaskConical } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -939,6 +939,12 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           <DialogDescription>
             Creates a new project and seeds Dev Engine artifacts, canon, and optionally lane preferences from the DevSeed.
           </DialogDescription>
+          {idea && (idea.raw_response as any)?.promotion_source === 'ci_blueprint_engine' && (
+            <p className="text-[11px] text-emerald-400/70 mt-1 flex items-center gap-1.5">
+              <FlaskConical className="h-3 w-3" />
+              Creating project from blueprint-derived pitch idea
+            </p>
+          )}
         </DialogHeader>
 
         <div className="space-y-4 py-2">

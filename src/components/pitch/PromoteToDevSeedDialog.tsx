@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Loader2, Rocket } from 'lucide-react';
+import { Loader2, Rocket, FlaskConical } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -64,6 +64,17 @@ export function PromoteToDevSeedDialog({ idea, open, onOpenChange, onPromoted }:
         </DialogHeader>
 
         <div className="space-y-3 py-2">
+          {(idea.raw_response as any)?.promotion_source === 'ci_blueprint_engine' && (
+            <div className="rounded-md bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 flex items-center gap-2">
+              <FlaskConical className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+              <div className="text-xs text-emerald-300/90">
+                <span className="font-medium">Blueprint-derived idea</span>
+                {(idea.raw_response as any)?.blueprint_id && (
+                  <span className="text-emerald-400/50 ml-1.5">· {(idea.raw_response as any).blueprint_id.slice(0, 8)}</span>
+                )}
+              </div>
+            </div>
+          )}
           <div className="rounded-md border border-border/40 p-3 space-y-2">
             <h4 className="font-semibold text-sm">{idea.title}</h4>
             <p className="text-sm text-muted-foreground line-clamp-3">{idea.logline}</p>

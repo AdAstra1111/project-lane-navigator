@@ -159,6 +159,9 @@ export function SlateCard({ idea, rank, onPromote, onShortlist, onDelete, projec
           {isFromBlueprint && (
             <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-400 gap-1"><FlaskConical className="h-2.5 w-2.5" />From Blueprint</Badge>
           )}
+          {isFromBlueprint && (
+            <span className="text-[10px] text-muted-foreground/60 italic">Blueprint → Pitch Idea → DevSeed</span>
+          )}
         </div>
 
         {/* Trend fit bullets */}
