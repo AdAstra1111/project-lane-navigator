@@ -299,12 +299,23 @@ Do NOT invent information not present in the documents.`;
 
     // ── Fill remaining sources (for fields that had no source set) ──
     const fullSources: SourceMap = {} as SourceMap;
+    const stillMissing: string[] = [];
     for (const field of Object.keys(EMPTY_CRITERIA) as (keyof CriteriaResult)[]) {
       fullSources[field] = sources[field] || {
         source_doc_type: "none",
         source_doc_id: null,
         method: "default",
       };
+      if (!criteria[field]) stillMissing.push(field);
+    }
+
+    // ── Diagnostic logging for mapping failures ──
+    if (stillMissing.length > 0) {
+      console.warn("DOC_TO_FORM_MAPPING_FAILURE", JSON.stringify({
+        project_id,
+        missing_fields: stillMissing,
+        available_doc_types: Object.keys(docTexts),
+      }));
     }
 
     return new Response(JSON.stringify({ criteria, sources: fullSources }), {
