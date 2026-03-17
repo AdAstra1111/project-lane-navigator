@@ -160,6 +160,7 @@ export default function CIBlueprintEngine() {
     sourceDnaProfileId: null,
   });
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [buildResult, setBuildResult] = useState<{ source_idea_count: number; optimizer_mode: string; dna_profile_title: string | null; dna_match_count?: number; engine_match_count?: number; generic_fallback_count?: number } | null>(null);
 
   const buildMutation = useBuildBlueprint();
   const promoteMutation = usePromoteCandidate();
@@ -173,6 +174,14 @@ export default function CIBlueprintEngine() {
   const handleBuild = async () => {
     const result = await buildMutation.mutateAsync(config);
     setActiveRunId(result.run_id);
+    setBuildResult({
+      source_idea_count: result.source_idea_count,
+      optimizer_mode: result.optimizer_mode,
+      dna_profile_title: result.dna_profile_title,
+      dna_match_count: result.dna_match_count,
+      engine_match_count: result.engine_match_count,
+      generic_fallback_count: result.generic_fallback_count,
+    });
   };
 
   const handleOpenPitchIdea = (pitchIdeaId: string) => {
