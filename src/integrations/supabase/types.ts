@@ -8931,8 +8931,10 @@ export type Database = {
           created_at: string
           development_sprint: Json
           devseed_canon_json: Json
+          exemplar_notes: string | null
           genre: string
           id: string
+          is_exemplar: boolean
           lane_confidence: number
           logline: string
           mode: string
@@ -8957,6 +8959,7 @@ export type Database = {
           source_dna_profile_id: string | null
           source_engine_key: string | null
           status: string
+          strength_tags: string[]
           title: string
           updated_at: string
           user_id: string
@@ -8971,8 +8974,10 @@ export type Database = {
           created_at?: string
           development_sprint?: Json
           devseed_canon_json?: Json
+          exemplar_notes?: string | null
           genre?: string
           id?: string
+          is_exemplar?: boolean
           lane_confidence?: number
           logline?: string
           mode?: string
@@ -8997,6 +9002,7 @@ export type Database = {
           source_dna_profile_id?: string | null
           source_engine_key?: string | null
           status?: string
+          strength_tags?: string[]
           title?: string
           updated_at?: string
           user_id: string
@@ -9011,8 +9017,10 @@ export type Database = {
           created_at?: string
           development_sprint?: Json
           devseed_canon_json?: Json
+          exemplar_notes?: string | null
           genre?: string
           id?: string
+          is_exemplar?: boolean
           lane_confidence?: number
           logline?: string
           mode?: string
@@ -9037,6 +9045,7 @@ export type Database = {
           source_dna_profile_id?: string | null
           source_engine_key?: string | null
           status?: string
+          strength_tags?: string[]
           title?: string
           updated_at?: string
           user_id?: string

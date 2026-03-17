@@ -93,6 +93,7 @@ const IntelDashboard = lazy(() => import("./pages/IntelDashboard"));
 const IntelPolicies = lazy(() => import("./pages/IntelPolicies"));
 const IntelEvents = lazy(() => import("./pages/IntelEvents"));
 const IntelAlignment = lazy(() => import("./pages/IntelAlignment"));
+const ExemplarBrowser = lazy(() => import("./pages/ExemplarBrowser"));
 
 
 // ProjectShell — new unified workspace frame (Week 1 refactor)
@@ -182,6 +183,7 @@ const AnimatedRoutes = () => {
           <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
           <Route path="/coverage-lab" element={<ProtectedRoute><CoverageLab /></ProtectedRoute>} />
           <Route path="/pitch-ideas" element={<ProtectedRoute><PitchIdeas /></ProtectedRoute>} />
+          <Route path="/exemplars" element={<ProtectedRoute><ExemplarBrowser /></ProtectedRoute>} />
           <Route path="/ai-cast" element={<ProtectedRoute><AICastLibrary /></ProtectedRoute>} />
           <Route path="/calibration-lab" element={<ProtectedRoute><CalibrationLab /></ProtectedRoute>} />
           <Route path="/demo" element={<GuidedDemo />} />

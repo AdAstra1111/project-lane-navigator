@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2, Bookmark, BookmarkCheck, Lock, Shield, Rocket, Send } from 'lucide-react';
+import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2, Bookmark, BookmarkCheck, Lock, Shield, Rocket, Send, GitCompare, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +11,8 @@ import { usePitchFeedback } from '@/hooks/usePitchIdeas';
 import { LANE_LABELS, type MonetisationLane } from '@/lib/types';
 import { ConceptLockPanel } from '@/components/ConceptLockPanel';
 import { SendToProjectDialog } from '@/components/SendToProjectDialog';
+import { SimilarExemplarsDrawer } from '@/components/exemplars/SimilarExemplarsDrawer';
+import { ExemplarCompareDrawer } from '@/components/exemplars/ExemplarCompareDrawer';
 
 const FEEDBACK_TAGS = ['character', 'world', 'hook', 'tone', 'budget', 'market fit'];
 
@@ -26,6 +28,8 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
   const [expanded, setExpanded] = useState(false);
   const [conceptLockOpen, setConceptLockOpen] = useState(false);
   const [sendToProjectOpen, setSendToProjectOpen] = useState(false);
+  const [similarOpen, setSimilarOpen] = useState(false);
+  const [compareExemplar, setCompareExemplar] = useState<PitchIdea | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const { feedback, submitFeedback } = usePitchFeedback(idea.id);
   const userFeedback = feedback[0];
@@ -223,6 +227,16 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
           </CollapsibleContent>
         </Collapsible>
 
+        {/* Exemplar actions */}
+        <div className="flex flex-wrap gap-1.5">
+          <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setSimilarOpen(true)}>
+            <Search className="h-3 w-3" /> Find Similar Exemplars
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setCompareExemplar(idea)}>
+            <GitCompare className="h-3 w-3" /> Compare to Exemplars
+          </Button>
+        </div>
+
         {/* Expandable details */}
         <Collapsible open={expanded} onOpenChange={setExpanded}>
           <CollapsibleTrigger asChild>
@@ -317,6 +331,23 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
       </CardContent>
 
       <SendToProjectDialog idea={idea} open={sendToProjectOpen} onOpenChange={setSendToProjectOpen} />
+
+      <SimilarExemplarsDrawer
+        open={similarOpen}
+        onOpenChange={setSimilarOpen}
+        sourceIdea={idea}
+        onCompare={exemplar => {
+          setSimilarOpen(false);
+          setCompareExemplar(exemplar);
+        }}
+      />
+
+      <ExemplarCompareDrawer
+        open={!!compareExemplar}
+        onOpenChange={open => { if (!open) setCompareExemplar(null); }}
+        currentIdea={idea}
+        exemplar={compareExemplar}
+      />
     </Card>
   );
 }
