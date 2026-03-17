@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
 import { spineToReviewerAlignmentBlock, getSpineState, CLASS_A_SPINE_CHECK_DOC_TYPES, buildClassASpineCheckSystemPrompt, buildClassASpineCheckUserPrompt, parseClassASpineCheckOutput, CLASS_B_SPINE_CHECK_DOC_TYPES, CLASS_B_SPINE_CHECK_AXES, buildClassBSpineCheckSystemPrompt, buildClassBSpineCheckUserPrompt, parseClassBSpineCheckOutput, VALIDATOR_SUPPORTED_AXES, AXIS_METADATA } from "../_shared/narrativeSpine.ts";
 import { parseSections, findVerbatimInSections } from "../_shared/sectionRepairEngine.ts";
+import { validateStageIdentity } from "../_shared/stageIdentityContracts.ts";
 import { isSectionRepairSupported } from "../_shared/deliverableSectionRegistry.ts";
 import { isCPMEnabled, CPM_EVAL_PROMPT_EXTENSION, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isCharBibleDepthEnabled, CHARACTER_BIBLE_DEPTH_EVAL_BLOCK } from "../_shared/ciBlockerGate.ts";
@@ -4962,6 +4963,22 @@ serve(async (req) => {
         throw new Error("Cannot analyze an empty document. Generate content first.");
       }
 
+      // ── STAGE IDENTITY GATE — block analyze/review on malformed stage artifacts ──
+      if (deliverableType && ["idea", "concept_brief"].includes(deliverableType)) {
+        const sidResult = validateStageIdentity(deliverableType, version.plaintext);
+        if (sidResult && !sidResult.pass) {
+          console.error(`[dev-engine-v2][IEL] STAGE_IDENTITY_BLOCKED { action: "analyze", deliverable: "${deliverableType}", violation: "${sidResult.violation}" }`);
+          return new Response(JSON.stringify({
+            error: `STAGE_IDENTITY_BLOCKED: ${sidResult.violation}`,
+            stage_identity_blocked: true,
+            violation: sidResult.violation,
+            violations: sidResult.details.violations,
+            repair_hint: sidResult.repair_hint,
+            detail: `Cannot analyze ${deliverableType} — document fails stage identity: ${sidResult.violation}. ${sidResult.repair_hint || "Regenerate with correct stage constraints."}`,
+          }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
       const { data: project } = await supabase.from("projects")
         .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config, canon_version_id")
         .eq("id", projectId).single();
@@ -5897,6 +5914,20 @@ ${docTextForScoring}`;
         .select("plaintext").eq("id", versionId).single();
       if (!version) throw new Error("Version not found");
 
+      // ── STAGE IDENTITY GATE — block notes on malformed stage artifacts ──
+      if (deliverableType && ["idea", "concept_brief"].includes(deliverableType) && version.plaintext) {
+        const sidResult = validateStageIdentity(deliverableType, version.plaintext);
+        if (sidResult && !sidResult.pass) {
+          console.error(`[dev-engine-v2][IEL] STAGE_IDENTITY_BLOCKED { action: "notes", deliverable: "${deliverableType}", violation: "${sidResult.violation}" }`);
+          return new Response(JSON.stringify({
+            error: `STAGE_IDENTITY_BLOCKED: ${sidResult.violation}`,
+            stage_identity_blocked: true,
+            violation: sidResult.violation,
+            repair_hint: sidResult.repair_hint,
+          }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
       // Fetch project format so notes are format-aware (e.g. vertical drama ≠ feature film)
       const { data: notesProject } = await supabase.from("projects")
         .select("format, development_behavior, assigned_lane, budget_range, title")
@@ -6799,6 +6830,27 @@ MATERIAL:\n${version.plaintext}`;
     if (action === "rewrite") {
       const { projectId, documentId, versionId, approvedNotes, protectItems, targetDocType, deliverableType, developmentBehavior, format: reqFormat, selectedOptions, globalDirections, userNotes, additionalContext, rewriteNotes } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
+
+      // ── STAGE IDENTITY GATE — block rewrite on malformed stage artifacts ──
+      {
+        const effectiveDocType = deliverableType || targetDocType;
+        if (effectiveDocType && ["idea", "concept_brief"].includes(effectiveDocType)) {
+          const { data: rwVer } = await supabase.from("project_document_versions")
+            .select("plaintext").eq("id", versionId).maybeSingle();
+          if (rwVer?.plaintext) {
+            const sidResult = validateStageIdentity(effectiveDocType, rwVer.plaintext);
+            if (sidResult && !sidResult.pass) {
+              console.error(`[dev-engine-v2][IEL] STAGE_IDENTITY_BLOCKED { action: "rewrite", deliverable: "${effectiveDocType}", violation: "${sidResult.violation}" }`);
+              return new Response(JSON.stringify({
+                error: `STAGE_IDENTITY_BLOCKED: ${sidResult.violation}`,
+                stage_identity_blocked: true,
+                violation: sidResult.violation,
+                repair_hint: sidResult.repair_hint,
+              }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            }
+          }
+        }
+      }
 
       // ── BLOCKER GATE: if blockers exist, selectedOptions must cover all of them ──
       const { data: latestNotesRun } = await supabase.from("development_runs")

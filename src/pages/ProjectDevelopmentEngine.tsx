@@ -100,6 +100,8 @@ import { SeedAppliedBanner } from '@/components/devengine/SeedAppliedBanner';
 import { StyleSourcesPanel } from '@/components/devengine/StyleSourcesPanel';
 import { StyleScoreBadge, StyleEvalPanel } from '@/components/devengine/StyleEvalPanel';
 import { CanonDriftBadge } from '@/components/devengine/CanonDriftBadge';
+import { StageIdentityBlocker } from '@/components/devengine/StageIdentityBlocker';
+import { StageIdentityBadge } from '@/components/devengine/StageIdentityBadge';
 import { AutopilotPanel } from '@/components/dev/AutopilotPanel';
 import { DevEngineSimpleView } from '@/components/devengine/DevEngineSimpleView';
 import { EngineBar, deriveExecutionMode, type ExecutionMode } from '@/components/devengine/EngineBar';
@@ -1704,6 +1706,7 @@ export default function ProjectDevelopmentEngine() {
                       )}
                       {/* Canon drift indicator */}
                       <CanonDriftBadge metaJson={(selectedVersion as any)?.meta_json} />
+                      <StageIdentityBadge metaJson={(selectedVersion as any)?.meta_json} />
                     </div>
                   )}
 
@@ -1777,6 +1780,16 @@ export default function ProjectDevelopmentEngine() {
                     <WorldRulesAccordion projectId={projectId!} lane={rulesetLane} userId={rulesetUserId} />
                   )}
 
+                  {/* Stage Identity Blocker — blocks all progression if stage artifact is malformed */}
+                  {selectedVersion && selectedDoc && (
+                    <StageIdentityBlocker
+                      metaJson={(selectedVersion as any)?.meta_json}
+                      docType={selectedDoc.doc_type || 'unknown'}
+                      onRegenerate={handleGenerateDocument}
+                      regenerating={isGeneratingDocument}
+                    />
+                  )}
+
                   <ActionToolbar
                     projectId={projectId}
                     hasAnalysis={!!latestAnalysis}
@@ -1815,6 +1828,7 @@ export default function ProjectDevelopmentEngine() {
                     onGenerateDocument={handleGenerateDocument}
                     generateDocumentPending={isGeneratingDocument}
                     isBgGenerating={isBgGenerating}
+                    stageIdentityBlocked={(selectedVersion as any)?.meta_json?.stage_identity?.passed === false}
                   />
 
                   {/* Resume auto-run handled by banner above */}

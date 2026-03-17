@@ -78,6 +78,8 @@ interface ActionToolbarProps {
   generateDocumentPending?: boolean;
   /** True while background generation is running (bg_generating flag on version) */
   isBgGenerating?: boolean;
+  /** Stage identity failure blocks all progression actions */
+  stageIdentityBlocked?: boolean;
 }
 
 export function ActionToolbar({
@@ -103,9 +105,11 @@ export function ActionToolbar({
   onGenerateDocument,
   generateDocumentPending,
   isBgGenerating,
+  stageIdentityBlocked = false,
 }: ActionToolbarProps) {
   const navigate = useNavigate();
   const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
+  const actionsDisabled = anyPending || stageIdentityBlocked;
   const hasMissingPrereqs = verticalDramaGating && verticalDramaGating.missing_prerequisites.length > 0;
 
   const [episodeNum, setEpisodeNum] = useState('1');
@@ -124,7 +128,7 @@ export function ActionToolbar({
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg bg-muted/30 border border-border/50">
         {/* Run Review */}
-        <Button size="sm" className="h-8 text-xs gap-1.5" onClick={onRunReview} disabled={anyPending}>
+        <Button size="sm" className="h-8 text-xs gap-1.5" onClick={onRunReview} disabled={actionsDisabled}>
           {analyzePending ? <Loader2 className="h-3 w-3 animate-spin" /> : hasAnalysis ? <RefreshCw className="h-3 w-3" /> : <Play className="h-3 w-3" />}
           {hasAnalysis ? 'Re-review' : 'Run Review'}
         </Button>
@@ -170,7 +174,7 @@ export function ActionToolbar({
                 onPromote?.();
               }
             }}
-            disabled={anyPending}>
+            disabled={actionsDisabled}>
             {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             {nextAction && nextAction.kind !== 'none' && !isVerticalDrama
               ? renderActionPillText(nextAction)
@@ -182,7 +186,7 @@ export function ActionToolbar({
         {/* Skip stage */}
         {hasAnalysis && !isConverged && nextBestDocument && (
           <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 text-amber-500"
-            onClick={onSkipStage} disabled={anyPending}>
+            onClick={onSkipStage} disabled={actionsDisabled}>
             <AlertTriangle className="h-3 w-3" /> Skip
           </Button>
         )}
@@ -215,7 +219,7 @@ export function ActionToolbar({
         {onApproveVersion && (
           <Button size="sm" variant={isVersionApproved ? "default" : "outline"}
             className={`h-8 text-xs gap-1 ${isVersionApproved ? 'bg-yellow-500 hover:bg-yellow-600 text-black border-yellow-500' : ''}`}
-            onClick={isVersionApproved ? onUnapproveVersion : onApproveVersion} disabled={anyPending || approvePending || unapproving}>
+            onClick={isVersionApproved ? onUnapproveVersion : onApproveVersion} disabled={actionsDisabled || approvePending || unapproving}>
             {(approvePending || unapproving) ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
             {isVersionApproved ? 'Approved' : 'Approve Version'}
           </Button>
