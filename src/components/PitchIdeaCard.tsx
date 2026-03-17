@@ -29,6 +29,7 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
   const [conceptLockOpen, setConceptLockOpen] = useState(false);
   const [sendToProjectOpen, setSendToProjectOpen] = useState(false);
   const [similarOpen, setSimilarOpen] = useState(false);
+  const [comparePickerOpen, setComparePickerOpen] = useState(false);
   const [compareExemplar, setCompareExemplar] = useState<PitchIdea | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const { feedback, submitFeedback } = usePitchFeedback(idea.id);
