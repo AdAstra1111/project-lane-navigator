@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
 import { formatToLane, getLaneLadder, normalizeDocType } from "../_shared/documentLadders.ts";
 import { getCanonicalNextStage, assertValidLadder } from "../_shared/ladder-invariant.ts";
+import { validateStageIdentity } from "../_shared/stageIdentityContracts.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -150,6 +151,48 @@ Deno.serve(async (req) => {
         must_fix_next: ["Correct the document type or project format"],
         risk_flags: ["hard_gate:unresolved_stage"],
       });
+    }
+
+    // ── STAGE IDENTITY GATE — block promotion for malformed stage artifacts ──
+    const stageIdDocTypes = new Set(["idea", "concept_brief"]);
+    if (stageIdDocTypes.has(currentDocument) && body.projectId) {
+      const serviceClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      const { data: sidDoc } = await serviceClient.from("project_documents")
+        .select("id").eq("project_id", body.projectId).eq("doc_type", currentDocument)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (sidDoc) {
+        const { data: sidVer } = await serviceClient.from("project_document_versions")
+          .select("id, plaintext, meta_json").eq("document_id", sidDoc.id).eq("is_current", true).maybeSingle();
+        if (sidVer?.plaintext) {
+          const sidResult = validateStageIdentity(currentDocument, sidVer.plaintext);
+          if (sidResult && !sidResult.pass) {
+            console.error(`[suggest-promotion][IEL] STAGE_IDENTITY_BLOCKED { doc_type: "${currentDocument}", violation: "${sidResult.violation}" }`);
+            return respond({
+              recommendation: "escalate",
+              next_document: null,
+              readiness_score: 0,
+              confidence: 0,
+              reasons: [
+                `Stage identity violation: ${sidResult.violation}`,
+                sidResult.repair_hint || "Document must be regenerated with correct stage constraints",
+                "Promotion blocked until stage identity passes",
+              ],
+              must_fix_next: [sidResult.repair_hint || `Regenerate as valid ${currentDocument}`],
+              risk_flags: ["hard_gate:stage_identity_blocked", `violation:${sidResult.violation}`],
+              stage_identity_blocked: true,
+              stage_identity: {
+                passed: false,
+                violation: sidResult.violation,
+                violations: sidResult.details.violations,
+                repair_hint: sidResult.repair_hint,
+              },
+            });
+          }
+        }
+      }
     }
 
     // ── Fetch session ──
