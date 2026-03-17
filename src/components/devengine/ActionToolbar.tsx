@@ -174,7 +174,7 @@ export function ActionToolbar({
                 onPromote?.();
               }
             }}
-            disabled={anyPending}>
+            disabled={actionsDisabled}>
             {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             {nextAction && nextAction.kind !== 'none' && !isVerticalDrama
               ? renderActionPillText(nextAction)
