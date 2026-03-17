@@ -188,7 +188,7 @@ export async function resolveNarrativeContext(
         return `  - ${c.name}${details ? `: ${details}` : ""}`;
       });
       parts.push(`Characters:\n${charLines.join("\n")}`);
-      characterLockBlock = `\nCHARACTER INVENTION LOCK: Use ONLY the canonical characters listed above. Do NOT invent, hallucinate, or introduce any new named characters not in the list. Unnamed extras must use generic descriptors (e.g., WAITER, GUARD, PASSERBY). If a scene requires a new named character, flag it as [NEW CHARACTER NEEDED] instead of inventing one.`;
+      characterLockBlock = `\nCHARACTER INVENTION LOCK: Use ONLY the canonical characters listed above. Do NOT invent, hallucinate, or introduce any new named characters — including offscreen relatives, backstory figures, or referenced-but-unseen people. Unnamed extras must use generic descriptors (e.g., WAITER, GUARD, PASSERBY, "his sister", "a former colleague"). If a scene requires a new named character, flag it as [NEW CHARACTER NEEDED] instead of inventing one. This applies to ALL names mentioned in dialogue, narration, flashbacks, and backstory.`;
       provenance.characterLock = "canon_characters";
     } else {
       // Fallback: attempt to derive character names from character_bible upstream doc
@@ -210,28 +210,52 @@ export async function resolveNarrativeContext(
             .eq("is_current", true)
             .maybeSingle();
           if (cbVer?.plaintext && cbVer.plaintext.length > 50) {
-            // Extract character names from markdown headings (## Name, ### Name) and
-            // bold character declarations (**Name** — Role, **Name:**)
-            const headingMatches = cbVer.plaintext.match(/^#{2,4}\s+([A-Z][a-zA-Z' -]{1,30})$/gm) || [];
-            const boldMatches = cbVer.plaintext.match(/\*\*([A-Z][a-zA-Z' -]{1,30})\*\*\s*(?:[—–:\(])/g) || [];
+            // Extract character names from markdown headings and bold declarations.
+            // Patterns handle: ## Name, ### I. NAME, **NAME (Role)**, **NAME** — desc, **NAME:**
+            const headingMatches = cbVer.plaintext.match(/^#{2,4}\s+(?:[IVXLC]+\.\s+)?(?:THE\s+)?([A-Z][a-zA-Z' -]{1,30})$/gm) || [];
+            // Pattern 1: **NAME** followed by separator outside bold (original)
+            const boldMatches1 = cbVer.plaintext.match(/\*\*([A-Z][a-zA-Z' -]{1,30})\*\*\s*(?:[—–:\(])/g) || [];
+            // Pattern 2: **NAME (Role)** or **NAME / 'ALIAS' (Role)** — parens inside bold
+            const boldMatches2 = cbVer.plaintext.match(/\*\*([A-Z][a-zA-Z' -]{1,30})\s*(?:\/[^*]*)?\([^)]*\)\*\*/g) || [];
+            // Pattern 3: **THE NAME / 'ALIAS' (Role)** — with THE prefix and alias
+            const boldMatches3 = cbVer.plaintext.match(/\*\*THE\s+([A-Z][a-zA-Z' -]{1,30})\s*\/\s*'([A-Z][a-zA-Z' -]{1,20})'/g) || [];
             const STRUCTURAL_TERMS = new Set([
               "CHARACTER BIBLE", "CHARACTERS", "SERIES OVERVIEW", "OVERVIEW", "INTRODUCTION",
               "MAIN CHARACTERS", "SUPPORTING CHARACTERS", "RECURRING CHARACTERS", "MINOR CHARACTERS",
               "NOTES", "APPENDIX", "SUMMARY", "CONCLUSION", "ROLE", "BACKSTORY", "ACT ONE",
               "ACT TWO", "ACT THREE", "RELATIONSHIPS", "CHARACTER DYNAMICS", "THEMES",
+              "PROTAGONIST", "ANTAGONIST", "FOIL", "SUPPORTING CAST", "SETTING",
+              "VISUAL DNA", "THEMATIC ELEMENTS", "KEY THEMATIC ELEMENTS", "PRESSURE COOKER",
+              "FORMAT", "SEASON LENGTH", "EPISODE DURATION", "TONE", "CORE CONCEPT",
+              "ARCHETYPE", "BACKGROUND", "MOTIVATION", "PERSONALITY", "ARC",
             ]);
             const nameSet = new Set<string>();
+            const addName = (raw: string) => {
+              let name = raw.trim();
+              // Strip leading "THE " for structural matching but preserve for character names like "THE CLERK"
+              const nameUpper = name.toUpperCase();
+              const nameNoThe = nameUpper.replace(/^THE\s+/, "");
+              if (name.length <= 1 || name.length > 30) return;
+              if (STRUCTURAL_TERMS.has(nameUpper) || STRUCTURAL_TERMS.has(nameNoThe)) return;
+              // Skip names that look like section descriptors rather than characters
+              if (/^(DARK[- ]STREAM|VISUAL|SETTING|LOCATION|THEME|FORMAT|SERIES)/i.test(name)) return;
+              nameSet.add(name);
+            };
             for (const m of headingMatches) {
-              const name = m.replace(/^#{2,4}\s+/, "").trim();
-              if (name.length > 1 && name.length <= 30 && !STRUCTURAL_TERMS.has(name.toUpperCase())) {
-                nameSet.add(name);
-              }
+              addName(m.replace(/^#{2,4}\s+(?:[IVXLC]+\.\s+)?(?:THE\s+)?/, ""));
             }
-            for (const m of boldMatches) {
-              const name = m.replace(/\*\*/g, "").replace(/\s*[—–:\(].*$/, "").trim();
-              if (name.length > 1 && name.length <= 30 && !STRUCTURAL_TERMS.has(name.toUpperCase())) {
-                nameSet.add(name);
-              }
+            for (const m of boldMatches1) {
+              addName(m.replace(/\*\*/g, "").replace(/\s*[—–:\(].*$/, ""));
+            }
+            for (const m of boldMatches2) {
+              addName(m.replace(/\*\*/g, "").replace(/\s*[\(\/].*$/, ""));
+            }
+            for (const m of boldMatches3) {
+              // Extract both the descriptor name and the alias
+              const parts = m.replace(/\*\*/g, "");
+              const aliasMatch = parts.match(/'([A-Z][a-zA-Z' -]{1,20})'/);
+              if (aliasMatch) addName(aliasMatch[1]);
+              addName(parts.replace(/^THE\s+/, "").replace(/\s*\/.*$/, ""));
             }
             derivedNames = [...nameSet].slice(0, CHARACTERS_CAP);
           }
@@ -243,7 +267,7 @@ export async function resolveNarrativeContext(
       if (derivedNames.length > 0) {
         canon.entityAnchors = derivedNames;
         parts.push(`Characters (derived from Character Bible): ${derivedNames.join(", ")}`);
-        characterLockBlock = `\nCHARACTER INVENTION LOCK (DERIVED): The following character names were extracted from the Character Bible: ${derivedNames.join(", ")}. Use ONLY these characters. Do NOT invent, hallucinate, or introduce any new named characters not in this list. Unnamed extras must use generic descriptors (e.g., WAITER, GUARD, PASSERBY). If a scene requires a new named character, flag it as [NEW CHARACTER NEEDED] instead of inventing one.`;
+        characterLockBlock = `\nCHARACTER INVENTION LOCK (DERIVED): The following character names were extracted from the Character Bible: ${derivedNames.join(", ")}. Use ONLY these characters plus any names appearing in the upstream source documents provided below. Do NOT invent, hallucinate, or introduce any new named characters — including offscreen relatives, backstory figures, or referenced-but-unseen people. Use generic descriptors instead (e.g., "his sister", "a former colleague", WAITER, GUARD). If a scene requires a new named character, flag it as [NEW CHARACTER NEEDED] instead of inventing one. This applies to ALL names mentioned in dialogue, narration, flashbacks, and backstory.`;
         provenance.characterLock = "derived_from_character_bible";
         console.log(`[narrative-context] character_lock: derived ${derivedNames.length} names from character_bible`);
       } else {
