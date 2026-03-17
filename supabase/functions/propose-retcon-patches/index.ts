@@ -2,7 +2,7 @@
  * propose-retcon-patches — Generates minimal patch suggestions for impacted episodes.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { composeSystem, callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { composeSystem, callLLMWithJsonRetry, MODELS, resolveGateway } from "../_shared/llm.ts";
 import { isObject, hasArray } from "../_shared/validators.ts";
 
 const corsHeaders = {
@@ -19,7 +19,7 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const apiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+    const apiKey = resolveGateway().apiKey;
     const sb = createClient(supabaseUrl, serviceKey);
 
     const { data: event } = await sb.from("retcon_events").select("*").eq("id", retconEventId).single();

@@ -1,13 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createVersion } from "../_shared/doc-os.ts";
+import { resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -49,11 +48,12 @@ Deno.serve(async (req) => {
     // --- AI parse using tool calling for reliable structured output ---
     const systemPrompt = `You are a film/TV development executive assistant. Given a free-text idea from a producer, extract structured project metadata and call the extract_project_metadata function with the results. Be generous in your interpretation — extract whatever you can from the text and use sensible defaults for missing fields.`;
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const _gw = resolveGateway();
+    const aiResponse = await fetch(_gw.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${_gw.apiKey}`,
       },
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",

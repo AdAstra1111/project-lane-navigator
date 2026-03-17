@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
-import { composeSystem } from "../_shared/llm.ts";
+import { composeSystem, resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -221,10 +221,11 @@ function extractJSON(raw: string): string {
 }
 
 async function callAI(apiKey: string, model: string, system: string, user: string, temperature = 0.3): Promise<string> {
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const _gw = resolveGateway();
+  const response = await fetch(_gw.url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${_gw.apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({

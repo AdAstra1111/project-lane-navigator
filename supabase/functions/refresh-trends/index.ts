@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 import { normalizeProductionType, REQUIRED_TREND_TYPES } from "../_shared/trendsNormalize.ts";
+import { resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,7 +38,8 @@ serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+  const _gw = resolveGateway();
+  const lovableApiKey = _gw.apiKey;
   const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
   const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -373,7 +375,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
 
     // Make both AI calls in parallel
     const [signalResponse, castResponse] = await Promise.all([
-      fetch("https://openrouter.ai/api/v1/chat/completions", {
+      fetch(_gw.url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${lovableApiKey}`,
@@ -384,7 +386,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
           messages: [{ role: "user", content: signalPrompt }],
         }),
       }),
-      fetch("https://openrouter.ai/api/v1/chat/completions", {
+      fetch(_gw.url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${lovableApiKey}`,
@@ -642,7 +644,7 @@ Focus on:
 Write in direct, professional prose. No bullet points, no headers. Just a tight paragraph a producer can scan in 30 seconds.`;
 
     try {
-      const briefResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const briefResponse = await fetch(_gw.url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${lovableApiKey}`,

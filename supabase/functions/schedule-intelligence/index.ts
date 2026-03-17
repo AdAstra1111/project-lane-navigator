@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
-import { MODELS } from "../_shared/llm.ts";
+import { MODELS, resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,7 +22,8 @@ serve(async (req) => {
       });
     }
 
-    const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+    const _gw = resolveGateway();
+    const lovableApiKey = _gw.apiKey;
     const { scenes, shootDays, schedule, format, genres, budgetRange } = await req.json();
 
     if (!scenes || scenes.length === 0) {
@@ -76,7 +77,7 @@ ${scheduleSummary}
 Scene data (${scenes.length} total scenes):
 ${JSON.stringify(sceneSummary)}`;
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch(_gw.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

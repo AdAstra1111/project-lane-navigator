@@ -12,7 +12,7 @@ export const GATEWAY_URL_OPENAI = "https://api.openai.com/v1/chat/completions";
 
 /**
  * Resolve the active gateway URL and API key from environment.
- * Priority: OPENROUTER_API_KEY → LOVABLE_API_KEY → OPENAI_API_KEY
+ * Priority: LOVABLE_API_KEY → OPENROUTER_API_KEY → OPENAI_API_KEY
  */
 export function resolveGateway(): { url: string; apiKey: string } {
   const lovableKey = Deno.env.get("LOVABLE_API_KEY");

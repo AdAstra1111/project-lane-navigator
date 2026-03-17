@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-  const apiKey = Deno.env.get("OPENROUTER_API_KEY") || serviceKey;
+  const apiKey = resolveGateway().apiKey;
 
   try {
     // ── Auth ──

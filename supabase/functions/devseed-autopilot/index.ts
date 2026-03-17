@@ -17,6 +17,7 @@
  * State stored in: canon_json.autopilot (NO new tables)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { resolveGateway } from "../_shared/llm.ts";
 
 // ── Dynamic CORS ──
 function getCorsHeaders(req: Request) {
@@ -700,7 +701,7 @@ Which preset id best matches this project?`;
 
   let chosenId: string | null = null;
   try {
-    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const resp = await fetch(resolveGateway().url, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
       body: JSON.stringify({

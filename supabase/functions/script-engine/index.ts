@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 import { fetchCoreDocs, validateCharacterCues, type CoreDocs } from "../_shared/coreDocs.ts";
 import { BEAT_DEFINITION_TEXT, buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
+import { resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -665,7 +666,7 @@ serve(async (req) => {
       if (useJson) {
         aiBody.response_format = { type: "json_object" };
       }
-      const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const resp = await fetch(resolveGateway().url, {
         method: "POST",
         headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify(aiBody),

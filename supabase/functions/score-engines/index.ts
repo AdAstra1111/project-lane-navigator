@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
+import { resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,7 +33,7 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+    const lovableApiKey = resolveGateway().apiKey;
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -115,7 +116,7 @@ Return a JSON array of objects with:
 
 Return ONLY the JSON array. No markdown fences, no explanation outside the array.`;
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch(resolveGateway().url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${lovableApiKey}`,

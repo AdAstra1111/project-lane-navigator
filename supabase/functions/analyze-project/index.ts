@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { MODELS } from "../_shared/llm.ts";
+import { MODELS, resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -100,7 +100,7 @@ async function ocrWithGemini(pdfBytes: Uint8Array): Promise<string> {
 
   console.log(`[analyze] OCR fallback: sending ${pdfBytes.length} bytes to Gemini Vision`);
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await fetch(resolveGateway().url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -803,7 +803,7 @@ ${hasDocumentText ? `UPLOADED MATERIAL:\n${combinedText}` : "No documents upload
     );
 
     // ---- CALL AI ----
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch(resolveGateway().url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,

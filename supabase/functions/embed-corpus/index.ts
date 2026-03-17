@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { MODELS } from "../_shared/llm.ts";
+import { MODELS, resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -289,7 +289,7 @@ async function generateEmbeddings(texts: string[], apiKey: string): Promise<numb
   // Since the gateway is OpenAI-compatible, we use the embeddings endpoint pattern
   // But the Lovable AI gateway only supports chat completions, so we use a tool-calling approach
 
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const resp = await fetch(resolveGateway().url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

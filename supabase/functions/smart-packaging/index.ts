@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
+import { resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,8 +31,9 @@ serve(async (req) => {
 
     const { projectTitle, format, genres, budgetRange, tone, assignedLane, excludeNames, replacementFor, maxSuggestions, targetCharacter, mode, targetDepartment, customBrief } = await req.json();
     const isCrew = mode === 'crew';
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
+    const _gw = resolveGateway();
+    const LOVABLE_API_KEY = _gw.apiKey;
+    if (!LOVABLE_API_KEY) throw new Error("No AI gateway key configured");
 
     // Production type conditioning
     const FORMAT_LABELS: Record<string, string> = {
@@ -113,7 +115,7 @@ ${crewFields}`;
     const guardrails = buildGuardrailBlock({ productionType: format, engineName: "smart-packaging" });
     console.log(`[smart-packaging] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
     const systemMsg = (isCrew ? "You are a film industry crew packaging expert." : "You are a film industry packaging expert.") + "\n" + guardrails.textBlock;
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch(_gw.url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,

@@ -9,7 +9,7 @@
  *   assemble_taster_trailer — Assemble a taster trailer package
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { callLLMWithJsonRetry, MODELS, resolveGateway } from "../_shared/llm.ts";
 import { isObject, hasArray } from "../_shared/validators.ts";
 
 const corsHeaders = {
@@ -241,7 +241,7 @@ async function handleGenerateShotMedia(db: any, body: any, userId: string, apiKe
   for (let i = 0; i < variations; i++) {
     try {
       // Generate image via Lovable AI image model
-      const imageResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const imageResponse = await fetch(resolveGateway().url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,

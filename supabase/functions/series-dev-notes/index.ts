@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { callLLM, MODELS, composeSystem } from "../_shared/llm.ts";
+import { callLLM, MODELS, composeSystem, resolveGateway } from "../_shared/llm.ts";
 import { fetchCoreDocs } from "../_shared/coreDocs.ts";
 
 const corsHeaders = {
@@ -16,7 +16,7 @@ async function safeParse(text: string, apiKey: string): Promise<any> {
   }
   try { return JSON.parse(text); } catch { /* fall through */ }
   // Ask LLM to extract JSON
-  const fixResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const fixResp = await fetch(resolveGateway().url, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({

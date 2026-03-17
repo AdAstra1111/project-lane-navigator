@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,10 +52,10 @@ function hasPlaceholders(text: string): boolean {
 }
 
 // ─── LLM ───
-const GATEWAY_URL = "https://openrouter.ai/api/v1/chat/completions";
+function getGatewayUrl() { return resolveGateway().url; }
 
 async function callLLM(apiKey: string, system: string, user: string): Promise<string> {
-  const res = await fetch(GATEWAY_URL, {
+  const res = await fetch(getGatewayUrl(), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
@@ -304,7 +305,7 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
+    const apiKey = resolveGateway().apiKey;
     const sb = createClient(supabaseUrl, serviceKey);
 
     const token = authHeader.replace("Bearer ", "");

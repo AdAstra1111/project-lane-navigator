@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
+import { resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,7 +22,8 @@ serve(async (req) => {
       });
     }
 
-    const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+    const _gw = resolveGateway();
+    const lovableApiKey = _gw.apiKey;
     const { scriptText, format, genres, budgetRange, lane, totalBudget } = await req.json();
 
     if (!scriptText) {
@@ -71,7 +73,7 @@ Return ONLY valid JSON, no markdown.`;
 Script text (first ~15K words):
 ${truncated}`;
 
-    const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const aiResponse = await fetch(_gw.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

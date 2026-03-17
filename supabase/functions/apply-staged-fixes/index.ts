@@ -5,7 +5,7 @@
  * Auth: service-role client + getClaims() local JWT verification.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS } from "../_shared/llm.ts";
+import { callLLM, MODELS, resolveGateway } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,7 +27,7 @@ Deno.serve(async (req) => {
     if (!authHeader) return json({ error: "Missing auth" }, 401);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const apiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+    const apiKey = resolveGateway().apiKey;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const db = createClient(supabaseUrl, serviceKey, {
