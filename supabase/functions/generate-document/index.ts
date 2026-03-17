@@ -1106,7 +1106,20 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
               documentId: epDocRecord!.id,
             });
 
-            // Update version with completed content
+            // ── Post-generation character validation ──
+            if (genContent && upstreamContent) {
+              // Build allowed character list from all upstream docs
+              const allUpstreamText = upstreamContent;
+              const charValidation = validateCharacterCues(genContent, allUpstreamText);
+              if (!charValidation.passed) {
+                console.warn(`[generate-document] CHARACTER INVENTION DETECTED in ${docType}: invented=[${charValidation.inventedCharacters.join(", ")}]`);
+                // Log but don't block — the character lock prompt should prevent most cases.
+                // Future: add retry with explicit "remove these invented names" instruction.
+              } else {
+                console.log(`[generate-document] Character validation PASSED for ${docType}`);
+              }
+            }
+
             await serviceClient.from("project_document_versions")
               .update({ plaintext: genContent, status: "draft", is_current: true, meta_json: { bg_generating: false, bg_completed_at: new Date().toISOString(), episode_count: finalEpisodeCount } })
               .eq("id", epVersion!.id);
