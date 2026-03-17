@@ -143,16 +143,28 @@ function DriftTooltipContent({ drift }: { drift: CanonDriftData }) {
           Domains: {domains_checked.map(d => d.replace(/_/g, ' ')).join(', ')}
         </p>
       )}
-      {findings.slice(0, 2).map((f, i) => (
-        <p key={i} className="text-muted-foreground truncate">
-          <span className={f.severity === 'violation' ? 'text-destructive' : 'text-amber-600 dark:text-amber-400'}>
-            [{f.domain.replace(/_/g, ' ')}]
-          </span>{' '}
-          {f.detail.length > 80 ? f.detail.slice(0, 80) + '…' : f.detail}
-        </p>
+      {findings.slice(0, 3).map((f, i) => (
+        <div key={i} className="space-y-0.5">
+          <p className="text-muted-foreground truncate">
+            <span className={f.severity === 'violation' ? 'text-destructive' : 'text-amber-600 dark:text-amber-400'}>
+              [{f.domain.replace(/_/g, ' ')}]
+            </span>{' '}
+            {f.detail.length > 100 ? f.detail.slice(0, 100) + '…' : f.detail}
+          </p>
+          {f.canonical_expected && (
+            <p className="text-[10px] text-muted-foreground/70 truncate pl-2">
+              Canon: {f.canonical_expected.length > 80 ? f.canonical_expected.slice(0, 80) + '…' : f.canonical_expected}
+            </p>
+          )}
+          {f.observed_conflict && (
+            <p className="text-[10px] text-destructive/70 truncate pl-2">
+              Observed: {f.observed_conflict.length > 80 ? f.observed_conflict.slice(0, 80) + '…' : f.observed_conflict}
+            </p>
+          )}
+        </div>
       ))}
-      {findings.length > 2 && (
-        <p className="text-muted-foreground italic">+{findings.length - 2} more</p>
+      {findings.length > 3 && (
+        <p className="text-muted-foreground italic">+{findings.length - 3} more</p>
       )}
     </>
   );
