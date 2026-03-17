@@ -8059,9 +8059,25 @@ Deno.serve(async (req) => {
           await updateJob(supabase, jobId, { step_count: ns2, stage_loop_count: 0, stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4 });
           if (job.allow_defaults) {
             if (genVerId2) {
+              // ── CCE: drift check for empty-slot recovery convert ──
+              let arCCEMeta2: Record<string, any> = {};
+              try {
+                const { data: cvr2 } = await supabase.from("project_document_versions")
+                  .select("plaintext").eq("id", genVerId2).maybeSingle();
+                if (cvr2?.plaintext && cvr2.plaintext.length > 100) {
+                  const { data: cr2 } = await supabase.from("project_canon")
+                    .select("canon_json").eq("project_id", job.project_id).maybeSingle();
+                  const c2 = extractCanonConstraints(cr2?.canon_json || {});
+                  const dr2 = detectCanonDrift(cvr2.plaintext, c2);
+                  logDriftResult("auto-run:convert-recovery", job.project_id, currentDoc, dr2);
+                  if (dr2.constraintsUsed) {
+                    arCCEMeta2 = { canon_drift: { passed: dr2.passed, violations: dr2.findings.filter((f: any) => f.severity === "violation").length, warnings: dr2.findings.filter((f: any) => f.severity === "warning").length, domains_checked: dr2.domains_checked, checked_at: dr2.checkedAt } };
+                  }
+                }
+              } catch (_e) { /* non-fatal */ }
               const { data: existingVer2 } = await supabase.from("project_document_versions")
                 .select("meta_json").eq("id", genVerId2).maybeSingle();
-              const mergedMeta2 = { ...(existingVer2?.meta_json || {}), source_version_id: prevVersion2.id };
+              const mergedMeta2 = { ...(existingVer2?.meta_json || {}), source_version_id: prevVersion2.id, ...arCCEMeta2 };
               await supabase.from("project_document_versions").update({
                 approval_status: "approved",
                 approved_at: new Date().toISOString(),
