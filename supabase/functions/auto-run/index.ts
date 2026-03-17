@@ -8,6 +8,7 @@ import { emitTransition, TRANSITION_EVENTS } from "../_shared/transitionLedger.t
 import { getCanonicalNextStage } from "../_shared/ladder-invariant.ts";
 import { validateStageIdentity, buildDiagnostic } from "../_shared/stageIdentityContracts.ts";
 import { spineToPromptBlock } from "../_shared/narrativeSpine.ts";
+import { extractCanonConstraints, detectCanonDrift, logDriftResult } from "../_shared/canonConstraintEnforcement.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isCPMEnabled, buildCPRepairDirections, CPM_GENERATION_PROMPT_BLOCK, logCPM } from "../_shared/characterPressureMatrix.ts";
 import { isLargeRiskDocType } from "../_shared/largeRiskRouter.ts";
@@ -7825,10 +7826,38 @@ Deno.serve(async (req) => {
           if (job.allow_defaults) {
             // Full Autopilot: auto-approve the generated doc and continue
             if (convertedVersionId) {
-              // Stamp provenance: source_version_id in meta_json + approval fields
+              // ── CCE: Post-generation drift detection for auto-run-convert ──
+              let autoRunCCEMeta: Record<string, any> = {};
+              try {
+                const { data: cvVerRow } = await supabase.from("project_document_versions")
+                  .select("plaintext, meta_json").eq("id", convertedVersionId).maybeSingle();
+                if (cvVerRow?.plaintext && cvVerRow.plaintext.length > 100) {
+                  const { data: canonRow } = await supabase.from("project_canon")
+                    .select("canon_json").eq("project_id", job.project_id).maybeSingle();
+                  const constraints = extractCanonConstraints(canonRow?.canon_json || {});
+                  const driftResult = detectCanonDrift(cvVerRow.plaintext, constraints);
+                  logDriftResult("auto-run:convert", job.project_id, currentDoc, driftResult);
+                  if (driftResult.constraintsUsed) {
+                    autoRunCCEMeta = {
+                      canon_drift: {
+                        passed: driftResult.passed,
+                        violations: driftResult.findings.filter((f: any) => f.severity === "violation").length,
+                        warnings: driftResult.findings.filter((f: any) => f.severity === "warning").length,
+                        domains_checked: driftResult.domains_checked,
+                        checked_at: driftResult.checkedAt,
+                        findings: driftResult.findings.map((f: any) => ({ domain: f.domain, severity: f.severity, detail: f.detail })),
+                      },
+                    };
+                  }
+                }
+              } catch (ccErr: any) {
+                console.warn("[auto-run][CCE] drift check failed (non-fatal):", ccErr?.message);
+              }
+
+              // Stamp provenance: source_version_id in meta_json + approval fields + CCE result
               const { data: existingVer } = await supabase.from("project_document_versions")
                 .select("meta_json").eq("id", convertedVersionId).maybeSingle();
-              const mergedMeta = { ...(existingVer?.meta_json || {}), source_version_id: prevVersion.id };
+              const mergedMeta = { ...(existingVer?.meta_json || {}), source_version_id: prevVersion.id, ...autoRunCCEMeta };
               await supabase.from("project_document_versions").update({
                 approval_status: "approved",
                 approved_at: new Date().toISOString(),
@@ -8030,9 +8059,25 @@ Deno.serve(async (req) => {
           await updateJob(supabase, jobId, { step_count: ns2, stage_loop_count: 0, stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4 });
           if (job.allow_defaults) {
             if (genVerId2) {
+              // ── CCE: drift check for empty-slot recovery convert ──
+              let arCCEMeta2: Record<string, any> = {};
+              try {
+                const { data: cvr2 } = await supabase.from("project_document_versions")
+                  .select("plaintext").eq("id", genVerId2).maybeSingle();
+                if (cvr2?.plaintext && cvr2.plaintext.length > 100) {
+                  const { data: cr2 } = await supabase.from("project_canon")
+                    .select("canon_json").eq("project_id", job.project_id).maybeSingle();
+                  const c2 = extractCanonConstraints(cr2?.canon_json || {});
+                  const dr2 = detectCanonDrift(cvr2.plaintext, c2);
+                  logDriftResult("auto-run:convert-recovery", job.project_id, currentDoc, dr2);
+                  if (dr2.constraintsUsed) {
+                    arCCEMeta2 = { canon_drift: { passed: dr2.passed, violations: dr2.findings.filter((f: any) => f.severity === "violation").length, warnings: dr2.findings.filter((f: any) => f.severity === "warning").length, domains_checked: dr2.domains_checked, checked_at: dr2.checkedAt } };
+                  }
+                }
+              } catch (_e) { /* non-fatal */ }
               const { data: existingVer2 } = await supabase.from("project_document_versions")
                 .select("meta_json").eq("id", genVerId2).maybeSingle();
-              const mergedMeta2 = { ...(existingVer2?.meta_json || {}), source_version_id: prevVersion2.id };
+              const mergedMeta2 = { ...(existingVer2?.meta_json || {}), source_version_id: prevVersion2.id, ...arCCEMeta2 };
               await supabase.from("project_document_versions").update({
                 approval_status: "approved",
                 approved_at: new Date().toISOString(),
