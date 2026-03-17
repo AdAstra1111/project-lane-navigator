@@ -40,7 +40,7 @@ function Sparkline({ history }: { history: any[] }) {
   );
 }
 
-export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergenceStatus, tieredNotes, versionMetaJson }: ConvergencePanelProps) {
+export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergenceStatus, tieredNotes, versionMetaJson, versionLabel }: ConvergencePanelProps) {
   // DB meta_json is source of truth; analysis is fallback
   const metaCi = typeof versionMetaJson?.ci === 'number' ? versionMetaJson.ci : null;
   const metaGp = typeof versionMetaJson?.gp === 'number' ? versionMetaJson.gp : null;
@@ -48,6 +48,9 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
   const analysisGp = latestAnalysis?.gp_score || latestAnalysis?.scores?.gp_score || 0;
   const ci = metaCi ?? analysisCi;
   const gp = metaGp ?? analysisGp;
+
+  // Detect selective rewrite to annotate score scope
+  const isSelectiveRewrite = !!(versionLabel && /selective scene rewrite/i.test(versionLabel));
   const gap = Math.abs(ci - gp);
   const statusColor = convergenceStatus === 'Converged' ? 'text-emerald-400' :
     convergenceStatus === 'In Progress' ? 'text-amber-400' : 'text-muted-foreground';
