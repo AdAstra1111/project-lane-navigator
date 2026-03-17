@@ -22964,7 +22964,7 @@ SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 20000)}`;
       const threadList = (latestLedger?.ledger as any)?.threads || [];
       const threadIds = threadList.map((t: any) => t.thread_id);
 
-      const apiKey = Deno.env.get("OPENROUTER_API_KEY") || '';
+      const apiKey = resolveGateway().apiKey;
       const tagSystem = `You are a scene analyst. Tag this scene with roles and thread links.
 RETURN ONLY valid JSON:
 {
