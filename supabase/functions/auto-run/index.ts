@@ -601,7 +601,7 @@ function resolveTargetCI(job: any): number {
     const ci = Number(ct.ci); // coerce string "81" to number 81
     if (!isNaN(ci) && ci >= 0 && ci <= 100) return ci;
   }
-  return 90; // default 90, not 100 — requiring 100 is unrealistic and causes infinite loops
+  return 95; // Exceptional default — matches job creation default
 }
 
 /**
