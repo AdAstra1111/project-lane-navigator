@@ -39,6 +39,7 @@ serve(async (req) => {
         format = "film", lane = "", genre = "", engine = "", budgetBand = "",
         candidateCount = 5, useTrends = false, useExemplars = false, ciMin = 95,
         sourceDnaProfileId = null,
+        useLearningPoolOnly = false,
       } = body;
 
       console.log(`[ci-blueprint] build start: format=${format} lane=${lane} genre=${genre} count=${candidateCount} dna=${sourceDnaProfileId || 'none'}`);
