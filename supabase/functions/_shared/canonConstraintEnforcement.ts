@@ -469,6 +469,23 @@ function findProtagonist(characters: unknown[]): CanonConstraints["protagonist"]
   return result;
 }
 
+/** Extract profession from role field like "Lead Protagonist, Courtesan & Spy" */
+function extractProfessionFromRole(role: string | null): string | null {
+  if (!role) return null;
+  // Remove meta-role labels and extract actual profession terms
+  const metaLabels = /\b(lead|protagonist|main character|hero|heroine|antagonist|supporting|secondary|love interest|villain)\b/gi;
+  const cleaned = role.replace(metaLabels, "").replace(/[,&;/]+/g, ",").split(",").map(s => s.trim()).filter(s => s.length > 1);
+  return cleaned.length > 0 ? cleaned.join(" & ") : null;
+}
+
+/** Extract profession from description like "A young courtesan trained..." */
+function extractProfessionFromDescription(desc: string | null): string | null {
+  if (!desc) return null;
+  // Pattern: "A/An [adjective*] <profession> [who/that/trained/...]"
+  const m = desc.match(/^(?:A|An|The)\s+(?:\w+\s+){0,3}?([a-z][a-z\s-]{2,25}?)(?:\s+(?:who|that|trained|working|living|seeking|struggling|caught|forced|torn|secretly|from|in|with)\b)/i);
+  return m ? m[1].trim() : null;
+}
+
 function extractProfession(text: string | null): string | null {
   if (!text) return null;
   const profMatch = text.match(/\b(?:works as|profession:|is a|career as)\s+(?:an?\s+)?([a-zA-Z\s]+?)(?:[.,;]|$)/i);
