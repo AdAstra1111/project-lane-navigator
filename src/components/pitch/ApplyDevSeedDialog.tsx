@@ -939,7 +939,7 @@ export function ApplyDevSeedDialog({ idea, open, onOpenChange }: Props) {
           <DialogDescription>
             Creates a new project and seeds Dev Engine artifacts, canon, and optionally lane preferences from the DevSeed.
           </DialogDescription>
-          {idea && (idea.raw_response as any)?.promotion_source === 'ci_blueprint_engine' && (
+          {idea && (idea.source_blueprint_id || (idea.raw_response as any)?.promotion_source === 'ci_blueprint_engine') && (
             <p className="text-[11px] text-emerald-400/70 mt-1 flex items-center gap-1.5">
               <FlaskConical className="h-3 w-3" />
               Creating project from blueprint-derived pitch idea

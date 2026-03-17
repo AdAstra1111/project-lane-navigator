@@ -9223,6 +9223,7 @@ export type Database = {
           development_sprint: Json
           devseed_canon_json: Json
           exemplar_notes: string | null
+          generation_mode: string | null
           genre: string
           id: string
           is_exemplar: boolean
@@ -9246,6 +9247,8 @@ export type Database = {
           score_market_heat: number | null
           score_saturation_risk: number | null
           score_total: number | null
+          source_blueprint_id: string | null
+          source_blueprint_run_id: string | null
           source_coverage_run_id: string | null
           source_dna_profile_id: string | null
           source_engine_key: string | null
@@ -9266,6 +9269,7 @@ export type Database = {
           development_sprint?: Json
           devseed_canon_json?: Json
           exemplar_notes?: string | null
+          generation_mode?: string | null
           genre?: string
           id?: string
           is_exemplar?: boolean
@@ -9289,6 +9293,8 @@ export type Database = {
           score_market_heat?: number | null
           score_saturation_risk?: number | null
           score_total?: number | null
+          source_blueprint_id?: string | null
+          source_blueprint_run_id?: string | null
           source_coverage_run_id?: string | null
           source_dna_profile_id?: string | null
           source_engine_key?: string | null
@@ -9309,6 +9315,7 @@ export type Database = {
           development_sprint?: Json
           devseed_canon_json?: Json
           exemplar_notes?: string | null
+          generation_mode?: string | null
           genre?: string
           id?: string
           is_exemplar?: boolean
@@ -9332,6 +9339,8 @@ export type Database = {
           score_market_heat?: number | null
           score_saturation_risk?: number | null
           score_total?: number | null
+          source_blueprint_id?: string | null
+          source_blueprint_run_id?: string | null
           source_coverage_run_id?: string | null
           source_dna_profile_id?: string | null
           source_engine_key?: string | null

@@ -629,6 +629,9 @@ One-page pitch: ${c.one_page_pitch}
       // Extract DNA provenance from candidate
       const provenance = (candidate.provenance as Record<string, any>) || {};
 
+      // Derive lineage fields
+      const resolvedGenerationMode = provenance.optimizer_mode || "ci_pattern";
+
       // Create pitch idea from candidate
       const { data: pitchIdea, error: piErr } = await svcClient
         .from("pitch_ideas")
@@ -660,6 +663,10 @@ One-page pitch: ${c.one_page_pitch}
           score_total: candidate.score_total,
           source_engine_key: provenance.source_engine_key || candidate.engine || null,
           source_dna_profile_id: provenance.source_dna_profile_id || null,
+          // First-class blueprint lineage
+          source_blueprint_id: candidate.blueprint_id || null,
+          source_blueprint_run_id: candidate.run_id || null,
+          generation_mode: resolvedGenerationMode,
           raw_response: {
             ...((candidate.raw_response as Record<string, unknown>) || {}),
             promotion_source: "ci_blueprint_engine",
@@ -672,7 +679,7 @@ One-page pitch: ${c.one_page_pitch}
             source_dna_profile_id: provenance.source_dna_profile_id || null,
             source_engine_key: provenance.source_engine_key || null,
             dna_source_title: provenance.dna_source_title || null,
-            generation_mode: provenance.optimizer_mode || "ci_pattern",
+            generation_mode: resolvedGenerationMode,
           },
         })
         .select("id")

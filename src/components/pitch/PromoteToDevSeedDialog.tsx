@@ -64,13 +64,16 @@ export function PromoteToDevSeedDialog({ idea, open, onOpenChange, onPromoted }:
         </DialogHeader>
 
         <div className="space-y-3 py-2">
-          {(idea.raw_response as any)?.promotion_source === 'ci_blueprint_engine' && (
+          {(idea.source_blueprint_id || (idea.raw_response as any)?.promotion_source === 'ci_blueprint_engine') && (
             <div className="rounded-md bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 flex items-center gap-2">
               <FlaskConical className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
               <div className="text-xs text-emerald-300/90">
                 <span className="font-medium">Blueprint-derived idea</span>
-                {(idea.raw_response as any)?.blueprint_id && (
-                  <span className="text-emerald-400/50 ml-1.5">· {(idea.raw_response as any).blueprint_id.slice(0, 8)}</span>
+                {(idea.source_blueprint_id || (idea.raw_response as any)?.blueprint_id) && (
+                  <span className="text-emerald-400/50 ml-1.5">· {(idea.source_blueprint_id || (idea.raw_response as any).blueprint_id).slice(0, 8)}</span>
+                )}
+                {idea.generation_mode && idea.generation_mode !== 'ci_pattern' && (
+                  <span className="text-emerald-400/50 ml-1.5">· {idea.generation_mode}</span>
                 )}
               </div>
             </div>
