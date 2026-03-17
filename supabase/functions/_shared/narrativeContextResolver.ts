@@ -210,28 +210,47 @@ export async function resolveNarrativeContext(
             .eq("is_current", true)
             .maybeSingle();
           if (cbVer?.plaintext && cbVer.plaintext.length > 50) {
-            // Extract character names from markdown headings (## Name, ### Name) and
-            // bold character declarations (**Name** — Role, **Name:**)
-            const headingMatches = cbVer.plaintext.match(/^#{2,4}\s+([A-Z][a-zA-Z' -]{1,30})$/gm) || [];
-            const boldMatches = cbVer.plaintext.match(/\*\*([A-Z][a-zA-Z' -]{1,30})\*\*\s*(?:[—–:\(])/g) || [];
+            // Extract character names from markdown headings and bold declarations.
+            // Patterns handle: ## Name, ### I. NAME, **NAME (Role)**, **NAME** — desc, **NAME:**
+            const headingMatches = cbVer.plaintext.match(/^#{2,4}\s+(?:[IVXLC]+\.\s+)?(?:THE\s+)?([A-Z][a-zA-Z' -]{1,30})$/gm) || [];
+            // Pattern 1: **NAME** followed by separator outside bold (original)
+            const boldMatches1 = cbVer.plaintext.match(/\*\*([A-Z][a-zA-Z' -]{1,30})\*\*\s*(?:[—–:\(])/g) || [];
+            // Pattern 2: **NAME (Role)** or **NAME / 'ALIAS' (Role)** — parens inside bold
+            const boldMatches2 = cbVer.plaintext.match(/\*\*([A-Z][a-zA-Z' -]{1,30})\s*(?:\/[^*]*)?\([^)]*\)\*\*/g) || [];
+            // Pattern 3: **THE NAME / 'ALIAS' (Role)** — with THE prefix and alias
+            const boldMatches3 = cbVer.plaintext.match(/\*\*THE\s+([A-Z][a-zA-Z' -]{1,30})\s*\/\s*'([A-Z][a-zA-Z' -]{1,20})'/g) || [];
             const STRUCTURAL_TERMS = new Set([
               "CHARACTER BIBLE", "CHARACTERS", "SERIES OVERVIEW", "OVERVIEW", "INTRODUCTION",
               "MAIN CHARACTERS", "SUPPORTING CHARACTERS", "RECURRING CHARACTERS", "MINOR CHARACTERS",
               "NOTES", "APPENDIX", "SUMMARY", "CONCLUSION", "ROLE", "BACKSTORY", "ACT ONE",
               "ACT TWO", "ACT THREE", "RELATIONSHIPS", "CHARACTER DYNAMICS", "THEMES",
+              "PROTAGONIST", "ANTAGONIST", "FOIL", "SUPPORTING CAST", "SETTING",
+              "VISUAL DNA", "THEMATIC ELEMENTS", "KEY THEMATIC ELEMENTS", "PRESSURE COOKER",
+              "FORMAT", "SEASON LENGTH", "EPISODE DURATION", "TONE", "CORE CONCEPT",
+              "ARCHETYPE", "BACKGROUND", "MOTIVATION", "PERSONALITY", "ARC",
             ]);
             const nameSet = new Set<string>();
+            const addName = (raw: string) => {
+              const name = raw.trim();
+              if (name.length > 1 && name.length <= 30 && !STRUCTURAL_TERMS.has(name.toUpperCase())) {
+                nameSet.add(name);
+              }
+            };
             for (const m of headingMatches) {
-              const name = m.replace(/^#{2,4}\s+/, "").trim();
-              if (name.length > 1 && name.length <= 30 && !STRUCTURAL_TERMS.has(name.toUpperCase())) {
-                nameSet.add(name);
-              }
+              addName(m.replace(/^#{2,4}\s+(?:[IVXLC]+\.\s+)?(?:THE\s+)?/, ""));
             }
-            for (const m of boldMatches) {
-              const name = m.replace(/\*\*/g, "").replace(/\s*[—–:\(].*$/, "").trim();
-              if (name.length > 1 && name.length <= 30 && !STRUCTURAL_TERMS.has(name.toUpperCase())) {
-                nameSet.add(name);
-              }
+            for (const m of boldMatches1) {
+              addName(m.replace(/\*\*/g, "").replace(/\s*[—–:\(].*$/, ""));
+            }
+            for (const m of boldMatches2) {
+              addName(m.replace(/\*\*/g, "").replace(/\s*[\(\/].*$/, ""));
+            }
+            for (const m of boldMatches3) {
+              // Extract both the descriptor name and the alias
+              const parts = m.replace(/\*\*/g, "");
+              const aliasMatch = parts.match(/'([A-Z][a-zA-Z' -]{1,20})'/);
+              if (aliasMatch) addName(aliasMatch[1]);
+              addName(parts.replace(/^THE\s+/, "").replace(/\s*\/.*$/, ""));
             }
             derivedNames = [...nameSet].slice(0, CHARACTERS_CAP);
           }
