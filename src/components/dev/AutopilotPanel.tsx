@@ -357,7 +357,7 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
         });
         const existingJobId = result?.job_id || result?.existing_job_id;
         if (result?._resumable && existingJobId) {
-          console.log('[ProjectAutopilot] Reattaching to existing Auto-Run job', existingJobId);
+          console.info('[ProjectAutopilot] Reattaching to existing Auto-Run job', existingJobId);
           try {
             const status = await callAutoRun('status', { jobId: existingJobId, projectId });
             if (mountedRef.current && status?.job) setAutoRunJob(status.job);
@@ -382,12 +382,17 @@ export function AutopilotPanel({ projectId, pitchIdeaId, lane, format, documents
           }).catch(() => {});
         }
       } catch (err: any) {
-        // Job may already exist — try fetching status
+        // Job may already exist — try fetching status as final fallback
         try {
           const status = await callAutoRun('status', { projectId });
-          if (mountedRef.current && status?.job) setAutoRunJob(status.job);
+          if (mountedRef.current && status?.job) {
+            console.info('[ProjectAutopilot] Recovered via status fallback after start error');
+            setAutoRunJob(status.job);
+          } else {
+            console.error('[ProjectAutopilot] Auto-Run start failed:', err?.message);
+          }
         } catch {
-          console.error('[ProjectAutopilot] Auto-Run start failed:', err?.message);
+          console.error('[ProjectAutopilot] Auto-Run start failed (no fallback):', err?.message);
         }
       } finally {
         if (mountedRef.current) setAutoRunLoading(false);
