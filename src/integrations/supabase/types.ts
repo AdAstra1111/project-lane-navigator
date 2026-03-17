@@ -6501,6 +6501,7 @@ export type Database = {
           budget_band: string
           created_at: string
           engine: string | null
+          evaluated_scores: Json | null
           format: string
           genre: string
           id: string
@@ -6521,6 +6522,7 @@ export type Database = {
           score_market_heat: number
           score_saturation_risk: number
           score_total: number
+          scoring_method: string | null
           title: string
           updated_at: string
           user_id: string
@@ -6530,6 +6532,7 @@ export type Database = {
           budget_band?: string
           created_at?: string
           engine?: string | null
+          evaluated_scores?: Json | null
           format?: string
           genre?: string
           id?: string
@@ -6550,6 +6553,7 @@ export type Database = {
           score_market_heat?: number
           score_saturation_risk?: number
           score_total?: number
+          scoring_method?: string | null
           title?: string
           updated_at?: string
           user_id: string
@@ -6559,6 +6563,7 @@ export type Database = {
           budget_band?: string
           created_at?: string
           engine?: string | null
+          evaluated_scores?: Json | null
           format?: string
           genre?: string
           id?: string
@@ -6579,6 +6584,7 @@ export type Database = {
           score_market_heat?: number
           score_saturation_risk?: number
           score_total?: number
+          scoring_method?: string | null
           title?: string
           updated_at?: string
           user_id?: string
@@ -6655,19 +6661,23 @@ export type Database = {
       idea_blueprints: {
         Row: {
           budget_band: string
+          conflict_design: Json | null
           conflict_engine: string | null
           created_at: string
           derived_from_idea_ids: string[] | null
           engine: string | null
           exemplar_inputs: Json | null
           feasibility_constraints: Json
+          feasibility_design: Json | null
           format: string
           genre: string
+          hook_type: string | null
           id: string
           lane: string
           market_design: Json
           novelty_constraints: Json
           protagonist_archetype: string | null
+          protagonist_design: Json | null
           run_id: string
           score_pattern: Json | null
           status: string
@@ -6678,19 +6688,23 @@ export type Database = {
         }
         Insert: {
           budget_band?: string
+          conflict_design?: Json | null
           conflict_engine?: string | null
           created_at?: string
           derived_from_idea_ids?: string[] | null
           engine?: string | null
           exemplar_inputs?: Json | null
           feasibility_constraints?: Json
+          feasibility_design?: Json | null
           format?: string
           genre?: string
+          hook_type?: string | null
           id?: string
           lane?: string
           market_design?: Json
           novelty_constraints?: Json
           protagonist_archetype?: string | null
+          protagonist_design?: Json | null
           run_id: string
           score_pattern?: Json | null
           status?: string
@@ -6701,19 +6715,23 @@ export type Database = {
         }
         Update: {
           budget_band?: string
+          conflict_design?: Json | null
           conflict_engine?: string | null
           created_at?: string
           derived_from_idea_ids?: string[] | null
           engine?: string | null
           exemplar_inputs?: Json | null
           feasibility_constraints?: Json
+          feasibility_design?: Json | null
           format?: string
           genre?: string
+          hook_type?: string | null
           id?: string
           lane?: string
           market_design?: Json
           novelty_constraints?: Json
           protagonist_archetype?: string | null
+          protagonist_design?: Json | null
           run_id?: string
           score_pattern?: Json | null
           status?: string

@@ -104,7 +104,7 @@ serve(async (req) => {
         idea_count: sourceIdeas.length,
       };
 
-      // 5. Create blueprint record
+      // 5. Create blueprint record with enriched design schema
       const { data: blueprint, error: bpErr } = await svcClient
         .from("idea_blueprints")
         .insert({
@@ -116,7 +116,31 @@ serve(async (req) => {
           engine: engine || null,
           budget_band: budgetBand || scorePatterns.common_budget_bands[0] || "",
           structural_patterns: scorePatterns,
-          market_design: { useTrends, trendCount: trendSignalIds.length },
+          market_design: {
+            useTrends,
+            trendCount: trendSignalIds.length,
+            trend_signal_ids: trendSignalIds,
+            positioning_strategy: lane ? `${lane}-optimized` : "best-fit",
+          },
+          protagonist_design: {
+            instruction: "Protagonist must have a clear want, a deep need, and a defining flaw that drives conflict.",
+            archetypes_observed: sourceIdeas.length > 0 ? "derived_from_elite_patterns" : "unconstrained",
+          },
+          conflict_design: {
+            instruction: "Conflict engine must sustain a full season/feature arc. Avoid single-revelation plots.",
+            escalation_required: true,
+          },
+          hook_type: "",
+          feasibility_design: {
+            budget_band: budgetBand || scorePatterns.common_budget_bands[0] || "mid",
+            location_constraint: "minimize",
+            cast_scale: budgetBand === "micro" ? "small" : budgetBand === "tentpole" ? "large" : "medium",
+          },
+          novelty_constraints: {
+            no_clone_from_exemplars: true,
+            differentiation_required: true,
+            source_idea_count: sourceIdeas.length,
+          },
           derived_from_idea_ids: sourceIdeas.map((i: any) => i.id),
           trend_inputs: trendSignalIds.map((id: string) => ({ signal_id: id })),
           exemplar_inputs: sourceIdeas.map((i: any) => ({ id: i.id, title: i.title, score_total: i.score_total })),
@@ -126,7 +150,7 @@ serve(async (req) => {
         .single();
       if (bpErr) throw new Error(`Blueprint creation failed: ${bpErr.message}`);
 
-      // 6. Generate candidates via LLM
+      // 6. Generate candidates via LLM (generation only, no self-scoring)
       const structuralContext = sourceIdeas.length > 0
         ? `\nHIGH-PERFORMING IDEA STRUCTURAL PATTERNS (use as design signals, do NOT copy text or plots):
 - Average CI Score: ${scorePatterns.avg_total.toFixed(1)}
@@ -144,8 +168,9 @@ CRITICAL RULES:
 - Generate completely ORIGINAL concepts. Do NOT copy, paraphrase, or closely resemble any existing titles.
 - Use the structural patterns (format, lane, genre, score targets) as design constraints, NOT as content to clone.
 - Each idea must have a distinctive hook, original characters, and fresh premise.
-- Score each idea honestly on the same 0-100 scale used for the source patterns.
+- Do NOT self-score. Scores will be evaluated independently by a separate system.
 - Prioritize: hook clarity, protagonist distinctiveness, conflict engine strength, market positioning, and feasibility.
+- For each idea, explicitly describe: protagonist_design, conflict_design, hook_type, market_positioning, feasibility_notes.
 ${structuralContext}${trendContext}
 
 Format: ${format}
@@ -154,7 +179,7 @@ Genre: ${genre || "best fit"}
 Budget band: ${budgetBand || "flexible"}
 ${engine ? `Engine: ${engine}` : ""}`;
 
-      const userPrompt = `Generate exactly ${Math.min(candidateCount, 10)} original pitch idea candidates. Each must be structurally strong and market-aligned.`;
+      const userPrompt = `Generate exactly ${Math.min(candidateCount, 10)} original pitch idea candidates. Each must be structurally strong and market-aligned. Include rich design metadata for each.`;
 
       const toolsDef = [{
         type: "function" as const,
@@ -176,18 +201,14 @@ ${engine ? `Engine: ${engine}` : ""}`;
                     format: { type: "string" },
                     lane: { type: "string" },
                     budget_band: { type: "string" },
-                    protagonist_archetype: { type: "string" },
-                    conflict_engine: { type: "string" },
-                    hook_clarity: { type: "string" },
-                    market_positioning: { type: "string" },
-                    score_market_heat: { type: "number" },
-                    score_feasibility: { type: "number" },
-                    score_lane_fit: { type: "number" },
-                    score_saturation_risk: { type: "number" },
-                    score_company_fit: { type: "number" },
-                    score_total: { type: "number" },
+                    protagonist_design: { type: "string", description: "Who is the protagonist, their want/need/flaw" },
+                    conflict_design: { type: "string", description: "Core conflict engine and escalation path" },
+                    hook_type: { type: "string", description: "What type of hook: mystery, irony, stakes, moral dilemma, etc." },
+                    market_positioning: { type: "string", description: "Target audience, comp positioning, buyer angle" },
+                    feasibility_notes: { type: "string", description: "Budget, location, cast, VFX considerations" },
+                    novelty_claim: { type: "string", description: "What makes this genuinely fresh vs existing market" },
                   },
-                  required: ["title", "logline", "one_page_pitch", "genre", "format", "lane", "budget_band", "score_market_heat", "score_feasibility", "score_lane_fit", "score_saturation_risk", "score_company_fit", "score_total"],
+                  required: ["title", "logline", "one_page_pitch", "genre", "format", "lane", "budget_band", "protagonist_design", "conflict_design", "hook_type", "market_positioning", "feasibility_notes"],
                   additionalProperties: false,
                 },
               },
@@ -235,16 +256,16 @@ ${engine ? `Engine: ${engine}` : ""}`;
       } else if (msg?.content) {
         const jsonMatch = msg.content.match(/\{[\s\S]*\}/);
         if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
-        else throw new Error("No structured output");
+        else throw new Error("No structured output from generation");
       } else {
-        throw new Error("No structured output");
+        throw new Error("No structured output from generation");
       }
 
       const candidates = parsed.candidates || parsed.ideas || [];
-      console.log(`[ci-blueprint] generated ${candidates.length} candidates`);
+      console.log(`[ci-blueprint] generated ${candidates.length} candidates, starting independent scoring`);
 
-      // 7. Persist candidates
-      const savedCandidates = [];
+      // 7. Persist candidates with zero scores (pre-evaluation)
+      const savedCandidates: any[] = [];
       for (const c of candidates) {
         const { data: saved, error: saveErr } = await svcClient
           .from("idea_blueprint_candidates")
@@ -260,12 +281,14 @@ ${engine ? `Engine: ${engine}` : ""}`;
             lane: c.lane || lane || "",
             engine: engine || null,
             budget_band: c.budget_band || budgetBand || "",
-            score_market_heat: c.score_market_heat || 0,
-            score_feasibility: c.score_feasibility || 0,
-            score_lane_fit: c.score_lane_fit || 0,
-            score_saturation_risk: c.score_saturation_risk || 0,
-            score_company_fit: c.score_company_fit || 0,
-            score_total: c.score_total || 0,
+            // Scores start at 0 — will be filled by independent evaluation
+            score_market_heat: 0,
+            score_feasibility: 0,
+            score_lane_fit: 0,
+            score_saturation_risk: 0,
+            score_company_fit: 0,
+            score_total: 0,
+            scoring_method: "pending",
             raw_response: c,
             provenance: {
               blueprint_id: blueprint.id,
@@ -273,6 +296,14 @@ ${engine ? `Engine: ${engine}` : ""}`;
               source_idea_count: sourceIdeas.length,
               trend_signal_count: trendSignalIds.length,
               promotion_source: "ci_blueprint_engine",
+              design_metadata: {
+                protagonist_design: c.protagonist_design || null,
+                conflict_design: c.conflict_design || null,
+                hook_type: c.hook_type || null,
+                market_positioning: c.market_positioning || null,
+                feasibility_notes: c.feasibility_notes || null,
+                novelty_claim: c.novelty_claim || null,
+              },
             },
           })
           .select("*")
@@ -284,7 +315,149 @@ ${engine ? `Engine: ${engine}` : ""}`;
         }
       }
 
-      // 8. Update run
+      // 8. INDEPENDENT SCORING PASS — evaluate candidates through authoritative scoring
+      console.log(`[ci-blueprint] running independent scoring for ${savedCandidates.length} candidates`);
+
+      const scoringPrompt = `You are an authoritative pitch idea evaluator for the film/TV industry. Score each candidate idea on the following dimensions (0-100 each):
+
+SCORING RUBRIC:
+- score_market_heat (0-100): Current market demand for this concept. Consider genre cycles, buyer appetite, platform needs, audience trends. 90+ = urgent market gap this fills.
+- score_feasibility (0-100): Production feasibility given budget band. Consider cast requirements, locations, VFX, schedule complexity. 90+ = easily producible at stated budget.
+- score_lane_fit (0-100): How well this fits the stated monetization lane. Consider buyer expectations, format norms, audience positioning. 90+ = perfect lane alignment.
+- score_saturation_risk (0-100): INVERSE of saturation — higher = LESS saturated/more distinctive. 90+ = highly original in current market.
+- score_company_fit (0-100): Suitability for an independent production company. Consider packaging difficulty, financing complexity, sales potential. 90+ = ideal indie producer project.
+- score_total: Weighted composite. Formula: (market_heat * 0.25) + (feasibility * 0.2) + (lane_fit * 0.2) + (saturation_risk * 0.15) + (company_fit * 0.2). Calculate precisely.
+
+CRITICAL: Be rigorous. Most ideas score 50-80. Only genuinely exceptional ideas score 90+. Do not inflate.
+
+Evaluate these candidates:
+${savedCandidates.map((c: any, i: number) => `
+[CANDIDATE ${i + 1}] id=${c.id}
+Title: ${c.title}
+Logline: ${c.logline}
+Format: ${c.format} | Lane: ${c.lane} | Genre: ${c.genre} | Budget: ${c.budget_band}
+One-page pitch: ${c.one_page_pitch}
+`).join("\n---\n")}`;
+
+      const scoringTools = [{
+        type: "function" as const,
+        function: {
+          name: "submit_scores",
+          description: "Submit evaluated scores for each candidate",
+          parameters: {
+            type: "object",
+            properties: {
+              scores: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    candidate_id: { type: "string" },
+                    score_market_heat: { type: "number" },
+                    score_feasibility: { type: "number" },
+                    score_lane_fit: { type: "number" },
+                    score_saturation_risk: { type: "number" },
+                    score_company_fit: { type: "number" },
+                    score_total: { type: "number" },
+                    scoring_rationale: { type: "string" },
+                  },
+                  required: ["candidate_id", "score_market_heat", "score_feasibility", "score_lane_fit", "score_saturation_risk", "score_company_fit", "score_total"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["scores"],
+            additionalProperties: false,
+          },
+        },
+      }];
+
+      const scoreResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: "You are a rigorous, independent pitch idea evaluator. Score honestly — do not inflate." },
+            { role: "user", content: scoringPrompt },
+          ],
+          tools: scoringTools,
+          tool_choice: { type: "function", function: { name: "submit_scores" } },
+        }),
+      });
+
+      if (scoreResp.ok) {
+        const scoreResult = await scoreResp.json();
+        const scoreMsg = scoreResult.choices?.[0]?.message;
+        const scoreToolCall = scoreMsg?.tool_calls?.[0];
+        let scoreParsed: any;
+
+        if (scoreToolCall?.function?.arguments) {
+          scoreParsed = JSON.parse(scoreToolCall.function.arguments);
+        } else if (scoreMsg?.content) {
+          const jsonMatch = scoreMsg.content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) scoreParsed = JSON.parse(jsonMatch[0]);
+        }
+
+        const evaluatedScores = scoreParsed?.scores || [];
+        console.log(`[ci-blueprint] received ${evaluatedScores.length} independent scores`);
+
+        // Update each candidate with evaluated scores
+        for (const es of evaluatedScores) {
+          const candidateId = es.candidate_id;
+          const candidate = savedCandidates.find((c: any) => c.id === candidateId);
+          if (!candidate) continue;
+
+          // Recalculate total using our formula to prevent LLM math errors
+          const recalcTotal = (
+            (Number(es.score_market_heat) || 0) * 0.25 +
+            (Number(es.score_feasibility) || 0) * 0.2 +
+            (Number(es.score_lane_fit) || 0) * 0.2 +
+            (Number(es.score_saturation_risk) || 0) * 0.15 +
+            (Number(es.score_company_fit) || 0) * 0.2
+          );
+
+          await svcClient
+            .from("idea_blueprint_candidates")
+            .update({
+              score_market_heat: Number(es.score_market_heat) || 0,
+              score_feasibility: Number(es.score_feasibility) || 0,
+              score_lane_fit: Number(es.score_lane_fit) || 0,
+              score_saturation_risk: Number(es.score_saturation_risk) || 0,
+              score_company_fit: Number(es.score_company_fit) || 0,
+              score_total: recalcTotal,
+              scoring_method: "independent_evaluation",
+              evaluated_scores: {
+                raw_llm_scores: es,
+                recalculated_total: recalcTotal,
+                evaluator_model: "google/gemini-2.5-flash",
+                evaluated_at: new Date().toISOString(),
+                rationale: es.scoring_rationale || null,
+              },
+            })
+            .eq("id", candidateId);
+
+          // Update in-memory for response
+          candidate.score_market_heat = Number(es.score_market_heat) || 0;
+          candidate.score_feasibility = Number(es.score_feasibility) || 0;
+          candidate.score_lane_fit = Number(es.score_lane_fit) || 0;
+          candidate.score_saturation_risk = Number(es.score_saturation_risk) || 0;
+          candidate.score_company_fit = Number(es.score_company_fit) || 0;
+          candidate.score_total = recalcTotal;
+          candidate.scoring_method = "independent_evaluation";
+        }
+      } else {
+        console.error(`[ci-blueprint] scoring pass failed: ${scoreResp.status}`);
+        // Mark candidates as scoring_failed but don't block
+        for (const c of savedCandidates) {
+          await svcClient.from("idea_blueprint_candidates")
+            .update({ scoring_method: "scoring_failed" })
+            .eq("id", c.id);
+          c.scoring_method = "scoring_failed";
+        }
+      }
+
+      // 9. Update run
       await svcClient
         .from("idea_blueprint_runs")
         .update({
@@ -297,7 +470,7 @@ ${engine ? `Engine: ${engine}` : ""}`;
         })
         .eq("id", runId);
 
-      console.log(`[ci-blueprint] completed: ${savedCandidates.length} candidates saved`);
+      console.log(`[ci-blueprint] completed: ${savedCandidates.length} candidates saved and scored`);
 
       return new Response(JSON.stringify({
         run_id: runId,
@@ -320,6 +493,14 @@ ${engine ? `Engine: ${engine}` : ""}`;
         .single();
       if (cErr || !candidate) throw new Error("Candidate not found");
       if (candidate.user_id !== user.id) throw new Error("Forbidden");
+
+      // Reject if scoring was not completed
+      if (candidate.scoring_method !== "independent_evaluation") {
+        return new Response(JSON.stringify({
+          error: "Cannot promote: candidate was not independently scored",
+          scoring_method: candidate.scoring_method,
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
 
       // Threshold check
       const thresholds = { score_total: 95, score_market_heat: 80, score_feasibility: 75, score_lane_fit: 80 };
@@ -365,10 +546,12 @@ ${engine ? `Engine: ${engine}` : ""}`;
           score_company_fit: candidate.score_company_fit,
           score_total: candidate.score_total,
           raw_response: {
-            ...candidate.raw_response,
+            ...((candidate.raw_response as Record<string, unknown>) || {}),
             promotion_source: "ci_blueprint_engine",
             blueprint_candidate_id: candidate.id,
             blueprint_id: candidate.blueprint_id,
+            scoring_method: candidate.scoring_method,
+            evaluated_scores: candidate.evaluated_scores,
           },
         })
         .select("id")
