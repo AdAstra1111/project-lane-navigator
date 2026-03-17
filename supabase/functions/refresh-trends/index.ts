@@ -38,7 +38,8 @@ serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const lovableApiKey = Deno.env.get("OPENROUTER_API_KEY")!;
+  const _gw = resolveGateway();
+  const lovableApiKey = _gw.apiKey;
   const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
   const supabase = createClient(supabaseUrl, supabaseKey);
 
