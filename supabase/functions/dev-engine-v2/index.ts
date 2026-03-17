@@ -713,7 +713,7 @@ async function makeNoteFingerprint(fields: {
 function inferNoteAnchor(note: any): string {
   const desc = (note.description || note.note || "").toLowerCase();
   if (note.anchor) return note.anchor;
-  if (desc.includes("character:") || desc.match(/\bcharacter\b.{0,20}(maya|protagonist|antagonist)/)) {
+  if (desc.includes("character:") || desc.match(/\bcharacter\b.{0,20}(protagonist|antagonist)/)) {
     const m = desc.match(/character:(\w+)/);
     return m ? `character:${m[1]}` : "character:unknown";
   }
