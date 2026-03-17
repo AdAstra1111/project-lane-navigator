@@ -489,7 +489,7 @@ CRITICAL RULES:
 - Do NOT self-score. Scores will be evaluated independently by a separate system.
 - Prioritize: hook clarity, protagonist distinctiveness, conflict engine strength, market positioning, and feasibility.
 - For each idea, explicitly describe: protagonist_design, conflict_design, hook_type, market_positioning, feasibility_notes.
-${structuralContext}${trendContext}${dnaPromptBlock}
+${structuralContext}${trendContext}${dnaPromptBlock}${familyPromptBlock}
 
 Format: ${format}
 Lane: ${lane || "best fit"}
