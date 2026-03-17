@@ -28218,18 +28218,21 @@ ${upstreamText}`;
             if (ct && typeof ct === "object") {
               const inner = ct.text ?? ct.content ?? ct.document ?? ct.body ?? ct.output ?? null;
               if (typeof inner === "string" && inner.trim().length > 0) return inner.trim();
+              const targetSub = ct[stage.toUpperCase()];
+              if (targetSub && typeof targetSub === "object") {
+                const subInner = targetSub.text ?? targetSub.content ?? targetSub.body ?? null;
+                if (typeof subInner === "string" && subInner.trim().length > 0) return subInner.trim();
+              }
+              console.warn(`[regen-tick] extractConvertedText: converted_text is object without text keys, skipping`);
             }
-            // Try alternative top-level keys (model may return "text", "content", stage key, etc.)
             if (p && typeof p === "object") {
               for (const key of ["text", "content", "document", "body", "output", stage]) {
                 const v = (p as Record<string, unknown>)[key];
                 if (typeof v === "string" && v.trim().length > 100) return v.trim();
               }
             }
-            // Raw-text fallback: if the model returned prose instead of JSON (common for character_bible,
-            // treatment, story_outline), use the raw output directly.
-            const raw_ = (rawText || "").trim();
-            if (raw_.length > 100 && !raw_.startsWith("{") && !raw_.startsWith("[")) return raw_;
+            const raw_ = stripCodeFences((rawText || "").trim());
+            if (raw_.length > 100 && !looksLikeJson(raw_)) return raw_;
             return "";
           };
           let convertedText = extractConvertedText(parsed, raw);
