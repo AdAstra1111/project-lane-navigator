@@ -220,6 +220,12 @@ export async function resolveNarrativeContext(
             .eq("is_current", true)
             .maybeSingle();
           if (cbVer?.plaintext && cbVer.plaintext.length > 50) {
+            // Strip "WORLD CHARACTERS" section to prevent non-canonical names entering the lock
+            let cbText = cbVer.plaintext;
+            const wcMatch = cbText.match(/^#{1,3}\s+WORLD CHARACTERS\b/mi) || cbText.match(/^#{1,3}\s+World Characters\b/mi);
+            if (wcMatch && wcMatch.index !== undefined) {
+              cbText = cbText.slice(0, wcMatch.index).trimEnd();
+            }
             // Extract character names from markdown headings and bold declarations.
             // Patterns handle: ## Name, ### I. NAME, **NAME (Role)**, **NAME** — desc, **NAME:**
             const headingMatches = cbVer.plaintext.match(/^#{2,4}\s+(?:[IVXLC]+\.\s+)?(?:THE\s+)?([A-Z][a-zA-Z' -]{1,30})$/gm) || [];
