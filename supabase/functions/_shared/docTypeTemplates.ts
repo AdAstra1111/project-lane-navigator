@@ -196,41 +196,58 @@ export function getDocTypeTemplate(docType: string, ctx: TemplateContext = {}): 
     case "character_bible":
       return `# CHARACTER BIBLE: ${title}
 
-## PRINCIPAL CHARACTERS
+## PRINCIPAL CHARACTERS (CANONICAL)
 
-### [CHARACTER NAME 1] — [Role / Function]
-**Age:** [Age range]
-**Background:** [Origin, formative history — 2–3 sentences]
-**Want:** [What they consciously want — external goal]
-**Need:** [What they actually need — internal truth they don't yet see]
-**Wound:** [The defining past experience shaping all behaviour]
-**Voice:** [How they speak — rhythm, vocabulary, what they avoid saying]
-**Arc:** [Where they start → what breaks them open → where they end]
-**Relationship axis:** [Primary dynamic with other principal characters]
+### [CHARACTER NAME 1] — [Narrative Role]
+**Social Position:** [Place in hierarchy / class / institution — e.g. "junior associate at a white-shoe law firm", "second son of a minor aristocratic house"]
+**Functional Role:** [What they DO in the world — their job, duty, or operational function]
+**World Embedding:** [Where/how they operate — physical location, daily environment, institutional context]
+**Want:** [Concrete external goal — specific and measurable]
+**Need:** [Internal truth they resist — must conflict with Want]
+**Wound:** [Specific formative experience — not vague, name the event]
+**Flaw:** [Internal limitation that generates story friction]
+**Voice:** [Speech register, vocabulary level, verbal tics, what they avoid saying]
+**Arc:** [Start state → breaking point → end state — concrete trajectory]
 
 ---
 
-### [CHARACTER NAME 2] — [Role / Function]
-**Age:** [Age range]
-**Background:** [Origin, formative history — 2–3 sentences]
+### [CHARACTER NAME 2] — [Narrative Role]
+**Social Position:** [Hierarchy placement]
+**Functional Role:** [Operational function]
+**World Embedding:** [Environment and context]
 **Want:** [External goal]
 **Need:** [Internal truth]
-**Wound:** [Defining past experience]
-**Voice:** [Speech pattern and style]
-**Arc:** [Transformation across the season]
-**Relationship axis:** [Primary dynamic with other principals]
+**Wound:** [Formative experience]
+**Flaw:** [Internal limitation]
+**Voice:** [Speech pattern]
+**Arc:** [Transformation trajectory]
 
 ---
 
-### [CHARACTER NAME 3] — [Role / Function]
+### [CHARACTER NAME 3] — [Narrative Role]
 [Same structure as above]
+
+---
+
+## ANTAGONIST / OPPOSITION FORCE (CANONICAL)
+
+### [Antagonist Name] — [Narrative Role]
+**Social Position:** [Where they sit in the power structure]
+**Functional Role:** [How they exert influence or control]
+**World Embedding:** [Their operational domain]
+**Nature of opposition:** [Active villain / systemic force / internal antagonist / rival]
+**Motivation:** [Concrete goal — not "evil" — what they want and why they believe they're right]
+**Impact on protagonist:** [Specific pressure mechanism on the lead arc]
 
 ---
 
 ## RELATIONSHIP MAP
 
 ### [Character 1] ↔ [Character 2]
-[Nature of relationship, power dynamic, central tension, how it evolves across the season]
+**Nature:** [Relationship type — professional, familial, romantic, adversarial]
+**Power dynamic:** [Who holds leverage and why]
+**Central tension:** [What they want from each other vs what they get]
+**Evolution:** [How this relationship changes across the story]
 
 ### [Character 1] ↔ [Character 3]
 [Same structure]
@@ -238,19 +255,27 @@ export function getDocTypeTemplate(docType: string, ctx: TemplateContext = {}): 
 ### [Character 2] ↔ [Character 3]
 [Same structure]
 
-## SUPPORTING CHARACTERS
-
-### [Supporting Character Name] — [Function]
-[Brief: who they are, what dramatic purpose they serve, key relationship to principal cast]
-
 ---
 
-## ANTAGONIST / OPPOSITION FORCE
+## WORLD CHARACTERS (NON-CANONICAL — do NOT include in canon)
 
-### [Antagonist Name] — [Function]
-**Nature of opposition:** [Active villain / systemic force / internal antagonist / rival]
-**Motivation:** [What drives them — make them complex, not simply evil]
-**Impact on protagonist:** [Specific pressure they exert on the lead arc]`;
+These characters exist to populate the world with social texture. They are NOT story anchors. They are disposable between versions and must not be treated as canonical.
+
+### HIERARCHY LAYER — [e.g. "The Firm", "The Court", "The Precinct"]
+- **[Role Title]** — [1-line functional description: what they do, where they operate]
+- **[Role Title]** — [1-line functional description]
+- **[Role Title]** — [1-line functional description]
+
+### HIERARCHY LAYER — [e.g. "Street Level", "Support Staff", "The Community"]
+- **[Role Title]** — [1-line functional description]
+- **[Role Title]** — [1-line functional description]
+- **[Role Title]** — [1-line functional description]
+
+### ENVIRONMENTAL FIGURES
+- **[Role Title]** — [1-line: where they appear, what texture they add]
+- **[Role Title]** — [1-line]
+
+Minimum: 2–3 hierarchy layers, 5–10 world roles for prestige projects.`;
 
     // ─────────────────────────────────────────────────────────────────────────────
     case "season_arc":
