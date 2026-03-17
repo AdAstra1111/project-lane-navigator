@@ -27030,21 +27030,23 @@ CRITICAL:
         rewriteScopePlan.target_scene_numbers.length > 0 &&
         rewriteScopePlan.target_scene_numbers.length < totalScenesInAssembly;
 
-      // Create new version via doc-os
+      // Create new version via doc-os + CCE drift check
       const sceneRwLane = (await supabase.from("projects").select("assigned_lane").eq("id", projectId).single())?.data?.assigned_lane || "independent-film";
       const sceneRwTvCtx = await loadTeamVoiceContext(supabase, projectId, sceneRwLane);
       const sceneRwMetaJson = sceneRwTvCtx.metaStamp ? { ...sceneRwTvCtx.metaStamp } : undefined;
       const { data: sceneRwDocRow } = await supabase.from("project_documents").select("doc_type").eq("id", sourceDocId).single();
+      const sceneRwDocType = sceneRwDocRow?.doc_type || "other";
+      const sceneRwCCE = await runCCEPostGeneration(supabase, projectId, assembledText, sceneRwDocType, "dev-engine-v2:scene-rewrite");
       const newVersion = await createVersion(supabase, {
         documentId: sourceDocId,
-        docType: sceneRwDocRow?.doc_type || "other",
+        docType: sceneRwDocType,
         plaintext: assembledText,
         label: trulySelective ? `Selective scene rewrite (${outputs.length}/${totalScenesInAssembly} scenes)` : `Scene rewrite`,
         createdBy: user.id,
         changeSummary: trulySelective
           ? `Selective scene-level rewrite: ${outputs.length} of ${totalScenesInAssembly} scenes rewritten.`
           : `Scene-level rewrite across ${outputs.length} scenes.`,
-        metaJson: sceneRwMetaJson,
+        metaJson: { ...(sceneRwMetaJson || {}), ...sceneRwCCE.metaPatch },
         generatorId: "dev-engine-v2-scene-rewrite",
         inputsUsed: { generator_id: "dev-engine-v2-scene-rewrite", document_id: sourceDocId, parent_version_id: sourceVersionId, run_id: runId, project_id: projectId },
       });
