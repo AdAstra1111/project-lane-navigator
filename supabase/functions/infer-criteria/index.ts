@@ -216,6 +216,11 @@ Deno.serve(async (req) => {
       setField("stakes", extractHeading(text, "STAKES", "WHY IT SELLS", "CORE TENSION", "WHAT.S AT STAKE", "CENTRAL TENSION"), docType, docId, "extracted");
       setField("world_rules", extractHeading(text, "WORLD RULES", "WORLD.BUILDING", "WORLD BUILDING", "SETTING"), docType, docId, "extracted");
       setField("comparables", extractHeading(text, "COMPARABLES", "COMPS", "COMP TITLES", "SIMILAR TO", "INSPIRED BY", "COMP SET"), docType, docId, "extracted");
+
+      // Second-pass extractions: fields that use alternative heading names as fallback
+      if (!criteria.stakes) {
+        setField("stakes", extractHeading(text, "WHY NOW", "WHY US", "RISK SUMMARY"), docType, docId, "extracted");
+      }
     }
 
     // Fallback: use first paragraph as logline if still empty
