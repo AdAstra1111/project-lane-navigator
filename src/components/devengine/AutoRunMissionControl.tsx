@@ -1535,7 +1535,7 @@ export function AutoRunMissionControl({
                       {prov.candidates_seen_count > 0 && (
                         <>
                           <span className="text-muted-foreground">Reviewed:</span>
-                          <span>{prov.candidates_seen_count} versions</span>
+                          <span>{prov.candidates_seen_count} {prov.candidates_seen_count === 1 ? 'pass' : 'passes'}</span>
                         </>
                       )}
                     </div>
@@ -1549,7 +1549,7 @@ export function AutoRunMissionControl({
                     )}
                     {prov.versions_considered_count > 0 && prov.versions_considered_count !== prov.candidates_seen_count && (
                       <div className="text-[7px] text-muted-foreground/50 mt-0.5">
-                        {prov.candidates_seen_count} reviews → {prov.versions_considered_count} unique versions
+                        {prov.candidates_seen_count} review passes across {prov.versions_considered_count} distinct versions
                       </div>
                     )}
                   </div>
