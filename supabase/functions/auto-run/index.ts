@@ -3117,13 +3117,26 @@ async function tryPlateauForcePromote(
   if (!job.allow_defaults) return null;
 
   // ── EXCEPTIONAL PLATEAU BLOCK: never force-promote below target in Exceptional mode ──
+  // TERMINAL: sets pause state and returns a Response directly, so callers cannot fall through into churn loops.
   if (isExceptionalObjective(job) && (typeof detectedBestCi === "number" ? detectedBestCi : detectedCi) < targetCi) {
     console.warn(`[auto-run][IEL] EXCEPTIONAL_PLATEAU_BLOCK { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${detectedCi}, best_ci: ${detectedBestCi}, target: ${targetCi}, plateau_version: "${plateauVersion}" }`);
     await logStep(supabase, jobId, stepCount + 1, currentDoc, "exceptional_plateau_block",
       `EXCEPTIONAL_PLATEAU_BLOCK: CI=${detectedCi} (best: ${detectedBestCi}) below Exceptional target ${targetCi}. Force-promote blocked — escalation required.`,
       { ci: detectedCi }, undefined,
       { target_ci: targetCi, best_ci: detectedBestCi, plateau_version: plateauVersion, quality_objective: "Exceptional", action: "plateau_escalation_required" });
-    return null; // Block force-promote — caller will handle escalation
+    // Finalize best version for the current doc
+    const { data: docForEsc } = await supabase.from("project_documents")
+      .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (docForEsc) await finalizeBest(supabase, jobId, job, docForEsc.id);
+    await updateJob(supabase, jobId, {
+      status: "paused",
+      stop_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
+      pause_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
+      error: `Exceptional mode: CI=${detectedCi} (best: ${detectedBestCi}) plateaued below target ${targetCi} for ${currentDoc}. Escalation required — auto-promote blocked.`,
+    });
+    await releaseProcessingLock(supabase, jobId);
+    return respondWithJob(supabase, jobId);
   }
 
   // ── Note exhaustion gate: do NOT force-promote if actionable notes remain ──
@@ -6142,6 +6155,20 @@ Deno.serve(async (req) => {
                 plateauVersion: "v1",
               });
               if (iterCapForcePromote) return iterCapForcePromote;
+            } else if (isExceptionalObjective(job) && job.allow_defaults) {
+              // ── EXCEPTIONAL GUARD: max iterations reached but CI below Exceptional target ──
+              console.warn(`[auto-run][IEL] EXCEPTIONAL_MAX_ITER_BLOCK { job_id: "${jobId}", doc_type: "${currentDoc}", iterations: ${iterCount}, best_ci: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap} }`);
+              await logStep(supabase, jobId, stepCount, currentDoc, "exceptional_plateau_block",
+                `MAX_STAGE_ITERATIONS (${MAX_STAGE_ITERATIONS}) reached for ${currentDoc} in Exceptional mode. Best CI: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap}. Escalation required.`
+              );
+              await updateJob(supabase, jobId, {
+                status: "paused",
+                stop_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
+                pause_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
+                error: `Exceptional mode: ${currentDoc} reached max ${MAX_STAGE_ITERATIONS} iterations at CI=${ciGate.bestCiSoFar} (target: ${targetCiForIterCap}). Escalation required — auto-promote blocked.`,
+              });
+              await releaseProcessingLock(supabase, jobId);
+              return respondWithJob(supabase, jobId);
             } else if (!job.allow_defaults) {
               await logStep(supabase, jobId, stepCount, currentDoc, "stop",
                 `MAX_STAGE_ITERATIONS (${MAX_STAGE_ITERATIONS}) reached for ${currentDoc}. Best CI: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap}. Pausing — manual review required.`
