@@ -1030,12 +1030,12 @@ ${coverageContext ? "\nMode: Coverage Transformer" : "Mode: Greenlight Radar —
             signals_metadata: ideas.signals_metadata || null,
             dna_constraint_mode: dna_constraint_mode || 'none',
           },
-          score_market_heat: idea.score_market_heat || 0,
-          score_feasibility: idea.score_feasibility || 0,
-          score_lane_fit: idea.score_lane_fit || 0,
-          score_saturation_risk: idea.score_saturation_risk || 0,
-          score_company_fit: idea.score_company_fit || 0,
-          score_total: idea.score_total || 0,
+          ...(() => {
+            const normalized = normalizePitchScores(idea);
+            const drift = checkScoreDrift(normalized, Number(idea.score_total) || 0);
+            if (drift) console.warn(`[generate-pitch] ${drift} title="${idea.title}"`);
+            return normalized;
+          })(),
         };
         const { data: saved, error: saveErr } = await svcClient
           .from('pitch_ideas')

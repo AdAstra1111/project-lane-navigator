@@ -402,14 +402,11 @@ One-page pitch: ${c.one_page_pitch}
           const candidate = savedCandidates.find((c: any) => c.id === candidateId);
           if (!candidate) continue;
 
-          // Recalculate total using AUTHORITATIVE generate-pitch weights
-          const recalcTotal = (
-            (Number(es.score_market_heat) || 0) * 0.30 +
-            (Number(es.score_feasibility) || 0) * 0.25 +
-            (Number(es.score_lane_fit) || 0) * 0.20 +
-            (Number(es.score_saturation_risk) || 0) * 0.15 +
-            (Number(es.score_company_fit) || 0) * 0.10
-          );
+          // Recalculate total using shared canonical scorer
+          const normalizedScores = normalizePitchScores(es);
+          const recalcTotal = normalizedScores.score_total;
+          const drift = checkScoreDrift(normalizedScores, Number(es.score_total) || 0);
+          if (drift) console.warn(`[ci-blueprint] ${drift} candidate=${candidateId}`);
 
           await svcClient
             .from("idea_blueprint_candidates")
