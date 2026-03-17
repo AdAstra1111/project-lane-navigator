@@ -434,6 +434,8 @@ export async function resolveNarrativeContext(
     return {
       nec,
       canon,
+      canonConstraints,
+      canonConstraintBlock,
       signals,
       lockedDecisions,
       voice,
@@ -442,11 +444,14 @@ export async function resolveNarrativeContext(
     };
   } catch (e) {
     console.error("[narrative-context] canon load failed:", e);
-    // Return minimal context on failure
+    // Return minimal context on failure — CCE empty constraints (fail-open for generation, fail-closed for drift)
+    const emptyConstraints = extractCanonConstraints({});
     const resolverHash = djb2(`error|${projectId}`);
     return {
       nec,
       canon,
+      canonConstraints: emptyConstraints,
+      canonConstraintBlock: "",
       signals: { topSignals: [], blockText: "" },
       lockedDecisions: { items: [], blockText: "" },
       voice: { voiceId: null, blockText: "" },
