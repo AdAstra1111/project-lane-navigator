@@ -381,12 +381,53 @@ export function extractCanonConstraints(
   const characters = Array.isArray(canonJson.characters) ? canonJson.characters : [];
   const protagonist = findProtagonist(characters);
 
-  // Relationships
+  // Relationships — extract from explicit relationships field, role field, and description
   const relationships: CanonConstraints["relationships"] = [];
+  const protagonistName = protagonist.name || "";
   for (const char of characters) {
     const c = char as Record<string, any>;
+    const charName = c.name || "unknown";
+    
+    // Explicit relationships field
     if (c.relationships && typeof c.relationships === "string") {
-      relationships.push({ character: c.name || "unknown", relation: c.relationships });
+      relationships.push({ character: charName, relation: c.relationships });
+    }
+    
+    // Derive relationship from role field (e.g., "Love Interest", "Hana's Handler", "Mentor")
+    const role = (c.role || "") as string;
+    if (role && charName !== protagonistName) {
+      const roleLower = role.toLowerCase();
+      // Check for relationship-indicating keywords in role
+      const relIndicators = [
+        { pattern: /love interest/i, relation: `love interest / romantic partner of ${protagonistName}` },
+        { pattern: /handler/i, relation: `handler / supervisor of ${protagonistName}` },
+        { pattern: /mentor/i, relation: `mentor to ${protagonistName}` },
+        { pattern: /(?:mother|father|parent|dad|mom)\b/i, relation: `parent of ${protagonistName}` },
+        { pattern: /(?:brother|sister|sibling)\b/i, relation: `sibling of ${protagonistName}` },
+        { pattern: /(?:husband|wife|spouse)\b/i, relation: `spouse of ${protagonistName}` },
+        { pattern: /(?:friend|companion|ally)\b/i, relation: `friend / ally of ${protagonistName}` },
+        { pattern: /(?:rival|enemy|nemesis|antagonist|adversary)\b/i, relation: `antagonist / rival of ${protagonistName}` },
+      ];
+      for (const { pattern, relation } of relIndicators) {
+        if (pattern.test(roleLower)) {
+          relationships.push({ character: charName, relation });
+          break;
+        }
+      }
+    }
+    
+    // Derive from description mentioning protagonist by name
+    const desc = (c.description || "") as string;
+    if (desc && protagonistName && desc.toLowerCase().includes(protagonistName.toLowerCase())) {
+      // Already captured via role? Check if we have this character
+      const alreadyCaptured = relationships.some(r => r.character === charName);
+      if (!alreadyCaptured) {
+        // Extract relationship description near protagonist name
+        const sentences = desc.split(/[.!]+/).filter(s => s.toLowerCase().includes(protagonistName.toLowerCase()));
+        if (sentences.length > 0) {
+          relationships.push({ character: charName, relation: sentences[0].trim() });
+        }
+      }
     }
   }
 
