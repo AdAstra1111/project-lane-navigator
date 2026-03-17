@@ -409,8 +409,11 @@ export async function resolveNarrativeContext(
 
     // ── 5. Voice ──
     let voice = { voiceId: null as string | null, blockText: "" };
+    let worldPopulation = { density: "moderate", blockText: "" };
     try {
       const prefs = await loadLanePrefs(supabase, projectId, lane);
+
+      // Voice
       if (prefs?.team_voice?.id) {
         const tv = await loadTeamVoiceProfile(supabase, prefs.team_voice.id);
         if (tv) {
@@ -421,16 +424,27 @@ export async function resolveNarrativeContext(
         }
       }
       if (!voice.voiceId) provenance.voice = provenance.voice || "none";
+
+      // ── 6. World Population Density (NON-CANONICAL — prompt-only) ──
+      const density = prefs?.world_population_density || "moderate";
+      worldPopulation.density = density;
+      if (density !== "minimal") {
+        worldPopulation.blockText = buildWorldPopulationBlock(density);
+        provenance.worldPopulation = density;
+      } else {
+        provenance.worldPopulation = "minimal:omitted";
+      }
     } catch (e) {
-      console.warn("[narrative-context] voice load failed:", e);
-      provenance.voice = "error";
+      console.warn("[narrative-context] voice/population load failed:", e);
+      provenance.voice = provenance.voice || "error";
+      provenance.worldPopulation = "error:fallback_moderate";
     }
 
     // ── Build resolver hash ──
-    const hashInput = `${nec.source}|${counts.canonChars}|${counts.signals}|${counts.decisions}|${voice.voiceId || "none"}`;
+    const hashInput = `${nec.source}|${counts.canonChars}|${counts.signals}|${counts.decisions}|${voice.voiceId || "none"}|${worldPopulation.density}`;
     const resolverHash = djb2(hashInput);
 
-    console.log(`[narrative-context] project=${projectId} format=${format} hash=${resolverHash} nec=${provenance.nec} signals=${counts.signals} decisions=${counts.decisions} canonChars=${counts.canonChars} voice=${voice.voiceId || "null"}`);
+    console.log(`[narrative-context] project=${projectId} format=${format} hash=${resolverHash} nec=${provenance.nec} signals=${counts.signals} decisions=${counts.decisions} canonChars=${counts.canonChars} voice=${voice.voiceId || "null"} worldPop=${worldPopulation.density}`);
 
     return {
       nec,
@@ -441,11 +455,11 @@ export async function resolveNarrativeContext(
       lockedDecisions,
       voice,
       effectiveProfile: { blockText: effectiveProfileBlock },
+      worldPopulation,
       metadata: { provenance, counts, resolverHash },
     };
   } catch (e) {
     console.error("[narrative-context] canon load failed:", e);
-    // Return minimal context on failure — CCE empty constraints (fail-open for generation, fail-closed for drift)
     const emptyConstraints = extractCanonConstraints({});
     const resolverHash = djb2(`error|${projectId}`);
     return {
@@ -457,6 +471,7 @@ export async function resolveNarrativeContext(
       lockedDecisions: { items: [], blockText: "" },
       voice: { voiceId: null, blockText: "" },
       effectiveProfile: { blockText: "" },
+      worldPopulation: { density: "moderate", blockText: "" },
       metadata: { provenance, counts, resolverHash },
     };
   }
