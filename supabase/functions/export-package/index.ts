@@ -849,7 +849,7 @@ Deno.serve(async (req) => {
     let fileExtension: string;
 
     if (output_format === "pdf") {
-      fileBuffer = await buildPdf(sections);
+      fileBuffer = await buildPdf(sections, project.title || "Untitled Project", project.format);
       contentType = "application/pdf";
       fileExtension = "pdf";
     } else {
