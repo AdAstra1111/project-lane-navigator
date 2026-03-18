@@ -2843,6 +2843,386 @@ async function autoResolveActionableNotes(
 }
 // extractTargetGP already declared above — duplicate removed
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CLEANUP PASS — Deterministic "Apply All Notes" pre-escalation gate
+// ═══════════════════════════════════════════════════════════════════════════
+
+const CLEANUP_MAX_NOTE_COUNT = 8;
+
+interface CleanupEligibility {
+  eligible: boolean;
+  reason: string;
+  noteCount: number;
+  noteCategories: string[];
+  noteIds: string[];
+  hasHumanRequired: boolean;
+  hasFatalBlock: boolean;
+}
+
+/**
+ * Deterministic predicate: is this document in a simple cleanup state?
+ * Eligible when only a small number of auto-resolvable notes remain,
+ * no unresolved hard blockers requiring human choice, no fatal gates.
+ */
+async function evaluateCleanupEligibility(
+  supabase: any, projectId: string, docType: string,
+): Promise<CleanupEligibility> {
+  const base: CleanupEligibility = {
+    eligible: false, reason: "", noteCount: 0, noteCategories: [],
+    noteIds: [], hasHumanRequired: false, hasFatalBlock: false,
+  };
+  try {
+    const { data: notes, error } = await supabase
+      .from("project_notes")
+      .select("id, title, summary, severity, category, suggested_fixes, detail")
+      .eq("project_id", projectId)
+      .eq("doc_type", docType)
+      .in("status", ["open", "in_progress", "reopened"])
+      .limit(50);
+
+    if (error || !notes) {
+      base.reason = `note_query_failed: ${error?.message || "no data"}`;
+      return base;
+    }
+
+    base.noteCount = notes.length;
+    base.noteIds = notes.map((n: any) => n.id);
+    base.noteCategories = [...new Set(notes.map((n: any) => n.category || "unknown"))];
+
+    if (notes.length === 0) {
+      base.reason = "no_actionable_notes";
+      return base;
+    }
+
+    if (notes.length > CLEANUP_MAX_NOTE_COUNT) {
+      base.reason = `too_many_notes (${notes.length} > ${CLEANUP_MAX_NOTE_COUNT})`;
+      return base;
+    }
+
+    // Check for human-required notes
+    const humanRequired = notes.filter(noteRequiresHuman);
+    if (humanRequired.length > 0) {
+      base.hasHumanRequired = true;
+      base.reason = `${humanRequired.length} note(s) require human intervention`;
+      return base;
+    }
+
+    // Check for unresolved blocker-severity notes without suggested_fixes
+    const unresolvedBlockers = notes.filter((n: any) =>
+      n.severity === "blocker" &&
+      (!Array.isArray(n.suggested_fixes) || n.suggested_fixes.length === 0)
+    );
+    if (unresolvedBlockers.length > 0) {
+      base.hasFatalBlock = true;
+      base.reason = `${unresolvedBlockers.length} blocker(s) without suggested fixes`;
+      return base;
+    }
+
+    // Eligible: small set of auto-resolvable notes
+    base.eligible = true;
+    base.reason = `${notes.length} auto-resolvable note(s) eligible for cleanup pass`;
+    return base;
+  } catch (e: any) {
+    base.reason = `exception: ${e?.message}`;
+    return base;
+  }
+}
+
+/**
+ * Check if a cleanup pass was already attempted for this doc in this job.
+ * Uses auto_run_steps action="cleanup_pass_started" to prevent loops.
+ */
+async function wasCleanupAlreadyAttempted(
+  supabase: any, jobId: string, docType: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("auto_run_steps")
+    .select("id")
+    .eq("job_id", jobId)
+    .eq("document", docType)
+    .eq("action", "cleanup_pass_started")
+    .limit(1);
+  return (data && data.length > 0);
+}
+
+interface CleanupPassResult {
+  attempted: boolean;
+  accepted: boolean;
+  candidateVersionId: string | null;
+  preCi: number | null;
+  preGp: number | null;
+  postCi: number | null;
+  postGp: number | null;
+  rejectionReason: string | null;
+}
+
+/**
+ * Runs one deterministic cleanup pass:
+ * 1. Build note directions (same as manual apply-all path)
+ * 2. Rewrite via rewriteWithFallback (same backend as manual)
+ * 3. Re-review the candidate via dev-engine-v2 analyze
+ * 4. Accept if improved or stable; reject if regressed
+ */
+async function runCleanupPass(
+  supabase: any, supabaseUrl: string, token: string,
+  params: {
+    jobId: string;
+    job: any;
+    projectId: string;
+    docType: string;
+    format: string;
+    stepCount: number;
+    currentBestCi: number;
+    currentBestGp: number;
+    targetCi: number;
+  },
+): Promise<CleanupPassResult> {
+  const { jobId, job, projectId, docType, format, stepCount, currentBestCi, currentBestGp, targetCi } = params;
+  const result: CleanupPassResult = {
+    attempted: true, accepted: false, candidateVersionId: null,
+    preCi: currentBestCi, preGp: currentBestGp, postCi: null, postGp: null, rejectionReason: null,
+  };
+
+  try {
+    // Log start
+    await logStep(supabase, jobId, stepCount + 1, docType, "cleanup_pass_started",
+      `Cleanup pass started: applying all remaining notes via canonical path. Pre-CI: ${currentBestCi}, Pre-GP: ${currentBestGp}.`,
+      { ci: currentBestCi, gp: currentBestGp }, undefined,
+      { target_ci: targetCi, action: "cleanup_pass" });
+
+    // Resolve input version (best/frontier/current)
+    const bestVer = await resolveBestScoredEligibleVersionForDoc(supabase, projectId, docType);
+    if (!bestVer) {
+      result.rejectionReason = "no_eligible_version_found";
+      await logStep(supabase, jobId, stepCount + 2, docType, "cleanup_pass_skipped",
+        `Cleanup pass skipped: no eligible version found for ${docType}.`);
+      return result;
+    }
+
+    // Build note directions (same as buildNoteDirectionsForRewrite — canonical shared logic)
+    const noteDirs = await buildNoteDirectionsForRewrite(supabase, projectId, docType);
+    if (noteDirs.length === 0) {
+      result.rejectionReason = "no_note_directions_generated";
+      await logStep(supabase, jobId, stepCount + 2, docType, "cleanup_pass_skipped",
+        `Cleanup pass skipped: no note directions generated for ${docType}.`);
+      return result;
+    }
+
+    // Build accepted decisions bundle (same as convergence path)
+    const decisionBundle = await buildAcceptedDecisionsBundle(supabase, jobId, docType);
+    const mergedDirections: string[] = [];
+    if (decisionBundle && decisionBundle.accepted_decisions.length > 0) {
+      mergedDirections.push(
+        "CRITICAL — MUST FIX (accepted stabilise decisions):",
+        decisionBundle.accepted_decisions_compact_text,
+        "You MUST apply ALL of the above fixes in this rewrite. Do not ignore them.",
+      );
+    }
+    mergedDirections.push(...noteDirs);
+
+    // Resolve behavior
+    const { data: proj } = await supabase.from("projects")
+      .select("development_behavior, episode_target_duration_seconds, season_episode_count")
+      .eq("id", projectId).maybeSingle();
+    const behavior = proj?.development_behavior || "market";
+
+    // Fetch protect items from latest analysis
+    let protectItems: any[] = [];
+    try {
+      const { data: latestRun } = await supabase.from("development_runs")
+        .select("output_json").eq("document_id", bestVer.documentId)
+        .eq("run_type", "ANALYZE").order("created_at", { ascending: false }).limit(1).maybeSingle();
+      protectItems = latestRun?.output_json?.protect || latestRun?.output_json?.analysis?.protect || [];
+    } catch { /* non-critical */ }
+
+    // Rewrite via canonical path
+    const { candidateVersionId } = await rewriteWithFallback(
+      supabase, supabaseUrl, token, {
+        projectId,
+        documentId: bestVer.documentId,
+        versionId: bestVer.versionId,
+        approvedNotes: [], // notes are injected via globalDirections (same as convergence path)
+        protectItems,
+        deliverableType: docType,
+        developmentBehavior: behavior,
+        format,
+        episode_target_duration_seconds: proj?.episode_target_duration_seconds,
+        season_episode_count: proj?.season_episode_count,
+        globalDirections: mergedDirections,
+      }, jobId, stepCount + 2, format, docType,
+    );
+
+    if (!candidateVersionId) {
+      result.rejectionReason = "rewrite_returned_no_candidate";
+      await logStep(supabase, jobId, stepCount + 3, docType, "cleanup_pass_rejected",
+        `Cleanup pass rejected: rewrite returned no candidate version.`,
+        { ci: currentBestCi, gp: currentBestGp });
+      return result;
+    }
+    result.candidateVersionId = candidateVersionId;
+
+    // Re-review the candidate
+    const reviewResult = await callEdgeFunctionWithRetry(
+      supabase, supabaseUrl, "dev-engine-v2", {
+        action: "analyze",
+        projectId,
+        documentId: bestVer.documentId,
+        versionId: candidateVersionId,
+        deliverableType: docType,
+        format,
+      }, token, projectId, format, docType, jobId, stepCount + 3,
+    );
+
+    const { ci: postCi, gp: postGp } = extractCiGp(reviewResult);
+    result.postCi = postCi;
+    result.postGp = postGp;
+
+    // Stamp scores on candidate version meta_json
+    if (postCi !== null || postGp !== null) {
+      await supabase.from("project_document_versions")
+        .update({ meta_json: { ci: postCi, gp: postGp, score_source: "cleanup_pass_review" } })
+        .eq("id", candidateVersionId);
+    }
+
+    // ── REGRESSION GUARD ──
+    const preBest = compositeScore(currentBestCi, currentBestGp);
+    const postScore = compositeScore(postCi ?? 0, postGp ?? 0);
+    const ciDelta = (postCi ?? 0) - currentBestCi;
+    const gpDelta = (postGp ?? 0) - currentBestGp;
+    const CI_REGRESSION_THRESHOLD = -2;
+    const GP_REGRESSION_THRESHOLD = -3;
+
+    const ciImproved = ciDelta > 0;
+    const gpImproved = gpDelta > 0;
+    const ciRegressed = ciDelta < CI_REGRESSION_THRESHOLD;
+    const gpRegressed = gpDelta < GP_REGRESSION_THRESHOLD;
+    const compositeImproved = postScore > preBest;
+
+    if (ciRegressed && !gpImproved) {
+      result.rejectionReason = `ci_regression: delta=${ciDelta} (${currentBestCi}→${postCi})`;
+    } else if (gpRegressed && !ciImproved) {
+      result.rejectionReason = `gp_regression: delta=${gpDelta} (${currentBestGp}→${postGp})`;
+    } else if (postCi === null || postGp === null) {
+      result.rejectionReason = "review_returned_null_scores";
+    }
+
+    if (result.rejectionReason) {
+      // REJECT: Keep prior best version authoritative
+      await logStep(supabase, jobId, stepCount + 4, docType, "cleanup_pass_rejected",
+        `Cleanup pass REJECTED: ${result.rejectionReason}. Pre: CI=${currentBestCi}, GP=${currentBestGp}. Post: CI=${postCi}, GP=${postGp}. Prior version remains authoritative.`,
+        { ci: postCi ?? currentBestCi, gp: postGp ?? currentBestGp }, undefined,
+        { pre_ci: currentBestCi, pre_gp: currentBestGp, post_ci: postCi, post_gp: postGp,
+          candidate_version_id: candidateVersionId, rejection_reason: result.rejectionReason });
+
+      console.warn(`[auto-run][CLEANUP] AUTORUN_CLEANUP_REJECTED { job_id: "${jobId}", doc_type: "${docType}", candidate: "${candidateVersionId}", reason: "${result.rejectionReason}", pre_ci: ${currentBestCi}, post_ci: ${postCi} }`);
+      return result;
+    }
+
+    // ACCEPT: Cleanup improved or maintained quality
+    result.accepted = true;
+    await logStep(supabase, jobId, stepCount + 4, docType, "cleanup_pass_accepted",
+      `Cleanup pass ACCEPTED: CI ${currentBestCi}→${postCi} (Δ${ciDelta > 0 ? "+" : ""}${ciDelta}), GP ${currentBestGp}→${postGp} (Δ${gpDelta > 0 ? "+" : ""}${gpDelta}). Candidate ${candidateVersionId} is new best.`,
+      { ci: postCi, gp: postGp }, undefined,
+      { pre_ci: currentBestCi, pre_gp: currentBestGp, post_ci: postCi, post_gp: postGp,
+        candidate_version_id: candidateVersionId, ci_delta: ciDelta, gp_delta: gpDelta });
+
+    // Update job frontier/best
+    await updateJob(supabase, jobId, {
+      frontier_version_id: candidateVersionId,
+      frontier_ci: postCi,
+      frontier_gp: postGp,
+      last_ci: postCi,
+      last_gp: postGp,
+      best_version_id: candidateVersionId,
+      best_ci: postCi,
+      best_gp: postGp,
+      best_score: postScore,
+      best_document_id: bestVer.documentId,
+    });
+
+    // Set as current version
+    try {
+      await supabase.rpc("set_current_version", {
+        p_document_id: bestVer.documentId,
+        p_new_version_id: candidateVersionId,
+      });
+    } catch (e: any) {
+      console.warn(`[auto-run][CLEANUP] set_current_version failed: ${e?.message}`);
+    }
+
+    // Auto-resolve notes that were addressed
+    await autoResolveActionableNotes(supabase, projectId, docType, candidateVersionId, jobId, "cleanup_pass");
+
+    console.log(`[auto-run][CLEANUP] AUTORUN_CLEANUP_ACCEPTED { job_id: "${jobId}", doc_type: "${docType}", candidate: "${candidateVersionId}", ci: ${postCi}, gp: ${postGp}, ci_delta: ${ciDelta}, gp_delta: ${gpDelta} }`);
+    return result;
+  } catch (e: any) {
+    result.rejectionReason = `exception: ${e?.message}`;
+    console.error(`[auto-run][CLEANUP] cleanup_pass_error { job_id: "${jobId}", doc_type: "${docType}", error: "${e?.message}" }`);
+    await logStep(supabase, jobId, stepCount + 2, docType, "cleanup_pass_error",
+      `Cleanup pass failed with error: ${e?.message}. Falling through to normal escalation.`,
+      { ci: currentBestCi, gp: currentBestGp }, undefined,
+      { error: e?.message });
+    return result;
+  }
+}
+
+/**
+ * Attempts a cleanup pass before plateau escalation. Returns Response if cleanup
+ * resolved the situation (accepted → continue, or rejected → fall through).
+ * Returns null if cleanup was not eligible or already attempted.
+ */
+async function tryCleanupBeforeEscalation(
+  supabase: any, supabaseUrl: string, token: string,
+  params: {
+    jobId: string;
+    job: any;
+    currentDoc: string;
+    format: string;
+    stepCount: number;
+    currentCi: number;
+    currentGp: number;
+    targetCi: number;
+    escalationSource: string;
+  },
+): Promise<{ attempted: boolean; accepted: boolean; result?: CleanupPassResult }> {
+  const { jobId, job, currentDoc, format, stepCount, currentCi, currentGp, targetCi, escalationSource } = params;
+
+  // Check if already attempted in this job for this stage
+  const alreadyAttempted = await wasCleanupAlreadyAttempted(supabase, jobId, currentDoc);
+  if (alreadyAttempted) {
+    console.log(`[auto-run][CLEANUP] AUTORUN_CLEANUP_SKIPPED { job_id: "${jobId}", doc_type: "${currentDoc}", reason: "already_attempted_this_job", escalation_source: "${escalationSource}" }`);
+    await logStep(supabase, jobId, null, currentDoc, "cleanup_pass_skipped",
+      `Cleanup pass already attempted for ${currentDoc} in this job. Proceeding to escalation.`);
+    return { attempted: false, accepted: false };
+  }
+
+  // Evaluate eligibility
+  const eligibility = await evaluateCleanupEligibility(supabase, job.project_id, currentDoc);
+
+  console.log(`[auto-run][CLEANUP] AUTORUN_CLEANUP_ELIGIBLE { job_id: "${jobId}", doc_type: "${currentDoc}", eligible: ${eligibility.eligible}, reason: "${eligibility.reason}", note_count: ${eligibility.noteCount}, categories: ${JSON.stringify(eligibility.noteCategories)}, escalation_source: "${escalationSource}" }`);
+
+  if (!eligibility.eligible) {
+    await logStep(supabase, jobId, null, currentDoc, "cleanup_pass_not_eligible",
+      `Cleanup pass not eligible for ${currentDoc}: ${eligibility.reason}. Proceeding to escalation.`,
+      { ci: currentCi }, undefined,
+      { ...eligibility, escalation_source: escalationSource });
+    return { attempted: false, accepted: false };
+  }
+
+  // Resolve best GP from existing data
+  const bestVer = await resolveBestScoredEligibleVersionForDoc(supabase, job.project_id, currentDoc);
+  const bestGp = bestVer?.gp ?? currentGp;
+  const bestCi = bestVer?.ci ?? currentCi;
+
+  // Run the cleanup pass
+  const cleanupResult = await runCleanupPass(supabase, supabaseUrl, token, {
+    jobId, job, projectId: job.project_id, docType: currentDoc, format, stepCount,
+    currentBestCi: bestCi, currentBestGp: bestGp, targetCi,
+  });
+
+  return { attempted: true, accepted: cleanupResult.accepted, result: cleanupResult };
+}
+
 
 async function updateJob(supabase: any, jobId: string, fields: Record<string, any>) {
   // SAFETY: Never persist __generating__: sentinel in current_document
