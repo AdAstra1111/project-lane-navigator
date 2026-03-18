@@ -259,7 +259,12 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
       <div className="w-full max-w-md space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium text-foreground">
-            {isStale ? 'Generation Stalled' : allDone ? 'Season Script Complete' : hasRetryableChunks ? 'Generation Incomplete' : 'Generating Season Script'}
+            {resuming ? 'Resuming Generation…'
+              : resumeSuccess ? 'Generation Resumed'
+              : isStale ? 'Generation Stalled'
+              : allDone ? 'Season Script Complete'
+              : hasRetryableChunks ? 'Generation Incomplete'
+              : 'Generating Season Script'}
           </span>
           <span className="text-muted-foreground font-mono text-xs">
             {doneCount} / {total || '?'} episodes
