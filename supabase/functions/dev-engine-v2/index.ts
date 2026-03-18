@@ -7442,6 +7442,9 @@ MATERIAL TO REWRITE:\n${fullText}`;
         planRunId: planRun!.id,
         totalChunks: chunkTexts.length,
         originalCharCount: fullText.length,
+        strategy: strategy || "legacy_slugline",
+        chunkMeta: chunkMeta || [],
+        episodeCount: resolvedEpisodeCount || null,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
