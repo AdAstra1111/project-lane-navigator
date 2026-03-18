@@ -222,11 +222,38 @@ export function useRewritePipeline(projectId: string | undefined) {
       setState(s => ({ ...s, status: 'writing', totalChunks, currentChunk: 0,
         strategy: resolvedStrategy, chunkMeta: resolvedChunkMeta, episodeCount: resolvedEpisodeCount }));
 
+      // Build episode unit map for episodic strategies
       if (resolvedStrategy === 'episodic_indexed' && resolvedEpisodeCount) {
         const preserved = resolvedEpisodeCount - totalChunks;
         pushActivity('info', `Plan ready: ${totalChunks} of ${resolvedEpisodeCount} episodes affected${preserved > 0 ? ` — ${preserved} preserved` : ''}`);
+
+        // Build affected episode set from chunk meta
+        const affectedEpSet = new Set<number>();
+        for (const m of resolvedChunkMeta) {
+          if (m.episode_start != null) {
+            for (let e = m.episode_start; e <= (m.episode_end ?? m.episode_start); e++) {
+              affectedEpSet.add(e);
+            }
+          }
+        }
+
+        // Initialize all episode units
+        const units: EpisodeUnit[] = [];
+        for (let ep = 1; ep <= resolvedEpisodeCount; ep++) {
+          const isAffected = affectedEpSet.has(ep);
+          units.push({
+            episodeNumber: ep,
+            status: isAffected ? 'queued' : 'preserved',
+            content: null,
+            charCount: 0,
+            durationMs: null,
+            isPreserved: !isAffected,
+          });
+        }
+        setEpisodeUnits(units);
       } else {
         pushActivity('info', `Plan ready: ${totalChunks} chunks`);
+        setEpisodeUnits([]);
       }
       startSmoothing();
 
@@ -241,6 +268,15 @@ export function useRewritePipeline(projectId: string | undefined) {
         const epEnd = meta?.episode_end ?? null;
 
         setState(s => ({ ...s, currentChunk: i + 1, currentEpisodeStart: epStart, currentEpisodeEnd: epEnd }));
+
+        // Mark episode(s) as rewriting
+        if (resolvedStrategy === 'episodic_indexed' && epStart != null) {
+          setEpisodeUnits(prev => prev.map(u =>
+            u.episodeNumber >= epStart && u.episodeNumber <= (epEnd ?? epStart)
+              ? { ...u, status: 'rewriting' as EpisodeUnitStatus }
+              : u
+          ));
+        }
 
         const result = await callEngine('rewrite-chunk', {
           planRunId,
@@ -266,9 +302,17 @@ export function useRewritePipeline(projectId: string | undefined) {
           etaMs: avg > 0 && remaining > 0 ? avg * remaining : null,
         }));
 
-        // Use episode-aware message
+        // Mark episode(s) as done with content
         const resultEpStart = result.episodeStart ?? epStart;
         const resultEpEnd = result.episodeEnd ?? epEnd;
+        if (resolvedStrategy === 'episodic_indexed' && resultEpStart != null) {
+          setEpisodeUnits(prev => prev.map(u =>
+            u.episodeNumber >= resultEpStart && u.episodeNumber <= (resultEpEnd ?? resultEpStart)
+              ? { ...u, status: 'done' as EpisodeUnitStatus, content: result.rewrittenText, charCount: result.rewrittenText?.length ?? 0, durationMs: chunkMs }
+              : u
+          ));
+        }
+
         pushActivity('success', buildChunkDoneMessage(
           resolvedStrategy, i, totalChunks, resultEpStart, resultEpEnd,
           (chunkMs / 1000).toFixed(1),
