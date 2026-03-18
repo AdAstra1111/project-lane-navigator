@@ -10459,6 +10459,11 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
               }
             }
 
+            // ── Build selectedOptions from auto-resolved decisions (mirrors manual path) ──
+            const selectedOptions = autoSelectedOptions.length > 0
+              ? autoSelectedOptions.map(s => ({ note_id: s.note_id, option_id: s.option_id }))
+              : undefined;
+
             // ── SINGLE CANDIDATE PATH (all other strategies) ──
             // Use frontier as input if available; compare against BASELINE
             const singleInputVersionId = (job as any).frontier_version_id ?? baselineVersionId;
@@ -10475,6 +10480,7 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
                 episode_target_duration_seconds: episodeDuration,
                 season_episode_count: seasonEpisodeCount,
                 globalDirections: mergedDirections.length > 0 ? mergedDirections : undefined,
+                selectedOptions,
               }, jobId, newStep + 2, format, currentDoc
             );
 
