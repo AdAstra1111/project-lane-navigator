@@ -1872,7 +1872,7 @@ export default function ProjectDevelopmentEngine() {
                           </Button>
                         )}
                       </div>
-                      {/* Chunk activity timeline */}
+                      {/* Rewrite activity timeline */}
                       {rewritePipeline.activityItems.length > 0 && (
                         <ActivityTimeline items={rewritePipeline.activityItems} onClear={rewritePipeline.clearActivity} />
                       )}
