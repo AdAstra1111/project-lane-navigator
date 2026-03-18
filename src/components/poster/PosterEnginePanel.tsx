@@ -31,7 +31,7 @@ import { useProject } from "@/hooks/useProjects";
 
 export default function PosterEnginePanel() {
   const { id: projectId } = useParams<{ id: string }>();
-  const { data: project } = useProject(projectId || "");
+  const { project } = useProject(projectId || "");
   const { data: posters, isLoading } = useProjectPosters(projectId);
   const { data: activePoster } = useActivePoster(projectId);
   const generatePoster = useGeneratePoster(projectId);
