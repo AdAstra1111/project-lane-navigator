@@ -328,11 +328,16 @@ export function useRewritePipeline(projectId: string | undefined) {
 
   const actualPercent = state.totalChunks > 0 ? Math.floor((state.currentChunk / state.totalChunks) * 100) : 0;
 
+  const isEpisodic = state.strategy === 'episodic_indexed';
+  const totalEpisodes = state.episodeCount ?? 0;
+  const affectedEpisodes = state.totalChunks;
+  const preservedEpisodes = totalEpisodes > affectedEpisodes ? totalEpisodes - affectedEpisodes : 0;
+
   const progress = {
     phase: state.status === 'planning'
-      ? (state.strategy === 'episodic_indexed' ? 'processing_episode' : 'processing_chunk')
+      ? (isEpisodic ? 'processing_episode' : 'processing_chunk')
       : state.status === 'writing'
-        ? (state.strategy === 'episodic_indexed' ? 'processing_episode' : 'processing_chunk')
+        ? (isEpisodic ? 'processing_episode' : 'processing_chunk')
         : state.status === 'assembling' ? 'assembling'
         : state.status === 'complete' ? 'complete'
         : state.status === 'error' ? 'error'
@@ -352,6 +357,11 @@ export function useRewritePipeline(projectId: string | undefined) {
       : state.status === 'complete' ? 'Complete'
       : state.status === 'error' ? (state.error || 'Error')
       : '',
+    // Episodic scope metadata
+    isEpisodic,
+    totalEpisodes,
+    affectedEpisodes,
+    preservedEpisodes,
   };
 
   return {
