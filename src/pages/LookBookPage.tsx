@@ -6,6 +6,7 @@ import { useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { Loader2, BookOpen, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FramingStrategyPanel } from '@/components/framing/FramingStrategyPanel';
 import { LookBookViewer } from '@/components/lookbook/LookBookViewer';
 import { generateLookBookData } from '@/lib/lookbook/generateLookBookData';
 import { useProjectBranding } from '@/hooks/useProjectBranding';
