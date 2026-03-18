@@ -9003,6 +9003,30 @@ Rules:
       if (!parsed.must_decide) parsed.must_decide = [];
       if (!parsed.summary) parsed.summary = "";
 
+      // ── POST-LLM FILTER: Strip document-destination/routing decisions ──
+      // The LLM sometimes generates "Which document should receive..." questions
+      // that conflate export composition with document creation routing.
+      const DESTINATION_PATTERNS = [
+        /which\s+document\s+should\s+receive/i,
+        /where\s+should\s+(the|this)\s+(formatted|exported|compiled)/i,
+        /document\s+(destination|routing|target)/i,
+        /receive\s+(the\s+)?(professionally\s+)?formatted/i,
+        /store\s+(the|this)\s+(result|output)\s+in/i,
+        /create\s+(a\s+)?new\s+.*\s+document/i,
+      ];
+      const beforeCount = parsed.must_decide.length;
+      parsed.must_decide = parsed.must_decide.filter((d: any) => {
+        const q = (d.question || d.title || "").toLowerCase();
+        const isDestinationQ = DESTINATION_PATTERNS.some(p => p.test(q));
+        if (isDestinationQ) {
+          console.warn(`[dev-engine-v2][IEL] stripped_destination_decision { question: "${q.slice(0, 80)}", id: "${d.id || 'unknown'}" }`);
+        }
+        return !isDestinationQ;
+      });
+      if (beforeCount !== parsed.must_decide.length) {
+        console.log(`[dev-engine-v2] executive-strategy: filtered ${beforeCount - parsed.must_decide.length} document-destination decisions`);
+      }
+
       console.log(`[dev-engine-v2] executive-strategy: auto_fixes=${JSON.stringify(parsed.auto_fixes)}, must_decide=${parsed.must_decide.length}`);
 
       return new Response(JSON.stringify(parsed), {
