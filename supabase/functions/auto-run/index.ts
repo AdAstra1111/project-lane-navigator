@@ -3708,6 +3708,26 @@ async function tryPlateauForcePromote(
   const { jobId, job, currentDoc, format, stepCount, targetCi, detectedCi, detectedBestCi, plateauVersion } = params;
   if (!job.allow_defaults) return null;
 
+  // ── CLEANUP PASS GATE: try deterministic note cleanup before escalating ──
+  if (isExceptionalObjective(job) && (typeof detectedBestCi === "number" ? detectedBestCi : detectedCi) < targetCi) {
+    const _supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const _token = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const bestGpForCleanup = (await resolveBestScoredEligibleVersionForDoc(supabase, job.project_id, currentDoc))?.gp ?? 0;
+    const cleanup = await tryCleanupBeforeEscalation(supabase, _supabaseUrl, _token, {
+      jobId, job, currentDoc, format, stepCount,
+      currentCi: typeof detectedBestCi === "number" ? detectedBestCi : detectedCi,
+      currentGp: bestGpForCleanup,
+      targetCi,
+      escalationSource: `tryPlateauForcePromote_${plateauVersion}`,
+    });
+    if (cleanup.attempted && cleanup.accepted) {
+      // Cleanup succeeded — don't escalate, let pipeline continue
+      console.log(`[auto-run][CLEANUP] cleanup_prevented_escalation { job_id: "${jobId}", doc_type: "${currentDoc}", post_ci: ${cleanup.result?.postCi}, source: "tryPlateauForcePromote" }`);
+      return null; // Return null to let caller continue the rewrite loop
+    }
+    // Cleanup was attempted but rejected, or not eligible — fall through to escalation
+  }
+
   // ── EXCEPTIONAL PLATEAU BLOCK: never force-promote below target in Exceptional mode ──
   // TERMINAL: sets pause state and returns a Response directly, so callers cannot fall through into churn loops.
   if (isExceptionalObjective(job) && (typeof detectedBestCi === "number" ? detectedBestCi : detectedCi) < targetCi) {
