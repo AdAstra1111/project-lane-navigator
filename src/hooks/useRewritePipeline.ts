@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
+import { parseScenes } from '@/lib/script_change/sceneParser';
 import type { ActivityItem } from '@/components/devengine/ActivityTimeline';
 
 interface ChunkMetaItem {
@@ -15,6 +16,19 @@ interface ChunkMetaItem {
 }
 
 export type EpisodeUnitStatus = 'preserved' | 'queued' | 'rewriting' | 'done' | 'failed';
+export type SceneUnitStatus = 'preserved' | 'queued' | 'rewriting' | 'rewritten' | 'failed';
+
+export interface SceneUnit {
+  /** 1-based ordinal within the episode */
+  sceneNumber: number;
+  slugline: string;
+  status: SceneUnitStatus;
+  content: string | null;
+  charCount: number;
+  /** Character offset range within the episode text */
+  startOffset: number;
+  endOffset: number;
+}
 
 export interface EpisodeUnit {
   /** 1-based episode number */
@@ -26,6 +40,10 @@ export interface EpisodeUnit {
   durationMs: number | null;
   /** True if this episode was not in the affected set */
   isPreserved: boolean;
+  /** Parsed scenes within the episode (empty if no scene structure detected) */
+  scenes: SceneUnit[];
+  /** Whether scene-level structure was detected */
+  hasSceneGraph: boolean;
 }
 
 interface RewritePipelineState {
@@ -248,6 +266,8 @@ export function useRewritePipeline(projectId: string | undefined) {
             charCount: 0,
             durationMs: null,
             isPreserved: !isAffected,
+            scenes: [],
+            hasSceneGraph: false,
           });
         }
         setEpisodeUnits(units);
@@ -306,11 +326,31 @@ export function useRewritePipeline(projectId: string | undefined) {
         const resultEpStart = result.episodeStart ?? epStart;
         const resultEpEnd = result.episodeEnd ?? epEnd;
         if (resolvedStrategy === 'episodic_indexed' && resultEpStart != null) {
-          setEpisodeUnits(prev => prev.map(u =>
-            u.episodeNumber >= resultEpStart && u.episodeNumber <= (resultEpEnd ?? resultEpStart)
-              ? { ...u, status: 'done' as EpisodeUnitStatus, content: result.rewrittenText, charCount: result.rewrittenText?.length ?? 0, durationMs: chunkMs }
-              : u
-          ));
+          setEpisodeUnits(prev => prev.map(u => {
+            if (u.episodeNumber >= resultEpStart && u.episodeNumber <= (resultEpEnd ?? resultEpStart)) {
+              const text: string = result.rewrittenText ?? '';
+              const parsed = parseScenes(text);
+              const sceneUnits: SceneUnit[] = parsed.map((sc, idx) => ({
+                sceneNumber: idx + 1,
+                slugline: sc.slugline,
+                status: 'rewritten' as SceneUnitStatus,
+                content: text.slice(sc.start, sc.end),
+                charCount: sc.end - sc.start,
+                startOffset: sc.start,
+                endOffset: sc.end,
+              }));
+              return {
+                ...u,
+                status: 'done' as EpisodeUnitStatus,
+                content: text,
+                charCount: text.length,
+                durationMs: chunkMs,
+                scenes: sceneUnits,
+                hasSceneGraph: sceneUnits.length > 0,
+              };
+            }
+            return u;
+          }));
         }
 
         pushActivity('success', buildChunkDoneMessage(
