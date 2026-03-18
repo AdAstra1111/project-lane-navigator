@@ -258,6 +258,7 @@ export async function generateLookBookData(
       body: (canon.world_rules as string) || undefined,
       bodySecondary: (canon.locations as string) || undefined,
       quote: (canon.timeline as string) || undefined,
+      imageUrl: worldImageUrl || undefined,
     });
   }
 
