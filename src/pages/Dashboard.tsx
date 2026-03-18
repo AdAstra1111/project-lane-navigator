@@ -231,6 +231,7 @@ export default function Dashboard() {
                     index={i}
                     readinessScore={projectScores[project.id]?.readiness ?? null}
                     financeReadinessScore={projectScores[project.id]?.financeReadiness ?? null}
+                    posterUrl={posterMap.get(project.id) || null}
                     selected={selectedIds.has(project.id)}
                     onSelect={toggleSelect}
                     onTogglePin={handleTogglePin}
