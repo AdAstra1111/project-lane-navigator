@@ -14,7 +14,7 @@ import { useState } from 'react';
 
 interface PlateauDiagnosisPanelProps {
   diagnosis: PlateauDiagnosisRow;
-  onLowerTarget?: (ci: number, gp: number) => void;
+  onForceAdvance?: () => void;
   onStop?: () => void;
 }
 
@@ -45,7 +45,7 @@ const SEVERITY_STYLES = {
   info: 'border-border/50 bg-muted/10',
 };
 
-export function PlateauDiagnosisPanel({ diagnosis, onLowerTarget, onStop }: PlateauDiagnosisPanelProps) {
+export function PlateauDiagnosisPanel({ diagnosis, onForceAdvance, onStop }: PlateauDiagnosisPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const rec = diagnosis.recommendation_bundle;
   const severity = CAUSE_SEVERITY[diagnosis.primary_cause] || 'info';
@@ -181,25 +181,16 @@ export function PlateauDiagnosisPanel({ diagnosis, onLowerTarget, onStop }: Plat
             Create Stronger DevSeed
           </Button>
         )}
-        {onLowerTarget && (
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 text-[10px] px-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
-              onClick={() => onLowerTarget(90, 90)}
-            >
-              Lower to Premium (90+)
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 text-[10px] px-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
-              onClick={() => onLowerTarget(85, 85)}
-            >
-              Lower to Strong (85+)
-            </Button>
-          </>
+        {onForceAdvance && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 text-[10px] px-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
+            onClick={onForceAdvance}
+          >
+            <ArrowRight className="h-2.5 w-2.5 mr-1" />
+            Force Advance Stage
+          </Button>
         )}
         {onStop && (
           <Button

@@ -962,27 +962,19 @@ export function AutoRunMissionControl({
           {hasExceptionalPlateau && plateauDiagnosis ? (
             <PlateauDiagnosisPanel
               diagnosis={plateauDiagnosis}
-              onLowerTarget={(ci, gp) => {
-                onUpdateTarget?.(ci, gp);
-                toast({ title: `Quality objective lowered to ${ci}+`, description: 'Resume the run to continue with the new target.' });
-              }}
+              onForceAdvance={() => onResume?.()}
               onStop={() => onStop?.()}
             />
           ) : hasExceptionalPlateau ? (
             <div className="p-2.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 space-y-2">
-              <div className="font-semibold flex items-center gap-1.5">⚠ Plateau — Escalation Required</div>
+              <div className="font-semibold flex items-center gap-1.5">⚠ Plateau — Progress Exhausted</div>
               <div className="text-amber-300/80">
-                Exceptional quality target not met. CI plateaued at {job?.last_ci ?? '?'} (target: {(job?.converge_target_json as any)?.ci ?? 95}).
-                Auto-promote blocked. The run has halted — choose an action below.
+                Quality optimization plateaued at CI {job?.last_ci ?? '?'}. All deterministic recovery options have been exhausted. Choose an action below.
               </div>
               <div className="flex flex-wrap gap-1.5 pt-1">
-                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
-                  onClick={() => { onUpdateTarget?.(90, 90); toast({ title: 'Quality objective lowered to Premium (90+)', description: 'Resume the run to continue with the new target.' }); }}>
-                  Lower to Premium (90+)
-                </Button>
-                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
-                  onClick={() => { onUpdateTarget?.(85, 85); toast({ title: 'Quality objective lowered to Strong (85+)', description: 'Resume the run to continue with the new target.' }); }}>
-                  Lower to Strong (85+)
+                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 border-primary/40 text-primary hover:bg-primary/10"
+                  onClick={() => onResume?.()}>
+                  <Play className="h-2.5 w-2.5 mr-1" /> Force Continue
                 </Button>
                 <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 border-border/50 text-muted-foreground hover:bg-muted/30"
                   onClick={() => onStop?.()}>
@@ -1391,7 +1383,7 @@ export function AutoRunMissionControl({
                 completedStages={pipelineProgress.satisfied}
               />
 
-              {/* ── Quality Objective & Scores ── */}
+              {/* ── Quality Policy & Scores ── */}
               {(() => {
                 const target = (job as any).converge_target_json || { ci: 100, gp: 100 };
                 const dq = job.last_ci ?? 0;
@@ -1399,17 +1391,7 @@ export function AutoRunMissionControl({
                 const dqMet = dq >= target.ci;
                 const grMet = gr >= target.gp;
 
-                // Quality Objective band derivation from stored target
-                const objectiveMin = Math.min(target.ci, target.gp);
-                const objectiveBand = objectiveMin >= 95 ? 'Exceptional' : objectiveMin >= 90 ? 'Premium' : objectiveMin >= 85 ? 'Strong' : 'Viable';
-                const BANDS = [
-                  { label: 'Viable', min: 80, desc: '80+' },
-                  { label: 'Strong', min: 85, desc: '85+' },
-                  { label: 'Premium', min: 90, desc: '90+' },
-                  { label: 'Exceptional', min: 95, desc: '95+' },
-                ] as const;
-
-                // Distance to objective
+                // Distance to aspiration target
                 const dqDist = Math.max(0, target.ci - dq);
                 const grDist = Math.max(0, target.gp - gr);
                 const primaryConstraint = dqDist > grDist ? 'Document Quality' : grDist > 0 ? 'Greenlight Readiness' : null;
@@ -1427,25 +1409,14 @@ export function AutoRunMissionControl({
 
                 return (
                   <div className="space-y-2">
-                    {/* Quality Objective selector */}
-                    <div className="flex items-center gap-2 text-[9px] flex-wrap">
-                      <span className="text-muted-foreground font-medium">Quality Objective</span>
-                      <div className="flex gap-0.5">
-                        {BANDS.map(b => (
-                          <button
-                            key={b.label}
-                            onClick={() => onUpdateTarget?.(b.min, b.min)}
-                            className={`px-1.5 py-0.5 rounded text-[8px] font-medium transition-colors border ${
-                              objectiveBand === b.label
-                                ? 'bg-primary/20 text-primary border-primary/40'
-                                : 'bg-muted/30 text-muted-foreground border-border/30 hover:bg-muted/50'
-                            }`}
-                          >
-                            {b.label}
-                          </button>
-                        ))}
-                      </div>
-                      <span className="text-[8px] text-muted-foreground/60 ml-auto">{objectiveMin}+</span>
+                    {/* Quality Policy — Max Quality (no band selector) */}
+                    <div className="flex items-center gap-2 text-[9px]">
+                      <span className="text-muted-foreground font-medium">Optimization</span>
+                      <Badge variant="outline" className="text-[8px] px-1.5 py-0 bg-primary/10 text-primary border-primary/30">
+                        <Zap className="h-2.5 w-2.5 mr-0.5" />
+                        Max Quality
+                      </Badge>
+                      <span className="text-[8px] text-muted-foreground/60 ml-auto">Aspiration: {Math.min(target.ci, target.gp)}+</span>
                     </div>
 
                     {/* Current scores — Document Quality, Greenlight Readiness, NI */}
@@ -1453,12 +1424,12 @@ export function AutoRunMissionControl({
                       <div className="text-center p-1.5 rounded bg-muted/30">
                         <div className="text-muted-foreground text-[7px] leading-tight">Doc Quality</div>
                         <div className={`font-semibold ${dqMet ? 'text-emerald-400' : ''}`}>{dq || '—'}</div>
-                        {dqDist > 0 && <div className="text-[7px] text-muted-foreground/60">+{dqDist} to obj</div>}
+                        {dqDist > 0 && <div className="text-[7px] text-muted-foreground/60">+{dqDist} to go</div>}
                       </div>
                       <div className="text-center p-1.5 rounded bg-muted/30">
                         <div className="text-muted-foreground text-[7px] leading-tight">Greenlight</div>
                         <div className={`font-semibold ${grMet ? 'text-emerald-400' : ''}`}>{gr || '—'}</div>
-                        {grDist > 0 && <div className="text-[7px] text-muted-foreground/60">+{grDist} to obj</div>}
+                        {grDist > 0 && <div className="text-[7px] text-muted-foreground/60">+{grDist} to go</div>}
                       </div>
                       <div className="text-center p-1.5 rounded bg-muted/30">
                         <div className="text-muted-foreground text-[7px] leading-tight">Pipeline</div>
@@ -1471,7 +1442,7 @@ export function AutoRunMissionControl({
                       {primaryConstraint && (
                         <span className="text-amber-400">
                           <AlertTriangle className="h-2.5 w-2.5 inline mr-0.5" />
-                          {primaryConstraint} +{Math.max(dqDist, grDist)} to objective
+                          {primaryConstraint} +{Math.max(dqDist, grDist)} to aspiration
                         </span>
                       )}
                       <span className="text-muted-foreground ml-auto flex items-center gap-2">

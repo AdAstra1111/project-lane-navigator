@@ -592,10 +592,12 @@ const MAX_STAGE_ITERATIONS = 5;
 
 /**
  * Resolve the effective CI target for a job.
- * Reads converge_target_json.ci from the job; falls back to 95 (Exceptional).
+ * Reads converge_target_json.ci from the job; falls back to 95.
  * NOTE: This is the *aspiration* target the rewrite loop drives toward.
  * GLOBAL_MIN_CI (90) is the separate force-promote floor used only when
  * genuinely stuck (plateau + notes exhausted).
+ * POLICY: Max Quality — all jobs target the highest achievable quality.
+ * The aspiration target is a progression floor, NOT an optimization ceiling.
  */
 function resolveTargetCI(job: any): number {
   const ct = job?.converge_target_json;
@@ -603,20 +605,16 @@ function resolveTargetCI(job: any): number {
     const ci = Number(ct.ci); // coerce string "81" to number 81
     if (!isNaN(ci) && ci >= 0 && ci <= 100) return ci;
   }
-  return 95; // Exceptional default — matches job creation default
+  return 95; // Max quality default
 }
 
 /**
- * Returns true when the job's quality objective is Exceptional (CI >= 95).
- * Used to gate auto-force-promote: Exceptional mode NEVER promotes below target.
+ * @deprecated — Max Quality policy: always returns true.
+ * All jobs use maximize-quality behavior. Kept as a function for call-site compatibility
+ * during transition; will be inlined/removed in future cleanup.
  */
-function isExceptionalObjective(job: any): boolean {
-  const ct = job?.converge_target_json;
-  if (ct !== null && ct !== undefined && typeof ct === "object") {
-    const ci = Number(ct.ci);
-    if (!isNaN(ci)) return ci >= 95;
-  }
-  return true; // default is Exceptional
+function isExceptionalObjective(_job: any): boolean {
+  return true; // Max Quality — all jobs behave as maximize-quality
 }
 
 function extractTargetGP(job: any): number {
@@ -3622,12 +3620,10 @@ function computePlateauDiagnosisBackend(input: DiagInput): {
       recommended_mutations: ["Focus on specific blocker areas"],
     };
   } else {
-    const suggestedCi = input.bestCi >= 90 ? 90 : input.bestCi >= 85 ? 85 : 80;
     rec = {
-      recommendation_type: "lower_quality_objective", short_label: "Lower quality target",
-      rationale: `CI gap of ${ciGap} may not close with current seed.`,
-      recommended_mutations: [],
-      recommended_quality_target: { ci: suggestedCi, gp: suggestedCi },
+      recommendation_type: "force_advance_stage", short_label: "Force advance with best version",
+      rationale: `CI gap of ${ciGap} may not close with current seed. Consider force-advancing with the strongest available version (CI ~${input.bestCi}) or regenerating the seed.`,
+      recommended_mutations: ["Force-promote best available version to advance the pipeline", "Or regenerate DevSeed with stronger structural foundations"],
     };
   }
 
@@ -4869,9 +4865,9 @@ Deno.serve(async (req) => {
           const ct = body.converge_target_json;
           if (ct && typeof ct === "object") {
             const ci = Number(ct.ci); const gp = Number(ct.gp);
-            if (!isNaN(ci) && ci >= 0 && ci <= 100) return { ci, gp: !isNaN(gp) ? gp : 85 };
+            if (!isNaN(ci) && ci >= 0 && ci <= 100) return { ci, gp: !isNaN(gp) ? gp : 95 };
           }
-          return { ci: 95, gp: 95 }; // Exceptional band default — user can manually downgrade via UI
+          return { ci: 95, gp: 95 }; // Max Quality default — optimize until progress exhausted
         })(),
         allow_defaults: body.allow_defaults === true,
         follow_latest: body.follow_latest === true ? true : false,
@@ -4880,7 +4876,7 @@ Deno.serve(async (req) => {
           ? Math.max(MIN_VERSION_CAP, Math.min(MAX_VERSION_CAP, body.max_versions_per_doc_per_job))
           : DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB,
       };
-      console.log(`[IEL] job insert pipeline_key=${insertPayload.pipeline_key} fmt=${fmt} converge_target=${JSON.stringify(insertPayload.converge_target_json)} quality_objective=Exceptional_default`);
+      console.log(`[IEL] job insert pipeline_key=${insertPayload.pipeline_key} fmt=${fmt} converge_target=${JSON.stringify(insertPayload.converge_target_json)} quality_policy=max_quality`);
       const { data: job, error } = await supabase.from("auto_run_jobs").insert(insertPayload).select("*").single();
 
       if (error) throw new Error(`Failed to create job: ${error.message}`);
