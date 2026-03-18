@@ -5381,11 +5381,54 @@ A complete beats doc should score CI 75–85.`;
       //   2. Sample 10 representative episodes spread across the arc for qualitative scoring
       //   3. Inject the structural context so the scorer evaluates episode quality not doc length
       let episodeGridStructuralBlock = "";
+      let seasonScriptStructuralBlock = "";
       let docTextForScoring = version.plaintext.slice(0, maxContextChars);
+
+      if ((effectiveDeliverable === "season_script" || effectiveDeliverable === "season_master_script") && version.plaintext.length > 1000) {
+        try {
+          const blocks = parseEpisodeBlocks(version.plaintext);
+          const totalParsed = blocks.size;
+          const expectedCount = effectiveSeasonCount || totalParsed;
+          const missingEpisodes = Math.max(0, expectedCount - totalParsed);
+          const allNums = Array.from(blocks.keys()).sort((a, b) => a - b);
+          const sampleSize = Math.min(12, allNums.length);
+          const sampleIndices = sampleSize > 0
+            ? Array.from({ length: sampleSize }, (_, i) => Math.floor((i / (sampleSize - 1 || 1)) * (allNums.length - 1)))
+              .map((idx) => allNums[idx])
+            : [];
+          const sampledBlocks = sampleIndices.map((n) => blocks.get(n)?.content || "").join("\n\n---\n\n");
+          const lastEpisodeNumber = allNums[allNums.length - 1] || 0;
+          const lastEpisodeBlock = lastEpisodeNumber ? (blocks.get(lastEpisodeNumber)?.content || "") : "";
+          const finalTail = (lastEpisodeBlock || version.plaintext).slice(-400).trim();
+          const hasExplicitEnding = /\b(EPISODE END|FADE OUT|THE END|END OF EPISODE)\b/i.test(lastEpisodeBlock);
+          const endsWithTerminalPunctuation = /[.!?]["')\]]?$/.test(finalTail);
+          const finalEpisodeAppearsTruncated = !!lastEpisodeBlock && !hasExplicitEnding && !endsWithTerminalPunctuation;
+          const safeTailSnippet = finalTail.replace(/`/g, "'").slice(-220);
+
+          seasonScriptStructuralBlock = `\nSEASON SCRIPT STRUCTURAL ANALYSIS (computed from FULL plaintext — authoritative):
+Canonical expected episodes: ${expectedCount}
+Episode headings parsed from current plaintext: ${totalParsed}${missingEpisodes > 0 ? ` — ${missingEpisodes} episodes missing` : " ✓"}
+Highest episode number present: ${lastEpisodeNumber}
+Final episode status: ${finalEpisodeAppearsTruncated ? "appears truncated or abruptly cut off" : "appears structurally complete"}
+Final tail excerpt (from full plaintext, not the sample): ${safeTailSnippet}
+
+CRITICAL REVIEW INSTRUCTION:
+- The MATERIAL block below is a representative sample for scoring, NOT the full season.
+- NEVER infer total episode count from the sample size or excerpt length.
+- If parsed episode count equals canonical expected episodes, do NOT claim fewer episodes were provided.
+- Base completeness/blocker language on these computed full-document facts.`;
+
+          if (sampledBlocks) {
+            docTextForScoring = sampledBlocks.slice(0, maxContextChars);
+          }
+          console.log(`[dev-engine-v2] season_script scoring: sampled ${sampleIndices.length} of ${totalParsed} episodes, expected=${expectedCount}, truncated=${finalEpisodeAppearsTruncated}`);
+        } catch (seasonScriptErr) {
+          console.warn("[dev-engine-v2] season_script structural analysis failed:", seasonScriptErr);
+        }
+      }
 
       if (effectiveDeliverable === "episode_grid" && version.plaintext.length > 1000) {
         try {
-          const { parseEpisodeBlocks } = await import("../_shared/surgicalEpisodeRewrite.ts");
           const blocks = parseEpisodeBlocks(version.plaintext);
           const totalParsed = blocks.size;
           const expectedCount = effectiveSeasonCount || totalParsed;
@@ -5465,9 +5508,9 @@ STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 PROJECT: ${project?.title || "Unknown"}
 LANE: ${analyzeLane} | BUDGET: ${project?.budget_range || "Unknown"}
-${prevContext}${seasonContext}${qualBinding}${canonOSContext}${effectiveProfileContext}${signalContext}${lockedDecisionsContext}${teamVoiceBlock}${supportingContext}${spineAlignmentBlock}${analyzeCompBlock}${episodeGridStructuralBlock}
+${prevContext}${seasonContext}${qualBinding}${canonOSContext}${effectiveProfileContext}${signalContext}${lockedDecisionsContext}${teamVoiceBlock}${supportingContext}${spineAlignmentBlock}${analyzeCompBlock}${episodeGridStructuralBlock}${seasonScriptStructuralBlock}
 
-MATERIAL (${version.plaintext.length} chars total${episodeGridStructuralBlock ? " — sampled for scoring stability" : ""}):
+MATERIAL (${version.plaintext.length} chars total${episodeGridStructuralBlock || seasonScriptStructuralBlock ? " — sampled for scoring stability" : ""}):
 ${docTextForScoring}`;
 
       // ── Cost optimisation: tiered model selection for ANALYZE ──
