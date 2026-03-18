@@ -8976,6 +8976,9 @@ Rules:
 - NEVER ask about tone, tonal register, or genre — these are already set on the project (see CONTEXT above).
 - NEVER ask whether to lock the character roster — if a character bible exists, the roster is already locked.
 - NEVER ask about any field already listed in "Existing qualification overrides" above.
+- NEVER ask "Which document should receive..." or any document-destination/routing question. Export and packaging flows produce artifacts — they do NOT overwrite source documents.
+- NEVER ask where to store, route, or place formatted output. Documents like Concept Brief, Treatment, and Pitch Deck are source documents — export flows read from them, never write to them.
+- NEVER generate decisions about creating "New Pitch Deck document" or choosing between existing documents as output destinations.
 - If all blocking issues are resolvable from the CONTEXT above, return an empty must_decide array.`;
 
       const userPrompt = `FOUNDATION DOCUMENTS (use these to answer qualification questions — do NOT ask the user about anything resolvable from here):\n${foundationContext}\n\nLATEST ANALYSIS:\n${analysisSnippet}\n\nCURRENT DOCUMENT MATERIAL:\n${materialText}`;
