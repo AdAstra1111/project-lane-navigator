@@ -1087,10 +1087,8 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
           .eq("document_id", epDocRecord!.id)
           .neq("id", epVersion!.id);
 
-        // Update latest_version_id on doc row
-        await supabase.from("project_documents")
-          .update({ latest_version_id: epVersion!.id, updated_at: new Date().toISOString() })
-          .eq("id", epDocRecord!.id);
+        // NOTE: Do NOT set latest_version_id here — version is empty placeholder.
+        // latest_version_id will be set on successful completion in the bg task below.
 
         console.log(`[generate-document] Episode beats background generation starting: ${docType} v${epVersionNum} episodeCount=${finalEpisodeCount}`);
 
