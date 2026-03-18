@@ -6,6 +6,7 @@ import { useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { Loader2, BookOpen, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FramingStrategyPanel } from '@/components/framing/FramingStrategyPanel';
 import { LookBookViewer } from '@/components/lookbook/LookBookViewer';
 import { generateLookBookData } from '@/lib/lookbook/generateLookBookData';
 import { useProjectBranding } from '@/hooks/useProjectBranding';
@@ -105,8 +106,8 @@ export default function LookBookPage() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Regenerate button in top-right */}
-      <div className="absolute top-2 right-2 z-20">
+      {/* Creative Framing + Regenerate */}
+      <div className="absolute top-2 right-2 z-20 flex items-center gap-2">
         <Button
           variant="ghost"
           size="sm"
@@ -118,6 +119,14 @@ export default function LookBookPage() {
           Regenerate
         </Button>
       </div>
+
+      {/* Framing strategy sidebar */}
+      {projectId && (
+        <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0 overflow-y-auto max-h-64">
+          <FramingStrategyPanel projectId={projectId} contentType="lookbook" compact />
+        </div>
+      )}
+
       <LookBookViewer
         data={lookBookData}
         onExportPDF={handleExportPDF}

@@ -19,6 +19,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { PosterCompositor } from "@/components/poster/PosterCompositor";
+import { FramingStrategyPanel } from "@/components/framing/FramingStrategyPanel";
 import {
   useProjectPosters,
   useActivePoster,
@@ -227,6 +228,11 @@ export default function PosterEnginePanel() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Creative Framing Panel */}
+      {projectId && (
+        <FramingStrategyPanel projectId={projectId} contentType="poster" compact />
       )}
 
       {/* 6-Concept Grid */}
