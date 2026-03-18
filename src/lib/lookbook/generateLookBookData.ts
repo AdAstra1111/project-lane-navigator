@@ -353,6 +353,8 @@ export async function generateLookBookData(
     companyLogoUrl: branding.companyLogoUrl || null,
   });
 
+  console.log('[LookBook] ✓ generation complete — slides:', slides.length, slides.map(s => s.type));
+
   return {
     projectId,
     projectTitle: title,
