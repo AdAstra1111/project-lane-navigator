@@ -168,6 +168,22 @@ export default function Settings() {
           </div>
         </motion.section>
 
+        {/* Branding */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.04 }}
+          className="glass-card rounded-xl p-6 mb-6"
+        >
+          <h2 className="font-display font-semibold text-foreground mb-2 flex items-center gap-2">
+            <ImageIcon className="h-5 w-5 text-primary" /> Export Branding
+          </h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Upload your logo for use on PDF package exports, cover pages, and headers.
+          </p>
+          <BrandAssetUpload />
+        </motion.section>
+
         {/* Password */}
         <motion.section
           initial={{ opacity: 0, y: 8 }}
