@@ -164,7 +164,7 @@ export function AutoRunProgressPanel({
         {job.pause_reason && (isPaused || isAwaitingApproval) && (
           <div className="flex items-center gap-1.5 text-[10px] text-amber-400 bg-amber-500/5 rounded px-2 py-1">
             <AlertTriangle className="h-3 w-3 shrink-0" />
-            <span>{job.pause_reason}</span>
+            <span>{formatPauseReason(job.pause_reason)}</span>
           </div>
         )}
 
