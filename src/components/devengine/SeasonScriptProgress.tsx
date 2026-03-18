@@ -273,7 +273,7 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
         <Progress value={pct} className="h-2" />
 
         {/* Stale warning with resume control */}
-        {isStale && (
+        {isStale && !resumeSuccess && !resuming && (
           <div className="flex items-start gap-2 p-2 rounded-md bg-destructive/10 border border-destructive/30">
             <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
             <div className="space-y-1">
