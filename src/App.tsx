@@ -95,6 +95,7 @@ const IntelEvents = lazy(() => import("./pages/IntelEvents"));
 const IntelAlignment = lazy(() => import("./pages/IntelAlignment"));
 const ExemplarBrowser = lazy(() => import("./pages/ExemplarBrowser"));
 const CIBlueprintEngine = lazy(() => import("./pages/CIBlueprintEngine"));
+const PosterEngine = lazy(() => import("./components/poster/PosterEnginePanel"));
 
 
 // ProjectShell — new unified workspace frame (Week 1 refactor)
@@ -222,6 +223,7 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/produce" element={<ProtectedRoute><ProjectShell><ProducerCockpit /></ProjectShell></ProtectedRoute>} />
           <Route path="/projects/:id/ai-content" element={<ProtectedRoute><ProjectShell><AIContentPage /></ProjectShell></ProtectedRoute>} />
           <Route path="/projects/:id/casting" element={<ProtectedRoute><ProjectShell><ProjectCasting /></ProjectShell></ProtectedRoute>} />
+          <Route path="/projects/:id/poster" element={<ProtectedRoute><ProjectShell><PosterEngine /></ProjectShell></ProtectedRoute>} />
           <Route path="/showcase" element={<ProtectedRoute><Showcase /></ProtectedRoute>} />
           <Route path="/narrative-dna" element={<ProtectedRoute><NarrativeDna /></ProtectedRoute>} />
           <Route path="/narrative-engines" element={<ProtectedRoute><NarrativeEngines /></ProtectedRoute>} />
