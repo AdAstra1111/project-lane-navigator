@@ -34,6 +34,10 @@ export interface ManualDecisionState {
   secondaryCtaText?: string;
   /** Secondary CTA action key */
   secondaryAction?: OperatorRecommendation;
+  /** Active rewrite discipline mode, if resolved */
+  disciplineMode?: 'full_rewrite' | 'selective_rewrite' | 'late_stage_patch';
+  /** Discipline mode label for UI display */
+  disciplineModeLabel?: string;
 }
 
 export interface ManualDecisionInput {
