@@ -1847,7 +1847,7 @@ export default function ProjectDevelopmentEngine() {
                     }
                     if (nbd) convert.mutate({ targetOutput: nbd.toUpperCase(), protectItems: latestAnalysis?.protect });
                   }} />
-                  {/* Chunk rewrite progress with ProcessProgressBar */}
+                  {/* Rewrite progress with ProcessProgressBar */}
                   {rewritePipeline.status !== 'idle' && rewritePipeline.status !== 'complete' && (
                     <div className="p-2 rounded-lg border bg-muted/30 space-y-2">
                       <ProcessProgressBar
