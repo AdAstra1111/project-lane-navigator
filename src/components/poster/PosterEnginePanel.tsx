@@ -219,6 +219,8 @@ export default function PosterEnginePanel() {
                       <PosterCompositor
                         keyArtUrl={poster.key_art_public_url || ""}
                         title={project?.title || "Untitled"}
+                        companyLogoUrl={branding?.companyLogoUrl}
+                        companyName={branding?.companyName}
                         width={280}
                       />
 
