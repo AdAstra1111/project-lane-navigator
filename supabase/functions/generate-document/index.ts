@@ -1413,8 +1413,9 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
             await serviceClient.from("project_document_versions")
               .update({ is_current: true, meta_json: { bg_generating: false, bg_completed_at: new Date().toISOString(), chunks_total: chunkResult.totalChunks, chunks_completed: chunkResult.completedChunks } })
               .eq("id", chunkVersion!.id);
+            // NOW set latest_version_id — content is confirmed valid
             await serviceClient.from("project_documents")
-              .update({ updated_at: new Date().toISOString() })
+              .update({ latest_version_id: chunkVersion!.id, updated_at: new Date().toISOString() })
               .eq("id", chunkDocRecord!.id);
             console.log(`[generate-document] Chunked background generation COMPLETE: ${docType} v${chunkVersionNum} chunks=${chunkResult.completedChunks}/${chunkResult.totalChunks}`);
 
