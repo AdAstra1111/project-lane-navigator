@@ -7765,7 +7765,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
             violation: sidResult.violation,
             violations: sidResult.details.violations,
             repair_hint: sidResult.repair_hint,
-            detail: `Chunked rewrite output for ${effectiveDeliverable} exceeded stage identity constraints and was not saved. ${sidResult.repair_hint || "Regenerate with correct stage constraints."}`,
+            detail: `Rewrite output for ${effectiveDeliverable} exceeded stage identity constraints and was not saved. ${sidResult.repair_hint || "Regenerate with correct stage constraints."}`,
           }), {
             status: 422,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
