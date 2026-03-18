@@ -492,15 +492,22 @@ export async function createVersion(
 
   if (error) throw new Error(`createVersion(${key} v${nextVersion}): ${error.message}`);
 
-  // ── PATCH A1: Always set latest_version_id on the parent document ──
-  const { error: lvErr } = await supabase
-    .from("project_documents")
-    .update({ latest_version_id: newVersion.id })
-    .eq("id", opts.documentId);
-  if (lvErr) {
-    console.warn(`[doc-os] failed to set latest_version_id for doc ${opts.documentId}: ${lvErr.message}`);
+  // ── PATCH A1: Set latest_version_id only when version has renderable content ──
+  // Empty/placeholder versions must NOT become latest — prevents FK-blocked deletions
+  // and ensures latest always points to a usable version.
+  const hasRenderableContent = opts.plaintext && opts.plaintext.trim().length > 10;
+  if (hasRenderableContent) {
+    const { error: lvErr } = await supabase
+      .from("project_documents")
+      .update({ latest_version_id: newVersion.id })
+      .eq("id", opts.documentId);
+    if (lvErr) {
+      console.warn(`[doc-os] failed to set latest_version_id for doc ${opts.documentId}: ${lvErr.message}`);
+    } else {
+      console.log(`[doc-os] latest_version_id set for doc ${opts.documentId} → version ${newVersion.id}`);
+    }
   } else {
-    console.log(`[doc-os] latest_version_id set for doc ${opts.documentId} → version ${newVersion.id}`);
+    console.log(`[doc-os] SKIPPED latest_version_id — version ${newVersion.id} has no renderable content (placeholder/bg_generating)`);
   }
 
   // ── TRANSITION LEDGER: version_created (fail-closed) ──

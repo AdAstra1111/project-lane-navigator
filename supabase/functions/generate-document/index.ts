@@ -1087,10 +1087,8 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
           .eq("document_id", epDocRecord!.id)
           .neq("id", epVersion!.id);
 
-        // Update latest_version_id on doc row
-        await supabase.from("project_documents")
-          .update({ latest_version_id: epVersion!.id, updated_at: new Date().toISOString() })
-          .eq("id", epDocRecord!.id);
+        // NOTE: Do NOT set latest_version_id here — version is empty placeholder.
+        // latest_version_id will be set on successful completion in the bg task below.
 
         console.log(`[generate-document] Episode beats background generation starting: ${docType} v${epVersionNum} episodeCount=${finalEpisodeCount}`);
 
@@ -1130,8 +1128,9 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
               .update({ plaintext: genContent, status: "draft", is_current: true, meta_json: { bg_generating: false, bg_completed_at: new Date().toISOString(), episode_count: finalEpisodeCount } })
               .eq("id", epVersion!.id);
 
+            // NOW set latest_version_id — content is confirmed valid
             await serviceClient.from("project_documents")
-              .update({ updated_at: new Date().toISOString() })
+              .update({ latest_version_id: epVersion!.id, updated_at: new Date().toISOString() })
               .eq("id", epDocRecord!.id);
 
             console.log(`[generate-document] Episode beats background generation COMPLETE: ${docType} v${epVersionNum} chars=${genContent.length}`);
@@ -1382,10 +1381,8 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
         .eq("document_id", chunkDocRecord!.id)
         .neq("id", chunkVersion!.id);
 
-      // Update latest_version_id now so UI can find the slot
-      await supabase.from("project_documents")
-        .update({ latest_version_id: chunkVersion!.id, updated_at: new Date().toISOString() })
-        .eq("id", chunkDocRecord!.id);
+      // NOTE: Do NOT set latest_version_id here — version is empty placeholder (bg_generating).
+      // latest_version_id will be set on successful completion in the bg task below.
 
       const plan = chunkPlanFor(docType, {
         episodeCount: resolvedQuals?.season_episode_count,
@@ -1416,8 +1413,9 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
             await serviceClient.from("project_document_versions")
               .update({ is_current: true, meta_json: { bg_generating: false, bg_completed_at: new Date().toISOString(), chunks_total: chunkResult.totalChunks, chunks_completed: chunkResult.completedChunks } })
               .eq("id", chunkVersion!.id);
+            // NOW set latest_version_id — content is confirmed valid
             await serviceClient.from("project_documents")
-              .update({ updated_at: new Date().toISOString() })
+              .update({ latest_version_id: chunkVersion!.id, updated_at: new Date().toISOString() })
               .eq("id", chunkDocRecord!.id);
             console.log(`[generate-document] Chunked background generation COMPLETE: ${docType} v${chunkVersionNum} chunks=${chunkResult.completedChunks}/${chunkResult.totalChunks}`);
 
