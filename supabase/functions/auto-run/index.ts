@@ -10470,7 +10470,7 @@ CONTINUITY:
               const epCount = egProj?.meta_json?.episode_count || 30;
               mergedDirections.push(`\n\nEPISODE GRID REQUIREMENTS (mandatory — apply to every rewrite):
 
-EPISODE COUNT: This grid MUST contain exactly ${epCount} episode entries — one for every episode from 1 to ${epCount}. Missing episodes are blockers.
+EPISODE COUNT: This grid MUST contain exactly ${epCount} episode entries — one for every episode from 1 to ${epCount}. Missing episodes during generation indicate work-in-progress. Collapsed ranges or summarization language are structural blockers.
 
 REQUIRED FORMAT PER EPISODE ENTRY:
 ## EPISODE N: <Specific Episode Title>

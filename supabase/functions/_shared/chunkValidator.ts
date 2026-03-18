@@ -9,6 +9,8 @@
 
 // ── Types ──
 
+export type ValidationSeverity = "blocker" | "warning" | "progress";
+
 export interface ValidationResult {
   pass: boolean;
   failures: ValidationFailure[];
@@ -21,8 +23,29 @@ export interface ValidationResult {
 export interface ValidationFailure {
   type: "missing_episode" | "missing_section" | "banned_phrase" | "density_low" | "wrong_content_type" | "incomplete_schema";
   detail: string;
+  severity?: ValidationSeverity;
   indices?: number[];
   sections?: string[];
+}
+
+/**
+ * Progress-aware episodic validation result.
+ * Distinguishes between incomplete-but-valid (in-progress) vs structurally invalid.
+ */
+export interface EpisodicProgressResult {
+  /** Overall tier: progress (ok), warning, or blocker */
+  tier: ValidationSeverity;
+  /** Fraction of target episodes present */
+  progress: number;
+  /** Episodes found / target */
+  found: number;
+  target: number;
+  /** True structural issues (not just incompleteness) */
+  blockers: ValidationFailure[];
+  /** Quality warnings */
+  warnings: ValidationFailure[];
+  /** Human-readable status */
+  summary: string;
 }
 
 // ── Banned Phrases ──
@@ -386,4 +409,150 @@ export function hasBannedSummarizationLanguage(content: string): boolean {
     if (pattern.test(content)) return true;
   }
   return false;
+}
+
+/**
+ * Progress-aware episodic validation.
+ * 
+ * Returns PROGRESS (incomplete but valid), WARNING (quality issues),
+ * or BLOCKER (structurally invalid / inconsistent with canon).
+ * 
+ * Key distinction: missing episodes during mid-generation = PROGRESS, not BLOCKER.
+ * Only true structural problems (banned phrases, collapsed ranges, wrong content type) = BLOCKER.
+ */
+export function validateEpisodicProgress(
+  content: string,
+  expectedCount: number,
+  docType: string = "episode_grid",
+  options: { isFinalStage?: boolean; isRewriteAssembly?: boolean } = {},
+): EpisodicProgressResult {
+  const blockers: ValidationFailure[] = [];
+  const warnings: ValidationFailure[] = [];
+
+  // 1. Extract episode numbers present
+  const foundEpisodes = extractEpisodeNumbers(content);
+  const expectedSet = new Set(Array.from({ length: expectedCount }, (_, i) => i + 1));
+  const foundSet = new Set(foundEpisodes);
+  const missingIndices = [...expectedSet].filter(n => !foundSet.has(n));
+  const found = foundSet.size;
+  const progress = expectedCount > 0 ? found / expectedCount : 0;
+
+  // 2. Banned phrase scan — always a BLOCKER (indicates AI summarization)
+  const lowerContent = content.toLowerCase();
+  const bannedHits: string[] = [];
+  for (const phrase of BANNED_PHRASES) {
+    if (lowerContent.includes(phrase.toLowerCase())) {
+      bannedHits.push(phrase);
+    }
+  }
+  for (const pattern of BANNED_PATTERNS) {
+    const match = content.match(pattern);
+    if (match) bannedHits.push(match[0]);
+  }
+  if (bannedHits.length > 0) {
+    blockers.push({
+      type: "banned_phrase",
+      severity: "blocker",
+      detail: `Found ${bannedHits.length} banned summarization phrases: ${bannedHits.slice(0, 5).join("; ")}`,
+    });
+  }
+
+  // 3. Collapsed range detection — BLOCKER (indicates structural corruption)
+  const collapsed = detectCollapsedRanges(content);
+  if (collapsed.length > 0) {
+    blockers.push({
+      type: "incomplete_schema",
+      severity: "blocker",
+      detail: `Detected ${collapsed.length} collapsed episode range(s): ${collapsed.slice(0, 3).join(", ")}`,
+    });
+  }
+
+  // 4. Wrong content type — BLOCKER
+  if (docType !== "topline_narrative") {
+    const toplineHits = TOPLINE_MARKERS.filter(m => content.includes(m));
+    if (toplineHits.length >= 2) {
+      blockers.push({
+        type: "wrong_content_type",
+        severity: "blocker",
+        detail: `Content resembles a Topline Narrative (found ${toplineHits.length} markers). Wrong content for ${docType}.`,
+      });
+    }
+  }
+
+  // 5. Density check — WARNING (quality issue, not structural)
+  if (foundEpisodes.length > 0 && expectedCount > 0) {
+    const avgCharsPerEp = content.length / foundEpisodes.length;
+    const minCharsPerEp = docType.includes("script") ? 800 : 100;
+    if (avgCharsPerEp < minCharsPerEp) {
+      warnings.push({
+        type: "density_low",
+        severity: "warning",
+        detail: `Average ${Math.round(avgCharsPerEp)} chars/episode — below minimum ${minCharsPerEp} for ${docType}`,
+      });
+    }
+  }
+
+  // 6. Missing episodes — context-dependent
+  if (missingIndices.length > 0) {
+    if (options.isRewriteAssembly && missingIndices.length > 0) {
+      // Rewrite assembly: only block if >50% missing (indicates real failure, not partial progress)
+      if (progress < 0.5) {
+        blockers.push({
+          type: "missing_episode",
+          severity: "blocker",
+          detail: `Assembly has only ${found}/${expectedCount} episodes (${Math.round(progress * 100)}%) — below minimum viable threshold.`,
+          indices: missingIndices,
+        });
+      } else {
+        warnings.push({
+          type: "missing_episode",
+          severity: "warning",
+          detail: `Assembly has ${found}/${expectedCount} episodes (${Math.round(progress * 100)}%). ${missingIndices.length} episodes pending.`,
+          indices: missingIndices,
+        });
+      }
+    } else if (options.isFinalStage) {
+      // Final stage: missing episodes are blockers
+      blockers.push({
+        type: "missing_episode",
+        severity: "blocker",
+        detail: `Missing ${missingIndices.length} of ${expectedCount} episodes at final stage: ${missingIndices.slice(0, 10).join(", ")}`,
+        indices: missingIndices,
+      });
+    } else {
+      // Mid-generation / iterative: missing episodes are progress indicators
+      warnings.push({
+        type: "missing_episode",
+        severity: "progress" as any,
+        detail: `Season progress: ${found} / ${expectedCount} episodes (${Math.round(progress * 100)}%)`,
+        indices: missingIndices,
+      });
+    }
+  }
+
+  // Determine overall tier
+  let tier: ValidationSeverity;
+  if (blockers.length > 0) {
+    tier = "blocker";
+  } else if (warnings.length > 0) {
+    tier = missingIndices.length > 0 && !options.isFinalStage ? "progress" : "warning";
+  } else {
+    tier = "progress"; // all good
+  }
+
+  const summary = missingIndices.length === 0
+    ? `All ${expectedCount} episodes present ✓`
+    : blockers.length > 0
+      ? `${blockers[0].detail}`
+      : `Season progress: ${found} / ${expectedCount} episodes (${Math.round(progress * 100)}%)`;
+
+  return {
+    tier,
+    progress,
+    found,
+    target: expectedCount,
+    blockers,
+    warnings,
+    summary,
+  };
 }

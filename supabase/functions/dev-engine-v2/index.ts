@@ -5352,10 +5352,13 @@ Format: ${rq.format}.${episodeLengthBlock}`;
             : `Beat format: legacy inline style — do NOT flag as missing labels. This is a valid pre-existing format.`;
 
           episodeGridStructuralBlock = `\nEPISODE BEATS STRUCTURAL ANALYSIS (computed — do not override):
-Episodes parsed: ${bTotalParsed} / ${bExpected} expected${bMissing > 0 ? ` — ${bMissing} MISSING (blocker)` : " ✓"}
-Average beats per episode: ${avgBeats}${Number(avgBeats) < 4 ? " — BELOW MINIMUM (blocker)" : " ✓"}
-Low beat count episodes (<4): ${episodesLowBeatCount}${episodesLowBeatCount > 0 ? " (blocker)" : " ✓"}
+Episodes parsed: ${bTotalParsed} / ${bExpected} expected${bMissing > 0 ? ` — ${bMissing} episodes pending (progress: ${Math.round((bTotalParsed / bExpected) * 100)}%)` : " ✓"}
+Average beats per episode: ${avgBeats}${Number(avgBeats) < 4 ? " — BELOW MINIMUM (warning)" : " ✓"}
+Low beat count episodes (<4): ${episodesLowBeatCount}${episodesLowBeatCount > 0 ? " (warning)" : " ✓"}
 ${hookCliffNote}
+
+EPISODE PROGRESS NOTE: Missing episodes indicate work-in-progress, NOT failure.
+Only flag as BLOCKER if there is structural corruption (collapsed ranges, banned language, wrong content type).
 
 SCORING INSTRUCTION: Score the SAMPLE (10 representative episodes).
 CI = beat specificity, hook-first mandate, beat structure present.
@@ -5431,15 +5434,19 @@ A complete beats doc should score CI 75–85.`;
           const sampledBlocks = sampleIndices.map(n => blocks.get(n)?.content || "").join("\n\n---\n\n");
 
           episodeGridStructuralBlock = `\nEPISODE GRID STRUCTURAL ANALYSIS (computed — do not override):
-Episodes parsed: ${totalParsed} / ${expectedCount} expected${missingEpisodes > 0 ? ` — ${missingEpisodes} MISSING (blocker)` : " ✓"}
-Field completeness: ${completenessScore}% (all 6 fields present across episodes)${fieldsMissing > 0 ? ` — ${fieldsMissing} missing field instances` : " ✓"}
+Episodes parsed: ${totalParsed} / ${expectedCount} expected${missingEpisodes > 0 ? ` — ${missingEpisodes} episodes pending (progress: ${Math.round((totalParsed / expectedCount) * 100)}%)` : " ✓"}
+Field completeness: ${completenessScore}% (all 6 fields present across episodes)${fieldsMissing > 0 ? ` — ${fieldsMissing} missing field instances (warning)` : " ✓"}
 Generic/templated entries: ${genericEntries}${genericEntries > 0 ? " (blocker)" : " ✓"}
 Duplicate cliffhangers: ${duplicateCliffhangers}${duplicateCliffhangers > 0 ? " (blocker)" : " ✓"}
 Duplicate core moves: ${duplicateCoreMoves}${duplicateCoreMoves > 0 ? " (blocker)" : " ✓"}
 
+EPISODE PROGRESS NOTE: Missing episodes indicate work-in-progress, NOT failure.
+Only flag as BLOCKER if there is structural corruption (collapsed ranges, banned summarization language, wrong content type).
+Missing episodes during iterative development should be reported as PROGRESS ("X of Y episodes complete"), not as blockers.
+
 SCORING INSTRUCTION: Base your CI/GP score primarily on the SAMPLE below (10 representative episodes).
 Do NOT attempt to evaluate all ${totalParsed} episodes — score the sample quality.
-Structural blockers above are ALREADY COMPUTED — if any exist, flag them as-is.
+Structural blockers above (generic entries, duplicates) are ALREADY COMPUTED — if any exist, flag them as-is.
 CI = field specificity + title quality + escalation logic in the sample.
 GP = cliffhanger effectiveness + arc position accuracy + hook quality in the sample.
 A fully complete grid with specific, unique entries should score CI 75–85. Reserve 85+ for exceptional escalation design.`;
@@ -6052,7 +6059,8 @@ ${(() => {
 - Do NOT raise dialogue or scene-level notes.`,
     episode_grid: `DOCUMENT TYPE: EPISODE GRID
 - Evaluate structural completeness, hook specificity, escalation curve, cliffhanger quality, and episode-count alignment.
-- Valid note categories: "hook_quality|cliffhanger_strength|escalation_curve|arc_position|episode_count_alignment|core_move_clarity"`,
+- Valid note categories: "hook_quality|cliffhanger_strength|escalation_curve|arc_position|episode_count_alignment|core_move_clarity|episode_progress"
+- IMPORTANT: Missing episodes during iterative development are PROGRESS indicators, not blockers. Only flag as blocker if episodes are structurally corrupted, collapsed into ranges, or contain summarization language.`,
     format_rules: `DOCUMENT TYPE: FORMAT RULES
 - Evaluate structural rule clarity, duration compliance, episode template completeness, and production constraint specificity.
 - Valid note categories: "duration_spec|episode_template|structural_rules|platform_spec|production_constraints"
@@ -7668,21 +7676,37 @@ MATERIAL TO REWRITE:\n${fullText}`;
       if (planOutput?.strategy === "episodic_indexed" && Number(planOutput?.episode_count) > 0) {
         const expectedEpisodeCount = Number(planOutput.episode_count);
         const docTypeForValidation = planOutput.doc_type || "episode_grid";
-        const episodicValidation = validateEpisodicContent(assembledText, expectedEpisodeCount, docTypeForValidation);
+        
+        // Use progress-aware validation instead of binary pass/fail
+        const { validateEpisodicProgress } = await import("../_shared/chunkValidator.ts");
+        const progressResult = validateEpisodicProgress(assembledText, expectedEpisodeCount, docTypeForValidation, {
+          isRewriteAssembly: true,
+        });
 
-        if (!episodicValidation.pass) {
-          console.error("[dev-engine-v2] rewrite-assemble coverage failure", {
+        if (progressResult.tier === "blocker") {
+          console.error("[dev-engine-v2] rewrite-assemble structural failure (true blocker)", {
             expectedEpisodeCount,
-            missing: episodicValidation.missingIndices,
-            failures: episodicValidation.failures.map((f) => f.detail),
+            found: progressResult.found,
+            progress: progressResult.progress,
+            blockers: progressResult.blockers.map((f) => f.detail),
           });
           return new Response(JSON.stringify({
             error: "EPISODE_COVERAGE_FAILED",
-            message: `Assembled rewrite is missing required episodes (expected 1-${expectedEpisodeCount}).`,
-            validation: episodicValidation,
+            message: progressResult.summary,
+            validation: { pass: false, tier: progressResult.tier, found: progressResult.found, target: progressResult.target, blockers: progressResult.blockers },
           }), {
             status: 422,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Log progress-level warnings but do NOT block
+        if (progressResult.warnings.length > 0 || progressResult.found < expectedEpisodeCount) {
+          console.log("[dev-engine-v2] rewrite-assemble progress", {
+            expectedEpisodeCount,
+            found: progressResult.found,
+            progress: `${Math.round(progressResult.progress * 100)}%`,
+            warnings: progressResult.warnings.map((f) => f.detail),
           });
         }
       }
