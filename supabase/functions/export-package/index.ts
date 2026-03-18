@@ -464,8 +464,7 @@ async function buildPdf(
 
     // Continuation header - minimal
     if (sectionLabel) {
-      page.drawRectangle({ x: M, y: PAGE_H - 26, width: 14, height: 14, color: COLORS.amber });
-      page.drawText("PH", { x: M + 2.5, y: PAGE_H - 22, size: 5, font: helveticaBold, color: COLORS.dark });
+      drawLogoLeft(page, M, PAGE_H - 26, 14);
 
       page.drawText(normalizeText(sectionLabel), {
         x: M + 18, y: PAGE_H - 22, size: 8, font: helveticaBold, color: COLORS.white, maxWidth: CONTENT_W - 22,
