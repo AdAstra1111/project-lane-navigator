@@ -266,6 +266,8 @@ export function useRewritePipeline(projectId: string | undefined) {
             charCount: 0,
             durationMs: null,
             isPreserved: !isAffected,
+            scenes: [],
+            hasSceneGraph: false,
           });
         }
         setEpisodeUnits(units);
