@@ -119,6 +119,7 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
 
   const { data: versions = [], isLoading: versionsLoading } = useDocumentVersions(effectiveDocId);
   const setCurrentVersion = useSetCurrentVersion();
+  const deleteVersion = useDeleteVersion();
 
   if (docsLoading) {
     return (
