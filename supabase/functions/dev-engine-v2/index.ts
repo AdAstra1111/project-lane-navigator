@@ -5431,15 +5431,19 @@ A complete beats doc should score CI 75–85.`;
           const sampledBlocks = sampleIndices.map(n => blocks.get(n)?.content || "").join("\n\n---\n\n");
 
           episodeGridStructuralBlock = `\nEPISODE GRID STRUCTURAL ANALYSIS (computed — do not override):
-Episodes parsed: ${totalParsed} / ${expectedCount} expected${missingEpisodes > 0 ? ` — ${missingEpisodes} MISSING (blocker)` : " ✓"}
-Field completeness: ${completenessScore}% (all 6 fields present across episodes)${fieldsMissing > 0 ? ` — ${fieldsMissing} missing field instances` : " ✓"}
+Episodes parsed: ${totalParsed} / ${expectedCount} expected${missingEpisodes > 0 ? ` — ${missingEpisodes} episodes pending (progress: ${Math.round((totalParsed / expectedCount) * 100)}%)` : " ✓"}
+Field completeness: ${completenessScore}% (all 6 fields present across episodes)${fieldsMissing > 0 ? ` — ${fieldsMissing} missing field instances (warning)` : " ✓"}
 Generic/templated entries: ${genericEntries}${genericEntries > 0 ? " (blocker)" : " ✓"}
 Duplicate cliffhangers: ${duplicateCliffhangers}${duplicateCliffhangers > 0 ? " (blocker)" : " ✓"}
 Duplicate core moves: ${duplicateCoreMoves}${duplicateCoreMoves > 0 ? " (blocker)" : " ✓"}
 
+EPISODE PROGRESS NOTE: Missing episodes indicate work-in-progress, NOT failure.
+Only flag as BLOCKER if there is structural corruption (collapsed ranges, banned summarization language, wrong content type).
+Missing episodes during iterative development should be reported as PROGRESS ("X of Y episodes complete"), not as blockers.
+
 SCORING INSTRUCTION: Base your CI/GP score primarily on the SAMPLE below (10 representative episodes).
 Do NOT attempt to evaluate all ${totalParsed} episodes — score the sample quality.
-Structural blockers above are ALREADY COMPUTED — if any exist, flag them as-is.
+Structural blockers above (generic entries, duplicates) are ALREADY COMPUTED — if any exist, flag them as-is.
 CI = field specificity + title quality + escalation logic in the sample.
 GP = cliffhanger effectiveness + arc position accuracy + hook quality in the sample.
 A fully complete grid with specific, unique entries should score CI 75–85. Reserve 85+ for exceptional escalation design.`;
