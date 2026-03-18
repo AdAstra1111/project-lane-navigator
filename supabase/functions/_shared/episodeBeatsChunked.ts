@@ -20,7 +20,7 @@ import {
   buildEpisodeScaffold,
 } from "./episodeScope.ts";
 
-const BATCH_SIZE = 6;
+const BATCH_SIZE = 1;
 const MAX_REPAIR_CYCLES = 4;
 const MAX_RETRIES_PER_BATCH = 3;
 
