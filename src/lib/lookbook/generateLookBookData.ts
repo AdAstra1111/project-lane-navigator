@@ -99,13 +99,17 @@ export async function generateLookBookData(
   branding: { companyName: string | null; companyLogoUrl: string | null },
 ): Promise<LookBookData> {
   // 1. Load project metadata
-  const { data: project } = await supabase
+  const { data: project, error: projectErr } = await supabase
     .from('projects')
     .select('title, genre, format, logline, themes, tone, assigned_lane')
     .eq('id', projectId)
-    .single();
+    .maybeSingle();
 
-  if (!project) throw new Error('Project not found');
+  if (projectErr) {
+    console.error('[generateLookBookData] project fetch error:', projectErr.message);
+    throw new Error('Could not load project data');
+  }
+  if (!project) throw new Error('Project not found — check access permissions');
 
   // 2. Load canonical state (authoritative source of truth)
   const canonicalState = await getCanonicalProjectState(projectId);
