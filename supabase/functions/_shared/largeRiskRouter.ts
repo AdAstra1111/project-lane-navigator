@@ -165,10 +165,13 @@ export function chunkPlanFor(
 
     for (let start = 1; start <= episodeCount; start += batchSize) {
       const end = Math.min(start + batchSize - 1, episodeCount);
+      const isSingleEpisodeUnit = start === end;
       chunks.push({
         chunkIndex,
-        chunkKey: `E${String(start).padStart(2, "0")}-E${String(end).padStart(2, "0")}`,
-        label: `Episodes ${start}–${end}`,
+        chunkKey: isSingleEpisodeUnit
+          ? `E${String(start).padStart(2, "0")}`
+          : `E${String(start).padStart(2, "0")}-E${String(end).padStart(2, "0")}`,
+        label: isSingleEpisodeUnit ? `Episode ${start}` : `Episodes ${start}–${end}`,
         episodeStart: start,
         episodeEnd: end,
       });
