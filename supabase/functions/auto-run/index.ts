@@ -9202,14 +9202,54 @@ Deno.serve(async (req) => {
 
           const { approvedNotes: strategyNotesRaw, globalDirections: strategyDirections } = selectNotesForStrategy(strategy, allNotesForStrategy);
 
-          // ── GAP FIX 1: Enrich strategy notes with resolution_directive from suggested_fixes ──
+          // ── GAP FIX 1: Enrich strategy notes with resolution_directive from suggested_fixes AND decisions ──
+          // Matches manual path: enriches each note with explicit repair instructions.
+          // Canonical repair-note shape: { ...note, resolution_directive: string, _auto_selected_option?: object }
+          const autoSelectedOptions: { note_id: string; option_id: string; option_title: string; source: string }[] = [];
           const strategyNotes = strategyNotesRaw.map((n: any) => {
             if (n.resolution_directive) return n; // already enriched (from project_notes injection)
+
+            // Path A: suggested_fixes (from project_notes)
             const fixes = Array.isArray(n.suggested_fixes) ? n.suggested_fixes : [];
-            const recommended = fixes.find((f: any) => f.recommended) || fixes[0];
-            if (!recommended) return n;
-            const directive = `Apply: "${recommended.title || recommended.description}".${recommended.what_changes ? ` Changes: ${Array.isArray(recommended.what_changes) ? recommended.what_changes.join("; ") : recommended.what_changes}` : ""}`;
-            return { ...n, resolution_directive: directive };
+            const recommendedFix = fixes.find((f: any) => f.recommended) || fixes[0];
+            if (recommendedFix) {
+              const directive = `Apply: "${recommendedFix.title || recommendedFix.description}".${recommendedFix.what_changes ? ` Changes: ${Array.isArray(recommendedFix.what_changes) ? recommendedFix.what_changes.join("; ") : recommendedFix.what_changes}` : ""}`;
+              return { ...n, resolution_directive: directive };
+            }
+
+            // Path B: decisions array (from dev_engine NOTES output — blocker/high notes with option choices)
+            // Mirrors manual path: ProjectDevelopmentEngine.tsx lines 940-952
+            const decisions = Array.isArray(n.decisions) ? n.decisions : [];
+            if (decisions.length > 0) {
+              // Deterministic selection: prefer recommended, then first option
+              const recommended = decisions.find((d: any) => d.recommended) || decisions[0];
+              const noteId = n.id || n.note_key || "";
+              const optionId = recommended.option_id || recommended.value || recommended.title || "option_0";
+              const optionTitle = recommended.title || recommended.description || optionId;
+              const whatChanges = Array.isArray(recommended.what_changes) ? recommended.what_changes : [];
+
+              autoSelectedOptions.push({
+                note_id: noteId,
+                option_id: optionId,
+                option_title: optionTitle,
+                source: recommended.recommended ? "recommended" : "first_option_fallback",
+              });
+
+              const directive = `Apply: "${optionTitle}".${whatChanges.length > 0 ? ` Changes: ${whatChanges.join("; ")}.` : ""}`;
+              return { ...n, resolution_directive: directive, _auto_selected_option: { option_id: optionId, title: optionTitle, what_changes: whatChanges } };
+            }
+
+            // Path C: options array (alternative shape from some analysis outputs)
+            const options = Array.isArray(n.options) ? n.options : [];
+            if (options.length > 0) {
+              const recommended = options.find((o: any) => o.recommended) || options[0];
+              const optionTitle = recommended.title || recommended.description || recommended.value || "option_0";
+              const whatChanges = Array.isArray(recommended.what_changes) ? recommended.what_changes : [];
+              const directive = `Apply: "${optionTitle}".${whatChanges.length > 0 ? ` Changes: ${whatChanges.join("; ")}.` : ""}`;
+              return { ...n, resolution_directive: directive };
+            }
+
+            return n;
           });
 
           // ── GAP FIX 2: Inject reviewer's global_directions from NOTES run output ──
@@ -9217,16 +9257,55 @@ Deno.serve(async (req) => {
           try {
             const rawGD = notes?.global_directions || analyzeResult?.global_directions;
             if (Array.isArray(rawGD) && rawGD.length > 0) {
-              reviewerGlobalDirections.push(...rawGD.map((d: any) => typeof d === "string" ? d : d?.text || d?.direction || JSON.stringify(d)));
-              console.log(`[auto-run][IEL] reviewer_global_directions_injected { job_id: "${jobId}", doc_type: "${currentDoc}", count: ${reviewerGlobalDirections.length} }`);
+              reviewerGlobalDirections.push(...rawGD.map((d: any) => {
+                if (typeof d === "string") return d;
+                // Manual path shape: { direction: string, why: string }
+                if (d?.direction && d?.why) return `GLOBAL DIRECTION: ${d.direction} — ${d.why}`;
+                return d?.text || d?.direction || JSON.stringify(d);
+              }));
             }
           } catch (gdErr: any) {
             console.warn(`[auto-run][IEL] reviewer_global_directions_failed: ${gdErr?.message}`);
           }
 
+          // ── STRUCTURED LOGGING: AUTORUN_NOTES_ENRICHED ──
+          const enrichedCount = strategyNotes.filter((n: any) => n.resolution_directive).length;
+          const noteCategories = [...new Set(strategyNotes.map((n: any) => n.category || "unknown"))];
+          console.log(`[auto-run][IEL] AUTORUN_NOTES_ENRICHED ${JSON.stringify({
+            project_id: job.project_id, document_id: doc.id, attempt: attemptNumber,
+            note_count: strategyNotes.length, enriched_count: enrichedCount,
+            categories: noteCategories, strategy,
+          })}`);
+
+          // ── STRUCTURED LOGGING: AUTORUN_DECISIONS_AUTOSELECTED ──
+          if (autoSelectedOptions.length > 0) {
+            console.log(`[auto-run][IEL] AUTORUN_DECISIONS_AUTOSELECTED ${JSON.stringify({
+              project_id: job.project_id, document_id: doc.id, attempt: attemptNumber,
+              selected_count: autoSelectedOptions.length,
+              selections: autoSelectedOptions.map(s => ({ note_id: s.note_id, option_id: s.option_id, source: s.source })),
+            })}`);
+          }
+
+          // ── STRUCTURED LOGGING: AUTORUN_GLOBAL_DIRECTIONS_ATTACHED ──
+          console.log(`[auto-run][IEL] AUTORUN_GLOBAL_DIRECTIONS_ATTACHED ${JSON.stringify({
+            project_id: job.project_id, document_id: doc.id, attempt: attemptNumber,
+            reviewer_directions_count: reviewerGlobalDirections.length,
+            strategy_directions_count: strategyDirections.length,
+            reviewer_attached: reviewerGlobalDirections.length > 0,
+          })}`);
+
+          // ── STRUCTURED LOGGING: AUTORUN_NOTE_PAYLOAD_STRATEGY ──
+          console.log(`[auto-run][IEL] AUTORUN_NOTE_PAYLOAD_STRATEGY ${JSON.stringify({
+            project_id: job.project_id, document_id: doc.id, attempt: attemptNumber,
+            strategy, note_count: strategyNotes.length, enriched_count: enrichedCount,
+            categories: noteCategories, selected_option_count: autoSelectedOptions.length,
+            reviewer_global_directions_attached: reviewerGlobalDirections.length > 0,
+            version_id: (job as any).frontier_version_id || null,
+          })}`);
+
           await logStep(supabase, jobId, null, currentDoc, "convergence_strategy_selected",
-            `Attempt ${attemptNumber}: strategy=${strategy}, notes=${strategyNotes.length}, directions=${strategyDirections.length}, enriched=${strategyNotes.filter((n: any) => n.resolution_directive).length}, reviewerGD=${reviewerGlobalDirections.length}`,
-            { ci, gp, gap }, undefined, { attemptNumber, strategy, noteCount: strategyNotes.length, enrichedCount: strategyNotes.filter((n: any) => n.resolution_directive).length, reviewerGDCount: reviewerGlobalDirections.length });
+            `Attempt ${attemptNumber}: strategy=${strategy}, notes=${strategyNotes.length}, directions=${strategyDirections.length}, enriched=${enrichedCount}, reviewerGD=${reviewerGlobalDirections.length}, autoDecisions=${autoSelectedOptions.length}`,
+            { ci, gp, gap }, undefined, { attemptNumber, strategy, noteCount: strategyNotes.length, enrichedCount, reviewerGDCount: reviewerGlobalDirections.length, autoSelectedCount: autoSelectedOptions.length, noteCategories });
 
           // ── 1) BASELINE PINNING: ensure current accepted baseline exists (auto-repair/seed once) ──
           let currentAccepted = await getCurrentVersionForDoc(supabase, doc.id);
