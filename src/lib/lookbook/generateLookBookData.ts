@@ -101,15 +101,18 @@ export async function generateLookBookData(
   // 1. Load project metadata
   const { data: project, error: projectErr } = await supabase
     .from('projects')
-    .select('title, genre, format, logline, themes, tone, assigned_lane')
+    .select('title, genres, format, tone, assigned_lane, comparable_titles, target_audience')
     .eq('id', projectId)
     .maybeSingle();
 
   if (projectErr) {
     console.error('[generateLookBookData] project fetch error:', projectErr.message);
-    throw new Error('Could not load project data');
+    throw new Error('Could not load project data: ' + projectErr.message);
   }
   if (!project) throw new Error('Project not found — check access permissions');
+
+  // Normalize: genres is string[], join for display
+  const genre = Array.isArray((project as any).genres) ? (project as any).genres.join(', ') : '';
 
   // 2. Load canonical state (authoritative source of truth)
   const canonicalState = await getCanonicalProjectState(projectId);
@@ -219,8 +222,8 @@ export async function generateLookBookData(
     .forEach(i => characterImageMap.set(i.entity_id!, i.signedUrl!));
 
   // 5. Build identity from canonical state
-  const identity = resolveIdentity(canon, (project as any).genre);
-  const logline = (canon.logline as string) || (project as any).logline || '';
+  const identity = resolveIdentity(canon, genre);
+  const logline = (canon.logline as string) || '';
   const title = (project as any).title || 'Untitled Project';
   const writerCredit = 'Written by Sebastian Street';
   const companyName = branding.companyName || 'Paradox House';
@@ -248,7 +251,7 @@ export async function generateLookBookData(
     body: overviewBody,
     bodySecondary: overviewDetail || undefined,
     bullets: [
-      (project as any).genre ? `Genre: ${(project as any).genre}` : '',
+      genre ? `Genre: ${genre}` : '',
       (project as any).format ? `Format: ${(project as any).format}` : '',
       (canon.tone_style as string) ? `Tone: ${canon.tone_style}` : '',
     ].filter(Boolean),
@@ -281,7 +284,7 @@ export async function generateLookBookData(
   }
 
   // THEMES & TONE
-  const themes = (project as any).themes || (canon.tone_style as string);
+  const themes = (canon.tone_style as string) || (project as any).tone || '';
   if (themes) {
     slides.push({
       type: 'themes',
