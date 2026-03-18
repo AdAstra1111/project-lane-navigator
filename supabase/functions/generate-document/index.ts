@@ -1303,7 +1303,7 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
         const resumePlan = chunkPlanFor(docType, {
           episodeCount: resolvedQuals?.season_episode_count,
           sceneCount: resolvedSceneCount,
-          batchSize: docType === "season_script" ? 1 : undefined,
+          batchSize: isLargeRiskEpisodic(docType) ? 1 : undefined,
         });
 
         const resumeDocId = resumeVer.document_id || chunkDocRecord!.id;
