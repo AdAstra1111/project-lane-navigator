@@ -7,75 +7,35 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── Poster Strategy Definitions ──────────────────────────────────────────────
+// ── World Lock + Context ─────────────────────────────────────────────────────
 
-const POSTER_STRATEGIES = [
-  {
-    key: "character",
-    label: "Character Focus",
-    briefing: (ctx: StrategyContext) =>
-      `Create a cinematic character portrait poster. The lead character dominates the frame — ` +
-      `intense emotional expression, shallow depth of field, minimal background. ` +
-      (ctx.characters ? `Key character: ${ctx.characters}. ` : "") +
-      `Intimate close-up or medium shot. The character's face tells the whole story. ` +
-      `${ctx.toneVisual}. Photorealistic, theatrical poster quality.`,
-  },
-  {
-    key: "world",
-    label: "World / Environment",
-    briefing: (ctx: StrategyContext) =>
-      `Create a cinematic environment poster showcasing the world of the story. ` +
-      `The setting dominates — vast, atmospheric, cinematic scale. ` +
-      (ctx.worldSetting ? `Setting: ${ctx.worldSetting}. ` : "") +
-      `Any human figure is small or silhouetted against the landscape. ` +
-      `Epic composition, sweeping vista feel. ${ctx.toneVisual}. ` +
-      `Photorealistic, theatrical poster quality.`,
-  },
-  {
-    key: "conflict",
-    label: "Conflict / Action",
-    briefing: (ctx: StrategyContext) =>
-      `Create a cinematic tension poster capturing the central conflict. ` +
-      `Dynamic composition — confrontation, opposition, stakes. ` +
-      (ctx.conflict ? `Conflict: ${ctx.conflict}. ` : "") +
-      `High energy, dramatic angles, sense of motion and danger. ` +
-      `${ctx.toneVisual}. Split compositions or dramatic diagonals. ` +
-      `Photorealistic, theatrical poster quality.`,
-  },
-  {
-    key: "prestige",
-    label: "Symbolic / Prestige",
-    briefing: (ctx: StrategyContext) =>
-      `Create a minimalist prestige film poster. Metaphor-driven, symbolic, ` +
-      `high-end film festival aesthetic. ` +
-      (ctx.themes ? `Themes: ${ctx.themes}. ` : "") +
-      `Abstract or suggestive imagery. Restrained color palette, elegant negative space. ` +
-      `Art-house sensibility. Think A24 or Cannes poster style. ` +
-      `Photorealistic or painterly, gallery quality.`,
-  },
-  {
-    key: "commercial",
-    label: "Commercial / High-Concept",
-    briefing: (ctx: StrategyContext) =>
-      `Create a bold commercial movie poster with a clear visual hook. ` +
-      `Strong, immediate impact — the kind of poster that sells from across a room. ` +
-      (ctx.logline ? `Hook: ${ctx.logline.slice(0, 120)}. ` : "") +
-      `Bold composition, strong focal point, space for prominent title placement in lower third. ` +
-      `${ctx.toneVisual}. Mainstream appeal, blockbuster energy. ` +
-      `Photorealistic, theatrical poster quality.`,
-  },
-  {
-    key: "genre",
-    label: "Genre Pure",
-    briefing: (ctx: StrategyContext) =>
-      `Create a poster that fully commits to ${ctx.primaryGenre || "dramatic"} genre conventions. ` +
-      `Every visual cue should signal the genre immediately — ` +
-      `${ctx.genreVisual || "dramatic cinematography"}. ` +
-      `Lean hard into genre expectations. A fan of ${ctx.primaryGenre || "this genre"} ` +
-      `should instantly recognize what kind of film this is. ` +
-      `${ctx.toneVisual}. Photorealistic, theatrical poster quality.`,
-  },
-] as const;
+interface WorldLock {
+  era: string;
+  geography: string;
+  culture: string;
+  architecture: string;
+  wardrobe: string;
+  technology: string;
+  prohibitions: string[];
+}
+
+interface PosterPromptInputs {
+  title: string;
+  format: string;
+  genres: string[];
+  tone: string;
+  budget_range: string;
+  target_audience: string;
+  comparable_titles: string;
+  assigned_lane: string | null;
+  logline: string | null;
+  canon_summary: string | null;
+  characters: string | null;
+  conflict: string | null;
+  themes: string | null;
+  world_setting: string | null;
+  worldLock: WorldLock;
+}
 
 interface StrategyContext {
   title: string;
@@ -87,11 +47,118 @@ interface StrategyContext {
   primaryGenre: string;
   genreVisual: string;
   toneVisual: string;
-  formatVisual: string;
   compReference: string;
+  worldLock: WorldLock;
+  writerCredit: string;
+  companyCredit: string;
 }
 
-// ── Shared Visual Maps ───────────────────────────────────────────────────────
+// ── Derive World Lock from canon data ────────────────────────────────────────
+
+function deriveWorldLock(inputs: Omit<PosterPromptInputs, "worldLock">): WorldLock {
+  const ws = (inputs.world_setting || "").toLowerCase();
+  const cs = (inputs.canon_summary || "").toLowerCase();
+  const combined = `${ws} ${cs} ${inputs.logline || ""} ${inputs.themes || ""}`.toLowerCase();
+  const genres = inputs.genres.map(g => g.toLowerCase());
+
+  // Detect era
+  let era = "contemporary";
+  if (/feudal|samurai|shogun|edo|sengoku|medieval japan/i.test(combined)) era = "feudal Japan";
+  else if (/medieval|middle ages|crusade|knight/i.test(combined)) era = "medieval Europe";
+  else if (/victorian|1800s|19th century|gaslight/i.test(combined)) era = "Victorian era";
+  else if (/renaissance|1500s|16th century/i.test(combined)) era = "Renaissance";
+  else if (/ancient rome|roman empire|gladiator/i.test(combined)) era = "ancient Rome";
+  else if (/ancient greece|sparta|athen/i.test(combined)) era = "ancient Greece";
+  else if (/colonial|1700s|18th century|revolution/i.test(combined)) era = "18th century colonial";
+  else if (/1920s|jazz age|prohibition|gatsby/i.test(combined)) era = "1920s";
+  else if (/1940s|world war ii|wwii|ww2|blitz/i.test(combined)) era = "1940s wartime";
+  else if (/1950s|post.?war|cold war/i.test(combined)) era = "1950s";
+  else if (/1960s|sixties|civil rights/i.test(combined)) era = "1960s";
+  else if (/1970s|seventies|disco/i.test(combined)) era = "1970s";
+  else if (/1980s|eighties/i.test(combined)) era = "1980s";
+  else if (/1990s|nineties/i.test(combined)) era = "1990s";
+  else if (/futur|2[1-9]\d\d|space|dystop|cyberpunk/i.test(combined)) era = "near-future or futuristic";
+  else if (/prehistoric|stone age|cave/i.test(combined)) era = "prehistoric";
+
+  // Detect geography/culture
+  let geography = "unspecified";
+  let culture = "unspecified";
+  if (/japan|tokyo|kyoto|osaka|samurai|shogun/i.test(combined)) { geography = "Japan"; culture = "Japanese"; }
+  else if (/korea|seoul|korean/i.test(combined)) { geography = "Korea"; culture = "Korean"; }
+  else if (/china|beijing|shanghai|chinese|dynasty/i.test(combined)) { geography = "China"; culture = "Chinese"; }
+  else if (/india|mumbai|delhi|bollywood|indian/i.test(combined)) { geography = "India"; culture = "Indian"; }
+  else if (/nigeria|lagos|nollywood|african/i.test(combined)) { geography = "West Africa"; culture = "West African"; }
+  else if (/london|british|england|uk|scottish|wales/i.test(combined)) { geography = "United Kingdom"; culture = "British"; }
+  else if (/paris|french|france/i.test(combined)) { geography = "France"; culture = "French"; }
+  else if (/new york|los angeles|american|usa|united states/i.test(combined)) { geography = "United States"; culture = "American"; }
+  else if (/mexico|mexican|cartel/i.test(combined)) { geography = "Mexico"; culture = "Mexican"; }
+  else if (/brazil|brazilian|rio/i.test(combined)) { geography = "Brazil"; culture = "Brazilian"; }
+  else if (/middle east|arab|persian|iran|iraq/i.test(combined)) { geography = "Middle East"; culture = "Middle Eastern"; }
+  else if (/scandinav|viking|norse|sweden|norway|denmark/i.test(combined)) { geography = "Scandinavia"; culture = "Scandinavian/Norse"; }
+
+  // Architecture + wardrobe from era/culture
+  const archMap: Record<string, string> = {
+    "feudal Japan": "traditional Japanese architecture — wooden temples, sliding shoji screens, tiled roofs, castle keeps",
+    "medieval Europe": "stone castles, Gothic cathedrals, thatched villages",
+    "Victorian era": "ornate Victorian buildings, gas-lit streets, industrial architecture",
+    "contemporary": "modern architecture appropriate to the setting",
+  };
+  const wardrobeMap: Record<string, string> = {
+    "feudal Japan": "traditional Japanese garments — kimono, hakama, samurai armor, period-accurate clothing",
+    "medieval Europe": "medieval European clothing — tunics, armor, cloaks",
+    "Victorian era": "Victorian-era clothing — long coats, corsets, top hats",
+    "contemporary": "modern clothing appropriate to the setting and characters",
+  };
+
+  const architecture = archMap[era] || `architecture consistent with ${era} ${geography !== "unspecified" ? geography : "setting"}`;
+  const wardrobe = wardrobeMap[era] || `clothing consistent with ${era} ${culture !== "unspecified" ? culture : "setting"}`;
+
+  // Technology level
+  let technology = "no anachronistic technology";
+  if (era === "feudal Japan") technology = "no modern technology, no electronics, no firearms — only period weapons and tools";
+  else if (era.includes("medieval")) technology = "no modern technology — only medieval tools, weapons, and crafts";
+  else if (era === "contemporary") technology = "modern technology appropriate to setting";
+  else if (era.includes("futur")) technology = "futuristic technology consistent with the setting";
+
+  // Build prohibition list
+  const prohibitions: string[] = [];
+  
+  // Always prohibit unless the project IS that genre
+  if (!genres.includes("sci-fi") && !era.includes("futur")) {
+    prohibitions.push("NO sci-fi imagery, NO spaceships, NO alien worlds, NO futuristic technology, NO neon cyberpunk");
+  }
+  if (!genres.includes("fantasy") && !combined.includes("magic")) {
+    prohibitions.push("NO fantasy creatures, NO dragons, NO magic spells, NO wizards");
+  }
+  if (era === "feudal Japan") {
+    prohibitions.push(
+      "NO European/Western architecture or clothing",
+      "NO colonial American imagery",
+      "NO Victorian or Regency aesthetics",
+      "NO modern cityscapes or skyscrapers",
+      "NO guns or modern weapons",
+    );
+  }
+  if (geography === "Japan" || culture === "Japanese") {
+    prohibitions.push("NO non-Japanese cultural elements unless explicitly in the story");
+  }
+  if (!genres.includes("romance")) {
+    prohibitions.push("NO romantic novel cover aesthetic");
+  }
+  if (!genres.includes("western")) {
+    prohibitions.push("NO Wild West or American frontier imagery");
+  }
+  // Generic quality prohibitions
+  prohibitions.push(
+    "NO stock photo aesthetic",
+    "NO AI-generated artifacts or glitches",
+    "NO cartoonish or anime style unless the project is animation",
+  );
+
+  return { era, geography, culture, architecture, wardrobe, technology, prohibitions };
+}
+
+// ── Visual Maps ──────────────────────────────────────────────────────────────
 
 const toneVisuals: Record<string, string> = {
   dark: "moody shadows, desaturated palette, noir-inspired lighting",
@@ -127,26 +194,75 @@ const genreMotifs: Record<string, string> = {
   "true-crime": "evidence board aesthetic, cold case atmosphere",
 };
 
-// ── PosterPromptInputs (backwards compat) ────────────────────────────────────
+// ── Strategy Definitions ─────────────────────────────────────────────────────
 
-interface PosterPromptInputs {
-  title: string;
-  format: string;
-  genres: string[];
-  tone: string;
-  budget_range: string;
-  target_audience: string;
-  comparable_titles: string;
-  assigned_lane: string | null;
-  logline: string | null;
-  canon_summary: string | null;
-  characters: string | null;
-  conflict: string | null;
-  themes: string | null;
-  world_setting: string | null;
-}
+const POSTER_STRATEGIES = [
+  {
+    key: "character",
+    label: "Character Focus",
+    briefing: (ctx: StrategyContext) =>
+      `A finished theatrical movie poster for "${ctx.title}". ` +
+      `The lead character dominates the frame — intense emotional expression, cinematic close-up or medium shot. ` +
+      (ctx.characters ? `Character: ${ctx.characters}. ` : "") +
+      `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
+      `${ctx.worldLock.wardrobe}. ${ctx.worldLock.architecture} visible in background. ` +
+      `${ctx.toneVisual}.`,
+  },
+  {
+    key: "world",
+    label: "World / Environment",
+    briefing: (ctx: StrategyContext) =>
+      `A finished theatrical movie poster for "${ctx.title}". ` +
+      `The setting dominates — vast, atmospheric, cinematic scale. ` +
+      (ctx.worldSetting ? `Setting: ${ctx.worldSetting}. ` : "") +
+      `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
+      `${ctx.worldLock.architecture}. ` +
+      `Any human figure is small or silhouetted against the landscape. ` +
+      `Epic composition, sweeping vista. ${ctx.toneVisual}.`,
+  },
+  {
+    key: "conflict",
+    label: "Conflict / Action",
+    briefing: (ctx: StrategyContext) =>
+      `A finished theatrical movie poster for "${ctx.title}". ` +
+      `Captures the central conflict — dynamic tension, confrontation, high stakes. ` +
+      (ctx.conflict ? `Conflict: ${ctx.conflict}. ` : "") +
+      `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
+      `${ctx.worldLock.wardrobe}. ${ctx.worldLock.technology}. ` +
+      `Dramatic angles, sense of motion and danger. ${ctx.toneVisual}.`,
+  },
+  {
+    key: "prestige",
+    label: "Symbolic / Prestige",
+    briefing: (ctx: StrategyContext) =>
+      `A finished prestige film festival poster for "${ctx.title}". ` +
+      `Minimalist, metaphor-driven, symbolic. High-end A24 / Cannes aesthetic. ` +
+      (ctx.themes ? `Themes: ${ctx.themes}. ` : "") +
+      `Visual elements must be drawn from ${ctx.worldLock.era} ${ctx.worldLock.culture !== "unspecified" ? ctx.worldLock.culture : ""} world. ` +
+      `Restrained color palette, elegant negative space. ${ctx.toneVisual}.`,
+  },
+  {
+    key: "commercial",
+    label: "Commercial / High-Concept",
+    briefing: (ctx: StrategyContext) =>
+      `A finished commercial theatrical movie poster for "${ctx.title}". ` +
+      `Bold, clear visual hook — sells from across a room. ` +
+      (ctx.logline ? `Hook: ${ctx.logline.slice(0, 150)}. ` : "") +
+      `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
+      `${ctx.worldLock.wardrobe}. Strong focal point. ${ctx.toneVisual}. Mainstream appeal.`,
+  },
+  {
+    key: "genre",
+    label: "Genre Pure",
+    briefing: (ctx: StrategyContext) =>
+      `A finished theatrical movie poster for "${ctx.title}" that fully commits to ${ctx.primaryGenre} genre conventions. ` +
+      `Every visual cue signals the genre immediately — ${ctx.genreVisual || "dramatic cinematography"}. ` +
+      `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
+      `${ctx.worldLock.wardrobe}. ${ctx.worldLock.architecture}. ${ctx.toneVisual}.`,
+  },
+] as const;
 
-// ── Resolve project truth for prompt inputs ──────────────────────────────────
+// ── Resolve project truth ────────────────────────────────────────────────────
 
 async function resolveProjectInputs(
   supabase: ReturnType<typeof createClient>,
@@ -202,16 +318,24 @@ async function resolveProjectInputs(
     if (cj.world_description) { parts.push(cj.world_description); world_setting = cj.world_description; }
     if (cj.seed_draft?.premise) parts.push(cj.seed_draft.premise);
     if (cj.setting) { parts.push(cj.setting); if (!world_setting) world_setting = cj.setting; }
-    canon_summary = parts.join(". ").slice(0, 300) || null;
+    if (cj.locations) parts.push(typeof cj.locations === "string" ? cj.locations : JSON.stringify(cj.locations));
+    if (cj.world_rules) parts.push(cj.world_rules);
+    if (cj.premise) { parts.push(cj.premise); if (!logline) logline = cj.premise; }
+    if (cj.logline) { if (!logline) logline = cj.logline; }
+    if (cj.tone_style) { /* add to tone context */ }
+    canon_summary = parts.join(". ").slice(0, 500) || null;
 
-    // Extract characters
     if (cj.characters && Array.isArray(cj.characters)) {
-      characters = cj.characters.map((c: any) => c.name || c).slice(0, 3).join(", ");
+      characters = cj.characters.map((c: any) => {
+        if (typeof c === "string") return c;
+        const name = c.name || "Unknown";
+        const role = c.role ? ` (${c.role})` : "";
+        return `${name}${role}`;
+      }).slice(0, 4).join(", ");
     } else if (cj.protagonist) {
       characters = cj.protagonist;
     }
 
-    // Extract conflict / themes
     if (cj.central_conflict) conflict = cj.central_conflict;
     if (cj.themes) {
       themes = Array.isArray(cj.themes) ? cj.themes.slice(0, 4).join(", ") : String(cj.themes);
@@ -258,7 +382,7 @@ async function resolveProjectInputs(
     }
   }
 
-  return {
+  const baseInputs = {
     title: project.title || "Untitled Project",
     format: project.format || "film",
     genres: project.genres || [],
@@ -274,9 +398,39 @@ async function resolveProjectInputs(
     themes,
     world_setting,
   };
+
+  return { ...baseInputs, worldLock: deriveWorldLock(baseInputs) };
 }
 
-function buildStrategyContext(inputs: PosterPromptInputs): StrategyContext {
+// ── Resolve company branding ─────────────────────────────────────────────────
+
+async function resolveCompanyBranding(
+  supabase: ReturnType<typeof createClient>,
+  projectId: string,
+): Promise<{ companyName: string; writerCredit: string }> {
+  let companyName = "Paradox House";
+  try {
+    const { data: links } = await supabase
+      .from("project_company_links")
+      .select("company_id")
+      .eq("project_id", projectId)
+      .limit(1);
+    if (links?.length) {
+      const { data: company } = await supabase
+        .from("production_companies")
+        .select("name")
+        .eq("id", (links[0] as any).company_id)
+        .single();
+      if (company?.name) companyName = company.name;
+    }
+  } catch { /* use default */ }
+
+  return { companyName, writerCredit: "Written by Sebastian Street" };
+}
+
+// ── Build strategy context ───────────────────────────────────────────────────
+
+function buildStrategyContext(inputs: PosterPromptInputs, branding: { companyName: string; writerCredit: string }): StrategyContext {
   const primaryGenre = inputs.genres[0] || "drama";
   const toneVisual = toneVisuals[inputs.tone?.toLowerCase()] || "cinematic atmosphere, professional lighting";
   const genreVisual = inputs.genres
@@ -287,7 +441,7 @@ function buildStrategyContext(inputs: PosterPromptInputs): StrategyContext {
   let compReference = "";
   if (inputs.comparable_titles) {
     const comps = inputs.comparable_titles.split(",").map(s => s.trim()).filter(Boolean).slice(0, 3);
-    if (comps.length > 0) compReference = `Visual inspiration from films like ${comps.join(", ")}. `;
+    if (comps.length > 0) compReference = `Visual inspiration from posters of films like ${comps.join(", ")}. `;
   }
 
   return {
@@ -300,20 +454,56 @@ function buildStrategyContext(inputs: PosterPromptInputs): StrategyContext {
     primaryGenre,
     genreVisual,
     toneVisual,
-    formatVisual: "",
     compReference,
+    worldLock: inputs.worldLock,
+    writerCredit: branding.writerCredit,
+    companyCredit: branding.companyName,
   };
 }
 
+// ── Build final prompt ───────────────────────────────────────────────────────
+
 function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: StrategyContext): string {
   const base = strategy.briefing(ctx);
-  return [
-    base,
-    ctx.compReference,
-    `The image should be KEY ART — no text, no titles, no typography, no words.`,
-    `Leave space in the lower third for title treatment overlay.`,
-    `Aspect ratio: 2:3 portrait poster format.`,
-  ].filter(Boolean).join(" ");
+
+  // World lock enforcement
+  const worldLockBlock = [
+    `CRITICAL WORLD CONSTRAINTS:`,
+    `- Era: ${ctx.worldLock.era}`,
+    ctx.worldLock.geography !== "unspecified" ? `- Geography: ${ctx.worldLock.geography}` : null,
+    ctx.worldLock.culture !== "unspecified" ? `- Culture: ${ctx.worldLock.culture}` : null,
+    `- Architecture: ${ctx.worldLock.architecture}`,
+    `- Wardrobe: ${ctx.worldLock.wardrobe}`,
+    `- Technology: ${ctx.worldLock.technology}`,
+  ].filter(Boolean).join("\n");
+
+  // Negative prompting
+  const prohibitions = ctx.worldLock.prohibitions.length > 0
+    ? `ABSOLUTE PROHIBITIONS:\n${ctx.worldLock.prohibitions.join("\n")}`
+    : "";
+
+  // Poster text treatment instructions
+  const textTreatment = [
+    `POSTER TEXT TREATMENT (render as part of the poster image):`,
+    `- Title "${ctx.title}" displayed prominently in the lower third or center — large, elegant, cinematic typography`,
+    `- Below the title: "${ctx.writerCredit}" in smaller, refined credit text`,
+    `- At the very bottom: "${ctx.companyCredit}" as the production company credit, subtle and elegant`,
+    `- Typography should match the tone: prestigious serif or clean sans-serif for prestige; bold impactful type for commercial`,
+    `- Text must be legible and properly composed as part of the poster layout`,
+  ].join("\n");
+
+  // Composition instructions
+  const composition = [
+    `COMPOSITION REQUIREMENTS:`,
+    `- This must look like a FINISHED THEATRICAL MOVIE POSTER, not concept art or a raw photograph`,
+    `- Professional poster layout with clear visual hierarchy`,
+    `- Proper negative space for title placement`,
+    `- Portrait 2:3 aspect ratio`,
+    `- Photorealistic cinematic quality, 4K resolution feel`,
+    `- The overall design should feel like it belongs on a cinema lobby wall`,
+  ].join("\n");
+
+  return [base, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition].filter(Boolean).join("\n\n");
 }
 
 // ── Provider Adapter ─────────────────────────────────────────────────────────
@@ -326,7 +516,6 @@ interface ProviderImageResult {
 
 function extractImageFromResponse(aiData: unknown): ProviderImageResult {
   const data = aiData as Record<string, unknown>;
-
   const choices = data?.choices as Array<Record<string, unknown>> | undefined;
   if (choices?.length) {
     const message = choices[0]?.message as Record<string, unknown> | undefined;
@@ -351,7 +540,6 @@ function extractImageFromResponse(aiData: unknown): ProviderImageResult {
       }
     }
   }
-
   const dataArr = data?.data as Array<Record<string, unknown>> | undefined;
   if (dataArr?.length) {
     const b64 = dataArr[0]?.b64_json as string;
@@ -360,7 +548,6 @@ function extractImageFromResponse(aiData: unknown): ProviderImageResult {
       return { imageDataUrl: `data:image/png;base64,${b64}`, format: "png", rawBytes: bytes };
     }
   }
-
   throw new Error(`No image found in AI response. Keys: ${JSON.stringify(Object.keys(data || {}))}`);
 }
 
@@ -372,12 +559,9 @@ function parseDataUrl(dataUrl: string): ProviderImageResult {
   return { imageDataUrl: dataUrl, format, rawBytes };
 }
 
-// ── Image generation helper ──────────────────────────────────────────────────
+// ── Image generation ─────────────────────────────────────────────────────────
 
-async function generateImage(
-  apiKey: string,
-  prompt: string,
-): Promise<ProviderImageResult> {
+async function generateImage(apiKey: string, prompt: string): Promise<ProviderImageResult> {
   const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -385,7 +569,7 @@ async function generateImage(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash-image",
+      model: "google/gemini-3-pro-image-preview",
       messages: [{ role: "user", content: prompt }],
       modalities: ["image", "text"],
     }),
@@ -435,9 +619,12 @@ serve(async (req) => {
       });
     }
 
-    // Resolve project truth
+    // Resolve project truth + branding
     const inputs = await resolveProjectInputs(supabase, project_id);
-    const strategyCtx = buildStrategyContext(inputs);
+    const branding = await resolveCompanyBranding(supabase, project_id);
+    const strategyCtx = buildStrategyContext(inputs, branding);
+
+    console.log("World lock:", JSON.stringify(inputs.worldLock, null, 2));
 
     // ── Mode: multi_concept — generate 6 strategy posters ──
     if (mode === "multi_concept") {
@@ -453,7 +640,6 @@ serve(async (req) => {
         error?: string;
       }> = [];
 
-      // Get next version base
       const { data: existingPosters } = await supabase
         .from("project_posters")
         .select("version_number")
@@ -466,7 +652,6 @@ serve(async (req) => {
         const prompt = buildStrategyPrompt(strategy, strategyCtx);
         const versionNum = nextVersion++;
 
-        // Create poster record
         const { data: posterRecord, error: insertErr } = await supabase
           .from("project_posters")
           .insert({
@@ -478,10 +663,10 @@ serve(async (req) => {
             aspect_ratio: "2:3",
             layout_variant: strategy.key,
             prompt_text: prompt,
-            prompt_inputs: { ...inputs, strategy_key: strategy.key, strategy_label: strategy.label },
+            prompt_inputs: { ...inputs, strategy_key: strategy.key, strategy_label: strategy.label, world_lock: inputs.worldLock },
             provider: "lovable-ai",
-            model: "google/gemini-2.5-flash-image",
-            render_status: "key_art_only",
+            model: "google/gemini-3-pro-image-preview",
+            render_status: "composed_final",
             is_active: false,
           })
           .select()
@@ -509,7 +694,8 @@ serve(async (req) => {
             .update({
               status: "ready",
               key_art_storage_path: keyArtPath,
-              render_status: "key_art_only",
+              rendered_storage_path: keyArtPath,
+              render_status: "composed_final",
             })
             .eq("id", posterRecord.id);
 
@@ -518,20 +704,18 @@ serve(async (req) => {
           const errMsg = genErr instanceof Error ? genErr.message : "Generation failed";
           await supabase.from("project_posters").update({ status: "failed", error_message: errMsg }).eq("id", posterRecord.id);
           results.push({ strategy_key: strategy.key, strategy_label: strategy.label, poster_id: posterRecord.id, status: "failed", error: errMsg });
-
-          // Stop on rate limit / payment errors
           if (errMsg.includes("Rate limit") || errMsg.includes("Payment required")) break;
         }
       }
 
-      return new Response(JSON.stringify({ results, inputs_used: inputs }), {
+      return new Response(JSON.stringify({ results, inputs_used: inputs, world_lock: inputs.worldLock }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     // ── Mode: generate (legacy single poster) ──
-    const prompt = buildStrategyPrompt(POSTER_STRATEGIES[4], strategyCtx); // commercial by default
+    const prompt = buildStrategyPrompt(POSTER_STRATEGIES[4], strategyCtx);
 
     const { data: existingPosters } = await supabase
       .from("project_posters")
@@ -554,8 +738,8 @@ serve(async (req) => {
         prompt_text: prompt,
         prompt_inputs: inputs,
         provider: "lovable-ai",
-        model: "google/gemini-2.5-flash-image",
-        render_status: "key_art_only",
+        model: "google/gemini-3-pro-image-preview",
+        render_status: "composed_final",
       })
       .select()
       .single();
@@ -586,7 +770,8 @@ serve(async (req) => {
           status: "ready",
           is_active: true,
           key_art_storage_path: keyArtPath,
-          render_status: "key_art_only",
+          rendered_storage_path: keyArtPath,
+          render_status: "composed_final",
         })
         .eq("id", posterRecord.id)
         .select()
@@ -598,7 +783,6 @@ serve(async (req) => {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-
     } catch (genErr: unknown) {
       const errMsg = genErr instanceof Error ? genErr.message : "Unknown generation error";
       await supabase.from("project_posters").update({ status: "failed", error_message: errMsg }).eq("id", posterRecord.id);
