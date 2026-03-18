@@ -132,6 +132,27 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
         {/* Sparkline */}
         <Sparkline history={convergenceHistory} />
 
+        {/* ═══ Discipline Mode Indicator ═══ */}
+        {decision.disciplineMode && decision.disciplineMode !== 'full_rewrite' && (
+          <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-[9px] font-semibold uppercase tracking-wider ${
+            decision.disciplineMode === 'late_stage_patch'
+              ? 'bg-violet-500/15 text-violet-400 border border-violet-500/30'
+              : 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+          }`}>
+            {decision.disciplineMode === 'late_stage_patch' ? (
+              <>
+                <Shield className="h-3 w-3" />
+                Patch Mode — Protecting Stable Material
+              </>
+            ) : (
+              <>
+                <Target className="h-3 w-3" />
+                Selective Rewrite — Targeted Scope
+              </>
+            )}
+          </div>
+        )}
+
         {/* ═══ Recommended Next Action ═══ */}
         <div className={`p-2.5 rounded border ${badgeStyle} space-y-2`}>
           <p className="text-[10px] font-semibold">{decision.explanation}</p>
