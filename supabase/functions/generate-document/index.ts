@@ -1543,11 +1543,23 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
             // ── END SCENE GRAPH BOOTSTRAP ───────────────────────────────────────
 
           } else {
-            // Failed assembly: persist for observability but do NOT promote to is_current
+            // Failed or incomplete: persist for observability but do NOT promote to is_current/latest
+            const isIncomplete = chunkResult.completedChunks > 0 && chunkResult.completedChunks < chunkResult.totalChunks;
             await serviceClient.from("project_document_versions")
-              .update({ meta_json: { bg_generating: false, bg_failed: true, bg_failed_at: new Date().toISOString(), chunks_total: chunkResult.totalChunks, chunks_completed: chunkResult.completedChunks, chunks_failed: chunkResult.failedChunks } })
+              .update({
+                is_current: false,
+                meta_json: {
+                  bg_generating: false,
+                  bg_failed: !isIncomplete,
+                  incomplete_generation: isIncomplete,
+                  bg_failed_at: new Date().toISOString(),
+                  chunks_total: chunkResult.totalChunks,
+                  chunks_completed: chunkResult.completedChunks,
+                  chunks_failed: chunkResult.failedChunks,
+                },
+              })
               .eq("id", chunkVersion!.id);
-            console.error(`[generate-document][IEL] Chunked generation PARTIAL FAILURE — NOT promoting to is_current: ${docType} v${chunkVersionNum} failed=${chunkResult.failedChunks}/${chunkResult.totalChunks}`);
+            console.error(`[generate-document][IEL] Chunked generation ${isIncomplete ? 'INCOMPLETE' : 'FAILED'} — NOT promoting: ${docType} v${chunkVersionNum} completed=${chunkResult.completedChunks}/${chunkResult.totalChunks} failed=${chunkResult.failedChunks}`);
           }
         } catch (bgErr: any) {
           console.error(`[generate-document] Chunked background generation FAILED: ${docType} — ${bgErr?.message}`);
