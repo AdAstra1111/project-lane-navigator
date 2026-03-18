@@ -20,6 +20,7 @@ import {
 import { Header } from '@/components/Header';
 
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
+import { useActiveProjectPoster } from '@/hooks/useActiveProjectPoster';
 import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
 import { useProjectDuplicate } from '@/hooks/useProjectDuplicate';
