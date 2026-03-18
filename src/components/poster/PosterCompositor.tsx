@@ -219,13 +219,30 @@ function applyLayout(
   ctx.stroke();
   ctx.globalAlpha = 1;
 
-  // ── Bottom micro-label ──
+  // ── Bottom branding: company logo or company name or fallback ──
   const footerY = h - 20;
-  ctx.font = `400 ${Math.max(9, Math.round(w * 0.012))}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-  ctx.fillStyle = BRAND.amber;
-  ctx.globalAlpha = 0.4;
-  ctx.fillText("DEVELOPED IN IFFY", titleX, footerY);
-  ctx.globalAlpha = 1;
+  if (logoImg && logoImg.naturalWidth > 0) {
+    // Draw company logo centered at bottom
+    const maxLogoH = Math.max(14, Math.round(h * 0.03));
+    const aspect = logoImg.naturalWidth / logoImg.naturalHeight;
+    const lh = maxLogoH;
+    const lw = lh * aspect;
+    ctx.globalAlpha = 0.7;
+    ctx.drawImage(logoImg, w / 2 - lw / 2, footerY - lh + 4, lw, lh);
+    ctx.globalAlpha = 1;
+  } else if (companyName) {
+    ctx.font = `400 ${Math.max(9, Math.round(w * 0.012))}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = BRAND.amber;
+    ctx.globalAlpha = 0.5;
+    ctx.fillText(companyName.toUpperCase(), w / 2, footerY);
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.font = `400 ${Math.max(9, Math.round(w * 0.012))}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = BRAND.amber;
+    ctx.globalAlpha = 0.4;
+    ctx.fillText("DEVELOPED IN IFFY", w / 2, footerY);
+    ctx.globalAlpha = 1;
+  }
 }
 
 function calculateTitleFontSize(title: string, canvasWidth: number): number {
