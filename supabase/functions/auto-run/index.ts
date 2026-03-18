@@ -9193,11 +9193,33 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId);
           }
 
-          const { approvedNotes: strategyNotes, globalDirections: strategyDirections } = selectNotesForStrategy(strategy, allNotesForStrategy);
+          const { approvedNotes: strategyNotesRaw, globalDirections: strategyDirections } = selectNotesForStrategy(strategy, allNotesForStrategy);
+
+          // ── GAP FIX 1: Enrich strategy notes with resolution_directive from suggested_fixes ──
+          const strategyNotes = strategyNotesRaw.map((n: any) => {
+            if (n.resolution_directive) return n; // already enriched (from project_notes injection)
+            const fixes = Array.isArray(n.suggested_fixes) ? n.suggested_fixes : [];
+            const recommended = fixes.find((f: any) => f.recommended) || fixes[0];
+            if (!recommended) return n;
+            const directive = `Apply: "${recommended.title || recommended.description}".${recommended.what_changes ? ` Changes: ${Array.isArray(recommended.what_changes) ? recommended.what_changes.join("; ") : recommended.what_changes}` : ""}`;
+            return { ...n, resolution_directive: directive };
+          });
+
+          // ── GAP FIX 2: Inject reviewer's global_directions from NOTES run output ──
+          const reviewerGlobalDirections: string[] = [];
+          try {
+            const rawGD = notes?.global_directions || analyzeResult?.global_directions;
+            if (Array.isArray(rawGD) && rawGD.length > 0) {
+              reviewerGlobalDirections.push(...rawGD.map((d: any) => typeof d === "string" ? d : d?.text || d?.direction || JSON.stringify(d)));
+              console.log(`[auto-run][IEL] reviewer_global_directions_injected { job_id: "${jobId}", doc_type: "${currentDoc}", count: ${reviewerGlobalDirections.length} }`);
+            }
+          } catch (gdErr: any) {
+            console.warn(`[auto-run][IEL] reviewer_global_directions_failed: ${gdErr?.message}`);
+          }
 
           await logStep(supabase, jobId, null, currentDoc, "convergence_strategy_selected",
-            `Attempt ${attemptNumber}: strategy=${strategy}, notes=${strategyNotes.length}, directions=${strategyDirections.length}`,
-            { ci, gp, gap }, undefined, { attemptNumber, strategy, noteCount: strategyNotes.length });
+            `Attempt ${attemptNumber}: strategy=${strategy}, notes=${strategyNotes.length}, directions=${strategyDirections.length}, enriched=${strategyNotes.filter((n: any) => n.resolution_directive).length}, reviewerGD=${reviewerGlobalDirections.length}`,
+            { ci, gp, gap }, undefined, { attemptNumber, strategy, noteCount: strategyNotes.length, enrichedCount: strategyNotes.filter((n: any) => n.resolution_directive).length, reviewerGDCount: reviewerGlobalDirections.length });
 
           // ── 1) BASELINE PINNING: ensure current accepted baseline exists (auto-repair/seed once) ──
           let currentAccepted = await getCurrentVersionForDoc(supabase, doc.id);
