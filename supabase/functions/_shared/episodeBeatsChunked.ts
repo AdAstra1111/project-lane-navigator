@@ -315,10 +315,9 @@ async function generateBatch(
  * and multi-line action blocks cause frequent JSON parse failures. Instead, generate
  * each episode sequentially as raw markdown text and concatenate.
  */
-// Script batch size: 5 episodes per LLM call.
-// Each ep ~500 words → 5 eps = ~3500 tokens output. 30 eps / 5 = 6 calls × ~20s = ~120s.
+// Script mode is episode-by-episode: one episode per LLM call.
 // Plain text output avoids JSON serialisation failures (quotes, colons, newlines in dialogue).
-const SCRIPT_BATCH_SIZE = 5;
+const SCRIPT_BATCH_SIZE = 1;
 
 const SCRIPT_BATCH_SYSTEM = `You are writing multiple consecutive episodes of a vertical drama screenplay.
 Output ONLY raw screenplay text — no JSON, no markdown code blocks, no preamble, no meta commentary.
