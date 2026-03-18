@@ -126,16 +126,7 @@ export default function LookBookPage() {
           <FramingStrategyPanel projectId={projectId} contentType="lookbook" compact />
         </div>
       )}
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 text-xs"
-          onClick={handleGenerate}
-          disabled={generating}
-        >
-          {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-          Regenerate
-        </Button>
-      </div>
+
       <LookBookViewer
         data={lookBookData}
         onExportPDF={handleExportPDF}
