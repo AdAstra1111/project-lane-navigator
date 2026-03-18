@@ -48,6 +48,12 @@ export interface ManualDecisionInput {
   blockerCount: number;
   majorNoteCount: number;
   minorNoteCount: number;
+  /** Current version number (for discipline mode resolution) */
+  versionNumber?: number;
+  /** Whether the document is structurally incomplete */
+  isStructurallyIncomplete?: boolean;
+  /** Whether the document is in hard-failure state */
+  isHardFailure?: boolean;
 }
 
 /** Map recommendation → Loop Controls action key used by the page */
