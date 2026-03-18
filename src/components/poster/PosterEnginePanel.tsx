@@ -29,6 +29,7 @@ import {
   type ProjectPoster,
 } from "@/hooks/useProjectPosters";
 import { useProject } from "@/hooks/useProjects";
+import { useProjectBranding } from "@/hooks/useProjectBranding";
 
 const STRATEGY_META: Record<string, { icon: typeof User; color: string; description: string }> = {
   character:  { icon: User,     color: "text-blue-400",   description: "Lead character dominant, emotional, intimate" },
@@ -50,6 +51,7 @@ function renderStatusLabel(status: string): { label: string; variant: "default" 
 export default function PosterEnginePanel() {
   const { id: projectId } = useParams<{ id: string }>();
   const { project } = useProject(projectId || "");
+  const { data: branding } = useProjectBranding(projectId);
   const { data: posters, isLoading } = useProjectPosters(projectId);
   const { data: activePoster } = useActivePoster(projectId);
   const generatePoster = useGeneratePoster(projectId);
@@ -167,6 +169,8 @@ export default function PosterEnginePanel() {
               <PosterCompositor
                 keyArtUrl={activePoster.key_art_public_url || ""}
                 title={project?.title || "Untitled"}
+                companyLogoUrl={branding?.companyLogoUrl}
+                companyName={branding?.companyName}
                 width={80}
                 className="rounded shadow-lg"
               />
@@ -215,6 +219,8 @@ export default function PosterEnginePanel() {
                       <PosterCompositor
                         keyArtUrl={poster.key_art_public_url || ""}
                         title={project?.title || "Untitled"}
+                        companyLogoUrl={branding?.companyLogoUrl}
+                        companyName={branding?.companyName}
                         width={280}
                       />
 
@@ -394,6 +400,8 @@ export default function PosterEnginePanel() {
                   <PosterCompositor
                     keyArtUrl={poster.key_art_public_url || ""}
                     title={project?.title || "Untitled"}
+                    companyLogoUrl={branding?.companyLogoUrl}
+                    companyName={branding?.companyName}
                     width={160}
                   />
                   <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5">

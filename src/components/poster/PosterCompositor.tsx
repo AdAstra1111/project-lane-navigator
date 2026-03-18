@@ -9,6 +9,8 @@ interface PosterCompositorProps {
   keyArtUrl: string;
   title: string;
   tagline?: string;
+  companyLogoUrl?: string | null;
+  companyName?: string | null;
   aspectRatio?: "2:3" | "1:1" | "16:9";
   layoutVariant?: "cinematic-dark" | "cinematic-light" | "minimal";
   width?: number;
@@ -36,6 +38,8 @@ export function PosterCompositor({
   keyArtUrl,
   title,
   tagline,
+  companyLogoUrl,
+  companyName,
   aspectRatio = "2:3",
   layoutVariant = "cinematic-dark",
   width,
@@ -56,38 +60,63 @@ export function PosterCompositor({
     canvas.width = dims.w;
     canvas.height = dims.h;
 
+    // Load key art image
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.onload = () => {
-      // Draw key art covering full canvas
-      const imgAspect = img.width / img.height;
-      const canvasAspect = dims.w / dims.h;
-      let sx = 0, sy = 0, sw = img.width, sh = img.height;
 
+    // Optionally load company logo
+    let logoImg: HTMLImageElement | null = null;
+    let logoLoaded = false;
+    let keyArtLoaded = false;
+
+    const tryRender = () => {
+      if (!keyArtLoaded) return;
+      // Draw key art
+      const imgAspect = img.naturalWidth / img.naturalHeight;
+      const canvasAspect = dims.w / dims.h;
+      let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
       if (imgAspect > canvasAspect) {
-        sw = img.height * canvasAspect;
-        sx = (img.width - sw) / 2;
+        sw = img.naturalHeight * canvasAspect;
+        sx = (img.naturalWidth - sw) / 2;
       } else {
-        sh = img.width / canvasAspect;
-        sy = (img.height - sh) / 2;
+        sh = img.naturalWidth / canvasAspect;
+        sy = (img.naturalHeight - sh) / 2;
       }
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dims.w, dims.h);
 
-      // Apply deterministic layout
-      applyLayout(ctx, dims, title, tagline, layoutVariant);
-
+      applyLayout(ctx, dims, title, tagline, layoutVariant, logoImg, companyName || null);
       setLoaded(true);
       onRender?.(canvas);
     };
+
+    img.onload = () => {
+      keyArtLoaded = true;
+      if (!companyLogoUrl || logoLoaded) tryRender();
+    };
     img.onerror = () => {
-      // Render fallback dark poster with just title
       ctx.fillStyle = BRAND.dark;
       ctx.fillRect(0, 0, dims.w, dims.h);
-      applyLayout(ctx, dims, title, tagline, layoutVariant);
+      keyArtLoaded = true;
+      applyLayout(ctx, dims, title, tagline, layoutVariant, logoImg, companyName || null);
       setLoaded(true);
     };
     img.src = keyArtUrl;
-  }, [keyArtUrl, title, tagline, aspectRatio, layoutVariant, onRender]);
+
+    if (companyLogoUrl) {
+      logoImg = new Image();
+      logoImg.crossOrigin = "anonymous";
+      logoImg.onload = () => {
+        logoLoaded = true;
+        if (keyArtLoaded) tryRender();
+      };
+      logoImg.onerror = () => {
+        logoImg = null;
+        logoLoaded = true;
+        if (keyArtLoaded) tryRender();
+      };
+      logoImg.src = companyLogoUrl;
+    }
+  }, [keyArtUrl, title, tagline, aspectRatio, layoutVariant, onRender, companyLogoUrl, companyName]);
 
   const dims = ASPECT_RATIOS[aspectRatio] || ASPECT_RATIOS["2:3"];
   const displayWidth = width || 320;
@@ -114,6 +143,8 @@ function applyLayout(
   title: string,
   tagline?: string,
   variant: string = "cinematic-dark",
+  logoImg?: HTMLImageElement | null,
+  companyName?: string | null,
 ) {
   const { w, h } = dims;
 
@@ -188,13 +219,30 @@ function applyLayout(
   ctx.stroke();
   ctx.globalAlpha = 1;
 
-  // ── Bottom micro-label ──
+  // ── Bottom branding: company logo or company name or fallback ──
   const footerY = h - 20;
-  ctx.font = `400 ${Math.max(9, Math.round(w * 0.012))}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-  ctx.fillStyle = BRAND.amber;
-  ctx.globalAlpha = 0.4;
-  ctx.fillText("DEVELOPED IN IFFY", titleX, footerY);
-  ctx.globalAlpha = 1;
+  if (logoImg && logoImg.naturalWidth > 0) {
+    // Draw company logo centered at bottom
+    const maxLogoH = Math.max(14, Math.round(h * 0.03));
+    const aspect = logoImg.naturalWidth / logoImg.naturalHeight;
+    const lh = maxLogoH;
+    const lw = lh * aspect;
+    ctx.globalAlpha = 0.7;
+    ctx.drawImage(logoImg, w / 2 - lw / 2, footerY - lh + 4, lw, lh);
+    ctx.globalAlpha = 1;
+  } else if (companyName) {
+    ctx.font = `400 ${Math.max(9, Math.round(w * 0.012))}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = BRAND.amber;
+    ctx.globalAlpha = 0.5;
+    ctx.fillText(companyName.toUpperCase(), w / 2, footerY);
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.font = `400 ${Math.max(9, Math.round(w * 0.012))}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = BRAND.amber;
+    ctx.globalAlpha = 0.4;
+    ctx.fillText("DEVELOPED IN IFFY", w / 2, footerY);
+    ctx.globalAlpha = 1;
+  }
 }
 
 function calculateTitleFontSize(title: string, canvasWidth: number): number {

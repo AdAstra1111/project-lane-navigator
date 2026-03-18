@@ -914,28 +914,61 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── Fetch brand logo asset for PDF rendering ──
+    // ── Fetch logo: company branding (primary) → brand_assets (fallback) ──
     let logoBytes: Uint8Array | null = null;
     let logoMime = "image/png";
+
+    // Primary: resolve company logo via project_company_links → production_companies
     try {
-      const { data: brandAsset } = await sb
-        .from("brand_assets")
-        .select("storage_path, mime_type")
-        .eq("user_id", user.id)
-        .eq("asset_type", "logo")
-        .eq("label", "primary")
-        .maybeSingle();
-      if (brandAsset?.storage_path) {
-        const { data: fileData } = await sb.storage
-          .from("brand-assets")
-          .download(brandAsset.storage_path);
-        if (fileData) {
-          logoBytes = new Uint8Array(await fileData.arrayBuffer());
-          logoMime = brandAsset.mime_type || "image/png";
+      const { data: companyLinks } = await sb
+        .from("project_company_links")
+        .select("company_id")
+        .eq("project_id", projectId)
+        .limit(1);
+      if (companyLinks?.length) {
+        const { data: company } = await sb
+          .from("production_companies")
+          .select("logo_url")
+          .eq("id", companyLinks[0].company_id)
+          .single();
+        if (company?.logo_url) {
+          // logo_url is a public URL from company-logos bucket — fetch it
+          const logoResp = await fetch(company.logo_url);
+          if (logoResp.ok) {
+            const buf = await logoResp.arrayBuffer();
+            logoBytes = new Uint8Array(buf);
+            logoMime = logoResp.headers.get("content-type") || (company.logo_url.endsWith(".png") ? "image/png" : "image/jpeg");
+            console.log("[export-package] Using company logo from production_companies");
+          }
         }
       }
     } catch (e) {
-      console.warn("Brand logo fetch failed, using fallback:", e);
+      console.warn("Company logo fetch failed, trying fallback:", e);
+    }
+
+    // Fallback: brand_assets table (user-level Settings page upload)
+    if (!logoBytes) {
+      try {
+        const { data: brandAsset } = await sb
+          .from("brand_assets")
+          .select("storage_path, mime_type")
+          .eq("user_id", user.id)
+          .eq("asset_type", "logo")
+          .eq("label", "primary")
+          .maybeSingle();
+        if (brandAsset?.storage_path) {
+          const { data: fileData } = await sb.storage
+            .from("brand-assets")
+            .download(brandAsset.storage_path);
+          if (fileData) {
+            logoBytes = new Uint8Array(await fileData.arrayBuffer());
+            logoMime = brandAsset.mime_type || "image/png";
+            console.log("[export-package] Using logo from brand_assets fallback");
+          }
+        }
+      } catch (e) {
+        console.warn("Brand asset logo fetch also failed, using placeholder:", e);
+      }
     }
 
     // ── Fetch active project poster for PDF rendering ──
