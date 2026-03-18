@@ -119,18 +119,20 @@ export function useProjectPackage(projectId: string | undefined) {
         return emptyPackage(projectTitle, format, pipelineStage, ladder);
       }
 
-      // 4. Fetch the latest approved (final) version per document
-      //    Using the "highest version_number where status=final" approach
-      const { data: finalVersions } = await (supabase as any)
+      // 4. Fetch the latest approved version per document
+      //    Check BOTH status='final' AND approval_status='approved' — the Active
+      //    Project Folder sets approval_status='approved' (via project-folder-engine),
+      //    while legacy flows may set status='final'.
+      const { data: approvedVersions } = await (supabase as any)
         .from('project_document_versions')
-        .select('id, document_id, status, created_at, version_number, plaintext')
+        .select('id, document_id, status, approval_status, created_at, version_number, plaintext')
         .in('document_id', allDocIds)
-        .eq('status', 'final')
+        .or('status.eq.final,approval_status.eq.approved')
         .order('version_number', { ascending: false });
 
       // Keep only the most recent approved version per document_id
       const approvedByDocId = new Map<string, any>();
-      for (const v of finalVersions || []) {
+      for (const v of approvedVersions || []) {
         if (!approvedByDocId.has(v.document_id)) {
           approvedByDocId.set(v.document_id, v);
         }
