@@ -4878,7 +4878,7 @@ Deno.serve(async (req) => {
           ? Math.max(MIN_VERSION_CAP, Math.min(MAX_VERSION_CAP, body.max_versions_per_doc_per_job))
           : DEFAULT_MAX_VERSIONS_PER_DOC_PER_JOB,
       };
-      console.log(`[IEL] job insert pipeline_key=${insertPayload.pipeline_key} fmt=${fmt} converge_target=${JSON.stringify(insertPayload.converge_target_json)} quality_objective=Exceptional_default`);
+      console.log(`[IEL] job insert pipeline_key=${insertPayload.pipeline_key} fmt=${fmt} converge_target=${JSON.stringify(insertPayload.converge_target_json)} quality_policy=max_quality`);
       const { data: job, error } = await supabase.from("auto_run_jobs").insert(insertPayload).select("*").single();
 
       if (error) throw new Error(`Failed to create job: ${error.message}`);
