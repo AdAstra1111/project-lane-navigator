@@ -269,6 +269,21 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
     criteria_fail_duration_exhausted: 'bg-destructive/15 text-destructive border-destructive/30',
     duration_repair_attempt: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
     duration_scope_skipped: 'bg-muted text-muted-foreground',
+    // Plateau recovery & cleanup pass actions
+    exceptional_plateau_block: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    plateau_recovery_cleanup: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    plateau_recovery_promoted: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    plateau_recovery_exhausted: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    plateau_recovery_continue: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+    cleanup_pass_started: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    cleanup_pass_accepted: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    cleanup_pass_rejected: 'bg-destructive/15 text-destructive border-destructive/30',
+    cleanup_pass_skipped: 'bg-muted text-muted-foreground',
+    cleanup_pass_not_eligible: 'bg-muted text-muted-foreground',
+    apply_decisions: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    decisions_applied_rewrite: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    prereq_gate_blocked: 'bg-destructive/15 text-destructive border-destructive/30',
+    ci_gate_blocked: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
   };
 
   return (
