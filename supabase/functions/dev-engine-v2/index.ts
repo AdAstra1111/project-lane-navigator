@@ -6839,7 +6839,9 @@ RULES:
 - recommended_option_id: best balance of creative integrity and commercial viability.
 - global_directions: 1-3 overarching tonal/strategic directions.
 - Keep options genuinely distinct — not minor variations of the same fix.
-- EVERY blocker in the input MUST appear as a decision with severity="blocker".`;
+- EVERY blocker in the input MUST appear as a decision with severity="blocker".
+- NEVER generate decisions about document destination, routing, or storage. Do NOT ask "Which document should receive..." — export/packaging flows produce artifacts, they don't overwrite source documents.
+- NEVER offer options like "Create new Pitch Deck" or "Store in Concept Brief" — these are document-routing questions that don't belong in creative decisions.`;
 
       const notesForPrompt = [
         ...blockers.map((n: any, i: number) => ({ index: i + 1, id: n.id, severity: "blocker", description: n.description, why_it_matters: n.why_it_matters })),
@@ -8976,6 +8978,9 @@ Rules:
 - NEVER ask about tone, tonal register, or genre — these are already set on the project (see CONTEXT above).
 - NEVER ask whether to lock the character roster — if a character bible exists, the roster is already locked.
 - NEVER ask about any field already listed in "Existing qualification overrides" above.
+- NEVER ask "Which document should receive..." or any document-destination/routing question. Export and packaging flows produce artifacts — they do NOT overwrite source documents.
+- NEVER ask where to store, route, or place formatted output. Documents like Concept Brief, Treatment, and Pitch Deck are source documents — export flows read from them, never write to them.
+- NEVER generate decisions about creating "New Pitch Deck document" or choosing between existing documents as output destinations.
 - If all blocking issues are resolvable from the CONTEXT above, return an empty must_decide array.`;
 
       const userPrompt = `FOUNDATION DOCUMENTS (use these to answer qualification questions — do NOT ask the user about anything resolvable from here):\n${foundationContext}\n\nLATEST ANALYSIS:\n${analysisSnippet}\n\nCURRENT DOCUMENT MATERIAL:\n${materialText}`;
@@ -8999,6 +9004,30 @@ Rules:
       if (!parsed.auto_fixes) parsed.auto_fixes = {};
       if (!parsed.must_decide) parsed.must_decide = [];
       if (!parsed.summary) parsed.summary = "";
+
+      // ── POST-LLM FILTER: Strip document-destination/routing decisions ──
+      // The LLM sometimes generates "Which document should receive..." questions
+      // that conflate export composition with document creation routing.
+      const DESTINATION_PATTERNS = [
+        /which\s+document\s+should\s+receive/i,
+        /where\s+should\s+(the|this)\s+(formatted|exported|compiled)/i,
+        /document\s+(destination|routing|target)/i,
+        /receive\s+(the\s+)?(professionally\s+)?formatted/i,
+        /store\s+(the|this)\s+(result|output)\s+in/i,
+        /create\s+(a\s+)?new\s+.*\s+document/i,
+      ];
+      const beforeCount = parsed.must_decide.length;
+      parsed.must_decide = parsed.must_decide.filter((d: any) => {
+        const q = (d.question || d.title || "").toLowerCase();
+        const isDestinationQ = DESTINATION_PATTERNS.some(p => p.test(q));
+        if (isDestinationQ) {
+          console.warn(`[dev-engine-v2][IEL] stripped_destination_decision { question: "${q.slice(0, 80)}", id: "${d.id || 'unknown'}" }`);
+        }
+        return !isDestinationQ;
+      });
+      if (beforeCount !== parsed.must_decide.length) {
+        console.log(`[dev-engine-v2] executive-strategy: filtered ${beforeCount - parsed.must_decide.length} document-destination decisions`);
+      }
 
       console.log(`[dev-engine-v2] executive-strategy: auto_fixes=${JSON.stringify(parsed.auto_fixes)}, must_decide=${parsed.must_decide.length}`);
 
