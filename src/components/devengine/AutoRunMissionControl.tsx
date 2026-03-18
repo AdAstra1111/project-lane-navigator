@@ -962,10 +962,7 @@ export function AutoRunMissionControl({
           {hasExceptionalPlateau && plateauDiagnosis ? (
             <PlateauDiagnosisPanel
               diagnosis={plateauDiagnosis}
-              onLowerTarget={(ci, gp) => {
-                onUpdateTarget?.(ci, gp);
-                toast({ title: `Quality objective lowered to ${ci}+`, description: 'Resume the run to continue with the new target.' });
-              }}
+              onForceAdvance={() => onResume?.()}
               onStop={() => onStop?.()}
             />
           ) : hasExceptionalPlateau ? (
