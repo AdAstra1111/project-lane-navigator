@@ -92,18 +92,22 @@ export function useGeneratePoster(projectId: string | undefined) {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (opts?: { mode?: string; strategy_key?: string }) => {
       if (!projectId) throw new Error("No project ID");
       const { data, error } = await supabase.functions.invoke("generate-poster", {
-        body: { project_id: projectId, mode: "generate" },
+        body: { project_id: projectId, mode: opts?.mode || "generate", strategy_key: opts?.strategy_key },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["project-posters", projectId] });
-      toast.success("Key art generated successfully");
+      if (vars?.mode === "multi_concept") {
+        toast.success("Poster concepts generated");
+      } else {
+        toast.success("Key art generated successfully");
+      }
     },
     onError: (err: Error) => {
       if (err.message?.includes("Rate limit")) {
