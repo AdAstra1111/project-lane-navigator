@@ -10,6 +10,7 @@ export type IssueState = 'blockers_remain' | 'major_notes_remain' | 'minor_only'
 export type OperatorRecommendation =
   | 'run_full_rewrite'
   | 'run_selective_pass'
+  | 'run_late_stage_patch'
   | 'review_remaining_issues'
   | 'optional_polish'
   | 'approval_ready'
