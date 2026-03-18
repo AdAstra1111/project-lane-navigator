@@ -530,6 +530,7 @@ export function buildNarrativeContextBlock(ctx: NarrativeContext): string {
     ctx.canon.blockText,
     ctx.canonConstraintBlock,
     ctx.effectiveProfile.blockText,
+    ctx.structuralLineage.blockText,
     ctx.signals.blockText,
     ctx.lockedDecisions.blockText,
     ctx.voice.blockText,
