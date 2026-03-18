@@ -47,6 +47,7 @@ export default function Dashboard() {
   }, [projects, selectedCompanyId, linkMap]);
 
   const { data: projectScores = {} } = useDashboardScores(filteredProjects);
+  const { posterMap } = useActivePostersForProjects(filteredProjects.map(p => p.id));
 
   const displayCompany = selectedCompanyId !== 'all'
     ? companies.find(c => c.id === selectedCompanyId) || primaryCompany
