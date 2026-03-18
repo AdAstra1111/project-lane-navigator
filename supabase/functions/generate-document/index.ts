@@ -1414,6 +1414,22 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
         batchSize: docType === "season_script" ? 1 : undefined,
       });
 
+      // ── PREFLIGHT CONTRACT GUARD (season_script) ──
+      // Assert chunk plan matches canonical episode count to prevent silent truncation.
+      if (docType === "season_script" && resolvedQuals?.season_episode_count) {
+        const contractCount = resolvedQuals.season_episode_count;
+        if (plan.totalChunks !== contractCount) {
+          console.error(`[generate-document][IEL] PREFLIGHT_ABORT: season_script plan.totalChunks=${plan.totalChunks} !== contract=${contractCount}`);
+          return new Response(JSON.stringify({
+            error: "PREFLIGHT_CONTRACT_MISMATCH",
+            message: `Season script chunk plan (${plan.totalChunks} chunks) does not match canonical episode count (${contractCount}). Aborting to prevent partial generation.`,
+            plan_chunks: plan.totalChunks,
+            contract_episodes: contractCount,
+          }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        console.log(`[generate-document] Preflight OK: season_script contract=${contractCount} plan=${plan.totalChunks}`);
+      }
+
       console.log(`[generate-document] Chunked background generation starting: ${docType} v${chunkVersionNum}, ${plan.totalChunks} chunks`);
 
       // Fire generation as background task
