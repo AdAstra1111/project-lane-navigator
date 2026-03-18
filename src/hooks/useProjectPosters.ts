@@ -140,8 +140,27 @@ export function useSetActivePoster(projectId: string | undefined) {
         .eq("id", posterId);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: async (_data, posterId) => {
+      // Register as canonical poster_primary
+      if (projectId) {
+        const { data: poster } = await (supabase as any)
+          .from('project_posters')
+          .select('id, key_art_storage_path, prompt_text')
+          .eq('id', posterId)
+          .maybeSingle();
+        if (poster?.key_art_storage_path) {
+          await registerPosterAsCanonicalImage({
+            projectId,
+            posterId: poster.id,
+            storagePath: poster.key_art_storage_path,
+            promptUsed: poster.prompt_text || '',
+            isPrimary: true,
+            role: 'poster_primary',
+          });
+        }
+      }
       qc.invalidateQueries({ queryKey: ["project-posters", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-images", projectId] });
       toast.success("Active poster updated");
     },
     onError: (err: Error) => {
