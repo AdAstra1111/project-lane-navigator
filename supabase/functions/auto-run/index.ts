@@ -592,10 +592,12 @@ const MAX_STAGE_ITERATIONS = 5;
 
 /**
  * Resolve the effective CI target for a job.
- * Reads converge_target_json.ci from the job; falls back to 95 (Exceptional).
+ * Reads converge_target_json.ci from the job; falls back to 95.
  * NOTE: This is the *aspiration* target the rewrite loop drives toward.
  * GLOBAL_MIN_CI (90) is the separate force-promote floor used only when
  * genuinely stuck (plateau + notes exhausted).
+ * POLICY: Max Quality — all jobs target the highest achievable quality.
+ * The aspiration target is a progression floor, NOT an optimization ceiling.
  */
 function resolveTargetCI(job: any): number {
   const ct = job?.converge_target_json;
@@ -603,20 +605,16 @@ function resolveTargetCI(job: any): number {
     const ci = Number(ct.ci); // coerce string "81" to number 81
     if (!isNaN(ci) && ci >= 0 && ci <= 100) return ci;
   }
-  return 95; // Exceptional default — matches job creation default
+  return 95; // Max quality default
 }
 
 /**
- * Returns true when the job's quality objective is Exceptional (CI >= 95).
- * Used to gate auto-force-promote: Exceptional mode NEVER promotes below target.
+ * @deprecated — Max Quality policy: always returns true.
+ * All jobs use maximize-quality behavior. Kept as a function for call-site compatibility
+ * during transition; will be inlined/removed in future cleanup.
  */
-function isExceptionalObjective(job: any): boolean {
-  const ct = job?.converge_target_json;
-  if (ct !== null && ct !== undefined && typeof ct === "object") {
-    const ci = Number(ct.ci);
-    if (!isNaN(ci)) return ci >= 95;
-  }
-  return true; // default is Exceptional
+function isExceptionalObjective(_job: any): boolean {
+  return true; // Max Quality — all jobs behave as maximize-quality
 }
 
 function extractTargetGP(job: any): number {
