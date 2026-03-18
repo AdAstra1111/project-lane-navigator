@@ -1313,7 +1313,7 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
           // Use serviceClient throughout: rlsClient silently blocks writes on
           // project_document_versions and project_document_chunks via RLS.
           try {
-            await resumeChunkedGeneration({
+            const resumeResult = await resumeChunkedGeneration({
               supabase: serviceClient, apiKey, projectId,
               documentId: resumeDocId, versionId: resumeVersionId,
               docType, plan: resumePlan, systemPrompt: system, upstreamContent,
@@ -1322,10 +1322,33 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
               episodeCount: resolvedQuals?.season_episode_count,
               requestId,
             });
-            // chunkRunner clears bg_generating atomically in assembly — ensure is_current is set
-            await serviceClient.from("project_document_versions").update({ is_current: true }).eq("id", resumeVersionId);
-            await serviceClient.from("project_documents").update({ updated_at: new Date().toISOString() }).eq("id", resumeDocId);
-            console.log(`[generate-document] Resume COMPLETE: ${docType} versionId=${resumeVersionId}`);
+
+            // ── COMPLETION GATE: only promote if generation truly succeeded ──
+            if (resumeResult.success) {
+              await serviceClient.from("project_document_versions").update({ is_current: true }).eq("id", resumeVersionId);
+              await serviceClient.from("project_documents")
+                .update({ latest_version_id: resumeVersionId, updated_at: new Date().toISOString() })
+                .eq("id", resumeDocId);
+              console.log(`[generate-document] Resume COMPLETE: ${docType} versionId=${resumeVersionId} chunks=${resumeResult.completedChunks}/${resumeResult.totalChunks}`);
+            } else {
+              // Partial completion — do NOT promote to is_current or latest_version_id
+              console.error(`[generate-document][IEL] Resume PARTIAL — NOT promoting: ${docType} versionId=${resumeVersionId} completed=${resumeResult.completedChunks}/${resumeResult.totalChunks} failed=${resumeResult.failedChunks}`);
+              await serviceClient.from("project_document_versions")
+                .update({
+                  meta_json: {
+                    ...rearmedMeta,
+                    bg_generating: false,
+                    bg_failed: true,
+                    bg_failed_at: new Date().toISOString(),
+                    incomplete_generation: true,
+                    chunks_completed: resumeResult.completedChunks,
+                    chunks_total: resumeResult.totalChunks,
+                    chunks_failed: resumeResult.failedChunks,
+                  },
+                  is_current: false,
+                })
+                .eq("id", resumeVersionId);
+            }
           } catch (bgErr: any) {
             console.error(`[generate-document] Resume FAILED: ${docType} — ${bgErr?.message}`);
             await serviceClient.from("project_document_versions")
@@ -1390,6 +1413,22 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
         // season_script: 1 episode per chunk — crash-safe, resumable, no JSON transport
         batchSize: docType === "season_script" ? 1 : undefined,
       });
+
+      // ── PREFLIGHT CONTRACT GUARD (season_script) ──
+      // Assert chunk plan matches canonical episode count to prevent silent truncation.
+      if (docType === "season_script" && resolvedQuals?.season_episode_count) {
+        const contractCount = resolvedQuals.season_episode_count;
+        if (plan.totalChunks !== contractCount) {
+          console.error(`[generate-document][IEL] PREFLIGHT_ABORT: season_script plan.totalChunks=${plan.totalChunks} !== contract=${contractCount}`);
+          return new Response(JSON.stringify({
+            error: "PREFLIGHT_CONTRACT_MISMATCH",
+            message: `Season script chunk plan (${plan.totalChunks} chunks) does not match canonical episode count (${contractCount}). Aborting to prevent partial generation.`,
+            plan_chunks: plan.totalChunks,
+            contract_episodes: contractCount,
+          }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        console.log(`[generate-document] Preflight OK: season_script contract=${contractCount} plan=${plan.totalChunks}`);
+      }
 
       console.log(`[generate-document] Chunked background generation starting: ${docType} v${chunkVersionNum}, ${plan.totalChunks} chunks`);
 
@@ -1504,11 +1543,23 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
             // ── END SCENE GRAPH BOOTSTRAP ───────────────────────────────────────
 
           } else {
-            // Failed assembly: persist for observability but do NOT promote to is_current
+            // Failed or incomplete: persist for observability but do NOT promote to is_current/latest
+            const isIncomplete = chunkResult.completedChunks > 0 && chunkResult.completedChunks < chunkResult.totalChunks;
             await serviceClient.from("project_document_versions")
-              .update({ meta_json: { bg_generating: false, bg_failed: true, bg_failed_at: new Date().toISOString(), chunks_total: chunkResult.totalChunks, chunks_completed: chunkResult.completedChunks, chunks_failed: chunkResult.failedChunks } })
+              .update({
+                is_current: false,
+                meta_json: {
+                  bg_generating: false,
+                  bg_failed: !isIncomplete,
+                  incomplete_generation: isIncomplete,
+                  bg_failed_at: new Date().toISOString(),
+                  chunks_total: chunkResult.totalChunks,
+                  chunks_completed: chunkResult.completedChunks,
+                  chunks_failed: chunkResult.failedChunks,
+                },
+              })
               .eq("id", chunkVersion!.id);
-            console.error(`[generate-document][IEL] Chunked generation PARTIAL FAILURE — NOT promoting to is_current: ${docType} v${chunkVersionNum} failed=${chunkResult.failedChunks}/${chunkResult.totalChunks}`);
+            console.error(`[generate-document][IEL] Chunked generation ${isIncomplete ? 'INCOMPLETE' : 'FAILED'} — NOT promoting: ${docType} v${chunkVersionNum} completed=${chunkResult.completedChunks}/${chunkResult.totalChunks} failed=${chunkResult.failedChunks}`);
           }
         } catch (bgErr: any) {
           console.error(`[generate-document] Chunked background generation FAILED: ${docType} — ${bgErr?.message}`);

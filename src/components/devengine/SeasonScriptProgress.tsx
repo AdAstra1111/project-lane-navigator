@@ -263,14 +263,25 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
               : resumeSuccess ? 'Generation Resumed'
               : isStale ? 'Generation Stalled'
               : allDone ? 'Season Script Complete'
-              : hasRetryableChunks ? 'Generation Incomplete'
+              : hasRetryableChunks ? 'Generation Incomplete — Not a Deliverable'
               : 'Generating Season Script'}
           </span>
           <span className="text-muted-foreground font-mono text-xs">
-            {doneCount} / {total || '?'} episodes
+            {doneCount} / {total || '?'} episodes {total > 0 && doneCount < total && `(${pct}%)`}
           </span>
         </div>
         <Progress value={pct} className="h-2" />
+
+        {/* Incomplete generation warning — always show when not all done and not actively generating */}
+        {!allDone && !resuming && !resumeSuccess && safeChunks.length > 0 && safeChunks.filter(c => c.status === 'running').length === 0 && (
+          <div className="flex items-start gap-2 p-2 rounded-md bg-amber-500/10 border border-amber-500/30">
+            <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+            <p className="text-[11px] text-amber-400">
+              This version has {doneCount}/{total} episodes and is <strong>not a deliverable</strong>. 
+              Use Resume to continue generation, or this version will remain non-authoritative.
+            </p>
+          </div>
+        )}
 
         {/* Stale warning with resume control */}
         {isStale && !resumeSuccess && !resuming && (
