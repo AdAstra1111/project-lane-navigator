@@ -7030,6 +7030,20 @@ Deno.serve(async (req) => {
                 .order("created_at", { ascending: false }).limit(1).maybeSingle();
               if (docForCap) await finalizeBest(supabase, jobId, job, docForCap.id);
 
+              // ── CLEANUP PASS GATE: try applying remaining polish notes before escalating ──
+              {
+                const _supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+                const _token = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+                const bestAvailV1 = await resolveBestScoredEligibleVersionForDoc(supabase, job.project_id, currentDoc);
+                const cleanupV1 = await tryCleanupBeforeEscalation(supabase, _supabaseUrl, _token, {
+                  jobId, job, currentDoc, format, stepCount,
+                  currentCi: ciProgress.bestCi, currentGp: bestAvailV1?.gp ?? 0,
+                  targetCi, escalationSource: "notes_unresolvable_v1",
+                });
+                if (cleanupV1.attempted && cleanupV1.accepted) {
+                  console.log(`[auto-run][CLEANUP] cleanup_prevented_escalation { job_id: "${jobId}", doc_type: "${currentDoc}", post_ci: ${cleanupV1.result?.postCi}, source: "notes_unresolvable_v1" }`);
+                  // Fall through to continue pipeline
+                } else {
               // ── EXCEPTIONAL GUARD: Never auto-force-promote in Exceptional mode ──
               if (job.allow_defaults && isExceptionalObjective(job)) {
                 console.warn(`[auto-run][IEL] EXCEPTIONAL_PLATEAU_BLOCK { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, target: ${targetCi}, plateau_version: "v1", path: "notes_unresolvable" }`);
