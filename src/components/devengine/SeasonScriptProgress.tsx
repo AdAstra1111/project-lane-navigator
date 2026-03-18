@@ -296,7 +296,7 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
         )}
 
         {/* Failed chunks with no active generation — offer resume */}
-        {hasRetryableChunks && !isStale && (
+        {hasRetryableChunks && !isStale && !resumeSuccess && !resuming && (
           <div className="flex items-start gap-2 p-2 rounded-md bg-amber-500/10 border border-amber-500/30">
             <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
             <div className="space-y-1">
