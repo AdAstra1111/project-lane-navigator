@@ -1850,6 +1850,16 @@ export default function ProjectDevelopmentEngine() {
                   {/* Rewrite progress with ProcessProgressBar */}
                   {rewritePipeline.status !== 'idle' && rewritePipeline.status !== 'complete' && (
                     <div className="p-2 rounded-lg border bg-muted/30 space-y-2">
+                      {/* Episodic scope summary */}
+                      {rewritePipeline.progress.isEpisodic && rewritePipeline.progress.totalEpisodes > 0 && (
+                        <div className="flex items-center gap-3 text-[10px] text-muted-foreground px-0.5">
+                          <span>{rewritePipeline.progress.totalEpisodes} total episodes</span>
+                          <span className="text-emerald-400 font-medium">{rewritePipeline.progress.affectedEpisodes} rewriting</span>
+                          {rewritePipeline.progress.preservedEpisodes > 0 && (
+                            <span className="text-sky-400 font-medium">{rewritePipeline.progress.preservedEpisodes} preserved</span>
+                          )}
+                        </div>
+                      )}
                       <ProcessProgressBar
                         percent={rewritePipeline.smoothedPercent}
                         actualPercent={rewritePipeline.progress.percent}
