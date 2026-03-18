@@ -84,6 +84,7 @@ export interface ChangePlanChange {
   scope: 'micro' | 'scene' | 'sequence' | 'act' | 'global';
   target: {
     scene_numbers?: number[];
+    episode_numbers?: number[];
     characters?: string[];
     locations?: string[];
     beats?: string[];
