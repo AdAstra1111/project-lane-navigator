@@ -1,9 +1,11 @@
 /**
  * manualDecisionState — Unified decision state for manual rewrite workflows.
  *
- * Reconciles score convergence with issue/note state to produce a single
- * truthful recommendation for human operators.
+ * Reconciles score convergence with issue/note state and rewrite discipline
+ * mode to produce a single truthful recommendation for human operators.
  */
+
+import { resolveRewriteDisciplineMode, type RewriteDisciplineMode } from './rewriteDiscipline';
 
 export type ScoreState = 'below_target' | 'near_target' | 'converged';
 export type IssueState = 'blockers_remain' | 'major_notes_remain' | 'minor_only' | 'clear';
