@@ -6879,6 +6879,20 @@ Deno.serve(async (req) => {
                   .order("created_at", { ascending: false }).limit(1).maybeSingle();
                 if (docForCap) await finalizeBest(supabase, jobId, job, docForCap.id);
 
+                // ── CLEANUP PASS GATE: try applying remaining polish notes before escalating ──
+                {
+                  const _supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+                  const _token = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+                  const cleanup = await tryCleanupBeforeEscalation(supabase, _supabaseUrl, _token, {
+                    jobId, job, currentDoc, format, stepCount,
+                    currentCi: plateauV2.currentCI, currentGp: bestAvail?.gp ?? 0,
+                    targetCi, escalationSource: "notes_unresolvable_v2",
+                  });
+                  if (cleanup.attempted && cleanup.accepted) {
+                    // Cleanup succeeded — don't escalate, fall through to continue pipeline
+                    console.log(`[auto-run][CLEANUP] cleanup_prevented_escalation { job_id: "${jobId}", doc_type: "${currentDoc}", post_ci: ${cleanup.result?.postCi}, source: "notes_unresolvable_v2" }`);
+                    // Fall through to analysis/rewrite block — DO NOT pause
+                  } else {
                 // In Full Autopilot (allow_defaults=true), auto-force-promote instead of pausing.
                 // No notes remain → this is as good as it gets. Promote and keep running.
                 // ── EXCEPTIONAL GUARD: Never auto-force-promote in Exceptional mode ──
