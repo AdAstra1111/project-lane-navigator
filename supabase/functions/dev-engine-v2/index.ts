@@ -6059,7 +6059,8 @@ ${(() => {
 - Do NOT raise dialogue or scene-level notes.`,
     episode_grid: `DOCUMENT TYPE: EPISODE GRID
 - Evaluate structural completeness, hook specificity, escalation curve, cliffhanger quality, and episode-count alignment.
-- Valid note categories: "hook_quality|cliffhanger_strength|escalation_curve|arc_position|episode_count_alignment|core_move_clarity"`,
+- Valid note categories: "hook_quality|cliffhanger_strength|escalation_curve|arc_position|episode_count_alignment|core_move_clarity|episode_progress"
+- IMPORTANT: Missing episodes during iterative development are PROGRESS indicators, not blockers. Only flag as blocker if episodes are structurally corrupted, collapsed into ranges, or contain summarization language.`,
     format_rules: `DOCUMENT TYPE: FORMAT RULES
 - Evaluate structural rule clarity, duration compliance, episode template completeness, and production constraint specificity.
 - Valid note categories: "duration_spec|episode_template|structural_rules|platform_spec|production_constraints"
