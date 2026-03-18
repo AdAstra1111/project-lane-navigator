@@ -384,6 +384,7 @@ export function useRewritePipeline(projectId: string | undefined) {
       strategy: 'legacy_slugline', chunkMeta: [], episodeCount: null,
       currentEpisodeStart: null, currentEpisodeEnd: null,
     });
+    setEpisodeUnits([]);
     stopSmoothing();
     durationsRef.current = [];
   }, [stopSmoothing]);
