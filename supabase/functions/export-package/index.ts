@@ -668,15 +668,10 @@ async function buildPdf(
       // Skip cover page footer
       if (i === 0) continue;
 
-      // Page number — centered, small, unobtrusive
+      // Page number — centered, very small, light
       const pageNum = `${i}`;
-      const pnWidth = helvetica.widthOfTextAtSize(pageNum, 8);
-      page.drawText(pageNum, { x: (PAGE_W - pnWidth) / 2, y: FOOTER_Y, size: 8, font: helvetica, color: COLORS.muted });
-
-      // "Confidential" — bottom-right, very subtle
-      const confText = "Confidential";
-      const confW = helvetica.widthOfTextAtSize(confText, 6);
-      page.drawText(confText, { x: PAGE_W - M - confW, y: FOOTER_Y, size: 6, font: helvetica, color: COLORS.muted });
+      const pnWidth = helvetica.widthOfTextAtSize(pageNum, 7);
+      page.drawText(pageNum, { x: (PAGE_W - pnWidth) / 2, y: FOOTER_Y, size: 7, font: helvetica, color: COLORS.divider });
     } catch (_footerErr) { /* don't crash on footer */ }
   }
 
