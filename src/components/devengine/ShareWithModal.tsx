@@ -165,7 +165,7 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle, pk
   };
 
   const inviteMessage = (email: string, role: Role) =>
-    `Hi,\n\nYou've been granted ${ROLE_LABELS[role]} access to "${projectTitle}" on IFFY.\n\nLog in to your account and navigate to the project to get started.\n\n— Shared via IFFY`;
+    `Hi,\n\nYou've been granted ${ROLE_LABELS[role]} access to "${projectTitle}".\n\nLog in to your account and navigate to the project to get started.\n\n— Paradox House`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

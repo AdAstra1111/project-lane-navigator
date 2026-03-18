@@ -185,71 +185,347 @@ const M = 45.35;        // ~16mm
 const CONTENT_W = PAGE_W - M * 2;
 const HEADER_H = 40;
 const FOOTER_Y = 28;
-const BODY_TOP = PAGE_H - M - HEADER_H - 12; // usable body start below header
 
-/** Build a branded IFFY PDF from sections */
-async function buildPdf(sections: Array<{ label: string; text: string }>): Promise<Uint8Array> {
+// Screenplay doc types
+const SCREENPLAY_TYPES = new Set([
+  "season_script", "episode_script", "season_master_script",
+  "script", "feature_script", "production_draft",
+]);
+
+// Screenplay layout constants (industry standard)
+const SP = {
+  LEFT_M: 108,       // 1.5" left margin
+  RIGHT_M: 72,       // 1" right margin
+  CHAR_X: 252,       // character name position (~3.5" from left)
+  DIAL_X: 180,       // dialogue left edge (~2.5")
+  DIAL_W: 216,       // dialogue width (~3")
+  PAREN_X: 209,      // parenthetical position
+  PAREN_W: 180,      // parenthetical width
+  TRANS_X: PAGE_W - 72, // transitions right-aligned
+  LINE_H: 14,        // 12pt Courier line height
+  FONT_SIZE: 12,
+  ACTION_W: PAGE_W - 108 - 72, // action width
+};
+
+// ── Internal reference sanitization ──
+const INTERNAL_PATTERNS = [
+  /\bIFFY\b/gi,
+  /\bIntelligent Film Flow & Yield\b/gi,
+  /\bIntelligent Film Flow and Yield\b/gi,
+  /\bdev-engine\b/gi,
+  /\bauto-run\b/gi,
+  /\bpipeline[_ ]stage\b/gi,
+  /\blane[_ ]?(assignment|routing)\b/gi,
+  /\bcinematic[_ ]?quality[_ ]?gate\b/gi,
+  /\bconvergence[_ ]?index\b/gi,
+  /\bgap[_ ]?percentage\b/gi,
+  /\breadiness[_ ]?score\b/gi,
+];
+
+function sanitizeContent(text: string): string {
+  let result = text;
+  for (const pattern of INTERNAL_PATTERNS) {
+    result = result.replace(pattern, "");
+  }
+  // Clean up any resulting double spaces or empty lines
+  result = result.replace(/  +/g, " ").replace(/\n{3,}/g, "\n\n");
+  return result;
+}
+
+// ── Screenplay parser ──
+interface ScreenplayElement {
+  type: "scene_heading" | "character" | "dialogue" | "parenthetical" | "transition" | "action" | "blank";
+  text: string;
+}
+
+function parseScreenplay(text: string): ScreenplayElement[] {
+  const lines = text.split("\n");
+  const elements: ScreenplayElement[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Blank line
+    if (!trimmed) {
+      elements.push({ type: "blank", text: "" });
+      i++;
+      continue;
+    }
+
+    // Scene heading: INT./EXT. or forced with .
+    if (/^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/.test(trimmed.toUpperCase()) || /^\.(?!\.)[A-Z]/.test(trimmed)) {
+      elements.push({ type: "scene_heading", text: trimmed.replace(/^\./, "").toUpperCase() });
+      i++;
+      continue;
+    }
+
+    // Transition: ends with "TO:" or specific keywords, right-aligned
+    if (/^(FADE OUT\.|FADE IN:|CUT TO:|SMASH CUT TO:|DISSOLVE TO:|MATCH CUT TO:|JUMP CUT TO:|FADE TO BLACK\.|END\.)$/i.test(trimmed) ||
+        (/TO:$/i.test(trimmed) && trimmed === trimmed.toUpperCase())) {
+      elements.push({ type: "transition", text: trimmed.toUpperCase() });
+      i++;
+      continue;
+    }
+
+    // Character name: ALL CAPS line (possibly with (V.O.), (O.S.), (CONT'D))
+    // Must be followed by dialogue or parenthetical
+    const charMatch = trimmed.match(/^([A-Z][A-Z\s.']+(?:\s*\([A-Z.'\s]+\))?)$/);
+    if (charMatch && trimmed.length < 60) {
+      // Look ahead for dialogue or parenthetical
+      const nextLine = i + 1 < lines.length ? lines[i + 1]?.trim() : "";
+      if (nextLine && (nextLine.startsWith("(") || (nextLine && nextLine !== nextLine.toUpperCase()))) {
+        elements.push({ type: "character", text: trimmed });
+        i++;
+
+        // Consume parentheticals and dialogue
+        while (i < lines.length) {
+          const dl = lines[i]?.trim();
+          if (!dl) break;
+
+          if (dl.startsWith("(") && dl.endsWith(")")) {
+            elements.push({ type: "parenthetical", text: dl });
+            i++;
+          } else if (dl === dl.toUpperCase() && dl.length < 60 && /^[A-Z]/.test(dl)) {
+            // Next character name - don't consume
+            break;
+          } else if (/^(INT\.|EXT\.)/.test(dl.toUpperCase())) {
+            break;
+          } else {
+            elements.push({ type: "dialogue", text: dl });
+            i++;
+          }
+        }
+        continue;
+      }
+    }
+
+    // Default: action
+    elements.push({ type: "action", text: trimmed });
+    i++;
+  }
+
+  return elements;
+}
+
+/** Build a professional, investor-ready PDF from sections */
+async function buildPdf(
+  sections: Array<{ label: string; text: string; docType: string }>,
+  projectTitle: string,
+  projectFormat?: string,
+): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const helvetica = await doc.embedFont(StandardFonts.Helvetica);
   const helveticaBold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const courier = await doc.embedFont(StandardFonts.Courier);
+  const courierBold = await doc.embedFont(StandardFonts.CourierBold);
 
   const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-  const allPages: any[] = []; // track for page numbering
+  const allPages: any[] = [];
 
-  // ── Helper: add page with dark header band ──
-  function addPage(sectionLabel?: string, isCover = false): { page: any; y: number } {
+  // ── COVER PAGE ──
+  const coverPage = doc.addPage([PAGE_W, PAGE_H]);
+  allPages.push(coverPage);
+
+  // Full dark background
+  coverPage.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: COLORS.dark });
+
+  // Amber accent line at top
+  coverPage.drawRectangle({ x: 0, y: PAGE_H - 3, width: PAGE_W, height: 3, color: COLORS.amber });
+
+  // Paradox House mark - elegant amber square with "PH"
+  const logoSize = 36;
+  const logoX = (PAGE_W - logoSize) / 2;
+  const logoY = PAGE_H - 160;
+  coverPage.drawRectangle({ x: logoX, y: logoY, width: logoSize, height: logoSize, color: COLORS.amber });
+  coverPage.drawText("PH", {
+    x: logoX + 7, y: logoY + 12, size: 14, font: helveticaBold, color: COLORS.dark,
+  });
+
+  // Project title - large, centered
+  const titleFontSize = 28;
+  const titleText = normalizeText(projectTitle || "Untitled Project");
+  const titleLines = wrapText(titleText, helveticaBold, titleFontSize, PAGE_W - 120);
+  let titleY = logoY - 50;
+  for (const line of titleLines) {
+    const tw = helveticaBold.widthOfTextAtSize(line, titleFontSize);
+    coverPage.drawText(line, {
+      x: (PAGE_W - tw) / 2, y: titleY, size: titleFontSize, font: helveticaBold, color: COLORS.white,
+    });
+    titleY -= 36;
+  }
+
+  // Format / genre subtitle
+  if (projectFormat) {
+    const formatLabel = normalizeText(projectFormat.replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase()));
+    const fmtW = helvetica.widthOfTextAtSize(formatLabel, 11);
+    coverPage.drawText(formatLabel, {
+      x: (PAGE_W - fmtW) / 2, y: titleY - 10, size: 11, font: helvetica, color: COLORS.muted,
+    });
+    titleY -= 30;
+  }
+
+  // Amber divider
+  const divW = 60;
+  coverPage.drawRectangle({ x: (PAGE_W - divW) / 2, y: titleY - 10, width: divW, height: 1.5, color: COLORS.amber });
+
+  // Credit block
+  const creditY = titleY - 50;
+  const creditLine1 = "Written by Sebastian Street";
+  const creditLine2 = "Paradox House";
+  const c1w = helvetica.widthOfTextAtSize(creditLine1, 12);
+  const c2w = helveticaBold.widthOfTextAtSize(creditLine2, 12);
+  coverPage.drawText(creditLine1, {
+    x: (PAGE_W - c1w) / 2, y: creditY, size: 12, font: helvetica, color: COLORS.white,
+  });
+  coverPage.drawText(creditLine2, {
+    x: (PAGE_W - c2w) / 2, y: creditY - 20, size: 12, font: helveticaBold, color: COLORS.amber,
+  });
+
+  // Date at bottom
+  const dateW = helvetica.widthOfTextAtSize(dateStr, 8);
+  coverPage.drawText(dateStr, {
+    x: (PAGE_W - dateW) / 2, y: 50, size: 8, font: helvetica, color: COLORS.muted,
+  });
+
+  // Bottom amber accent
+  coverPage.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: 3, color: COLORS.amber });
+
+  // ── Helper: add page with header ──
+  function addPage(sectionLabel?: string, isSectionStart = false): { page: any; y: number } {
     const page = doc.addPage([PAGE_W, PAGE_H]);
     allPages.push(page);
 
+    const bandH = isSectionStart ? 56 : HEADER_H;
     // Dark header band
-    const bandH = isCover ? 80 : HEADER_H;
     page.drawRectangle({ x: 0, y: PAGE_H - bandH, width: PAGE_W, height: bandH, color: COLORS.dark });
     // Amber accent stripe
     page.drawRectangle({ x: 0, y: PAGE_H - bandH - 2, width: PAGE_W, height: 2, color: COLORS.amber });
 
-    if (isCover && sectionLabel) {
-      // IF logo mark
-      page.drawRectangle({ x: M, y: PAGE_H - 32, width: 22, height: 22, color: COLORS.amber });
-      page.drawText("IF", { x: M + 5.5, y: PAGE_H - 27, size: 8, font: helveticaBold, color: COLORS.dark });
+    if (isSectionStart && sectionLabel) {
+      // PH mark
+      page.drawRectangle({ x: M, y: PAGE_H - 30, width: 18, height: 18, color: COLORS.amber });
+      page.drawText("PH", { x: M + 3.5, y: PAGE_H - 25, size: 7, font: helveticaBold, color: COLORS.dark });
 
-      // Section label large
+      // Section label
       page.drawText(normalizeText(sectionLabel), {
-        x: M, y: PAGE_H - 55, size: 20, font: helveticaBold, color: COLORS.white, maxWidth: CONTENT_W,
+        x: M, y: PAGE_H - 46, size: 18, font: helveticaBold, color: COLORS.white, maxWidth: CONTENT_W,
       });
 
-      // Date top-right
-      page.drawText(dateStr, { x: PAGE_W - M - helvetica.widthOfTextAtSize(dateStr, 7), y: PAGE_H - 18, size: 7, font: helvetica, color: COLORS.muted });
+      // Project title small, top-right
+      const shortTitle = normalizeText(projectTitle || "").slice(0, 40);
+      const stW = helvetica.widthOfTextAtSize(shortTitle, 7);
+      page.drawText(shortTitle, { x: PAGE_W - M - stW, y: PAGE_H - 16, size: 7, font: helvetica, color: COLORS.muted });
 
-      return { page, y: PAGE_H - 80 - 2 - 18 }; // below band + stripe + padding
+      return { page, y: PAGE_H - 56 - 2 - 18 };
     }
 
-    // Continuation header
+    // Continuation header - minimal
     if (sectionLabel) {
-      // Compact IF mark
-      page.drawRectangle({ x: M, y: PAGE_H - 26, width: 16, height: 16, color: COLORS.amber });
-      page.drawText("IF", { x: M + 4, y: PAGE_H - 22, size: 6, font: helveticaBold, color: COLORS.dark });
+      page.drawRectangle({ x: M, y: PAGE_H - 26, width: 14, height: 14, color: COLORS.amber });
+      page.drawText("PH", { x: M + 2.5, y: PAGE_H - 22, size: 5, font: helveticaBold, color: COLORS.dark });
 
-      const contLabel = normalizeText(sectionLabel);
-      page.drawText(contLabel, {
-        x: M + 20, y: PAGE_H - 22, size: 8, font: helveticaBold, color: COLORS.white, maxWidth: CONTENT_W - 24,
+      page.drawText(normalizeText(sectionLabel), {
+        x: M + 18, y: PAGE_H - 22, size: 8, font: helveticaBold, color: COLORS.white, maxWidth: CONTENT_W - 22,
       });
     }
 
     return { page, y: PAGE_H - HEADER_H - 2 - 14 };
   }
 
-  // ── Render each section ──
-  for (const sec of sections) {
-    const normalizedText = normalizeText(sec.text || "");
-    const blocks = parseMarkdownBlocks(normalizedText);
+  // ── Render screenplay section ──
+  function renderScreenplay(elements: ScreenplayElement[], sectionLabel: string) {
+    let { page, y } = addPage(sectionLabel, true);
 
-    // Cover page
-    let { page, y } = addPage(sec.label, true);
+    const needsNewPage = (needed: number): boolean => y - needed < FOOTER_Y + 16;
+    const newPage = () => { ({ page, y } = addPage(sectionLabel)); };
 
-    // Handle empty sections
-    if (!normalizedText.trim() || blocks.length === 0) {
+    for (const el of elements) {
+      try {
+        switch (el.type) {
+          case "blank": {
+            y -= SP.LINE_H;
+            if (needsNewPage(0)) newPage();
+            break;
+          }
+          case "scene_heading": {
+            // Keep scene heading with at least 3 lines of content
+            if (needsNewPage(SP.LINE_H * 4)) newPage();
+            y -= SP.LINE_H;
+            const headLines = wrapText(el.text, courierBold, SP.FONT_SIZE, SP.ACTION_W);
+            for (const line of headLines) {
+              if (needsNewPage(SP.LINE_H)) newPage();
+              page.drawText(line, { x: SP.LEFT_M, y, size: SP.FONT_SIZE, font: courierBold, color: COLORS.body });
+              y -= SP.LINE_H;
+            }
+            y -= SP.LINE_H * 0.5;
+            break;
+          }
+          case "character": {
+            // Keep character + at least 2 lines of dialogue together
+            if (needsNewPage(SP.LINE_H * 3)) newPage();
+            const charW = courierBold.widthOfTextAtSize(el.text, SP.FONT_SIZE);
+            // Center character name in dialogue column
+            const charX = SP.DIAL_X + (SP.DIAL_W - charW) / 2;
+            page.drawText(el.text, {
+              x: Math.max(charX, SP.CHAR_X), y, size: SP.FONT_SIZE, font: courierBold, color: COLORS.body,
+            });
+            y -= SP.LINE_H;
+            break;
+          }
+          case "parenthetical": {
+            if (needsNewPage(SP.LINE_H)) newPage();
+            const parenLines = wrapText(el.text, courier, SP.FONT_SIZE, SP.PAREN_W);
+            for (const line of parenLines) {
+              page.drawText(line, { x: SP.PAREN_X, y, size: SP.FONT_SIZE, font: courier, color: COLORS.body });
+              y -= SP.LINE_H;
+            }
+            break;
+          }
+          case "dialogue": {
+            const dialLines = wrapText(el.text, courier, SP.FONT_SIZE, SP.DIAL_W);
+            for (const line of dialLines) {
+              if (needsNewPage(SP.LINE_H)) newPage();
+              page.drawText(line, { x: SP.DIAL_X, y, size: SP.FONT_SIZE, font: courier, color: COLORS.body });
+              y -= SP.LINE_H;
+            }
+            break;
+          }
+          case "transition": {
+            if (needsNewPage(SP.LINE_H * 2)) newPage();
+            y -= SP.LINE_H * 0.5;
+            const transW = courierBold.widthOfTextAtSize(el.text, SP.FONT_SIZE);
+            page.drawText(el.text, {
+              x: SP.TRANS_X - transW, y, size: SP.FONT_SIZE, font: courierBold, color: COLORS.body,
+            });
+            y -= SP.LINE_H;
+            break;
+          }
+          case "action": {
+            const actLines = wrapText(el.text, courier, SP.FONT_SIZE, SP.ACTION_W);
+            for (const line of actLines) {
+              if (needsNewPage(SP.LINE_H)) newPage();
+              page.drawText(line, { x: SP.LEFT_M, y, size: SP.FONT_SIZE, font: courier, color: COLORS.body });
+              y -= SP.LINE_H;
+            }
+            break;
+          }
+        }
+      } catch (_err) {
+        continue;
+      }
+    }
+  }
+
+  // ── Render prose section (treatments, briefs, bibles, etc.) ──
+  function renderProse(text: string, sectionLabel: string) {
+    const blocks = parseMarkdownBlocks(text);
+    let { page, y } = addPage(sectionLabel, true);
+
+    if (!text.trim() || blocks.length === 0) {
       page.drawText("No content available.", { x: M, y: y - 10, size: 10, font: helvetica, color: COLORS.muted });
-      continue;
+      return;
     }
 
     const needsNewPage = (needed: number): boolean => y - needed < FOOTER_Y + 16;
@@ -258,14 +534,13 @@ async function buildPdf(sections: Array<{ label: string; text: string }>): Promi
       try {
         switch (block.type) {
           case "h1": {
-            if (needsNewPage(28)) { ({ page, y } = addPage(sec.label)); }
+            if (needsNewPage(28)) { ({ page, y } = addPage(sectionLabel)); }
             y -= 6;
-            // Amber accent bar
             page.drawRectangle({ x: M, y: y + 2, width: 40, height: 2, color: COLORS.amber });
             y -= 4;
             const h1Lines = wrapText(block.content, helveticaBold, 16, CONTENT_W);
             for (const line of h1Lines) {
-              if (needsNewPage(20)) { ({ page, y } = addPage(sec.label)); }
+              if (needsNewPage(20)) { ({ page, y } = addPage(sectionLabel)); }
               page.drawText(line, { x: M, y, size: 16, font: helveticaBold, color: COLORS.amber });
               y -= 20;
             }
@@ -273,11 +548,11 @@ async function buildPdf(sections: Array<{ label: string; text: string }>): Promi
             break;
           }
           case "h2": {
-            if (needsNewPage(22)) { ({ page, y } = addPage(sec.label)); }
+            if (needsNewPage(22)) { ({ page, y } = addPage(sectionLabel)); }
             y -= 4;
             const h2Lines = wrapText(block.content, helveticaBold, 13, CONTENT_W);
             for (const line of h2Lines) {
-              if (needsNewPage(17)) { ({ page, y } = addPage(sec.label)); }
+              if (needsNewPage(17)) { ({ page, y } = addPage(sectionLabel)); }
               page.drawText(line, { x: M, y, size: 13, font: helveticaBold, color: COLORS.body });
               y -= 17;
             }
@@ -285,11 +560,11 @@ async function buildPdf(sections: Array<{ label: string; text: string }>): Promi
             break;
           }
           case "h3": {
-            if (needsNewPage(18)) { ({ page, y } = addPage(sec.label)); }
+            if (needsNewPage(18)) { ({ page, y } = addPage(sectionLabel)); }
             y -= 3;
             const h3Lines = wrapText(block.content, helveticaBold, 11, CONTENT_W);
             for (const line of h3Lines) {
-              if (needsNewPage(15)) { ({ page, y } = addPage(sec.label)); }
+              if (needsNewPage(15)) { ({ page, y } = addPage(sectionLabel)); }
               page.drawText(line, { x: M, y, size: 11, font: helveticaBold, color: COLORS.body });
               y -= 15;
             }
@@ -297,26 +572,21 @@ async function buildPdf(sections: Array<{ label: string; text: string }>): Promi
             break;
           }
           case "hr": {
-            if (needsNewPage(10)) { ({ page, y } = addPage(sec.label)); }
+            if (needsNewPage(10)) { ({ page, y } = addPage(sectionLabel)); }
             y -= 4;
             page.drawLine({ start: { x: M, y }, end: { x: PAGE_W - M, y }, thickness: 0.5, color: COLORS.amber });
             y -= 6;
             break;
           }
           case "text": {
-            // Render body text with inline bold support
             const paragraphs = block.content.split(/\n\n+/);
             for (const para of paragraphs) {
               const segments = parseInlineBold(para.replace(/\n/g, " ").trim());
               if (!segments.length) { y -= 6; continue; }
-
-              // Flatten to plain for wrapping, then render
               const plainText = segments.map(s => s.text).join("");
               const wrapped = wrapText(plainText, helvetica, 10, CONTENT_W);
-
               for (const line of wrapped) {
-                if (needsNewPage(14)) { ({ page, y } = addPage(sec.label)); }
-                // Check if line has bold segments
+                if (needsNewPage(14)) { ({ page, y } = addPage(sectionLabel)); }
                 const lineSegments = parseInlineBold(line);
                 let xPos = M;
                 for (const seg of lineSegments) {
@@ -326,15 +596,27 @@ async function buildPdf(sections: Array<{ label: string; text: string }>): Promi
                 }
                 y -= 14;
               }
-              y -= 4; // paragraph gap
+              y -= 4;
             }
             break;
           }
         }
       } catch (_blockErr) {
-        // Graceful degradation: skip malformed block, don't crash
         continue;
       }
+    }
+  }
+
+  // ── Render each section ──
+  for (const sec of sections) {
+    const cleanText = sanitizeContent(normalizeText(sec.text || ""));
+    const isScreenplay = SCREENPLAY_TYPES.has(sec.docType);
+
+    if (isScreenplay) {
+      const elements = parseScreenplay(cleanText);
+      renderScreenplay(elements, sec.label);
+    } else {
+      renderProse(cleanText, sec.label);
     }
   }
 
@@ -343,17 +625,16 @@ async function buildPdf(sections: Array<{ label: string; text: string }>): Promi
   for (let i = 0; i < totalPages; i++) {
     const page = allPages[i];
     try {
-      // Amber rule
       page.drawLine({
         start: { x: M, y: FOOTER_Y + 6 },
         end: { x: PAGE_W - M, y: FOOTER_Y + 6 },
         thickness: 0.4,
         color: COLORS.amber,
       });
-      // Left text
-      const footerLeft = "IFFY -- Intelligent Film Flow & Yield";
+      // Left: Paradox House credit
+      const footerLeft = "Paradox House -- Confidential";
       page.drawText(footerLeft, { x: M, y: FOOTER_Y - 2, size: 6, font: helvetica, color: COLORS.muted });
-      // Right page number
+      // Right: page number
       const pageNum = `Page ${i + 1} of ${totalPages}`;
       const pnWidth = helvetica.widthOfTextAtSize(pageNum, 6);
       page.drawText(pageNum, { x: PAGE_W - M - pnWidth, y: FOOTER_Y - 2, size: 6, font: helvetica, color: COLORS.muted });
@@ -496,7 +777,7 @@ Deno.serve(async (req) => {
 
     // --- Build deliverable list in ladder order ---
     const metaDocs: any[] = [];
-    const sections: Array<{ label: string; text: string }> = [];
+    const sections: Array<{ label: string; text: string; docType: string }> = [];
 
     let globalOrder = 1;
     for (let i = 0; i < ladder.length; i++) {
@@ -541,7 +822,7 @@ Deno.serve(async (req) => {
         const statusSuffix = approved ? "APPROVED" : "DRAFT";
         const fileName = `${orderPrefix}_${docType}_${statusSuffix}.md`;
 
-        sections.push({ label: `${label} (${statusSuffix})`, text: plaintext });
+        sections.push({ label, text: plaintext, docType });
         metaDocs.push({
           order_index: globalOrder,
           doc_type: docType,
@@ -568,7 +849,7 @@ Deno.serve(async (req) => {
     let fileExtension: string;
 
     if (output_format === "pdf") {
-      fileBuffer = await buildPdf(sections);
+      fileBuffer = await buildPdf(sections, project.title || "Untitled Project", project.format);
       contentType = "application/pdf";
       fileExtension = "pdf";
     } else {
