@@ -158,6 +158,9 @@ export function useRewritePipeline(projectId: string | undefined) {
   }, []);
   const clearActivity = useCallback(() => setActivityItems([]), []);
 
+  // Per-episode unit state for episode-workspace UI
+  const [episodeUnits, setEpisodeUnits] = useState<EpisodeUnit[]>([]);
+
   const invalidate = useCallback(() => {
     if (!projectId) return;
     invalidateDevEngine(qc, { projectId });
