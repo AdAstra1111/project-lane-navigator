@@ -56,7 +56,7 @@ function buildRailLinks(projectId: string): RailLink[] {
     { icon: Film,       label: 'Trailer',     to: `${p}/trailer`,     modes: ['produce'] },
     { icon: Sparkles,   label: 'AI Content',  to: `${p}/ai-content`,  modes: ['produce'] },
     { icon: Users,      label: 'Casting',     to: `${p}/casting`,     modes: ['produce'] },
-    { icon: ImagePlus,  label: 'Poster',      to: `${p}/poster`,      modes: ['produce'] },
+    { icon: ImagePlus,  label: 'Poster',      to: `${p}/poster`,      modes: 'all' },
     { icon: Briefcase,  label: 'Produce',     to: `${p}/produce`,     modes: ['produce'] },
   ];
 }
