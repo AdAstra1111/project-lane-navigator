@@ -492,7 +492,7 @@ export function NoteWritersRoomDrawer({
               </ScrollArea>
 
               {/* Message input + action buttons */}
-              <div className="space-y-2 mt-2">
+              <div className="space-y-2 mt-2 shrink-0">
                 <div className="flex gap-1">
                   <Textarea
                     placeholder="Discuss this note... (say 'apply that' to generate a change plan)"
