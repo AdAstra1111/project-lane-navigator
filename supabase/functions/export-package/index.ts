@@ -251,6 +251,8 @@ async function buildPdf(
   projectFormat?: string,
   logoImageBytes?: Uint8Array | null,
   logoMimeType?: string,
+  posterImageBytes?: Uint8Array | null,
+  posterMimeType?: string,
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const helvetica = await doc.embedFont(StandardFonts.Helvetica);
