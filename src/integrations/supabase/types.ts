@@ -3522,6 +3522,87 @@ export type Database = {
           },
         ]
       }
+      creative_framing_strategies: {
+        Row: {
+          audience_target: string
+          canon_lock_summary: string
+          content_type: string
+          created_at: string
+          created_by: string | null
+          creative_angle: string
+          full_brief: string
+          generated_at: string
+          id: string
+          intent: string
+          is_selected: boolean
+          meta_json: Json
+          project_id: string
+          risk_level: string
+          strategy_key: string
+          strategy_type: string
+          trope_handling: string
+          updated_at: string
+          visual_language: string
+        }
+        Insert: {
+          audience_target?: string
+          canon_lock_summary?: string
+          content_type?: string
+          created_at?: string
+          created_by?: string | null
+          creative_angle?: string
+          full_brief?: string
+          generated_at?: string
+          id?: string
+          intent?: string
+          is_selected?: boolean
+          meta_json?: Json
+          project_id: string
+          risk_level?: string
+          strategy_key: string
+          strategy_type: string
+          trope_handling?: string
+          updated_at?: string
+          visual_language?: string
+        }
+        Update: {
+          audience_target?: string
+          canon_lock_summary?: string
+          content_type?: string
+          created_at?: string
+          created_by?: string | null
+          creative_angle?: string
+          full_brief?: string
+          generated_at?: string
+          id?: string
+          intent?: string
+          is_selected?: boolean
+          meta_json?: Json
+          project_id?: string
+          risk_level?: string
+          strategy_key?: string
+          strategy_type?: string
+          trope_handling?: string
+          updated_at?: string
+          visual_language?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_framing_strategies_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "creative_framing_strategies_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       data_sources: {
         Row: {
           created_at: string
