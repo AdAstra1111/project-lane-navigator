@@ -38,6 +38,8 @@ export function PosterCompositor({
   keyArtUrl,
   title,
   tagline,
+  companyLogoUrl,
+  companyName,
   aspectRatio = "2:3",
   layoutVariant = "cinematic-dark",
   width,
