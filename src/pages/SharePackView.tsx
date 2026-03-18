@@ -315,7 +315,7 @@ export default function SharePackView() {
 
         {/* Footer */}
         <p className="text-center text-[10px] text-muted-foreground mt-8">
-          Shared via IFFY · {pack?.watermark_enabled ? 'Watermarked' : 'No watermark'} · Read-only access
+          Shared securely · {pack?.watermark_enabled ? 'Watermarked' : 'No watermark'} · Read-only access
         </p>
       </div>
     </div>
