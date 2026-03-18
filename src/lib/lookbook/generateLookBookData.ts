@@ -106,10 +106,11 @@ export async function generateLookBookData(
     .maybeSingle();
 
   if (projectErr) {
-    console.error('[generateLookBookData] project fetch error:', projectErr.message);
+    console.error('[LookBook] project fetch error:', projectErr.message);
     throw new Error('Could not load project data: ' + projectErr.message);
   }
   if (!project) throw new Error('Project not found — check access permissions');
+  console.log('[LookBook] ✓ project loaded:', (project as any).title);
 
   // Normalize: genres is string[], join for display
   const genre = Array.isArray((project as any).genres) ? (project as any).genres.join(', ') : '';
@@ -117,6 +118,7 @@ export async function generateLookBookData(
   // 2. Load canonical state (authoritative source of truth)
   const canonicalState = await getCanonicalProjectState(projectId);
   const canon = canonicalState.state;
+  console.log('[LookBook] ✓ canon loaded, source:', canonicalState.source, 'fields:', canonicalState.evidence.canon_editor_fields);
 
   // 3. Load current document versions for synopsis/statement
   const { data: docs } = await supabase
@@ -350,6 +352,8 @@ export async function generateLookBookData(
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
   });
+
+  console.log('[LookBook] ✓ generation complete — slides:', slides.length, slides.map(s => s.type));
 
   return {
     projectId,
