@@ -7442,6 +7442,9 @@ MATERIAL TO REWRITE:\n${fullText}`;
         planRunId: planRun!.id,
         totalChunks: chunkTexts.length,
         originalCharCount: fullText.length,
+        strategy: strategy || "legacy_slugline",
+        chunkMeta: chunkMeta || [],
+        episodeCount: resolvedEpisodeCount || null,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -7605,6 +7608,8 @@ MATERIAL TO REWRITE:\n${fullText}`;
         chunkIndex,
         rewrittenText: rewrittenChunk.trim(),
         charCount: rewrittenChunk.trim().length,
+        episodeStart: chunkMeta?.episode_start ?? null,
+        episodeEnd: chunkMeta?.episode_end ?? null,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
