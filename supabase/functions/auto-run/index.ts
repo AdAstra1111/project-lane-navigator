@@ -3728,33 +3728,14 @@ async function tryPlateauForcePromote(
     // Cleanup was attempted but rejected, or not eligible — fall through to escalation
   }
 
-  // ── EXCEPTIONAL PLATEAU BLOCK: never force-promote below target in Exceptional mode ──
-  // TERMINAL: sets pause state and returns a Response directly, so callers cannot fall through into churn loops.
+  // ── EXCEPTIONAL PLATEAU: route through recoverable plateau handler instead of hard-stopping ──
   if (isExceptionalObjective(job) && (typeof detectedBestCi === "number" ? detectedBestCi : detectedCi) < targetCi) {
-    console.warn(`[auto-run][IEL] EXCEPTIONAL_PLATEAU_BLOCK { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${detectedCi}, best_ci: ${detectedBestCi}, target: ${targetCi}, plateau_version: "${plateauVersion}" }`);
-    await logStep(supabase, jobId, stepCount + 1, currentDoc, "exceptional_plateau_block",
-      `EXCEPTIONAL_PLATEAU_BLOCK: CI=${detectedCi} (best: ${detectedBestCi}) below Exceptional target ${targetCi}. Force-promote blocked — escalation required.`,
-      { ci: detectedCi }, undefined,
-      { target_ci: targetCi, best_ci: detectedBestCi, plateau_version: plateauVersion, quality_objective: "Exceptional", action: "plateau_escalation_required" });
-    // Finalize best version for the current doc
-    const { data: docForEsc } = await supabase.from("project_documents")
-      .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
-      .order("created_at", { ascending: false }).limit(1).maybeSingle();
-    if (docForEsc) await finalizeBest(supabase, jobId, job, docForEsc.id);
-    await updateJob(supabase, jobId, {
-      status: "paused",
-      stop_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
-      pause_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
-      error: `Exceptional mode: CI=${detectedCi} (best: ${detectedBestCi}) plateaued below target ${targetCi} for ${currentDoc}. Escalation required — auto-promote blocked.`,
+    console.log(`[auto-run][PLATEAU_RECOVERY] exceptional_plateau_detected { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${detectedCi}, best_ci: ${detectedBestCi}, target: ${targetCi}, plateau_version: "${plateauVersion}", source: "tryPlateauForcePromote" }`);
+    return routePlateauRecovery(supabase, {
+      jobId, job, currentDoc, format, stepCount, targetCi,
+      detectedCi, detectedBestCi, plateauVersion,
+      escalationSource: `tryPlateauForcePromote_${plateauVersion}`,
     });
-    // Fire-and-forget plateau diagnosis
-    persistPlateauDiagnosis(supabase, {
-      job, jobId, currentDoc, bestCi: detectedBestCi, finalCi: detectedCi,
-      targetCi, targetGp: extractTargetGP(job), haltReason: "EXCEPTIONAL_PLATEAU_ESCALATION",
-      stepCount, stageLoopCount: job.stage_loop_count ?? 0,
-    }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget_error: ${e?.message}`));
-    await releaseProcessingLock(supabase, jobId);
-    return respondWithJob(supabase, jobId);
   }
 
   // ── Note exhaustion gate: do NOT force-promote if actionable notes remain ──
@@ -3939,6 +3920,150 @@ async function tryPlateauForcePromote(
   await releaseProcessingLock(supabase, jobId);
   return respondWithJob(supabase, jobId);
 }
+
+// ── PLATEAU RECOVERY ROUTER ──
+// Replaces terminal EXCEPTIONAL_PLATEAU_ESCALATION hard-stops with recoverable routing.
+// Priority: A) cleanup → B) force-promote if CI >= GLOBAL_MIN_CI → C) pause for user
+async function routePlateauRecovery(
+  supabase: any,
+  params: {
+    jobId: string;
+    job: any;
+    currentDoc: string;
+    format: string;
+    stepCount: number;
+    targetCi: number;
+    detectedCi: number;
+    detectedBestCi: number;
+    plateauVersion: string;
+    escalationSource: string;
+  }
+): Promise<Response> {
+  const { jobId, job, currentDoc, format, stepCount, targetCi, detectedCi, detectedBestCi, plateauVersion, escalationSource } = params;
+  const effectiveCi = typeof detectedBestCi === "number" ? Math.max(detectedBestCi, detectedCi) : detectedCi;
+
+  console.log(`[auto-run][PLATEAU_RECOVERY] routing { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${detectedCi}, best_ci: ${detectedBestCi}, target: ${targetCi}, source: "${escalationSource}" }`);
+
+  // ── A) Try cleanup if not already attempted ──
+  const alreadyCleanedUp = await wasCleanupAlreadyAttempted(supabase, jobId, currentDoc);
+  if (!alreadyCleanedUp) {
+    const _supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const _token = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const bestGpForCleanup = (await resolveBestScoredEligibleVersionForDoc(supabase, job.project_id, currentDoc))?.gp ?? 0;
+    const cleanup = await tryCleanupBeforeEscalation(supabase, _supabaseUrl, _token, {
+      jobId, job, currentDoc, format, stepCount,
+      currentCi: effectiveCi, currentGp: bestGpForCleanup,
+      targetCi, escalationSource: `plateau_recovery_${escalationSource}`,
+    });
+    if (cleanup.attempted && cleanup.accepted) {
+      await logStep(supabase, jobId, stepCount + 1, currentDoc, "plateau_recovery_cleanup",
+        `PLATEAU_RECOVERY_CLEANUP: cleanup pass accepted, CI improved. Continuing pipeline.`,
+        { ci: cleanup.result?.postCi ?? effectiveCi }, undefined,
+        { plateau_version: plateauVersion, source: escalationSource, pre_ci: effectiveCi, post_ci: cleanup.result?.postCi, routing: "cleanup_accepted" });
+      // Continue pipeline — release lock and self-chain
+      await releaseProcessingLock(supabase, jobId);
+      return respondWithJob(supabase, jobId, "run-next");
+    }
+    if (cleanup.attempted) {
+      console.log(`[auto-run][PLATEAU_RECOVERY] cleanup_rejected { job_id: "${jobId}", doc_type: "${currentDoc}", source: "${escalationSource}" }`);
+    }
+  }
+
+  // ── B) Force-promote if best CI >= GLOBAL_MIN_CI ──
+  const bestForDoc = await resolveBestScoredEligibleVersionForDoc(supabase, job.project_id, currentDoc);
+  const bestCiAvail = bestForDoc?.ci ?? -Infinity;
+  const promotableCi = Math.max(effectiveCi, bestCiAvail);
+
+  if (bestForDoc && promotableCi >= GLOBAL_MIN_CI) {
+    const ciGap = targetCi - promotableCi;
+    await logStep(supabase, jobId, stepCount + 1, currentDoc, "plateau_recovery_promote",
+      `PLATEAU_RECOVERY_PROMOTED: CI=${promotableCi} >= GLOBAL_MIN_CI (${GLOBAL_MIN_CI}). Force-promoting best version despite target gap of ${ciGap}.`,
+      { ci: bestForDoc.ci, gp: bestForDoc.gp }, undefined,
+      { plateau_version: plateauVersion, source: escalationSource, target_ci: targetCi, ci_gap: ciGap, best_version_id: bestForDoc.versionId, routing: "force_promote" });
+
+    // Promote the best version
+    const { error: promoteErr } = await supabase.rpc("set_current_version", {
+      p_document_id: bestForDoc.documentId,
+      p_new_version_id: bestForDoc.versionId,
+    });
+    if (promoteErr) {
+      console.error(`[auto-run][PLATEAU_RECOVERY] promote_failed: ${promoteErr.message}`);
+      // Fall through to user pause
+    } else {
+      try {
+        await persistVersionScores(supabase, {
+          versionId: bestForDoc.versionId, ci: bestForDoc.ci, gp: bestForDoc.gp,
+          source: "auto-run-plateau-recovery-promote", jobId, protectHigher: true, docType: currentDoc,
+        });
+      } catch (_e: any) { /* non-fatal */ }
+      await supabase.from("project_document_versions").update({
+        approval_status: "approved", approved_at: new Date().toISOString(), approved_by: job.user_id,
+      }).eq("id", bestForDoc.versionId);
+      await lockNarrativeSpine(supabase, job.project_id, currentDoc);
+      await updateJob(supabase, jobId, {
+        best_version_id: bestForDoc.versionId, best_document_id: bestForDoc.documentId,
+        best_ci: bestForDoc.ci, best_gp: bestForDoc.gp, best_score: bestForDoc.ci + bestForDoc.gp,
+      });
+
+      // Advance to next stage
+      const nextDoc = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
+      if (nextDoc && isStageAtOrBeforeTarget(nextDoc, job.target_document, format)) {
+        // Append convergence warning to stage_history
+        try {
+          const { data: jobRow } = await supabase.from("auto_run_jobs").select("stage_history").eq("id", jobId).single();
+          const history = Array.isArray(jobRow?.stage_history) ? jobRow.stage_history : [];
+          history.push({
+            event: "PLATEAU_RECOVERY_PROMOTED", doc_type: currentDoc, ci_gap: ciGap,
+            best_ci: promotableCi, target_ci: targetCi, timestamp: new Date().toISOString(),
+          });
+          await supabase.from("auto_run_jobs").update({ stage_history: history }).eq("id", jobId);
+        } catch (_e: any) { /* non-fatal */ }
+
+        await updateJob(supabase, jobId, {
+          current_document: nextDoc, stage_loop_count: 0,
+          stage_exhaustion_remaining: job.stage_exhaustion_default ?? 4,
+          status: "running", stop_reason: null, pause_reason: null, error: null,
+          awaiting_approval: false, approval_type: null,
+          pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
+          frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
+        });
+        await releaseProcessingLock(supabase, jobId);
+        return respondWithJob(supabase, jobId, "run-next");
+      } else {
+        await updateJob(supabase, jobId, { status: "completed", stop_reason: "All stages satisfied (plateau recovery promote)" });
+        await logStep(supabase, jobId, stepCount + 2, currentDoc, "stop", "All stages satisfied (plateau recovery promote)");
+        await releaseProcessingLock(supabase, jobId);
+        return respondWithJob(supabase, jobId);
+      }
+    }
+  }
+
+  // ── C) No deterministic recovery — pause for user ──
+  await logStep(supabase, jobId, stepCount + 1, currentDoc, "plateau_recovery_user_required",
+    `PLATEAU_RECOVERY_USER_REQUIRED: CI=${effectiveCi} (best: ${bestCiAvail}) below GLOBAL_MIN_CI (${GLOBAL_MIN_CI}) or no promotable version. Human intervention required.`,
+    { ci: effectiveCi }, undefined,
+    { plateau_version: plateauVersion, source: escalationSource, target_ci: targetCi, best_ci: bestCiAvail, routing: "user_required", cleanup_attempted: alreadyCleanedUp || !alreadyCleanedUp });
+
+  const { data: docForEsc } = await supabase.from("project_documents")
+    .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (docForEsc) await finalizeBest(supabase, jobId, job, docForEsc.id);
+
+  await updateJob(supabase, jobId, {
+    status: "paused",
+    stop_reason: "PLATEAU_RECOVERY_EXHAUSTED",
+    pause_reason: "PLATEAU_RECOVERY_EXHAUSTED",
+    error: `CI=${effectiveCi} (best: ${bestCiAvail}) plateaued below target ${targetCi} for ${currentDoc}. All deterministic recovery options exhausted — human review required.`,
+  });
+  persistPlateauDiagnosis(supabase, {
+    job, jobId, currentDoc, bestCi: detectedBestCi, finalCi: detectedCi,
+    targetCi, targetGp: extractTargetGP(job), haltReason: "PLATEAU_RECOVERY_EXHAUSTED",
+    stepCount, stageLoopCount: job.stage_loop_count ?? 0,
+  }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
+  await releaseProcessingLock(supabase, jobId);
+  return respondWithJob(supabase, jobId);
+}
+
 
 // ── Helper: get job ──
 async function getJob(supabase: any, jobId: string) {
@@ -6765,22 +6890,14 @@ Deno.serve(async (req) => {
             // Over the iteration cap and still below target — force-promote best or pause
             console.warn(`[auto-run] max_stage_iterations_reached { job_id: "${jobId}", doc_type: "${currentDoc}", iterations: ${iterCount}, best_ci: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap} }`);
 
-            // ── EXCEPTIONAL ALWAYS WINS: semantic plateau escalation regardless of allow_defaults ──
+            // ── EXCEPTIONAL: route through recoverable plateau recovery instead of hard-stopping ──
             if (isExceptionalObjective(job)) {
-              console.warn(`[auto-run][IEL] EXCEPTIONAL_MAX_ITER_BLOCK { job_id: "${jobId}", doc_type: "${currentDoc}", iterations: ${iterCount}, best_ci: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap} }`);
-              await logStep(supabase, jobId, stepCount, currentDoc, "exceptional_plateau_block",
-                `MAX_STAGE_ITERATIONS (${MAX_STAGE_ITERATIONS}) reached for ${currentDoc} in Exceptional mode. Best CI: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap}. Escalation required.`,
-                undefined, undefined, { termination_source: "iteration_cap", termination_semantics: "exceptional_plateau" }
-              );
-              await updateJob(supabase, jobId, {
-                status: "paused",
-                stop_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
-                pause_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
-                error: `Exceptional mode: ${currentDoc} reached max ${MAX_STAGE_ITERATIONS} iterations at CI=${ciGate.bestCiSoFar} (target: ${targetCiForIterCap}). Escalation required — auto-promote blocked.`,
+              console.log(`[auto-run][PLATEAU_RECOVERY] exceptional_iter_cap { job_id: "${jobId}", doc_type: "${currentDoc}", iterations: ${iterCount}, best_ci: ${ciGate.bestCiSoFar}, target: ${targetCiForIterCap} }`);
+              return routePlateauRecovery(supabase, {
+                jobId, job, currentDoc, format, stepCount, targetCi: targetCiForIterCap,
+                detectedCi: ciGate.ci, detectedBestCi: ciGate.bestCiSoFar,
+                plateauVersion: "v1", escalationSource: "iteration_cap_exceptional",
               });
-              persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: ciGate.bestCiSoFar, finalCi: ciGate.ci, targetCi: targetCiForIterCap, targetGp: extractTargetGP(job), haltReason: "EXCEPTIONAL_PLATEAU_ESCALATION", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
-              await releaseProcessingLock(supabase, jobId);
-              return respondWithJob(supabase, jobId);
             } else if (job.allow_defaults && ciGate.bestCiSoFar >= GLOBAL_MIN_CI) {
               const iterCapForcePromote = await tryPlateauForcePromote(supabase, {
                 jobId, job, currentDoc, format, stepCount,
@@ -6893,60 +7010,12 @@ Deno.serve(async (req) => {
                     console.log(`[auto-run][CLEANUP] cleanup_prevented_escalation { job_id: "${jobId}", doc_type: "${currentDoc}", post_ci: ${cleanup.result?.postCi}, source: "notes_unresolvable_v2" }`);
                     // Fall through to analysis/rewrite block — DO NOT pause
                   } else {
-                // In Full Autopilot (allow_defaults=true), auto-force-promote instead of pausing.
-                // No notes remain → this is as good as it gets. Promote and keep running.
-                // ── EXCEPTIONAL GUARD: Never auto-force-promote in Exceptional mode ──
-                if (job.allow_defaults && isExceptionalObjective(job)) {
-                  console.warn(`[auto-run][IEL] EXCEPTIONAL_PLATEAU_BLOCK { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${plateauV2.currentCI}, target: ${targetCi}, plateau_version: "v2", path: "notes_unresolvable" }`);
-                  await logStep(supabase, jobId, stepCount + 2, currentDoc, "exceptional_plateau_block",
-                    `EXCEPTIONAL_PLATEAU_BLOCK: CI=${plateauV2.currentCI} plateaued (V2) with no actionable notes but below Exceptional target ${targetCi}. Escalation required — will NOT auto-promote.`,
-                    { ci: plateauV2.currentCI }, undefined,
-                    { target_ci: targetCi, best_ci: bestAvail?.ci, quality_objective: "Exceptional", action: "plateau_escalation_required", plateau_version: "v2" });
-                  await updateJob(supabase, jobId, {
-                    status: "paused",
-                    stop_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
-                    pause_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
-                    error: `Exceptional mode: CI=${plateauV2.currentCI} plateaued below target ${targetCi} for ${currentDoc}. Escalation required — auto-promote blocked.`,
-                   });
-                  persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: plateauV2.currentCI, finalCi: plateauV2.currentCI, targetCi, targetGp: extractTargetGP(job), haltReason: "EXCEPTIONAL_PLATEAU_ESCALATION", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
-                  await releaseProcessingLock(supabase, jobId);
-                  return respondWithJob(supabase, jobId);
-                }
-                if (job.allow_defaults) {
-                  const nextStage = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
-                  await logStep(supabase, jobId, stepCount + 2, currentDoc, "auto_force_promote",
-                    `Full Autopilot: CI=${plateauV2.currentCI} plateaued with no actionable notes — auto-promoting to next stage (${nextStage ?? "complete"}).`,
-                    { ci: plateauV2.currentCI }, undefined,
-                    { from: currentDoc, to: nextStage, reason: "notes_unresolvable_allow_defaults" });
-                  if (nextStage && isStageAtOrBeforeTarget(nextStage, job.target_document, format)) {
-                    await updateJob(supabase, jobId, {
-                      step_count: stepCount + 2,
-                      current_document: nextStage,
-                      stage_loop_count: 0,
-                      frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
-                      status: "running",
-                      stop_reason: null,
-                      pause_reason: null,
-                      error: null,
-                    });
-                    await releaseProcessingLock(supabase, jobId);
-                    return respondWithJob(supabase, jobId, "run-next");
-                  } else {
-                    await updateJob(supabase, jobId, { step_count: stepCount + 2, status: "completed", stop_reason: "All stages satisfied (auto-promote from plateau)" });
-                    await releaseProcessingLock(supabase, jobId);
-                    return respondWithJob(supabase, jobId);
-                  }
-                }
-
-                await updateJob(supabase, jobId, {
-                  status: "paused",
-                  stop_reason: "NOTES_UNRESOLVABLE",
-                  pause_reason: "NOTES_UNRESOLVABLE",
-                  error: `No blocker/high notes remain but CI=${plateauV2.currentCI} still below target ${targetCi} for ${currentDoc}. Best available: CI=${bestAvail?.ci ?? "?"}.`,
+                // ── Route all plateau cases (exceptional + non-exceptional) through recovery router ──
+                return routePlateauRecovery(supabase, {
+                  jobId, job, currentDoc, format, stepCount, targetCi,
+                  detectedCi: plateauV2.currentCI, detectedBestCi: bestAvail?.ci ?? plateauV2.currentCI,
+                  plateauVersion: "v2", escalationSource: "notes_unresolvable_v2",
                 });
-                persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: bestAvail?.ci ?? plateauV2.currentCI, finalCi: plateauV2.currentCI, targetCi, targetGp: extractTargetGP(job), haltReason: "NOTES_UNRESOLVABLE", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
-                await releaseProcessingLock(supabase, jobId);
-                return respondWithJob(supabase, jobId);
                   } // end else (cleanup not accepted)
                 } // end cleanup gate block
               }
@@ -7044,59 +7113,12 @@ Deno.serve(async (req) => {
                   console.log(`[auto-run][CLEANUP] cleanup_prevented_escalation { job_id: "${jobId}", doc_type: "${currentDoc}", post_ci: ${cleanupV1.result?.postCi}, source: "notes_unresolvable_v1" }`);
                   // Fall through to continue pipeline
                 } else {
-              // ── EXCEPTIONAL GUARD: Never auto-force-promote in Exceptional mode ──
-              if (job.allow_defaults && isExceptionalObjective(job)) {
-                console.warn(`[auto-run][IEL] EXCEPTIONAL_PLATEAU_BLOCK { job_id: "${jobId}", doc_type: "${currentDoc}", ci: ${ciProgress.currentCi}, best_ci: ${ciProgress.bestCi}, target: ${targetCi}, plateau_version: "v1", path: "notes_unresolvable" }`);
-                await logStep(supabase, jobId, stepCount + 2, currentDoc, "exceptional_plateau_block",
-                  `EXCEPTIONAL_PLATEAU_BLOCK: CI=${ciProgress.currentCi} plateaued (V1) with no actionable notes but below Exceptional target ${targetCi}. Escalation required — will NOT auto-promote.`,
-                  { ci: ciProgress.currentCi }, undefined,
-                  { target_ci: targetCi, best_ci: ciProgress.bestCi, quality_objective: "Exceptional", action: "plateau_escalation_required", plateau_version: "v1" });
-                await updateJob(supabase, jobId, {
-                  status: "paused",
-                  stop_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
-                  pause_reason: "EXCEPTIONAL_PLATEAU_ESCALATION",
-                  error: `Exceptional mode: CI=${ciProgress.currentCi} plateaued below target ${targetCi} for ${currentDoc}. Escalation required — auto-promote blocked.`,
-                });
-                persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: ciProgress.bestCi, finalCi: ciProgress.currentCi, targetCi, targetGp: extractTargetGP(job), haltReason: "EXCEPTIONAL_PLATEAU_ESCALATION", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
-                await releaseProcessingLock(supabase, jobId);
-                return respondWithJob(supabase, jobId);
-              }
-              // In Full Autopilot (allow_defaults=true), auto-force-promote instead of pausing.
-              if (job.allow_defaults) {
-                const nextStageV1 = await nextUnsatisfiedStage(supabase, job.project_id, format, currentDoc, job.target_document, job.allow_defaults, job.user_id, jobId);
-                await logStep(supabase, jobId, stepCount + 2, currentDoc, "auto_force_promote",
-                  `Full Autopilot: CI=${ciProgress.currentCi} plateaued (V1) with no actionable notes — auto-promoting to next stage (${nextStageV1 ?? "complete"}).`,
-                  { ci: ciProgress.currentCi }, undefined,
-                  { from: currentDoc, to: nextStageV1, reason: "notes_unresolvable_v1_allow_defaults" });
-                if (nextStageV1 && isStageAtOrBeforeTarget(nextStageV1, job.target_document, format)) {
-                  await updateJob(supabase, jobId, {
-                    step_count: stepCount + 2,
-                    current_document: nextStageV1,
-                    stage_loop_count: 0,
-                    frontier_version_id: null, frontier_ci: null, frontier_gp: null, frontier_attempts: 0,
-                    status: "running",
-                    stop_reason: null,
-                    pause_reason: null,
-                    error: null,
-                  });
-                  await releaseProcessingLock(supabase, jobId);
-                  return respondWithJob(supabase, jobId, "run-next");
-                } else {
-                  await updateJob(supabase, jobId, { step_count: stepCount + 2, status: "completed", stop_reason: "All stages satisfied (auto-promote from plateau V1)" });
-                  await releaseProcessingLock(supabase, jobId);
-                  return respondWithJob(supabase, jobId);
-                }
-              }
-
-              await updateJob(supabase, jobId, {
-                status: "paused",
-                stop_reason: "NOTES_UNRESOLVABLE",
-                pause_reason: "NOTES_UNRESOLVABLE",
-                error: `No blocker/high notes remain but CI=${ciProgress.currentCi} (best: ${ciProgress.bestCi}) still below target ${targetCi} for ${currentDoc}.`,
+              // ── Route all plateau cases through recovery router ──
+              return routePlateauRecovery(supabase, {
+                jobId, job, currentDoc, format, stepCount, targetCi,
+                detectedCi: ciProgress.currentCi, detectedBestCi: ciProgress.bestCi,
+                plateauVersion: "v1", escalationSource: "notes_unresolvable_v1",
               });
-              persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: ciProgress.bestCi, finalCi: ciProgress.currentCi, targetCi, targetGp: extractTargetGP(job), haltReason: "NOTES_UNRESOLVABLE", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
-              await releaseProcessingLock(supabase, jobId);
-              return respondWithJob(supabase, jobId);
                 } // end else (cleanup not accepted)
               } // end cleanup gate block
             }
