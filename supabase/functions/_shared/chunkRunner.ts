@@ -49,6 +49,8 @@ export interface ChunkRunResult {
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MAX_ASSEMBLY_REPAIR_PASSES = 2;
+const CHUNK_LLM_TIMEOUT_MS = 180_000; // 3 minutes per chunk LLM call
+const STALE_RUNNING_THRESHOLD_MS = 120_000; // 2 minutes — running chunk considered stale
 
 /**
  * Pattern used in assembled text when a chunk fails generation.
@@ -83,22 +85,34 @@ async function callChunkLLM(
   model: string = "google/gemini-2.5-flash",
   maxTokens: number = 16000
 ): Promise<string> {
-  const res = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      temperature: 0.5,
-      max_tokens: maxTokens,
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "unknown");
-    throw new Error(`Chunk LLM call failed (${res.status}): ${errText.slice(0, 500)}`);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), CHUNK_LLM_TIMEOUT_MS);
+  try {
+    const res = await fetch(GATEWAY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        temperature: 0.5,
+        max_tokens: maxTokens,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "unknown");
+      throw new Error(`Chunk LLM call failed (${res.status}): ${errText.slice(0, 500)}`);
+    }
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === "AbortError") {
+      throw new Error(`Chunk LLM call timed out after ${CHUNK_LLM_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
   }
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
 }
 
 // ── Chunk Plan Initialization (UPSERT, preserving existing) ──
@@ -408,7 +422,20 @@ function chunksNeedingGeneration(
   return plan.chunks.filter(c => {
     const existing = existingMap.get(c.chunkIndex);
     if (!existing) return true;
-    return ["pending", "failed", "failed_validation", "needs_regen"].includes(existing.status);
+    // Include pending, failed, failed_validation, needs_regen
+    if (["pending", "failed", "failed_validation", "needs_regen"].includes(existing.status)) return true;
+    // Include stale running chunks (from crashed background tasks)
+    if (existing.status === "running") {
+      const updatedAt = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
+      const age = Date.now() - updatedAt;
+      if (age > STALE_RUNNING_THRESHOLD_MS) {
+        console.warn(`[chunkRunner][IEL] stale_running_chunk: index=${c.chunkIndex} key=${c.chunkKey} age=${Math.round(age/1000)}s — will retry`);
+        return true;
+      }
+      // Recently marked running — skip (another task is actively generating)
+      return false;
+    }
+    return false;
   });
 }
 
@@ -455,10 +482,22 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
       ? chunkContents[chunk.chunkIndex - 1].slice(-500)
       : undefined;
 
-    // Mark as running
+    // Mark as running with heartbeat timestamp
+    const chunkStartedAt = new Date().toISOString();
+    const existingMeta = chunkMap.get(chunk.chunkIndex)?.meta_json || {};
     await supabase
       .from("project_document_chunks")
-      .update({ status: "running", attempts: (chunkMap.get(chunk.chunkIndex)?.attempts || 0) + 1 })
+      .update({
+        status: "running",
+        attempts: (chunkMap.get(chunk.chunkIndex)?.attempts || 0) + 1,
+        meta_json: {
+          ...existingMeta,
+          heartbeat_at: chunkStartedAt,
+          generation_started_at: chunkStartedAt,
+          stale_reason: null,
+          cleared_at: null,
+        },
+      })
       .eq("document_id", documentId)
       .eq("version_id", versionId)
       .eq("chunk_index", chunk.chunkIndex);
@@ -502,15 +541,25 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
         }
         break;
       } catch (err: any) {
-        console.error(`[chunkRunner] Chunk ${chunk.chunkKey} error (attempt ${attempt}):`, err.message);
+        const isTimeout = err.message?.includes("timed out");
+        const failureReason = isTimeout ? "llm_call_timeout" : "generation_error";
+        console.error(`[chunkRunner][IEL] chunk_generation_failed: key=${chunk.chunkKey} attempt=${attempt} reason=${failureReason} error=${err.message}`);
         if (attempt >= maxChunkRepairs) {
           failedChunks++;
+          const failMeta = {
+            ...existingMeta,
+            heartbeat_at: new Date().toISOString(),
+            failure_reason: failureReason,
+            failed_at: new Date().toISOString(),
+            last_error: err.message?.slice(0, 300),
+          };
           await supabase
             .from("project_document_chunks")
             .update({
               status: "failed",
               error: err.message?.slice(0, 500),
               attempts: (chunkMap.get(chunk.chunkIndex)?.attempts || 0) + attempt + 1,
+              meta_json: failMeta,
             })
             .eq("document_id", documentId)
             .eq("version_id", versionId)
