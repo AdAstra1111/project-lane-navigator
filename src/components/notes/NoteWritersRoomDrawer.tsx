@@ -429,7 +429,7 @@ export function NoteWritersRoomDrawer({
             </TabsList>
 
             {/* ── DISCUSS TAB ── */}
-            <TabsContent value="discuss" className="flex-1 flex flex-col min-h-0 m-0 px-4 py-2">
+            <TabsContent value="discuss" className="flex-1 flex flex-col min-h-0 m-0 px-4 py-2 overflow-y-auto">
               {/* Pins */}
               <div className="space-y-1 mb-2">
                 <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -457,7 +457,7 @@ export function NoteWritersRoomDrawer({
               <Separator className="my-1" />
 
               {/* Chat messages */}
-              <ScrollArea className="max-h-[50vh] min-h-[120px]" ref={scrollRef}>
+              <ScrollArea className="flex-1 min-h-[80px] max-h-[40vh]" ref={scrollRef}>
                 <div className="space-y-2 pr-2 py-1">
                   {messages.map((msg) => (
                     <div key={msg.id} className={`flex min-w-0 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -492,7 +492,7 @@ export function NoteWritersRoomDrawer({
               </ScrollArea>
 
               {/* Message input + action buttons */}
-              <div className="space-y-2 mt-2">
+              <div className="space-y-2 mt-2 shrink-0">
                 <div className="flex gap-1">
                   <Textarea
                     placeholder="Discuss this note... (say 'apply that' to generate a change plan)"
