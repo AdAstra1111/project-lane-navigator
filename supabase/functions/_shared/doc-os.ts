@@ -317,7 +317,13 @@ export function shouldRunCanonAlignment(
 ): boolean {
   const fmtKey = (format ?? '').trim().toLowerCase().replace(/[_ ]+/g, '-');
 
-  if (docType === "production_draft" && generatorId === "dev-engine-v2-rewrite-chunked") {
+  // Rewrite-refinement exemption: chunked rewrites of output scripts are refining
+  // existing approved content, not generating from scratch. Entity coverage heuristics
+  // produce false positives because chunks may not mention all canon entity names.
+  if (
+    (docType === "production_draft" || docType === "season_script" || docType === "feature_script") &&
+    generatorId === "dev-engine-v2-rewrite-chunked"
+  ) {
     console.log(`[doc-os][PAL] canon_alignment_skipped: rewrite_refinement_exempt { format: "${fmtKey || 'unknown'}", doc_type: "${docType}", generator: "${generatorId}" }`);
     return false;
   }
