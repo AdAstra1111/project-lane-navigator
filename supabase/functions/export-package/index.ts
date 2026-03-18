@@ -777,7 +777,7 @@ Deno.serve(async (req) => {
 
     // --- Build deliverable list in ladder order ---
     const metaDocs: any[] = [];
-    const sections: Array<{ label: string; text: string }> = [];
+    const sections: Array<{ label: string; text: string; docType: string }> = [];
 
     let globalOrder = 1;
     for (let i = 0; i < ladder.length; i++) {
