@@ -19,6 +19,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { PosterCompositor } from "@/components/poster/PosterCompositor";
+import { FramingStrategyPanel } from "@/components/framing/FramingStrategyPanel";
 import {
   useProjectPosters,
   useActivePoster,
