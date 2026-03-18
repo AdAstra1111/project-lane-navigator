@@ -29,6 +29,7 @@ import {
   type ProjectPoster,
 } from "@/hooks/useProjectPosters";
 import { useProject } from "@/hooks/useProjects";
+import { useProjectBranding } from "@/hooks/useProjectBranding";
 
 const STRATEGY_META: Record<string, { icon: typeof User; color: string; description: string }> = {
   character:  { icon: User,     color: "text-blue-400",   description: "Lead character dominant, emotional, intimate" },
