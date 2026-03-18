@@ -9,6 +9,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { STAGE_LADDERS } from "../_shared/stage-ladders.ts";
 import JSZip from "npm:jszip@3";
+import { PDFDocument, rgb, StandardFonts } from "npm:pdf-lib@1.17.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,109 +66,303 @@ function toLabel(docType: string, format?: string): string {
   return LABELS[docType] ?? docType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-/** Build a minimal PDF from plain-text sections using raw PDF byte generation */
-function buildPdf(sections: Array<{ label: string; text: string }>): Uint8Array {
-  const objects: string[] = [];
-  let objNum = 0;
+// ═══════════════════════════════════════════════════════════════════════════
+// IFFY-branded PDF renderer using pdf-lib (server-safe, no browser APIs)
+// ═══════════════════════════════════════════════════════════════════════════
 
-  function addObj(content: string): number {
-    objNum++;
-    objects.push(`${objNum} 0 obj\n${content}\nendobj`);
-    return objNum;
+/** Normalise smart punctuation & mojibake to PDF-safe equivalents */
+function normalizeText(s: string): string {
+  return s
+    // Mojibake patterns (UTF-8 decoded as Windows-1252)
+    .replace(/â€™/g, "'").replace(/â€˜/g, "'")
+    .replace(/â€œ/g, '"').replace(/â€\u009D/g, '"').replace(/â€/g, '"')
+    .replace(/â€"/g, "--").replace(/â€"/g, "-")
+    .replace(/â€¦/g, "...")
+    // Unicode smart quotes & dashes
+    .replace(/[\u2018\u2019\u201A\uFFFD]/g, "'")
+    .replace(/[\u201C\u201D\u201E]/g, '"')
+    .replace(/\u2013/g, "-")    // en dash
+    .replace(/\u2014/g, "--")   // em dash
+    .replace(/\u2026/g, "...")  // ellipsis
+    .replace(/\u00A0/g, " ")   // non-breaking space
+    .replace(/[\u2022\u2023\u25E6\u2043\u2219]/g, "-") // bullet variants
+    // Strip any remaining non-Latin1 chars that standard PDF fonts can't render
+    .replace(/[^\x00-\xFF]/g, "");
+}
+
+/** Lightweight markdown line parser */
+interface ParsedBlock {
+  type: "h1" | "h2" | "h3" | "hr" | "text";
+  content: string;
+  bold?: boolean;
+}
+
+function parseMarkdownBlocks(text: string): ParsedBlock[] {
+  const blocks: ParsedBlock[] = [];
+  const lines = text.split("\n");
+  let textBuf = "";
+
+  const flushText = () => {
+    if (textBuf.trim()) {
+      blocks.push({ type: "text", content: textBuf.trimEnd() });
+    }
+    textBuf = "";
+  };
+
+  for (const raw of lines) {
+    const trimmed = raw.trim();
+    if (/^---+$/.test(trimmed) || /^___+$/.test(trimmed) || /^\*\*\*+$/.test(trimmed)) {
+      flushText();
+      blocks.push({ type: "hr", content: "" });
+    } else if (/^### /.test(trimmed)) {
+      flushText();
+      blocks.push({ type: "h3", content: trimmed.replace(/^### /, "") });
+    } else if (/^## /.test(trimmed)) {
+      flushText();
+      blocks.push({ type: "h2", content: trimmed.replace(/^## /, "") });
+    } else if (/^# /.test(trimmed)) {
+      flushText();
+      blocks.push({ type: "h1", content: trimmed.replace(/^# /, "") });
+    } else {
+      textBuf += raw + "\n";
+    }
+  }
+  flushText();
+  return blocks;
+}
+
+/** Strip markdown bold markers and return segments with bold flags */
+interface TextSegment { text: string; bold: boolean }
+
+function parseInlineBold(text: string): TextSegment[] {
+  const segments: TextSegment[] = [];
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  for (const part of parts) {
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      segments.push({ text: part.slice(2, -2), bold: true });
+    } else if (part) {
+      segments.push({ text: part, bold: false });
+    }
+  }
+  return segments;
+}
+
+/** Word-wrap a string to fit within maxWidth using the given font/size */
+function wrapText(text: string, font: any, fontSize: number, maxWidth: number): string[] {
+  const lines: string[] = [];
+  for (const rawLine of text.split("\n")) {
+    if (!rawLine.trim()) { lines.push(""); continue; }
+    const words = rawLine.split(/\s+/);
+    let current = "";
+    for (const word of words) {
+      const test = current ? `${current} ${word}` : word;
+      const w = font.widthOfTextAtSize(test, fontSize);
+      if (w > maxWidth && current) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = test;
+      }
+    }
+    if (current) lines.push(current);
+  }
+  return lines;
+}
+
+// ── Design constants ──
+const COLORS = {
+  dark:   rgb(20/255, 21/255, 25/255),     // #141519
+  amber:  rgb(196/255, 145/255, 58/255),    // #C4913A
+  white:  rgb(1, 1, 1),
+  body:   rgb(30/255, 30/255, 30/255),
+  muted:  rgb(120/255, 115/255, 108/255),
+  divider: rgb(80/255, 75/255, 70/255),
+};
+
+const PAGE_W = 595.28;  // A4 pt
+const PAGE_H = 841.89;
+const M = 45.35;        // ~16mm
+const CONTENT_W = PAGE_W - M * 2;
+const HEADER_H = 40;
+const FOOTER_Y = 28;
+const BODY_TOP = PAGE_H - M - HEADER_H - 12; // usable body start below header
+
+/** Build a branded IFFY PDF from sections */
+async function buildPdf(sections: Array<{ label: string; text: string }>): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const helvetica = await doc.embedFont(StandardFonts.Helvetica);
+  const helveticaBold = await doc.embedFont(StandardFonts.HelveticaBold);
+
+  const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const allPages: any[] = []; // track for page numbering
+
+  // ── Helper: add page with dark header band ──
+  function addPage(sectionLabel?: string, isCover = false): { page: any; y: number } {
+    const page = doc.addPage([PAGE_W, PAGE_H]);
+    allPages.push(page);
+
+    // Dark header band
+    const bandH = isCover ? 80 : HEADER_H;
+    page.drawRectangle({ x: 0, y: PAGE_H - bandH, width: PAGE_W, height: bandH, color: COLORS.dark });
+    // Amber accent stripe
+    page.drawRectangle({ x: 0, y: PAGE_H - bandH - 2, width: PAGE_W, height: 2, color: COLORS.amber });
+
+    if (isCover && sectionLabel) {
+      // IF logo mark
+      page.drawRectangle({ x: M, y: PAGE_H - 32, width: 22, height: 22, color: COLORS.amber });
+      page.drawText("IF", { x: M + 5.5, y: PAGE_H - 27, size: 8, font: helveticaBold, color: COLORS.dark });
+
+      // Section label large
+      page.drawText(normalizeText(sectionLabel), {
+        x: M, y: PAGE_H - 55, size: 20, font: helveticaBold, color: COLORS.white, maxWidth: CONTENT_W,
+      });
+
+      // Date top-right
+      page.drawText(dateStr, { x: PAGE_W - M - helvetica.widthOfTextAtSize(dateStr, 7), y: PAGE_H - 18, size: 7, font: helvetica, color: COLORS.muted });
+
+      return { page, y: PAGE_H - 80 - 2 - 18 }; // below band + stripe + padding
+    }
+
+    // Continuation header
+    if (sectionLabel) {
+      // Compact IF mark
+      page.drawRectangle({ x: M, y: PAGE_H - 26, width: 16, height: 16, color: COLORS.amber });
+      page.drawText("IF", { x: M + 4, y: PAGE_H - 22, size: 6, font: helveticaBold, color: COLORS.dark });
+
+      const contLabel = normalizeText(sectionLabel);
+      page.drawText(contLabel, {
+        x: M + 20, y: PAGE_H - 22, size: 8, font: helveticaBold, color: COLORS.white, maxWidth: CONTENT_W - 24,
+      });
+    }
+
+    return { page, y: PAGE_H - HEADER_H - 2 - 14 };
   }
 
-  function escPdf(s: string): string {
-    return s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-  }
-
-  // Font
-  const fontRef = addObj(`<<\n/Type /Font\n/Subtype /Type1\n/BaseFont /Courier\n>>`);
-
-  const PAGE_WIDTH = 612;
-  const PAGE_HEIGHT = 792;
-  const MARGIN_LEFT = 50;
-  const MARGIN_TOP = 742;   // y of first line (from bottom of page)
-  const LINE_HEIGHT = 13;   // pt per line
-  const LINES_PER_PAGE = Math.floor((MARGIN_TOP - 40) / LINE_HEIGHT); // ~53 lines
-
-  const pageRefs: string[] = [];
-
+  // ── Render each section ──
   for (const sec of sections) {
-    // Wrap text into lines <= 90 chars
-    const rawLines: string[] = [];
-    for (const line of sec.text.split("\n")) {
-      let rem = line;
-      while (rem.length > 90) {
-        rawLines.push(rem.slice(0, 90));
-        rem = rem.slice(90);
+    const normalizedText = normalizeText(sec.text || "");
+    const blocks = parseMarkdownBlocks(normalizedText);
+
+    // Cover page
+    let { page, y } = addPage(sec.label, true);
+
+    // Handle empty sections
+    if (!normalizedText.trim() || blocks.length === 0) {
+      page.drawText("No content available.", { x: M, y: y - 10, size: 10, font: helvetica, color: COLORS.muted });
+      continue;
+    }
+
+    const needsNewPage = (needed: number): boolean => y - needed < FOOTER_Y + 16;
+
+    for (const block of blocks) {
+      try {
+        switch (block.type) {
+          case "h1": {
+            if (needsNewPage(28)) { ({ page, y } = addPage(sec.label)); }
+            y -= 6;
+            // Amber accent bar
+            page.drawRectangle({ x: M, y: y + 2, width: 40, height: 2, color: COLORS.amber });
+            y -= 4;
+            const h1Lines = wrapText(block.content, helveticaBold, 16, CONTENT_W);
+            for (const line of h1Lines) {
+              if (needsNewPage(20)) { ({ page, y } = addPage(sec.label)); }
+              page.drawText(line, { x: M, y, size: 16, font: helveticaBold, color: COLORS.amber });
+              y -= 20;
+            }
+            y -= 4;
+            break;
+          }
+          case "h2": {
+            if (needsNewPage(22)) { ({ page, y } = addPage(sec.label)); }
+            y -= 4;
+            const h2Lines = wrapText(block.content, helveticaBold, 13, CONTENT_W);
+            for (const line of h2Lines) {
+              if (needsNewPage(17)) { ({ page, y } = addPage(sec.label)); }
+              page.drawText(line, { x: M, y, size: 13, font: helveticaBold, color: COLORS.body });
+              y -= 17;
+            }
+            y -= 3;
+            break;
+          }
+          case "h3": {
+            if (needsNewPage(18)) { ({ page, y } = addPage(sec.label)); }
+            y -= 3;
+            const h3Lines = wrapText(block.content, helveticaBold, 11, CONTENT_W);
+            for (const line of h3Lines) {
+              if (needsNewPage(15)) { ({ page, y } = addPage(sec.label)); }
+              page.drawText(line, { x: M, y, size: 11, font: helveticaBold, color: COLORS.body });
+              y -= 15;
+            }
+            y -= 2;
+            break;
+          }
+          case "hr": {
+            if (needsNewPage(10)) { ({ page, y } = addPage(sec.label)); }
+            y -= 4;
+            page.drawLine({ start: { x: M, y }, end: { x: PAGE_W - M, y }, thickness: 0.5, color: COLORS.amber });
+            y -= 6;
+            break;
+          }
+          case "text": {
+            // Render body text with inline bold support
+            const paragraphs = block.content.split(/\n\n+/);
+            for (const para of paragraphs) {
+              const segments = parseInlineBold(para.replace(/\n/g, " ").trim());
+              if (!segments.length) { y -= 6; continue; }
+
+              // Flatten to plain for wrapping, then render
+              const plainText = segments.map(s => s.text).join("");
+              const wrapped = wrapText(plainText, helvetica, 10, CONTENT_W);
+
+              for (const line of wrapped) {
+                if (needsNewPage(14)) { ({ page, y } = addPage(sec.label)); }
+                // Check if line has bold segments
+                const lineSegments = parseInlineBold(line);
+                let xPos = M;
+                for (const seg of lineSegments) {
+                  const f = seg.bold ? helveticaBold : helvetica;
+                  page.drawText(seg.text, { x: xPos, y, size: 10, font: f, color: COLORS.body });
+                  xPos += f.widthOfTextAtSize(seg.text, 10);
+                }
+                y -= 14;
+              }
+              y -= 4; // paragraph gap
+            }
+            break;
+          }
+        }
+      } catch (_blockErr) {
+        // Graceful degradation: skip malformed block, don't crash
+        continue;
       }
-      rawLines.push(rem);
-    }
-
-    // Split into pages, reserving 2 lines at top for section header + separator
-    const CONTENT_LINES = LINES_PER_PAGE - 2;
-    const chunks: string[][] = [];
-    for (let i = 0; i < rawLines.length; i += CONTENT_LINES) {
-      chunks.push(rawLines.slice(i, i + CONTENT_LINES));
-    }
-    if (chunks.length === 0) chunks.push([]);
-
-    for (let ci = 0; ci < chunks.length; ci++) {
-      const chunk = chunks[ci];
-      const isFirst = ci === 0;
-      const headerLabel = isFirst ? sec.label : `${sec.label} (cont.)`;
-
-      // Use Tm (text matrix) for absolute positioning, then T* for relative line advances.
-      // Tm: 1 0 0 1 x y sets text position absolutely.
-      // TL: sets text leading (line spacing) used by T*.
-      let stream = `BT\n`;
-      stream += `${LINE_HEIGHT} TL\n`;
-      stream += `1 0 0 1 ${MARGIN_LEFT} ${MARGIN_TOP} Tm\n`;
-      stream += `/F1 14 Tf\n`;
-      stream += `(${escPdf(headerLabel)}) Tj\n`;
-      stream += `T*\n/F1 10 Tf\n`;
-      stream += `(----------------------------------------------------------------) Tj\n`;
-      stream += `/F1 11 Tf\n`;
-      for (const line of chunk) {
-        stream += `T*\n(${escPdf(line)}) Tj\n`;
-      }
-      stream += `ET`;
-
-      const streamBytes = new TextEncoder().encode(stream);
-      const contentRef = addObj(`<<\n/Length ${streamBytes.length}\n>>\nstream\n${stream}\nendstream`);
-      const resourcesRef = addObj(`<<\n/Font <<\n/F1 ${fontRef} 0 R\n>>\n>>`);
-      const pageRef = addObj(
-        `<<\n/Type /Page\n/MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}]\n` +
-        `/Contents ${contentRef} 0 R\n/Resources ${resourcesRef} 0 R\n>>`
-      );
-      pageRefs.push(`${pageRef} 0 R`);
     }
   }
 
-  const pagesRef = addObj(
-    `<<\n/Type /Pages\n/Kids [${pageRefs.join(" ")}]\n/Count ${pageRefs.length}\n>>`
-  );
-  const catalogRef = addObj(`<<\n/Type /Catalog\n/Pages ${pagesRef} 0 R\n>>`);
-
-  // Serialise with correct byte offsets for xref
-  const header = "%PDF-1.4\n";
-  let body = header;
-  const byteOffsets: number[] = [];
-
-  for (const obj of objects) {
-    byteOffsets.push(body.length);
-    body += obj + "\n";
+  // ── Draw footers on all pages ──
+  const totalPages = allPages.length;
+  for (let i = 0; i < totalPages; i++) {
+    const page = allPages[i];
+    try {
+      // Amber rule
+      page.drawLine({
+        start: { x: M, y: FOOTER_Y + 6 },
+        end: { x: PAGE_W - M, y: FOOTER_Y + 6 },
+        thickness: 0.4,
+        color: COLORS.amber,
+      });
+      // Left text
+      const footerLeft = "IFFY -- Intelligent Film Flow & Yield";
+      page.drawText(footerLeft, { x: M, y: FOOTER_Y - 2, size: 6, font: helvetica, color: COLORS.muted });
+      // Right page number
+      const pageNum = `Page ${i + 1} of ${totalPages}`;
+      const pnWidth = helvetica.widthOfTextAtSize(pageNum, 6);
+      page.drawText(pageNum, { x: PAGE_W - M - pnWidth, y: FOOTER_Y - 2, size: 6, font: helvetica, color: COLORS.muted });
+    } catch (_footerErr) {
+      // Don't crash on footer rendering
+    }
   }
 
-  const xrefOffset = body.length;
-  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const off of byteOffsets) {
-    body += String(off).padStart(10, "0") + " 00000 n \n";
-  }
-  body += `trailer\n<<\n/Size ${objects.length + 1}\n/Root ${catalogRef} 0 R\n>>\n`;
-  body += `startxref\n${xrefOffset}\n%%EOF`;
-
-  return new TextEncoder().encode(body);
+  return await doc.save();
 }
 
 
@@ -373,7 +568,7 @@ Deno.serve(async (req) => {
     let fileExtension: string;
 
     if (output_format === "pdf") {
-      fileBuffer = buildPdf(sections);
+      fileBuffer = await buildPdf(sections);
       contentType = "application/pdf";
       fileExtension = "pdf";
     } else {
