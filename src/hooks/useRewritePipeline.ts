@@ -14,6 +14,20 @@ interface ChunkMetaItem {
   section_id?: string | null;
 }
 
+export type EpisodeUnitStatus = 'preserved' | 'queued' | 'rewriting' | 'done' | 'failed';
+
+export interface EpisodeUnit {
+  /** 1-based episode number */
+  episodeNumber: number;
+  status: EpisodeUnitStatus;
+  /** Content once rewritten (null while queued/rewriting) */
+  content: string | null;
+  charCount: number;
+  durationMs: number | null;
+  /** True if this episode was not in the affected set */
+  isPreserved: boolean;
+}
+
 interface RewritePipelineState {
   status: 'idle' | 'planning' | 'writing' | 'assembling' | 'complete' | 'error';
   totalChunks: number;
