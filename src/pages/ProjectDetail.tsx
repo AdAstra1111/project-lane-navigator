@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Trash2, Loader2, Copy, Download, FileText, FileSpreadsheet, Presentation, ArrowLeftRight, Sparkles, Film, PenTool } from 'lucide-react';
+import { ArrowLeft, Trash2, Loader2, Copy, Download, FileText, FileSpreadsheet, Presentation, ArrowLeftRight, Sparkles, Film, PenTool, ImagePlus } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -484,6 +484,12 @@ export default function ProjectDetail() {
               <Button variant="outline" className="w-full gap-2 h-11">
                 <PenTool className="h-4 w-4 text-primary" />
                 Development Engine
+              </Button>
+            </Link>
+            <Link to={`/projects/${id}/poster`} className="flex-1">
+              <Button variant="outline" className="w-full gap-2 h-11">
+                <ImagePlus className="h-4 w-4 text-primary" />
+                Poster Engine
               </Button>
             </Link>
           </div>
