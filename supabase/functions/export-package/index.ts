@@ -488,10 +488,12 @@ async function buildPdf(
           }
           case "character": {
             if (needsNewPage(SP.LINE_H * 3)) newPage();
+            y -= SP.LINE_H * 0.5;
+            // Center character name over dialogue column
             const charW = courierBold.widthOfTextAtSize(el.text, SP.FONT_SIZE);
             const charX = SP.DIAL_X + (SP.DIAL_W - charW) / 2;
             page.drawText(el.text, {
-              x: Math.max(charX, SP.CHAR_X), y, size: SP.FONT_SIZE, font: courierBold, color: COLORS.body,
+              x: charX, y, size: SP.FONT_SIZE, font: courierBold, color: COLORS.body,
             });
             y -= SP.LINE_H;
             break;
