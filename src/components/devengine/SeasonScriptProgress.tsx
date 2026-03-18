@@ -135,6 +135,10 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
     if (status === 'running' && isStale && chunk?.id === staleInfo?.staleChunk.id) {
       status = 'stale';
     }
+    // Optimistic: after resume success, show first incomplete as 'running'
+    if (resumeSuccess && (status === 'failed' || status === 'failed_validation' || status === 'needs_regen') && i === (firstIncompleteEp ? firstIncompleteEp - 1 : -1)) {
+      status = 'running';
+    }
     return {
       index: i,
       status,
