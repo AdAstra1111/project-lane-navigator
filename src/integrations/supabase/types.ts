@@ -13399,6 +13399,90 @@ export type Database = {
           },
         ]
       }
+      project_posters: {
+        Row: {
+          aspect_ratio: string
+          created_at: string
+          error_message: string | null
+          id: string
+          is_active: boolean
+          key_art_public_url: string | null
+          key_art_storage_path: string | null
+          layout_variant: string
+          model: string | null
+          project_id: string
+          prompt_inputs: Json | null
+          prompt_text: string | null
+          provider: string | null
+          rendered_public_url: string | null
+          rendered_storage_path: string | null
+          source_type: string
+          status: string
+          updated_at: string
+          user_id: string
+          version_number: number
+        }
+        Insert: {
+          aspect_ratio?: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          is_active?: boolean
+          key_art_public_url?: string | null
+          key_art_storage_path?: string | null
+          layout_variant?: string
+          model?: string | null
+          project_id: string
+          prompt_inputs?: Json | null
+          prompt_text?: string | null
+          provider?: string | null
+          rendered_public_url?: string | null
+          rendered_storage_path?: string | null
+          source_type?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+          version_number?: number
+        }
+        Update: {
+          aspect_ratio?: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          is_active?: boolean
+          key_art_public_url?: string | null
+          key_art_storage_path?: string | null
+          layout_variant?: string
+          model?: string | null
+          project_id?: string
+          prompt_inputs?: Json | null
+          prompt_text?: string | null
+          provider?: string | null
+          rendered_public_url?: string | null
+          rendered_storage_path?: string | null
+          source_type?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_posters_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_posters_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_preferences: {
         Row: {
           id: string
