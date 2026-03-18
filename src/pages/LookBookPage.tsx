@@ -16,7 +16,7 @@ import type { LookBookData } from '@/lib/lookbook/types';
 
 export default function LookBookPage() {
   const { id: projectId } = useParams<{ id: string }>();
-  const { data: project, isLoading: projectLoading } = useProject(projectId);
+  const { project, isLoading: projectLoading } = useProject(projectId);
   const { data: branding } = useProjectBranding(projectId);
   const [lookBookData, setLookBookData] = useState<LookBookData | null>(null);
   const [generating, setGenerating] = useState(false);

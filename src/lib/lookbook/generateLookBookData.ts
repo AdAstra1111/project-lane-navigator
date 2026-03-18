@@ -141,21 +141,23 @@ export async function generateLookBookData(
   }
 
   // 4. Load active poster for cover
-  const { data: activePoster } = await supabase
-    .from('project_poster_versions' as any)
-    .select('storage_path')
-    .eq('project_id', projectId)
-    .eq('is_active', true)
-    .limit(1)
-    .maybeSingle();
-
   let coverImageUrl = '';
-  if (activePoster?.storage_path) {
-    const { data: signed } = await supabase.storage
-      .from('poster-assets')
-      .createSignedUrl(activePoster.storage_path, 3600);
-    if (signed?.signedUrl) coverImageUrl = signed.signedUrl;
-  }
+  try {
+    const { data: activePoster } = await (supabase as any)
+      .from('project_posters')
+      .select('key_art_storage_path')
+      .eq('project_id', projectId)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+
+    if (activePoster?.key_art_storage_path) {
+      const { data: signed } = await supabase.storage
+        .from('poster-assets')
+        .createSignedUrl(activePoster.key_art_storage_path, 3600);
+      if (signed?.signedUrl) coverImageUrl = signed.signedUrl;
+    }
+  } catch { /* poster table may not exist yet */ }
 
   // 5. Build identity
   const identity = resolveIdentity(canon, (project as any).genre);
