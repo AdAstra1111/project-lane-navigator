@@ -59,7 +59,7 @@ export function EpisodeHandoffBanner({
             <SelectContent>
               {versions.map(v => (
                 <SelectItem key={v.id} value={v.id} className="text-xs">
-                  v{v.version_number} — {v.change_summary?.slice(0, 30) || 'No summary'}
+                  v{v.version_number} — {(v.change_summary?.replace(/^Chunked rewrite/i, 'Episode-scoped rewrite') || 'No summary').slice(0, 30)}
                 </SelectItem>
               ))}
             </SelectContent>
