@@ -23,6 +23,14 @@ import { toast } from 'sonner';
 
 import { getDocTypeLabel, getDocDisplayName } from '@/lib/can-promote-to-script';
 
+/** Sanitize legacy "Chunked rewrite" labels for episodic docs */
+function sanitizeChangeSummary(summary: string | null | undefined): string | null {
+  if (!summary) return null;
+  return summary
+    .replace(/^Chunked rewrite across (\d+) iterations?\.$/i, 'Episode-scoped rewrite across $1 passes.')
+    .replace(/Generated via chunked large-risk pipeline/i, 'Generated via episodic pipeline');
+}
+
 const SYSTEM_DOC_TYPES = new Set(['project_overview', 'creative_brief', 'market_positioning', 'canon', 'nec']);
 
 const STORAGE_KEY = 'devEngine.leftTrayWidth';
