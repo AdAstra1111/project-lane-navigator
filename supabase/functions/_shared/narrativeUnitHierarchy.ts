@@ -65,15 +65,30 @@ export interface NarrativeUnitModel {
 }
 
 // ── Episode-indexed doc types: execution unit = 1 episode ──
+// These use episode as outer unit. When scene graph data is available,
+// EPISODIC_SCRIPT_DOC_TYPES automatically nest scene as inner unit.
 
-const EPISODE_UNIT_DOC_TYPES = new Set([
+const EPISODE_ONLY_DOC_TYPES = new Set([
   'episode_grid',
   'episode_beats',
   'vertical_episode_beats',
+  'season_scripts_bundle',
+]);
+
+// ── Episodic script doc types: episode → scene nested when scene graph exists ──
+// This applies to ALL episodic script deliverables regardless of lane
+// (vertical drama, long-form series, any future episodic format).
+
+const EPISODIC_SCRIPT_DOC_TYPES = new Set([
   'season_script',
   'season_master_script',
-  'season_scripts_bundle',
   'episode_script',
+]);
+
+// ── Combined set for any episode-indexed doc ──
+const ALL_EPISODE_DOC_TYPES = new Set([
+  ...EPISODE_ONLY_DOC_TYPES,
+  ...EPISODIC_SCRIPT_DOC_TYPES,
 ]);
 
 // ── Scene-indexed doc types: execution unit = 1 scene ──
@@ -86,9 +101,25 @@ const SCENE_UNIT_DOC_TYPES = new Set([
 /**
  * Returns the canonical narrative unit model for a doc type.
  * This is the AUTHORITATIVE source for execution granularity decisions.
+ *
+ * For episodic script docs (season_script, season_master_script, episode_script):
+ *   - Default: episode-only (nested: false)
+ *   - With scene graph: episode → scene nested (nested: true)
+ *   Use unitModelFor(docType, { hasSceneGraph: true }) to activate nesting.
+ *
+ * For episode_grid / episode_beats: always episode-only, no scene nesting.
  */
-export function unitModelFor(docType: string): NarrativeUnitModel {
-  if (EPISODE_UNIT_DOC_TYPES.has(docType)) {
+export function unitModelFor(
+  docType: string,
+  opts?: { hasSceneGraph?: boolean },
+): NarrativeUnitModel {
+  if (EPISODIC_SCRIPT_DOC_TYPES.has(docType)) {
+    if (opts?.hasSceneGraph) {
+      return { outerUnit: 'episode', innerUnit: 'scene', nested: true };
+    }
+    return { outerUnit: 'episode', nested: false };
+  }
+  if (EPISODE_ONLY_DOC_TYPES.has(docType)) {
     return { outerUnit: 'episode', nested: false };
   }
   if (SCENE_UNIT_DOC_TYPES.has(docType)) {
@@ -99,8 +130,18 @@ export function unitModelFor(docType: string): NarrativeUnitModel {
 }
 
 /**
- * North-star model for long-form series scripting (episode → scene nested).
- * Use when a season_script rewrite has scene-graph data available.
+ * Returns true if the doc type supports nested episode → scene execution
+ * when scene graph data is available. This is the canonical gate for
+ * activating scene-within-episode nesting for any episodic format
+ * (vertical drama, long-form series, etc.).
+ */
+export function supportsSceneNesting(docType: string): boolean {
+  return EPISODIC_SCRIPT_DOC_TYPES.has(docType);
+}
+
+/**
+ * @deprecated Use unitModelFor(docType, { hasSceneGraph: true }) instead.
+ * Kept for backward compatibility during migration.
  */
 export function nestedEpisodeSceneModel(): NarrativeUnitModel {
   return { outerUnit: 'episode', innerUnit: 'scene', nested: true };
