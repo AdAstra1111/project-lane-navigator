@@ -423,13 +423,15 @@ export function useDevEngineV2(projectId: string | undefined) {
 
   const deleteVersion = useMutation({
     mutationFn: async (versionId: string) => {
-      const { error } = await (supabase as any).from('project_document_versions').delete().eq('id', versionId);
+      const { data, error } = await (supabase as any).rpc('safe_delete_version', {
+        p_version_id: versionId,
+      });
       if (error) throw error;
+      return { deletedId: versionId, result: data };
     },
-    onSuccess: (_data, deletedId) => {
+    onSuccess: ({ deletedId }) => {
       toast.success('Version deleted');
       if (selectedVersionId === deletedId) {
-        // Auto-select another version so the UI doesn't keep the deleted one active
         const remaining = versions.filter(v => v.id !== deletedId);
         const next = remaining[remaining.length - 1] ?? null;
         setSelectedVersionId(next ? next.id : null);
@@ -441,14 +443,42 @@ export function useDevEngineV2(projectId: string | undefined) {
 
   const deleteDocument = useMutation({
     mutationFn: async (docId: string) => {
-      // Clear selection BEFORE the async delete to prevent stale refetches
       if (selectedDocId === docId) {
         setSelectedDocId(null);
         setSelectedVersionId(null);
       }
+
+      const { data: docVersions, error: versionsErr } = await (supabase as any)
+        .from('project_document_versions')
+        .select('id')
+        .eq('document_id', docId);
+      if (versionsErr) throw versionsErr;
+
+      const versionIds = (docVersions || []).map((v: { id: string }) => v.id);
+
       await (supabase as any).from('development_runs').delete().eq('document_id', docId);
       await (supabase as any).from('dev_engine_convergence_history').delete().eq('document_id', docId);
-      await (supabase as any).from('project_document_versions').delete().eq('document_id', docId);
+
+      if (versionIds.length > 0) {
+        const { error: chunksErr } = await (supabase as any)
+          .from('project_document_chunks')
+          .delete()
+          .in('version_id', versionIds);
+        if (chunksErr) throw chunksErr;
+      }
+
+      const { error: clearLatestErr } = await (supabase as any)
+        .from('project_documents')
+        .update({ latest_version_id: null })
+        .eq('id', docId);
+      if (clearLatestErr) throw clearLatestErr;
+
+      const { error: deleteVersionsErr } = await (supabase as any)
+        .from('project_document_versions')
+        .delete()
+        .eq('document_id', docId);
+      if (deleteVersionsErr) throw deleteVersionsErr;
+
       const { error } = await (supabase as any).from('project_documents').delete().eq('id', docId);
       if (error) throw error;
     },
