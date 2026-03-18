@@ -339,15 +339,16 @@ export default function ProjectDetail() {
   const { mode: userMode, setMode } = useUIMode();
   const effectiveMode = getEffectiveMode(userMode, (project as any).ui_mode_override);
 
-  const heroImageUrl = (project as any).hero_image_url;
+  const { data: activePoster } = useActiveProjectPoster(projectId);
+  const heroImageUrl = activePoster.url || (project as any).hero_image_url;
 
   return (
     <div className="bg-background">
 
-      {/* Hero Image Banner */}
+      {/* Hero Image Banner — active poster or legacy hero image */}
       {heroImageUrl && (
         <div className="relative h-[200px] sm:h-[260px] overflow-hidden -mb-6">
-          <img src={heroImageUrl} alt="" className="w-full h-full object-cover" />
+          <img src={heroImageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
           <div className="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-background/20" />
           <div className="absolute inset-0 bg-gradient-to-r from-background/50 to-transparent" />
         </div>
