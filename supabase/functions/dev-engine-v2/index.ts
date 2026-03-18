@@ -7675,21 +7675,37 @@ MATERIAL TO REWRITE:\n${fullText}`;
       if (planOutput?.strategy === "episodic_indexed" && Number(planOutput?.episode_count) > 0) {
         const expectedEpisodeCount = Number(planOutput.episode_count);
         const docTypeForValidation = planOutput.doc_type || "episode_grid";
-        const episodicValidation = validateEpisodicContent(assembledText, expectedEpisodeCount, docTypeForValidation);
+        
+        // Use progress-aware validation instead of binary pass/fail
+        const { validateEpisodicProgress } = await import("../_shared/chunkValidator.ts");
+        const progressResult = validateEpisodicProgress(assembledText, expectedEpisodeCount, docTypeForValidation, {
+          isRewriteAssembly: true,
+        });
 
-        if (!episodicValidation.pass) {
-          console.error("[dev-engine-v2] rewrite-assemble coverage failure", {
+        if (progressResult.tier === "blocker") {
+          console.error("[dev-engine-v2] rewrite-assemble structural failure (true blocker)", {
             expectedEpisodeCount,
-            missing: episodicValidation.missingIndices,
-            failures: episodicValidation.failures.map((f) => f.detail),
+            found: progressResult.found,
+            progress: progressResult.progress,
+            blockers: progressResult.blockers.map((f) => f.detail),
           });
           return new Response(JSON.stringify({
             error: "EPISODE_COVERAGE_FAILED",
-            message: `Assembled rewrite is missing required episodes (expected 1-${expectedEpisodeCount}).`,
-            validation: episodicValidation,
+            message: progressResult.summary,
+            validation: { pass: false, tier: progressResult.tier, found: progressResult.found, target: progressResult.target, blockers: progressResult.blockers },
           }), {
             status: 422,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Log progress-level warnings but do NOT block
+        if (progressResult.warnings.length > 0 || progressResult.found < expectedEpisodeCount) {
+          console.log("[dev-engine-v2] rewrite-assemble progress", {
+            expectedEpisodeCount,
+            found: progressResult.found,
+            progress: `${Math.round(progressResult.progress * 100)}%`,
+            warnings: progressResult.warnings.map((f) => f.detail),
           });
         }
       }
