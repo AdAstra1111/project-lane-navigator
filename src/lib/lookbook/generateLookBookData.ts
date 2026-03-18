@@ -106,10 +106,11 @@ export async function generateLookBookData(
     .maybeSingle();
 
   if (projectErr) {
-    console.error('[generateLookBookData] project fetch error:', projectErr.message);
+    console.error('[LookBook] project fetch error:', projectErr.message);
     throw new Error('Could not load project data: ' + projectErr.message);
   }
   if (!project) throw new Error('Project not found — check access permissions');
+  console.log('[LookBook] ✓ project loaded:', (project as any).title);
 
   // Normalize: genres is string[], join for display
   const genre = Array.isArray((project as any).genres) ? (project as any).genres.join(', ') : '';
