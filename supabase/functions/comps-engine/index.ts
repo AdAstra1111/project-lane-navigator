@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseAiJson } from "../_shared/llm.ts";
+import { callLLM, MODELS, parseAiJson, resolveGateway } from "../_shared/llm.ts";
 import { extractCompsFromText, normalizeTitle } from "../_shared/compTitleExtractor.ts";
 
 const corsHeaders = {
