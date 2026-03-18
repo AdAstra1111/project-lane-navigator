@@ -7481,9 +7481,48 @@ MATERIAL TO REWRITE:\n${fullText}`;
         }
       }
 
-      const contextInjection = [chunkNarrativeBlock, chunkConstraintBlock].filter(Boolean).join("\n");
+      // ── Season Scope Injection: load upstream season docs for season_script chunked rewrite ──
+      const rawChunkDocType = plan?.doc_type;
+      const docType = (rawChunkDocType && rawChunkDocType !== "script")
+        ? rawChunkDocType
+        : resolveScriptTypeForFormat(plan?.format || null);
 
-      console.log(`[dev-engine-v2] rewrite-chunk: injected_context_pack resolver_hash=${plan?.narrative_resolver_hash || "none"} narrative_chars=${chunkNarrativeBlock.length} constraint_chars=${chunkConstraintBlock.length} has_nec=${chunkNarrativeBlock.includes("NEC_GUARDRAIL")} has_canon=${chunkNarrativeBlock.includes("CANON OS")} signals=${plan?.narrative_counts?.signals ?? "?"} decisions=${plan?.narrative_counts?.decisions ?? "?"} fallback_resolve=${fallbackResolve}`);
+      let seasonScopeBlock = "";
+      if (docType === "season_script") {
+        try {
+          const { data: planDoc } = await supabase.from("development_runs")
+            .select("project_id").eq("id", planRunId).single();
+          const scopeProjectId = planDoc?.project_id;
+          if (scopeProjectId) {
+            const coreDocs = await fetchCoreDocs(supabase, scopeProjectId);
+            const scopeParts: string[] = [];
+            if (coreDocs.seasonArc) {
+              scopeParts.push(`## SEASON ARC (CANONICAL — USE AS AUTHORITATIVE STRUCTURE)\n${coreDocs.seasonArc.slice(0, 4000)}`);
+            }
+            if (coreDocs.characterBible) {
+              scopeParts.push(`## CHARACTER BIBLE (CANONICAL — USE THESE CHARACTERS ONLY)\n${coreDocs.characterBible.slice(0, 4000)}`);
+            }
+            if (coreDocs.formatRules) {
+              scopeParts.push(`## FORMAT RULES (MANDATORY)\n${coreDocs.formatRules.slice(0, 2000)}`);
+            }
+            if (coreDocs.episodeGrid) {
+              scopeParts.push(`## EPISODE GRID (CANONICAL EPISODE STRUCTURE)\n${coreDocs.episodeGrid.slice(0, 3000)}`);
+            }
+            if (scopeParts.length > 0) {
+              seasonScopeBlock = `\n\n# SEASON SCOPE CONTEXT (BINDING)\n${scopeParts.join("\n\n")}`;
+              console.log(`[dev-engine-v2] rewrite-chunk: season_scope_injected { doc_type: "${docType}", season_arc: ${!!coreDocs.seasonArc}, char_bible: ${!!coreDocs.characterBible}, format_rules: ${!!coreDocs.formatRules}, episode_grid: ${!!coreDocs.episodeGrid}, total_chars: ${seasonScopeBlock.length} }`);
+            } else {
+              console.warn(`[dev-engine-v2][IEL] season_scope_empty { doc_type: "${docType}", project_id: "${scopeProjectId}" } — no season scope documents found`);
+            }
+          }
+        } catch (scopeErr: any) {
+          console.error(`[dev-engine-v2][IEL] season_scope_resolution_failed { doc_type: "${docType}", error: "${scopeErr?.message}" }`);
+        }
+      }
+
+      const contextInjection = [chunkNarrativeBlock, chunkConstraintBlock, seasonScopeBlock].filter(Boolean).join("\n");
+
+      console.log(`[dev-engine-v2] rewrite-chunk: injected_context_pack resolver_hash=${plan?.narrative_resolver_hash || "none"} narrative_chars=${chunkNarrativeBlock.length} constraint_chars=${chunkConstraintBlock.length} season_scope_chars=${seasonScopeBlock.length} has_nec=${chunkNarrativeBlock.includes("NEC_GUARDRAIL")} has_canon=${chunkNarrativeBlock.includes("CANON OS")} signals=${plan?.narrative_counts?.signals ?? "?"} decisions=${plan?.narrative_counts?.decisions ?? "?"} fallback_resolve=${fallbackResolve}`);
 
       const notesContext = `PROTECT (non-negotiable):\n${JSON.stringify(plan.protect_items || [])}\n\nAPPROVED NOTES:\n${JSON.stringify(plan.approved_notes || [])}`;
       const prevContext = previousChunkEnding
@@ -7491,11 +7530,6 @@ MATERIAL TO REWRITE:\n${fullText}`;
         : "";
 
       const strategy = plan?.strategy || "legacy_slugline";
-      // PATCH: never fall back to generic "script" — use plan doc_type or resolve from format
-      const rawChunkDocType = plan?.doc_type;
-      const docType = (rawChunkDocType && rawChunkDocType !== "script")
-        ? rawChunkDocType
-        : resolveScriptTypeForFormat(plan?.format || null);
       console.log(`[dev-engine-v2] rewrite-chunk: docType="${docType}" (plan.doc_type="${rawChunkDocType || "null"}", plan.format="${plan?.format || "null"}")`);
 
       // Build augmented system prompt with narrative context
