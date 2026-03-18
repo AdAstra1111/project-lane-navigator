@@ -8882,18 +8882,43 @@ Deno.serve(async (req) => {
           }
 
           // Stale bg_generating — clear and let auto-regen proceed
+          // SAFE MERGE: read existing meta_json, merge stale flags, write back.
+          // Never replace entire meta_json — preserves bg_started_at, episode_count, etc.
+          const existingMeta = (versionStatusRow?.meta_json as Record<string, unknown>) || {};
+          const mergedMeta = {
+            ...existingMeta,
+            bg_generating: false,
+            bg_stale: true,
+            bg_stale_cleared_at: new Date().toISOString(),
+            bg_stale_reason: "auto_run_timeout",
+          };
           console.warn(`[auto-run][IEL] bg_generating_stale_cleared`, JSON.stringify({
             job_id: jobId, doc_type: currentDoc, version_id: latestVersion.id,
             age_minutes: Math.round(ageMs / 60000), threshold_minutes: 15,
           }));
           await supabase.from("project_document_versions")
-            .update({ meta_json: { bg_generating: false, bg_stale: true, bg_stale_cleared_at: new Date().toISOString(), bg_stale_reason: "auto_run_timeout" } })
+            .update({ meta_json: mergedMeta })
             .eq("id", latestVersion.id);
-          // Also mark any stuck 'running' chunks as 'failed' so they can be retried
-          await supabase.from("project_document_chunks")
-            .update({ status: "failed", meta_json: { stale_reason: "bg_generating_timeout", cleared_at: new Date().toISOString() } } as any)
+
+          // Mark stuck 'running' chunks as 'failed' so they can be retried
+          // Read existing chunk meta_json for each to avoid replacement
+          const { data: stuckChunks } = await supabase.from("project_document_chunks")
+            .select("id, meta_json")
             .eq("version_id", latestVersion.id)
             .eq("status", "running");
+          const stuckIds = (stuckChunks || []).map((c: any) => c.id);
+          if (stuckIds.length > 0) {
+            console.warn(`[auto-run][IEL] stale_chunks_converted`, JSON.stringify({
+              job_id: jobId, version_id: latestVersion.id,
+              chunk_count: stuckIds.length, from_status: "running", to_status: "failed",
+            }));
+            for (const sc of (stuckChunks || [])) {
+              const chunkMeta = { ...((sc.meta_json as Record<string, unknown>) || {}), stale_reason: "bg_generating_timeout", cleared_at: new Date().toISOString() };
+              await supabase.from("project_document_chunks")
+                .update({ status: "failed", meta_json: chunkMeta } as any)
+                .eq("id", sc.id);
+            }
+          }
         }
       }
 
