@@ -339,7 +339,7 @@ export default function ProjectDetail() {
   const { mode: userMode, setMode } = useUIMode();
   const effectiveMode = getEffectiveMode(userMode, (project as any).ui_mode_override);
 
-  const { data: activePoster } = useActiveProjectPoster(projectId);
+  const { data: activePoster } = useActiveProjectPoster(id);
   const heroImageUrl = activePoster.url || (project as any).hero_image_url;
 
   return (
