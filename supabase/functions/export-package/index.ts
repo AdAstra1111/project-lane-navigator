@@ -566,66 +566,65 @@ async function buildPdf(
       try {
         switch (block.type) {
           case "h1": {
-            if (needsNewPage(36)) newPage();
-            y -= 14;
-            // Amber accent line
-            page.drawRectangle({ x: M, y: y + 4, width: 36, height: 1.5, color: COLORS.amber });
-            y -= 4;
-            const h1Lines = wrapText(block.content, timesBold, PROSE_H1_SIZE, CONTENT_W);
+            if (needsNewPage(40)) newPage();
+            y -= 18;
+            // Slim amber accent
+            page.drawRectangle({ x: M, y: y + 5, width: 28, height: 1.2, color: COLORS.amber });
+            y -= 2;
+            const h1Lines = wrapText(block.content, timesBold, PROSE_H1_SIZE, PROSE_MAX_W);
             for (const line of h1Lines) {
-              if (needsNewPage(24)) newPage();
+              if (needsNewPage(26)) newPage();
               page.drawText(line, { x: M, y, size: PROSE_H1_SIZE, font: timesBold, color: COLORS.heading });
-              y -= 24;
+              y -= 26;
             }
-            y -= 6;
+            y -= 10;
             break;
           }
           case "h2": {
-            if (needsNewPage(28)) newPage();
-            y -= 10;
-            const h2Lines = wrapText(block.content, timesBold, PROSE_H2_SIZE, CONTENT_W);
+            if (needsNewPage(30)) newPage();
+            y -= 14;
+            const h2Lines = wrapText(block.content, timesBold, PROSE_H2_SIZE, PROSE_MAX_W);
             for (const line of h2Lines) {
               if (needsNewPage(20)) newPage();
               page.drawText(line, { x: M, y, size: PROSE_H2_SIZE, font: timesBold, color: COLORS.heading });
               y -= 20;
             }
-            y -= 4;
+            y -= 6;
             break;
           }
           case "h3": {
-            if (needsNewPage(22)) newPage();
-            y -= 6;
-            const h3Lines = wrapText(block.content, timesBold, PROSE_H3_SIZE, CONTENT_W);
+            if (needsNewPage(24)) newPage();
+            y -= 8;
+            const h3Lines = wrapText(block.content, timesItalic, PROSE_H3_SIZE, PROSE_MAX_W);
             for (const line of h3Lines) {
               if (needsNewPage(18)) newPage();
-              page.drawText(line, { x: M, y, size: PROSE_H3_SIZE, font: timesBold, color: COLORS.heading });
+              page.drawText(line, { x: M, y, size: PROSE_H3_SIZE, font: timesItalic, color: COLORS.heading });
               y -= 18;
             }
-            y -= 3;
+            y -= 4;
             break;
           }
           case "hr": {
-            if (needsNewPage(14)) newPage();
-            y -= 6;
+            if (needsNewPage(16)) newPage();
+            y -= 8;
             page.drawLine({
               start: { x: M, y },
-              end: { x: M + 120, y },
-              thickness: 0.5,
+              end: { x: M + 80, y },
+              thickness: 0.4,
               color: COLORS.divider,
             });
-            y -= 8;
+            y -= 10;
             break;
           }
           case "text": {
             const paragraphs = block.content.split(/\n\n+/);
             for (const para of paragraphs) {
-              const segments = parseInlineBold(para.replace(/\n/g, " ").trim());
-              if (!segments.length) { y -= PROSE_PARA_GAP; continue; }
-              const plainText = segments.map(s => s.text).join("");
-              const wrapped = wrapText(plainText, timesRoman, PROSE_BODY_SIZE, CONTENT_W);
+              const cleanPara = para.replace(/\n/g, " ").trim();
+              if (!cleanPara) { y -= PROSE_PARA_GAP; continue; }
+              const wrapped = wrapText(cleanPara, timesRoman, PROSE_BODY_SIZE, PROSE_MAX_W);
               for (const line of wrapped) {
                 if (needsNewPage(PROSE_LINE_H)) newPage();
-                // Render with inline bold
+                // Render with inline bold support
                 const lineSegments = parseInlineBold(line);
                 let xPos = M;
                 for (const seg of lineSegments) {
