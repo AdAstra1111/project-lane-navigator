@@ -482,10 +482,22 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
       ? chunkContents[chunk.chunkIndex - 1].slice(-500)
       : undefined;
 
-    // Mark as running
+    // Mark as running with heartbeat timestamp
+    const chunkStartedAt = new Date().toISOString();
+    const existingMeta = chunkMap.get(chunk.chunkIndex)?.meta_json || {};
     await supabase
       .from("project_document_chunks")
-      .update({ status: "running", attempts: (chunkMap.get(chunk.chunkIndex)?.attempts || 0) + 1 })
+      .update({
+        status: "running",
+        attempts: (chunkMap.get(chunk.chunkIndex)?.attempts || 0) + 1,
+        meta_json: {
+          ...existingMeta,
+          heartbeat_at: chunkStartedAt,
+          generation_started_at: chunkStartedAt,
+          stale_reason: null,
+          cleared_at: null,
+        },
+      })
       .eq("document_id", documentId)
       .eq("version_id", versionId)
       .eq("chunk_index", chunk.chunkIndex);
