@@ -7829,6 +7829,15 @@ MATERIAL TO REWRITE:\n${fullText}`;
         newVersion.meta_json = mergedMeta;
       }
 
+      const isEpisodicRun = planOutput?.strategy === "episodic_indexed";
+      const runEpisodeCount = Number(planOutput?.episode_count) || 0;
+      const runAffectedCount = Number(planOutput?.total_chunks) || 0;
+      const changesSummaryText = isEpisodicRun
+        ? (runAffectedCount > 0 && runAffectedCount < runEpisodeCount
+          ? `Selective episode rewrite — ${runAffectedCount} of ${runEpisodeCount} episodes. Applied ${notesCount} notes.`
+          : `Episode-scoped rewrite across ${runEpisodeCount} episodes. Applied ${notesCount} notes.`)
+        : `Full chunked rewrite. Applied ${notesCount} notes.`;
+
       const { data: run } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
@@ -7836,16 +7845,17 @@ MATERIAL TO REWRITE:\n${fullText}`;
         user_id: user.id,
         run_type: "REWRITE",
         output_json: {
-          rewrite_mode_used: "chunk",
+          rewrite_mode_used: isEpisodicRun ? "episodic" : "chunk",
           rewrite_mode_selected: rewriteModeSelected || "auto",
-          rewrite_mode_effective: rewriteModeEffective || "chunk",
-          rewrite_mode_reason: rewriteModeReason || "auto_probe_chunk",
+          rewrite_mode_effective: rewriteModeEffective || (isEpisodicRun ? "episodic" : "chunk"),
+          rewrite_mode_reason: rewriteModeReason || (isEpisodicRun ? "episodic_indexed" : "auto_probe_chunk"),
           rewrite_mode_debug: rewriteModeDebug || null,
           rewrite_probe: rewriteProbe || null,
           rewritten_text: `[${assembledText.length} chars]`,
-          changes_summary: `Full chunked rewrite. Applied ${notesCount} notes.`,
+          changes_summary: changesSummaryText,
           source_version_id: versionId,
           source_doc_id: documentId,
+          ...(isEpisodicRun ? { episode_count: runEpisodeCount, affected_episodes: runAffectedCount } : {}),
         },
         schema_version: SCHEMA_VERSION,
       }).select().single();

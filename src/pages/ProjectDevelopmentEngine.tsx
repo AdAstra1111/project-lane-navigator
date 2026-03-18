@@ -1128,8 +1128,8 @@ export default function ProjectDevelopmentEngine() {
         onError: (err: any) => {
           // Auto-redirect to chunked pipeline if server says document is too long
           if (err?.needsPipeline && selectedDocId && selectedVersionId) {
-            console.log(`[ui] needsPipeline fallback: single-pass rejected (${err.charCount} chars), redirecting to chunked pipeline`);
-            toast.info('Document too large for single-pass — using chunked rewrite pipeline.');
+            console.log(`[ui] needsPipeline fallback: single-pass rejected (${err.charCount} chars), redirecting to episodic/chunked pipeline`);
+            toast.info('Document too large for single-pass — using episode-scoped rewrite pipeline.');
             rewritePipeline.startRewrite(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
             afterRewrite();
           } else {
