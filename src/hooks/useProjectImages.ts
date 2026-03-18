@@ -113,8 +113,6 @@ export function useDocumentImages(
   projectId: string | undefined,
   documentType: string,
 ) {
-  const { DOCUMENT_IMAGE_MAP } = require('@/lib/images/types');
   const roles = DOCUMENT_IMAGE_MAP[documentType] || [];
-
   return useProjectImages(projectId, { roles, activeOnly: true });
 }
