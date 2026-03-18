@@ -1381,10 +1381,8 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
         .eq("document_id", chunkDocRecord!.id)
         .neq("id", chunkVersion!.id);
 
-      // Update latest_version_id now so UI can find the slot
-      await supabase.from("project_documents")
-        .update({ latest_version_id: chunkVersion!.id, updated_at: new Date().toISOString() })
-        .eq("id", chunkDocRecord!.id);
+      // NOTE: Do NOT set latest_version_id here — version is empty placeholder (bg_generating).
+      // latest_version_id will be set on successful completion in the bg task below.
 
       const plan = chunkPlanFor(docType, {
         episodeCount: resolvedQuals?.season_episode_count,
