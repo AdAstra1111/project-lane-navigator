@@ -756,6 +756,31 @@ Return the same JSON schema as before with the structural elements strengthened.
     // Persist spine to projects table if project is linked
     const linkedProjectId: string | null = idea.project_id || null;
     if (linkedProjectId) {
+      // ── Persist blueprint lineage on project (write-once for blueprint fields) ──
+      if (canonicalBlueprint && sourceBlueprintId) {
+        const bpUpdate: Record<string, any> = {
+          source_blueprint_id: sourceBlueprintId,
+          source_blueprint_family_key: canonicalBlueprint.blueprint_family_key,
+        };
+        // Also ensure engine/dna are set if not already
+        if (engineKey || canonicalBlueprint.engine) {
+          bpUpdate.source_engine_key = engineKey || canonicalBlueprint.engine;
+        }
+        if (dnaProfileId || canonicalBlueprint.source_dna_profile_id) {
+          bpUpdate.source_dna_profile_id = dnaProfileId || canonicalBlueprint.source_dna_profile_id;
+        }
+        const { error: bpPersistErr } = await supabase
+          .from('projects')
+          .update(bpUpdate)
+          .eq('id', linkedProjectId)
+          .is('source_blueprint_id', null); // write-once guard
+        if (bpPersistErr) {
+          console.warn(`[promote-to-devseed] blueprint_lineage_persist_failed { project_id: "${linkedProjectId}", error: "${bpPersistErr.message}" }`);
+        } else {
+          console.log(`[promote-to-devseed] blueprint_lineage_persisted { project_id: "${linkedProjectId}", blueprint_id: "${sourceBlueprintId}", family_key: "${canonicalBlueprint.blueprint_family_key}" }`);
+        }
+      }
+
       const { error: spineErr } = await supabase
         .from('projects')
         .update({ narrative_spine_json: narrativeSpineJson })
