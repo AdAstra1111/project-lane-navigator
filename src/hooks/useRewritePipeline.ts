@@ -206,7 +206,7 @@ export function useRewritePipeline(projectId: string | undefined) {
         strategy: resolvedStrategy, chunkMeta: resolvedChunkMeta, episodeCount: resolvedEpisodeCount }));
 
       if (resolvedStrategy === 'episodic_indexed' && resolvedEpisodeCount) {
-        pushActivity('info', `Plan ready: ${totalChunks} episode batches (${resolvedEpisodeCount} episodes)`);
+        pushActivity('info', `Plan ready: ${totalChunks} affected episodes`);
       } else {
         pushActivity('info', `Plan ready: ${totalChunks} chunks`);
       }
