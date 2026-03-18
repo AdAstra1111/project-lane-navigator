@@ -10073,10 +10073,10 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
               // Generate two candidates in parallel
               const [conservativeResult, aggressiveResult] = await Promise.allSettled([
                 rewriteWithFallback(supabase, supabaseUrl, token,
-                  { ...rewriteBase, globalDirections: [...decisionDirections, ...forkDirs.conservative] },
+                  { ...rewriteBase, globalDirections: [...mergedDirections, ...forkDirs.conservative] },
                   jobId, newStep + 2, format, currentDoc),
                 rewriteWithFallback(supabase, supabaseUrl, token,
-                  { ...rewriteBase, globalDirections: [...decisionDirections, ...forkDirs.aggressive] },
+                  { ...rewriteBase, globalDirections: [...mergedDirections, ...forkDirs.aggressive] },
                   jobId, newStep + 3, format, currentDoc),
               ]);
 
