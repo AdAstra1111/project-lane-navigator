@@ -66,6 +66,8 @@ function getStatusLabel(status: string): string {
 export function SeasonScriptProgress({ versionId, episodeCount, projectId, documentId }: SeasonScriptProgressProps) {
   const qc = useQueryClient();
   const [resuming, setResuming] = useState(false);
+  const [resumeSuccess, setResumeSuccess] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
 
   const { data: chunks = [], isLoading } = useQuery<ChunkRow[]>({
     queryKey: ['season-script-chunks', versionId],
