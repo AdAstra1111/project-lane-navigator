@@ -541,15 +541,25 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
         }
         break;
       } catch (err: any) {
-        console.error(`[chunkRunner] Chunk ${chunk.chunkKey} error (attempt ${attempt}):`, err.message);
+        const isTimeout = err.message?.includes("timed out");
+        const failureReason = isTimeout ? "llm_call_timeout" : "generation_error";
+        console.error(`[chunkRunner][IEL] chunk_generation_failed: key=${chunk.chunkKey} attempt=${attempt} reason=${failureReason} error=${err.message}`);
         if (attempt >= maxChunkRepairs) {
           failedChunks++;
+          const failMeta = {
+            ...existingMeta,
+            heartbeat_at: new Date().toISOString(),
+            failure_reason: failureReason,
+            failed_at: new Date().toISOString(),
+            last_error: err.message?.slice(0, 300),
+          };
           await supabase
             .from("project_document_chunks")
             .update({
               status: "failed",
               error: err.message?.slice(0, 500),
               attempts: (chunkMap.get(chunk.chunkIndex)?.attempts || 0) + attempt + 1,
+              meta_json: failMeta,
             })
             .eq("document_id", documentId)
             .eq("version_id", versionId)
