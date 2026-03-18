@@ -7782,15 +7782,32 @@ MATERIAL TO REWRITE:\n${fullText}`;
           .limit(1)
           .single();
         const nextVersion = (maxRow?.version_number ?? 0) + 1;
+        const isEpisodicStrategy = planOutput?.strategy === "episodic_indexed";
+        const episodicCount = Number(planOutput?.episode_count) || 0;
+        const affectedCount = Number(planOutput?.total_chunks) || 0;
+        const changeSummaryText = isEpisodicStrategy
+          ? (affectedCount > 0 && affectedCount < episodicCount
+            ? `Selective episode rewrite — ${affectedCount} of ${episodicCount} episodes affected.`
+            : `Episode-scoped rewrite across ${episodicCount} episodes.`)
+          : `Chunked rewrite across ${nextVersion - 1} iterations.`;
+        const generatorId = isEpisodicStrategy
+          ? "dev-engine-v2-rewrite-episodic"
+          : "dev-engine-v2-rewrite-chunked";
         const { data: nv, error: vErr } = await writeVersionSafe(supabase, {
           documentId,
           versionNumber: nextVersion,
-          label: `Rewrite pass ${nextVersion}`,
+          label: isEpisodicStrategy ? `Episode rewrite pass ${nextVersion}` : `Rewrite pass ${nextVersion}`,
           plaintext: assembledText,
           createdBy: user.id,
           parentVersionId: versionId,
-          changeSummary: `Chunked rewrite across ${nextVersion - 1} iterations.`,
-          generatorId: "dev-engine-v2-rewrite-chunked",
+          changeSummary: changeSummaryText,
+          generatorId,
+          metaJson: chunkMetaJson,
+          deliverableType: effectiveDeliverable,
+          format: assembleProject?.format || undefined,
+          dependsOnResolverHash: chunkedResolverHash,
+          projectId,
+        });
           metaJson: chunkMetaJson,
           deliverableType: effectiveDeliverable,
           format: assembleProject?.format || undefined,
