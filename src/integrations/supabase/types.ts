@@ -13414,6 +13414,7 @@ export type Database = {
           prompt_inputs: Json | null
           prompt_text: string | null
           provider: string | null
+          render_status: string
           rendered_public_url: string | null
           rendered_storage_path: string | null
           source_type: string
@@ -13436,6 +13437,7 @@ export type Database = {
           prompt_inputs?: Json | null
           prompt_text?: string | null
           provider?: string | null
+          render_status?: string
           rendered_public_url?: string | null
           rendered_storage_path?: string | null
           source_type?: string
@@ -13458,6 +13460,7 @@ export type Database = {
           prompt_inputs?: Json | null
           prompt_text?: string | null
           provider?: string | null
+          render_status?: string
           rendered_public_url?: string | null
           rendered_storage_path?: string | null
           source_type?: string
