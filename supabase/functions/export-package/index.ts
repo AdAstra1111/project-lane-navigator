@@ -446,9 +446,8 @@ async function buildPdf(
     page.drawRectangle({ x: 0, y: PAGE_H - bandH - 2, width: PAGE_W, height: 2, color: COLORS.amber });
 
     if (isSectionStart && sectionLabel) {
-      // PH mark
-      page.drawRectangle({ x: M, y: PAGE_H - 30, width: 18, height: 18, color: COLORS.amber });
-      page.drawText("PH", { x: M + 3.5, y: PAGE_H - 25, size: 7, font: helveticaBold, color: COLORS.dark });
+      // Logo mark
+      drawLogoLeft(page, M, PAGE_H - 30, 18);
 
       // Section label
       page.drawText(normalizeText(sectionLabel), {
