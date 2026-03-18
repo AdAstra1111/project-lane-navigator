@@ -7097,6 +7097,8 @@ Deno.serve(async (req) => {
               persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: ciProgress.bestCi, finalCi: ciProgress.currentCi, targetCi, targetGp: extractTargetGP(job), haltReason: "NOTES_UNRESOLVABLE", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
               await releaseProcessingLock(supabase, jobId);
               return respondWithJob(supabase, jobId);
+                } // end else (cleanup not accepted)
+              } // end cleanup gate block
             }
           } else {
           // allow_defaults=false — original pause behavior
