@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseAiJson } from "../_shared/llm.ts";
+import { callLLM, MODELS, parseAiJson, resolveGateway } from "../_shared/llm.ts";
 import { extractCompsFromText, normalizeTitle } from "../_shared/compTitleExtractor.ts";
 
 const corsHeaders = {
@@ -18,8 +18,7 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const apiKey = Deno.env.get("OPENROUTER_API_KEY");
-    if (!apiKey) throw new Error("OPENROUTER_API_KEY not configured");
+    const { apiKey } = resolveGateway();
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const body = await req.json();
