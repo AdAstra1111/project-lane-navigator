@@ -242,9 +242,12 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
         throw new Error(err.error || `Resume failed (${resp.status})`);
       }
 
+      setResumeSuccess(true);
+      setResumeError(null);
       toast.success(`Generation resumed from Episode ${firstIncompleteEp ?? '?'}`);
       qc.invalidateQueries({ queryKey: ['season-script-chunks', versionId] });
     } catch (e: any) {
+      setResumeError(e.message || 'Resume failed');
       toast.error(e.message || 'Resume failed');
     } finally {
       setResuming(false);
