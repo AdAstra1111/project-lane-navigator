@@ -260,50 +260,62 @@ Deno.serve(async (req) => {
       }
 
       // ── CCE: Canon drift gate — block approval of drifted versions ──
-      try {
-        const { data: vPlain } = await db.from("project_document_versions")
-          .select("plaintext, meta_json").eq("id", documentVersionId).single();
-        const existingDrift = (vPlain?.meta_json as any)?.canon_drift;
-        // Use persisted drift result if available, otherwise compute on-demand
-        let driftPassed = true;
-        if (existingDrift && typeof existingDrift.passed === "boolean") {
-          driftPassed = existingDrift.passed;
-        } else if (vPlain?.plaintext && vPlain.plaintext.length > 100) {
-          const { data: canonRow } = await db.from("project_canon")
-            .select("canon_json").eq("project_id", projectId).maybeSingle();
-          const constraints = extractCanonConstraints(canonRow?.canon_json || {});
-          const driftResult = detectCanonDrift(vPlain.plaintext, constraints);
-          logDriftResult("project-folder-engine:approve", projectId, docType || "unknown", driftResult);
-          driftPassed = driftResult.passed;
-          // Persist for future use
-          if (driftResult.constraintsUsed) {
-            const driftMeta = {
-              canon_drift: {
-                passed: driftResult.passed,
-                violations: driftResult.findings.filter((f: any) => f.severity === "violation").length,
-                warnings: driftResult.findings.filter((f: any) => f.severity === "warning").length,
-                domains_checked: driftResult.domains_checked,
-                checked_at: driftResult.checkedAt,
-                findings: driftResult.findings.map((f: any) => ({ domain: f.domain, severity: f.severity, detail: f.detail })),
-              },
-            };
-            await db.from("project_document_versions").update({
-              meta_json: { ...(vPlain?.meta_json || {}), ...driftMeta },
-            }).eq("id", documentVersionId);
+      // Upstream/source doc types are exempt — they define canon, not consume it
+      const CANON_DRIFT_EXEMPT_DOC_TYPES = new Set([
+        "idea", "concept_brief", "canon", "nec", "format_rules",
+        "project_overview", "creative_brief", "market_positioning",
+        "vertical_market_sheet", "market_sheet", "character_bible",
+        "deck",
+      ]);
+      const shouldCheckDrift = !CANON_DRIFT_EXEMPT_DOC_TYPES.has(docType || "");
+      if (shouldCheckDrift) {
+        try {
+          const { data: vPlain } = await db.from("project_document_versions")
+            .select("plaintext, meta_json").eq("id", documentVersionId).single();
+          const existingDrift = (vPlain?.meta_json as any)?.canon_drift;
+          // Use persisted drift result if available, otherwise compute on-demand
+          let driftPassed = true;
+          if (existingDrift && typeof existingDrift.passed === "boolean") {
+            driftPassed = existingDrift.passed;
+          } else if (vPlain?.plaintext && vPlain.plaintext.length > 100) {
+            const { data: canonRow } = await db.from("project_canon")
+              .select("canon_json").eq("project_id", projectId).maybeSingle();
+            const constraints = extractCanonConstraints(canonRow?.canon_json || {});
+            const driftResult = detectCanonDrift(vPlain.plaintext, constraints);
+            logDriftResult("project-folder-engine:approve", projectId, docType || "unknown", driftResult);
+            driftPassed = driftResult.passed;
+            // Persist for future use
+            if (driftResult.constraintsUsed) {
+              const driftMeta = {
+                canon_drift: {
+                  passed: driftResult.passed,
+                  violations: driftResult.findings.filter((f: any) => f.severity === "violation").length,
+                  warnings: driftResult.findings.filter((f: any) => f.severity === "warning").length,
+                  domains_checked: driftResult.domains_checked,
+                  checked_at: driftResult.checkedAt,
+                  findings: driftResult.findings.map((f: any) => ({ domain: f.domain, severity: f.severity, detail: f.detail })),
+                },
+              };
+              await db.from("project_document_versions").update({
+                meta_json: { ...(vPlain?.meta_json || {}), ...driftMeta },
+              }).eq("id", documentVersionId);
+            }
           }
+          if (!driftPassed) {
+            console.error(`[project-folder-engine][CCE] CANON_DRIFT_APPROVAL_BLOCKED { version_id: "${documentVersionId}", project_id: "${projectId}", doc_type: "${docType}" }`);
+            return new Response(JSON.stringify({
+              error: "CANON_DRIFT_APPROVAL_BLOCKED",
+              message: "Cannot approve: this version has canon drift violations. Review the Canon Drift badge for details and regenerate or repair the version.",
+              version_id: documentVersionId,
+              doc_type: docType,
+            }), { status: 422, headers: JSON_HEADERS });
+          }
+        } catch (cceGateErr: any) {
+          // CCE gate failure is non-fatal for approval — log but allow
+          console.warn(`[project-folder-engine][CCE] approval gate check failed (non-fatal):`, cceGateErr?.message);
         }
-        if (!driftPassed) {
-          console.error(`[project-folder-engine][CCE] CANON_DRIFT_APPROVAL_BLOCKED { version_id: "${documentVersionId}", project_id: "${projectId}", doc_type: "${docType}" }`);
-          return new Response(JSON.stringify({
-            error: "CANON_DRIFT_APPROVAL_BLOCKED",
-            message: "Cannot approve: this version has canon drift violations. Review the Canon Drift badge for details and regenerate or repair the version.",
-            version_id: documentVersionId,
-            doc_type: docType,
-          }), { status: 422, headers: JSON_HEADERS });
-        }
-      } catch (cceGateErr: any) {
-        // CCE gate failure is non-fatal for approval — log but allow
-        console.warn(`[project-folder-engine][CCE] approval gate check failed (non-fatal):`, cceGateErr?.message);
+      } else {
+        console.log(`[project-folder-engine][CCE] canon_drift_gate_skipped: upstream_doc_type { version_id: "${documentVersionId}", doc_type: "${docType}" }`);
       }
 
       // Mark version as approved
