@@ -418,7 +418,7 @@ export function DocumentSidebar({
                       {isApprovedVersion && ' · Active Approved'}
                       {!isApprovedVersion && v.approval_status === 'approved' && ' · Previously Approved'}
                     </p>
-                    {v.change_summary && <p className="text-muted-foreground text-[10px] mt-0.5">{v.change_summary}</p>}
+                    {v.change_summary && <p className="text-muted-foreground text-[10px] mt-0.5">{sanitizeChangeSummary(v.change_summary)}</p>}
                   </TooltipContent>
                 </Tooltip>
               );
