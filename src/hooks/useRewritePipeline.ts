@@ -5,6 +5,15 @@ import { useQueryClient } from '@tanstack/react-query';
 import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 import type { ActivityItem } from '@/components/devengine/ActivityTimeline';
 
+interface ChunkMetaItem {
+  chunk_index: number;
+  chunk_key: string;
+  label: string;
+  episode_start?: number | null;
+  episode_end?: number | null;
+  section_id?: string | null;
+}
+
 interface RewritePipelineState {
   status: 'idle' | 'planning' | 'writing' | 'assembling' | 'complete' | 'error';
   totalChunks: number;
@@ -16,6 +25,12 @@ interface RewritePipelineState {
   avgUnitMs: number | null;
   smoothedPercent: number;
   lastProgressAt: number;
+  // Episode-aware metadata
+  strategy: string;
+  chunkMeta: ChunkMetaItem[];
+  episodeCount: number | null;
+  currentEpisodeStart: number | null;
+  currentEpisodeEnd: number | null;
 }
 
 async function callEngine(action: string, extra: Record<string, any> = {}, retries = 2) {
@@ -48,27 +63,66 @@ async function callEngine(action: string, extra: Record<string, any> = {}, retri
           try { result = JSON.parse(text.substring(0, lastBrace + 1)); } catch {
             throw new Error('Invalid response from engine');
           }
-        } else throw new Error('Invalid response from engine');
+        } else {
+          throw new Error('Invalid response from engine');
+        }
       }
-      if (resp.status === 402) throw new Error('AI credits exhausted. Please add funds to your workspace under Settings → Usage.');
-      if (resp.status === 429) throw new Error('Rate limit reached. Please try again in a moment.');
-      if (!resp.ok) throw new Error(result.error || 'Engine error');
+      if (!resp.ok) throw new Error(result.error || `Engine error (${resp.status})`);
       return result;
     } catch (err: any) {
       lastError = err;
-      const isRetryable = err.name === 'AbortError' || err.message === 'Failed to fetch' || err.message === 'Empty response from engine';
-      if (!isRetryable || attempt >= retries) throw err;
-      console.warn(`callEngine retry ${attempt + 1}/${retries} for "${action}":`, err.message);
-      await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+      if (err.name === 'AbortError') {
+        throw new Error('Engine request timed out (120s)');
+      }
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
     }
   }
-  throw lastError!;
+  throw lastError || new Error('Unknown engine error');
 }
 
-function rollingAvg(durations: number[], windowSize = 5): number {
-  if (durations.length === 0) return 0;
-  const window = durations.slice(-windowSize);
-  return window.reduce((a, b) => a + b, 0) / window.length;
+function rollingAvg(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  const recent = arr.slice(-5);
+  return recent.reduce((a, b) => a + b, 0) / recent.length;
+}
+
+/** Build a human-readable label for the current chunk based on strategy */
+function buildChunkLabel(
+  strategy: string,
+  chunkMeta: ChunkMetaItem[],
+  currentChunk: number,
+  totalChunks: number,
+  currentEpStart: number | null,
+  currentEpEnd: number | null,
+): string {
+  if (strategy === 'episodic_indexed' && currentEpStart != null && currentEpEnd != null) {
+    if (currentEpStart === currentEpEnd) {
+      return `Rewriting Episode ${currentEpStart} (${currentChunk}/${totalChunks})`;
+    }
+    return `Rewriting Episodes ${currentEpStart}–${currentEpEnd} (${currentChunk}/${totalChunks})`;
+  }
+  return `Chunk ${currentChunk}/${totalChunks}`;
+}
+
+/** Build a human-readable activity message for a completed chunk */
+function buildChunkDoneMessage(
+  strategy: string,
+  chunkIndex: number,
+  totalChunks: number,
+  episodeStart: number | null,
+  episodeEnd: number | null,
+  durationSec: string,
+): string {
+  if (strategy === 'episodic_indexed' && episodeStart != null && episodeEnd != null) {
+    if (episodeStart === episodeEnd) {
+      return `Episode ${episodeStart} done (${durationSec}s)`;
+    }
+    return `Episodes ${episodeStart}–${episodeEnd} done (${durationSec}s)`;
+  }
+  return `Chunk ${chunkIndex + 1}/${totalChunks} done (${durationSec}s)`;
 }
 
 export function useRewritePipeline(projectId: string | undefined) {
@@ -76,25 +130,28 @@ export function useRewritePipeline(projectId: string | undefined) {
   const [state, setState] = useState<RewritePipelineState>({
     status: 'idle', totalChunks: 0, currentChunk: 0, error: null, newVersionId: null,
     etaMs: null, avgUnitMs: null, smoothedPercent: 0, lastProgressAt: 0,
+    strategy: 'legacy_slugline', chunkMeta: [], episodeCount: null,
+    currentEpisodeStart: null, currentEpisodeEnd: null,
   });
   const runningRef = useRef(false);
   const startGuardRef = useRef(false);
   const durationsRef = useRef<number[]>([]);
-  const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const smoothingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const pushActivity = useCallback((level: ActivityItem['level'], message: string) => {
-    setActivityItems(prev => [{ ts: new Date().toISOString(), level, message }, ...prev].slice(0, 200));
+  const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
+  const pushActivity = useCallback((type: ActivityItem['type'], text: string) => {
+    setActivityItems(prev => [...prev, { type, text, timestamp: Date.now() }]);
   }, []);
-
   const clearActivity = useCallback(() => setActivityItems([]), []);
 
-  const invalidate = useCallback((docId?: string, versionId?: string) => {
-    invalidateDevEngine(qc, { projectId, docId, versionId, deep: true });
+  const invalidate = useCallback(() => {
+    if (!projectId) return;
+    invalidateDevEngine(qc, projectId);
+    qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey.some(k => k === 'dev-v2-versions') });
   }, [qc, projectId]);
 
   const startSmoothing = useCallback(() => {
-    if (smoothingTimerRef.current) return;
+    if (smoothingTimerRef.current) clearInterval(smoothingTimerRef.current);
     smoothingTimerRef.current = setInterval(() => {
       setState(s => {
         if (s.status !== 'writing') return s;
@@ -128,20 +185,31 @@ export function useRewritePipeline(projectId: string | undefined) {
     runningRef.current = true;
     durationsRef.current = [];
 
-    pushActivity('info', 'Chunk rewrite started');
+    pushActivity('info', 'Rewrite started');
 
     try {
       // Step 1: Plan
-      setState(s => ({ ...s, status: 'planning', error: null, newVersionId: null, smoothedPercent: 0, lastProgressAt: Date.now() }));
+      setState(s => ({ ...s, status: 'planning', error: null, newVersionId: null, smoothedPercent: 0, lastProgressAt: Date.now(),
+        strategy: 'legacy_slugline', chunkMeta: [], episodeCount: null, currentEpisodeStart: null, currentEpisodeEnd: null }));
       pushActivity('info', 'Planning rewrite…');
 
       const plan = await callEngine('rewrite-plan', {
         projectId, documentId, versionId, approvedNotes, protectItems,
       });
 
-      const { planRunId, totalChunks } = plan;
-      setState(s => ({ ...s, status: 'writing', totalChunks, currentChunk: 0 }));
-      pushActivity('info', `Plan ready: ${totalChunks} chunks`);
+      const { planRunId, totalChunks, strategy: planStrategy, chunkMeta: planChunkMeta, episodeCount: planEpisodeCount } = plan;
+      const resolvedStrategy = planStrategy || 'legacy_slugline';
+      const resolvedChunkMeta: ChunkMetaItem[] = planChunkMeta || [];
+      const resolvedEpisodeCount = planEpisodeCount || null;
+
+      setState(s => ({ ...s, status: 'writing', totalChunks, currentChunk: 0,
+        strategy: resolvedStrategy, chunkMeta: resolvedChunkMeta, episodeCount: resolvedEpisodeCount }));
+
+      if (resolvedStrategy === 'episodic_indexed' && resolvedEpisodeCount) {
+        pushActivity('info', `Plan ready: ${totalChunks} episode batches (${resolvedEpisodeCount} episodes)`);
+      } else {
+        pushActivity('info', `Plan ready: ${totalChunks} chunks`);
+      }
       startSmoothing();
 
       // Step 2: Write chunks
@@ -150,7 +218,11 @@ export function useRewritePipeline(projectId: string | undefined) {
 
       for (let i = 0; i < totalChunks; i++) {
         const chunkStart = Date.now();
-        setState(s => ({ ...s, currentChunk: i + 1 }));
+        const meta = resolvedChunkMeta[i] || null;
+        const epStart = meta?.episode_start ?? null;
+        const epEnd = meta?.episode_end ?? null;
+
+        setState(s => ({ ...s, currentChunk: i + 1, currentEpisodeStart: epStart, currentEpisodeEnd: epEnd }));
 
         const result = await callEngine('rewrite-chunk', {
           planRunId,
@@ -176,7 +248,13 @@ export function useRewritePipeline(projectId: string | undefined) {
           etaMs: avg > 0 && remaining > 0 ? avg * remaining : null,
         }));
 
-        pushActivity('success', `Chunk ${i + 1}/${totalChunks} done (${(chunkMs / 1000).toFixed(1)}s)`);
+        // Use episode-aware message
+        const resultEpStart = result.episodeStart ?? epStart;
+        const resultEpEnd = result.episodeEnd ?? epEnd;
+        pushActivity('success', buildChunkDoneMessage(
+          resolvedStrategy, i, totalChunks, resultEpStart, resultEpEnd,
+          (chunkMs / 1000).toFixed(1),
+        ));
       }
 
       stopSmoothing();
@@ -238,7 +316,12 @@ export function useRewritePipeline(projectId: string | undefined) {
   }, [projectId, invalidate, pushActivity, startSmoothing, stopSmoothing]);
 
   const reset = useCallback(() => {
-    setState({ status: 'idle', totalChunks: 0, currentChunk: 0, error: null, newVersionId: null, etaMs: null, avgUnitMs: null, smoothedPercent: 0, lastProgressAt: 0 });
+    setState({
+      status: 'idle', totalChunks: 0, currentChunk: 0, error: null, newVersionId: null,
+      etaMs: null, avgUnitMs: null, smoothedPercent: 0, lastProgressAt: 0,
+      strategy: 'legacy_slugline', chunkMeta: [], episodeCount: null,
+      currentEpisodeStart: null, currentEpisodeEnd: null,
+    });
     stopSmoothing();
     durationsRef.current = [];
   }, [stopSmoothing]);
@@ -259,7 +342,10 @@ export function useRewritePipeline(projectId: string | undefined) {
     queued: state.totalChunks - state.currentChunk,
     percent: actualPercent,
     label: state.status === 'planning' ? 'Planning rewrite…'
-      : state.status === 'writing' ? `Chunk ${state.currentChunk}/${state.totalChunks}`
+      : state.status === 'writing' ? buildChunkLabel(
+          state.strategy, state.chunkMeta, state.currentChunk, state.totalChunks,
+          state.currentEpisodeStart, state.currentEpisodeEnd,
+        )
       : state.status === 'assembling' ? 'Assembling…'
       : state.status === 'complete' ? 'Complete'
       : state.status === 'error' ? (state.error || 'Error')
