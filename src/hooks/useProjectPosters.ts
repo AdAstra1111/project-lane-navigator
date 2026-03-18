@@ -225,8 +225,19 @@ export function useUploadPosterKeyArt(projectId: string | undefined) {
       if (error) throw error;
       return data as ProjectPoster;
     },
-    onSuccess: () => {
+    onSuccess: async (poster) => {
+      // Register into canonical image system
+      if (projectId && poster?.id && poster?.key_art_storage_path) {
+        await registerPosterAsCanonicalImage({
+          projectId,
+          posterId: poster.id,
+          storagePath: poster.key_art_storage_path,
+          isPrimary: true,
+          role: 'poster_primary',
+        });
+      }
       qc.invalidateQueries({ queryKey: ["project-posters", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-images", projectId] });
       toast.success("Key art uploaded successfully");
     },
     onError: (err: Error) => {
