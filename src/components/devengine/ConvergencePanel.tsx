@@ -1,18 +1,18 @@
 /**
- * ConvergencePanel — Compact convergence scores, sparkline, and tiered note counts.
+ * ConvergencePanel — Convergence scores, sparkline, tiered notes, and
+ * unified manual-decision-state guidance.
  */
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { BarChart3, Check } from 'lucide-react';
+import { BarChart3, Check, AlertTriangle, Info, CircleCheck } from 'lucide-react';
+import { computeManualDecisionState, type ManualDecisionInput } from '@/lib/manualDecisionState';
 
 interface ConvergencePanelProps {
   latestAnalysis: any;
   convergenceHistory: any[];
   convergenceStatus: string;
   tieredNotes: { blockers: any[]; high: any[]; polish: any[] };
-  /** DB-persisted meta_json scores — primary source of truth */
   versionMetaJson?: { ci?: number; gp?: number; [key: string]: any } | null;
-  /** Version label — used to detect selective rewrites and annotate score scope */
   versionLabel?: string | null;
 }
 
@@ -40,8 +40,21 @@ function Sparkline({ history }: { history: any[] }) {
   );
 }
 
+const SEVERITY_STYLES = {
+  success: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  warning: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  destructive: 'bg-destructive/15 text-destructive border-destructive/30',
+  muted: 'bg-muted/20 text-muted-foreground border-border/30',
+} as const;
+
+const SEVERITY_ICONS = {
+  success: <CircleCheck className="h-3 w-3" />,
+  warning: <AlertTriangle className="h-3 w-3" />,
+  destructive: <AlertTriangle className="h-3 w-3" />,
+  muted: <Info className="h-3 w-3" />,
+};
+
 export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergenceStatus, tieredNotes, versionMetaJson, versionLabel }: ConvergencePanelProps) {
-  // DB meta_json is source of truth; analysis is fallback
   const metaCi = typeof versionMetaJson?.ci === 'number' ? versionMetaJson.ci : null;
   const metaGp = typeof versionMetaJson?.gp === 'number' ? versionMetaJson.gp : null;
   const analysisCi = latestAnalysis?.ci_score || latestAnalysis?.scores?.ci_score || 0;
@@ -49,11 +62,20 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
   const ci = metaCi ?? analysisCi;
   const gp = metaGp ?? analysisGp;
 
-  // Detect selective rewrite to annotate score scope
   const isSelectiveRewrite = !!(versionLabel && /selective scene rewrite/i.test(versionLabel));
   const gap = Math.abs(ci - gp);
-  const statusColor = convergenceStatus === 'Converged' ? 'text-emerald-400' :
-    convergenceStatus === 'In Progress' ? 'text-amber-400' : 'text-muted-foreground';
+
+  // Compute unified manual decision state
+  const decisionInput: ManualDecisionInput = {
+    ci, gp,
+    convergenceStatus,
+    blockerCount: tieredNotes.blockers.length,
+    majorNoteCount: tieredNotes.high.length,
+    minorNoteCount: tieredNotes.polish.length,
+  };
+  const decision = computeManualDecisionState(decisionInput);
+
+  const badgeStyle = SEVERITY_STYLES[decision.severity];
 
   return (
     <Card>
@@ -62,13 +84,9 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
           <CardTitle className="text-xs flex items-center gap-1.5">
             <BarChart3 className="h-3 w-3" /> Convergence
           </CardTitle>
-          <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${
-            convergenceStatus === 'Converged' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
-            convergenceStatus === 'In Progress' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
-            'bg-muted/20 text-muted-foreground'
-          }`}>
-            {convergenceStatus === 'Converged' && <Check className="h-2.5 w-2.5 mr-0.5" />}
-            {convergenceStatus}
+          <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${badgeStyle}`}>
+            {SEVERITY_ICONS[decision.severity]}
+            <span className="ml-0.5">{decision.label}</span>
           </Badge>
         </div>
       </CardHeader>
@@ -87,7 +105,10 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
               </div>
               <div>
                 <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Gap</p>
-                <p className={`text-lg font-display font-bold ${statusColor}`}>{gap}</p>
+                <p className={`text-lg font-display font-bold ${
+                  decision.severity === 'success' ? 'text-emerald-400' :
+                  decision.severity === 'warning' ? 'text-amber-400' : 'text-muted-foreground'
+                }`}>{gap}</p>
               </div>
             </div>
             {isSelectiveRewrite && (
@@ -100,6 +121,12 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
 
         {/* Sparkline */}
         <Sparkline history={convergenceHistory} />
+
+        {/* Operator recommendation banner */}
+        <div className={`p-2 rounded border text-center ${badgeStyle}`}>
+          <p className="text-[10px] font-semibold">{decision.explanation}</p>
+          <p className="text-[9px] mt-0.5 opacity-80">Recommended: {decision.ctaText}</p>
+        </div>
 
         {/* Note tier counts */}
         <div className="flex items-center gap-3">

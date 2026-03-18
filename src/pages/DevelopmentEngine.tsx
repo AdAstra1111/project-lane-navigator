@@ -323,11 +323,7 @@ export default function DevelopmentEngine() {
                         )}
                       </p>
                     </div>
-                    {isConverged && (
-                      <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
-                        <Check className="h-3 w-3 mr-1" /> Converged
-                      </Badge>
-                    )}
+                    {/* Score-only convergence — no longer implies "fully done" */}
                   </div>
 
                   {/* Scores */}
@@ -517,8 +513,8 @@ export default function DevelopmentEngine() {
 
                       {isConverged && (
                         <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-center">
-                          <p className="text-sm font-medium text-emerald-400">✓ Convergence Achieved</p>
-                          <p className="text-xs text-muted-foreground mt-1">Both Creative Integrity and Greenlight Probability above 75. Loop can stop.</p>
+                          <p className="text-sm font-medium text-emerald-400">✓ Scores Converged</p>
+                          <p className="text-xs text-muted-foreground mt-1">Both CI and GP above threshold. Check the Convergence tab for remaining notes/blockers before approving.</p>
                         </div>
                       )}
                     </CardContent>
