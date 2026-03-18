@@ -326,6 +326,53 @@ async function buildPdf(
   const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   const allPages: any[] = [];
 
+  // ── Embed logo image if provided ──
+  let logoImage: any = null;
+  let logoDims = { width: 36, height: 36 };
+  if (logoImageBytes && logoImageBytes.length > 0) {
+    try {
+      if (logoMimeType?.includes("png")) {
+        logoImage = await doc.embedPng(logoImageBytes);
+      } else {
+        logoImage = await doc.embedJpg(logoImageBytes);
+      }
+      const scale = logoImage.scale(1);
+      logoDims = { width: scale.width, height: scale.height };
+    } catch (e) {
+      console.warn("Failed to embed logo image, using fallback:", e);
+      logoImage = null;
+    }
+  }
+
+  // Helper: draw logo at given position and max height, preserving aspect ratio
+  function drawLogo(page: any, cx: number, cy: number, maxH: number) {
+    if (logoImage) {
+      const aspect = logoDims.width / logoDims.height;
+      const h = Math.min(maxH, logoDims.height);
+      const w = h * aspect;
+      page.drawImage(logoImage, { x: cx - w / 2, y: cy, width: w, height: h });
+    } else {
+      // Fallback: amber square with "PH"
+      const s = Math.min(maxH, 36);
+      page.drawRectangle({ x: cx - s / 2, y: cy, width: s, height: s, color: COLORS.amber });
+      page.drawText("PH", { x: cx - s / 2 + 7, y: cy + s / 2 - 5, size: Math.max(7, s * 0.38), font: helveticaBold, color: COLORS.dark });
+    }
+  }
+
+  // Helper: draw small logo aligned left (for headers)
+  function drawLogoLeft(page: any, x: number, cy: number, maxH: number) {
+    if (logoImage) {
+      const aspect = logoDims.width / logoDims.height;
+      const h = Math.min(maxH, logoDims.height);
+      const w = h * aspect;
+      page.drawImage(logoImage, { x, y: cy, width: w, height: h });
+    } else {
+      const s = Math.min(maxH, 18);
+      page.drawRectangle({ x, y: cy, width: s, height: s, color: COLORS.amber });
+      page.drawText("PH", { x: x + 3.5, y: cy + s / 2 - 3, size: Math.max(5, s * 0.38), font: helveticaBold, color: COLORS.dark });
+    }
+  }
+
   // ── COVER PAGE ──
   const coverPage = doc.addPage([PAGE_W, PAGE_H]);
   allPages.push(coverPage);
@@ -336,14 +383,8 @@ async function buildPdf(
   // Amber accent line at top
   coverPage.drawRectangle({ x: 0, y: PAGE_H - 3, width: PAGE_W, height: 3, color: COLORS.amber });
 
-  // Paradox House mark - elegant amber square with "PH"
-  const logoSize = 36;
-  const logoX = (PAGE_W - logoSize) / 2;
-  const logoY = PAGE_H - 160;
-  coverPage.drawRectangle({ x: logoX, y: logoY, width: logoSize, height: logoSize, color: COLORS.amber });
-  coverPage.drawText("PH", {
-    x: logoX + 7, y: logoY + 12, size: 14, font: helveticaBold, color: COLORS.dark,
-  });
+  // Logo — centered, real or fallback
+  drawLogo(coverPage, PAGE_W / 2, PAGE_H - 170, 48);
 
   // Project title - large, centered
   const titleFontSize = 28;
