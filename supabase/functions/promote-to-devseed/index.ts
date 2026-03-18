@@ -362,7 +362,7 @@ SECTIONS TO GENERATE:
    - Buyer Positioning: which buyers/platforms, pitch angle for each
    - Timing: market window, trend alignment
    - Risk Summary: top 3 risks with mitigations
-${convergenceGuidanceBlock}${dnaConstraintBlock}
+${convergenceGuidanceBlock}${dnaConstraintBlock}${blueprintExecutionBlock}
 4. NARRATIVE SPINE — Structural lock object (output as "narrative_spine" key):
    - story_engine: the StoryEngine that best matches this story (pressure_cooker / two_hander / slow_burn_investigation / social_realism / moral_trap / character_spiral / rashomon / anti_plot)
    - pressure_system: the CausalGrammar (accumulation / erosion / exchange / mirror / constraint / misalignment / contagion / revelation_without_facts)

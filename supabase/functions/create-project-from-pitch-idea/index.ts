@@ -98,12 +98,24 @@ Deno.serve(async (req) => {
           document_urls: [],
         };
 
-      // ── Carry DNA / Engine provenance from pitch idea ──
+      // ── Carry DNA / Engine / Blueprint provenance from pitch idea ──
       if (idea.source_dna_profile_id) {
         insertPayload.source_dna_profile_id = idea.source_dna_profile_id;
       }
       if (idea.source_engine_key) {
         insertPayload.source_engine_key = idea.source_engine_key;
+      }
+      if (idea.source_blueprint_id) {
+        insertPayload.source_blueprint_id = idea.source_blueprint_id;
+        // Fetch blueprint_family_key from canonical blueprint record
+        const { data: bpRow } = await supabase
+          .from("idea_blueprints")
+          .select("blueprint_family_key")
+          .eq("id", idea.source_blueprint_id)
+          .maybeSingle();
+        if (bpRow?.blueprint_family_key) {
+          insertPayload.source_blueprint_family_key = bpRow.blueprint_family_key;
+        }
       }
 
       const { data: newProj, error: createErr } = await supabase
