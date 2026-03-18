@@ -1635,27 +1635,64 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
     }
 
     // 6b) Post-generation validation (FAIL CLOSED for episode count)
-    if (resolvedQuals.is_series && resolvedQuals.season_episode_count) {
-      const expectedCount = resolvedQuals.season_episode_count;
-      // Check for wrong episode counts in the output
-      const wrongCountPattern = new RegExp(`\\b(\\d+)\\s+episode`, "gi");
-      const matches = [...content.matchAll(wrongCountPattern)];
-      const wrongCounts = matches.filter(m => parseInt(m[1]) !== expectedCount && parseInt(m[1]) > 1);
+    // Only validate doc types that structurally declare total episode counts.
+    // Doc types like topline_narrative, idea, concept_brief naturally reference
+    // sub-groupings ("5-episode arc") that are NOT total-count conflicts.
+    const EPISODE_COUNT_STRICT_DOC_TYPES = [
+      "episode_grid", "season_arc", "series_overview", "vertical_episode_beats",
+      "season_scripts_bundle", "pitch_document",
+    ];
+    const shouldValidateEpCount = resolvedQuals.is_series
+      && resolvedQuals.season_episode_count
+      && EPISODE_COUNT_STRICT_DOC_TYPES.includes(docType);
 
-      if (wrongCounts.length > 0) {
+    if (shouldValidateEpCount) {
+      const expectedCount = resolvedQuals.season_episode_count!;
+      // Only match definitive total-count declarations, not passing references
+      // e.g. "60-episode series", "Season 1 (60 episodes)", "comprises 60 episodes"
+      const totalCountPatterns = [
+        new RegExp(`\\b(\\d+)[- ]episode\\s+(series|season|show|run)`, "gi"),
+        new RegExp(`(?:comprises|contains|consists of|totaling|total of|has|with)\\s+(\\d+)\\s+episodes`, "gi"),
+        new RegExp(`Season\\s+\\d+\\s*[:(]\\s*(\\d+)\\s+episodes`, "gi"),
+      ];
+
+      const foundCounts = new Set<number>();
+      for (const pat of totalCountPatterns) {
+        for (const m of content.matchAll(pat)) {
+          // The capture group with the number might be group 1 or 2 depending on pattern
+          const numStr = m[1] || m[2];
+          const num = parseInt(numStr);
+          if (!isNaN(num) && num > 1 && num !== expectedCount) {
+            foundCounts.add(num);
+          }
+        }
+      }
+
+      if (foundCounts.size > 0) {
         // Regenerate with stronger instruction
-        const strongerSystem = system + `\n\nCRITICAL: The output MUST reference exactly ${expectedCount} episodes. Do NOT use any other episode count.`;
+        const strongerSystem = system + `\n\nCRITICAL: This is a ${expectedCount}-episode season. The output MUST reference exactly ${expectedCount} episodes as the total count. Do NOT declare any other total episode count.`;
         content = await callLLM(apiKey, strongerSystem, userPrompt);
 
         // Check again
-        const matches2 = [...content.matchAll(wrongCountPattern)];
-        const stillWrong = matches2.filter(m => parseInt(m[1]) !== expectedCount && parseInt(m[1]) > 1);
-        if (stillWrong.length > 0) {
+        const stillWrong = new Set<number>();
+        for (const pat of totalCountPatterns) {
+          pat.lastIndex = 0;
+          for (const m of content.matchAll(pat)) {
+            const numStr = m[1] || m[2];
+            const num = parseInt(numStr);
+            if (!isNaN(num) && num > 1 && num !== expectedCount) {
+              stillWrong.add(num);
+            }
+          }
+        }
+
+        if (stillWrong.size > 0) {
+          console.error(`[generate-document] episode_count_conflict: expected=${expectedCount} found=${[...stillWrong]} docType=${docType}`);
           return new Response(JSON.stringify({
             error: "episode_count_conflict",
-            message: `Generated content references ${stillWrong[0][1]} episodes instead of canonical ${expectedCount}. Generation blocked.`,
+            message: `Generated content declares ${[...stillWrong][0]} episodes as total count instead of canonical ${expectedCount}. Generation blocked.`,
             expected: expectedCount,
-            found: stillWrong.map(m => parseInt(m[1])),
+            found: [...stillWrong],
           }), {
             status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
