@@ -96,6 +96,7 @@ const IntelAlignment = lazy(() => import("./pages/IntelAlignment"));
 const ExemplarBrowser = lazy(() => import("./pages/ExemplarBrowser"));
 const CIBlueprintEngine = lazy(() => import("./pages/CIBlueprintEngine"));
 const PosterEngine = lazy(() => import("./components/poster/PosterEnginePanel"));
+const LookBookPage = lazy(() => import("./pages/LookBookPage"));
 
 
 // ProjectShell — new unified workspace frame (Week 1 refactor)
