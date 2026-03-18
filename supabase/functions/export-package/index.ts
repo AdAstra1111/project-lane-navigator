@@ -822,7 +822,7 @@ Deno.serve(async (req) => {
         const statusSuffix = approved ? "APPROVED" : "DRAFT";
         const fileName = `${orderPrefix}_${docType}_${statusSuffix}.md`;
 
-        sections.push({ label: `${label} (${statusSuffix})`, text: plaintext });
+        sections.push({ label, text: plaintext, docType });
         metaDocs.push({
           order_index: globalOrder,
           doc_type: docType,
