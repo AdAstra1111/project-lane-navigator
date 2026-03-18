@@ -107,7 +107,7 @@ function BgGenBannerInner({ versionId, episodeCount, docType, projectId, documen
 
   // Episodic doc types (season_script etc.) → episode progress
   if (!isSectioned) {
-    return <SeasonScriptProgress versionId={versionId} episodeCount={episodeCount} />;
+    return <SeasonScriptProgress versionId={versionId} episodeCount={episodeCount} projectId={projectId} documentId={documentId} />;
   }
 
   // While strategy is unknown (no chunks yet), show neutral loading state
