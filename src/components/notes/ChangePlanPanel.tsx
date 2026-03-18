@@ -270,6 +270,32 @@ export function ChangePlanPanel({
             </>
           )}
 
+          {/* Episode scope summary */}
+          {(() => {
+            const allEpNums = editedPlan.changes
+              .filter(c => c.enabled !== false)
+              .flatMap(c => c.target?.episode_numbers || []);
+            const uniqueEps = [...new Set(allEpNums)].sort((a, b) => a - b);
+            if (uniqueEps.length === 0) return null;
+            return (
+              <>
+                <Separator />
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] font-medium text-primary">
+                    <Target className="h-3 w-3" />
+                    Episode-Scoped Rewrite
+                  </div>
+                  <p className="text-[9px] text-muted-foreground mt-1">
+                    {uniqueEps.length} episode{uniqueEps.length !== 1 ? 's' : ''} will be rewritten: {uniqueEps.map(n => `Ep ${n}`).join(', ')}
+                  </p>
+                  <p className="text-[8px] text-muted-foreground/70 mt-0.5">
+                    All other episodes will be preserved unchanged.
+                  </p>
+                </div>
+              </>
+            );
+          })()}
+
           {/* Verification checklist */}
           {editedPlan.verification?.length > 0 && (
             <>
