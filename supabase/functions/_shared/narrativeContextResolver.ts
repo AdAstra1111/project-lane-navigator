@@ -52,12 +52,15 @@ export interface NarrativeContext {
   voice: { voiceId: string | null; blockText: string };
   effectiveProfile: { blockText: string };
   worldPopulation: { density: string; blockText: string };
+  structuralLineage: StructuralLineage;
   metadata: {
     provenance: Record<string, string>;
     counts: Record<string, number>;
     resolverHash: string;
   };
 }
+
+export type { StructuralLineage } from "./structuralLineageResolver.ts";
 
 export interface ResolveOpts {
   includeSignals?: boolean;
