@@ -28,7 +28,7 @@ import {
 } from "../_shared/styleDeviation.ts";
 import { buildEffectiveProfileContextBlock } from "../_shared/effective-profile-context.ts";
 import { computeDefaultResolverHash, createVersion } from "../_shared/doc-os.ts";
-import { surgicalEpisodeRewrite, SURGICAL_EPISODE_DOC_TYPES } from "../_shared/surgicalEpisodeRewrite.ts";
+import { surgicalEpisodeRewrite, SURGICAL_EPISODE_DOC_TYPES, parseEpisodeBlocks } from "../_shared/surgicalEpisodeRewrite.ts";
 import { syncAllEntities, syncSceneEntityLinksForProject, syncDialogueCharactersForProject } from "../_shared/narrativeEntityEngine.ts";
 import {
   computePropagatedRisk,
