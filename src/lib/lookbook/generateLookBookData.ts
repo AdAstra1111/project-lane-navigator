@@ -101,15 +101,18 @@ export async function generateLookBookData(
   // 1. Load project metadata
   const { data: project, error: projectErr } = await supabase
     .from('projects')
-    .select('title, genre, format, logline, themes, tone, assigned_lane')
+    .select('title, genres, format, tone, assigned_lane, comparable_titles, target_audience')
     .eq('id', projectId)
     .maybeSingle();
 
   if (projectErr) {
     console.error('[generateLookBookData] project fetch error:', projectErr.message);
-    throw new Error('Could not load project data');
+    throw new Error('Could not load project data: ' + projectErr.message);
   }
   if (!project) throw new Error('Project not found — check access permissions');
+
+  // Normalize: genres is string[], join for display
+  const genre = Array.isArray((project as any).genres) ? (project as any).genres.join(', ') : '';
 
   // 2. Load canonical state (authoritative source of truth)
   const canonicalState = await getCanonicalProjectState(projectId);
