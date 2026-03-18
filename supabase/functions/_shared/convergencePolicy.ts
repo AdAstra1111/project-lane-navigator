@@ -43,7 +43,7 @@ export function selectNotesForStrategy(
 
   switch (strategy) {
     case "TARGETED_BLOCKERS":
-      return { approvedNotes: blockers, globalDirections: [] };
+      return { approvedNotes: [...blockers, ...highImpact], globalDirections: [] };
 
     case "HIGH_IMPACT_ONLY":
       return { approvedNotes: [...blockers, ...highImpact], globalDirections: [] };

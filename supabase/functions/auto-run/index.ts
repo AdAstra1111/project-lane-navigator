@@ -2729,7 +2729,14 @@ async function buildNoteDirectionsForRewrite(
     if (!notes || notes.length === 0) return [];
     return notes
       .filter((n: any) => !noteRequiresHuman(n))
-      .map((n: any) => `AUTO-RESOLVE NOTE (${n.id}): ${n.summary || n.title || "untitled"}. Address this fully in the rewrite.`);
+      .map((n: any) => {
+        const fixes = Array.isArray(n.suggested_fixes) ? n.suggested_fixes : [];
+        const recommended = fixes.find((f: any) => f.recommended) || fixes[0];
+        const resolution = recommended
+          ? ` Resolution: "${recommended.title || recommended.description}".${recommended.what_changes ? ` Changes: ${Array.isArray(recommended.what_changes) ? recommended.what_changes.join("; ") : recommended.what_changes}` : ""}`
+          : "";
+        return `AUTO-RESOLVE NOTE (${n.id}): ${n.summary || n.title || "untitled"}.${resolution} Address this fully in the rewrite.`;
+      });
   } catch {
     return [];
   }
@@ -9145,14 +9152,23 @@ Deno.serve(async (req) => {
               .in("status", ["open", "in_progress", "reopened"])
               .limit(30);
             if (pnotes && pnotes.length > 0) {
-              injectedProjectNotes = pnotes.map((n: any) => ({
-                id: n.id,
-                note: n.summary || n.title,
-                severity: n.severity === "blocker" ? "blocker" : n.severity === "high" ? "high" : "med",
-                category: n.category || "general",
-                why_it_matters: n.detail || n.summary,
-                suggested_fix: n.suggested_fixes ? (Array.isArray(n.suggested_fixes) ? n.suggested_fixes[0]?.description : n.suggested_fixes) : undefined,
-              }));
+              injectedProjectNotes = pnotes.map((n: any) => {
+                const fixes = Array.isArray(n.suggested_fixes) ? n.suggested_fixes : [];
+                const recommended = fixes.find((f: any) => f.recommended) || fixes[0];
+                const resolutionDirective = recommended
+                  ? `Apply: "${recommended.title || recommended.description}".${recommended.what_changes ? ` Changes: ${Array.isArray(recommended.what_changes) ? recommended.what_changes.join("; ") : recommended.what_changes}` : ""}`
+                  : undefined;
+                return {
+                  id: n.id,
+                  note: n.summary || n.title,
+                  severity: n.severity === "blocker" ? "blocker" : n.severity === "high" ? "high" : "med",
+                  category: n.category || "general",
+                  why_it_matters: n.detail || n.summary,
+                  suggested_fixes: fixes,
+                  suggested_fix: recommended?.description || (fixes[0]?.description) || undefined,
+                  resolution_directive: resolutionDirective,
+                };
+              });
               console.log(`[auto-run][IEL] project_notes_injected_into_rewrite { doc_type: "${currentDoc}", count: ${injectedProjectNotes.length}, severities: ${JSON.stringify(pnotes.map((n: any) => n.severity))} }`);
             }
           } catch (e: any) {
@@ -9184,11 +9200,33 @@ Deno.serve(async (req) => {
             return respondWithJob(supabase, jobId);
           }
 
-          const { approvedNotes: strategyNotes, globalDirections: strategyDirections } = selectNotesForStrategy(strategy, allNotesForStrategy);
+          const { approvedNotes: strategyNotesRaw, globalDirections: strategyDirections } = selectNotesForStrategy(strategy, allNotesForStrategy);
+
+          // ── GAP FIX 1: Enrich strategy notes with resolution_directive from suggested_fixes ──
+          const strategyNotes = strategyNotesRaw.map((n: any) => {
+            if (n.resolution_directive) return n; // already enriched (from project_notes injection)
+            const fixes = Array.isArray(n.suggested_fixes) ? n.suggested_fixes : [];
+            const recommended = fixes.find((f: any) => f.recommended) || fixes[0];
+            if (!recommended) return n;
+            const directive = `Apply: "${recommended.title || recommended.description}".${recommended.what_changes ? ` Changes: ${Array.isArray(recommended.what_changes) ? recommended.what_changes.join("; ") : recommended.what_changes}` : ""}`;
+            return { ...n, resolution_directive: directive };
+          });
+
+          // ── GAP FIX 2: Inject reviewer's global_directions from NOTES run output ──
+          const reviewerGlobalDirections: string[] = [];
+          try {
+            const rawGD = notes?.global_directions || analyzeResult?.global_directions;
+            if (Array.isArray(rawGD) && rawGD.length > 0) {
+              reviewerGlobalDirections.push(...rawGD.map((d: any) => typeof d === "string" ? d : d?.text || d?.direction || JSON.stringify(d)));
+              console.log(`[auto-run][IEL] reviewer_global_directions_injected { job_id: "${jobId}", doc_type: "${currentDoc}", count: ${reviewerGlobalDirections.length} }`);
+            }
+          } catch (gdErr: any) {
+            console.warn(`[auto-run][IEL] reviewer_global_directions_failed: ${gdErr?.message}`);
+          }
 
           await logStep(supabase, jobId, null, currentDoc, "convergence_strategy_selected",
-            `Attempt ${attemptNumber}: strategy=${strategy}, notes=${strategyNotes.length}, directions=${strategyDirections.length}`,
-            { ci, gp, gap }, undefined, { attemptNumber, strategy, noteCount: strategyNotes.length });
+            `Attempt ${attemptNumber}: strategy=${strategy}, notes=${strategyNotes.length}, directions=${strategyDirections.length}, enriched=${strategyNotes.filter((n: any) => n.resolution_directive).length}, reviewerGD=${reviewerGlobalDirections.length}`,
+            { ci, gp, gap }, undefined, { attemptNumber, strategy, noteCount: strategyNotes.length, enrichedCount: strategyNotes.filter((n: any) => n.resolution_directive).length, reviewerGDCount: reviewerGlobalDirections.length });
 
           // ── 1) BASELINE PINNING: ensure current accepted baseline exists (auto-repair/seed once) ──
           let currentAccepted = await getCurrentVersionForDoc(supabase, doc.id);
@@ -9770,8 +9808,8 @@ Deno.serve(async (req) => {
               }
             );
           }
-          // Merge decision directions with strategy directions
-          const mergedDirections = [...decisionDirections, ...strategyDirections];
+          // Merge decision directions with strategy directions + reviewer global directions
+          const mergedDirections = [...decisionDirections, ...strategyDirections, ...reviewerGlobalDirections];
 
           // ── AUTO-RESOLVE NOTES: inject non-human note summaries so rewrite addresses them ──
           try {
@@ -10042,10 +10080,10 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
               // Generate two candidates in parallel
               const [conservativeResult, aggressiveResult] = await Promise.allSettled([
                 rewriteWithFallback(supabase, supabaseUrl, token,
-                  { ...rewriteBase, globalDirections: [...decisionDirections, ...forkDirs.conservative] },
+                  { ...rewriteBase, globalDirections: [...mergedDirections, ...forkDirs.conservative] },
                   jobId, newStep + 2, format, currentDoc),
                 rewriteWithFallback(supabase, supabaseUrl, token,
-                  { ...rewriteBase, globalDirections: [...decisionDirections, ...forkDirs.aggressive] },
+                  { ...rewriteBase, globalDirections: [...mergedDirections, ...forkDirs.aggressive] },
                   jobId, newStep + 3, format, currentDoc),
               ]);
 
