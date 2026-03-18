@@ -55,7 +55,7 @@ class BgGenBannerErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex items-center justify-center h-[300px] gap-2 text-muted-foreground text-sm">
+        <div className="flex items-center justify-center min-h-[200px] gap-2 text-muted-foreground text-sm">
           <Loader2 className="h-4 w-4 animate-spin" />
           Generating in background — refresh when complete.
         </div>
