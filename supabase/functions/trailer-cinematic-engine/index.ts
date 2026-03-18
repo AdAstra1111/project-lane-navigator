@@ -1294,7 +1294,8 @@ SILENCE CONSTRAINT RULES:
 
 // ─── ACTION 3: Create Shot Design v2 ───
 
-const VALID_CAMERA_MOVES = new Set(["push_in","pull_out","track","arc","handheld","whip_pan","crane","tilt","dolly_zoom","static"]);
+const VALID_CAMERA_MOVES = new Set(["push_in","pull_out","track","arc","handheld","whip_pan","crane","tilt","dolly_zoom","static","kinetic","drift","orbit","float","rise","descend","lateral","boom"]);
+const CAMERA_MOVE_REMAP: Record<string, string> = { kinetic: "handheld", drift: "track", orbit: "arc", float: "crane", rise: "crane", descend: "crane", lateral: "track", boom: "crane" };
 const VALID_SHOT_TYPES = new Set(["wide","medium","close","insert","montage","aerial","macro"]);
 const VALID_TRANSITIONS = new Set(["hard_cut","match_cut","whip_pan","smash_cut","l_cut","j_cut","dissolve","dip_to_black","strobe_cut"]);
 const VALID_DEPTH = new Set(["shallow","deep","mixed"]);
