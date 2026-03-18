@@ -475,15 +475,16 @@ async function buildPdf(
             break;
           }
           case "scene_heading": {
-            if (needsNewPage(SP.LINE_H * 4)) newPage();
-            y -= SP.LINE_H;
+            // Never orphan a scene heading — require heading + at least 2 lines below
+            if (needsNewPage(SP.LINE_H * 5)) newPage();
+            y -= SP.LINE_H * 1.5; // double-space before scene heading
             const headLines = wrapText(el.text, courierBold, SP.FONT_SIZE, SP.ACTION_W);
             for (const line of headLines) {
               if (needsNewPage(SP.LINE_H)) newPage();
               page.drawText(line, { x: SP.LEFT_M, y, size: SP.FONT_SIZE, font: courierBold, color: COLORS.body });
               y -= SP.LINE_H;
             }
-            y -= SP.LINE_H * 0.5;
+            y -= SP.LINE_H * 0.25;
             break;
           }
           case "character": {
