@@ -64,8 +64,21 @@ const EPISODIC_BLOCK_REGISTRY: Record<string, EpisodicBlockConfig> = {
     episode_block_repair_supported: true,
     min_episodes_required: 3,
   },
-  // episode_grid: AGGREGATE doc — no LLM rewrites, excluded
-  // episode_script: script — requires scene-level engine, excluded
+  episode_grid: {
+    doc_type: "episode_grid",
+    episode_block_repair_supported: true,
+    min_episodes_required: 3,
+  },
+  season_script: {
+    doc_type: "season_script",
+    episode_block_repair_supported: true,
+    min_episodes_required: 3,
+  },
+  season_master_script: {
+    doc_type: "season_master_script",
+    episode_block_repair_supported: true,
+    min_episodes_required: 3,
+  },
 };
 
 // ── Public API ──
