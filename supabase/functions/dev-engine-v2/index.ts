@@ -6839,7 +6839,9 @@ RULES:
 - recommended_option_id: best balance of creative integrity and commercial viability.
 - global_directions: 1-3 overarching tonal/strategic directions.
 - Keep options genuinely distinct — not minor variations of the same fix.
-- EVERY blocker in the input MUST appear as a decision with severity="blocker".`;
+- EVERY blocker in the input MUST appear as a decision with severity="blocker".
+- NEVER generate decisions about document destination, routing, or storage. Do NOT ask "Which document should receive..." — export/packaging flows produce artifacts, they don't overwrite source documents.
+- NEVER offer options like "Create new Pitch Deck" or "Store in Concept Brief" — these are document-routing questions that don't belong in creative decisions.`;
 
       const notesForPrompt = [
         ...blockers.map((n: any, i: number) => ({ index: i + 1, id: n.id, severity: "blocker", description: n.description, why_it_matters: n.why_it_matters })),
