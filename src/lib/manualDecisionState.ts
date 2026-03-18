@@ -27,6 +27,12 @@ export interface ManualDecisionState {
   ctaText: string;
   /** Visual severity: success / warning / destructive / muted */
   severity: 'success' | 'warning' | 'destructive' | 'muted';
+  /** Whether approval is available (even if not primary) */
+  approvalAvailable: boolean;
+  /** Secondary CTA text when applicable */
+  secondaryCtaText?: string;
+  /** Secondary CTA action key */
+  secondaryAction?: OperatorRecommendation;
 }
 
 export interface ManualDecisionInput {
@@ -37,6 +43,21 @@ export interface ManualDecisionInput {
   blockerCount: number;
   majorNoteCount: number;
   minorNoteCount: number;
+}
+
+/** Map recommendation → Loop Controls action key used by the page */
+export type ManualActionKey = 'approve' | 'review' | 'rewrite_selective' | 'rewrite_full' | 'polish' | 'reassess';
+
+export function recommendationToActionKey(rec: OperatorRecommendation): ManualActionKey {
+  switch (rec) {
+    case 'approval_ready': return 'approve';
+    case 'optional_polish': return 'polish';
+    case 'run_selective_pass': return 'rewrite_selective';
+    case 'run_full_rewrite': return 'rewrite_full';
+    case 'review_remaining_issues': return 'review';
+    case 'stop': return 'approve';
+    default: return 'reassess';
+  }
 }
 
 function resolveScoreState(input: ManualDecisionInput): ScoreState {
@@ -66,6 +87,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
       explanation: 'Scores converged and no outstanding issues remain.',
       ctaText: 'Approve',
       severity: 'success',
+      approvalAvailable: true,
     };
   }
 
@@ -77,6 +99,9 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
       explanation: `Scores converged. ${input.minorNoteCount} minor note${input.minorNoteCount !== 1 ? 's' : ''} remain — polish pass optional.`,
       ctaText: 'Run Polish Pass',
       severity: 'success',
+      approvalAvailable: true,
+      secondaryCtaText: 'Approve Anyway',
+      secondaryAction: 'approval_ready',
     };
   }
 
@@ -88,6 +113,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
       explanation: `Scores converged but ${input.majorNoteCount} major note${input.majorNoteCount !== 1 ? 's' : ''} still active. Selective pass recommended.`,
       ctaText: 'Run Selective Pass',
       severity: 'warning',
+      approvalAvailable: false,
     };
   }
 
@@ -99,6 +125,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
       explanation: `Scores converged but ${input.blockerCount} blocker${input.blockerCount !== 1 ? 's' : ''} still active. Resolve before approval.`,
       ctaText: 'Review Blockers',
       severity: 'destructive',
+      approvalAvailable: false,
     };
   }
 
@@ -110,6 +137,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
       explanation: `Scores near threshold with ${input.blockerCount} blocker${input.blockerCount !== 1 ? 's' : ''}. Full rewrite recommended.`,
       ctaText: 'Run Full Rewrite',
       severity: 'destructive',
+      approvalAvailable: false,
     };
   }
 
@@ -121,6 +149,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
       explanation: 'Scores approaching threshold. Selective pass should close the gap.',
       ctaText: 'Run Selective Pass',
       severity: 'warning',
+      approvalAvailable: false,
     };
   }
 
@@ -133,6 +162,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
       explanation: `Scores below threshold with ${input.blockerCount} blocker${input.blockerCount !== 1 ? 's' : ''}. Full rewrite needed.`,
       ctaText: 'Run Full Rewrite',
       severity: 'destructive',
+      approvalAvailable: false,
     };
   }
 
@@ -143,5 +173,6 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
     explanation: 'Scores below threshold. Another rewrite pass recommended.',
     ctaText: 'Run Full Rewrite',
     severity: 'warning',
+    approvalAvailable: false,
   };
 }
