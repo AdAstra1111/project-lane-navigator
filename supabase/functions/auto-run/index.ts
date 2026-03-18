@@ -9145,14 +9145,23 @@ Deno.serve(async (req) => {
               .in("status", ["open", "in_progress", "reopened"])
               .limit(30);
             if (pnotes && pnotes.length > 0) {
-              injectedProjectNotes = pnotes.map((n: any) => ({
-                id: n.id,
-                note: n.summary || n.title,
-                severity: n.severity === "blocker" ? "blocker" : n.severity === "high" ? "high" : "med",
-                category: n.category || "general",
-                why_it_matters: n.detail || n.summary,
-                suggested_fix: n.suggested_fixes ? (Array.isArray(n.suggested_fixes) ? n.suggested_fixes[0]?.description : n.suggested_fixes) : undefined,
-              }));
+              injectedProjectNotes = pnotes.map((n: any) => {
+                const fixes = Array.isArray(n.suggested_fixes) ? n.suggested_fixes : [];
+                const recommended = fixes.find((f: any) => f.recommended) || fixes[0];
+                const resolutionDirective = recommended
+                  ? `Apply: "${recommended.title || recommended.description}".${recommended.what_changes ? ` Changes: ${Array.isArray(recommended.what_changes) ? recommended.what_changes.join("; ") : recommended.what_changes}` : ""}`
+                  : undefined;
+                return {
+                  id: n.id,
+                  note: n.summary || n.title,
+                  severity: n.severity === "blocker" ? "blocker" : n.severity === "high" ? "high" : "med",
+                  category: n.category || "general",
+                  why_it_matters: n.detail || n.summary,
+                  suggested_fixes: fixes,
+                  suggested_fix: recommended?.description || (fixes[0]?.description) || undefined,
+                  resolution_directive: resolutionDirective,
+                };
+              });
               console.log(`[auto-run][IEL] project_notes_injected_into_rewrite { doc_type: "${currentDoc}", count: ${injectedProjectNotes.length}, severities: ${JSON.stringify(pnotes.map((n: any) => n.severity))} }`);
             }
           } catch (e: any) {
