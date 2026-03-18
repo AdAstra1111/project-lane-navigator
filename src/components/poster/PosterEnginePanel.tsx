@@ -400,6 +400,8 @@ export default function PosterEnginePanel() {
                   <PosterCompositor
                     keyArtUrl={poster.key_art_public_url || ""}
                     title={project?.title || "Untitled"}
+                    companyLogoUrl={branding?.companyLogoUrl}
+                    companyName={branding?.companyName}
                     width={160}
                   />
                   <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5">
