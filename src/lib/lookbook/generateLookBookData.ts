@@ -222,8 +222,8 @@ export async function generateLookBookData(
     .forEach(i => characterImageMap.set(i.entity_id!, i.signedUrl!));
 
   // 5. Build identity from canonical state
-  const identity = resolveIdentity(canon, (project as any).genre);
-  const logline = (canon.logline as string) || (project as any).logline || '';
+  const identity = resolveIdentity(canon, genre);
+  const logline = (canon.logline as string) || '';
   const title = (project as any).title || 'Untitled Project';
   const writerCredit = 'Written by Sebastian Street';
   const companyName = branding.companyName || 'Paradox House';
