@@ -298,15 +298,10 @@ function buildRecommendation(
 ): PlateauRecommendation {
   // Default fallback
   const fallback: PlateauRecommendation = {
-    recommendation_type: 'lower_quality_objective',
-    short_label: 'Lower quality target',
-    rationale: `CI gap of ${ctx.ciGap} points may not close with current seed. Consider lowering target or regenerating seed.`,
-    recommended_mutations: [],
-    recommended_quality_target: ctx.bestCi >= 90
-      ? { ci: 90, gp: 90 }
-      : ctx.bestCi >= 85
-        ? { ci: 85, gp: 85 }
-        : { ci: 80, gp: 80 },
+    recommendation_type: 'force_advance_stage',
+    short_label: 'Force advance with best version',
+    rationale: `CI gap of ${ctx.ciGap} points may not close with current seed. Consider force-advancing with the strongest available version (CI ~${ctx.bestCi}) or regenerating the seed.`,
+    recommended_mutations: ['Force-promote best available version to advance the pipeline', 'Or regenerate DevSeed with stronger structural foundations'],
   };
 
   switch (primary) {
