@@ -767,6 +767,7 @@ export function AutoRunMissionControl({
 
   const hasExceptionalPlateau = job?.status === 'paused' && (
     job?.stop_reason === 'EXCEPTIONAL_PLATEAU_ESCALATION' || job?.pause_reason === 'EXCEPTIONAL_PLATEAU_ESCALATION'
+    || job?.stop_reason === 'PLATEAU_RECOVERY_EXHAUSTED' || job?.pause_reason === 'PLATEAU_RECOVERY_EXHAUSTED'
   );
 
   const hasEscalation = !hasDecisions && job?.pause_reason !== 'step_limit' && job?.pause_reason !== 'stage_exhausted' && (job?.status === 'paused' || job?.status === 'stopped' || job?.status === 'failed') && (
