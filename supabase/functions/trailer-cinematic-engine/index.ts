@@ -1817,8 +1817,12 @@ No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
       const hasWithholding = b.withholding_note && b.withholding_note.trim().length > 0;
       if (b.phase !== "crescendo" && !hasSilence && !hasWithholding) {
         const allStatic = bSpecs.every((s: any) => s.camera_move === "static");
-        if (allStatic) {
-          valErrors.push(`Beat #${bi} (${b.phase}): all shots static without silence/withholding`);
+        if (allStatic && bSpecs.length > 0) {
+          // Auto-fix: upgrade first static shot to a subtle push_in instead of hard failing
+          bSpecs[0].camera_move = "push_in";
+          if (!bSpecs[0].subject_action) bSpecs[0].subject_action = "ambient motion";
+          if (!bSpecs[0].reveal_mechanic) bSpecs[0].reveal_mechanic = "progressive reveal through camera movement";
+          console.error(JSON.stringify({ type: "STATIC_BEAT_AUTO_FIX", beat_index: bi, phase: b.phase, fixed_shot: 0 }));
         }
       }
 
