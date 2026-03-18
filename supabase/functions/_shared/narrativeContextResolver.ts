@@ -22,6 +22,7 @@ import {
   buildCanonConstraintBlock,
   type CanonConstraints,
 } from "./canonConstraintEnforcement.ts";
+import { resolveStructuralLineage, type StructuralLineage } from "./structuralLineageResolver.ts";
 
 // ── Caps ──
 const SIGNALS_CAP = 6;
@@ -51,12 +52,15 @@ export interface NarrativeContext {
   voice: { voiceId: string | null; blockText: string };
   effectiveProfile: { blockText: string };
   worldPopulation: { density: string; blockText: string };
+  structuralLineage: StructuralLineage;
   metadata: {
     provenance: Record<string, string>;
     counts: Record<string, number>;
     resolverHash: string;
   };
 }
+
+export type { StructuralLineage } from "./structuralLineageResolver.ts";
 
 export interface ResolveOpts {
   includeSignals?: boolean;
@@ -448,11 +452,31 @@ export async function resolveNarrativeContext(
       provenance.worldPopulation = "error:fallback_moderate";
     }
 
+    // ── 7. Structural Lineage (DNA → Engine → Blueprint) ──
+    let structuralLineage: StructuralLineage;
+    try {
+      structuralLineage = await resolveStructuralLineage(supabase, projectId);
+      provenance.structuralLineage = structuralLineage.authority_level;
+      counts.structuralAuthority = structuralLineage.authority_level === "none" ? 0 : 1;
+    } catch (e) {
+      console.warn("[narrative-context] structural lineage resolve failed:", e);
+      structuralLineage = {
+        source_dna_profile_id: null, source_engine_key: null,
+        source_blueprint_id: null, source_blueprint_family_key: null,
+        authority_level: "none", engine_key: null, blueprint_family_key: null,
+        execution_pattern: null, structural_summary: null,
+        family_selection_confidence: null, family_selection_rationale: null,
+        dna_thematic_spine: null, engine_label: null, engine_structural_pattern: null,
+        blockText: "",
+      };
+      provenance.structuralLineage = "error";
+    }
+
     // ── Build resolver hash ──
-    const hashInput = `${nec.source}|${counts.canonChars}|${counts.signals}|${counts.decisions}|${voice.voiceId || "none"}|${worldPopulation.density}`;
+    const hashInput = `${nec.source}|${counts.canonChars}|${counts.signals}|${counts.decisions}|${voice.voiceId || "none"}|${worldPopulation.density}|${structuralLineage.authority_level}|${structuralLineage.blueprint_family_key || "none"}`;
     const resolverHash = djb2(hashInput);
 
-    console.log(`[narrative-context] project=${projectId} format=${format} hash=${resolverHash} nec=${provenance.nec} signals=${counts.signals} decisions=${counts.decisions} canonChars=${counts.canonChars} voice=${voice.voiceId || "null"} worldPop=${worldPopulation.density}`);
+    console.log(`[narrative-context] project=${projectId} format=${format} hash=${resolverHash} nec=${provenance.nec} signals=${counts.signals} decisions=${counts.decisions} canonChars=${counts.canonChars} voice=${voice.voiceId || "null"} worldPop=${worldPopulation.density} structural=${structuralLineage.authority_level}:${structuralLineage.blueprint_family_key || "none"}`);
 
     return {
       nec,
@@ -464,11 +488,21 @@ export async function resolveNarrativeContext(
       voice,
       effectiveProfile: { blockText: effectiveProfileBlock },
       worldPopulation,
+      structuralLineage,
       metadata: { provenance, counts, resolverHash },
     };
   } catch (e) {
     console.error("[narrative-context] canon load failed:", e);
     const emptyConstraints = extractCanonConstraints({});
+    const emptyLineage: StructuralLineage = {
+      source_dna_profile_id: null, source_engine_key: null,
+      source_blueprint_id: null, source_blueprint_family_key: null,
+      authority_level: "none", engine_key: null, blueprint_family_key: null,
+      execution_pattern: null, structural_summary: null,
+      family_selection_confidence: null, family_selection_rationale: null,
+      dna_thematic_spine: null, engine_label: null, engine_structural_pattern: null,
+      blockText: "",
+    };
     const resolverHash = djb2(`error|${projectId}`);
     return {
       nec,
@@ -480,6 +514,7 @@ export async function resolveNarrativeContext(
       voice: { voiceId: null, blockText: "" },
       effectiveProfile: { blockText: "" },
       worldPopulation: { density: "moderate", blockText: "" },
+      structuralLineage: emptyLineage,
       metadata: { provenance, counts, resolverHash },
     };
   }
@@ -495,6 +530,7 @@ export function buildNarrativeContextBlock(ctx: NarrativeContext): string {
     ctx.canon.blockText,
     ctx.canonConstraintBlock,
     ctx.effectiveProfile.blockText,
+    ctx.structuralLineage.blockText,
     ctx.signals.blockText,
     ctx.lockedDecisions.blockText,
     ctx.voice.blockText,
