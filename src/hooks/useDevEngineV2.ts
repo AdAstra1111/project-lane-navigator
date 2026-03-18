@@ -423,13 +423,15 @@ export function useDevEngineV2(projectId: string | undefined) {
 
   const deleteVersion = useMutation({
     mutationFn: async (versionId: string) => {
-      const { error } = await (supabase as any).from('project_document_versions').delete().eq('id', versionId);
+      const { data, error } = await (supabase as any).rpc('safe_delete_version', {
+        p_version_id: versionId,
+      });
       if (error) throw error;
+      return { deletedId: versionId, result: data };
     },
-    onSuccess: (_data, deletedId) => {
+    onSuccess: ({ deletedId }) => {
       toast.success('Version deleted');
       if (selectedVersionId === deletedId) {
-        // Auto-select another version so the UI doesn't keep the deleted one active
         const remaining = versions.filter(v => v.id !== deletedId);
         const next = remaining[remaining.length - 1] ?? null;
         setSelectedVersionId(next ? next.id : null);
