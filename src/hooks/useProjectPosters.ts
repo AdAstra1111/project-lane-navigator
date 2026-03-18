@@ -14,6 +14,7 @@ export interface ProjectPoster {
   key_art_public_url: string | null;
   rendered_storage_path: string | null;
   rendered_public_url: string | null;
+  render_status: "key_art_only" | "composed_preview" | "composed_final";
   aspect_ratio: string;
   layout_variant: string;
   prompt_text: string | null;
@@ -23,6 +24,41 @@ export interface ProjectPoster {
   error_message: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Get a signed URL for a private-bucket storage path.
+ * Returns null if path is missing or signing fails.
+ */
+async function getSignedUrl(storagePath: string | null): Promise<string | null> {
+  if (!storagePath) return null;
+  const { data, error } = await supabase.storage
+    .from("project-posters")
+    .createSignedUrl(storagePath, 3600); // 1 hour
+  if (error) {
+    console.warn("Failed to sign poster URL:", error.message);
+    return null;
+  }
+  return data?.signedUrl || null;
+}
+
+/**
+ * Hydrate poster records with fresh signed URLs (private bucket).
+ */
+async function hydrateSignedUrls(posters: ProjectPoster[]): Promise<ProjectPoster[]> {
+  return Promise.all(
+    posters.map(async (p) => {
+      const [keyUrl, renderedUrl] = await Promise.all([
+        getSignedUrl(p.key_art_storage_path),
+        getSignedUrl(p.rendered_storage_path),
+      ]);
+      return {
+        ...p,
+        key_art_public_url: keyUrl,
+        rendered_public_url: renderedUrl,
+      };
+    })
+  );
 }
 
 export function useProjectPosters(projectId: string | undefined) {
@@ -36,9 +72,13 @@ export function useProjectPosters(projectId: string | undefined) {
         .eq("project_id", projectId)
         .order("version_number", { ascending: false });
       if (error) throw error;
-      return (data || []) as ProjectPoster[];
+      const raw = (data || []) as ProjectPoster[];
+      // Hydrate with signed URLs since bucket is private
+      return hydrateSignedUrls(raw);
     },
     enabled: !!projectId,
+    // Signed URLs expire — refetch periodically
+    staleTime: 30 * 60 * 1000, // 30 min
   });
 }
 
@@ -63,7 +103,7 @@ export function useGeneratePoster(projectId: string | undefined) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["project-posters", projectId] });
-      toast.success("Poster generated successfully");
+      toast.success("Key art generated successfully");
     },
     onError: (err: Error) => {
       if (err.message?.includes("Rate limit")) {
@@ -132,17 +172,13 @@ export function useUploadPosterKeyArt(projectId: string | undefined) {
         .upload(path, file, { upsert: true });
       if (uploadErr) throw uploadErr;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from("project-posters")
-        .getPublicUrl(path);
-
       // Deactivate previous
       await (supabase as any)
         .from("project_posters")
         .update({ is_active: false })
         .eq("project_id", projectId);
 
-      // Create record
+      // Create record — honest: key art only, no rendered poster
       const { data, error } = await (supabase as any)
         .from("project_posters")
         .insert({
@@ -155,9 +191,10 @@ export function useUploadPosterKeyArt(projectId: string | undefined) {
           aspect_ratio: "2:3",
           layout_variant: "cinematic-dark",
           key_art_storage_path: path,
-          key_art_public_url: publicUrl,
-          rendered_storage_path: path,
-          rendered_public_url: publicUrl,
+          key_art_public_url: null, // will be hydrated via signed URL
+          rendered_storage_path: null,
+          rendered_public_url: null,
+          render_status: "key_art_only",
         })
         .select()
         .single();
@@ -166,7 +203,7 @@ export function useUploadPosterKeyArt(projectId: string | undefined) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["project-posters", projectId] });
-      toast.success("Poster uploaded successfully");
+      toast.success("Key art uploaded successfully");
     },
     onError: (err: Error) => {
       toast.error(`Upload failed: ${err.message}`);
@@ -174,16 +211,68 @@ export function useUploadPosterKeyArt(projectId: string | undefined) {
   });
 }
 
+/**
+ * Safe poster delete:
+ * 1. Fetches poster record for storage paths
+ * 2. Deletes storage assets (key art + rendered if exists)
+ * 3. Deletes DB row
+ * 4. Reassigns active poster to most recent remaining version
+ */
 export function useDeletePoster(projectId: string | undefined) {
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: async (posterId: string) => {
-      const { error } = await (supabase as any)
+      if (!projectId) throw new Error("No project ID");
+
+      // 1. Fetch the poster to get storage paths and active state
+      const { data: poster, error: fetchErr } = await (supabase as any)
+        .from("project_posters")
+        .select("id, key_art_storage_path, rendered_storage_path, is_active")
+        .eq("id", posterId)
+        .single();
+      if (fetchErr) throw fetchErr;
+
+      // 2. Clean up storage assets
+      const pathsToDelete: string[] = [];
+      if (poster.key_art_storage_path) pathsToDelete.push(poster.key_art_storage_path);
+      if (poster.rendered_storage_path && poster.rendered_storage_path !== poster.key_art_storage_path) {
+        pathsToDelete.push(poster.rendered_storage_path);
+      }
+      if (pathsToDelete.length > 0) {
+        const { error: storageErr } = await supabase.storage
+          .from("project-posters")
+          .remove(pathsToDelete);
+        if (storageErr) {
+          console.warn("Storage cleanup partial failure:", storageErr.message);
+          // Continue — don't block delete on storage cleanup failure
+        }
+      }
+
+      // 3. Delete DB row
+      const { error: deleteErr } = await (supabase as any)
         .from("project_posters")
         .delete()
         .eq("id", posterId);
-      if (error) throw error;
+      if (deleteErr) throw deleteErr;
+
+      // 4. If deleted poster was active, reassign to most recent ready version
+      if (poster.is_active) {
+        const { data: remaining } = await (supabase as any)
+          .from("project_posters")
+          .select("id")
+          .eq("project_id", projectId)
+          .eq("status", "ready")
+          .order("version_number", { ascending: false })
+          .limit(1);
+
+        if (remaining?.length > 0) {
+          await (supabase as any)
+            .from("project_posters")
+            .update({ is_active: true })
+            .eq("id", remaining[0].id);
+        }
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["project-posters", projectId] });
