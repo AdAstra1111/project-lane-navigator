@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, LogOut, Save, Loader2, Crown, BookOpen, FlaskConical, Activity, Layers } from 'lucide-react';
+import { User, Mail, LogOut, Save, Loader2, Crown, BookOpen, FlaskConical, Activity, Layers, ImageIcon } from 'lucide-react';
 import { useSubscription } from '@/hooks/useSubscription';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
