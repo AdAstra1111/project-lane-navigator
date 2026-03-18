@@ -92,10 +92,83 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
   const scoreState = resolveScoreState(input);
   const issueState = resolveIssueState(input);
 
-  // Decision matrix
+  // Resolve discipline mode if version info is available
+  let disciplineMode: RewriteDisciplineMode | undefined;
+  let disciplineModeLabel: string | undefined;
+  if (input.versionNumber != null) {
+    const discipline = resolveRewriteDisciplineMode({
+      versionNumber: input.versionNumber,
+      ci: input.ci,
+      gp: input.gp,
+      blockerCount: input.blockerCount,
+      majorNoteCount: input.majorNoteCount,
+      minorNoteCount: input.minorNoteCount,
+      isStructurallyIncomplete: input.isStructurallyIncomplete ?? false,
+      isHardFailure: input.isHardFailure ?? false,
+    });
+    disciplineMode = discipline.mode;
+    disciplineModeLabel = discipline.label;
+  }
+
+  const base = { disciplineMode, disciplineModeLabel };
+
+  // ── Late-stage patch mode overrides ──
+  if (disciplineMode === 'late_stage_patch') {
+    if (issueState === 'clear') {
+      return {
+        scoreState, issueState, ...base,
+        recommendation: 'approval_ready',
+        label: 'Approval Ready',
+        explanation: 'Late-stage patch mode — scores strong and no outstanding issues remain.',
+        ctaText: 'Approve',
+        severity: 'success',
+        approvalAvailable: true,
+      };
+    }
+
+    if (issueState === 'minor_only') {
+      return {
+        scoreState, issueState, ...base,
+        recommendation: 'optional_polish',
+        label: 'Late-Stage — Optional Polish',
+        explanation: `Patch mode active. ${input.minorNoteCount} minor note${input.minorNoteCount !== 1 ? 's' : ''} remain — targeted polish pass optional.`,
+        ctaText: 'Run Targeted Polish',
+        severity: 'success',
+        approvalAvailable: true,
+        secondaryCtaText: 'Approve Anyway',
+        secondaryAction: 'approval_ready',
+      };
+    }
+
+    if (issueState === 'blockers_remain') {
+      return {
+        scoreState, issueState, ...base,
+        recommendation: 'run_late_stage_patch',
+        label: 'Late-Stage — Blocker Patch',
+        explanation: `Patch mode active. ${input.blockerCount} blocker${input.blockerCount !== 1 ? 's' : ''} targeted for surgical resolution. Unaffected material preserved.`,
+        ctaText: 'Run Note-Resolution Patch',
+        severity: 'destructive',
+        approvalAvailable: false,
+      };
+    }
+
+    // major_notes_remain
+    return {
+      scoreState, issueState, ...base,
+      recommendation: 'run_late_stage_patch',
+      label: 'Late-Stage — Strategic Patch',
+      explanation: `Patch mode active. ${input.majorNoteCount} strategic note${input.majorNoteCount !== 1 ? 's' : ''} targeted. Broad rewrite suppressed.`,
+      ctaText: 'Run Note-Resolution Patch',
+      severity: 'warning',
+      approvalAvailable: false,
+    };
+  }
+
+  // ── Standard decision matrix (unchanged for non-late-stage) ──
+
   if (scoreState === 'converged' && issueState === 'clear') {
     return {
-      scoreState, issueState,
+      scoreState, issueState, ...base,
       recommendation: 'approval_ready',
       label: 'Approval Ready',
       explanation: 'Scores converged and no outstanding issues remain.',
@@ -107,7 +180,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
 
   if (scoreState === 'converged' && issueState === 'minor_only') {
     return {
-      scoreState, issueState,
+      scoreState, issueState, ...base,
       recommendation: 'optional_polish',
       label: 'Optional Polish',
       explanation: `Scores converged. ${input.minorNoteCount} minor note${input.minorNoteCount !== 1 ? 's' : ''} remain — polish pass optional.`,
@@ -121,7 +194,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
 
   if (scoreState === 'converged' && issueState === 'major_notes_remain') {
     return {
-      scoreState, issueState,
+      scoreState, issueState, ...base,
       recommendation: 'run_selective_pass',
       label: 'Converged — Notes Remain',
       explanation: `Scores converged but ${input.majorNoteCount} major note${input.majorNoteCount !== 1 ? 's' : ''} still active. Selective pass recommended.`,
@@ -133,7 +206,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
 
   if (scoreState === 'converged' && issueState === 'blockers_remain') {
     return {
-      scoreState, issueState,
+      scoreState, issueState, ...base,
       recommendation: 'review_remaining_issues',
       label: 'Converged — Blockers Remain',
       explanation: `Scores converged but ${input.blockerCount} blocker${input.blockerCount !== 1 ? 's' : ''} still active. Resolve before approval.`,
@@ -145,7 +218,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
 
   if (scoreState === 'near_target' && issueState === 'blockers_remain') {
     return {
-      scoreState, issueState,
+      scoreState, issueState, ...base,
       recommendation: 'run_full_rewrite',
       label: 'Near Target — Blockers',
       explanation: `Scores near threshold with ${input.blockerCount} blocker${input.blockerCount !== 1 ? 's' : ''}. Full rewrite recommended.`,
@@ -157,7 +230,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
 
   if (scoreState === 'near_target') {
     return {
-      scoreState, issueState,
+      scoreState, issueState, ...base,
       recommendation: 'run_selective_pass',
       label: 'Near Target',
       explanation: 'Scores approaching threshold. Selective pass should close the gap.',
@@ -170,7 +243,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
   // below_target
   if (issueState === 'blockers_remain') {
     return {
-      scoreState, issueState,
+      scoreState, issueState, ...base,
       recommendation: 'run_full_rewrite',
       label: 'Below Target — Blockers',
       explanation: `Scores below threshold with ${input.blockerCount} blocker${input.blockerCount !== 1 ? 's' : ''}. Full rewrite needed.`,
@@ -181,7 +254,7 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
   }
 
   return {
-    scoreState, issueState,
+    scoreState, issueState, ...base,
     recommendation: 'run_full_rewrite',
     label: 'Below Target',
     explanation: 'Scores below threshold. Another rewrite pass recommended.',
@@ -189,4 +262,5 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
     severity: 'warning',
     approvalAvailable: false,
   };
+}
 }
