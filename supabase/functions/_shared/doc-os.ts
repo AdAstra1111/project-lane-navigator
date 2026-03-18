@@ -270,7 +270,7 @@ const SYSTEM_GENERATOR_IDS = new Set([
   "dev-engine-v2-convert", "dev-engine-v2-regen-insufficient", "dev-engine-v2-series-scripts",
   "dev-engine-v2-series-autorun", "dev-engine-v2-build-master", "dev-engine-v2-rebase",
   "dev-engine-v2-regen-tick",
-  "dev-engine-v2-rewrite", "dev-engine-v2-rewrite-chunked",
+  "dev-engine-v2-rewrite", "dev-engine-v2-rewrite-chunked", "dev-engine-v2-rewrite-episodic",
   "seed-pack",
   "generate-document", "system",
   "notes-engine", "idea-to-project", "season-package",
