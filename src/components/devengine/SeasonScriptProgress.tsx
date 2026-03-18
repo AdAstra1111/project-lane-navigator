@@ -316,6 +316,37 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
             </div>
           </div>
         )}
+
+        {/* Optimistic resumed banner */}
+        {resumeSuccess && (
+          <div className="flex items-center gap-2 p-2 rounded-md bg-blue-500/10 border border-blue-500/30">
+            <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
+            <p className="text-[11px] text-blue-400 font-medium">
+              Resumed from Episode {firstIncompleteEp ?? '?'} — generating now. This panel will update automatically.
+            </p>
+          </div>
+        )}
+
+        {/* Inline error banner */}
+        {resumeError && !resuming && (
+          <div className="flex items-start gap-2 p-2 rounded-md bg-destructive/10 border border-destructive/30">
+            <XCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+            <div className="space-y-1">
+              <p className="text-[11px] text-destructive font-medium">
+                Resume failed: {resumeError}
+              </p>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-7 text-xs gap-1"
+                onClick={() => { setResumeError(null); handleResume(); }}
+              >
+                <RotateCcw className="h-3 w-3" />
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
