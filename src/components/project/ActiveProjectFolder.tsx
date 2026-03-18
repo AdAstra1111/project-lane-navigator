@@ -154,6 +154,7 @@ export function ActiveProjectFolder({ projectId }: Props) {
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['active-folder', projectId] });
     queryClient.invalidateQueries({ queryKey: ['active-folder-all-versions', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['project-package', projectId] });
   };
 
   const initFolder = useMutation({
