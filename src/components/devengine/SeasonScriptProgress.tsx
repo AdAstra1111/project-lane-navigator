@@ -11,7 +11,7 @@
  *   stale    — (UI-only) running chunk exceeds STALE_THRESHOLD_MS
  *   needs_regen / failed_validation — retryable by resume
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Progress } from '@/components/ui/progress';
