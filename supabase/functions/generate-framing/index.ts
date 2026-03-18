@@ -41,9 +41,9 @@ Deno.serve(async (req) => {
     // ── Load project data ──
     const { data: project } = await sb
       .from("projects")
-      .select("title, genre, format, logline, themes, tone, assigned_lane, budget_range, target_audience")
+      .select("title, genres, format, tone, assigned_lane, budget_range, target_audience, comparable_titles")
       .eq("id", projectId)
-      .single();
+      .maybeSingle();
     if (!project) throw new Error("Project not found");
 
     // ── Load canon ──
@@ -72,13 +72,14 @@ Deno.serve(async (req) => {
     }
 
     // ── Build canon context ──
+    const genreDisplay = Array.isArray(project.genres) ? project.genres.join(", ") : "drama";
     const canonContext = {
       title: project.title || "Untitled",
-      genre: project.genre || "drama",
+      genre: genreDisplay,
       format: project.format || "film",
-      logline: project.logline || canon.logline || "",
+      logline: canon.logline || "",
       tone: project.tone || canon.tone_style || "",
-      themes: typeof project.themes === "string" ? project.themes : Array.isArray(project.themes) ? project.themes.join(", ") : canon.themes || "",
+      themes: canon.tone_style || "",
       worldRules: canon.world_rules || "",
       locations: canon.locations || "",
       characters: Array.isArray(canon.characters) 
