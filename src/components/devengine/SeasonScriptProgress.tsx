@@ -317,8 +317,18 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
           </div>
         )}
 
+        {/* Active resuming banner */}
+        {resuming && (
+          <div className="flex items-center gap-2 p-2 rounded-md bg-blue-500/10 border border-blue-500/30">
+            <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
+            <p className="text-[11px] text-blue-400 font-medium">
+              Resuming from Episode {firstIncompleteEp ?? '?'}…
+            </p>
+          </div>
+        )}
+
         {/* Optimistic resumed banner */}
-        {resumeSuccess && (
+        {resumeSuccess && !resuming && (
           <div className="flex items-center gap-2 p-2 rounded-md bg-blue-500/10 border border-blue-500/30">
             <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
             <p className="text-[11px] text-blue-400 font-medium">
