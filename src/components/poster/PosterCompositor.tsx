@@ -60,38 +60,63 @@ export function PosterCompositor({
     canvas.width = dims.w;
     canvas.height = dims.h;
 
+    // Load key art image
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.onload = () => {
-      // Draw key art covering full canvas
-      const imgAspect = img.width / img.height;
-      const canvasAspect = dims.w / dims.h;
-      let sx = 0, sy = 0, sw = img.width, sh = img.height;
 
+    // Optionally load company logo
+    let logoImg: HTMLImageElement | null = null;
+    let logoLoaded = false;
+    let keyArtLoaded = false;
+
+    const tryRender = () => {
+      if (!keyArtLoaded) return;
+      // Draw key art
+      const imgAspect = img.naturalWidth / img.naturalHeight;
+      const canvasAspect = dims.w / dims.h;
+      let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
       if (imgAspect > canvasAspect) {
-        sw = img.height * canvasAspect;
-        sx = (img.width - sw) / 2;
+        sw = img.naturalHeight * canvasAspect;
+        sx = (img.naturalWidth - sw) / 2;
       } else {
-        sh = img.width / canvasAspect;
-        sy = (img.height - sh) / 2;
+        sh = img.naturalWidth / canvasAspect;
+        sy = (img.naturalHeight - sh) / 2;
       }
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dims.w, dims.h);
 
-      // Apply deterministic layout
-      applyLayout(ctx, dims, title, tagline, layoutVariant);
-
+      applyLayout(ctx, dims, title, tagline, layoutVariant, logoImg, companyName || null);
       setLoaded(true);
       onRender?.(canvas);
     };
+
+    img.onload = () => {
+      keyArtLoaded = true;
+      if (!companyLogoUrl || logoLoaded) tryRender();
+    };
     img.onerror = () => {
-      // Render fallback dark poster with just title
       ctx.fillStyle = BRAND.dark;
       ctx.fillRect(0, 0, dims.w, dims.h);
-      applyLayout(ctx, dims, title, tagline, layoutVariant);
+      keyArtLoaded = true;
+      applyLayout(ctx, dims, title, tagline, layoutVariant, logoImg, companyName || null);
       setLoaded(true);
     };
     img.src = keyArtUrl;
-  }, [keyArtUrl, title, tagline, aspectRatio, layoutVariant, onRender]);
+
+    if (companyLogoUrl) {
+      logoImg = new Image();
+      logoImg.crossOrigin = "anonymous";
+      logoImg.onload = () => {
+        logoLoaded = true;
+        if (keyArtLoaded) tryRender();
+      };
+      logoImg.onerror = () => {
+        logoImg = null;
+        logoLoaded = true;
+        if (keyArtLoaded) tryRender();
+      };
+      logoImg.src = companyLogoUrl;
+    }
+  }, [keyArtUrl, title, tagline, aspectRatio, layoutVariant, onRender, companyLogoUrl, companyName]);
 
   const dims = ASPECT_RATIOS[aspectRatio] || ASPECT_RATIOS["2:3"];
   const displayWidth = width || 320;
