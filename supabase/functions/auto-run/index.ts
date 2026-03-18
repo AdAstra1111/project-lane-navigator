@@ -2721,7 +2721,7 @@ async function buildNoteDirectionsForRewrite(
   try {
     const { data: notes } = await supabase
       .from("project_notes")
-      .select("id, title, summary, detail, suggested_fixes")
+      .select("id, title, summary, detail, suggested_fixes, severity, category")
       .eq("project_id", projectId)
       .eq("doc_type", docType)
       .in("status", ["open", "in_progress", "reopened"])
@@ -2732,10 +2732,22 @@ async function buildNoteDirectionsForRewrite(
       .map((n: any) => {
         const fixes = Array.isArray(n.suggested_fixes) ? n.suggested_fixes : [];
         const recommended = fixes.find((f: any) => f.recommended) || fixes[0];
-        const resolution = recommended
-          ? ` Resolution: "${recommended.title || recommended.description}".${recommended.what_changes ? ` Changes: ${Array.isArray(recommended.what_changes) ? recommended.what_changes.join("; ") : recommended.what_changes}` : ""}`
-          : "";
-        return `AUTO-RESOLVE NOTE (${n.id}): ${n.summary || n.title || "untitled"}.${resolution} Address this fully in the rewrite.`;
+        let resolution = "";
+        if (recommended) {
+          const title = recommended.title || recommended.description || "";
+          const changes = Array.isArray(recommended.what_changes) ? recommended.what_changes.join("; ") : (recommended.what_changes || "");
+          const riskNote = recommended.risk_level ? ` Risk: ${recommended.risk_level}.` : "";
+          resolution = ` Resolution: Apply "${title}".${changes ? ` Changes: ${changes}.` : ""}${riskNote}`;
+          // Include additional fix options as context if available
+          if (fixes.length > 1) {
+            const altTitles = fixes.slice(1, 3).map((f: any) => f.title || f.description).filter(Boolean);
+            if (altTitles.length > 0) {
+              resolution += ` (Alternative approaches: ${altTitles.join("; ")})`;
+            }
+          }
+        }
+        const severityTag = n.severity ? ` [${n.severity}]` : "";
+        return `AUTO-RESOLVE NOTE${severityTag} (${n.id}): ${n.summary || n.title || "untitled"}.${resolution} Address this fully in the rewrite.`;
       });
   } catch {
     return [];
