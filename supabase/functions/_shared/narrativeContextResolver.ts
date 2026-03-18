@@ -22,6 +22,7 @@ import {
   buildCanonConstraintBlock,
   type CanonConstraints,
 } from "./canonConstraintEnforcement.ts";
+import { resolveStructuralLineage, type StructuralLineage } from "./structuralLineageResolver.ts";
 
 // ── Caps ──
 const SIGNALS_CAP = 6;
