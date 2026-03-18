@@ -393,6 +393,21 @@ function formatErrorDisplay(err: string | null | undefined): string {
   return clean.length > 300 ? clean.slice(0, 300) + '…' : clean;
 }
 
+/** Format raw stop_reason constants into user-friendly labels */
+function formatStopReason(reason: string): string {
+  const STOP_LABELS: Record<string, string> = {
+    EXCEPTIONAL_PLATEAU_ESCALATION: 'Quality plateau — recovery options being evaluated',
+    PLATEAU_RECOVERY_EXHAUSTED: 'Quality plateau — all deterministic recovery exhausted',
+    STAGNATION_NO_BLOCKER_PROGRESS: 'Blocker stagnation — no improvement across attempts',
+    SEED_CORE_NOT_OFFICIAL: 'Seed core approval required before continuing',
+    SEED_CORE_MISSING: 'Required seed documents are missing',
+    INPUT_INCOMPLETE: 'Input text is incomplete or missing',
+    VERSION_CAP_REACHED: 'Version cap reached for current document',
+    STEP_LIMIT_REACHED: 'Step budget exhausted',
+  };
+  return STOP_LABELS[reason] || reason;
+}
+
 // ── Main Component ──
 export function AutoRunMissionControl({
   projectId, currentDeliverable, job, steps, isRunning, error, connectionState,
