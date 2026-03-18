@@ -3620,12 +3620,10 @@ function computePlateauDiagnosisBackend(input: DiagInput): {
       recommended_mutations: ["Focus on specific blocker areas"],
     };
   } else {
-    const suggestedCi = input.bestCi >= 90 ? 90 : input.bestCi >= 85 ? 85 : 80;
     rec = {
-      recommendation_type: "lower_quality_objective", short_label: "Lower quality target",
-      rationale: `CI gap of ${ciGap} may not close with current seed.`,
-      recommended_mutations: [],
-      recommended_quality_target: { ci: suggestedCi, gp: suggestedCi },
+      recommendation_type: "force_advance_stage", short_label: "Force advance with best version",
+      rationale: `CI gap of ${ciGap} may not close with current seed. Consider force-advancing with the strongest available version (CI ~${input.bestCi}) or regenerating the seed.`,
+      recommended_mutations: ["Force-promote best available version to advance the pipeline", "Or regenerate DevSeed with stronger structural foundations"],
     };
   }
 
