@@ -15,6 +15,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useDashboardScores } from '@/hooks/useDashboardScores';
 import { useAllCompanyLinks } from '@/hooks/useAllCompanyLinks';
+import { useActivePostersForProjects } from '@/hooks/useActiveProjectPoster';
 import { exportProjectsCsv } from '@/lib/csv-export';
 import { toast } from 'sonner';
 
