@@ -457,7 +457,7 @@ export function NoteWritersRoomDrawer({
               <Separator className="my-1" />
 
               {/* Chat messages */}
-              <ScrollArea className="max-h-[50vh] min-h-[120px]" ref={scrollRef}>
+              <ScrollArea className="flex-1 min-h-[80px] max-h-[40vh]" ref={scrollRef}>
                 <div className="space-y-2 pr-2 py-1">
                   {messages.map((msg) => (
                     <div key={msg.id} className={`flex min-w-0 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
