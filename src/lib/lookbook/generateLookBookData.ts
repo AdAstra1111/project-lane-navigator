@@ -251,7 +251,7 @@ export async function generateLookBookData(
     body: overviewBody,
     bodySecondary: overviewDetail || undefined,
     bullets: [
-      (project as any).genre ? `Genre: ${(project as any).genre}` : '',
+      genre ? `Genre: ${genre}` : '',
       (project as any).format ? `Format: ${(project as any).format}` : '',
       (canon.tone_style as string) ? `Tone: ${canon.tone_style}` : '',
     ].filter(Boolean),
