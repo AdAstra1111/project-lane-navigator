@@ -5151,10 +5151,15 @@ Deno.serve(async (req) => {
     // ═══════════════════════════════════════
     if (action === "resume") {
       if (!jobId) return respond({ error: "jobId required" }, 400);
-      // Fetch current job state to check follow_latest
+      // Fetch current job state to check follow_latest and ensure run-next has step headroom.
       const { data: preResumeJob } = await supabase.from("auto_run_jobs")
-        .select("current_document, follow_latest, resume_version_id")
+        .select("current_document, follow_latest, resume_version_id, step_count, max_total_steps, pause_reason")
         .eq("id", jobId).maybeSingle();
+
+      const currentStepCount = Number(preResumeJob?.step_count || 0);
+      const currentMaxTotalSteps = Number(preResumeJob?.max_total_steps || 0);
+      const needsStepHeadroom = currentStepCount + 1 >= currentMaxTotalSteps;
+
       const resumeUpdates: Record<string, any> = {
         status: "running", stop_reason: null, error: null,
         pause_reason: null, pending_decisions: null,
@@ -5166,6 +5171,13 @@ Deno.serve(async (req) => {
         // IEL: Force fresh review on next tick by clearing last_analyzed_version_id
         last_analyzed_version_id: null,
       };
+
+      if (needsStepHeadroom) {
+        const reopenedMaxTotalSteps = Math.max(currentMaxTotalSteps + 6, currentStepCount + 6);
+        resumeUpdates.max_total_steps = reopenedMaxTotalSteps;
+        console.log(`[auto-run][IEL] resume_extended_step_headroom { job_id: "${jobId}", step_count: ${currentStepCount}, previous_max_total_steps: ${currentMaxTotalSteps}, new_max_total_steps: ${reopenedMaxTotalSteps}, previous_pause_reason: "${preResumeJob?.pause_reason || "none"}" }`);
+      }
+
       if (body.followLatest === true) {
         resumeUpdates.follow_latest = true;
         resumeUpdates.resume_document_id = null;
