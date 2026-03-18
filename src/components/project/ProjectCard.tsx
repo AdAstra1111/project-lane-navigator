@@ -11,6 +11,7 @@ interface ProjectCardProps {
   index: number;
   readinessScore?: number | null;
   financeReadinessScore?: number | null;
+  posterUrl?: string | null;
   selected?: boolean;
   onSelect?: (id: string) => void;
   onTogglePin?: (id: string, pinned: boolean) => void;
@@ -52,7 +53,7 @@ function RecencyPulse({ updatedAt }: { updatedAt: string }) {
   return null;
 }
 
-export function ProjectCard({ project, index, readinessScore, financeReadinessScore, selected, onSelect, onTogglePin }: ProjectCardProps) {
+export function ProjectCard({ project, index, readinessScore, financeReadinessScore, posterUrl, selected, onSelect, onTogglePin }: ProjectCardProps) {
   const formatMeta = getFormatMeta(project.format);
   const FormatIcon = formatMeta.icon;
 
@@ -90,52 +91,67 @@ export function ProjectCard({ project, index, readinessScore, financeReadinessSc
 
       <Link
         to={`/projects/${project.id}`}
-        className={`group block glass-card rounded-xl p-5 transition-all duration-300 hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5 ${
+        className={`group block glass-card rounded-xl overflow-hidden transition-all duration-300 hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5 ${
           selected ? 'ring-1 ring-primary/40' : ''
         } ${project.pinned ? 'border-primary/15' : ''}`}
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-2">
-              <FormatIcon className={`h-4 w-4 shrink-0 ${formatMeta.color}`} />
-              <span className="text-xs text-muted-foreground uppercase tracking-wider">
-                {formatMeta.shortLabel}
-              </span>
-              <RecencyPulse updatedAt={project.updated_at} />
-              {project.pinned && (
-                <span className="text-[10px] text-primary font-medium">Pinned</span>
-              )}
-            </div>
-            <h3 className="text-lg font-display font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-              {project.title}
-            </h3>
-            {project.genres && project.genres.length > 0 && (
-              <p className="text-sm text-muted-foreground mt-1 truncate">
-                {project.genres.join(' · ')}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {readinessScore != null && (
-              <div className="flex flex-col items-center gap-0.5" title="Readiness Score">
-                <MiniScoreRing score={readinessScore} />
-                <span className="text-[8px] text-muted-foreground">Ready</span>
-              </div>
-            )}
-            {financeReadinessScore != null && (
-              <div className="flex flex-col items-center gap-0.5" title="Greenlight Probability">
-                <MiniScoreRing score={financeReadinessScore} />
-                <span className="text-[8px] text-muted-foreground">GP</span>
-              </div>
-            )}
-            <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
-          </div>
-        </div>
-        {project.assigned_lane && (
-          <div className="mt-4">
-            <LaneBadge lane={project.assigned_lane as MonetisationLane} size="sm" />
+        {/* Poster band — cinematic top strip */}
+        {posterUrl && (
+          <div className="relative h-28 overflow-hidden">
+            <img
+              src={posterUrl}
+              alt=""
+              className="w-full h-full object-cover object-top"
+              loading="lazy"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
           </div>
         )}
+
+        <div className="p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <FormatIcon className={`h-4 w-4 shrink-0 ${formatMeta.color}`} />
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">
+                  {formatMeta.shortLabel}
+                </span>
+                <RecencyPulse updatedAt={project.updated_at} />
+                {project.pinned && (
+                  <span className="text-[10px] text-primary font-medium">Pinned</span>
+                )}
+              </div>
+              <h3 className="text-lg font-display font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                {project.title}
+              </h3>
+              {project.genres && project.genres.length > 0 && (
+                <p className="text-sm text-muted-foreground mt-1 truncate">
+                  {project.genres.join(' · ')}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {readinessScore != null && (
+                <div className="flex flex-col items-center gap-0.5" title="Readiness Score">
+                  <MiniScoreRing score={readinessScore} />
+                  <span className="text-[8px] text-muted-foreground">Ready</span>
+                </div>
+              )}
+              {financeReadinessScore != null && (
+                <div className="flex flex-col items-center gap-0.5" title="Greenlight Probability">
+                  <MiniScoreRing score={financeReadinessScore} />
+                  <span className="text-[8px] text-muted-foreground">GP</span>
+                </div>
+              )}
+              <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
+            </div>
+          </div>
+          {project.assigned_lane && (
+            <div className="mt-4">
+              <LaneBadge lane={project.assigned_lane as MonetisationLane} size="sm" />
+            </div>
+          )}
+        </div>
       </Link>
     </motion.div>
   );

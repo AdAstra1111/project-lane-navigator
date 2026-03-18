@@ -15,6 +15,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useDashboardScores } from '@/hooks/useDashboardScores';
 import { useAllCompanyLinks } from '@/hooks/useAllCompanyLinks';
+import { useActivePostersForProjects } from '@/hooks/useActiveProjectPoster';
 import { exportProjectsCsv } from '@/lib/csv-export';
 import { toast } from 'sonner';
 
@@ -46,6 +47,7 @@ export default function Dashboard() {
   }, [projects, selectedCompanyId, linkMap]);
 
   const { data: projectScores = {} } = useDashboardScores(filteredProjects);
+  const { posterMap } = useActivePostersForProjects(filteredProjects.map(p => p.id));
 
   const displayCompany = selectedCompanyId !== 'all'
     ? companies.find(c => c.id === selectedCompanyId) || primaryCompany
@@ -229,6 +231,7 @@ export default function Dashboard() {
                     index={i}
                     readinessScore={projectScores[project.id]?.readiness ?? null}
                     financeReadinessScore={projectScores[project.id]?.financeReadiness ?? null}
+                    posterUrl={posterMap.get(project.id) || null}
                     selected={selectedIds.has(project.id)}
                     onSelect={toggleSelect}
                     onTogglePin={handleTogglePin}
