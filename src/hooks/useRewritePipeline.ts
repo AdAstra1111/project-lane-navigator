@@ -384,8 +384,8 @@ export function useRewritePipeline(projectId: string | undefined) {
       const assembleResult = await callEngine('rewrite-assemble', {
         projectId, documentId, versionId, planRunId, assembledText,
         rewriteModeSelected: provenance?.rewriteModeSelected || 'auto',
-        rewriteModeEffective: provenance?.rewriteModeEffective || 'chunk',
-        rewriteModeReason: provenance?.rewriteModeReason || 'auto_probe_chunk',
+        rewriteModeEffective: provenance?.rewriteModeEffective || (resolvedStrategy === 'episodic_indexed' ? 'episodic' : 'chunk'),
+        rewriteModeReason: provenance?.rewriteModeReason || (resolvedStrategy === 'episodic_indexed' ? 'episodic_indexed' : 'auto_probe_chunk'),
         rewriteModeDebug: provenance?.rewriteModeDebug || null,
         rewriteProbe: provenance?.rewriteProbe || null,
       });

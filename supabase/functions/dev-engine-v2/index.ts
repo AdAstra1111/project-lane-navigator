@@ -7765,7 +7765,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
             violation: sidResult.violation,
             violations: sidResult.details.violations,
             repair_hint: sidResult.repair_hint,
-            detail: `Chunked rewrite output for ${effectiveDeliverable} exceeded stage identity constraints and was not saved. ${sidResult.repair_hint || "Regenerate with correct stage constraints."}`,
+            detail: `Rewrite output for ${effectiveDeliverable} exceeded stage identity constraints and was not saved. ${sidResult.repair_hint || "Regenerate with correct stage constraints."}`,
           }), {
             status: 422,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -7782,15 +7782,32 @@ MATERIAL TO REWRITE:\n${fullText}`;
           .limit(1)
           .single();
         const nextVersion = (maxRow?.version_number ?? 0) + 1;
+        const isEpisodicStrategy = planOutput?.strategy === "episodic_indexed";
+        const episodicCount = Number(planOutput?.episode_count) || 0;
+        const affectedCount = Number(planOutput?.total_chunks) || 0;
+        const changeSummaryText = isEpisodicStrategy
+          ? (affectedCount > 0 && affectedCount < episodicCount
+            ? `Selective episode rewrite — ${affectedCount} of ${episodicCount} episodes affected.`
+            : `Episode-scoped rewrite across ${episodicCount} episodes.`)
+          : `Chunked rewrite across ${nextVersion - 1} iterations.`;
+        const generatorId = isEpisodicStrategy
+          ? "dev-engine-v2-rewrite-episodic"
+          : "dev-engine-v2-rewrite-chunked";
         const { data: nv, error: vErr } = await writeVersionSafe(supabase, {
           documentId,
           versionNumber: nextVersion,
-          label: `Rewrite pass ${nextVersion}`,
+          label: isEpisodicStrategy ? `Episode rewrite pass ${nextVersion}` : `Rewrite pass ${nextVersion}`,
           plaintext: assembledText,
           createdBy: user.id,
           parentVersionId: versionId,
-          changeSummary: `Chunked rewrite across ${nextVersion - 1} iterations.`,
-          generatorId: "dev-engine-v2-rewrite-chunked",
+          changeSummary: changeSummaryText,
+          generatorId,
+          metaJson: chunkMetaJson,
+          deliverableType: effectiveDeliverable,
+          format: assembleProject?.format || undefined,
+          dependsOnResolverHash: chunkedResolverHash,
+          projectId,
+        });
           metaJson: chunkMetaJson,
           deliverableType: effectiveDeliverable,
           format: assembleProject?.format || undefined,
@@ -7812,6 +7829,15 @@ MATERIAL TO REWRITE:\n${fullText}`;
         newVersion.meta_json = mergedMeta;
       }
 
+      const isEpisodicRun = planOutput?.strategy === "episodic_indexed";
+      const runEpisodeCount = Number(planOutput?.episode_count) || 0;
+      const runAffectedCount = Number(planOutput?.total_chunks) || 0;
+      const changesSummaryText = isEpisodicRun
+        ? (runAffectedCount > 0 && runAffectedCount < runEpisodeCount
+          ? `Selective episode rewrite — ${runAffectedCount} of ${runEpisodeCount} episodes. Applied ${notesCount} notes.`
+          : `Episode-scoped rewrite across ${runEpisodeCount} episodes. Applied ${notesCount} notes.`)
+        : `Full chunked rewrite. Applied ${notesCount} notes.`;
+
       const { data: run } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
@@ -7819,16 +7845,17 @@ MATERIAL TO REWRITE:\n${fullText}`;
         user_id: user.id,
         run_type: "REWRITE",
         output_json: {
-          rewrite_mode_used: "chunk",
+          rewrite_mode_used: isEpisodicRun ? "episodic" : "chunk",
           rewrite_mode_selected: rewriteModeSelected || "auto",
-          rewrite_mode_effective: rewriteModeEffective || "chunk",
-          rewrite_mode_reason: rewriteModeReason || "auto_probe_chunk",
+          rewrite_mode_effective: rewriteModeEffective || (isEpisodicRun ? "episodic" : "chunk"),
+          rewrite_mode_reason: rewriteModeReason || (isEpisodicRun ? "episodic_indexed" : "auto_probe_chunk"),
           rewrite_mode_debug: rewriteModeDebug || null,
           rewrite_probe: rewriteProbe || null,
           rewritten_text: `[${assembledText.length} chars]`,
-          changes_summary: `Full chunked rewrite. Applied ${notesCount} notes.`,
+          changes_summary: changesSummaryText,
           source_version_id: versionId,
           source_doc_id: documentId,
+          ...(isEpisodicRun ? { episode_count: runEpisodeCount, affected_episodes: runAffectedCount } : {}),
         },
         schema_version: SCHEMA_VERSION,
       }).select().single();
