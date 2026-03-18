@@ -542,7 +542,7 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
     const needsRepairSet = new Set<number>([...missing, ...stubEpisodes, ...collapseEpisodes]);
 
     if (globalCollapse && collapseEpisodes.length === 0) {
-      const forced = Array.from({ length: Math.min(BATCH_SIZE, episodeCount) }, (_, i) => i + 1);
+      const forced = Array.from({ length: episodeCount }, (_, i) => i + 1);
       for (const ep of forced) needsRepairSet.add(ep);
     }
 

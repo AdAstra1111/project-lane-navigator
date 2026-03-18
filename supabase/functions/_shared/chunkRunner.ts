@@ -179,8 +179,14 @@ async function generateSingleChunk(
   let chunkPrompt: string;
 
   if (plan.strategy === "episodic_indexed") {
-    const epRange = `Episodes ${chunk.episodeStart}–${chunk.episodeEnd}`;
-    chunkPrompt = `You are generating ${epRange} for the project "${projectTitle}".
+    const isSingleEpisodeUnit = chunk.episodeStart != null && chunk.episodeEnd != null && chunk.episodeStart === chunk.episodeEnd;
+    const epRange = isSingleEpisodeUnit
+      ? `Episode ${chunk.episodeStart}`
+      : `Episodes ${chunk.episodeStart}–${chunk.episodeEnd}`;
+    const episodeCountLabel = isSingleEpisodeUnit
+      ? `Episode ${chunk.episodeStart} of ${plan.totalChunks}`
+      : epRange;
+    chunkPrompt = `You are generating ${episodeCountLabel} for the project "${projectTitle}".
 Document type: ${docType.replace(/_/g, " ")}
 
 CRITICAL RULES:
@@ -188,14 +194,14 @@ CRITICAL RULES:
 - Each episode MUST have its own heading: "## EPISODE N" or "**EPISODE N**"
 - Do NOT summarize, compress, or skip any episode.
 - Do NOT use phrases like "remaining episodes follow similar pattern" or "etc."
-- Every episode in the range ${chunk.episodeStart}–${chunk.episodeEnd} must be fully developed.
+- Every episode in the requested unit must be fully developed.
 
 ${additionalContext ? `CREATIVE DIRECTION:\n${additionalContext}\n` : ""}
-${previousChunkEnding ? `PREVIOUS CHUNK ENDING (for continuity):\n...${previousChunkEnding}\n` : ""}
+${previousChunkEnding ? `PREVIOUS EPISODE ENDING (for continuity):\n...${previousChunkEnding}\n` : ""}
 UPSTREAM CONTEXT:
 ${upstreamContent}
 
-Generate ${epRange} now. Full content for each episode.`;
+Generate ${epRange} now. Full content only.`;
   } else if (plan.strategy === "sectioned") {
     const sectionLabel = chunk.label;
 
