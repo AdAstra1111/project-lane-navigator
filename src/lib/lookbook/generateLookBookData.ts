@@ -118,6 +118,7 @@ export async function generateLookBookData(
   // 2. Load canonical state (authoritative source of truth)
   const canonicalState = await getCanonicalProjectState(projectId);
   const canon = canonicalState.state;
+  console.log('[LookBook] ✓ canon loaded, source:', canonicalState.source, 'fields:', canonicalState.evidence.canon_editor_fields);
 
   // 3. Load current document versions for synopsis/statement
   const { data: docs } = await supabase
