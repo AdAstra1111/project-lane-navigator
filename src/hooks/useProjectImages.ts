@@ -6,6 +6,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { ProjectImage, ProjectImageRole } from '@/lib/images/types';
+import { DOCUMENT_IMAGE_MAP } from '@/lib/images/types';
 
 const IMAGE_STALE_TIME = 20 * 60 * 1000; // 20 min (signed URLs valid for 1hr)
 
