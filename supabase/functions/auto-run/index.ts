@@ -8858,19 +8858,42 @@ Deno.serve(async (req) => {
       // ── C0) Background generation guard: if current version status='generating', yield and wait ──
       // A 'generating' version was created by a background task (e.g. episode_beats for 30+ episodes).
       // Do NOT attempt auto-regen or analysis — just yield and let the background task finish.
+      // STALE GUARD: if bg_generating has been true for > 15 minutes, the background task likely
+      // crashed (e.g. 503 RUNTIME_ERROR killing EdgeRuntime.waitUntil). Clear it and proceed.
       if (reviewCharCount === 0 && latestVersion?.id) {
         const { data: versionStatusRow } = await supabase.from("project_document_versions")
-          .select("meta_json")
+          .select("meta_json, created_at")
           .eq("id", latestVersion.id)
           .maybeSingle();
         if ((versionStatusRow?.meta_json as any)?.bg_generating === true) {
-          const newStep = stepCount + 1;
-          await logStep(supabase, jobId, newStep, currentDoc, "generate",
-            `Background generation in progress for ${currentDoc} — yielding until complete`,
-            {}, undefined, { versionId: latestVersion.id, status: "generating" }
-          );
-          await updateJob(supabase, jobId, { step_count: newStep, stage_loop_count: (job.stage_loop_count || 0) });
-          return respondWithJob(supabase, jobId);
+          const bgStarted = (versionStatusRow?.meta_json as any)?.bg_started_at || versionStatusRow?.created_at;
+          const ageMs = bgStarted ? Date.now() - new Date(bgStarted).getTime() : Infinity;
+          const BG_STALE_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
+
+          if (ageMs < BG_STALE_THRESHOLD_MS) {
+            // Still fresh — yield and wait
+            const newStep = stepCount + 1;
+            await logStep(supabase, jobId, newStep, currentDoc, "generate",
+              `Background generation in progress for ${currentDoc} (age ${Math.round(ageMs/1000)}s) — yielding until complete`,
+              {}, undefined, { versionId: latestVersion.id, status: "generating", ageSeconds: Math.round(ageMs/1000) }
+            );
+            await updateJob(supabase, jobId, { step_count: newStep, stage_loop_count: (job.stage_loop_count || 0) });
+            return respondWithJob(supabase, jobId);
+          }
+
+          // Stale bg_generating — clear and let auto-regen proceed
+          console.warn(`[auto-run][IEL] bg_generating_stale_cleared`, JSON.stringify({
+            job_id: jobId, doc_type: currentDoc, version_id: latestVersion.id,
+            age_minutes: Math.round(ageMs / 60000), threshold_minutes: 15,
+          }));
+          await supabase.from("project_document_versions")
+            .update({ meta_json: { bg_generating: false, bg_stale: true, bg_stale_cleared_at: new Date().toISOString(), bg_stale_reason: "auto_run_timeout" } })
+            .eq("id", latestVersion.id);
+          // Also mark any stuck 'running' chunks as 'failed' so they can be retried
+          await supabase.from("project_document_chunks")
+            .update({ status: "failed", meta_json: { stale_reason: "bg_generating_timeout", cleared_at: new Date().toISOString() } } as any)
+            .eq("version_id", latestVersion.id)
+            .eq("status", "running");
         }
       }
 
