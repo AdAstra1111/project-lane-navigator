@@ -85,6 +85,7 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
     blockerCount: tieredNotes.blockers.length,
     majorNoteCount: tieredNotes.high.length,
     minorNoteCount: tieredNotes.polish.length,
+    versionNumber,
   };
   const decision = computeManualDecisionState(decisionInput);
   const badgeStyle = SEVERITY_STYLES[decision.severity];
