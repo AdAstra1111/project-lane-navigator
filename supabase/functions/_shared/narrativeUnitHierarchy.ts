@@ -22,16 +22,22 @@
  *    - preserve unaffected scenes exactly
  *    - reassemble full script from preserved + rewritten scene units
  *
- * 3. LONG-FORM SERIES SCRIPTING (NORTH STAR)
- *    For long-form episodic series scripts:
+ * 3. EPISODIC SCRIPT DOCS WITH SCENE STRUCTURE (CANONICAL)
+ *    For ANY episodic script deliverable with scene structure,
+ *    including vertical drama, long-form series, and season scripts:
  *      outer unit = episode
  *      inner unit = scene
+ *    Docs: season_script, season_master_script, episode_script
  *    - first compute affected episodes
  *    - within each affected episode, compute affected scenes
+ *      (where scene-level targeting is available)
  *    - rewrite only affected scenes inside affected episodes
  *    - preserve untouched scenes within affected episodes
  *    - preserve untouched episodes outside affected set
  *    - reassemble episode → reassemble season/series script
+ *    This is the DEFAULT for all episodic scripts when scene graph
+ *    data is available. No lane restriction — applies to vertical
+ *    drama, long-form series, and any future episodic format.
  *
  * 4. UI / OPERATOR TRUTH
  *    Progress must reflect the true unit model:
