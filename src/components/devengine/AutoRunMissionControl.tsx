@@ -1568,7 +1568,7 @@ export function AutoRunMissionControl({
               {/* Stop reason / error (when not related to approval) */}
               {job.stop_reason && !job.awaiting_approval && !hasDecisions && (
                 <div className="text-[10px] text-amber-400 bg-amber-500/5 border border-amber-500/20 rounded p-2 space-y-1.5">
-                  <div>{job.stop_reason}</div>
+                  <div>{formatStopReason(job.stop_reason)}</div>
                   {job.stop_reason === 'INPUT_INCOMPLETE' && (
                     <Button
                       size="sm"
