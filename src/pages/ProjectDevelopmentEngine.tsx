@@ -12,6 +12,7 @@ import { SceneRewritePanel } from '@/components/devengine/SceneRewritePanel';
 import QualityRunHistory from '@/components/cinematic/QualityRunHistory';
 import { DocSetManager } from '@/components/notes/DocSetManager';
 import { ProcessProgressBar } from '@/components/devengine/ProcessProgressBar';
+import { EpisodeRewriteWorkspace } from '@/components/devengine/EpisodeRewriteWorkspace';
 import { ActivityTimeline } from '@/components/devengine/ActivityTimeline';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
