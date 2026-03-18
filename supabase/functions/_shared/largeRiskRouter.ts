@@ -89,10 +89,10 @@ export function strategyFor(docType: string): ChunkStrategy {
 }
 
 /**
- * Default episodes per chunk for episodic doc types.
- * Configurable per lane in the future.
+ * Episodic docs execute one episode per unit.
+ * This is the authoritative default for episode-indexed generation + rewrite.
  */
-const DEFAULT_EPISODIC_BATCH_SIZE = 5;
+const DEFAULT_EPISODIC_BATCH_SIZE = 1;
 
 /**
  * Default sections for non-episodic large-risk docs.
