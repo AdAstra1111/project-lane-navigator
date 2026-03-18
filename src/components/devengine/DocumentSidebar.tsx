@@ -23,6 +23,14 @@ import { toast } from 'sonner';
 
 import { getDocTypeLabel, getDocDisplayName } from '@/lib/can-promote-to-script';
 
+/** Sanitize legacy "Chunked rewrite" labels for episodic docs */
+function sanitizeChangeSummary(summary: string | null | undefined): string | null {
+  if (!summary) return null;
+  return summary
+    .replace(/^Chunked rewrite across (\d+) iterations?\.$/i, 'Episode-scoped rewrite across $1 passes.')
+    .replace(/Generated via chunked large-risk pipeline/i, 'Generated via episodic pipeline');
+}
+
 const SYSTEM_DOC_TYPES = new Set(['project_overview', 'creative_brief', 'market_positioning', 'canon', 'nec']);
 
 const STORAGE_KEY = 'devEngine.leftTrayWidth';
@@ -400,7 +408,7 @@ export function DocumentSidebar({
                       )}
                     </div>
                   </div>
-                  {v.change_summary && <span className="text-[8px] block mt-0.5 truncate opacity-70">{v.change_summary}</span>}
+                  {v.change_summary && <span className="text-[8px] block mt-0.5 truncate opacity-70">{sanitizeChangeSummary(v.change_summary)}</span>}
                 </div>
                   </TooltipTrigger>
                   <TooltipContent side="right" className="text-xs max-w-[280px]">
@@ -410,7 +418,7 @@ export function DocumentSidebar({
                       {isApprovedVersion && ' · Active Approved'}
                       {!isApprovedVersion && v.approval_status === 'approved' && ' · Previously Approved'}
                     </p>
-                    {v.change_summary && <p className="text-muted-foreground text-[10px] mt-0.5">{v.change_summary}</p>}
+                    {v.change_summary && <p className="text-muted-foreground text-[10px] mt-0.5">{sanitizeChangeSummary(v.change_summary)}</p>}
                   </TooltipContent>
                 </Tooltip>
               );

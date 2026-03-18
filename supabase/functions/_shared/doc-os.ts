@@ -270,7 +270,7 @@ const SYSTEM_GENERATOR_IDS = new Set([
   "dev-engine-v2-convert", "dev-engine-v2-regen-insufficient", "dev-engine-v2-series-scripts",
   "dev-engine-v2-series-autorun", "dev-engine-v2-build-master", "dev-engine-v2-rebase",
   "dev-engine-v2-regen-tick",
-  "dev-engine-v2-rewrite", "dev-engine-v2-rewrite-chunked",
+  "dev-engine-v2-rewrite", "dev-engine-v2-rewrite-chunked", "dev-engine-v2-rewrite-episodic",
   "seed-pack",
   "generate-document", "system",
   "notes-engine", "idea-to-project", "season-package",
@@ -322,7 +322,7 @@ export function shouldRunCanonAlignment(
   // produce false positives because chunks may not mention all canon entity names.
   if (
     (docType === "production_draft" || docType === "season_script" || docType === "feature_script") &&
-    generatorId === "dev-engine-v2-rewrite-chunked"
+    (generatorId === "dev-engine-v2-rewrite-chunked" || generatorId === "dev-engine-v2-rewrite-episodic")
   ) {
     console.log(`[doc-os][PAL] canon_alignment_skipped: rewrite_refinement_exempt { format: "${fmtKey || 'unknown'}", doc_type: "${docType}", generator: "${generatorId}" }`);
     return false;

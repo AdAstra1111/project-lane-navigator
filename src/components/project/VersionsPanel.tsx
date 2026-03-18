@@ -227,7 +227,7 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
                     ) : (
                       <>
                         {v.change_summary && (
-                          <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{v.change_summary}</p>
+                          <p className="text-muted-foreground/70 mt-0.5 line-clamp-1">{v.change_summary.replace(/^Chunked rewrite across (\d+) iterations?\.$/i, 'Episode-scoped rewrite across $1 passes.').replace(/Generated via chunked large-risk pipeline/i, 'Generated via episodic pipeline')}</p>
                         )}
                       </>
                     )}

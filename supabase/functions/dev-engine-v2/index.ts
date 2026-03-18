@@ -7738,7 +7738,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
         if (rrResp.ok) { const rr = await rrResp.json(); chunkedResolverHash = rr.resolver_hash || rr.resolved_qualifications_hash || null; }
       } catch (_) { /* non-fatal */ }
       if (!chunkedResolverHash) {
-        console.warn(`[dev-engine-v2][IEL] missing_dependsOnResolverHash { project_id: "${projectId}", deliverableType: "${effectiveDeliverable}", generator: "dev-engine-v2-rewrite-chunked" }`);
+        console.warn(`[dev-engine-v2][IEL] missing_dependsOnResolverHash { project_id: "${projectId}", deliverableType: "${effectiveDeliverable}", generator: "dev-engine-v2-rewrite" }`);
       }
 
       // ── STAGE IDENTITY GATE — block persistence of malformed chunked stage artifacts ──
