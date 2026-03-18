@@ -1,23 +1,11 @@
 /**
- * generateLookBookData — Assembles Look Book slides from project canon + documents.
- * Runs client-side, pulling from Supabase. No AI generation needed for structure.
+ * generateLookBookData — Assembles Look Book slides from canonical project state.
+ * Uses getCanonicalProjectState for authoritative content sourcing.
+ * Runs client-side, pulling from Supabase.
  */
 import { supabase } from '@/integrations/supabase/client';
+import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
 import type { LookBookData, LookBookVisualIdentity, SlideContent, LookBookColorSystem } from './types';
-
-interface ProjectCanon {
-  logline?: string;
-  premise?: string;
-  characters?: Array<{ name: string; role: string; goals?: string; traits?: string; description?: string }>;
-  timeline?: string;
-  world_rules?: string;
-  locations?: string;
-  tone_style?: string;
-  format_constraints?: string;
-  themes?: string;
-  comparables?: string;
-  [key: string]: unknown;
-}
 
 // ── Color palettes by tone/genre ──
 const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
@@ -51,6 +39,18 @@ const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
     accent: '#C44040', accentMuted: 'rgba(196, 64, 64, 0.2)',
     gradientFrom: '#0A0506', gradientTo: '#1A0A0A',
   },
+  verdant: {
+    bg: '#060C08', bgSecondary: '#0C180E',
+    text: '#E8F0EA', textMuted: '#6A8A70',
+    accent: '#5AAE6A', accentMuted: 'rgba(90, 174, 106, 0.2)',
+    gradientFrom: '#060C08', gradientTo: '#0A1A0C',
+  },
+  oceanic: {
+    bg: '#06090E', bgSecondary: '#0A1018',
+    text: '#E5ECF5', textMuted: '#6580A0',
+    accent: '#3A8ABF', accentMuted: 'rgba(58, 138, 191, 0.2)',
+    gradientFrom: '#06090E', gradientTo: '#081520',
+  },
 };
 
 function resolveColorPalette(tone?: string, genre?: string): LookBookColorSystem {
@@ -60,11 +60,13 @@ function resolveColorPalette(tone?: string, genre?: string): LookBookColorSystem
   if (g.includes('thriller') || g.includes('crime') || t.includes('cold')) return COLOR_PALETTES.thriller;
   if (g.includes('horror') || t.includes('horror')) return COLOR_PALETTES.horror;
   if (t.includes('warm') || g.includes('romance') || g.includes('comedy')) return COLOR_PALETTES.warm;
+  if (g.includes('adventure') || g.includes('nature') || g.includes('fantasy')) return COLOR_PALETTES.verdant;
+  if (g.includes('sci-fi') || g.includes('scifi')) return COLOR_PALETTES.oceanic;
   return COLOR_PALETTES.prestige;
 }
 
-function resolveIdentity(canon: ProjectCanon, genre?: string): LookBookVisualIdentity {
-  const tone = canon.tone_style || '';
+function resolveIdentity(canonState: Record<string, unknown>, genre?: string): LookBookVisualIdentity {
+  const tone = (canonState.tone_style as string) || '';
   const colors = resolveColorPalette(tone, genre);
   const t = tone.toLowerCase();
   return {
@@ -94,7 +96,7 @@ export async function generateLookBookData(
   projectId: string,
   branding: { companyName: string | null; companyLogoUrl: string | null },
 ): Promise<LookBookData> {
-  // 1. Load project
+  // 1. Load project metadata
   const { data: project } = await supabase
     .from('projects')
     .select('title, genre, format, logline, themes, tone, assigned_lane')
@@ -103,16 +105,11 @@ export async function generateLookBookData(
 
   if (!project) throw new Error('Project not found');
 
-  // 2. Load canon
-  let canon: ProjectCanon = {};
-  const { data: canonRow } = await (supabase as any)
-    .from('project_canon')
-    .select('canon_json')
-    .eq('project_id', projectId)
-    .maybeSingle();
-  if (canonRow?.canon_json) canon = canonRow.canon_json;
+  // 2. Load canonical state (authoritative source of truth)
+  const canonicalState = await getCanonicalProjectState(projectId);
+  const canon = canonicalState.state;
 
-  // 3. Load key documents for synopsis/statement
+  // 3. Load current document versions for synopsis/statement
   const { data: docs } = await supabase
     .from('project_documents')
     .select('doc_type, latest_version_id')
@@ -124,10 +121,13 @@ export async function generateLookBookData(
   if (docs?.length) {
     const versionIds = docs.map((d: any) => d.latest_version_id).filter(Boolean);
     if (versionIds.length) {
+      // Use is_current versions for authoritative content
       const { data: versions } = await supabase
         .from('project_document_versions')
-        .select('plaintext, deliverable_type')
-        .in('id', versionIds);
+        .select('plaintext, deliverable_type, is_current')
+        .in('id', versionIds)
+        .eq('is_current', true);
+      
       for (const v of versions || []) {
         const text = (v as any).plaintext || '';
         if (text.length > synopsis.length && (v as any).deliverable_type !== 'treatment') {
@@ -135,6 +135,23 @@ export async function generateLookBookData(
         }
         if ((v as any).deliverable_type === 'treatment' || (v as any).deliverable_type === 'blueprint') {
           creativeStatement = text.slice(0, 600);
+        }
+      }
+
+      // Fallback: if no is_current versions found, use the latest_version_id versions
+      if (!synopsis && !creativeStatement) {
+        const { data: fallbackVersions } = await supabase
+          .from('project_document_versions')
+          .select('plaintext, deliverable_type')
+          .in('id', versionIds);
+        for (const v of fallbackVersions || []) {
+          const text = (v as any).plaintext || '';
+          if (text.length > synopsis.length && (v as any).deliverable_type !== 'treatment') {
+            synopsis = text.slice(0, 800);
+          }
+          if ((v as any).deliverable_type === 'treatment' || (v as any).deliverable_type === 'blueprint') {
+            creativeStatement = text.slice(0, 600);
+          }
         }
       }
     }
@@ -159,14 +176,14 @@ export async function generateLookBookData(
     }
   } catch { /* poster table may not exist yet */ }
 
-  // 5. Build identity
+  // 5. Build identity from canonical state
   const identity = resolveIdentity(canon, (project as any).genre);
-  const logline = canon.logline || (project as any).logline || '';
+  const logline = (canon.logline as string) || (project as any).logline || '';
   const title = (project as any).title || 'Untitled Project';
   const writerCredit = 'Written by Sebastian Street';
   const companyName = branding.companyName || 'Paradox House';
 
-  // 6. Build slides
+  // 6. Build slides from canonical content
   const slides: SlideContent[] = [];
 
   // COVER
@@ -180,16 +197,18 @@ export async function generateLookBookData(
     imageUrl: coverImageUrl || undefined,
   });
 
-  // OVERVIEW
+  // OVERVIEW — use canonical premise over raw synopsis
+  const overviewBody = logline;
+  const overviewDetail = (canon.premise as string) || synopsis.slice(0, 500);
   slides.push({
     type: 'overview',
     title: 'Project Overview',
-    body: logline,
-    bodySecondary: synopsis ? synopsis.slice(0, 500) : canon.premise || undefined,
+    body: overviewBody,
+    bodySecondary: overviewDetail || undefined,
     bullets: [
       (project as any).genre ? `Genre: ${(project as any).genre}` : '',
       (project as any).format ? `Format: ${(project as any).format}` : '',
-      canon.tone_style ? `Tone: ${canon.tone_style}` : '',
+      (canon.tone_style as string) ? `Tone: ${canon.tone_style}` : '',
     ].filter(Boolean),
   });
 
@@ -198,19 +217,19 @@ export async function generateLookBookData(
     slides.push({
       type: 'world',
       title: 'The World',
-      body: canon.world_rules || undefined,
-      bodySecondary: canon.locations || undefined,
-      quote: canon.timeline || undefined,
+      body: (canon.world_rules as string) || undefined,
+      bodySecondary: (canon.locations as string) || undefined,
+      quote: (canon.timeline as string) || undefined,
     });
   }
 
-  // CHARACTERS
+  // CHARACTERS — from canonical state
   const chars = canon.characters;
   if (Array.isArray(chars) && chars.length > 0) {
     slides.push({
       type: 'characters',
       title: 'Characters',
-      characters: chars.slice(0, 5).map(c => ({
+      characters: chars.slice(0, 5).map((c: any) => ({
         name: c.name || 'Unnamed',
         role: c.role || '',
         description: c.goals || c.traits || c.description || '',
@@ -219,13 +238,13 @@ export async function generateLookBookData(
   }
 
   // THEMES & TONE
-  const themes = (project as any).themes || canon.tone_style;
+  const themes = (project as any).themes || (canon.tone_style as string);
   if (themes) {
     slides.push({
       type: 'themes',
       title: 'Themes & Tone',
       body: typeof themes === 'string' ? themes : Array.isArray(themes) ? themes.join(' · ') : '',
-      bodySecondary: canon.tone_style || undefined,
+      bodySecondary: (canon.tone_style as string) || undefined,
     });
   }
 
@@ -247,7 +266,7 @@ export async function generateLookBookData(
     slides.push({
       type: 'story_engine',
       title: 'Story Engine',
-      body: canon.format_constraints || 'A serialised narrative designed for sustained audience engagement.',
+      body: (canon.format_constraints as string) || 'A serialised narrative designed for sustained audience engagement.',
       bullets: [
         'Each episode ends on a dramatic question',
         'Character arcs span the full season',

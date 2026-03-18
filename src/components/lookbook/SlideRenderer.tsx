@@ -2,7 +2,6 @@
  * SlideRenderer — Renders a single Look Book slide at 1920×1080 fixed resolution.
  * Each slide type has its own deterministic layout composition.
  */
-import { cn } from '@/lib/utils';
 import type { SlideContent, LookBookVisualIdentity } from '@/lib/lookbook/types';
 
 interface SlideRendererProps {
@@ -33,29 +32,31 @@ export function SlideRenderer({ slide, identity, slideIndex, totalSlides }: Slid
     letterSpacing: typography.titleUppercase ? '0.12em' : '0.02em',
   };
 
+  const shared: SlideProps = { slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides };
+
   switch (slide.type) {
     case 'cover':
-      return <CoverSlide slide={slide} colors={colors} titleStyle={titleStyle} baseStyle={baseStyle} fontBody={fontBody} />;
+      return <CoverSlide {...shared} />;
     case 'overview':
-      return <ContentSlide slide={slide} colors={colors} titleStyle={titleStyle} baseStyle={baseStyle} fontBody={fontBody} slideIndex={slideIndex} totalSlides={totalSlides} />;
+      return <OverviewSlide {...shared} />;
     case 'world':
-      return <ContentSlide slide={slide} colors={colors} titleStyle={titleStyle} baseStyle={baseStyle} fontBody={fontBody} slideIndex={slideIndex} totalSlides={totalSlides} />;
+      return <WorldSlide {...shared} />;
     case 'characters':
-      return <CharacterSlide slide={slide} colors={colors} titleStyle={titleStyle} baseStyle={baseStyle} fontBody={fontBody} slideIndex={slideIndex} totalSlides={totalSlides} />;
+      return <CharacterSlide {...shared} />;
     case 'themes':
-      return <ContentSlide slide={slide} colors={colors} titleStyle={titleStyle} baseStyle={baseStyle} fontBody={fontBody} slideIndex={slideIndex} totalSlides={totalSlides} />;
+      return <ThemesSlide {...shared} />;
     case 'visual_language':
-      return <ContentSlide slide={slide} colors={colors} titleStyle={titleStyle} baseStyle={baseStyle} fontBody={fontBody} slideIndex={slideIndex} totalSlides={totalSlides} />;
+      return <VisualLanguageSlide {...shared} />;
     case 'story_engine':
-      return <ContentSlide slide={slide} colors={colors} titleStyle={titleStyle} baseStyle={baseStyle} fontBody={fontBody} slideIndex={slideIndex} totalSlides={totalSlides} />;
+      return <ContentSlide {...shared} />;
     case 'comparables':
-      return <ComparablesSlide slide={slide} colors={colors} titleStyle={titleStyle} baseStyle={baseStyle} fontBody={fontBody} slideIndex={slideIndex} totalSlides={totalSlides} />;
+      return <ComparablesSlide {...shared} />;
     case 'creative_statement':
-      return <StatementSlide slide={slide} colors={colors} titleStyle={titleStyle} baseStyle={baseStyle} fontBody={fontBody} slideIndex={slideIndex} totalSlides={totalSlides} />;
+      return <StatementSlide {...shared} />;
     case 'closing':
-      return <ClosingSlide slide={slide} colors={colors} titleStyle={titleStyle} baseStyle={baseStyle} fontBody={fontBody} />;
+      return <ClosingSlide {...shared} />;
     default:
-      return <ContentSlide slide={slide} colors={colors} titleStyle={titleStyle} baseStyle={baseStyle} fontBody={fontBody} slideIndex={slideIndex} totalSlides={totalSlides} />;
+      return <ContentSlide {...shared} />;
   }
 }
 
@@ -82,12 +83,31 @@ function SlideNumber({ index, total, color }: { index: number; total: number; co
   );
 }
 
-function AccentLine({ color }: { color: string }) {
+function AccentLine({ color, centered }: { color: string; centered?: boolean }) {
   return (
     <div
       className="mb-8"
-      style={{ width: 60, height: 2, background: color, opacity: 0.6 }}
+      style={{
+        width: 60,
+        height: 2,
+        background: color,
+        opacity: 0.6,
+        ...(centered ? { margin: '0 auto 2rem auto' } : {}),
+      }}
     />
+  );
+}
+
+function SectionLabel({ label, color }: { label: string; color: string }) {
+  return (
+    <div className="mb-4">
+      <span
+        className="text-xs tracking-[0.3em] uppercase"
+        style={{ color, opacity: 0.7 }}
+      >
+        {label}
+      </span>
+    </div>
   );
 }
 
@@ -95,25 +115,23 @@ function AccentLine({ color }: { color: string }) {
 function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody }: SlideProps) {
   return (
     <div style={baseStyle} className="slide-content flex">
-      {/* Left: image area */}
       {slide.imageUrl && (
         <div className="absolute inset-0">
           <img
             src={slide.imageUrl}
             alt=""
             className="w-full h-full object-cover"
-            style={{ opacity: 0.35, filter: 'saturate(0.7)' }}
+            style={{ opacity: 0.3, filter: 'saturate(0.6) contrast(1.1)' }}
           />
           <div
             className="absolute inset-0"
             style={{
-              background: `linear-gradient(135deg, ${colors.bg} 30%, transparent 70%), linear-gradient(to top, ${colors.bg} 10%, transparent 50%)`,
+              background: `linear-gradient(135deg, ${colors.bg} 35%, transparent 75%), linear-gradient(to top, ${colors.bg} 15%, transparent 55%)`,
             }}
           />
         </div>
       )}
 
-      {/* Content */}
       <div className="relative z-10 flex flex-col justify-end p-24 pb-32 w-full">
         <AccentLine color={colors.accent} />
         <h1
@@ -144,7 +162,6 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody }: SlidePro
         </div>
       </div>
 
-      {/* Company logo - bottom right */}
       {slide.companyLogoUrl && (
         <div className="absolute bottom-10 right-16 z-10">
           <img
@@ -159,31 +176,204 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody }: SlidePro
   );
 }
 
-/* ── Content Slide (generic) ── */
+/* ── Overview Slide — distinctive two-panel layout ── */
+function OverviewSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex = 0, totalSlides = 1 }: SlideProps) {
+  return (
+    <div style={baseStyle} className="slide-content flex flex-col p-24">
+      <SectionLabel label="project overview" color={colors.accent} />
+      <AccentLine color={colors.accent} />
+
+      <h2 className="text-6xl font-semibold mb-16" style={{ ...titleStyle, color: colors.text }}>
+        {slide.title}
+      </h2>
+
+      <div className="flex gap-24 flex-1">
+        {/* Left: logline as pull-quote */}
+        <div className="flex-1 flex flex-col justify-center">
+          {slide.body && (
+            <p
+              className="text-3xl leading-snug font-medium mb-8"
+              style={{ color: colors.text, fontFamily: `"${fontBody}", sans-serif` }}
+            >
+              {slide.body}
+            </p>
+          )}
+          {slide.bodySecondary && (
+            <p
+              className="text-lg leading-relaxed"
+              style={{ color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}
+            >
+              {slide.bodySecondary}
+            </p>
+          )}
+        </div>
+
+        {/* Right: metadata panel */}
+        {slide.bullets && slide.bullets.length > 0 && (
+          <div
+            className="w-96 shrink-0 p-10 rounded-lg flex flex-col justify-center gap-8"
+            style={{ background: colors.bgSecondary, border: `1px solid ${colors.accentMuted}` }}
+          >
+            {slide.bullets.map((b, i) => {
+              const [label, value] = b.includes(':') ? b.split(':').map(s => s.trim()) : ['', b];
+              return (
+                <div key={i}>
+                  {label && (
+                    <span className="text-xs tracking-[0.2em] uppercase block mb-1" style={{ color: colors.accent }}>
+                      {label}
+                    </span>
+                  )}
+                  <span className="text-xl" style={{ color: colors.text }}>
+                    {value}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+    </div>
+  );
+}
+
+/* ── World Slide — atmospheric, quote-forward ── */
+function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex = 0, totalSlides = 1 }: SlideProps) {
+  return (
+    <div style={baseStyle} className="slide-content flex flex-col p-24">
+      <SectionLabel label="the world" color={colors.accent} />
+      <AccentLine color={colors.accent} />
+
+      <h2 className="text-6xl font-semibold mb-12" style={{ ...titleStyle, color: colors.text }}>
+        {slide.title}
+      </h2>
+
+      <div className="flex-1 flex flex-col justify-between">
+        <div className="max-w-4xl">
+          {slide.body && (
+            <p
+              className="text-xl leading-relaxed mb-8"
+              style={{ color: colors.text, opacity: 0.9, fontFamily: `"${fontBody}", sans-serif` }}
+            >
+              {slide.body}
+            </p>
+          )}
+          {slide.bodySecondary && (
+            <p
+              className="text-lg leading-relaxed"
+              style={{ color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}
+            >
+              {slide.bodySecondary}
+            </p>
+          )}
+        </div>
+
+        {slide.quote && (
+          <div
+            className="mt-auto pt-10 border-t max-w-3xl"
+            style={{ borderColor: colors.accentMuted }}
+          >
+            <p
+              className="text-2xl italic leading-relaxed"
+              style={{ color: colors.accent, opacity: 0.7, fontFamily: `"${fontBody}", sans-serif` }}
+            >
+              "{slide.quote}"
+            </p>
+          </div>
+        )}
+      </div>
+
+      <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+    </div>
+  );
+}
+
+/* ── Themes Slide — centered, typographic emphasis ── */
+function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex = 0, totalSlides = 1 }: SlideProps) {
+  return (
+    <div style={baseStyle} className="slide-content flex flex-col items-center justify-center p-24 text-center">
+      <SectionLabel label="themes & tone" color={colors.accent} />
+      <AccentLine color={colors.accent} centered />
+
+      <h2 className="text-6xl font-semibold mb-16" style={{ ...titleStyle, color: colors.text }}>
+        {slide.title}
+      </h2>
+
+      <div className="max-w-4xl">
+        {slide.body && (
+          <p
+            className="text-3xl leading-relaxed mb-10 font-light"
+            style={{ color: colors.text, fontFamily: `"${fontBody}", sans-serif` }}
+          >
+            {slide.body}
+          </p>
+        )}
+        {slide.bodySecondary && (
+          <p
+            className="text-lg leading-relaxed"
+            style={{ color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}
+          >
+            {slide.bodySecondary}
+          </p>
+        )}
+      </div>
+
+      <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+    </div>
+  );
+}
+
+/* ── Visual Language Slide — grid of attributes ── */
+function VisualLanguageSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex = 0, totalSlides = 1 }: SlideProps) {
+  return (
+    <div style={baseStyle} className="slide-content flex flex-col p-24">
+      <SectionLabel label="visual language" color={colors.accent} />
+      <AccentLine color={colors.accent} />
+
+      <h2 className="text-6xl font-semibold mb-16" style={{ ...titleStyle, color: colors.text }}>
+        {slide.title}
+      </h2>
+
+      <div className="grid grid-cols-2 gap-12 flex-1 max-w-5xl">
+        {(slide.bullets || []).map((b, i) => {
+          const [label, detail] = b.includes(':') ? b.split(':').map(s => s.trim()) : ['', b];
+          return (
+            <div
+              key={i}
+              className="p-8 rounded-lg"
+              style={{ background: colors.bgSecondary, border: `1px solid ${colors.accentMuted}` }}
+            >
+              {label && (
+                <span className="text-xs tracking-[0.2em] uppercase block mb-3" style={{ color: colors.accent }}>
+                  {label}
+                </span>
+              )}
+              <span className="text-xl leading-relaxed" style={{ color: colors.text }}>
+                {detail || b}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+    </div>
+  );
+}
+
+/* ── Content Slide (generic fallback) ── */
 function ContentSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex = 0, totalSlides = 1 }: SlideProps) {
   return (
     <div style={baseStyle} className="slide-content flex flex-col p-24">
-      {/* Section label */}
-      <div className="mb-4">
-        <span
-          className="text-xs tracking-[0.3em] uppercase"
-          style={{ color: colors.accent, opacity: 0.7 }}
-        >
-          {slide.type.replace(/_/g, ' ')}
-        </span>
-      </div>
-
+      <SectionLabel label={slide.type.replace(/_/g, ' ')} color={colors.accent} />
       <AccentLine color={colors.accent} />
 
-      <h2
-        className="text-6xl font-semibold mb-12"
-        style={{ ...titleStyle, color: colors.text }}
-      >
+      <h2 className="text-6xl font-semibold mb-12" style={{ ...titleStyle, color: colors.text }}>
         {slide.title}
       </h2>
 
       <div className="flex gap-20 flex-1">
-        {/* Main body */}
         <div className="flex-1 max-w-3xl">
           {slide.body && (
             <p
@@ -203,7 +393,6 @@ function ContentSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideInd
           )}
         </div>
 
-        {/* Bullets */}
         {slide.bullets && slide.bullets.length > 0 && (
           <div className="flex-1 max-w-xl">
             {slide.bullets.map((b, i) => (
@@ -221,12 +410,8 @@ function ContentSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideInd
         )}
       </div>
 
-      {/* Quote */}
       {slide.quote && (
-        <div
-          className="mt-auto pt-12 border-t"
-          style={{ borderColor: colors.accentMuted }}
-        >
+        <div className="mt-auto pt-12 border-t" style={{ borderColor: colors.accentMuted }}>
           <p
             className="text-lg italic"
             style={{ color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}
@@ -246,17 +431,16 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
   const chars = slide.characters || [];
   return (
     <div style={baseStyle} className="slide-content flex flex-col p-24">
-      <div className="mb-4">
-        <span className="text-xs tracking-[0.3em] uppercase" style={{ color: colors.accent, opacity: 0.7 }}>
-          characters
-        </span>
-      </div>
+      <SectionLabel label="characters" color={colors.accent} />
       <AccentLine color={colors.accent} />
       <h2 className="text-6xl font-semibold mb-16" style={{ ...titleStyle, color: colors.text }}>
         {slide.title}
       </h2>
 
-      <div className="grid grid-cols-2 gap-8 flex-1" style={{ gridTemplateColumns: chars.length <= 3 ? `repeat(${chars.length}, 1fr)` : 'repeat(2, 1fr)' }}>
+      <div
+        className="grid gap-8 flex-1"
+        style={{ gridTemplateColumns: chars.length <= 3 ? `repeat(${chars.length}, 1fr)` : 'repeat(2, 1fr)' }}
+      >
         {chars.map((c, i) => (
           <div
             key={i}
@@ -265,7 +449,7 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
           >
             <h3
               className="text-2xl font-semibold mb-2"
-              style={{ color: colors.accent, fontFamily: `"${slide.title ? 'Fraunces' : fontBody}", serif` }}
+              style={{ color: colors.accent, fontFamily: '"Fraunces", serif' }}
             >
               {c.name}
             </h3>
@@ -291,11 +475,7 @@ function ComparablesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
   const comps = slide.comparables || [];
   return (
     <div style={baseStyle} className="slide-content flex flex-col p-24">
-      <div className="mb-4">
-        <span className="text-xs tracking-[0.3em] uppercase" style={{ color: colors.accent, opacity: 0.7 }}>
-          market positioning
-        </span>
-      </div>
+      <SectionLabel label="market positioning" color={colors.accent} />
       <AccentLine color={colors.accent} />
       <h2 className="text-6xl font-semibold mb-16" style={{ ...titleStyle, color: colors.text }}>
         {slide.title}
@@ -329,13 +509,13 @@ function ComparablesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
   );
 }
 
-/* ── Statement Slide ── */
+/* ── Statement Slide — centered, elegant ── */
 function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex = 0, totalSlides = 1 }: SlideProps) {
   return (
     <div style={baseStyle} className="slide-content flex items-center justify-center p-24">
       <div className="max-w-4xl text-center">
-        <AccentLine color={colors.accent} />
-        <h2 className="text-5xl font-semibold mb-12 mx-auto" style={{ ...titleStyle, color: colors.text }}>
+        <AccentLine color={colors.accent} centered />
+        <h2 className="text-5xl font-semibold mb-12" style={{ ...titleStyle, color: colors.text }}>
           {slide.title}
         </h2>
         {slide.body && (
@@ -358,15 +538,12 @@ function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
 }
 
 /* ── Closing Slide ── */
-function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody }: SlideProps) {
+function ClosingSlide({ slide, colors, titleStyle, baseStyle }: SlideProps) {
   return (
     <div style={baseStyle} className="slide-content flex items-center justify-center">
       <div className="text-center">
-        <AccentLine color={colors.accent} />
-        <h1
-          className="text-7xl font-bold mb-6"
-          style={{ ...titleStyle, color: colors.text }}
-        >
+        <AccentLine color={colors.accent} centered />
+        <h1 className="text-7xl font-bold mb-6" style={{ ...titleStyle, color: colors.text }}>
           {slide.title}
         </h1>
         {slide.subtitle && (
