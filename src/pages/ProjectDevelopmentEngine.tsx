@@ -12,6 +12,7 @@ import { SceneRewritePanel } from '@/components/devengine/SceneRewritePanel';
 import QualityRunHistory from '@/components/cinematic/QualityRunHistory';
 import { DocSetManager } from '@/components/notes/DocSetManager';
 import { ProcessProgressBar } from '@/components/devengine/ProcessProgressBar';
+import { EpisodeRewriteWorkspace } from '@/components/devengine/EpisodeRewriteWorkspace';
 import { ActivityTimeline } from '@/components/devengine/ActivityTimeline';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1847,46 +1848,48 @@ export default function ProjectDevelopmentEngine() {
                     }
                     if (nbd) convert.mutate({ targetOutput: nbd.toUpperCase(), protectItems: latestAnalysis?.protect });
                   }} />
-                  {/* Rewrite progress with ProcessProgressBar */}
+                  {/* Rewrite progress — episode workspace for episodic docs, pipeline UI for others */}
                   {rewritePipeline.status !== 'idle' && rewritePipeline.status !== 'complete' && (
-                    <div className="p-2 rounded-lg border bg-muted/30 space-y-2">
-                      {/* Episodic scope summary */}
-                      {rewritePipeline.progress.isEpisodic && rewritePipeline.progress.totalEpisodes > 0 && (
-                        <div className="flex items-center gap-3 text-[10px] text-muted-foreground px-0.5">
-                          <span>{rewritePipeline.progress.totalEpisodes} total episodes</span>
-                          <span className="text-emerald-400 font-medium">{rewritePipeline.progress.affectedEpisodes} rewriting</span>
-                          {rewritePipeline.progress.preservedEpisodes > 0 && (
-                            <span className="text-sky-400 font-medium">{rewritePipeline.progress.preservedEpisodes} preserved</span>
+                    rewritePipeline.progress.isEpisodic && rewritePipeline.episodeUnits.length > 0 ? (
+                      <EpisodeRewriteWorkspace
+                        episodeUnits={rewritePipeline.episodeUnits}
+                        progress={rewritePipeline.progress}
+                        smoothedPercent={rewritePipeline.smoothedPercent}
+                        etaMs={rewritePipeline.etaMs}
+                        pipelineStatus={rewritePipeline.status}
+                        activityItems={rewritePipeline.activityItems}
+                        onClearActivity={rewritePipeline.clearActivity}
+                        onStop={() => rewritePipeline.reset()}
+                        onRestart={() => { rewritePipeline.reset(); handleRewrite(); }}
+                        error={rewritePipeline.error}
+                      />
+                    ) : (
+                      <div className="p-2 rounded-lg border bg-muted/30 space-y-2">
+                        <ProcessProgressBar
+                          percent={rewritePipeline.smoothedPercent}
+                          actualPercent={rewritePipeline.progress.percent}
+                          phase={rewritePipeline.progress.phase}
+                          label={rewritePipeline.progress.label}
+                          etaMs={rewritePipeline.etaMs}
+                          status={rewritePipeline.status === 'error' ? 'error' : 'working'}
+                        />
+                        <div className="flex gap-0.5 justify-end">
+                          {rewritePipeline.status !== 'error' && (
+                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => rewritePipeline.reset()} title="Stop">
+                              <Square className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {rewritePipeline.status === 'error' && (
+                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => { rewritePipeline.reset(); handleRewrite(); }} title="Restart">
+                              <RotateCcw className="h-3 w-3" />
+                            </Button>
                           )}
                         </div>
-                      )}
-                      <ProcessProgressBar
-                        percent={rewritePipeline.smoothedPercent}
-                        actualPercent={rewritePipeline.progress.percent}
-                        phase={rewritePipeline.progress.phase}
-                        label={rewritePipeline.progress.label}
-                        etaMs={rewritePipeline.etaMs}
-                        status={
-                          rewritePipeline.status === 'error' ? 'error' : 'working'
-                        }
-                      />
-                      <div className="flex gap-0.5 justify-end">
-                        {rewritePipeline.status !== 'error' && (
-                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => rewritePipeline.reset()} title="Stop">
-                            <Square className="h-3 w-3" />
-                          </Button>
-                        )}
-                        {rewritePipeline.status === 'error' && (
-                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => { rewritePipeline.reset(); handleRewrite(); }} title="Restart">
-                            <RotateCcw className="h-3 w-3" />
-                          </Button>
+                        {rewritePipeline.activityItems.length > 0 && (
+                          <ActivityTimeline items={rewritePipeline.activityItems} onClear={rewritePipeline.clearActivity} />
                         )}
                       </div>
-                      {/* Rewrite activity timeline */}
-                      {rewritePipeline.activityItems.length > 0 && (
-                        <ActivityTimeline items={rewritePipeline.activityItems} onClear={rewritePipeline.clearActivity} />
-                      )}
-                    </div>
+                    )
                   )}
                   {/* Scene-level rewrite panel */}
                   {sceneRewrite.total > 0 && selectedDocId && selectedVersionId && (
