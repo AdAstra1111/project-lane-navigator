@@ -1128,8 +1128,9 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
               .update({ plaintext: genContent, status: "draft", is_current: true, meta_json: { bg_generating: false, bg_completed_at: new Date().toISOString(), episode_count: finalEpisodeCount } })
               .eq("id", epVersion!.id);
 
+            // NOW set latest_version_id — content is confirmed valid
             await serviceClient.from("project_documents")
-              .update({ updated_at: new Date().toISOString() })
+              .update({ latest_version_id: epVersion!.id, updated_at: new Date().toISOString() })
               .eq("id", epDocRecord!.id);
 
             console.log(`[generate-document] Episode beats background generation COMPLETE: ${docType} v${epVersionNum} chars=${genContent.length}`);
