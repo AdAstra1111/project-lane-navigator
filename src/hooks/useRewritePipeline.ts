@@ -437,5 +437,6 @@ export function useRewritePipeline(projectId: string | undefined) {
     activityItems,
     clearActivity,
     pushActivity,
+    episodeUnits,
   };
 }
