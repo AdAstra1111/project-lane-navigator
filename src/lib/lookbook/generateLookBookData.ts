@@ -284,7 +284,7 @@ export async function generateLookBookData(
   }
 
   // THEMES & TONE
-  const themes = (project as any).themes || (canon.tone_style as string);
+  const themes = (canon.tone_style as string) || (project as any).tone || '';
   if (themes) {
     slides.push({
       type: 'themes',
