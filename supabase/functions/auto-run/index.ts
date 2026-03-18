@@ -10143,6 +10143,9 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
               const forkDirs = getForkDirections();
               // Use frontier as input if available, compare against baseline
               const forkInputVersionId = (job as any).frontier_version_id ?? baselineVersionId;
+              const forkSelectedOptions = autoSelectedOptions.length > 0
+                ? autoSelectedOptions.map(s => ({ note_id: s.note_id, option_id: s.option_id }))
+                : undefined;
               const rewriteBase = {
                 projectId: job.project_id,
                 documentId: doc.id,
@@ -10154,6 +10157,7 @@ SCOPE: Episode Grid is a structural overview — NOT a beat breakdown. Do NOT in
                 format,
                 episode_target_duration_seconds: episodeDuration,
                 season_episode_count: seasonEpisodeCount,
+                selectedOptions: forkSelectedOptions,
               };
 
               // Generate two candidates in parallel
