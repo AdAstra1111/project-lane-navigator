@@ -143,6 +143,8 @@ function applyLayout(
   title: string,
   tagline?: string,
   variant: string = "cinematic-dark",
+  logoImg?: HTMLImageElement | null,
+  companyName?: string | null,
 ) {
   const { w, h } = dims;
 
