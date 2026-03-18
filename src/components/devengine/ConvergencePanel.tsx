@@ -5,7 +5,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { BarChart3, AlertTriangle, Info, CircleCheck, ShieldAlert, Lightbulb, Sparkles } from 'lucide-react';
+import { BarChart3, AlertTriangle, Info, CircleCheck, ShieldAlert, Lightbulb, Sparkles, Shield, Target } from 'lucide-react';
 import { computeManualDecisionState, type ManualDecisionInput, type ManualActionKey, recommendationToActionKey } from '@/lib/manualDecisionState';
 
 interface ConvergencePanelProps {
@@ -15,6 +15,8 @@ interface ConvergencePanelProps {
   tieredNotes: { blockers: any[]; high: any[]; polish: any[] };
   versionMetaJson?: { ci?: number; gp?: number; [key: string]: any } | null;
   versionLabel?: string | null;
+  /** Current version number for discipline mode resolution */
+  versionNumber?: number;
   /** Callback when operator clicks a recommended CTA */
   onAction?: (action: ManualActionKey) => void;
   isLoading?: boolean;
@@ -65,7 +67,7 @@ const CTA_VARIANT: Record<string, 'default' | 'destructive' | 'outline' | 'secon
   muted: 'secondary',
 };
 
-export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergenceStatus, tieredNotes, versionMetaJson, versionLabel, onAction, isLoading }: ConvergencePanelProps) {
+export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergenceStatus, tieredNotes, versionMetaJson, versionLabel, versionNumber, onAction, isLoading }: ConvergencePanelProps) {
   const metaCi = typeof versionMetaJson?.ci === 'number' ? versionMetaJson.ci : null;
   const metaGp = typeof versionMetaJson?.gp === 'number' ? versionMetaJson.gp : null;
   const analysisCi = latestAnalysis?.ci_score || latestAnalysis?.scores?.ci_score || 0;
@@ -83,6 +85,7 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
     blockerCount: tieredNotes.blockers.length,
     majorNoteCount: tieredNotes.high.length,
     minorNoteCount: tieredNotes.polish.length,
+    versionNumber,
   };
   const decision = computeManualDecisionState(decisionInput);
   const badgeStyle = SEVERITY_STYLES[decision.severity];
@@ -131,6 +134,27 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
 
         {/* Sparkline */}
         <Sparkline history={convergenceHistory} />
+
+        {/* ═══ Discipline Mode Indicator ═══ */}
+        {decision.disciplineMode && decision.disciplineMode !== 'full_rewrite' && (
+          <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-[9px] font-semibold uppercase tracking-wider ${
+            decision.disciplineMode === 'late_stage_patch'
+              ? 'bg-violet-500/15 text-violet-400 border border-violet-500/30'
+              : 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+          }`}>
+            {decision.disciplineMode === 'late_stage_patch' ? (
+              <>
+                <Shield className="h-3 w-3" />
+                Patch Mode — Protecting Stable Material
+              </>
+            ) : (
+              <>
+                <Target className="h-3 w-3" />
+                Selective Rewrite — Targeted Scope
+              </>
+            )}
+          </div>
+        )}
 
         {/* ═══ Recommended Next Action ═══ */}
         <div className={`p-2.5 rounded border ${badgeStyle} space-y-2`}>

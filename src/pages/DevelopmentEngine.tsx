@@ -514,7 +514,11 @@ export default function DevelopmentEngine() {
                       {isConverged && (
                         <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-center">
                           <p className="text-sm font-medium text-emerald-400">✓ Scores Met Threshold</p>
-                          <p className="text-xs text-muted-foreground mt-1">Check the Convergence panel for the recommended next action and any remaining issues.</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {(activeSession.current_iteration ?? 0) >= 5
+                              ? 'Late-stage patch mode may be active — check Convergence panel for surgical note-resolution guidance.'
+                              : 'Check the Convergence panel for the recommended next action and any remaining issues.'}
+                          </p>
                         </div>
                       )}
                     </CardContent>
