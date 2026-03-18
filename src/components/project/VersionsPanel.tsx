@@ -7,8 +7,9 @@
 import { useState, useMemo } from 'react';
 import { useProjectDocuments } from '@/hooks/useProjects';
 import { useDocumentVersions, useSetCurrentVersion, type DocumentVersion } from '@/hooks/useDocumentVersions';
+import { useDeleteVersion } from '@/hooks/useDeleteVersion';
 import { cn } from '@/lib/utils';
-import { Check, Loader2, FileText, Star, ArrowUp, Layers, Target, Wrench } from 'lucide-react';
+import { Check, Loader2, FileText, Star, ArrowUp, Layers, Target, Wrench, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { useDocTypeScopedBest } from '@/hooks/useRunSnapshot';
@@ -118,6 +119,7 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
 
   const { data: versions = [], isLoading: versionsLoading } = useDocumentVersions(effectiveDocId);
   const setCurrentVersion = useSetCurrentVersion();
+  const deleteVersion = useDeleteVersion();
 
   if (docsLoading) {
     return (
@@ -255,6 +257,20 @@ export function VersionsPanel({ projectId }: VersionsPanelProps) {
                       }}
                     >
                       <ArrowUp className="h-2.5 w-2.5" /> Promote BEST to current
+                    </span>
+                  )}
+                  {/* Delete button — only for non-sole versions */}
+                  {versions.length > 1 && !v.is_current && (
+                    <span
+                      className="mt-1.5 inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-destructive/10 text-destructive font-medium hover:bg-destructive/20 transition-colors cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (effectiveDocId && confirm(`Delete v${v.version_number}? This cannot be undone.`)) {
+                          deleteVersion.mutate({ versionId: v.id, documentId: effectiveDocId });
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-2.5 w-2.5" /> Delete
                     </span>
                   )}
                 </button>
