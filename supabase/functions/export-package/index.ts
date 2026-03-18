@@ -649,6 +649,40 @@ async function buildPdf(
   }
 
   // ═══════════════════════════════════════════════
+  // POSTER PAGE — full-page image after cover
+  // ═══════════════════════════════════════════════
+  if (posterImageBytes && posterImageBytes.length > 0) {
+    try {
+      let posterImg: any;
+      if (posterMimeType?.includes("png")) posterImg = await doc.embedPng(posterImageBytes);
+      else posterImg = await doc.embedJpg(posterImageBytes);
+      const posterDims = posterImg.scale(1);
+
+      const posterPage = doc.addPage([PAGE_W, PAGE_H]);
+      allPages.push(posterPage);
+
+      // Scale to fit page while preserving aspect ratio, with small margin
+      const posterMargin = 36;
+      const availW = PAGE_W - posterMargin * 2;
+      const availH = PAGE_H - posterMargin * 2;
+      const aspect = posterDims.width / posterDims.height;
+      let drawW: number, drawH: number;
+      if (aspect > availW / availH) {
+        drawW = availW;
+        drawH = availW / aspect;
+      } else {
+        drawH = availH;
+        drawW = availH * aspect;
+      }
+      const drawX = (PAGE_W - drawW) / 2;
+      const drawY = (PAGE_H - drawH) / 2;
+      posterPage.drawImage(posterImg, { x: drawX, y: drawY, width: drawW, height: drawH });
+    } catch (e) {
+      console.warn("Failed to embed poster image, skipping:", e);
+    }
+  }
+
+  // ═══════════════════════════════════════════════
   // RENDER ALL SECTIONS
   // ═══════════════════════════════════════════════
   for (const sec of sections) {
