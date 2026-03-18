@@ -370,27 +370,22 @@ async function buildPdf(
     // Running header: subtle, editorial — just text, no bands
     if (sectionLabel) {
       const headerY = PAGE_H - 36;
-      // Section label left
+      // Small logo left, then section label offset right of it
+      const logoOffset = logoImage ? 16 : 0;
+      drawLogoSmall(page, M, headerY - 2, 10);
       page.drawText(normalizeText(sectionLabel).toUpperCase(), {
-        x: M, y: headerY, size: 7, font: helveticaBold, color: COLORS.muted,
+        x: M + logoOffset, y: headerY, size: 6.5, font: helvetica, color: COLORS.muted,
       });
-      // Project title right
-      const shortTitle = normalizeText(projectTitle || "").slice(0, 40);
-      const stW = helvetica.widthOfTextAtSize(shortTitle, 7);
-      page.drawText(shortTitle, { x: PAGE_W - M - stW, y: headerY, size: 7, font: helvetica, color: COLORS.muted });
       // Thin separator line
       page.drawLine({
-        start: { x: M, y: headerY - 6 },
-        end: { x: PAGE_W - M, y: headerY - 6 },
-        thickness: 0.3,
+        start: { x: M, y: headerY - 8 },
+        end: { x: PAGE_W - M, y: headerY - 8 },
+        thickness: 0.25,
         color: COLORS.divider,
       });
-
-      // Optional small logo
-      drawLogoSmall(page, M, headerY + 2, 10);
     }
 
-    return { page, y: PAGE_H - 60 };
+    return { page, y: PAGE_H - 62 };
   }
 
   /** Add a section start page — editorial title treatment, no UI bands */
