@@ -541,13 +541,14 @@ async function buildPdf(
   // ═══════════════════════════════════════════════
   // PROSE RENDERER — editorial quality (Times Roman)
   // ═══════════════════════════════════════════════
-  // Prose constants — slightly larger body, more generous spacing
-  const PROSE_BODY_SIZE = 11;
-  const PROSE_LINE_H = 16;        // generous leading
-  const PROSE_PARA_GAP = 8;       // inter-paragraph breathing room
+  // Prose constants — editorial quality spacing
+  const PROSE_BODY_SIZE = 10.5;
+  const PROSE_LINE_H = 17;         // generous leading for readability
+  const PROSE_PARA_GAP = 10;       // clear paragraph separation
+  const PROSE_MAX_W = Math.min(CONTENT_W, 430); // limit line width for comfort
   const PROSE_H1_SIZE = 18;
-  const PROSE_H2_SIZE = 14;
-  const PROSE_H3_SIZE = 12;
+  const PROSE_H2_SIZE = 13;
+  const PROSE_H3_SIZE = 11;
 
   function renderProse(text: string, sectionLabel: string) {
     const blocks = parseMarkdownBlocks(text);
