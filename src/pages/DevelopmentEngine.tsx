@@ -323,11 +323,7 @@ export default function DevelopmentEngine() {
                         )}
                       </p>
                     </div>
-                    {isConverged && (
-                      <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
-                        <Check className="h-3 w-3 mr-1" /> Converged
-                      </Badge>
-                    )}
+                    {/* Score-only convergence — no longer implies "fully done" */}
                   </div>
 
                   {/* Scores */}
