@@ -46,6 +46,26 @@ const STAGE_STATUS_COLOR = {
   skipped: 'text-muted-foreground/40',
 } as const;
 
+/** Format raw pause/stop reason constants into user-friendly labels */
+function formatPauseReason(reason: string): string {
+  const PAUSE_LABELS: Record<string, string> = {
+    EXCEPTIONAL_PLATEAU_ESCALATION: 'Quality plateau — recovery in progress',
+    PLATEAU_RECOVERY_EXHAUSTED: 'Quality plateau — all recovery options exhausted',
+    STAGNATION_NO_BLOCKER_PROGRESS: 'Blocker stagnation — no improvement across attempts',
+    BASELINE_MISSING: 'Baseline version missing',
+    BASELINE_MISSING_NO_TEXT: 'No text content for baseline',
+    SEED_CORE_NOT_OFFICIAL: 'Seed core approval required',
+    CRITERIA_STALE_PROVENANCE: 'Criteria changed since last analysis',
+    CRITERIA_FAIL_DURATION: 'Duration target not met',
+    VERSION_CAP_REACHED: 'Version cap reached',
+    STEP_LIMIT_REACHED: 'Step limit reached',
+    SAFE_MODE_GATE: 'Safe mode — manual approval required',
+    step_limit: 'Step limit reached',
+    stage_exhausted: 'Stage iteration limit reached',
+  };
+  return PAUSE_LABELS[reason] || reason.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 /** Derive the best CI/GP scores per stage from step history */
 function deriveStageScores(steps: AutoRunStep[]): Record<string, { ci: number | null; gp: number | null }> {
   const scores: Record<string, { ci: number | null; gp: number | null }> = {};
@@ -164,7 +184,7 @@ export function AutoRunProgressPanel({
         {job.pause_reason && (isPaused || isAwaitingApproval) && (
           <div className="flex items-center gap-1.5 text-[10px] text-amber-400 bg-amber-500/5 rounded px-2 py-1">
             <AlertTriangle className="h-3 w-3 shrink-0" />
-            <span>{job.pause_reason}</span>
+            <span>{formatPauseReason(job.pause_reason)}</span>
           </div>
         )}
 

@@ -269,6 +269,21 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
     criteria_fail_duration_exhausted: 'bg-destructive/15 text-destructive border-destructive/30',
     duration_repair_attempt: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
     duration_scope_skipped: 'bg-muted text-muted-foreground',
+    // Plateau recovery & cleanup pass actions
+    exceptional_plateau_block: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    plateau_recovery_cleanup: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    plateau_recovery_promoted: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    plateau_recovery_exhausted: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    plateau_recovery_continue: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+    cleanup_pass_started: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    cleanup_pass_accepted: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    cleanup_pass_rejected: 'bg-destructive/15 text-destructive border-destructive/30',
+    cleanup_pass_skipped: 'bg-muted text-muted-foreground',
+    cleanup_pass_not_eligible: 'bg-muted text-muted-foreground',
+    apply_decisions: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    decisions_applied_rewrite: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    prereq_gate_blocked: 'bg-destructive/15 text-destructive border-destructive/30',
+    ci_gate_blocked: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
   };
 
   return (
@@ -303,6 +318,20 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
                    step.action === 'criteria_stale_provenance' ? '⚠ stale criteria' :
                    step.action === 'criteria_fail_duration_exhausted' ? '✗ duration fail' :
                    step.action === 'duration_repair_attempt' ? '⏱ duration repair' :
+                   step.action === 'exceptional_plateau_block' ? '⚠ plateau detected' :
+                   step.action === 'plateau_recovery_cleanup' ? '🔧 cleanup pass' :
+                   step.action === 'plateau_recovery_promoted' ? '✓ plateau promoted' :
+                   step.action === 'plateau_recovery_exhausted' ? '⏸ recovery exhausted' :
+                   step.action === 'plateau_recovery_continue' ? '↗ plateau continue' :
+                   step.action === 'cleanup_pass_started' ? '🔧 cleanup started' :
+                   step.action === 'cleanup_pass_accepted' ? '✓ cleanup accepted' :
+                   step.action === 'cleanup_pass_rejected' ? '✗ cleanup rejected' :
+                   step.action === 'cleanup_pass_skipped' ? 'cleanup skipped' :
+                   step.action === 'cleanup_pass_not_eligible' ? 'cleanup n/a' :
+                   step.action === 'apply_decisions' ? '⚖ apply decisions' :
+                   step.action === 'decisions_applied_rewrite' ? '✓ decisions applied' :
+                   step.action === 'prereq_gate_blocked' ? '⚠ prereq blocked' :
+                   step.action === 'ci_gate_blocked' ? '⚠ CI gate' :
                    step.action
                 }</Badge>
                 <Badge variant="outline" className="text-[8px] px-1 py-0">{docLabel(step.document)}</Badge>
@@ -362,6 +391,21 @@ function formatErrorDisplay(err: string | null | undefined): string {
     return `${fn} failed (HTTP ${status}): ${truncBody}`;
   }
   return clean.length > 300 ? clean.slice(0, 300) + '…' : clean;
+}
+
+/** Format raw stop_reason constants into user-friendly labels */
+function formatStopReason(reason: string): string {
+  const STOP_LABELS: Record<string, string> = {
+    EXCEPTIONAL_PLATEAU_ESCALATION: 'Quality plateau — recovery options being evaluated',
+    PLATEAU_RECOVERY_EXHAUSTED: 'Quality plateau — all deterministic recovery exhausted',
+    STAGNATION_NO_BLOCKER_PROGRESS: 'Blocker stagnation — no improvement across attempts',
+    SEED_CORE_NOT_OFFICIAL: 'Seed core approval required before continuing',
+    SEED_CORE_MISSING: 'Required seed documents are missing',
+    INPUT_INCOMPLETE: 'Input text is incomplete or missing',
+    VERSION_CAP_REACHED: 'Version cap reached for current document',
+    STEP_LIMIT_REACHED: 'Step budget exhausted',
+  };
+  return STOP_LABELS[reason] || reason;
 }
 
 // ── Main Component ──
@@ -1539,7 +1583,7 @@ export function AutoRunMissionControl({
               {/* Stop reason / error (when not related to approval) */}
               {job.stop_reason && !job.awaiting_approval && !hasDecisions && (
                 <div className="text-[10px] text-amber-400 bg-amber-500/5 border border-amber-500/20 rounded p-2 space-y-1.5">
-                  <div>{job.stop_reason}</div>
+                  <div>{formatStopReason(job.stop_reason)}</div>
                   {job.stop_reason === 'INPUT_INCOMPLETE' && (
                     <Button
                       size="sm"
