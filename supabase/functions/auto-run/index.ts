@@ -6947,6 +6947,8 @@ Deno.serve(async (req) => {
                 persistPlateauDiagnosis(supabase, { job, jobId, currentDoc, bestCi: bestAvail?.ci ?? plateauV2.currentCI, finalCi: plateauV2.currentCI, targetCi, targetGp: extractTargetGP(job), haltReason: "NOTES_UNRESOLVABLE", stepCount, stageLoopCount: job.stage_loop_count ?? 0 }).then(undefined, (e: any) => console.error(`[auto-run][DIAG] fire_forget: ${e?.message}`));
                 await releaseProcessingLock(supabase, jobId);
                 return respondWithJob(supabase, jobId);
+                  } // end else (cleanup not accepted)
+                } // end cleanup gate block
               }
             } else {
             console.error(`[auto-run][IEL] plateau_v2_stop ${JSON.stringify({ job_id: jobId, doc_type: currentDoc, ...plateauV2 })}`);
