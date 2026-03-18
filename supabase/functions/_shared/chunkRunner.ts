@@ -85,22 +85,34 @@ async function callChunkLLM(
   model: string = "google/gemini-2.5-flash",
   maxTokens: number = 16000
 ): Promise<string> {
-  const res = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      temperature: 0.5,
-      max_tokens: maxTokens,
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "unknown");
-    throw new Error(`Chunk LLM call failed (${res.status}): ${errText.slice(0, 500)}`);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), CHUNK_LLM_TIMEOUT_MS);
+  try {
+    const res = await fetch(GATEWAY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        temperature: 0.5,
+        max_tokens: maxTokens,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "unknown");
+      throw new Error(`Chunk LLM call failed (${res.status}): ${errText.slice(0, 500)}`);
+    }
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === "AbortError") {
+      throw new Error(`Chunk LLM call timed out after ${CHUNK_LLM_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
   }
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
 }
 
 // ── Chunk Plan Initialization (UPSERT, preserving existing) ──
