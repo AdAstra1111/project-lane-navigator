@@ -7,7 +7,7 @@ import { useParams, useNavigate, useLocation, useSearchParams, Link } from 'reac
 import {
   LayoutGrid, FileText, BookOpen, Image, Film, Briefcase, Sparkles, Users,
   PanelRightOpen, PanelRightClose, ArrowLeft, Loader2,
-  CheckCircle2, AlertTriangle, ArrowRight, X, ImagePlus,
+  CheckCircle2, AlertTriangle, ArrowRight, X, ImagePlus, BookOpenCheck,
 } from 'lucide-react';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { cn } from '@/lib/utils';
@@ -56,8 +56,9 @@ function buildRailLinks(projectId: string): RailLink[] {
     { icon: Film,       label: 'Trailer',     to: `${p}/trailer`,     modes: ['produce'] },
     { icon: Sparkles,   label: 'AI Content',  to: `${p}/ai-content`,  modes: ['produce'] },
     { icon: Users,      label: 'Casting',     to: `${p}/casting`,     modes: ['produce'] },
-    { icon: ImagePlus,  label: 'Poster',      to: `${p}/poster`,      modes: 'all' },
-    { icon: Briefcase,  label: 'Produce',     to: `${p}/produce`,     modes: ['produce'] },
+    { icon: ImagePlus,     label: 'Poster',      to: `${p}/poster`,      modes: 'all' },
+    { icon: BookOpenCheck, label: 'Look Book',   to: `${p}/lookbook`,    modes: 'all' },
+    { icon: Briefcase,     label: 'Produce',     to: `${p}/produce`,     modes: ['produce'] },
   ];
 }
 
