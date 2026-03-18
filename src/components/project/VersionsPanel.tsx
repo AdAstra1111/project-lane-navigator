@@ -7,8 +7,9 @@
 import { useState, useMemo } from 'react';
 import { useProjectDocuments } from '@/hooks/useProjects';
 import { useDocumentVersions, useSetCurrentVersion, type DocumentVersion } from '@/hooks/useDocumentVersions';
+import { useDeleteVersion } from '@/hooks/useDeleteVersion';
 import { cn } from '@/lib/utils';
-import { Check, Loader2, FileText, Star, ArrowUp, Layers, Target, Wrench } from 'lucide-react';
+import { Check, Loader2, FileText, Star, ArrowUp, Layers, Target, Wrench, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { useDocTypeScopedBest } from '@/hooks/useRunSnapshot';
