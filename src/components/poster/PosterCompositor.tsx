@@ -9,6 +9,8 @@ interface PosterCompositorProps {
   keyArtUrl: string;
   title: string;
   tagline?: string;
+  companyLogoUrl?: string | null;
+  companyName?: string | null;
   aspectRatio?: "2:3" | "1:1" | "16:9";
   layoutVariant?: "cinematic-dark" | "cinematic-light" | "minimal";
   width?: number;
