@@ -72,13 +72,14 @@ Deno.serve(async (req) => {
     }
 
     // ── Build canon context ──
+    const genreDisplay = Array.isArray(project.genres) ? project.genres.join(", ") : "drama";
     const canonContext = {
       title: project.title || "Untitled",
-      genre: project.genre || "drama",
+      genre: genreDisplay,
       format: project.format || "film",
-      logline: project.logline || canon.logline || "",
+      logline: canon.logline || "",
       tone: project.tone || canon.tone_style || "",
-      themes: typeof project.themes === "string" ? project.themes : Array.isArray(project.themes) ? project.themes.join(", ") : canon.themes || "",
+      themes: canon.tone_style || "",
       worldRules: canon.world_rules || "",
       locations: canon.locations || "",
       characters: Array.isArray(canon.characters) 
