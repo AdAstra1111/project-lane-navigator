@@ -263,4 +263,3 @@ export function computeManualDecisionState(input: ManualDecisionInput): ManualDe
     approvalAvailable: false,
   };
 }
-}
