@@ -4867,9 +4867,9 @@ Deno.serve(async (req) => {
           const ct = body.converge_target_json;
           if (ct && typeof ct === "object") {
             const ci = Number(ct.ci); const gp = Number(ct.gp);
-            if (!isNaN(ci) && ci >= 0 && ci <= 100) return { ci, gp: !isNaN(gp) ? gp : 85 };
+            if (!isNaN(ci) && ci >= 0 && ci <= 100) return { ci, gp: !isNaN(gp) ? gp : 95 };
           }
-          return { ci: 95, gp: 95 }; // Exceptional band default — user can manually downgrade via UI
+          return { ci: 95, gp: 95 }; // Max Quality default — optimize until progress exhausted
         })(),
         allow_defaults: body.allow_defaults === true,
         follow_latest: body.follow_latest === true ? true : false,
