@@ -790,10 +790,23 @@ export async function runChunkedGeneration(opts: ChunkRunnerOptions): Promise<Ch
     })
     .eq("id", versionId);
 
-  console.log(`[chunkRunner] Complete: ${completedChunks}/${plan.totalChunks}, validation=${validationResult.pass ? "PASS" : "FAIL"}, rid=${rid}`);
+  // ── SEASON_SCRIPT COMPLETION GATE ──
+  // For episodic docs (especially season_script), verify that completedChunks == totalChunks.
+  // A partial run must NEVER report success — even if validation.pass is true on partial assembly.
+  const episodeCompletionPass = plan.strategy === "episodic_indexed"
+    ? completedChunks === plan.totalChunks
+    : true;
+
+  if (!episodeCompletionPass) {
+    console.error(`[chunkRunner][IEL] COMPLETION_GATE_FAILED: episodic doc completed ${completedChunks}/${plan.totalChunks} — marking as incomplete, NOT success`);
+  }
+
+  const isSuccess = validationResult.pass && failedChunks === 0 && episodeCompletionPass;
+
+  console.log(`[chunkRunner] Complete: ${completedChunks}/${plan.totalChunks}, validation=${validationResult.pass ? "PASS" : "FAIL"}, episodeGate=${episodeCompletionPass ? "PASS" : "FAIL"}, success=${isSuccess}, rid=${rid}`);
 
   return {
-    success: validationResult.pass && failedChunks === 0,
+    success: isSuccess,
     assembledContent,
     totalChunks: plan.totalChunks,
     completedChunks,
