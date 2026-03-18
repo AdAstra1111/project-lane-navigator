@@ -11,7 +11,7 @@
  *   stale    — (UI-only) running chunk exceeds STALE_THRESHOLD_MS
  *   needs_regen / failed_validation — retryable by resume
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Progress } from '@/components/ui/progress';
@@ -66,6 +66,8 @@ function getStatusLabel(status: string): string {
 export function SeasonScriptProgress({ versionId, episodeCount, projectId, documentId }: SeasonScriptProgressProps) {
   const qc = useQueryClient();
   const [resuming, setResuming] = useState(false);
+  const [resumeSuccess, setResumeSuccess] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
 
   const { data: chunks = [], isLoading } = useQuery<ChunkRow[]>({
     queryKey: ['season-script-chunks', versionId],
@@ -117,7 +119,8 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
   const hasRetryableChunks = failedCount > 0 && safeChunks.filter(c => c.status === 'running').length === 0;
   const isStale = !!staleInfo;
   const allDone = doneCount === total && total > 0;
-  const showResumeControl = isStale || hasRetryableChunks;
+  // Hide resume controls once resume has succeeded (optimistic)
+  const showResumeControl = !resumeSuccess && (isStale || hasRetryableChunks);
 
   // First incomplete episode for resume label
   const firstIncompleteEp = useMemo(() => {
@@ -131,6 +134,10 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
     // Mark stale running chunks visually
     if (status === 'running' && isStale && chunk?.id === staleInfo?.staleChunk.id) {
       status = 'stale';
+    }
+    // Optimistic: after resume success, show first incomplete as 'running'
+    if (resumeSuccess && (status === 'failed' || status === 'failed_validation' || status === 'needs_regen') && i === (firstIncompleteEp ? firstIncompleteEp - 1 : -1)) {
+      status = 'running';
     }
     return {
       index: i,
@@ -235,9 +242,12 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
         throw new Error(err.error || `Resume failed (${resp.status})`);
       }
 
+      setResumeSuccess(true);
+      setResumeError(null);
       toast.success(`Generation resumed from Episode ${firstIncompleteEp ?? '?'}`);
       qc.invalidateQueries({ queryKey: ['season-script-chunks', versionId] });
     } catch (e: any) {
+      setResumeError(e.message || 'Resume failed');
       toast.error(e.message || 'Resume failed');
     } finally {
       setResuming(false);
@@ -249,7 +259,12 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
       <div className="w-full max-w-md space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium text-foreground">
-            {isStale ? 'Generation Stalled' : allDone ? 'Season Script Complete' : hasRetryableChunks ? 'Generation Incomplete' : 'Generating Season Script'}
+            {resuming ? 'Resuming Generation…'
+              : resumeSuccess ? 'Generation Resumed'
+              : isStale ? 'Generation Stalled'
+              : allDone ? 'Season Script Complete'
+              : hasRetryableChunks ? 'Generation Incomplete'
+              : 'Generating Season Script'}
           </span>
           <span className="text-muted-foreground font-mono text-xs">
             {doneCount} / {total || '?'} episodes
@@ -258,7 +273,7 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
         <Progress value={pct} className="h-2" />
 
         {/* Stale warning with resume control */}
-        {isStale && (
+        {isStale && !resumeSuccess && !resuming && (
           <div className="flex items-start gap-2 p-2 rounded-md bg-destructive/10 border border-destructive/30">
             <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
             <div className="space-y-1">
@@ -281,7 +296,7 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
         )}
 
         {/* Failed chunks with no active generation — offer resume */}
-        {hasRetryableChunks && !isStale && (
+        {hasRetryableChunks && !isStale && !resumeSuccess && !resuming && (
           <div className="flex items-start gap-2 p-2 rounded-md bg-amber-500/10 border border-amber-500/30">
             <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
             <div className="space-y-1">
@@ -297,6 +312,47 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
               >
                 {resuming ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
                 Resume from Episode {firstIncompleteEp ?? '?'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Active resuming banner */}
+        {resuming && (
+          <div className="flex items-center gap-2 p-2 rounded-md bg-blue-500/10 border border-blue-500/30">
+            <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
+            <p className="text-[11px] text-blue-400 font-medium">
+              Resuming from Episode {firstIncompleteEp ?? '?'}…
+            </p>
+          </div>
+        )}
+
+        {/* Optimistic resumed banner */}
+        {resumeSuccess && !resuming && (
+          <div className="flex items-center gap-2 p-2 rounded-md bg-blue-500/10 border border-blue-500/30">
+            <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
+            <p className="text-[11px] text-blue-400 font-medium">
+              Resumed from Episode {firstIncompleteEp ?? '?'} — generating now. This panel will update automatically.
+            </p>
+          </div>
+        )}
+
+        {/* Inline error banner */}
+        {resumeError && !resuming && (
+          <div className="flex items-start gap-2 p-2 rounded-md bg-destructive/10 border border-destructive/30">
+            <XCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+            <div className="space-y-1">
+              <p className="text-[11px] text-destructive font-medium">
+                Resume failed: {resumeError}
+              </p>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-7 text-xs gap-1"
+                onClick={() => { setResumeError(null); handleResume(); }}
+              >
+                <RotateCcw className="h-3 w-3" />
+                Retry
               </Button>
             </div>
           </div>
