@@ -9,6 +9,8 @@
 
 // ── Types ──
 
+export type ValidationSeverity = "blocker" | "warning" | "progress";
+
 export interface ValidationResult {
   pass: boolean;
   failures: ValidationFailure[];
@@ -21,8 +23,29 @@ export interface ValidationResult {
 export interface ValidationFailure {
   type: "missing_episode" | "missing_section" | "banned_phrase" | "density_low" | "wrong_content_type" | "incomplete_schema";
   detail: string;
+  severity?: ValidationSeverity;
   indices?: number[];
   sections?: string[];
+}
+
+/**
+ * Progress-aware episodic validation result.
+ * Distinguishes between incomplete-but-valid (in-progress) vs structurally invalid.
+ */
+export interface EpisodicProgressResult {
+  /** Overall tier: progress (ok), warning, or blocker */
+  tier: ValidationSeverity;
+  /** Fraction of target episodes present */
+  progress: number;
+  /** Episodes found / target */
+  found: number;
+  target: number;
+  /** True structural issues (not just incompleteness) */
+  blockers: ValidationFailure[];
+  /** Quality warnings */
+  warnings: ValidationFailure[];
+  /** Human-readable status */
+  summary: string;
 }
 
 // ── Banned Phrases ──
