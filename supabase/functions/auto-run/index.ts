@@ -2729,7 +2729,14 @@ async function buildNoteDirectionsForRewrite(
     if (!notes || notes.length === 0) return [];
     return notes
       .filter((n: any) => !noteRequiresHuman(n))
-      .map((n: any) => `AUTO-RESOLVE NOTE (${n.id}): ${n.summary || n.title || "untitled"}. Address this fully in the rewrite.`);
+      .map((n: any) => {
+        const fixes = Array.isArray(n.suggested_fixes) ? n.suggested_fixes : [];
+        const recommended = fixes.find((f: any) => f.recommended) || fixes[0];
+        const resolution = recommended
+          ? ` Resolution: "${recommended.title || recommended.description}".${recommended.what_changes ? ` Changes: ${Array.isArray(recommended.what_changes) ? recommended.what_changes.join("; ") : recommended.what_changes}` : ""}`
+          : "";
+        return `AUTO-RESOLVE NOTE (${n.id}): ${n.summary || n.title || "untitled"}.${resolution} Address this fully in the rewrite.`;
+      });
   } catch {
     return [];
   }
