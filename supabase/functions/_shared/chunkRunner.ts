@@ -49,6 +49,8 @@ export interface ChunkRunResult {
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const MAX_ASSEMBLY_REPAIR_PASSES = 2;
+const CHUNK_LLM_TIMEOUT_MS = 180_000; // 3 minutes per chunk LLM call
+const STALE_RUNNING_THRESHOLD_MS = 120_000; // 2 minutes — running chunk considered stale
 
 /**
  * Pattern used in assembled text when a chunk fails generation.
