@@ -9801,8 +9801,8 @@ Deno.serve(async (req) => {
               }
             );
           }
-          // Merge decision directions with strategy directions
-          const mergedDirections = [...decisionDirections, ...strategyDirections];
+          // Merge decision directions with strategy directions + reviewer global directions
+          const mergedDirections = [...decisionDirections, ...strategyDirections, ...reviewerGlobalDirections];
 
           // ── AUTO-RESOLVE NOTES: inject non-human note summaries so rewrite addresses them ──
           try {
