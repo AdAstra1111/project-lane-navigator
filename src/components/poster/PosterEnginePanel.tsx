@@ -51,6 +51,7 @@ function renderStatusLabel(status: string): { label: string; variant: "default" 
 export default function PosterEnginePanel() {
   const { id: projectId } = useParams<{ id: string }>();
   const { project } = useProject(projectId || "");
+  const { data: branding } = useProjectBranding(projectId);
   const { data: posters, isLoading } = useProjectPosters(projectId);
   const { data: activePoster } = useActivePoster(projectId);
   const generatePoster = useGeneratePoster(projectId);
