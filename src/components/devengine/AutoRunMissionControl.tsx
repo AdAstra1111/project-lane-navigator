@@ -318,6 +318,20 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
                    step.action === 'criteria_stale_provenance' ? '⚠ stale criteria' :
                    step.action === 'criteria_fail_duration_exhausted' ? '✗ duration fail' :
                    step.action === 'duration_repair_attempt' ? '⏱ duration repair' :
+                   step.action === 'exceptional_plateau_block' ? '⚠ plateau detected' :
+                   step.action === 'plateau_recovery_cleanup' ? '🔧 cleanup pass' :
+                   step.action === 'plateau_recovery_promoted' ? '✓ plateau promoted' :
+                   step.action === 'plateau_recovery_exhausted' ? '⏸ recovery exhausted' :
+                   step.action === 'plateau_recovery_continue' ? '↗ plateau continue' :
+                   step.action === 'cleanup_pass_started' ? '🔧 cleanup started' :
+                   step.action === 'cleanup_pass_accepted' ? '✓ cleanup accepted' :
+                   step.action === 'cleanup_pass_rejected' ? '✗ cleanup rejected' :
+                   step.action === 'cleanup_pass_skipped' ? 'cleanup skipped' :
+                   step.action === 'cleanup_pass_not_eligible' ? 'cleanup n/a' :
+                   step.action === 'apply_decisions' ? '⚖ apply decisions' :
+                   step.action === 'decisions_applied_rewrite' ? '✓ decisions applied' :
+                   step.action === 'prereq_gate_blocked' ? '⚠ prereq blocked' :
+                   step.action === 'ci_gate_blocked' ? '⚠ CI gate' :
                    step.action
                 }</Badge>
                 <Badge variant="outline" className="text-[8px] px-1 py-0">{docLabel(step.document)}</Badge>
