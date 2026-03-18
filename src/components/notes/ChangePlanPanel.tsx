@@ -166,7 +166,18 @@ export function ChangePlanPanel({
                         </span>
                       </div>
 
-                      {/* Target info */}
+                      {/* Target info — episode numbers */}
+                      {change.target?.episode_numbers?.length ? (
+                        <div className="flex gap-1 mt-1 flex-wrap">
+                          {change.target.episode_numbers.map((en: number) => (
+                            <Badge key={`ep${en}`} variant="outline" className="text-[7px] px-1 py-0 border-primary/30 text-primary">
+                              Ep. {en}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {/* Target info — scene numbers */}
                       {change.target?.scene_numbers?.length ? (
                         <div className="flex gap-1 mt-1 flex-wrap">
                           {change.target.scene_numbers.map(sn => (
