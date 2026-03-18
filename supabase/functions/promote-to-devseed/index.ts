@@ -41,11 +41,119 @@ serve(async (req) => {
 
     if (ideaErr || !idea) throw new Error("Pitch idea not found or access denied");
 
-    // ── Fetch DNA / Engine provenance from pitch idea ──
+    // ── Fetch DNA / Engine / Blueprint provenance from pitch idea ──
     let dnaConstraintBlock = "";
+    let blueprintExecutionBlock = "";
     const dnaProfileId: string | null = idea.source_dna_profile_id || null;
     const engineKey: string | null = idea.source_engine_key || null;
+    const sourceBlueprintId: string | null = idea.source_blueprint_id || null;
 
+    // ── CANONICAL BLUEPRINT FETCH (highest structural authority) ──
+    let canonicalBlueprint: {
+      engine: string | null;
+      blueprint_family_key: string | null;
+      execution_pattern: Record<string, any> | null;
+      family_selection_confidence: number | null;
+      family_selection_rationale: string | null;
+      structural_summary: string | null;
+      source_dna_profile_id: string | null;
+    } | null = null;
+
+    if (sourceBlueprintId) {
+      const { data: bp, error: bpErr } = await supabase
+        .from("idea_blueprints")
+        .select("engine, blueprint_family_key, execution_pattern, family_selection_confidence, family_selection_rationale, structural_summary, source_dna_profile_id")
+        .eq("id", sourceBlueprintId)
+        .single();
+
+      if (bpErr || !bp) {
+        // IEL: canonical blueprint linkage exists but fetch failed — block, don't degrade
+        console.error(JSON.stringify({
+          diag: "DEVSEED_BLUEPRINT_INJECTION_BLOCKED",
+          pitch_idea_id: pitchIdeaId,
+          source_blueprint_id: sourceBlueprintId,
+          engine_key: engineKey,
+          source_dna_profile_id: dnaProfileId,
+          reason: "canonical_blueprint_fetch_failed",
+          error: bpErr?.message || "not found",
+        }));
+        throw new Error(`Canonical blueprint ${sourceBlueprintId} linked to pitch idea but could not be retrieved. Cannot proceed without structural lineage.`);
+      }
+
+      canonicalBlueprint = bp;
+
+      // IEL: blueprint must have family_key and execution_pattern
+      if (!bp.blueprint_family_key) {
+        console.error(JSON.stringify({
+          diag: "DEVSEED_BLUEPRINT_INJECTION_BLOCKED",
+          pitch_idea_id: pitchIdeaId,
+          source_blueprint_id: sourceBlueprintId,
+          engine_key: bp.engine,
+          source_dna_profile_id: dnaProfileId,
+          reason: "missing_blueprint_family_key",
+        }));
+        throw new Error(`Canonical blueprint ${sourceBlueprintId} has no blueprint_family_key. Cannot proceed.`);
+      }
+
+      if (!bp.execution_pattern || typeof bp.execution_pattern !== "object" || Object.keys(bp.execution_pattern).length === 0) {
+        console.error(JSON.stringify({
+          diag: "DEVSEED_BLUEPRINT_INJECTION_BLOCKED",
+          pitch_idea_id: pitchIdeaId,
+          source_blueprint_id: sourceBlueprintId,
+          blueprint_family_key: bp.blueprint_family_key,
+          engine_key: bp.engine,
+          source_dna_profile_id: dnaProfileId,
+          reason: "missing_or_empty_execution_pattern",
+        }));
+        throw new Error(`Canonical blueprint ${sourceBlueprintId} has no execution_pattern. Cannot proceed.`);
+      }
+
+      // Build blueprint execution block for prompt injection
+      const ep = bp.execution_pattern;
+      const bpParts: string[] = [];
+      bpParts.push("=== BLUEPRINT EXECUTION PATTERN (CANONICAL — HIGHEST STRUCTURAL AUTHORITY) ===");
+      bpParts.push(`Blueprint Family: ${bp.blueprint_family_key}`);
+      bpParts.push(`Engine: ${bp.engine || engineKey || "unknown"}`);
+      if (bp.structural_summary) bpParts.push(`Structural Summary: ${bp.structural_summary}`);
+      bpParts.push("");
+      bpParts.push("EXECUTION PATTERN (honour these structural constraints in all generation):");
+      if (ep.act_structure) bpParts.push(`  Act Structure: ${ep.act_structure}`);
+      if (ep.spatial_mode) bpParts.push(`  Spatial Mode: ${ep.spatial_mode}`);
+      if (ep.confrontation_rhythm) bpParts.push(`  Confrontation Rhythm: ${ep.confrontation_rhythm}`);
+      if (ep.escalation_shape) bpParts.push(`  Escalation Shape: ${ep.escalation_shape}`);
+      if (ep.reveal_structure) bpParts.push(`  Reveal Structure: ${ep.reveal_structure}`);
+      if (ep.pov_distribution) bpParts.push(`  POV Distribution: ${ep.pov_distribution}`);
+      if (ep.climax_shape) bpParts.push(`  Climax Shape: ${ep.climax_shape}`);
+      if (ep.pressure_topology) bpParts.push(`  Pressure Topology: ${ep.pressure_topology}`);
+      // Include any additional execution pattern keys not explicitly listed
+      const knownKeys = new Set(["act_structure", "spatial_mode", "confrontation_rhythm", "escalation_shape", "reveal_structure", "pov_distribution", "climax_shape", "pressure_topology"]);
+      for (const [k, v] of Object.entries(ep)) {
+        if (!knownKeys.has(k) && v != null) {
+          const label = k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+          bpParts.push(`  ${label}: ${v}`);
+        }
+      }
+      bpParts.push("");
+      bpParts.push("INSTRUCTION: The DevSeed MUST structurally conform to this execution pattern.");
+      bpParts.push("The escalation shape, confrontation rhythm, and act structure are non-negotiable.");
+      bpParts.push("Surface-level genre, setting, and characters remain creative, but structural architecture must follow this blueprint.");
+      if (bp.family_selection_rationale) bpParts.push(`Selection Rationale: ${bp.family_selection_rationale}`);
+      bpParts.push("=== END BLUEPRINT EXECUTION PATTERN ===");
+      blueprintExecutionBlock = "\n\n" + bpParts.join("\n") + "\n";
+
+      console.log(JSON.stringify({
+        diag: "DEVSEED_BLUEPRINT_INJECTED",
+        pitch_idea_id: pitchIdeaId,
+        source_blueprint_id: sourceBlueprintId,
+        blueprint_family_key: bp.blueprint_family_key,
+        engine_key: bp.engine || engineKey,
+        source_dna_profile_id: dnaProfileId || bp.source_dna_profile_id,
+        confidence: bp.family_selection_confidence,
+        rationale: bp.family_selection_rationale?.slice(0, 200) || null,
+      }));
+    }
+
+    // ── DNA / Engine constraint blocks (additive — always inject if available) ──
     if (dnaProfileId) {
       const { data: dnaProfile } = await supabase
         .from("narrative_dna_profiles")
@@ -89,7 +197,8 @@ serve(async (req) => {
         dnaConstraintBlock = "\n\n" + parts.join("\n") + "\n";
         console.log(`[promote-to-devseed] DNA constraint block injected from profile ${dnaProfileId}`);
       }
-    } else if (engineKey) {
+    } else if (engineKey && !canonicalBlueprint) {
+      // Engine-only fallback: only used when NO canonical blueprint exists
       const { data: engine } = await supabase
         .from("narrative_engines")
         .select("engine_key, label, description, structural_pattern, example_titles")
@@ -114,6 +223,27 @@ serve(async (req) => {
         dnaConstraintBlock = "\n\n" + parts.join("\n") + "\n";
         console.log(`[promote-to-devseed] Engine constraint block injected for engine ${engineKey}`);
       }
+    }
+
+    // Log skip if no blueprint but DNA/engine exist
+    if (!sourceBlueprintId && (dnaProfileId || engineKey)) {
+      console.log(JSON.stringify({
+        diag: "DEVSEED_BLUEPRINT_INJECTION_SKIPPED",
+        pitch_idea_id: pitchIdeaId,
+        source_blueprint_id: null,
+        engine_key: engineKey,
+        source_dna_profile_id: dnaProfileId,
+        reason: "no_source_blueprint_id_on_pitch_idea",
+      }));
+    } else if (!sourceBlueprintId && !dnaProfileId && !engineKey) {
+      console.log(JSON.stringify({
+        diag: "DEVSEED_BLUEPRINT_INJECTION_SKIPPED",
+        pitch_idea_id: pitchIdeaId,
+        source_blueprint_id: null,
+        engine_key: null,
+        source_dna_profile_id: null,
+        reason: "no_structural_lineage_on_pitch_idea",
+      }));
     }
 
     // Build context for DevSeed generation
@@ -232,7 +362,7 @@ SECTIONS TO GENERATE:
    - Buyer Positioning: which buyers/platforms, pitch angle for each
    - Timing: market window, trend alignment
    - Risk Summary: top 3 risks with mitigations
-${convergenceGuidanceBlock}${dnaConstraintBlock}
+${convergenceGuidanceBlock}${dnaConstraintBlock}${blueprintExecutionBlock}
 4. NARRATIVE SPINE — Structural lock object (output as "narrative_spine" key):
    - story_engine: the StoryEngine that best matches this story (pressure_cooker / two_hander / slow_burn_investigation / social_realism / moral_trap / character_spiral / rashomon / anti_plot)
    - pressure_system: the CausalGrammar (accumulation / erosion / exchange / mirror / constraint / misalignment / contagion / revelation_without_facts)
@@ -626,6 +756,31 @@ Return the same JSON schema as before with the structural elements strengthened.
     // Persist spine to projects table if project is linked
     const linkedProjectId: string | null = idea.project_id || null;
     if (linkedProjectId) {
+      // ── Persist blueprint lineage on project (write-once for blueprint fields) ──
+      if (canonicalBlueprint && sourceBlueprintId) {
+        const bpUpdate: Record<string, any> = {
+          source_blueprint_id: sourceBlueprintId,
+          source_blueprint_family_key: canonicalBlueprint.blueprint_family_key,
+        };
+        // Also ensure engine/dna are set if not already
+        if (engineKey || canonicalBlueprint.engine) {
+          bpUpdate.source_engine_key = engineKey || canonicalBlueprint.engine;
+        }
+        if (dnaProfileId || canonicalBlueprint.source_dna_profile_id) {
+          bpUpdate.source_dna_profile_id = dnaProfileId || canonicalBlueprint.source_dna_profile_id;
+        }
+        const { error: bpPersistErr } = await supabase
+          .from('projects')
+          .update(bpUpdate)
+          .eq('id', linkedProjectId)
+          .is('source_blueprint_id', null); // write-once guard
+        if (bpPersistErr) {
+          console.warn(`[promote-to-devseed] blueprint_lineage_persist_failed { project_id: "${linkedProjectId}", error: "${bpPersistErr.message}" }`);
+        } else {
+          console.log(`[promote-to-devseed] blueprint_lineage_persisted { project_id: "${linkedProjectId}", blueprint_id: "${sourceBlueprintId}", family_key: "${canonicalBlueprint.blueprint_family_key}" }`);
+        }
+      }
+
       const { error: spineErr } = await supabase
         .from('projects')
         .update({ narrative_spine_json: narrativeSpineJson })

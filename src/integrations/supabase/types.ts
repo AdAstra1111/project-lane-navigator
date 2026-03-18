@@ -14597,6 +14597,8 @@ export type Database = {
           secondary_territories: string[]
           signals_apply: Json
           signals_influence: number
+          source_blueprint_family_key: string | null
+          source_blueprint_id: string | null
           source_dna_profile_id: string | null
           source_engine_key: string | null
           source_pitch_idea_id: string | null
@@ -14665,6 +14667,8 @@ export type Database = {
           secondary_territories?: string[]
           signals_apply?: Json
           signals_influence?: number
+          source_blueprint_family_key?: string | null
+          source_blueprint_id?: string | null
           source_dna_profile_id?: string | null
           source_engine_key?: string | null
           source_pitch_idea_id?: string | null
@@ -14733,6 +14737,8 @@ export type Database = {
           secondary_territories?: string[]
           signals_apply?: Json
           signals_influence?: number
+          source_blueprint_family_key?: string | null
+          source_blueprint_id?: string | null
           source_dna_profile_id?: string | null
           source_engine_key?: string | null
           source_pitch_idea_id?: string | null
