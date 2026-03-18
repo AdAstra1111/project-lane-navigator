@@ -15,6 +15,8 @@ interface ConvergencePanelProps {
   tieredNotes: { blockers: any[]; high: any[]; polish: any[] };
   versionMetaJson?: { ci?: number; gp?: number; [key: string]: any } | null;
   versionLabel?: string | null;
+  /** Current version number for discipline mode resolution */
+  versionNumber?: number;
   /** Callback when operator clicks a recommended CTA */
   onAction?: (action: ManualActionKey) => void;
   isLoading?: boolean;
