@@ -14,7 +14,7 @@ import { useState } from 'react';
 
 interface PlateauDiagnosisPanelProps {
   diagnosis: PlateauDiagnosisRow;
-  onLowerTarget?: (ci: number, gp: number) => void;
+  onForceAdvance?: () => void;
   onStop?: () => void;
 }
 
