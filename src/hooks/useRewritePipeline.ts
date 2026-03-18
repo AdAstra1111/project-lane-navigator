@@ -100,7 +100,7 @@ function buildChunkLabel(
 ): string {
   if (strategy === 'episodic_indexed' && currentEpStart != null && currentEpEnd != null) {
     if (currentEpStart === currentEpEnd) {
-      return `Rewriting Episode ${currentEpStart} (${currentChunk}/${totalChunks})`;
+      return `Rewriting Episode ${currentEpStart} — Episode ${currentChunk} of ${totalChunks} affected`;
     }
     return `Rewriting Episodes ${currentEpStart}–${currentEpEnd} (${currentChunk}/${totalChunks})`;
   }
@@ -206,7 +206,7 @@ export function useRewritePipeline(projectId: string | undefined) {
         strategy: resolvedStrategy, chunkMeta: resolvedChunkMeta, episodeCount: resolvedEpisodeCount }));
 
       if (resolvedStrategy === 'episodic_indexed' && resolvedEpisodeCount) {
-        pushActivity('info', `Plan ready: ${totalChunks} episode batches (${resolvedEpisodeCount} episodes)`);
+        pushActivity('info', `Plan ready: ${totalChunks} affected episodes`);
       } else {
         pushActivity('info', `Plan ready: ${totalChunks} chunks`);
       }
@@ -329,12 +329,14 @@ export function useRewritePipeline(projectId: string | undefined) {
   const actualPercent = state.totalChunks > 0 ? Math.floor((state.currentChunk / state.totalChunks) * 100) : 0;
 
   const progress = {
-    phase: state.status === 'planning' ? 'processing_chunk'
-      : state.status === 'writing' ? 'processing_chunk'
-      : state.status === 'assembling' ? 'assembling'
-      : state.status === 'complete' ? 'complete'
-      : state.status === 'error' ? 'error'
-      : 'queued',
+    phase: state.status === 'planning'
+      ? (state.strategy === 'episodic_indexed' ? 'processing_episode' : 'processing_chunk')
+      : state.status === 'writing'
+        ? (state.strategy === 'episodic_indexed' ? 'processing_episode' : 'processing_chunk')
+        : state.status === 'assembling' ? 'assembling'
+        : state.status === 'complete' ? 'complete'
+        : state.status === 'error' ? 'error'
+        : 'queued',
     total: state.totalChunks,
     completed: state.currentChunk,
     running: state.status === 'writing' ? 1 : 0,

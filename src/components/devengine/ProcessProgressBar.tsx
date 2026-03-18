@@ -35,6 +35,7 @@ const PHASE_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | '
   queued: 'outline',
   processing_scene: 'default',
   processing_chunk: 'default',
+  processing_episode: 'default',
   assembling: 'secondary',
   writing_version: 'secondary',
   complete: 'default',

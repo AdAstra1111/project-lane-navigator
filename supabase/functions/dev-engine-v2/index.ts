@@ -7572,9 +7572,15 @@ MATERIAL TO REWRITE:\n${fullText}`;
             ? `\n\nOUTPUT FORMAT: Episode beats — ## EPISODE N: block with numbered beats. Beat format: N. [BEAT_TYPE] description. Beat 1 = HOOK, final beat = CLIFFHANGER. No prose. No screenplay.`
             : `\n\nOUTPUT FORMAT: Screenplay — maintain INT./EXT. sluglines, action lines, character names in CAPS, dialogue.`;
 
-          const episodicPrompt = `${notesContext}${prevContext}${repairDirective}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite Episodes ${start}-${end} ONLY.\n\nCRITICAL RULES:\n- Output exactly Episodes ${start} through ${end}.\n- Each episode starts with heading \"## EPISODE N: [title]\".\n- Do NOT omit, merge, summarize, or renumber episodes.\n- Do NOT use summary language (\"remaining episodes\", \"and so on\", \"etc\").${formatReminder}\n\nSOURCE EPISODES TO REWRITE:\n${chunkText || "(No source text for this range. Regenerate all episodes in-range fully.)"}`;
+          const unitLabel = start === end
+            ? `EPISODE ${start} OF ${plan.total_chunks}`
+            : `EPISODES ${start}-${end} OF ${plan.total_chunks}`;
+          const targetLabel = start === end ? `Episode ${start}` : `Episodes ${start}-${end}`;
+          const episodicPrompt = `${notesContext}${prevContext}${repairDirective}\n\n${unitLabel} — Rewrite ${targetLabel} ONLY.\n\nCRITICAL RULES:\n- Output exactly ${targetLabel}.\n- Each episode starts with heading \"## EPISODE N: [title]\".\n- Do NOT omit, merge, summarize, or renumber episodes.\n- Do NOT use summary language (\"remaining episodes\", \"and so on\", \"etc\").${formatReminder}\n\nSOURCE EPISODES TO REWRITE:\n${chunkText || "(No source text for this range. Regenerate all episodes in-range fully.)"}`;
 
-          console.log(`Rewrite episodic chunk ${chunkIndex + 1}/${plan.total_chunks} (episodes ${start}-${end})`);
+          console.log(start === end
+            ? `Rewrite episode ${start}/${plan.total_chunks}`
+            : `Rewrite episodic unit ${chunkIndex + 1}/${plan.total_chunks} (episodes ${start}-${end})`);
           rewrittenChunk = await callAI(
             LOVABLE_API_KEY,
             BALANCED_MODEL,
