@@ -326,11 +326,31 @@ export function useRewritePipeline(projectId: string | undefined) {
         const resultEpStart = result.episodeStart ?? epStart;
         const resultEpEnd = result.episodeEnd ?? epEnd;
         if (resolvedStrategy === 'episodic_indexed' && resultEpStart != null) {
-          setEpisodeUnits(prev => prev.map(u =>
-            u.episodeNumber >= resultEpStart && u.episodeNumber <= (resultEpEnd ?? resultEpStart)
-              ? { ...u, status: 'done' as EpisodeUnitStatus, content: result.rewrittenText, charCount: result.rewrittenText?.length ?? 0, durationMs: chunkMs }
-              : u
-          ));
+          setEpisodeUnits(prev => prev.map(u => {
+            if (u.episodeNumber >= resultEpStart && u.episodeNumber <= (resultEpEnd ?? resultEpStart)) {
+              const text: string = result.rewrittenText ?? '';
+              const parsed = parseScenes(text);
+              const sceneUnits: SceneUnit[] = parsed.map((sc, idx) => ({
+                sceneNumber: idx + 1,
+                slugline: sc.slugline,
+                status: 'rewritten' as SceneUnitStatus,
+                content: text.slice(sc.start, sc.end),
+                charCount: sc.end - sc.start,
+                startOffset: sc.start,
+                endOffset: sc.end,
+              }));
+              return {
+                ...u,
+                status: 'done' as EpisodeUnitStatus,
+                content: text,
+                charCount: text.length,
+                durationMs: chunkMs,
+                scenes: sceneUnits,
+                hasSceneGraph: sceneUnits.length > 0,
+              };
+            }
+            return u;
+          }));
         }
 
         pushActivity('success', buildChunkDoneMessage(
