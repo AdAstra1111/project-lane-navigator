@@ -6,6 +6,21 @@ Deno.test("should skip canon alignment for chunked production_draft rewrites", (
   assertEquals(result, false);
 });
 
+Deno.test("should skip canon alignment for chunked season_script rewrites", () => {
+  const result = shouldRunCanonAlignment("vertical-drama", "season_script", "dev-engine-v2-rewrite-chunked");
+  assertEquals(result, false);
+});
+
+Deno.test("should skip canon alignment for chunked feature_script rewrites", () => {
+  const result = shouldRunCanonAlignment("film", "feature_script", "dev-engine-v2-rewrite-chunked");
+  assertEquals(result, false);
+});
+
+Deno.test("should still run canon alignment for non-chunked season_script writes", () => {
+  const result = shouldRunCanonAlignment("vertical-drama", "season_script", "dev-engine-v2-rewrite");
+  assertEquals(result, true);
+});
+
 Deno.test("should still run canon alignment for non-chunked production_draft writes", () => {
   const result = shouldRunCanonAlignment("film", "production_draft", "dev-engine-v2-rewrite");
   assertEquals(result, true);
