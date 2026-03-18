@@ -422,7 +422,20 @@ function chunksNeedingGeneration(
   return plan.chunks.filter(c => {
     const existing = existingMap.get(c.chunkIndex);
     if (!existing) return true;
-    return ["pending", "failed", "failed_validation", "needs_regen"].includes(existing.status);
+    // Include pending, failed, failed_validation, needs_regen
+    if (["pending", "failed", "failed_validation", "needs_regen"].includes(existing.status)) return true;
+    // Include stale running chunks (from crashed background tasks)
+    if (existing.status === "running") {
+      const updatedAt = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
+      const age = Date.now() - updatedAt;
+      if (age > STALE_RUNNING_THRESHOLD_MS) {
+        console.warn(`[chunkRunner][IEL] stale_running_chunk: index=${c.chunkIndex} key=${c.chunkKey} age=${Math.round(age/1000)}s — will retry`);
+        return true;
+      }
+      // Recently marked running — skip (another task is actively generating)
+      return false;
+    }
+    return false;
   });
 }
 
