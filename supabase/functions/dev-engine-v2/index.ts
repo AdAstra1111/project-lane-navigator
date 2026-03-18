@@ -6792,7 +6792,7 @@ ${(() => {
       let notes = notesJson;
       if (!notes) {
         const { data: latestNotes } = await supabase.from("development_runs")
-          .select("output_json").eq("document_id", documentId).eq("run_type", "NOTES")
+          .select("output_json").eq("version_id", versionId).eq("run_type", "NOTES")
           .order("created_at", { ascending: false }).limit(1).single();
         notes = latestNotes?.output_json;
       }
