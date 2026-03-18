@@ -15,6 +15,19 @@ interface ChunkMetaItem {
 }
 
 export type EpisodeUnitStatus = 'preserved' | 'queued' | 'rewriting' | 'done' | 'failed';
+export type SceneUnitStatus = 'preserved' | 'queued' | 'rewriting' | 'rewritten' | 'failed';
+
+export interface SceneUnit {
+  /** 1-based ordinal within the episode */
+  sceneNumber: number;
+  slugline: string;
+  status: SceneUnitStatus;
+  content: string | null;
+  charCount: number;
+  /** Character offset range within the episode text */
+  startOffset: number;
+  endOffset: number;
+}
 
 export interface EpisodeUnit {
   /** 1-based episode number */
@@ -26,6 +39,10 @@ export interface EpisodeUnit {
   durationMs: number | null;
   /** True if this episode was not in the affected set */
   isPreserved: boolean;
+  /** Parsed scenes within the episode (empty if no scene structure detected) */
+  scenes: SceneUnit[];
+  /** Whether scene-level structure was detected */
+  hasSceneGraph: boolean;
 }
 
 interface RewritePipelineState {
