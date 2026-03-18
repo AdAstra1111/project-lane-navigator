@@ -1825,7 +1825,13 @@ No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
       // Per-spec validation
       for (const s of bSpecs) {
         if (s.camera_move && !VALID_CAMERA_MOVES.has(s.camera_move)) {
-          valErrors.push(`Beat #${bi} shot #${s.shot_index}: invalid camera_move "${s.camera_move}"`);
+          // Soft remap unknown camera moves instead of hard fail
+          const remapped = CAMERA_MOVE_REMAP[s.camera_move] || "handheld";
+          console.error(JSON.stringify({ type: "CAMERA_MOVE_REMAP", beat: bi, shot: s.shot_index, from: s.camera_move, to: remapped }));
+          s.camera_move = remapped;
+        } else if (s.camera_move && CAMERA_MOVE_REMAP[s.camera_move]) {
+          // Remap known aliases to canonical values
+          s.camera_move = CAMERA_MOVE_REMAP[s.camera_move];
         }
         if (s.shot_type && !VALID_SHOT_TYPES.has(s.shot_type)) {
           // soft: remap
