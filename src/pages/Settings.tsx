@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, LogOut, Save, Loader2, Crown, BookOpen, FlaskConical, Activity, Layers } from 'lucide-react';
+import { User, Mail, LogOut, Save, Loader2, Crown, BookOpen, FlaskConical, Activity, Layers, ImageIcon } from 'lucide-react';
 import { useSubscription } from '@/hooks/useSubscription';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
 import { CorpusSourceManager } from '@/components/corpus/CorpusSourceManager';
+import { BrandAssetUpload } from '@/components/settings/BrandAssetUpload';
 import { CorpusHealthDashboard } from '@/components/corpus/CorpusHealthDashboard';
 import { CorpusIntegrityPanel } from '@/components/corpus/CorpusIntegrityPanel';
 import { useUIMode } from '@/hooks/useUIMode';
@@ -165,6 +166,22 @@ export default function Settings() {
               </button>
             ))}
           </div>
+        </motion.section>
+
+        {/* Branding */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.04 }}
+          className="glass-card rounded-xl p-6 mb-6"
+        >
+          <h2 className="font-display font-semibold text-foreground mb-2 flex items-center gap-2">
+            <ImageIcon className="h-5 w-5 text-primary" /> Export Branding
+          </h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Upload your logo for use on PDF package exports, cover pages, and headers.
+          </p>
+          <BrandAssetUpload />
         </motion.section>
 
         {/* Password */}

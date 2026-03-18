@@ -314,6 +314,8 @@ async function buildPdf(
   sections: Array<{ label: string; text: string; docType: string }>,
   projectTitle: string,
   projectFormat?: string,
+  logoImageBytes?: Uint8Array | null,
+  logoMimeType?: string,
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const helvetica = await doc.embedFont(StandardFonts.Helvetica);
@@ -323,6 +325,53 @@ async function buildPdf(
 
   const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   const allPages: any[] = [];
+
+  // ── Embed logo image if provided ──
+  let logoImage: any = null;
+  let logoDims = { width: 36, height: 36 };
+  if (logoImageBytes && logoImageBytes.length > 0) {
+    try {
+      if (logoMimeType?.includes("png")) {
+        logoImage = await doc.embedPng(logoImageBytes);
+      } else {
+        logoImage = await doc.embedJpg(logoImageBytes);
+      }
+      const scale = logoImage.scale(1);
+      logoDims = { width: scale.width, height: scale.height };
+    } catch (e) {
+      console.warn("Failed to embed logo image, using fallback:", e);
+      logoImage = null;
+    }
+  }
+
+  // Helper: draw logo at given position and max height, preserving aspect ratio
+  function drawLogo(page: any, cx: number, cy: number, maxH: number) {
+    if (logoImage) {
+      const aspect = logoDims.width / logoDims.height;
+      const h = Math.min(maxH, logoDims.height);
+      const w = h * aspect;
+      page.drawImage(logoImage, { x: cx - w / 2, y: cy, width: w, height: h });
+    } else {
+      // Fallback: amber square with "PH"
+      const s = Math.min(maxH, 36);
+      page.drawRectangle({ x: cx - s / 2, y: cy, width: s, height: s, color: COLORS.amber });
+      page.drawText("PH", { x: cx - s / 2 + 7, y: cy + s / 2 - 5, size: Math.max(7, s * 0.38), font: helveticaBold, color: COLORS.dark });
+    }
+  }
+
+  // Helper: draw small logo aligned left (for headers)
+  function drawLogoLeft(page: any, x: number, cy: number, maxH: number) {
+    if (logoImage) {
+      const aspect = logoDims.width / logoDims.height;
+      const h = Math.min(maxH, logoDims.height);
+      const w = h * aspect;
+      page.drawImage(logoImage, { x, y: cy, width: w, height: h });
+    } else {
+      const s = Math.min(maxH, 18);
+      page.drawRectangle({ x, y: cy, width: s, height: s, color: COLORS.amber });
+      page.drawText("PH", { x: x + 3.5, y: cy + s / 2 - 3, size: Math.max(5, s * 0.38), font: helveticaBold, color: COLORS.dark });
+    }
+  }
 
   // ── COVER PAGE ──
   const coverPage = doc.addPage([PAGE_W, PAGE_H]);
@@ -334,20 +383,13 @@ async function buildPdf(
   // Amber accent line at top
   coverPage.drawRectangle({ x: 0, y: PAGE_H - 3, width: PAGE_W, height: 3, color: COLORS.amber });
 
-  // Paradox House mark - elegant amber square with "PH"
-  const logoSize = 36;
-  const logoX = (PAGE_W - logoSize) / 2;
-  const logoY = PAGE_H - 160;
-  coverPage.drawRectangle({ x: logoX, y: logoY, width: logoSize, height: logoSize, color: COLORS.amber });
-  coverPage.drawText("PH", {
-    x: logoX + 7, y: logoY + 12, size: 14, font: helveticaBold, color: COLORS.dark,
-  });
+  // Logo — centered, real or fallback
+  drawLogo(coverPage, PAGE_W / 2, PAGE_H - 170, 48);
 
-  // Project title - large, centered
   const titleFontSize = 28;
   const titleText = normalizeText(projectTitle || "Untitled Project");
   const titleLines = wrapText(titleText, helveticaBold, titleFontSize, PAGE_W - 120);
-  let titleY = logoY - 50;
+  let titleY = PAGE_H - 230;
   for (const line of titleLines) {
     const tw = helveticaBold.widthOfTextAtSize(line, titleFontSize);
     coverPage.drawText(line, {
@@ -404,9 +446,8 @@ async function buildPdf(
     page.drawRectangle({ x: 0, y: PAGE_H - bandH - 2, width: PAGE_W, height: 2, color: COLORS.amber });
 
     if (isSectionStart && sectionLabel) {
-      // PH mark
-      page.drawRectangle({ x: M, y: PAGE_H - 30, width: 18, height: 18, color: COLORS.amber });
-      page.drawText("PH", { x: M + 3.5, y: PAGE_H - 25, size: 7, font: helveticaBold, color: COLORS.dark });
+      // Logo mark
+      drawLogoLeft(page, M, PAGE_H - 30, 18);
 
       // Section label
       page.drawText(normalizeText(sectionLabel), {
@@ -423,8 +464,7 @@ async function buildPdf(
 
     // Continuation header - minimal
     if (sectionLabel) {
-      page.drawRectangle({ x: M, y: PAGE_H - 26, width: 14, height: 14, color: COLORS.amber });
-      page.drawText("PH", { x: M + 2.5, y: PAGE_H - 22, size: 5, font: helveticaBold, color: COLORS.dark });
+      drawLogoLeft(page, M, PAGE_H - 26, 14);
 
       page.drawText(normalizeText(sectionLabel), {
         x: M + 18, y: PAGE_H - 22, size: 8, font: helveticaBold, color: COLORS.white, maxWidth: CONTENT_W - 22,
@@ -843,13 +883,37 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── Fetch brand logo asset for PDF rendering ──
+    let logoBytes: Uint8Array | null = null;
+    let logoMime = "image/png";
+    try {
+      const { data: brandAsset } = await sb
+        .from("brand_assets")
+        .select("storage_path, mime_type")
+        .eq("user_id", user.id)
+        .eq("asset_type", "logo")
+        .eq("label", "primary")
+        .maybeSingle();
+      if (brandAsset?.storage_path) {
+        const { data: fileData } = await sb.storage
+          .from("brand-assets")
+          .download(brandAsset.storage_path);
+        if (fileData) {
+          logoBytes = new Uint8Array(await fileData.arrayBuffer());
+          logoMime = brandAsset.mime_type || "image/png";
+        }
+      }
+    } catch (e) {
+      console.warn("Brand logo fetch failed, using fallback:", e);
+    }
+
     // --- Generate output (ZIP or PDF) ---
     let fileBuffer: Uint8Array;
     let contentType: string;
     let fileExtension: string;
 
     if (output_format === "pdf") {
-      fileBuffer = await buildPdf(sections, project.title || "Untitled Project", project.format);
+      fileBuffer = await buildPdf(sections, project.title || "Untitled Project", project.format, logoBytes, logoMime);
       contentType = "application/pdf";
       fileExtension = "pdf";
     } else {
