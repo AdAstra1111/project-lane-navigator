@@ -854,6 +854,45 @@ export type Database = {
           },
         ]
       }
+      brand_assets: {
+        Row: {
+          asset_type: string
+          created_at: string
+          height: number | null
+          id: string
+          label: string
+          mime_type: string
+          storage_path: string
+          updated_at: string
+          user_id: string
+          width: number | null
+        }
+        Insert: {
+          asset_type?: string
+          created_at?: string
+          height?: number | null
+          id?: string
+          label?: string
+          mime_type?: string
+          storage_path: string
+          updated_at?: string
+          user_id: string
+          width?: number | null
+        }
+        Update: {
+          asset_type?: string
+          created_at?: string
+          height?: number | null
+          id?: string
+          label?: string
+          mime_type?: string
+          storage_path?: string
+          updated_at?: string
+          user_id?: string
+          width?: number | null
+        }
+        Relationships: []
+      }
       broadcaster_fit_scores: {
         Row: {
           broadcaster_name: string
