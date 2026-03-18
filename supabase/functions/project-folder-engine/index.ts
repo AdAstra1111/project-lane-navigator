@@ -265,7 +265,7 @@ Deno.serve(async (req) => {
         "idea", "concept_brief", "canon", "nec", "format_rules",
         "project_overview", "creative_brief", "market_positioning",
         "vertical_market_sheet", "market_sheet", "character_bible",
-        "deck",
+        "deck", "season_arc", "episode_grid", "blueprint",
       ]);
       const shouldCheckDrift = !CANON_DRIFT_EXEMPT_DOC_TYPES.has(docType || "");
       if (shouldCheckDrift) {
