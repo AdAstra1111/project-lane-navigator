@@ -18,6 +18,7 @@ import { loadLanePrefs, loadTeamVoiceProfile } from "../_shared/prefs.ts";
 import { buildTeamVoicePromptBlock } from "../_shared/teamVoice.ts";
 import { isLargeRiskDocType, chunkPlanFor } from "../_shared/largeRiskRouter.ts";
 import { runChunkedGeneration, containsFailedPlaceholders } from "../_shared/chunkRunner.ts";
+import { fetchCoreDocs } from "../_shared/coreDocs.ts";
 import { hasBannedSummarizationLanguage, validateEpisodicChunk, validateEpisodicContent } from "../_shared/chunkValidator.ts";
 import {
   extractFingerprint, computeDeviation, buildTargetFromTeamVoice,
