@@ -408,7 +408,7 @@ export function DocumentSidebar({
                       )}
                     </div>
                   </div>
-                  {v.change_summary && <span className="text-[8px] block mt-0.5 truncate opacity-70">{v.change_summary}</span>}
+                  {v.change_summary && <span className="text-[8px] block mt-0.5 truncate opacity-70">{sanitizeChangeSummary(v.change_summary)}</span>}
                 </div>
                   </TooltipTrigger>
                   <TooltipContent side="right" className="text-xs max-w-[280px]">
