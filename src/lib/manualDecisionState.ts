@@ -57,12 +57,13 @@ export interface ManualDecisionInput {
 }
 
 /** Map recommendation → Loop Controls action key used by the page */
-export type ManualActionKey = 'approve' | 'review' | 'rewrite_selective' | 'rewrite_full' | 'polish' | 'reassess';
+export type ManualActionKey = 'approve' | 'review' | 'rewrite_selective' | 'rewrite_full' | 'patch' | 'polish' | 'reassess';
 
 export function recommendationToActionKey(rec: OperatorRecommendation): ManualActionKey {
   switch (rec) {
     case 'approval_ready': return 'approve';
     case 'optional_polish': return 'polish';
+    case 'run_late_stage_patch': return 'patch';
     case 'run_selective_pass': return 'rewrite_selective';
     case 'run_full_rewrite': return 'rewrite_full';
     case 'review_remaining_issues': return 'review';
