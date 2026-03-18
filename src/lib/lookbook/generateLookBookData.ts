@@ -6,6 +6,8 @@
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
 import type { LookBookData, LookBookVisualIdentity, SlideContent, LookBookColorSystem } from './types';
+import type { ProjectImage } from '@/lib/images/types';
+import { DOCUMENT_IMAGE_MAP } from '@/lib/images/types';
 
 // ── Color palettes by tone/genre ──
 const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
@@ -157,24 +159,60 @@ export async function generateLookBookData(
     }
   }
 
-  // 4. Load active poster for cover
-  let coverImageUrl = '';
+  // 4. Load canonical images for Look Book roles
+  const lookbookRoles = DOCUMENT_IMAGE_MAP.lookbook || [];
+  let canonicalImages: ProjectImage[] = [];
   try {
-    const { data: activePoster } = await (supabase as any)
-      .from('project_posters')
-      .select('key_art_storage_path')
+    const { data: imgs } = await (supabase as any)
+      .from('project_images')
+      .select('*')
       .eq('project_id', projectId)
       .eq('is_active', true)
-      .limit(1)
-      .maybeSingle();
-
-    if (activePoster?.key_art_storage_path) {
-      const { data: signed } = await supabase.storage
-        .from('poster-assets')
-        .createSignedUrl(activePoster.key_art_storage_path, 3600);
-      if (signed?.signedUrl) coverImageUrl = signed.signedUrl;
+      .in('role', lookbookRoles)
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (imgs?.length) {
+      // Hydrate signed URLs
+      await Promise.all((imgs as ProjectImage[]).map(async (img) => {
+        try {
+          const { data: signed } = await supabase.storage
+            .from(img.storage_bucket || 'project-posters')
+            .createSignedUrl(img.storage_path, 3600);
+          img.signedUrl = signed?.signedUrl || undefined;
+        } catch { /* skip */ }
+      }));
+      canonicalImages = imgs;
     }
-  } catch { /* poster table may not exist yet */ }
+  } catch { /* table may not exist yet */ }
+
+  // Fallback: if no canonical images, try legacy poster table
+  let coverImageUrl = canonicalImages.find(i => i.role === 'poster_primary' || i.role === 'lookbook_cover')?.signedUrl || '';
+  if (!coverImageUrl) {
+    try {
+      const { data: activePoster } = await (supabase as any)
+        .from('project_posters')
+        .select('key_art_storage_path')
+        .eq('project_id', projectId)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+      if (activePoster?.key_art_storage_path) {
+        const { data: signed } = await supabase.storage
+          .from('project-posters')
+          .createSignedUrl(activePoster.key_art_storage_path, 3600);
+        if (signed?.signedUrl) coverImageUrl = signed.signedUrl;
+      }
+    } catch { /* poster table may not exist yet */ }
+  }
+
+  // Resolve world establishing images for world slide
+  const worldImageUrl = canonicalImages.find(i => i.role === 'world_establishing')?.signedUrl || '';
+
+  // Resolve character images
+  const characterImageMap = new Map<string, string>();
+  canonicalImages
+    .filter(i => i.role === 'character_primary' && i.entity_id && i.signedUrl)
+    .forEach(i => characterImageMap.set(i.entity_id!, i.signedUrl!));
 
   // 5. Build identity from canonical state
   const identity = resolveIdentity(canon, (project as any).genre);
@@ -220,6 +258,7 @@ export async function generateLookBookData(
       body: (canon.world_rules as string) || undefined,
       bodySecondary: (canon.locations as string) || undefined,
       quote: (canon.timeline as string) || undefined,
+      imageUrl: worldImageUrl || undefined,
     });
   }
 

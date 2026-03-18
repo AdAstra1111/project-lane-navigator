@@ -12694,6 +12694,91 @@ export type Database = {
           },
         ]
       }
+      project_images: {
+        Row: {
+          canon_constraints: Json
+          created_at: string
+          created_by: string | null
+          entity_id: string | null
+          height: number | null
+          id: string
+          is_active: boolean
+          is_primary: boolean
+          negative_prompt: string
+          project_id: string
+          prompt_used: string
+          role: Database["public"]["Enums"]["project_image_role"]
+          source_poster_id: string | null
+          storage_bucket: string
+          storage_path: string
+          strategy_key: string | null
+          user_id: string
+          width: number | null
+        }
+        Insert: {
+          canon_constraints?: Json
+          created_at?: string
+          created_by?: string | null
+          entity_id?: string | null
+          height?: number | null
+          id?: string
+          is_active?: boolean
+          is_primary?: boolean
+          negative_prompt?: string
+          project_id: string
+          prompt_used?: string
+          role: Database["public"]["Enums"]["project_image_role"]
+          source_poster_id?: string | null
+          storage_bucket?: string
+          storage_path: string
+          strategy_key?: string | null
+          user_id: string
+          width?: number | null
+        }
+        Update: {
+          canon_constraints?: Json
+          created_at?: string
+          created_by?: string | null
+          entity_id?: string | null
+          height?: number | null
+          id?: string
+          is_active?: boolean
+          is_primary?: boolean
+          negative_prompt?: string
+          project_id?: string
+          prompt_used?: string
+          role?: Database["public"]["Enums"]["project_image_role"]
+          source_poster_id?: string | null
+          storage_bucket?: string
+          storage_path?: string
+          strategy_key?: string | null
+          user_id?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_images_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_images_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_images_source_poster_id_fkey"
+            columns: ["source_poster_id"]
+            isOneToOne: false
+            referencedRelation: "project_posters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_incentive_scenarios: {
         Row: {
           blockers: string
@@ -24498,6 +24583,16 @@ export type Database = {
         | "crane"
         | "tilt"
         | "dolly_zoom"
+      project_image_role:
+        | "poster_primary"
+        | "poster_variant"
+        | "character_primary"
+        | "character_variant"
+        | "world_establishing"
+        | "world_detail"
+        | "visual_reference"
+        | "lookbook_cover"
+        | "marketing_variant"
       project_role: "producer" | "sales_agent" | "lawyer" | "creative"
       shot_type:
         | "wide"
@@ -24654,6 +24749,17 @@ export const Constants = {
         "crane",
         "tilt",
         "dolly_zoom",
+      ],
+      project_image_role: [
+        "poster_primary",
+        "poster_variant",
+        "character_primary",
+        "character_variant",
+        "world_establishing",
+        "world_detail",
+        "visual_reference",
+        "lookbook_cover",
+        "marketing_variant",
       ],
       project_role: ["producer", "sales_agent", "lawyer", "creative"],
       shot_type: [
