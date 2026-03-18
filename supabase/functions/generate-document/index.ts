@@ -1313,7 +1313,7 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
           // Use serviceClient throughout: rlsClient silently blocks writes on
           // project_document_versions and project_document_chunks via RLS.
           try {
-            await resumeChunkedGeneration({
+            const resumeResult = await resumeChunkedGeneration({
               supabase: serviceClient, apiKey, projectId,
               documentId: resumeDocId, versionId: resumeVersionId,
               docType, plan: resumePlan, systemPrompt: system, upstreamContent,
@@ -1322,10 +1322,33 @@ If you find yourself writing "Episode" headings, episode numbers, or dividing th
               episodeCount: resolvedQuals?.season_episode_count,
               requestId,
             });
-            // chunkRunner clears bg_generating atomically in assembly — ensure is_current is set
-            await serviceClient.from("project_document_versions").update({ is_current: true }).eq("id", resumeVersionId);
-            await serviceClient.from("project_documents").update({ updated_at: new Date().toISOString() }).eq("id", resumeDocId);
-            console.log(`[generate-document] Resume COMPLETE: ${docType} versionId=${resumeVersionId}`);
+
+            // ── COMPLETION GATE: only promote if generation truly succeeded ──
+            if (resumeResult.success) {
+              await serviceClient.from("project_document_versions").update({ is_current: true }).eq("id", resumeVersionId);
+              await serviceClient.from("project_documents")
+                .update({ latest_version_id: resumeVersionId, updated_at: new Date().toISOString() })
+                .eq("id", resumeDocId);
+              console.log(`[generate-document] Resume COMPLETE: ${docType} versionId=${resumeVersionId} chunks=${resumeResult.completedChunks}/${resumeResult.totalChunks}`);
+            } else {
+              // Partial completion — do NOT promote to is_current or latest_version_id
+              console.error(`[generate-document][IEL] Resume PARTIAL — NOT promoting: ${docType} versionId=${resumeVersionId} completed=${resumeResult.completedChunks}/${resumeResult.totalChunks} failed=${resumeResult.failedChunks}`);
+              await serviceClient.from("project_document_versions")
+                .update({
+                  meta_json: {
+                    ...rearmedMeta,
+                    bg_generating: false,
+                    bg_failed: true,
+                    bg_failed_at: new Date().toISOString(),
+                    incomplete_generation: true,
+                    chunks_completed: resumeResult.completedChunks,
+                    chunks_total: resumeResult.totalChunks,
+                    chunks_failed: resumeResult.failedChunks,
+                  },
+                  is_current: false,
+                })
+                .eq("id", resumeVersionId);
+            }
           } catch (bgErr: any) {
             console.error(`[generate-document] Resume FAILED: ${docType} — ${bgErr?.message}`);
             await serviceClient.from("project_document_versions")
