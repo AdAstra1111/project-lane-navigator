@@ -119,7 +119,8 @@ export function SeasonScriptProgress({ versionId, episodeCount, projectId, docum
   const hasRetryableChunks = failedCount > 0 && safeChunks.filter(c => c.status === 'running').length === 0;
   const isStale = !!staleInfo;
   const allDone = doneCount === total && total > 0;
-  const showResumeControl = isStale || hasRetryableChunks;
+  // Hide resume controls once resume has succeeded (optimistic)
+  const showResumeControl = !resumeSuccess && (isStale || hasRetryableChunks);
 
   // First incomplete episode for resume label
   const firstIncompleteEp = useMemo(() => {
