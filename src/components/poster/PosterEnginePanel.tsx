@@ -6,7 +6,7 @@ import { useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import {
   Image, RefreshCw, Upload, Trash2, CheckCircle2, AlertTriangle,
-  Loader2, Sparkles, Star, Eye, ChevronDown,
+  Loader2, Sparkles, Star, ChevronDown, Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,19 @@ import {
   type ProjectPoster,
 } from "@/hooks/useProjectPosters";
 import { useProject } from "@/hooks/useProjects";
+
+/** Map render_status to honest labels */
+function renderStatusLabel(status: string): { label: string; variant: "default" | "outline" | "secondary" } {
+  switch (status) {
+    case "composed_final":
+      return { label: "Composed Poster", variant: "default" };
+    case "composed_preview":
+      return { label: "Preview Composite", variant: "secondary" };
+    case "key_art_only":
+    default:
+      return { label: "Key Art Only", variant: "outline" };
+  }
+}
 
 export default function PosterEnginePanel() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -94,7 +107,7 @@ export default function PosterEnginePanel() {
             ) : (
               <>
                 <Sparkles className="w-3.5 h-3.5" />
-                {readyPosters.length > 0 ? "Regenerate" : "Generate Poster"}
+                {readyPosters.length > 0 ? "Regenerate" : "Generate Key Art"}
               </>
             )}
           </Button>
@@ -113,7 +126,7 @@ export default function PosterEnginePanel() {
         <Card className="bg-card border-border/40">
           <CardContent className="p-6">
             <div className="flex gap-6">
-              {/* Poster Canvas */}
+              {/* Poster Canvas — client-side preview compositor */}
               <div className="flex-shrink-0">
                 <PosterCompositor
                   keyArtUrl={activePoster.key_art_public_url || ""}
@@ -126,13 +139,16 @@ export default function PosterEnginePanel() {
               {/* Poster Info */}
               <div className="flex-1 space-y-4 min-w-0">
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">
                       <CheckCircle2 className="w-3 h-3 mr-1" />
                       Active — v{activePoster.version_number}
                     </Badge>
                     <Badge variant="outline" className="text-[10px]">
                       {activePoster.source_type === "generated" ? "AI Generated" : "Uploaded"}
+                    </Badge>
+                    <Badge variant={renderStatusLabel(activePoster.render_status).variant} className="text-[10px]">
+                      {renderStatusLabel(activePoster.render_status).label}
                     </Badge>
                     <Badge variant="outline" className="text-[10px]">
                       {activePoster.aspect_ratio}
@@ -142,6 +158,17 @@ export default function PosterEnginePanel() {
                   <p className="text-xs text-muted-foreground">
                     {activePoster.layout_variant} • {new Date(activePoster.created_at).toLocaleDateString()}
                   </p>
+
+                  {/* Honest model status notice */}
+                  {activePoster.render_status === "key_art_only" && (
+                    <div className="flex items-start gap-2 p-2 rounded bg-muted/30 border border-border/30">
+                      <Info className="w-3.5 h-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        This is raw key art. The poster preview above is a client-side composite — 
+                        no persisted rendered poster exists yet. Title treatment is preview-only.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Prompt Provenance */}
@@ -200,7 +227,7 @@ export default function PosterEnginePanel() {
                 className="gap-1.5"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                Generate Poster
+                Generate Key Art
               </Button>
               <Button
                 variant="outline"
@@ -222,7 +249,7 @@ export default function PosterEnginePanel() {
           <CardContent className="p-6 flex items-center gap-4">
             <Loader2 className="w-6 h-6 text-primary animate-spin" />
             <div>
-              <p className="text-sm font-medium text-foreground">Generating poster…</p>
+              <p className="text-sm font-medium text-foreground">Generating key art…</p>
               <p className="text-xs text-muted-foreground">
                 Building cinematic key art from your project data. This may take a moment.
               </p>
@@ -321,6 +348,8 @@ function PosterVersionCard({
   onSetActive: () => void;
   onDelete: () => void;
 }) {
+  const rsLabel = renderStatusLabel(poster.render_status);
+
   return (
     <div className={cn(
       "relative group rounded-lg overflow-hidden border transition-colors",
@@ -346,10 +375,13 @@ function PosterVersionCard({
         </Button>
       </div>
 
-      {/* Version badge */}
-      <div className="absolute top-1.5 left-1.5">
+      {/* Version + render status badges */}
+      <div className="absolute top-1.5 left-1.5 flex flex-col gap-0.5">
         <Badge variant="outline" className="text-[9px] bg-background/80 backdrop-blur-sm">
           v{poster.version_number}
+        </Badge>
+        <Badge variant={rsLabel.variant} className="text-[8px] bg-background/80 backdrop-blur-sm">
+          {rsLabel.label}
         </Badge>
       </div>
 
