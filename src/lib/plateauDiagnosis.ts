@@ -437,7 +437,7 @@ export const CAUSE_LABELS: Record<PlateauCause, string> = {
 
 export const RECOMMENDATION_LABELS: Record<RecommendationType, string> = {
   continue_rewrite: 'Continue Rewrites',
-  lower_quality_objective: 'Lower Quality Target',
+  force_advance_stage: 'Force Advance Stage',
   regenerate_devseed: 'Regenerate DevSeed',
   switch_blueprint: 'Switch Blueprint',
   remove_dna_constraint: 'Remove DNA Constraint',
