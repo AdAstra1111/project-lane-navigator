@@ -7808,12 +7808,6 @@ MATERIAL TO REWRITE:\n${fullText}`;
           dependsOnResolverHash: chunkedResolverHash,
           projectId,
         });
-          metaJson: chunkMetaJson,
-          deliverableType: effectiveDeliverable,
-          format: assembleProject?.format || undefined,
-          dependsOnResolverHash: chunkedResolverHash,
-          projectId,
-        });
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
         console.warn(`Version ${nextVersion} conflict, retrying...`);
