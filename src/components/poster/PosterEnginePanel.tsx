@@ -230,6 +230,11 @@ export default function PosterEnginePanel() {
         </Card>
       )}
 
+      {/* Creative Framing Panel */}
+      {projectId && (
+        <FramingStrategyPanel projectId={projectId} contentType="poster" compact />
+      )}
+
       {/* 6-Concept Grid */}
       {hasConceptSet && !isGenerating && (
         <div>

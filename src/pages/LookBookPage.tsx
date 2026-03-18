@@ -106,9 +106,26 @@ export default function LookBookPage() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Regenerate button in top-right */}
-      <div className="absolute top-2 right-2 z-20">
+      {/* Creative Framing + Regenerate */}
+      <div className="absolute top-2 right-2 z-20 flex items-center gap-2">
         <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 text-xs"
+          onClick={handleGenerate}
+          disabled={generating}
+        >
+          {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          Regenerate
+        </Button>
+      </div>
+
+      {/* Framing strategy sidebar */}
+      {projectId && (
+        <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0 overflow-y-auto max-h-64">
+          <FramingStrategyPanel projectId={projectId} contentType="lookbook" compact />
+        </div>
+      )}
           variant="ghost"
           size="sm"
           className="gap-1.5 text-xs"
