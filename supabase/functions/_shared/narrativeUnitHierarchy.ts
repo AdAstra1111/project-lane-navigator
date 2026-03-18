@@ -185,7 +185,7 @@ export function narrativeProgressLabel(
  * (unaffected units unchanged) during selective rewrites.
  */
 export function requiresUnitPreservation(docType: string): boolean {
-  return EPISODE_UNIT_DOC_TYPES.has(docType) || SCENE_UNIT_DOC_TYPES.has(docType);
+  return ALL_EPISODE_DOC_TYPES.has(docType) || SCENE_UNIT_DOC_TYPES.has(docType);
 }
 
 /**
@@ -193,5 +193,13 @@ export function requiresUnitPreservation(docType: string): boolean {
  * in operator-facing UI or logs.
  */
 export function hasKnownNarrativeUnit(docType: string): boolean {
-  return EPISODE_UNIT_DOC_TYPES.has(docType) || SCENE_UNIT_DOC_TYPES.has(docType);
+  return ALL_EPISODE_DOC_TYPES.has(docType) || SCENE_UNIT_DOC_TYPES.has(docType);
+}
+
+/**
+ * Returns true if this doc type is an episodic script (not grid/beats)
+ * that should use the episode navigator with scene nesting capability.
+ */
+export function isEpisodicScript(docType: string): boolean {
+  return EPISODIC_SCRIPT_DOC_TYPES.has(docType);
 }
