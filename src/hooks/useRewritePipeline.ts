@@ -114,9 +114,9 @@ function buildChunkLabel(
 ): string {
   if (strategy === 'episodic_indexed' && currentEpStart != null && currentEpEnd != null) {
     if (currentEpStart === currentEpEnd) {
-      return `Rewriting Episode ${currentEpStart} — Episode ${currentChunk} of ${totalChunks} affected`;
+      return `Rewriting Episode ${currentEpStart} — ${currentChunk} of ${totalChunks} affected`;
     }
-    return `Rewriting Episodes ${currentEpStart}–${currentEpEnd} (${currentChunk}/${totalChunks})`;
+    return `Rewriting Episodes ${currentEpStart}–${currentEpEnd} — ${currentChunk} of ${totalChunks} affected`;
   }
   return `Chunk ${currentChunk}/${totalChunks}`;
 }

@@ -6,11 +6,16 @@
  * during an active rewrite.
  *
  * ARCHITECTURE:
- *   - Top: scope summary + compact progress
- *   - Left: scrollable episode navigator with status
+ *   - Top: scope summary (total / affected / preserved) + compact progress
+ *   - Left: scrollable episode navigator with strong visual status distinction
  *   - Right: reading pane for selected episode content
  *   - Bottom: collapsible activity log (demoted from primary)
  *   - Scene-ready: inner structure designed for future scene nesting
+ *
+ * SCOPE MATH RULE:
+ *   - Progress denominator = affectedEpisodes, never totalEpisodes
+ *   - Preserved episodes are visually inert (not part of progress)
+ *   - Full rewrite (affected = total) is displayed differently from selective rewrite
  */
 import React, { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +29,7 @@ import {
 } from '@/components/ui/collapsible';
 import {
   CheckCircle, XCircle, Loader2, Clock, ShieldCheck,
-  Pen, BookOpen, ChevronDown, Square, RotateCcw,
+  Pen, BookOpen, ChevronDown, Square, RotateCcw, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ActivityTimeline } from './ActivityTimeline';
@@ -39,17 +44,18 @@ function statusIcon(s: EpisodeUnitStatus): React.ReactElement {
     case 'preserved': return <ShieldCheck className="h-3.5 w-3.5 text-sky-400 shrink-0" />;
     case 'rewriting': return <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" />;
     case 'failed': return <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />;
-    case 'queued': return <Clock className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />;
+    case 'queued': return <Clock className="h-3.5 w-3.5 text-amber-400 shrink-0" />;
     default: return <Clock className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />;
   }
 }
 
-function statusBadgeClass(s: EpisodeUnitStatus): string {
+function statusBadgeVariant(s: EpisodeUnitStatus): string {
   switch (s) {
     case 'done': return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
-    case 'preserved': return 'bg-sky-500/15 text-sky-400 border-sky-500/30';
+    case 'preserved': return 'bg-sky-500/10 text-sky-400/70 border-sky-500/20';
     case 'rewriting': return 'bg-primary/15 text-primary border-primary/30 animate-pulse';
     case 'failed': return 'bg-destructive/15 text-destructive border-destructive/30';
+    case 'queued': return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
     default: return 'bg-muted text-muted-foreground border-border/30';
   }
 }
@@ -58,9 +64,10 @@ function statusLabel(s: EpisodeUnitStatus): string {
   switch (s) {
     case 'done': return 'Rewritten';
     case 'preserved': return 'Preserved';
-    case 'rewriting': return 'Rewriting';
+    case 'rewriting': return 'Rewriting…';
     case 'failed': return 'Failed';
-    default: return 'Queued';
+    case 'queued': return 'Queued';
+    default: return 'Pending';
   }
 }
 
@@ -115,35 +122,58 @@ export function EpisodeRewriteWorkspace({
 
   const handleSelectEp = (epNum: number) => {
     setSelectedEp(epNum);
-    setAutoFollow(false); // User overrode auto-follow
+    setAutoFollow(false);
   };
 
   const selectedUnit = episodeUnits.find(u => u.episodeNumber === selectedEp) ?? null;
 
+  // ── Scope counts (truth) ──
   const doneCount = episodeUnits.filter(u => u.status === 'done').length;
+  const failedCount = episodeUnits.filter(u => u.status === 'failed').length;
   const preservedCount = episodeUnits.filter(u => u.isPreserved).length;
   const affectedCount = episodeUnits.filter(u => !u.isPreserved).length;
   const totalCount = episodeUnits.length;
+  const isSelectiveRewrite = preservedCount > 0;
+
+  // Progress is always against AFFECTED episodes, not total
+  const affectedProgressPct = affectedCount > 0
+    ? Math.round(((doneCount + failedCount) / affectedCount) * 100)
+    : 0;
 
   const etaStr = etaMs && etaMs > 0
     ? etaMs < 60000 ? `~${Math.round(etaMs / 1000)}s` : `~${Math.floor(etaMs / 60000)}m`
+    : null;
+
+  // Currently rewriting episode label for header
+  const rewritingLabel = rewritingEp
+    ? `Rewriting Episode ${String(rewritingEp.episodeNumber).padStart(2, '0')} — ${doneCount} of ${affectedCount} affected done`
     : null;
 
   return (
     <div className="rounded-lg border border-border/40 bg-card overflow-hidden">
       {/* ── Header: scope summary + progress ── */}
       <div className="px-3 py-2.5 border-b border-border/20 space-y-2">
+        {/* Top line: status + controls */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {pipelineStatus !== 'error' && pipelineStatus !== 'complete' && (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
             )}
+            {pipelineStatus === 'complete' && (
+              <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+            )}
+            {pipelineStatus === 'error' && (
+              <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
+            )}
             <span className="text-sm font-medium text-foreground">
               {pipelineStatus === 'planning' ? 'Planning Rewrite…'
                 : pipelineStatus === 'assembling' ? 'Assembling Final…'
-                : pipelineStatus === 'complete' ? 'Rewrite Complete'
+                : pipelineStatus === 'complete'
+                  ? (isSelectiveRewrite
+                    ? `Selective Rewrite Complete — ${doneCount} of ${affectedCount} episodes`
+                    : 'Full Rewrite Complete')
                 : pipelineStatus === 'error' ? 'Rewrite Failed'
-                : 'Rewriting Episodes'}
+                : isSelectiveRewrite ? 'Selective Rewrite' : 'Full Rewrite'}
             </span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -163,23 +193,41 @@ export function EpisodeRewriteWorkspace({
           </div>
         </div>
 
-        {/* Scope summary */}
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-          <span>{totalCount} episodes</span>
-          <span className="flex items-center gap-1">
-            <Pen className="h-3 w-3 text-emerald-400" />
+        {/* Scope summary — always show full breakdown */}
+        <div className="flex items-center gap-3 text-[10px]">
+          <span className="text-muted-foreground">{totalCount} total</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="flex items-center gap-1 text-emerald-400">
+            <Pen className="h-3 w-3" />
             {doneCount}/{affectedCount} rewritten
           </span>
-          {preservedCount > 0 && (
-            <span className="flex items-center gap-1">
-              <ShieldCheck className="h-3 w-3 text-sky-400" />
-              {preservedCount} preserved
-            </span>
+          {isSelectiveRewrite && (
+            <>
+              <span className="text-muted-foreground">·</span>
+              <span className="flex items-center gap-1 text-sky-400/70">
+                <ShieldCheck className="h-3 w-3" />
+                {preservedCount} preserved
+              </span>
+            </>
+          )}
+          {failedCount > 0 && (
+            <>
+              <span className="text-muted-foreground">·</span>
+              <span className="flex items-center gap-1 text-destructive">
+                <XCircle className="h-3 w-3" />
+                {failedCount} failed
+              </span>
+            </>
           )}
         </div>
 
-        {/* Compact progress bar */}
-        <Progress value={smoothedPercent} className="h-1.5" />
+        {/* Active episode label */}
+        {rewritingLabel && pipelineStatus === 'writing' && (
+          <p className="text-[10px] text-primary/80 font-medium">{rewritingLabel}</p>
+        )}
+
+        {/* Compact progress bar — denominator = affected only */}
+        <Progress value={affectedProgressPct} className="h-1.5" />
       </div>
 
       {/* ── Main workspace: episode list + reading pane ── */}
@@ -197,10 +245,13 @@ export function EpisodeRewriteWorkspace({
                   className={cn(
                     'w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-left transition-colors',
                     'hover:bg-accent/40',
-                    isSelected && 'bg-accent/60',
-                    isSelected && 'border-l-2 border-l-primary',
+                    // Selected state
+                    isSelected && 'bg-accent/60 border-l-2 border-l-primary',
                     !isSelected && 'border-l-2 border-l-transparent',
+                    // Active rewriting glow
                     isActive && !isSelected && 'bg-primary/5',
+                    // Preserved episodes: visually subdued
+                    unit.isPreserved && !isSelected && 'opacity-50',
                   )}
                 >
                   {statusIcon(unit.status)}
@@ -217,7 +268,7 @@ export function EpisodeRewriteWorkspace({
                   )}
                   <Badge
                     variant="outline"
-                    className={cn('text-[7px] px-1 py-0 shrink-0 leading-tight', statusBadgeClass(unit.status))}
+                    className={cn('text-[7px] px-1 py-0 shrink-0 leading-tight', statusBadgeVariant(unit.status))}
                   >
                     {statusLabel(unit.status)}
                   </Badge>
@@ -280,14 +331,9 @@ function EpisodePane({ unit }: { unit: EpisodeUnit }) {
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border/15 bg-muted/15">
         {statusIcon(unit.status)}
         <span className="font-medium text-sm text-foreground">{epLabel}</span>
-        <Badge variant="outline" className={cn('text-[9px] px-1.5 py-0 ml-auto', statusBadgeClass(unit.status))}>
+        <Badge variant="outline" className={cn('text-[9px] px-1.5 py-0 ml-auto', statusBadgeVariant(unit.status))}>
           {statusLabel(unit.status)}
         </Badge>
-        {unit.isPreserved && (
-          <span className="text-[10px] text-sky-400 flex items-center gap-1">
-            <ShieldCheck className="h-3 w-3" /> Unchanged
-          </span>
-        )}
         {unit.charCount > 0 && (
           <span className="text-[10px] text-muted-foreground font-mono">
             {unit.charCount.toLocaleString()} chars
@@ -300,39 +346,48 @@ function EpisodePane({ unit }: { unit: EpisodeUnit }) {
         )}
       </div>
 
-      {/* Content */}
+      {/* Content — state-dependent display */}
       <ScrollArea className="flex-1">
         <div className="px-3 py-2.5">
           {unit.status === 'rewriting' ? (
-            <div className="flex flex-col items-center justify-center py-10 gap-3 text-muted-foreground">
+            <div className="flex flex-col items-center justify-center py-10 gap-3">
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              <p className="text-xs text-center">Rewriting {epLabel}…</p>
+              <p className="text-xs text-primary font-medium">{epLabel} — Rewriting…</p>
               <p className="text-[10px] text-muted-foreground/60">Content will appear when this episode completes.</p>
             </div>
           ) : unit.status === 'queued' ? (
-            <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
-              <Clock className="h-5 w-5 text-muted-foreground/30" />
-              <p className="text-xs text-center">{epLabel} — Queued for rewrite</p>
+            <div className="flex flex-col items-center justify-center py-10 gap-2">
+              <Clock className="h-5 w-5 text-amber-400/60" />
+              <p className="text-xs text-amber-400 font-medium">{epLabel} — Queued for rewrite</p>
+              <p className="text-[10px] text-muted-foreground/60">
+                This episode is in the affected set and will be rewritten.
+              </p>
             </div>
           ) : unit.status === 'preserved' ? (
-            <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
+            <div className="flex flex-col items-center justify-center py-10 gap-2">
               <ShieldCheck className="h-5 w-5 text-sky-400/60" />
-              <p className="text-xs text-center text-sky-400">{epLabel} — Preserved unchanged</p>
+              <p className="text-xs text-sky-400 font-medium">{epLabel} — Preserved unchanged</p>
               <p className="text-[10px] text-muted-foreground/60">
                 This episode was not in the affected set and retains its original content.
               </p>
+              {unit.content && (
+                <div className="mt-3 w-full text-xs text-foreground/70 whitespace-pre-wrap leading-relaxed border border-sky-500/10 rounded p-3 bg-sky-500/5 max-h-[300px] overflow-auto">
+                  {unit.content}
+                </div>
+              )}
             </div>
           ) : unit.status === 'failed' ? (
             <div className="flex flex-col items-center justify-center py-10 gap-2">
               <XCircle className="h-5 w-5 text-destructive" />
-              <p className="text-xs text-destructive">{epLabel} — Failed</p>
+              <p className="text-xs text-destructive font-medium">{epLabel} — Failed</p>
               {unit.content && (
-                <div className="mt-2 w-full text-xs text-foreground/70 whitespace-pre-wrap leading-relaxed border border-border/20 rounded p-3 bg-muted/20 max-h-[300px] overflow-auto font-mono">
+                <div className="mt-2 w-full text-xs text-foreground/70 whitespace-pre-wrap leading-relaxed border border-destructive/20 rounded p-3 bg-destructive/5 max-h-[300px] overflow-auto font-mono">
                   {unit.content}
                 </div>
               )}
             </div>
           ) : unit.content ? (
+            /* Done / rewritten — show content */
             <div className="text-xs text-foreground/90 whitespace-pre-wrap leading-relaxed">
               {unit.content}
             </div>
