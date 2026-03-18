@@ -1294,7 +1294,8 @@ SILENCE CONSTRAINT RULES:
 
 // ─── ACTION 3: Create Shot Design v2 ───
 
-const VALID_CAMERA_MOVES = new Set(["push_in","pull_out","track","arc","handheld","whip_pan","crane","tilt","dolly_zoom","static"]);
+const VALID_CAMERA_MOVES = new Set(["push_in","pull_out","track","arc","handheld","whip_pan","crane","tilt","dolly_zoom","static","kinetic","drift","orbit","float","rise","descend","lateral","boom"]);
+const CAMERA_MOVE_REMAP: Record<string, string> = { kinetic: "handheld", drift: "track", orbit: "arc", float: "crane", rise: "crane", descend: "crane", lateral: "track", boom: "crane" };
 const VALID_SHOT_TYPES = new Set(["wide","medium","close","insert","montage","aerial","macro"]);
 const VALID_TRANSITIONS = new Set(["hard_cut","match_cut","whip_pan","smash_cut","l_cut","j_cut","dissolve","dip_to_black","strobe_cut"]);
 const VALID_DEPTH = new Set(["shallow","deep","mixed"]);
@@ -1816,15 +1817,25 @@ No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
       const hasWithholding = b.withholding_note && b.withholding_note.trim().length > 0;
       if (b.phase !== "crescendo" && !hasSilence && !hasWithholding) {
         const allStatic = bSpecs.every((s: any) => s.camera_move === "static");
-        if (allStatic) {
-          valErrors.push(`Beat #${bi} (${b.phase}): all shots static without silence/withholding`);
+        if (allStatic && bSpecs.length > 0) {
+          // Auto-fix: upgrade first static shot to a subtle push_in instead of hard failing
+          bSpecs[0].camera_move = "push_in";
+          if (!bSpecs[0].subject_action) bSpecs[0].subject_action = "ambient motion";
+          if (!bSpecs[0].reveal_mechanic) bSpecs[0].reveal_mechanic = "progressive reveal through camera movement";
+          console.error(JSON.stringify({ type: "STATIC_BEAT_AUTO_FIX", beat_index: bi, phase: b.phase, fixed_shot: 0 }));
         }
       }
 
       // Per-spec validation
       for (const s of bSpecs) {
         if (s.camera_move && !VALID_CAMERA_MOVES.has(s.camera_move)) {
-          valErrors.push(`Beat #${bi} shot #${s.shot_index}: invalid camera_move "${s.camera_move}"`);
+          // Soft remap unknown camera moves instead of hard fail
+          const remapped = CAMERA_MOVE_REMAP[s.camera_move] || "handheld";
+          console.error(JSON.stringify({ type: "CAMERA_MOVE_REMAP", beat: bi, shot: s.shot_index, from: s.camera_move, to: remapped }));
+          s.camera_move = remapped;
+        } else if (s.camera_move && CAMERA_MOVE_REMAP[s.camera_move]) {
+          // Remap known aliases to canonical values
+          s.camera_move = CAMERA_MOVE_REMAP[s.camera_move];
         }
         if (s.shot_type && !VALID_SHOT_TYPES.has(s.shot_type)) {
           // soft: remap
