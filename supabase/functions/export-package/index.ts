@@ -393,42 +393,22 @@ async function buildPdf(
     const page = doc.addPage([PAGE_W, PAGE_H]);
     allPages.push(page);
 
-    // Large section title — editorial, top-third of page
-    const sectionY = PAGE_H - 140;
+    // Section title — editorial, generous top spacing
+    const sectionY = PAGE_H - 160;
 
-    // Amber accent line above title
-    page.drawRectangle({ x: M, y: sectionY + 16, width: 40, height: 2, color: COLORS.amber });
+    // Slim amber accent line
+    page.drawRectangle({ x: M, y: sectionY + 18, width: 32, height: 1.5, color: COLORS.amber });
 
-    // Section title — large, bold
+    // Section title — clean, no project name repetition
     const secTitle = normalizeText(sectionLabel);
-    const secLines = wrapText(secTitle, helveticaBold, 22, CONTENT_W);
+    const secLines = wrapText(secTitle, timesBold, 24, CONTENT_W);
     let sy = sectionY;
     for (const line of secLines) {
-      page.drawText(line, { x: M, y: sy, size: 22, font: helveticaBold, color: COLORS.heading });
-      sy -= 28;
+      page.drawText(line, { x: M, y: sy, size: 24, font: timesBold, color: COLORS.heading });
+      sy -= 30;
     }
 
-    // Project title subtitle
-    const projSub = normalizeText(projectTitle || "");
-    page.drawText(projSub, { x: M, y: sy - 8, size: 10, font: timesItalic, color: COLORS.muted });
-
-    // Running header for subsequent pages
-    const headerY = PAGE_H - 36;
-    page.drawText(normalizeText(sectionLabel).toUpperCase(), {
-      x: M, y: headerY, size: 7, font: helveticaBold, color: COLORS.muted,
-    });
-    const shortTitle = normalizeText(projectTitle || "").slice(0, 40);
-    const stW = helvetica.widthOfTextAtSize(shortTitle, 7);
-    page.drawText(shortTitle, { x: PAGE_W - M - stW, y: headerY, size: 7, font: helvetica, color: COLORS.muted });
-    page.drawLine({
-      start: { x: M, y: headerY - 6 },
-      end: { x: PAGE_W - M, y: headerY - 6 },
-      thickness: 0.3,
-      color: COLORS.divider,
-    });
-    drawLogoSmall(page, M, headerY + 2, 10);
-
-    return { page, y: sy - 30 };
+    return { page, y: sy - 20 };
   }
 
   // ═══════════════════════════════════════════════
