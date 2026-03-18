@@ -970,19 +970,14 @@ export function AutoRunMissionControl({
             />
           ) : hasExceptionalPlateau ? (
             <div className="p-2.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 space-y-2">
-              <div className="font-semibold flex items-center gap-1.5">⚠ Plateau — Escalation Required</div>
+              <div className="font-semibold flex items-center gap-1.5">⚠ Plateau — Progress Exhausted</div>
               <div className="text-amber-300/80">
-                Exceptional quality target not met. CI plateaued at {job?.last_ci ?? '?'} (target: {(job?.converge_target_json as any)?.ci ?? 95}).
-                Auto-promote blocked. The run has halted — choose an action below.
+                Quality optimization plateaued at CI {job?.last_ci ?? '?'}. All deterministic recovery options have been exhausted. Choose an action below.
               </div>
               <div className="flex flex-wrap gap-1.5 pt-1">
-                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
-                  onClick={() => { onUpdateTarget?.(90, 90); toast({ title: 'Quality objective lowered to Premium (90+)', description: 'Resume the run to continue with the new target.' }); }}>
-                  Lower to Premium (90+)
-                </Button>
-                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
-                  onClick={() => { onUpdateTarget?.(85, 85); toast({ title: 'Quality objective lowered to Strong (85+)', description: 'Resume the run to continue with the new target.' }); }}>
-                  Lower to Strong (85+)
+                <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 border-primary/40 text-primary hover:bg-primary/10"
+                  onClick={() => onResume?.()}>
+                  <Play className="h-2.5 w-2.5 mr-1" /> Force Continue
                 </Button>
                 <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 border-border/50 text-muted-foreground hover:bg-muted/30"
                   onClick={() => onStop?.()}>
