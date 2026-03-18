@@ -883,13 +883,37 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── Fetch brand logo asset for PDF rendering ──
+    let logoBytes: Uint8Array | null = null;
+    let logoMime = "image/png";
+    try {
+      const { data: brandAsset } = await sb
+        .from("brand_assets")
+        .select("storage_path, mime_type")
+        .eq("user_id", user.id)
+        .eq("asset_type", "logo")
+        .eq("label", "primary")
+        .maybeSingle();
+      if (brandAsset?.storage_path) {
+        const { data: fileData } = await sb.storage
+          .from("brand-assets")
+          .download(brandAsset.storage_path);
+        if (fileData) {
+          logoBytes = new Uint8Array(await fileData.arrayBuffer());
+          logoMime = brandAsset.mime_type || "image/png";
+        }
+      }
+    } catch (e) {
+      console.warn("Brand logo fetch failed, using fallback:", e);
+    }
+
     // --- Generate output (ZIP or PDF) ---
     let fileBuffer: Uint8Array;
     let contentType: string;
     let fileExtension: string;
 
     if (output_format === "pdf") {
-      fileBuffer = await buildPdf(sections, project.title || "Untitled Project", project.format);
+      fileBuffer = await buildPdf(sections, project.title || "Untitled Project", project.format, logoBytes, logoMime);
       contentType = "application/pdf";
       fileExtension = "pdf";
     } else {

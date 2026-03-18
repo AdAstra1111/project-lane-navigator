@@ -12,6 +12,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
 import { CorpusSourceManager } from '@/components/corpus/CorpusSourceManager';
+import { BrandAssetUpload } from '@/components/settings/BrandAssetUpload';
 import { CorpusHealthDashboard } from '@/components/corpus/CorpusHealthDashboard';
 import { CorpusIntegrityPanel } from '@/components/corpus/CorpusIntegrityPanel';
 import { useUIMode } from '@/hooks/useUIMode';
