@@ -45,7 +45,7 @@ const SEVERITY_STYLES = {
   info: 'border-border/50 bg-muted/10',
 };
 
-export function PlateauDiagnosisPanel({ diagnosis, onLowerTarget, onStop }: PlateauDiagnosisPanelProps) {
+export function PlateauDiagnosisPanel({ diagnosis, onForceAdvance, onStop }: PlateauDiagnosisPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const rec = diagnosis.recommendation_bundle;
   const severity = CAUSE_SEVERITY[diagnosis.primary_cause] || 'info';
