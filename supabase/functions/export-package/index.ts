@@ -386,11 +386,10 @@ async function buildPdf(
   // Logo — centered, real or fallback
   drawLogo(coverPage, PAGE_W / 2, PAGE_H - 170, 48);
 
-  // Project title - large, centered
   const titleFontSize = 28;
   const titleText = normalizeText(projectTitle || "Untitled Project");
   const titleLines = wrapText(titleText, helveticaBold, titleFontSize, PAGE_W - 120);
-  let titleY = logoY - 50;
+  let titleY = PAGE_H - 230;
   for (const line of titleLines) {
     const tw = helveticaBold.widthOfTextAtSize(line, titleFontSize);
     coverPage.drawText(line, {
