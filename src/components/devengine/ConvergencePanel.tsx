@@ -1,11 +1,12 @@
 /**
  * ConvergencePanel — Convergence scores, sparkline, tiered notes, and
- * unified manual-decision-state guidance.
+ * unified manual-decision-state guidance with actionable CTAs.
  */
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { BarChart3, Check, AlertTriangle, Info, CircleCheck } from 'lucide-react';
-import { computeManualDecisionState, type ManualDecisionInput } from '@/lib/manualDecisionState';
+import { Button } from '@/components/ui/button';
+import { BarChart3, AlertTriangle, Info, CircleCheck, ShieldAlert, Lightbulb, Sparkles } from 'lucide-react';
+import { computeManualDecisionState, type ManualDecisionInput, type ManualActionKey, recommendationToActionKey } from '@/lib/manualDecisionState';
 
 interface ConvergencePanelProps {
   latestAnalysis: any;
@@ -14,6 +15,9 @@ interface ConvergencePanelProps {
   tieredNotes: { blockers: any[]; high: any[]; polish: any[] };
   versionMetaJson?: { ci?: number; gp?: number; [key: string]: any } | null;
   versionLabel?: string | null;
+  /** Callback when operator clicks a recommended CTA */
+  onAction?: (action: ManualActionKey) => void;
+  isLoading?: boolean;
 }
 
 function Sparkline({ history }: { history: any[] }) {
@@ -54,7 +58,14 @@ const SEVERITY_ICONS = {
   muted: <Info className="h-3 w-3" />,
 };
 
-export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergenceStatus, tieredNotes, versionMetaJson, versionLabel }: ConvergencePanelProps) {
+const CTA_VARIANT: Record<string, 'default' | 'destructive' | 'outline' | 'secondary'> = {
+  success: 'default',
+  warning: 'default',
+  destructive: 'destructive',
+  muted: 'secondary',
+};
+
+export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergenceStatus, tieredNotes, versionMetaJson, versionLabel, onAction, isLoading }: ConvergencePanelProps) {
   const metaCi = typeof versionMetaJson?.ci === 'number' ? versionMetaJson.ci : null;
   const metaGp = typeof versionMetaJson?.gp === 'number' ? versionMetaJson.gp : null;
   const analysisCi = latestAnalysis?.ci_score || latestAnalysis?.scores?.ci_score || 0;
@@ -74,7 +85,6 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
     minorNoteCount: tieredNotes.polish.length,
   };
   const decision = computeManualDecisionState(decisionInput);
-
   const badgeStyle = SEVERITY_STYLES[decision.severity];
 
   return (
@@ -122,35 +132,87 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
         {/* Sparkline */}
         <Sparkline history={convergenceHistory} />
 
-        {/* Operator recommendation banner */}
-        <div className={`p-2 rounded border text-center ${badgeStyle}`}>
+        {/* ═══ Recommended Next Action ═══ */}
+        <div className={`p-2.5 rounded border ${badgeStyle} space-y-2`}>
           <p className="text-[10px] font-semibold">{decision.explanation}</p>
-          <p className="text-[9px] mt-0.5 opacity-80">Recommended: {decision.ctaText}</p>
+          {onAction && (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={CTA_VARIANT[decision.severity]}
+                className="flex-1 text-xs h-7"
+                onClick={() => onAction(recommendationToActionKey(decision.recommendation))}
+                disabled={isLoading}
+              >
+                {decision.ctaText}
+              </Button>
+              {decision.secondaryCtaText && decision.secondaryAction && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs h-7"
+                  onClick={() => onAction(recommendationToActionKey(decision.secondaryAction!))}
+                  disabled={isLoading}
+                >
+                  {decision.secondaryCtaText}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Note tier counts */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 text-[10px]">
-            <span className="w-2 h-2 rounded-full bg-destructive inline-block" />
-            <span className="text-destructive font-medium">{tieredNotes.blockers.length}</span>
-          </div>
-          <div className="flex items-center gap-1 text-[10px]">
-            <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
-            <span className="text-amber-400 font-medium">{tieredNotes.high.length}</span>
-          </div>
-          <div className="flex items-center gap-1 text-[10px]">
-            <span className="w-2 h-2 rounded-full bg-muted-foreground inline-block" />
-            <span className="text-muted-foreground font-medium">{tieredNotes.polish.length}</span>
-          </div>
-        </div>
+        {/* ═══ Tiered Issue Sections ═══ */}
 
-        {/* Blocking issues inline */}
+        {/* A. Must Fix — Blockers */}
         {tieredNotes.blockers.length > 0 && (
-          <div className="p-2 rounded bg-destructive/10 border border-destructive/20 space-y-0.5">
-            <p className="text-[9px] font-semibold text-destructive">Blocking Issues</p>
+          <div className="p-2 rounded bg-destructive/10 border border-destructive/20 space-y-1">
+            <div className="flex items-center gap-1.5">
+              <ShieldAlert className="h-3 w-3 text-destructive" />
+              <p className="text-[9px] font-bold text-destructive uppercase tracking-wider">
+                Must Fix · {tieredNotes.blockers.length} Blocker{tieredNotes.blockers.length !== 1 ? 's' : ''}
+              </p>
+            </div>
             {tieredNotes.blockers.map((b: any, i: number) => (
-              <p key={i} className="text-[9px] text-destructive/80">• {b.description || b}</p>
+              <p key={i} className="text-[9px] text-destructive/80 pl-4">• {b.description || b}</p>
             ))}
+          </div>
+        )}
+
+        {/* B. Strategic / High Impact */}
+        {tieredNotes.high.length > 0 && (
+          <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 space-y-1">
+            <div className="flex items-center gap-1.5">
+              <Lightbulb className="h-3 w-3 text-amber-400" />
+              <p className="text-[9px] font-bold text-amber-400 uppercase tracking-wider">
+                Strategic · {tieredNotes.high.length} Note{tieredNotes.high.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+            {tieredNotes.high.map((n: any, i: number) => (
+              <p key={i} className="text-[9px] text-amber-400/80 pl-4">• {n.description || n}</p>
+            ))}
+          </div>
+        )}
+
+        {/* C. Optional Polish */}
+        {tieredNotes.polish.length > 0 && (
+          <div className="p-2 rounded bg-muted/30 border border-border/30 space-y-1">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="h-3 w-3 text-muted-foreground" />
+              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">
+                Optional Polish · {tieredNotes.polish.length} Note{tieredNotes.polish.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+            {tieredNotes.polish.map((n: any, i: number) => (
+              <p key={i} className="text-[9px] text-muted-foreground/80 pl-4">• {n.description || n}</p>
+            ))}
+          </div>
+        )}
+
+        {/* All clear indicator */}
+        {tieredNotes.blockers.length === 0 && tieredNotes.high.length === 0 && tieredNotes.polish.length === 0 && (
+          <div className="flex items-center gap-1.5 text-[9px] text-emerald-400">
+            <CircleCheck className="h-3 w-3" />
+            <span>No outstanding issues</span>
           </div>
         )}
 
