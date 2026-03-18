@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
+import { parseScenes } from '@/lib/script_change/sceneParser';
 import type { ActivityItem } from '@/components/devengine/ActivityTimeline';
 
 interface ChunkMetaItem {
