@@ -6,7 +6,7 @@ import { useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import {
   Image, RefreshCw, Upload, Trash2, CheckCircle2, AlertTriangle,
-  Loader2, Sparkles, Star, ChevronDown, Info, User, Mountain,
+  Loader2, Sparkles, Star, ChevronDown, User, Mountain,
   Swords, Award, Megaphone, Drama,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -40,12 +40,50 @@ const STRATEGY_META: Record<string, { icon: typeof User; color: string; descript
   genre:      { icon: Drama,    color: "text-orange-400",  description: "Pure genre conventions, instant recognition" },
 };
 
-function renderStatusLabel(status: string): { label: string; variant: "default" | "outline" | "secondary" } {
-  switch (status) {
-    case "composed_final": return { label: "Composed Poster", variant: "default" };
-    case "composed_preview": return { label: "Preview Composite", variant: "secondary" };
-    default: return { label: "Key Art Only", variant: "outline" };
+/**
+ * Renders a poster image — uses direct img for composed finals (text baked in),
+ * falls back to PosterCompositor canvas for key-art-only uploads.
+ */
+function PosterImage({
+  poster,
+  title,
+  branding,
+  width,
+  className,
+}: {
+  poster: ProjectPoster;
+  title: string;
+  branding: { companyLogoUrl: string | null; companyName: string | null } | null;
+  width: number;
+  className?: string;
+}) {
+  const isComposed = poster.render_status === "composed_final" || poster.render_status === "composed_preview";
+  const imageUrl = poster.rendered_public_url || poster.key_art_public_url;
+
+  if (isComposed && imageUrl) {
+    const height = Math.round(width * 1.5); // 2:3 ratio
+    return (
+      <img
+        src={imageUrl}
+        alt={`${title} poster — ${poster.layout_variant}`}
+        className={cn("object-cover", className)}
+        style={{ width, height, borderRadius: 8 }}
+        loading="lazy"
+      />
+    );
   }
+
+  // Fallback: key-art-only → use compositor for text overlay
+  return (
+    <PosterCompositor
+      keyArtUrl={imageUrl || ""}
+      title={title}
+      companyLogoUrl={branding?.companyLogoUrl}
+      companyName={branding?.companyName}
+      width={width}
+      className={className}
+    />
+  );
 }
 
 export default function PosterEnginePanel() {
@@ -82,7 +120,6 @@ export default function PosterEnginePanel() {
   const readyPosters = posters?.filter(p => p.status === "ready") || [];
   const generatingPosters = posters?.filter(p => p.status === "generating") || [];
 
-  // Group ready posters by strategy (layout_variant)
   const conceptPosters = readyPosters.filter(p =>
     Object.keys(STRATEGY_META).includes(p.layout_variant)
   );
@@ -91,7 +128,6 @@ export default function PosterEnginePanel() {
   );
   const hasConceptSet = conceptPosters.length > 0;
 
-  // Get the latest poster per strategy
   const latestByStrategy = new Map<string, ProjectPoster>();
   for (const p of conceptPosters) {
     const existing = latestByStrategy.get(p.layout_variant);
@@ -110,7 +146,7 @@ export default function PosterEnginePanel() {
             Poster Engine
           </h1>
           <p className="text-xs text-muted-foreground mt-1">
-            Generate 6 strategic poster concepts from your project's story, tone, and genre.
+            Generate 6 theatrical poster concepts from your project's story, world, and tone.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -138,7 +174,7 @@ export default function PosterEnginePanel() {
             ) : (
               <>
                 <Sparkles className="w-3.5 h-3.5" />
-                {hasConceptSet ? "Regenerate All" : "Generate 6 Concepts"}
+                {hasConceptSet ? "Regenerate All" : "Generate 6 Posters"}
               </>
             )}
           </Button>
@@ -152,9 +188,9 @@ export default function PosterEnginePanel() {
           <CardContent className="p-6 flex items-center gap-4">
             <Loader2 className="w-6 h-6 text-primary animate-spin" />
             <div>
-              <p className="text-sm font-medium text-foreground">Generating poster concepts…</p>
+              <p className="text-sm font-medium text-foreground">Generating theatrical poster concepts…</p>
               <p className="text-xs text-muted-foreground">
-                Creating 6 distinct creative directions from your project data. This takes ~60 seconds.
+                Creating 6 distinct poster directions faithful to your project's world. This takes ~90 seconds.
               </p>
             </div>
           </CardContent>
@@ -166,11 +202,10 @@ export default function PosterEnginePanel() {
         <Card className="bg-card border-primary/30">
           <CardContent className="p-4">
             <div className="flex items-center gap-4">
-              <PosterCompositor
-                keyArtUrl={activePoster.key_art_public_url || ""}
+              <PosterImage
+                poster={activePoster}
                 title={project?.title || "Untitled"}
-                companyLogoUrl={branding?.companyLogoUrl}
-                companyName={branding?.companyName}
+                branding={branding || null}
                 width={80}
                 className="rounded shadow-lg"
               />
@@ -197,7 +232,7 @@ export default function PosterEnginePanel() {
       {/* 6-Concept Grid */}
       {hasConceptSet && !isGenerating && (
         <div>
-          <h2 className="text-sm font-semibold text-foreground mb-3">Creative Directions</h2>
+          <h2 className="text-sm font-semibold text-foreground mb-3">Poster Directions</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {Object.entries(STRATEGY_META).map(([key, meta]) => {
               const poster = latestByStrategy.get(key);
@@ -216,11 +251,10 @@ export default function PosterEnginePanel() {
                 >
                   {poster ? (
                     <>
-                      <PosterCompositor
-                        keyArtUrl={poster.key_art_public_url || ""}
+                      <PosterImage
+                        poster={poster}
                         title={project?.title || "Untitled"}
-                        companyLogoUrl={branding?.companyLogoUrl}
-                        companyName={branding?.companyName}
+                        branding={branding || null}
                         width={280}
                       />
 
@@ -307,8 +341,8 @@ export default function PosterEnginePanel() {
             <div>
               <p className="text-sm font-medium text-foreground">No poster concepts yet</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-                Generate 6 distinct poster directions — Character, World, Conflict, Prestige, Commercial, and Genre — 
-                all derived from your project's story data.
+                Generate 6 theatrical poster directions — Character, World, Conflict, Prestige, Commercial, and Genre — 
+                all faithful to your project's story world with title and credit treatment.
               </p>
             </div>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 max-w-lg mx-auto">
@@ -327,7 +361,7 @@ export default function PosterEnginePanel() {
             <div className="flex items-center justify-center gap-3">
               <Button size="sm" onClick={handleGenerateAll} disabled={isBusy} className="gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" />
-                Generate 6 Concepts
+                Generate 6 Posters
               </Button>
               <Button
                 variant="outline"
@@ -397,11 +431,10 @@ export default function PosterEnginePanel() {
                     poster.id === activePoster?.id ? "border-primary/40 ring-1 ring-primary/20" : "border-border/30"
                   )}
                 >
-                  <PosterCompositor
-                    keyArtUrl={poster.key_art_public_url || ""}
+                  <PosterImage
+                    poster={poster}
                     title={project?.title || "Untitled"}
-                    companyLogoUrl={branding?.companyLogoUrl}
-                    companyName={branding?.companyName}
+                    branding={branding || null}
                     width={160}
                   />
                   <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5">
