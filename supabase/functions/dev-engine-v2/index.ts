@@ -5352,10 +5352,13 @@ Format: ${rq.format}.${episodeLengthBlock}`;
             : `Beat format: legacy inline style — do NOT flag as missing labels. This is a valid pre-existing format.`;
 
           episodeGridStructuralBlock = `\nEPISODE BEATS STRUCTURAL ANALYSIS (computed — do not override):
-Episodes parsed: ${bTotalParsed} / ${bExpected} expected${bMissing > 0 ? ` — ${bMissing} MISSING (blocker)` : " ✓"}
-Average beats per episode: ${avgBeats}${Number(avgBeats) < 4 ? " — BELOW MINIMUM (blocker)" : " ✓"}
-Low beat count episodes (<4): ${episodesLowBeatCount}${episodesLowBeatCount > 0 ? " (blocker)" : " ✓"}
+Episodes parsed: ${bTotalParsed} / ${bExpected} expected${bMissing > 0 ? ` — ${bMissing} episodes pending (progress: ${Math.round((bTotalParsed / bExpected) * 100)}%)` : " ✓"}
+Average beats per episode: ${avgBeats}${Number(avgBeats) < 4 ? " — BELOW MINIMUM (warning)" : " ✓"}
+Low beat count episodes (<4): ${episodesLowBeatCount}${episodesLowBeatCount > 0 ? " (warning)" : " ✓"}
 ${hookCliffNote}
+
+EPISODE PROGRESS NOTE: Missing episodes indicate work-in-progress, NOT failure.
+Only flag as BLOCKER if there is structural corruption (collapsed ranges, banned language, wrong content type).
 
 SCORING INSTRUCTION: Score the SAMPLE (10 representative episodes).
 CI = beat specificity, hook-first mandate, beat structure present.
