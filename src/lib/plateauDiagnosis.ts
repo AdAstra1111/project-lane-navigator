@@ -30,7 +30,7 @@ export type PlateauCause = typeof PLATEAU_CAUSES[number];
 // ── Recommendation Types ──
 export const RECOMMENDATION_TYPES = [
   'continue_rewrite',
-  'lower_quality_objective',
+  'force_advance_stage',
   'regenerate_devseed',
   'switch_blueprint',
   'remove_dna_constraint',
