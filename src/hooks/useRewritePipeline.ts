@@ -139,14 +139,14 @@ export function useRewritePipeline(projectId: string | undefined) {
   const smoothingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
-  const pushActivity = useCallback((type: ActivityItem['type'], text: string) => {
-    setActivityItems(prev => [...prev, { type, text, timestamp: Date.now() }]);
+  const pushActivity = useCallback((level: ActivityItem['level'], message: string) => {
+    setActivityItems(prev => [...prev, { level, message, ts: new Date().toISOString() }]);
   }, []);
   const clearActivity = useCallback(() => setActivityItems([]), []);
 
   const invalidate = useCallback(() => {
     if (!projectId) return;
-    invalidateDevEngine(qc, projectId);
+    invalidateDevEngine(qc, { projectId });
     qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey.some(k => k === 'dev-v2-versions') });
   }, [qc, projectId]);
 
