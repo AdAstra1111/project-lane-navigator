@@ -1080,6 +1080,9 @@ serve(async (req) => {
             console.error(`[project_images] insert failed for strategy=${strategy.key}:`, repoErr.message);
           }
 
+          // Persist dependency links
+          await persistDependencyLinks(supabase, project_id, "poster", posterRecord.id, truthSnapshot);
+
           results.push({ strategy_key: strategy.key, strategy_label: strategy.label, poster_id: posterRecord.id, status: "ready" });
         } catch (genErr: unknown) {
           const errMsg = genErr instanceof Error ? genErr.message : "Generation failed";
