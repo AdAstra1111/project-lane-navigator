@@ -4,7 +4,8 @@ import { resolveImageGenerationConfig, buildImageRepositoryMeta } from "../_shar
 import type { ImageRole, ImageStyleMode } from "../_shared/imageGenerationResolver.ts";
 import { resolveVisualStyleProfile, validateStyleOrError } from "../_shared/visualStyleAuthority.ts";
 import type { VisualStyleLock } from "../_shared/visualStyleAuthority.ts";
-import { resolveFormatToLane, resolvePrestigeStyle } from "../_shared/prestigeStyleSystem.ts";
+import { resolveFormatToLane, resolvePrestigeStyle, assemblePrestigePrompt } from "../_shared/prestigeStyleSystem.ts";
+import type { StyleComposite } from "../_shared/prestigeStyleSystem.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -963,6 +964,15 @@ serve(async (req) => {
     const branding = await resolveCompanyBranding(supabase, project_id);
     const strategyCtx = buildStrategyContext(inputs, branding);
 
+    // ── PRESTIGE STYLE SYSTEM: Resolve lane + style for poster metadata ──
+    const posterLaneKey = resolveFormatToLane(inputs.format || 'film');
+    const { styleKey: posterStyleKey, source: posterStyleSource } = resolvePrestigeStyle({
+      projectDefault: (inputs as any).default_prestige_style ?? null,
+      laneKey: posterLaneKey,
+    });
+    const posterPrestigeComposite: StyleComposite = assemblePrestigePrompt(posterLaneKey, posterStyleKey, posterStyleSource);
+    console.log(`[poster:prestige] lane=${posterLaneKey} style=${posterStyleKey} source=${posterStyleSource}`);
+
     console.log("World lock:", JSON.stringify(inputs.worldLock, null, 2));
     console.log("VSAL lock:", JSON.stringify(vsalResolution.lock, null, 2));
 
@@ -1093,6 +1103,8 @@ serve(async (req) => {
           model: refreshGenConfig.model,
           style_mode: styleMode,
           generation_config: { ...repoMeta, poster_mode: "refresh_from_truth", source_poster_id },
+          lane_key: posterLaneKey,
+          prestige_style: posterStyleKey,
         });
 
         return new Response(JSON.stringify({
@@ -1297,6 +1309,8 @@ serve(async (req) => {
           model: editGenConfig.model,
           style_mode: styleMode,
           generation_config: { ...repoMeta, poster_mode: "edit", source_poster_id },
+          lane_key: posterLaneKey,
+          prestige_style: posterStyleKey,
         });
 
         // Persist dependency links for edit poster
@@ -1424,6 +1438,8 @@ serve(async (req) => {
             model: genConfig.model,
             style_mode: styleMode,
             generation_config: repoMeta,
+            lane_key: posterLaneKey,
+            prestige_style: posterStyleKey,
           });
           if (repoErr) {
             console.error(`[project_images] insert failed for strategy=${strategy.key}:`, repoErr.message);
@@ -1545,6 +1561,8 @@ serve(async (req) => {
         model: primaryGenConfig.model,
         style_mode: styleMode,
         generation_config: primaryRepoMeta,
+        lane_key: posterLaneKey,
+        prestige_style: posterStyleKey,
       });
       if (repoErr) {
         console.error(`[project_images] legacy insert failed:`, repoErr.message);
