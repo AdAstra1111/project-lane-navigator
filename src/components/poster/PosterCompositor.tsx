@@ -18,7 +18,7 @@ export interface PosterCreditsData {
   basedOnCredit?: string | null;
 }
 
-export type PosterLayoutVariant = "prestige" | "commercial" | "cinematic-dark" | "cinematic-light" | "minimal";
+export type PosterLayoutVariant = "classic-theatrical" | "prestige-awards" | "prestige" | "commercial" | "cinematic-dark" | "cinematic-light" | "minimal";
 
 interface PosterCompositorProps {
   keyArtUrl: string;
