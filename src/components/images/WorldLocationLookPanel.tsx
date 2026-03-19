@@ -188,6 +188,7 @@ function ManualLocationForm({ projectId, onCreated }: { projectId: string; onCre
 
 export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProps) {
   const { locations, isLoading, canonLocations, seedFromCanon, refetch, stats } = useHydratedLocations(projectId);
+  const { runBackfill, running: backfilling, lastResult: backfillResult } = useLocationBindingBackfill(projectId);
   const [canonJson, setCanonJson] = useState<any>(null);
   const [canonLoading, setCanonLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
