@@ -106,6 +106,13 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
       break;
   }
 
+  // Anti-drift: ground visual_language to production design, not abstract/fantasy
+  const driftExclusions = [
+    'No dragons, no fantasy creatures, no mythical beasts, no supernatural entities',
+    'No symbolic fantasy imagery, no magical effects, no sci-fi elements unless explicitly part of the project',
+    'Ground all imagery in real-world production design',
+  ].join('. ');
+
   return [
     `A cinematic film still for "${ctx.title}".`,
     ``,
@@ -121,6 +128,7 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
     `- ${ctx.stylePolicy.negativeStyleConstraints}`,
     `- No text, titles, watermarks, or typography of any kind`,
     `- No illustrated or painted look`,
+    `- ${driftExclusions}`,
     `- Must look indistinguishable from a still frame from a theatrically released film`,
     ``,
     `TECHNICAL: 16:9 landscape. Premium cinematic quality. Anamorphic lens characteristics.`,
