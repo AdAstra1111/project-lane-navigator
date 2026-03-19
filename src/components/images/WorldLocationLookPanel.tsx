@@ -18,7 +18,7 @@ import { ImageSelectorGrid } from './ImageSelectorGrid';
 import { EntityStateVariantsPanel } from './EntityStateVariantsPanel';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
-import { useHydratedLocations, type HydratedLocation, type LocationReadiness } from '@/hooks/useHydratedLocations';
+import { useHydratedLocations, type HydratedLocation, type LocationReadiness, type LocationBindingStatus } from '@/hooks/useHydratedLocations';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
