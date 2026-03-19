@@ -355,11 +355,9 @@ export default function ProjectDetail() {
   const hasScript = scripts.length > 0;
 
   const heroImageUrl = activePoster.url || (project as any).hero_image_url;
-  });
 
   const toggleSection = (key: string) => {
     setOpenSections(prev => {
-      // Close all others, toggle the target
       const next: Record<string, boolean> = {};
       for (const k of Object.keys(prev)) {
         next[k] = k === key ? !prev[k] : false;
@@ -372,8 +370,7 @@ export default function ProjectDetail() {
     ? project.assigned_lane.charAt(0).toUpperCase() + project.assigned_lane.slice(1)
     : null;
 
-  const formatMeta2 = project ? getFormatMeta(project.format) : null;
-  const episodeCount = (project as any)?.episode_count || formatMeta2?.episodeCount || null;
+  const episodeCount = (project as any)?.episode_count || null;
 
   return (
     <div className="bg-background">
