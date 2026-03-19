@@ -103,9 +103,9 @@ function buildVisualLanguageCopy(
   tone: string,
   imageStyle: string,
 ): { body: string; bullets: string[] } {
-  const period = (canon.world_rules as string || '').match(/\b(19\d{2}|20\d{2}|18\d{2}|contemporary|modern|medieval|victorian|future|futuristic)\b/i)?.[0] || '';
-  const worldRules = (canon.world_rules as string) || '';
-  const toneStyle = (canon.tone_style as string) || tone || '';
+  const period = normalizeCanonText(canon.world_rules, 'world_rules').match(/\b(19\d{2}|20\d{2}|18\d{2}|contemporary|modern|medieval|victorian|future|futuristic)\b/i)?.[0] || '';
+  const worldRules = normalizeCanonText(canon.world_rules, 'world_rules');
+  const toneStyle = normalizeCanonText(canon.tone_style, 'tone_style') || tone || '';
 
   // Build a project-specific visual thesis
   const fragments: string[] = [];
