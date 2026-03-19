@@ -670,6 +670,7 @@ serve(async (req) => {
               : null,
             subject_ref: character_name || location_name || null,
             location_ref: location_name || null,
+            canon_location_id: location_id || null,
             generation_purpose: isIdentityGeneration ? "character_identity"
               : state_key ? `state_variant_${state_key}`
               : base_look_mode ? "character_reference"
