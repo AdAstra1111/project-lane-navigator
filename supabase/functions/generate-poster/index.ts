@@ -507,6 +507,8 @@ function buildStrategyContext(inputs: PosterPromptInputs, branding: { companyNam
     if (comps.length > 0) compReference = `Visual inspiration from posters of films like ${comps.join(", ")}. `;
   }
 
+  const stylePolicy = resolveImageStylePolicy(inputs.format, inputs.genres);
+
   return {
     title: inputs.title,
     logline: inputs.logline,
@@ -521,6 +523,7 @@ function buildStrategyContext(inputs: PosterPromptInputs, branding: { companyNam
     worldLock: inputs.worldLock,
     writerCredit: branding.writerCredit,
     companyCredit: branding.companyName,
+    stylePolicy,
   };
 }
 
