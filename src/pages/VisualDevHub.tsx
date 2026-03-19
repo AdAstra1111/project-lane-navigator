@@ -204,6 +204,16 @@ export default function VisualDevHub() {
             )}
           </WorkSection>
 
+          {/* ═══ Visual Set Curation ═══ */}
+          <WorkSection
+            icon={<Grid3X3 className="h-4 w-4" />}
+            title="Visual Set Curation"
+            subtitle="Slot-based curation loop — approve, replace, lock canonical output sets"
+            defaultOpen={false}
+          >
+            {projectId && <VisualSetCurationPanel projectId={projectId} />}
+          </WorkSection>
+
           {/* ═══ Production Tools ═══ */}
           <div className="pt-4 border-t border-border/30">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3 px-1">
