@@ -261,6 +261,8 @@ serve(async (req) => {
       state_key = null,
       state_label = null,
       state_prompt_modifier = null,
+      // Character Identity System
+      identity_mode = false,
     } = body as {
       project_id: string;
       section: LookbookSection;
@@ -276,6 +278,7 @@ serve(async (req) => {
       state_key?: string | null;
       state_label?: string | null;
       state_prompt_modifier?: string | null;
+      identity_mode?: boolean;
     };
 
     if (!project_id || !section) {
