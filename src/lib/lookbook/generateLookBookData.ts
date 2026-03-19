@@ -316,6 +316,8 @@ export async function generateLookBookData(
       'Consistent visual identity across all materials',
     ],
   });
+
+  // STORY ENGINE (series)
   const format = ((project as any).format || '').toLowerCase();
   if (format.includes('series') || format.includes('vertical') || format.includes('limited')) {
     slides.push({
