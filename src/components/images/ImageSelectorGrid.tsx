@@ -29,6 +29,8 @@ interface ImageSelectorGridProps {
   showCurationControls?: boolean;
   /** Enable compare mode */
   enableCompare?: boolean;
+  /** Show image provenance metadata */
+  showProvenance?: boolean;
 }
 
 const STATE_COLORS: Record<CurationState, string> = {
