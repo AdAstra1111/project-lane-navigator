@@ -2,7 +2,7 @@
  * VisualSetCurationPanel — Slot-based visual set curation UI.
  * Grid of slots with evaluation badges, approve/reject/replace per slot, global controls.
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Lock, CheckCircle, AlertTriangle, XCircle, RotateCcw,
