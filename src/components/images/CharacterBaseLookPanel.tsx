@@ -603,10 +603,7 @@ function CharacterIdentitySection({
         hasFullBody={!!primaryFullBody}
       />
 
-      {/* PART C: Character Visual Truth — promoted, expanded by default, ABOVE grids */}
-      <CharacterVisualTruthPanel traits={resolvedTraits} contradictions={traitContradictions} />
-
-      {/* PART C2: Visual DNA Panel — full structured DNA model */}
+      {/* UNIFIED: Character Visual DNA — single canonical truth source */}
       <CharacterVisualDNAPanel
         projectId={projectId}
         characterName={character.name}

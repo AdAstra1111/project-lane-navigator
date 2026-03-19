@@ -1,10 +1,11 @@
 /**
- * VisualChangeStudio — What-if scenario engine for exploring visual changes
- * without mutating canon. Supports Ask, Preview, and Propose Patch modes.
+ * VisualChangeStudio — Governed what-if scenario engine with structured impact analysis.
+ * Hybrid model: deterministic engine for hard contradictions + AI for nuanced analysis.
+ * No silent fallbacks — explicitly labels analysis method used.
  */
 import { useState } from 'react';
 import {
-  Palette, Sparkles, ChevronDown, Send, Shield, AlertTriangle,
+  Palette, Send, AlertTriangle, Info,
   CheckCircle, XCircle, Eye, GitBranch, Save, Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -13,24 +14,29 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { evaluatePeriodLorePlausibility, type PlausibilitySeverity } from '@/lib/images/periodLorePlausibility';
+import type { CanonConstraints } from '@/lib/images/types';
 
 interface Props {
   projectId: string;
   characters: string[];
   locations: string[];
+  canonConstraints?: CanonConstraints;
+  worldRules?: string;
 }
 
 type Domain = 'character' | 'costume' | 'world' | 'production_design' | 'global_tone' | 'poster';
 type Mode = 'ask' | 'preview' | 'propose_patch';
 type Classification = 'safe_variation' | 'flexible_variation' | 'canon_tension' | 'canon_contradiction' | 'structural_change';
+
+interface AffectedSystem {
+  system: string;
+  impact: 'regeneration_needed' | 'review_needed' | 'unaffected';
+}
 
 interface ScenarioResponse {
   proposedChange: string;
@@ -38,23 +44,23 @@ interface ScenarioResponse {
   canonCompatibility: string;
   loreCompatibility: string;
   historicalCompatibility: string;
-  impactedSystems: string[];
+  affectedTraits: string[];
+  affectedCanonFields: string[];
+  affectedImageFamilies: string[];
+  affectedDownstream: AffectedSystem[];
   recommendedPath: string;
+  previewSafe: boolean;
+  analysisMethod: 'rule_based' | 'ai_assisted' | 'hybrid';
+  explanation: string[];
 }
 
 const DOMAIN_LABELS: Record<Domain, string> = {
-  character: 'Character',
-  costume: 'Costume',
-  world: 'World',
-  production_design: 'Production Design',
-  global_tone: 'Global Tone',
-  poster: 'Poster',
+  character: 'Character', costume: 'Costume', world: 'World',
+  production_design: 'Production Design', global_tone: 'Global Tone', poster: 'Poster',
 };
 
 const MODE_LABELS: Record<Mode, string> = {
-  ask: 'Ask (evaluate only)',
-  preview: 'Preview (generate sample)',
-  propose_patch: 'Propose Patch',
+  ask: 'Ask (evaluate only)', preview: 'Preview (generate sample)', propose_patch: 'Propose Patch',
 };
 
 const CLASSIFICATION_CONFIG: Record<Classification, { color: string; icon: typeof CheckCircle; label: string }> = {
@@ -65,7 +71,14 @@ const CLASSIFICATION_CONFIG: Record<Classification, { color: string; icon: typeo
   structural_change: { color: 'text-purple-500', icon: GitBranch, label: 'Structural Change' },
 };
 
-export function VisualChangeStudio({ projectId, characters, locations }: Props) {
+const SEVERITY_TO_COMPAT: Record<PlausibilitySeverity, string> = {
+  contradiction: 'Contradiction — impossible',
+  high_tension: 'High tension — unlikely',
+  mild_tension: 'Mild tension — unusual',
+  valid: 'Valid',
+};
+
+export function VisualChangeStudio({ projectId, characters, locations, canonConstraints, worldRules }: Props) {
   const [domain, setDomain] = useState<Domain>('character');
   const [target, setTarget] = useState('');
   const [mode, setMode] = useState<Mode>('ask');
@@ -78,33 +91,46 @@ export function VisualChangeStudio({ projectId, characters, locations }: Props) 
   
   const handleSubmit = async () => {
     if (!query.trim()) return;
-    
     setIsProcessing(true);
     setResponse(null);
     
     try {
+      // Try AI-assisted analysis first
       const { data, error } = await supabase.functions.invoke('visual-change-studio', {
-        body: {
-          projectId,
-          domain,
-          target: target || targets[0] || 'Project',
-          mode,
-          query: query.trim(),
-        },
+        body: { projectId, domain, target: target || targets[0] || 'Project', mode, query: query.trim() },
       });
       
       if (error) throw error;
       
       if (data?.response) {
-        setResponse(data.response);
+        // AI succeeded — label as hybrid (AI + rule constraints)
+        const aiResponse = data.response as ScenarioResponse;
+        aiResponse.analysisMethod = 'hybrid';
+        
+        // Overlay rule-based period check
+        if (canonConstraints) {
+          const plausibility = evaluatePeriodLorePlausibility(query, canonConstraints, worldRules);
+          if (plausibility.overallSeverity !== 'valid') {
+            aiResponse.historicalCompatibility = SEVERITY_TO_COMPAT[plausibility.overallSeverity];
+            for (const check of plausibility.checks) {
+              aiResponse.explanation.push(`[Rule] ${check.detail}: "${check.element}" — ${check.constraint}`);
+            }
+            if (plausibility.overallSeverity === 'contradiction') {
+              aiResponse.classification = 'canon_contradiction';
+              aiResponse.previewSafe = false;
+            }
+          }
+        }
+        
+        setResponse(aiResponse);
       } else {
-        // Fallback: rule-based classification
-        setResponse(classifyLocally(query, domain));
+        setResponse(classifyLocally(query, domain, canonConstraints, worldRules));
       }
-    } catch (e: any) {
-      // Use local classification as fallback
-      setResponse(classifyLocally(query, domain));
-      toast.info('Used rule-based analysis (AI unavailable)');
+    } catch {
+      // AI unavailable — use rule-based only, EXPLICITLY labeled
+      const local = classifyLocally(query, domain, canonConstraints, worldRules);
+      setResponse(local);
+      toast.info('Rule-based partial analysis only — AI assistant unavailable');
     } finally {
       setIsProcessing(false);
     }
@@ -112,15 +138,13 @@ export function VisualChangeStudio({ projectId, characters, locations }: Props) 
   
   const handleSaveScenario = async () => {
     if (!response) return;
-    
     try {
       const { data: session } = await supabase.auth.getSession();
       await (supabase as any)
         .from('visual_scenarios')
         .insert({
           project_id: projectId,
-          domain,
-          target: target || targets[0] || 'Project',
+          domain, target: target || targets[0] || 'Project',
           query_text: query,
           change_json: { proposed: response.proposedChange },
           classification: response.classification,
@@ -128,12 +152,17 @@ export function VisualChangeStudio({ projectId, characters, locations }: Props) 
           lore_compatibility: response.loreCompatibility,
           historical_compatibility: response.historicalCompatibility,
           impact_summary: response.recommendedPath,
-          impacted_systems: response.impactedSystems,
+          impacted_systems: response.affectedDownstream.map(s => s.system),
           recommended_path: response.recommendedPath,
           state: 'saved_guidance',
+          affected_traits: response.affectedTraits,
+          affected_canon_fields: response.affectedCanonFields,
+          affected_image_families: response.affectedImageFamilies,
+          affected_downstream: response.affectedDownstream,
+          preview_safe: response.previewSafe,
+          analysis_method: response.analysisMethod,
           created_by: session?.session?.user?.id,
         });
-      
       toast.success('Scenario saved as guidance');
     } catch (e: any) {
       toast.error(`Save failed: ${e.message}`);
@@ -143,7 +172,6 @@ export function VisualChangeStudio({ projectId, characters, locations }: Props) 
   return (
     <Card className="border-border/60 bg-muted/10">
       <CardContent className="p-3 space-y-3">
-        {/* Header */}
         <div className="flex items-center gap-2">
           <Palette className="h-4 w-4 text-primary" />
           <span className="text-xs font-bold text-foreground">VISUAL CHANGE STUDIO</span>
@@ -167,7 +195,6 @@ export function VisualChangeStudio({ projectId, characters, locations }: Props) 
               </SelectContent>
             </Select>
           </div>
-          
           <div>
             <label className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">Target</label>
             <Select value={target || targets[0] || ''} onValueChange={setTarget}>
@@ -179,7 +206,6 @@ export function VisualChangeStudio({ projectId, characters, locations }: Props) 
               </SelectContent>
             </Select>
           </div>
-          
           <div>
             <label className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">Mode</label>
             <Select value={mode} onValueChange={(v: any) => setMode(v)}>
@@ -201,12 +227,7 @@ export function VisualChangeStudio({ projectId, characters, locations }: Props) 
             placeholder="What if Hana were blonde? What if the village were coastal?"
             className="text-xs min-h-[40px] resize-none flex-1"
           />
-          <Button
-            size="sm"
-            className="h-10 px-3"
-            onClick={handleSubmit}
-            disabled={isProcessing || !query.trim()}
-          >
+          <Button size="sm" className="h-10 px-3" onClick={handleSubmit} disabled={isProcessing || !query.trim()}>
             {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
           </Button>
         </div>
@@ -214,14 +235,18 @@ export function VisualChangeStudio({ projectId, characters, locations }: Props) 
         {/* Response */}
         {response && (
           <div className="border border-border/60 rounded-md p-3 bg-card/50 space-y-2">
-            {/* Classification */}
-            {response.classification && (() => {
+            {/* Classification + Method badge */}
+            {(() => {
               const config = CLASSIFICATION_CONFIG[response.classification];
               const Icon = config.icon;
               return (
                 <div className="flex items-center gap-2">
                   <Icon className={cn('h-4 w-4', config.color)} />
                   <span className={cn('text-xs font-bold', config.color)}>{config.label}</span>
+                  <Badge variant="outline" className="text-[8px] h-4 ml-auto">
+                    {response.analysisMethod === 'rule_based' ? '⚙ Rule-based only' :
+                     response.analysisMethod === 'hybrid' ? '🔀 Hybrid' : '🤖 AI'}
+                  </Badge>
                 </div>
               );
             })()}
@@ -248,21 +273,62 @@ export function VisualChangeStudio({ projectId, characters, locations }: Props) 
                 </div>
               </div>
               
-              {response.impactedSystems.length > 0 && (
+              {/* Affected traits */}
+              {response.affectedTraits.length > 0 && (
                 <div>
-                  <span className="font-semibold text-muted-foreground">Impacted Systems:</span>
+                  <span className="font-semibold text-muted-foreground">Affected DNA Traits:</span>
                   <div className="flex flex-wrap gap-1 mt-0.5">
-                    {response.impactedSystems.map((s, i) => (
-                      <Badge key={i} variant="outline" className="text-[9px] h-4">{s}</Badge>
+                    {response.affectedTraits.map((t, i) => (
+                      <Badge key={i} variant="outline" className="text-[9px] h-4 text-amber-600 border-amber-500/30">{t}</Badge>
                     ))}
                   </div>
                 </div>
               )}
               
+              {/* Affected downstream systems */}
+              {response.affectedDownstream.length > 0 && (
+                <div>
+                  <span className="font-semibold text-muted-foreground">Downstream Impact:</span>
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {response.affectedDownstream.map((s, i) => (
+                      <Badge key={i} variant="outline" className={cn('text-[9px] h-4',
+                        s.impact === 'regeneration_needed' ? 'text-destructive border-destructive/30' :
+                        s.impact === 'review_needed' ? 'text-amber-600 border-amber-500/30' :
+                        'text-muted-foreground border-border/50'
+                      )}>
+                        {s.impact === 'regeneration_needed' ? '🔄' : s.impact === 'review_needed' ? '⚠' : '✓'} {s.system}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Preview safety */}
+              <div className="flex items-center gap-1">
+                <span className="font-semibold text-muted-foreground">Preview-only safe:</span>
+                <span className={response.previewSafe ? 'text-emerald-600' : 'text-destructive font-medium'}>
+                  {response.previewSafe ? 'Yes' : 'No — requires branch mode'}
+                </span>
+              </div>
+              
               <div>
                 <span className="font-semibold text-muted-foreground">Recommended Path:</span>
                 <p className="text-foreground mt-0.5">{response.recommendedPath}</p>
               </div>
+              
+              {/* Explanation */}
+              {response.explanation.length > 0 && (
+                <div className="border-t border-border/30 pt-1.5 mt-1.5">
+                  <span className="font-semibold text-muted-foreground flex items-center gap-1">
+                    <Info className="h-3 w-3" /> Explanation
+                  </span>
+                  <div className="space-y-0.5 mt-0.5">
+                    {response.explanation.map((e, i) => (
+                      <p key={i} className="text-[9px] text-muted-foreground">• {e}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             
             {/* Actions */}
@@ -283,12 +349,16 @@ export function VisualChangeStudio({ projectId, characters, locations }: Props) 
   );
 }
 
-// ── Local rule-based classification fallback ──
+// ── Local rule-based classification with structured impact analysis ──
 
-function classifyLocally(query: string, domain: Domain): ScenarioResponse {
+function classifyLocally(
+  query: string,
+  domain: Domain,
+  canonConstraints?: CanonConstraints,
+  worldRules?: string,
+): ScenarioResponse {
   const lower = query.toLowerCase();
   
-  // Detect change keywords
   const hasColorChange = /\b(blonde|brunette|redhead|black hair|white hair|gray hair|blue|green|pink)\b/i.test(lower);
   const hasAgeChange = /\b(older|younger|aged|teen|child|elderly)\b/i.test(lower);
   const hasBuildChange = /\b(taller|shorter|heavier|thinner|muscular|lean)\b/i.test(lower);
@@ -297,30 +367,84 @@ function classifyLocally(query: string, domain: Domain): ScenarioResponse {
   let classification: Classification = 'flexible_variation';
   let canonCompat = 'Unknown — requires canon check';
   let recommended = 'Review against canon before applying';
+  const explanation: string[] = [];
+  const affectedTraits: string[] = [];
+  const affectedCanonFields: string[] = [];
+  const affectedImageFamilies: string[] = [];
+  let previewSafe = true;
   
-  if (hasAgeChange || hasBuildChange) {
+  if (hasAgeChange) {
     classification = 'canon_tension';
-    canonCompat = 'Likely conflicts with established traits';
-    recommended = 'Compare with locked invariants before proceeding';
-  } else if (hasColorChange) {
+    canonCompat = 'Likely conflicts with established age trait';
+    recommended = 'Compare with locked invariants — age is typically locked';
+    affectedTraits.push('age');
+    affectedCanonFields.push('character.age');
+    previewSafe = false;
+    explanation.push('Age change affects locked identity trait — requires branch mode.');
+  }
+  if (hasBuildChange) {
+    classification = 'canon_tension';
+    canonCompat = 'Likely conflicts with established build';
+    recommended = 'Compare with locked invariants';
+    affectedTraits.push('build');
+    affectedCanonFields.push('character.build');
+    previewSafe = false;
+    explanation.push('Build change affects identity silhouette — all body references need regeneration.');
+  }
+  if (hasColorChange) {
     classification = 'flexible_variation';
     canonCompat = 'May be flexible unless hair/color is locked';
     recommended = 'Check if hair/color traits are in locked invariants';
-  } else if (hasLocationChange) {
+    affectedTraits.push('hair');
+    affectedImageFamilies.push('identity_headshot', 'identity_profile');
+    explanation.push('Hair/color change may be flexible if not in locked invariants.');
+  }
+  if (hasLocationChange) {
     classification = domain === 'world' ? 'structural_change' : 'flexible_variation';
     canonCompat = 'Check world rules for compatibility';
     recommended = 'Evaluate period/lore plausibility';
+    affectedCanonFields.push('world.geography', 'world.architecture');
+    affectedImageFamilies.push('world_establishing', 'atmospheric');
+    explanation.push('Location change affects all world-establishing imagery.');
   }
   
-  const impacted: string[] = [];
+  // Run period/lore check
+  let historicalCompat = 'Requires period check';
+  if (canonConstraints) {
+    const plausibility = evaluatePeriodLorePlausibility(query, canonConstraints, worldRules);
+    historicalCompat = SEVERITY_TO_COMPAT[plausibility.overallSeverity];
+    if (plausibility.overallSeverity === 'contradiction') {
+      classification = 'canon_contradiction';
+      previewSafe = false;
+    }
+    for (const check of plausibility.checks) {
+      explanation.push(`[Rule] ${check.detail}: "${check.element}" — ${check.constraint}`);
+    }
+  }
+  
+  // Downstream impact
+  const affectedDownstream: AffectedSystem[] = [];
   if (domain === 'character' || domain === 'costume') {
-    impacted.push('Identity Lock', 'Character References', 'Poster');
+    affectedDownstream.push(
+      { system: 'Identity Lock', impact: previewSafe ? 'review_needed' : 'regeneration_needed' },
+      { system: 'Character References', impact: 'regeneration_needed' },
+      { system: 'Poster', impact: 'review_needed' },
+      { system: 'Look Book', impact: 'review_needed' },
+    );
   }
   if (domain === 'world' || domain === 'production_design') {
-    impacted.push('Location References', 'Storyboard', 'Poster');
+    affectedDownstream.push(
+      { system: 'Location References', impact: 'regeneration_needed' },
+      { system: 'Storyboard', impact: 'review_needed' },
+      { system: 'Poster', impact: 'review_needed' },
+    );
   }
   if (domain === 'global_tone') {
-    impacted.push('All Images', 'Look Book', 'Poster');
+    affectedDownstream.push(
+      { system: 'All Images', impact: 'regeneration_needed' },
+      { system: 'Look Book', impact: 'regeneration_needed' },
+      { system: 'Poster', impact: 'regeneration_needed' },
+    );
   }
   
   return {
@@ -328,8 +452,14 @@ function classifyLocally(query: string, domain: Domain): ScenarioResponse {
     classification,
     canonCompatibility: canonCompat,
     loreCompatibility: 'Requires evaluation',
-    historicalCompatibility: 'Requires period check',
-    impactedSystems: impacted,
+    historicalCompatibility: historicalCompat,
+    affectedTraits,
+    affectedCanonFields,
+    affectedImageFamilies,
+    affectedDownstream,
     recommendedPath: recommended,
+    previewSafe,
+    analysisMethod: 'rule_based',
+    explanation,
   };
 }
