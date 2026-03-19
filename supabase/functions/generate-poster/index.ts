@@ -1309,6 +1309,8 @@ serve(async (req) => {
           model: editGenConfig.model,
           style_mode: styleMode,
           generation_config: { ...repoMeta, poster_mode: "edit", source_poster_id },
+          lane_key: posterLaneKey,
+          prestige_style: posterStyleKey,
         });
 
         // Persist dependency links for edit poster
