@@ -51,18 +51,46 @@ export interface ProducerGuidanceItem {
 
 export type ClarificationStatus = 'resolved' | 'partial' | 'missing';
 
+export interface ClarificationAnswer {
+  text: string;
+  confidence: 'high' | 'medium' | 'low';
+  basis: 'direct_evidence' | 'inferred_context' | 'persistent_marker' | 'transient_state' | 'canon';
+}
+
 export interface MissingClarification {
   category: TraitCategory;
   question: string;
   importance: 'high' | 'medium' | 'low';
   status: ClarificationStatus;
   resolvedBy?: string;
+  answerCandidate?: ClarificationAnswer;
 }
 
 export interface EvidenceTrait extends VisualDNATrait {
   evidenceSource: string;
   evidenceExcerpt: string;
 }
+
+/**
+ * Transient Visual State — temporary/situational appearance detail.
+ * Scene-bound, NOT a permanent identity constraint.
+ * Must NOT be enforced as cross-image invariants.
+ */
+export interface TransientVisualState {
+  label: string;
+  category: TraitCategory;
+  bodyRegion: string;
+  confidence: 'high' | 'medium' | 'low';
+  evidenceSource: string;
+  evidenceExcerpt: string;
+  sceneContext?: string;
+}
+
+/**
+ * Patterns that indicate transient/situational states rather than permanent traits.
+ * These should NEVER become binding markers.
+ */
+const TRANSIENT_STATE_PATTERNS = /\b(trembl(?:e|es|ing)|pales?|palid|flush(?:ed|es|ing)?|sweat(?:s|ing|y)?|tears?|crying|bleeding|blood(?:ied|y)?|stain(?:ed|s)?|muddy|dusty|soaked|drenched|dishevell?ed|bruise[ds]?|fresh wound|scratch(?:ed|es)?|limping|exhausted|fatigued|sunburn(?:ed)?|blistered|shiver(?:s|ing)?|goosebumps?|frostbitten|windswept|rain.?soaked|snow.?covered|soot.?covered|dirt(?:y|ied)?|grimy|greasy|tangled|matted|unkempt|tousled|ruffled)\b/i;
 
 export interface CharacterVisualDNA {
   characterName: string;
@@ -94,8 +122,11 @@ export interface CharacterVisualDNA {
   /** Conflicts between sources */
   contradictions: TraitContradiction[];
   
-  /** Gaps in visual definition — now with resolution status */
+  /** Gaps in visual definition — with resolution status and answer candidates */
   missingClarifications: MissingClarification[];
+  
+  /** Transient visual states — scene-bound, NOT permanent identity */
+  transientStates: TransientVisualState[];
   
   /** Identity signature derived from locked anchors */
   identitySignature: IdentitySignature | null;
@@ -191,17 +222,35 @@ export function resolveCharacterVisualDNA(
   // Build evidence coverage set for clarification resolution
   const evidenceTraits = existingEvidenceTraits || [];
   
-  // Group evidence by category with best confidence per category
-  const evidenceByCat = new Map<TraitCategory, { confidence: 'high' | 'medium' | 'low'; source: string }>();
+  // Classify evidence into persistent vs transient
+  const transientStates: TransientVisualState[] = [];
+  const persistentEvidence: EvidenceTrait[] = [];
   for (const et of evidenceTraits) {
-    const existing = evidenceByCat.get(et.category);
-    const rank = { high: 0, medium: 1, low: 2 };
-    if (!existing || rank[et.confidence] < rank[existing.confidence]) {
-      evidenceByCat.set(et.category, { confidence: et.confidence, source: et.evidenceSource });
+    if (TRANSIENT_STATE_PATTERNS.test(et.label)) {
+      transientStates.push({
+        label: et.label,
+        category: et.category,
+        bodyRegion: 'unspecified',
+        confidence: et.confidence,
+        evidenceSource: et.evidenceSource,
+        evidenceExcerpt: et.evidenceExcerpt,
+      });
+    } else {
+      persistentEvidence.push(et);
     }
   }
   
-  // Identify missing clarifications with resolution status
+  // Group persistent evidence by category with best confidence per category
+  const evidenceByCat = new Map<TraitCategory, { confidence: 'high' | 'medium' | 'low'; source: string; label: string }>();
+  for (const et of persistentEvidence) {
+    const existing = evidenceByCat.get(et.category);
+    const rank = { high: 0, medium: 1, low: 2 };
+    if (!existing || rank[et.confidence] < rank[existing.confidence]) {
+      evidenceByCat.set(et.category, { confidence: et.confidence, source: et.evidenceSource, label: et.label });
+    }
+  }
+  
+  // Identify missing clarifications with resolution status and answer candidates
   const coveredCategories = new Set(allTraits.map(t => t.category));
   const markerCategories = new Set(mergedMarkers.filter(m => m.status !== 'rejected').map(() => 'marker' as TraitCategory));
   
@@ -210,11 +259,35 @@ export function resolveCharacterVisualDNA(
     const hasMarker = c.category === 'marker' && markerCategories.size > 0;
     const evidenceEntry = evidenceByCat.get(c.category);
     
+    // Check for approved persistent markers resolving the marker category
+    const approvedMarkersForCat = mergedMarkers.filter(m => m.status === 'approved');
+    if (c.category === 'marker' && approvedMarkersForCat.length > 0) {
+      return {
+        category: c.category, question: c.question, importance: c.importance,
+        status: 'resolved' as ClarificationStatus,
+        resolvedBy: 'approved binding marker',
+        answerCandidate: {
+          text: approvedMarkersForCat.map(m => m.label).join(', '),
+          confidence: 'high' as const,
+          basis: 'persistent_marker' as const,
+        },
+      };
+    }
+    
     if (hasStrong || hasMarker) {
-      return { category: c.category, question: c.question, importance: c.importance, status: 'resolved' as ClarificationStatus, resolvedBy: 'canon/script' };
+      const canonTraits = allTraits.filter(t => t.category === c.category);
+      return {
+        category: c.category, question: c.question, importance: c.importance,
+        status: 'resolved' as ClarificationStatus,
+        resolvedBy: 'canon/script',
+        answerCandidate: canonTraits.length > 0 ? {
+          text: canonTraits.map(t => t.label).join(', '),
+          confidence: 'high' as const,
+          basis: 'canon' as const,
+        } : undefined,
+      };
     }
     if (evidenceEntry) {
-      // High-confidence evidence from explicit sources fully resolves the category
       const isFullyResolved = evidenceEntry.confidence === 'high';
       return {
         category: c.category,
@@ -222,8 +295,31 @@ export function resolveCharacterVisualDNA(
         importance: c.importance,
         status: (isFullyResolved ? 'resolved' : 'partial') as ClarificationStatus,
         resolvedBy: `evidence/${evidenceEntry.source} (${evidenceEntry.confidence})`,
+        answerCandidate: {
+          text: evidenceEntry.label,
+          confidence: evidenceEntry.confidence,
+          basis: 'direct_evidence' as const,
+        },
       };
     }
+    
+    // Check if transient states provide any (weak) coverage
+    const transientForCat = transientStates.filter(t => t.category === c.category);
+    if (transientForCat.length > 0) {
+      return {
+        category: c.category,
+        question: c.question,
+        importance: c.importance,
+        status: 'partial' as ClarificationStatus,
+        resolvedBy: 'transient state (scene-bound)',
+        answerCandidate: {
+          text: transientForCat[0].label + ' (transient — not permanent)',
+          confidence: 'low' as const,
+          basis: 'transient_state' as const,
+        },
+      };
+    }
+    
     return { category: c.category, question: c.question, importance: c.importance, status: 'missing' as ClarificationStatus };
   }).filter(c => c.status !== 'resolved');
   
@@ -242,7 +338,8 @@ export function resolveCharacterVisualDNA(
     producerGuidance,
     lockedInvariants: allInvariants,
     flexibleAxes,
-    evidenceTraits,
+    evidenceTraits: persistentEvidence,
+    transientStates,
     contradictions,
     missingClarifications,
     identitySignature: hasIdSig ? identitySignature : null,
@@ -299,7 +396,28 @@ function traitToVisualDNATrait(t: CharacterTrait): VisualDNATrait {
 
 // ── Serialization for database ──
 
+/**
+ * Serialize DNA for storage in character_visual_dna table.
+ * 
+ * SCHEMA NOTE: The DB has these JSONB columns:
+ *   script_truth, narrative_markers, inferred_guidance, producer_guidance,
+ *   locked_invariants, flexible_axes, contradiction_flags, missing_clarifications,
+ *   identity_signature (nullable), identity_strength (text)
+ * 
+ * There is NO recipe_json column. Binding markers and evidence traits are
+ * persisted inside the `identity_signature` JSONB field as a composite structure:
+ *   { signature: {...}, binding_markers: [...], evidence_traits: [...], evidence_status: '...' }
+ */
 export function serializeDNAForStorage(dna: CharacterVisualDNA) {
+  // Composite identity_signature carries signature + markers + evidence
+  const compositeSignature = {
+    signature: dna.identitySignature || null,
+    binding_markers: dna.bindingMarkers || [],
+    evidence_traits: dna.evidenceTraits || [],
+    evidence_status: dna.evidenceTraits.length > 0 ? 'draft' : 'none',
+    transient_states: dna.transientStates || [],
+  };
+
   return {
     script_truth: JSON.parse(JSON.stringify(dna.scriptTruth.traits)),
     narrative_markers: JSON.parse(JSON.stringify(dna.narrativeMarkers.traits)),
@@ -309,31 +427,49 @@ export function serializeDNAForStorage(dna: CharacterVisualDNA) {
     flexible_axes: JSON.parse(JSON.stringify(dna.flexibleAxes)),
     contradiction_flags: JSON.parse(JSON.stringify(dna.contradictions)),
     missing_clarifications: JSON.parse(JSON.stringify(dna.missingClarifications)),
-    identity_signature: dna.identitySignature ? JSON.parse(JSON.stringify(dna.identitySignature)) : null,
+    identity_signature: JSON.parse(JSON.stringify(compositeSignature)),
     identity_strength: dna.identityStrength,
-    // Evidence traits and binding markers persisted in recipe_json
-    recipe_json: JSON.parse(JSON.stringify({
-      evidence_traits: dna.evidenceTraits,
-      evidence_status: dna.evidenceTraits.length > 0 ? 'draft' : 'none',
-      binding_markers: dna.bindingMarkers,
-    })),
   };
 }
 
 /**
- * Deserialize binding markers from stored recipe_json.
+ * Deserialize binding markers from the composite identity_signature JSONB.
  */
-export function deserializeBindingMarkers(recipeJson: Record<string, any> | null): BindingMarker[] {
-  if (!recipeJson?.binding_markers) return [];
-  return (recipeJson.binding_markers as BindingMarker[]) || [];
+export function deserializeBindingMarkers(identitySignature: Record<string, any> | null): BindingMarker[] {
+  if (!identitySignature?.binding_markers) return [];
+  return (identitySignature.binding_markers as BindingMarker[]) || [];
 }
 
 /**
- * Deserialize evidence traits from stored recipe_json.
+ * Deserialize evidence traits from the composite identity_signature JSONB.
  */
-export function deserializeEvidenceTraits(recipeJson: Record<string, any> | null): EvidenceTrait[] {
-  if (!recipeJson?.evidence_traits) return [];
-  return (recipeJson.evidence_traits as EvidenceTrait[]) || [];
+export function deserializeEvidenceTraits(identitySignature: Record<string, any> | null): EvidenceTrait[] {
+  if (!identitySignature?.evidence_traits) return [];
+  return (identitySignature.evidence_traits as EvidenceTrait[]) || [];
+}
+
+/**
+ * Deserialize transient visual states from the composite identity_signature JSONB.
+ */
+export function deserializeTransientStates(identitySignature: Record<string, any> | null): TransientVisualState[] {
+  if (!identitySignature?.transient_states) return [];
+  return (identitySignature.transient_states as TransientVisualState[]) || [];
+}
+
+/**
+ * Deserialize the actual identity signature from the composite structure.
+ */
+export function deserializeIdentitySignature(identitySignature: Record<string, any> | null): IdentitySignature | null {
+  if (!identitySignature) return null;
+  // Handle both old format (direct signature) and new composite format
+  if (identitySignature.signature !== undefined) {
+    return identitySignature.signature as IdentitySignature | null;
+  }
+  // Legacy: identity_signature IS the signature directly
+  if (identitySignature.face || identitySignature.body || identitySignature.silhouette) {
+    return identitySignature as unknown as IdentitySignature;
+  }
+  return null;
 }
 
 // ── Prompt Injection ──

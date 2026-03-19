@@ -108,18 +108,21 @@ export interface BindingMarker {
   approvedBy: string | null;
 }
 
-/** Pattern registry for detecting binding markers from text */
+/** Pattern registry for detecting PERSISTENT binding markers from text.
+ * Transient states (wounds, bruises, tears, sweat) are excluded —
+ * they are handled by the transient state classifier in visualDNA.ts.
+ */
 const MARKER_PATTERNS: { pattern: RegExp; type: MarkerType; bodyRegionExtractor?: RegExp }[] = [
   { pattern: /\btattoo(?:ed|s)?\b/i, type: 'tattoo', bodyRegionExtractor: /(?:on|across|covering|over)\s+(?:his|her|their)?\s*([\w\s]+?)(?:\.|,|;|$)/i },
   { pattern: /\bscar(?:red|s)?\b/i, type: 'scar', bodyRegionExtractor: /(?:on|across|over)\s+(?:his|her|their)?\s*([\w\s]+?)(?:\.|,|;|$)/i },
-  { pattern: /\b(?:wound|wounded|injury|injured)\b/i, type: 'wound' },
+  // 'wound' removed — wounds are transient unless explicitly described as permanent scars
   { pattern: /\bprosthetic\b/i, type: 'prosthetic', bodyRegionExtractor: /prosthetic\s+([\w\s]+?)(?:\.|,|;|$)/i },
   { pattern: /\bbirthmark\b/i, type: 'birthmark' },
   { pattern: /\b(?:deform|disfigure)[a-z]*\b/i, type: 'deformity' },
   { pattern: /\b(?:glasses|spectacles|monocle)\b/i, type: 'glasses' },
   { pattern: /\beyepatch\b/i, type: 'eyepatch' },
   { pattern: /\b(?:missing\s+(?:arm|leg|hand|finger|eye|limb|ear))\b/i, type: 'missing_limb' },
-  { pattern: /\b(?:burn(?:ed|s)?|burn\s+mark)\b/i, type: 'burn' },
+  { pattern: /\bpermanent\s+burn\b/i, type: 'burn' },
   { pattern: /\b(?:piercing|pierced)\b/i, type: 'piercing' },
   { pattern: /\bbranded\b/i, type: 'branding' },
 ];

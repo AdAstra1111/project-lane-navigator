@@ -22,9 +22,11 @@ import {
   resolveCharacterVisualDNA,
   deserializeBindingMarkers,
   deserializeEvidenceTraits,
+  deserializeTransientStates,
   type CharacterVisualDNA,
   type VisualDNATrait,
   type EvidenceTrait,
+  type TransientVisualState,
   type ProducerGuidanceItem,
   type ClarificationStatus,
 } from '@/lib/images/visualDNA';
@@ -252,12 +254,15 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
       try {
         const identity = await resolveCharacterIdentity(projectId, characterName);
         
-        // Load persisted markers and evidence from stored DNA
-        const persistedMarkers = currentDNA?.recipe_json
-          ? deserializeBindingMarkers(currentDNA.recipe_json as Record<string, any>)
+        // Load persisted markers and evidence from composite identity_signature
+        const persistedMarkers = currentDNA?.identity_signature
+          ? deserializeBindingMarkers(currentDNA.identity_signature as Record<string, any>)
           : [];
-        const persistedEvidence = currentDNA?.recipe_json
-          ? deserializeEvidenceTraits(currentDNA.recipe_json as Record<string, any>)
+        const persistedEvidence = currentDNA?.identity_signature
+          ? deserializeEvidenceTraits(currentDNA.identity_signature as Record<string, any>)
+          : [];
+        const persistedTransient = currentDNA?.identity_signature
+          ? deserializeTransientStates(currentDNA.identity_signature as Record<string, any>)
           : [];
         
         if (persistedMarkers.length > 0 && bindingMarkers.length === 0) {
@@ -403,6 +408,7 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
   const hasContradictions = dna.contradictions.length > 0;
   const hasMissing = dna.missingClarifications.length > 0;
   const hasEvidence = evidenceTraits.length > 0 || dna.evidenceTraits.length > 0;
+  const hasTransient = dna.transientStates.length > 0;
   const displayEvidence = evidenceTraits.length > 0 ? evidenceTraits : dna.evidenceTraits;
   const activeMarkers = bindingMarkers.filter(m => m.status !== 'rejected' && m.status !== 'archived');
   const approvedMarkers = bindingMarkers.filter(m => m.status === 'approved');
@@ -509,7 +515,39 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
           </div>
         )}
 
-        {/* Auto-fill prompt when no evidence and missing clarifications */}
+        {/* Transient Visual States — scene-bound, NOT permanent identity */}
+        {hasTransient && (
+          <div className="border border-muted-foreground/20 rounded-md p-2 bg-muted/30">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Eye className="h-3 w-3 text-muted-foreground" />
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                Transient States (Scene-Bound)
+              </span>
+              <Badge variant="secondary" className="text-[9px] h-4 px-1">{dna.transientStates.length}</Badge>
+            </div>
+            <p className="text-[9px] text-muted-foreground mb-1.5">
+              Temporary/situational appearance cues. NOT enforced as permanent identity.
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {dna.transientStates.map((t, i) => (
+                <TooltipProvider key={`tr-${i}`}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-muted-foreground/20 bg-muted text-muted-foreground cursor-help">
+                        {t.label}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      <p className="text-[10px]">Source: {t.evidenceSource}</p>
+                      <p className="text-[9px] text-muted-foreground">Scene-bound — will not be enforced across images</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ))}
+            </div>
+          </div>
+        )}
+
         {!hasEvidence && hasMissing && activeMarkers.length === 0 && (
           <div className="border border-dashed border-cyan-500/30 rounded-md p-2 bg-cyan-500/5">
             <div className="flex items-center justify-between">
@@ -644,16 +682,32 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
               <HelpCircle className="h-3 w-3 text-amber-600 dark:text-amber-400" />
               <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Clarification Status</span>
             </div>
-            <div className="space-y-1">
+             <div className="space-y-1.5">
               {dna.missingClarifications.map((m, i) => (
-                <div key={i} className="flex items-center gap-1.5 text-[10px]">
-                  <span className={cn('text-[8px]', CLARIFICATION_STATUS_COLORS[m.status])}>
+                <div key={i} className="flex items-start gap-1.5 text-[10px]">
+                  <span className={cn('text-[8px] mt-0.5 flex-shrink-0', CLARIFICATION_STATUS_COLORS[m.status])}>
                     {m.status === 'resolved' ? '●' : m.status === 'partial' ? '◐' : '○'}
                   </span>
-                  <span className="font-medium text-foreground">[{CATEGORY_LABELS[m.category]}]</span>
-                  <span className={m.status === 'missing' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}>
-                    {m.status === 'partial' ? `Partially resolved via ${m.resolvedBy || 'evidence'}` : m.question}
-                  </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1">
+                      <span className="font-medium text-foreground">[{CATEGORY_LABELS[m.category]}]</span>
+                      <span className={cn(
+                        m.status === 'missing' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground',
+                      )}>
+                        {m.status === 'missing' ? m.question : `${m.status === 'partial' ? 'Partial' : 'Resolved'} — via ${m.resolvedBy || 'evidence'}`}
+                      </span>
+                    </div>
+                    {m.answerCandidate && (
+                      <div className="mt-0.5 pl-0.5">
+                        <span className="text-[9px] italic text-foreground/70">
+                          → {m.answerCandidate.text}
+                        </span>
+                        <span className={cn('text-[8px] ml-1', CONFIDENCE_COLORS[m.answerCandidate.confidence])}>
+                          ({m.answerCandidate.confidence}, {m.answerCandidate.basis.replace('_', ' ')})
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
