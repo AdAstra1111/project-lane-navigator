@@ -12778,6 +12778,8 @@ export type Database = {
           role: Database["public"]["Enums"]["project_image_role"]
           shot_type: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id: string | null
+          state_key: string | null
+          state_label: string | null
           storage_bucket: string
           storage_path: string
           strategy_key: string | null
@@ -12811,6 +12813,8 @@ export type Database = {
           role: Database["public"]["Enums"]["project_image_role"]
           shot_type?: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id?: string | null
+          state_key?: string | null
+          state_label?: string | null
           storage_bucket?: string
           storage_path: string
           strategy_key?: string | null
@@ -12844,6 +12848,8 @@ export type Database = {
           role?: Database["public"]["Enums"]["project_image_role"]
           shot_type?: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id?: string | null
+          state_key?: string | null
+          state_label?: string | null
           storage_bucket?: string
           storage_path?: string
           strategy_key?: string | null
