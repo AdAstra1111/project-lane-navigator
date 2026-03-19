@@ -238,50 +238,49 @@ function OverviewSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIn
   );
 }
 
-/* ── World Slide — atmospheric, quote-forward ── */
+/* ── World Slide — atmospheric with image grid ── */
 function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex = 0, totalSlides = 1 }: SlideProps) {
+  const hasGallery = slide.imageUrls && slide.imageUrls.length > 0;
   return (
-    <div style={baseStyle} className="slide-content flex flex-col p-24">
-      <SectionLabel label="the world" color={colors.accent} />
-      <AccentLine color={colors.accent} />
+    <div style={baseStyle} className="slide-content flex">
+      {/* Background hero image */}
+      {slide.imageUrl && !hasGallery && (
+        <div className="absolute inset-0">
+          <img src={slide.imageUrl} alt="" className="w-full h-full object-cover" style={{ opacity: 0.2, filter: 'saturate(0.5) contrast(1.1)' }} />
+          <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${colors.bg} 40%, transparent 80%), linear-gradient(to top, ${colors.bg} 20%, transparent 60%)` }} />
+        </div>
+      )}
 
-      <h2 className="text-6xl font-semibold mb-12" style={{ ...titleStyle, color: colors.text }}>
-        {slide.title}
-      </h2>
+      <div className="relative z-10 flex flex-col p-24 w-full">
+        <SectionLabel label="the world" color={colors.accent} />
+        <AccentLine color={colors.accent} />
+        <h2 className="text-6xl font-semibold mb-12" style={{ ...titleStyle, color: colors.text }}>{slide.title}</h2>
 
-      <div className="flex-1 flex flex-col justify-between">
-        <div className="max-w-4xl">
-          {slide.body && (
-            <p
-              className="text-xl leading-relaxed mb-8"
-              style={{ color: colors.text, opacity: 0.9, fontFamily: `"${fontBody}", sans-serif` }}
-            >
-              {slide.body}
-            </p>
-          )}
-          {slide.bodySecondary && (
-            <p
-              className="text-lg leading-relaxed"
-              style={{ color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}
-            >
-              {slide.bodySecondary}
-            </p>
+        <div className="flex gap-16 flex-1">
+          <div className="flex-1 flex flex-col justify-between">
+            {slide.body && (
+              <p className="text-xl leading-relaxed mb-8" style={{ color: colors.text, opacity: 0.9, fontFamily: `"${fontBody}", sans-serif` }}>{slide.body}</p>
+            )}
+            {slide.bodySecondary && (
+              <p className="text-lg leading-relaxed" style={{ color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>
+            )}
+            {slide.quote && (
+              <div className="mt-auto pt-10 border-t max-w-3xl" style={{ borderColor: colors.accentMuted }}>
+                <p className="text-2xl italic leading-relaxed" style={{ color: colors.accent, opacity: 0.7, fontFamily: `"${fontBody}", sans-serif` }}>"{slide.quote}"</p>
+              </div>
+            )}
+          </div>
+
+          {hasGallery && (
+            <div className="w-[600px] shrink-0 grid grid-cols-2 gap-4">
+              {slide.imageUrls!.slice(0, 4).map((url, i) => (
+                <div key={i} className="rounded-lg overflow-hidden" style={{ border: `1px solid ${colors.accentMuted}` }}>
+                  <img src={url} alt="" className="w-full h-full object-cover" style={{ filter: 'saturate(0.8) contrast(1.05)' }} />
+                </div>
+              ))}
+            </div>
           )}
         </div>
-
-        {slide.quote && (
-          <div
-            className="mt-auto pt-10 border-t max-w-3xl"
-            style={{ borderColor: colors.accentMuted }}
-          >
-            <p
-              className="text-2xl italic leading-relaxed"
-              style={{ color: colors.accent, opacity: 0.7, fontFamily: `"${fontBody}", sans-serif` }}
-            >
-              "{slide.quote}"
-            </p>
-          </div>
-        )}
       </div>
 
       <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
