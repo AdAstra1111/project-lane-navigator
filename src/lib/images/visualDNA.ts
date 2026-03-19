@@ -176,6 +176,7 @@ export function resolveCharacterVisualDNA(
     producerGuidance,
     lockedInvariants: allInvariants,
     flexibleAxes,
+    evidenceTraits: [],
     contradictions,
     missingClarifications,
     identitySignature: hasIdSig ? identitySignature : null,

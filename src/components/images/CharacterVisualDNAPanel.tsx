@@ -31,6 +31,7 @@ const SOURCE_COLORS: Record<TraitSource, string> = {
   narrative: 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30',
   inferred: 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30',
   user: 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30',
+  evidence: 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/30',
 };
 
 const CATEGORY_LABELS: Record<TraitCategory, string> = {
