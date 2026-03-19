@@ -299,7 +299,28 @@ function traitToVisualDNATrait(t: CharacterTrait): VisualDNATrait {
 
 // ── Serialization for database ──
 
+/**
+ * Serialize DNA for storage in character_visual_dna table.
+ * 
+ * SCHEMA NOTE: The DB has these JSONB columns:
+ *   script_truth, narrative_markers, inferred_guidance, producer_guidance,
+ *   locked_invariants, flexible_axes, contradiction_flags, missing_clarifications,
+ *   identity_signature (nullable), identity_strength (text)
+ * 
+ * There is NO recipe_json column. Binding markers and evidence traits are
+ * persisted inside the `identity_signature` JSONB field as a composite structure:
+ *   { signature: {...}, binding_markers: [...], evidence_traits: [...], evidence_status: '...' }
+ */
 export function serializeDNAForStorage(dna: CharacterVisualDNA) {
+  // Composite identity_signature carries signature + markers + evidence
+  const compositeSignature = {
+    signature: dna.identitySignature || null,
+    binding_markers: dna.bindingMarkers || [],
+    evidence_traits: dna.evidenceTraits || [],
+    evidence_status: dna.evidenceTraits.length > 0 ? 'draft' : 'none',
+    transient_states: dna.transientStates || [],
+  };
+
   return {
     script_truth: JSON.parse(JSON.stringify(dna.scriptTruth.traits)),
     narrative_markers: JSON.parse(JSON.stringify(dna.narrativeMarkers.traits)),
@@ -309,31 +330,49 @@ export function serializeDNAForStorage(dna: CharacterVisualDNA) {
     flexible_axes: JSON.parse(JSON.stringify(dna.flexibleAxes)),
     contradiction_flags: JSON.parse(JSON.stringify(dna.contradictions)),
     missing_clarifications: JSON.parse(JSON.stringify(dna.missingClarifications)),
-    identity_signature: dna.identitySignature ? JSON.parse(JSON.stringify(dna.identitySignature)) : null,
+    identity_signature: JSON.parse(JSON.stringify(compositeSignature)),
     identity_strength: dna.identityStrength,
-    // Evidence traits and binding markers persisted in recipe_json
-    recipe_json: JSON.parse(JSON.stringify({
-      evidence_traits: dna.evidenceTraits,
-      evidence_status: dna.evidenceTraits.length > 0 ? 'draft' : 'none',
-      binding_markers: dna.bindingMarkers,
-    })),
   };
 }
 
 /**
- * Deserialize binding markers from stored recipe_json.
+ * Deserialize binding markers from the composite identity_signature JSONB.
  */
-export function deserializeBindingMarkers(recipeJson: Record<string, any> | null): BindingMarker[] {
-  if (!recipeJson?.binding_markers) return [];
-  return (recipeJson.binding_markers as BindingMarker[]) || [];
+export function deserializeBindingMarkers(identitySignature: Record<string, any> | null): BindingMarker[] {
+  if (!identitySignature?.binding_markers) return [];
+  return (identitySignature.binding_markers as BindingMarker[]) || [];
 }
 
 /**
- * Deserialize evidence traits from stored recipe_json.
+ * Deserialize evidence traits from the composite identity_signature JSONB.
  */
-export function deserializeEvidenceTraits(recipeJson: Record<string, any> | null): EvidenceTrait[] {
-  if (!recipeJson?.evidence_traits) return [];
-  return (recipeJson.evidence_traits as EvidenceTrait[]) || [];
+export function deserializeEvidenceTraits(identitySignature: Record<string, any> | null): EvidenceTrait[] {
+  if (!identitySignature?.evidence_traits) return [];
+  return (identitySignature.evidence_traits as EvidenceTrait[]) || [];
+}
+
+/**
+ * Deserialize transient visual states from the composite identity_signature JSONB.
+ */
+export function deserializeTransientStates(identitySignature: Record<string, any> | null): TransientVisualState[] {
+  if (!identitySignature?.transient_states) return [];
+  return (identitySignature.transient_states as TransientVisualState[]) || [];
+}
+
+/**
+ * Deserialize the actual identity signature from the composite structure.
+ */
+export function deserializeIdentitySignature(identitySignature: Record<string, any> | null): IdentitySignature | null {
+  if (!identitySignature) return null;
+  // Handle both old format (direct signature) and new composite format
+  if (identitySignature.signature !== undefined) {
+    return identitySignature.signature as IdentitySignature | null;
+  }
+  // Legacy: identity_signature IS the signature directly
+  if (identitySignature.face || identitySignature.body || identitySignature.silhouette) {
+    return identitySignature as unknown as IdentitySignature;
+  }
+  return null;
 }
 
 // ── Prompt Injection ──
