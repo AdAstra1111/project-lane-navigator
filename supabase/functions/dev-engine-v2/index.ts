@@ -17629,21 +17629,22 @@ Return ONLY valid JSON:
             executionResult = await dispatchAction("sync_dev_seed_v2_to_canon", {
               projectId, force_resync: true,
             });
-          executedAt = new Date().toISOString();
-          if (executionResult?.ok === false) {
-            finalStatus   = "failed";
-            skippedReason = executionResult?.error ?? "action_returned_error";
-          } else {
-            // Post-DX re-run: determine resolved vs persists
-            postDxPresent = await checkDiagnosticPresent();
-            if (postDxPresent === null) {
+            executedAt = new Date().toISOString();
+            if (executionResult?.ok === false) {
               finalStatus   = "failed";
-              skippedReason = "post_execution_dx_check_failed";
-            } else if (!postDxPresent) {
-              finalStatus = "completed";
+              skippedReason = executionResult?.error ?? "action_returned_error";
             } else {
-              finalStatus   = "failed";
-              skippedReason = "diagnostic_persists_post_execution";
+              // Post-DX re-run: determine resolved vs persists
+              postDxPresent = await checkDiagnosticPresent();
+              if (postDxPresent === null) {
+                finalStatus   = "failed";
+                skippedReason = "post_execution_dx_check_failed";
+              } else if (!postDxPresent) {
+                finalStatus = "completed";
+              } else {
+                finalStatus   = "failed";
+                skippedReason = "diagnostic_persists_post_execution";
+              }
             }
           }
         }
