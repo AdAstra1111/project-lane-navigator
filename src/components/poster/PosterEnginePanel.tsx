@@ -40,7 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { PosterCompositor, type PosterCreditsData, type PosterLayoutVariant, POSTER_TEMPLATES } from "@/components/poster/PosterCompositor";
+import { PosterCompositor, type PosterCreditsData, type PosterLayoutVariant, POSTER_TEMPLATES, type TitleStyleConfig, type TitleTypographyMode, type TitleCaseMode, type TitlePositionMode, TITLE_TYPOGRAPHY_MODES, TITLE_CASE_OPTIONS, TITLE_POSITION_OPTIONS } from "@/components/poster/PosterCompositor";
 import { FramingStrategyPanel } from "@/components/framing/FramingStrategyPanel";
 import {
   useProjectPosters,
