@@ -709,6 +709,9 @@ serve(async (req) => {
               : `lookbook_${section}`,
             state_key: state_key || null,
             state_label: state_label || null,
+            // ── PRESTIGE STYLE SYSTEM: persist lane + style metadata ──
+            lane_key: resolvedLane,
+            prestige_style: resolvedStyleKey,
           })
           .select("id")
           .single();
