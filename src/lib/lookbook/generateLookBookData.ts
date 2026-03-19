@@ -303,17 +303,17 @@ export async function generateLookBookData(
   }
 
   // VISUAL LANGUAGE
+  const visualApproach = stylePolicy.mode === 'photorealistic_cinematic'
+    ? 'Grounded in theatrical realism — every frame should feel like a still from a major motion picture. Real textures, believable lighting, cinematic depth of field.'
+    : `A deliberately stylised visual approach, drawing on ${stylePolicy.mode.replace(/_/g, ' ')} traditions to serve the project's creative vision.`;
   slides.push({
     type: 'visual_language',
     title: 'Visual Language',
+    body: visualApproach,
     bullets: [
-      `Rendering: ${stylePolicy.mode === 'photorealistic_cinematic' ? 'Photorealistic cinematic' : stylePolicy.mode.replace(/_/g, ' ')}`,
-      `Palette: ${identity.imageStyle.replace(/-/g, ' ')}`,
+      `${identity.imageStyle.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase())} palette`,
       identity.typography.titleUppercase ? 'Bold, graphic title treatment' : 'Elegant, refined typography',
-      stylePolicy.mode === 'photorealistic_cinematic'
-        ? 'Shot on cinema camera — real textures, believable lighting, grounded composition'
-        : 'Intentional stylisation consistent with project vision',
-      'Consistent visual identity across all materials',
+      'Consistent visual identity across all presentation materials',
     ],
   });
 

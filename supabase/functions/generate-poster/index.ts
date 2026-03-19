@@ -41,7 +41,7 @@ const PHOTOREAL_NEGATIVES = [
 ].join(', ');
 
 const ANIMATION_FORMATS = ['animation', 'anim-feature', 'anim-series', 'animated'];
-const GRAPHIC_GENRES = ['graphic-novel', 'comic', 'manga', 'anime'];
+const GRAPHIC_GENRES = ['graphic-novel', 'comic', 'manga'];
 
 function resolveImageStylePolicy(format: string, genres: string[]): ImageStylePolicy {
   const f = format.toLowerCase();
@@ -224,37 +224,37 @@ function deriveWorldLock(inputs: Omit<PosterPromptInputs, "worldLock">): WorldLo
 // ── Visual Maps ──────────────────────────────────────────────────────────────
 
 const toneVisuals: Record<string, string> = {
-  dark: "moody shadows, desaturated palette, noir-inspired lighting, photorealistic",
-  light: "warm golden light, hopeful atmosphere, soft focus backgrounds, photorealistic",
-  gritty: "raw textures, urban decay, handheld documentary feel, photorealistic",
-  comedic: "bright natural colors, dynamic composition, playful energy, photorealistic",
-  thriller: "high contrast, tension-filled composition, cool blue tones, photorealistic",
-  dramatic: "deep cinematic shadows, rich warm tones, emotional weight, photorealistic",
-  horror: "deep blacks, unsettling atmosphere, eerie fog, cold tones, photorealistic",
-  romantic: "soft bokeh, warm sunset tones, intimate framing, photorealistic",
-  epic: "sweeping vista, grand scale, dramatic sky, golden hour, photorealistic",
-  satirical: "sharp contrast, bold framing, high-saturation photography, photorealistic",
-  whimsical: "warm soft tones, magical-hour lighting, intimate storybook atmosphere, photorealistic",
-  suspenseful: "high contrast, silhouettes, tension, atmospheric haze, photorealistic",
+  dark: "moody shadows, desaturated palette, noir-inspired lighting",
+  light: "warm golden light, hopeful atmosphere, soft focus backgrounds",
+  gritty: "raw textures, urban decay, handheld documentary feel",
+  comedic: "bright natural colors, dynamic composition, playful energy",
+  thriller: "high contrast, tension-filled composition, cool blue tones",
+  dramatic: "deep cinematic shadows, rich warm tones, emotional weight",
+  horror: "deep blacks, unsettling atmosphere, eerie fog, cold tones",
+  romantic: "soft bokeh, warm sunset tones, intimate framing",
+  epic: "sweeping vista, grand scale, dramatic sky, golden hour",
+  satirical: "sharp contrast, bold framing, high-saturation photography",
+  whimsical: "warm soft tones, magical-hour lighting, intimate atmosphere",
+  suspenseful: "high contrast, silhouettes, tension, atmospheric haze",
 };
 
 const genreMotifs: Record<string, string> = {
-  drama: "emotional portraiture, dramatic lighting, photorealistic",
-  thriller: "shadowy figures, tension, urban nightscape, photorealistic",
-  horror: "darkness, isolation, dread, photorealistic",
-  comedy: "vibrant colors, expressive characters, photorealistic",
-  "sci-fi": "futuristic elements, technological atmosphere, photorealistic",
-  romance: "intimate composition, warm tones, photorealistic",
-  action: "dynamic movement, explosive energy, photorealistic",
-  crime: "noir aesthetics, urban grit, photorealistic",
-  mystery: "obscured faces, fog, enigmatic composition, photorealistic",
-  fantasy: "otherworldly landscapes, atmospheric, photorealistic",
-  war: "epic scale, visceral intensity, smoke and earth, photorealistic",
-  western: "vast landscapes, dusty atmosphere, golden light, photorealistic",
-  musical: "vibrant stage lighting, performance energy, photorealistic",
-  animation: "stylized artistic rendering, bold shapes, professional animation quality",
-  documentary: "authentic textures, photographic realism, photorealistic",
-  "true-crime": "evidence board aesthetic, cold case atmosphere, photorealistic",
+  drama: "emotional portraiture, dramatic lighting",
+  thriller: "shadowy figures, tension, urban nightscape",
+  horror: "darkness, isolation, dread",
+  comedy: "vibrant colors, expressive characters",
+  "sci-fi": "futuristic elements, technological atmosphere",
+  romance: "intimate composition, warm tones",
+  action: "dynamic movement, explosive energy",
+  crime: "noir aesthetics, urban grit",
+  mystery: "obscured faces, fog, enigmatic composition",
+  fantasy: "otherworldly landscapes, atmospheric depth",
+  war: "epic scale, visceral intensity, smoke and earth",
+  western: "vast landscapes, dusty atmosphere, golden light",
+  musical: "vibrant stage lighting, performance energy",
+  animation: "stylised animated visual language, bold shapes, professional animation quality",
+  documentary: "authentic textures, photographic realism",
+  "true-crime": "evidence board aesthetic, cold case atmosphere",
 };
 
 // ── Strategy Definitions ─────────────────────────────────────────────────────
@@ -573,7 +573,7 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
     `- Proper negative space for title placement`,
     `- Portrait 2:3 aspect ratio`,
     ctx.stylePolicy.mode === 'photorealistic_cinematic'
-      ? `- Photorealistic cinematic quality, 4K resolution feel — shot on real cinema camera`
+      ? `- 4K resolution feel — premium theatrical quality`
       : `- High production value ${ctx.stylePolicy.mode.replace(/_/g, ' ')} rendering`,
     `- The overall design should feel like it belongs on a cinema lobby wall`,
   ].join("\n");
