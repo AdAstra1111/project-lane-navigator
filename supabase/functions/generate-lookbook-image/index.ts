@@ -387,8 +387,12 @@ serve(async (req) => {
             subject: character_name || null,
             shot_type: shotType,
             curation_state: "candidate",
-            subject_type: assetGroup === "character" ? "character" : assetGroup === "world" ? "world" : null,
-            subject_ref: character_name || null,
+            subject_type: assetGroup === "character" ? "character"
+              : assetGroup === "world" ? "location"
+              : assetGroup === "key_moment" ? "moment"
+              : assetGroup === "visual_language" ? "production_design"
+              : null,
+            subject_ref: character_name || section || null,
             generation_purpose: base_look_mode ? "character_reference" : `lookbook_${section}`,
           })
           .select("id")

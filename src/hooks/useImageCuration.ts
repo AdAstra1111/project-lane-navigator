@@ -49,15 +49,21 @@ export function useImageCuration(projectId: string) {
     setUpdating(image.id);
     try {
       // Unset previous primary in same slot
-      const deactivateQuery = (supabase as any)
+      // Slot = asset_group + subject + shot_type (all must match)
+      // If shot_type is null, scope to asset_group + subject only
+      let deactivateQuery = (supabase as any)
         .from('project_images')
         .update({ is_primary: false })
         .eq('project_id', projectId)
         .eq('is_primary', true);
 
-      if (image.asset_group) deactivateQuery.eq('asset_group', image.asset_group);
-      if (image.subject) deactivateQuery.eq('subject', image.subject);
-      if (image.shot_type) deactivateQuery.eq('shot_type', image.shot_type);
+      if (image.asset_group) deactivateQuery = deactivateQuery.eq('asset_group', image.asset_group);
+      if (image.subject) deactivateQuery = deactivateQuery.eq('subject', image.subject);
+      if (image.shot_type) {
+        deactivateQuery = deactivateQuery.eq('shot_type', image.shot_type);
+      } else {
+        deactivateQuery = deactivateQuery.is('shot_type', null);
+      }
 
       await deactivateQuery;
 
