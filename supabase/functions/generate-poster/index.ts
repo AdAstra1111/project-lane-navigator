@@ -1103,6 +1103,8 @@ serve(async (req) => {
           model: refreshGenConfig.model,
           style_mode: styleMode,
           generation_config: { ...repoMeta, poster_mode: "refresh_from_truth", source_poster_id },
+          lane_key: posterLaneKey,
+          prestige_style: posterStyleKey,
         });
 
         return new Response(JSON.stringify({
