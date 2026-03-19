@@ -6,7 +6,7 @@
  * Identity images use generation_purpose='character_identity' and identity_* shot types.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save, Tag, Shield, Eye, Dna, Wand2 } from 'lucide-react';
+import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save, Tag, Shield, Eye, Dna, Wand2, Download, RefreshCw } from 'lucide-react';
 import { CharacterVisualDNAPanel } from './CharacterVisualDNAPanel';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
