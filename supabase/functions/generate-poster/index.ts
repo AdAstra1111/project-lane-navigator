@@ -1185,35 +1185,51 @@ serve(async (req) => {
         let imageResult: ProviderImageResult;
 
         if (sourceImageUrl) {
-          // Use image editing — send source image + edit prompt
-          const aiResponse = await fetch(editGenConfig.gatewayUrl, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${LOVABLE_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: editGenConfig.model,
-              messages: [{
-                role: "user",
-                content: [
-                  { type: "text", text: editFullPrompt },
-                  { type: "image_url", image_url: { url: sourceImageUrl } },
-                ],
-              }],
-              modalities: ["image", "text"],
-            }),
-          });
+          // Use image editing with retry logic
+          let editLastError: Error | null = null;
+          for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            if (attempt > 0) {
+              const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1);
+              console.log(`[generate-poster] Edit retry ${attempt}/${MAX_RETRIES} after ${backoff}ms`);
+              await sleep(backoff);
+            }
 
-          if (!aiResponse.ok) {
+            const aiResponse = await fetch(editGenConfig.gatewayUrl, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: editGenConfig.model,
+                messages: [{
+                  role: "user",
+                  content: [
+                    { type: "text", text: editFullPrompt },
+                    { type: "image_url", image_url: { url: sourceImageUrl } },
+                  ],
+                }],
+                modalities: ["image", "text"],
+              }),
+            });
+
+            if (aiResponse.ok) {
+              const aiData = await aiResponse.json();
+              imageResult = extractImageFromResponse(aiData);
+              editLastError = null;
+              break;
+            }
+
             const errText = await aiResponse.text();
-            if (aiResponse.status === 429) throw new Error("Rate limit exceeded");
+            if (aiResponse.status === 429) {
+              editLastError = new Error("Rate limit exceeded");
+              continue;
+            }
             if (aiResponse.status === 402) throw new Error("Payment required");
             throw new Error(`AI gateway error [${aiResponse.status}]: ${errText}`);
           }
 
-          const aiData = await aiResponse.json();
-          imageResult = extractImageFromResponse(aiData);
+          if (editLastError) throw editLastError;
         } else {
           // No source image available — generate fresh with edit context
           imageResult = await generateImage(LOVABLE_API_KEY, editFullPrompt, editGenConfig.model, editGenConfig.gatewayUrl);
