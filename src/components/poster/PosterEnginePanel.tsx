@@ -740,6 +740,29 @@ export default function PosterEnginePanel() {
                     </Button>
                   </div>
 
+                  {/* Freshness status */}
+                  {freshnessMap?.[expandedPoster.id] && freshnessMap[expandedPoster.id].status !== 'current' && (
+                    <div className="p-2 rounded-md bg-destructive/10 border border-destructive/20 space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-[10px] font-medium text-destructive">
+                        <ShieldAlert className="w-3 h-3" />
+                        Upstream Truth Changed
+                      </div>
+                      {freshnessMap[expandedPoster.id].staleReasons.map((r, i) => (
+                        <p key={i} className="text-[9px] text-muted-foreground">• {r}</p>
+                      ))}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[9px] w-full gap-1"
+                        onClick={() => refreshStale.mutate(expandedPoster.id)}
+                        disabled={refreshStale.isPending}
+                      >
+                        {refreshStale.isPending ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
+                        Refresh with Updated Truth
+                      </Button>
+                    </div>
+                  )}
+
                   {/* Metadata */}
                   <div className="space-y-1.5 text-[10px] text-muted-foreground">
                     <div>Template: <span className="text-foreground">{POSTER_TEMPLATES[selectedTemplate]?.label}</span></div>
