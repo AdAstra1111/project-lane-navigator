@@ -76,88 +76,101 @@ export function ProjectCard({ project, index, readinessScore, financeReadinessSc
         </button>
       )}
 
-      {/* Pin button */}
-      {onTogglePin && (
-        <button
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onTogglePin(project.id, !project.pinned); }}
-          className={`absolute top-2 right-2 z-10 p-1 rounded transition-colors ${
-            project.pinned ? 'text-primary' : 'text-muted-foreground/30 hover:text-primary/60'
-          }`}
-          title={project.pinned ? 'Unpin project' : 'Pin to top'}
-        >
-          <Star className={`h-3.5 w-3.5 ${project.pinned ? 'fill-primary' : ''}`} />
-        </button>
-      )}
-
       <Link
         to={`/projects/${project.id}`}
-        className={`group block rounded-xl overflow-hidden transition-all duration-300 hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5 ${
-          selected ? 'ring-1 ring-primary/40' : ''
-        } ${project.pinned ? 'border-primary/15' : ''} ${
-          posterUrl ? 'border border-border/30' : 'glass-card'
-        }`}
+        className={`group block rounded-xl overflow-hidden transition-all duration-300 hover:shadow-xl hover:shadow-black/20 hover:scale-[1.02] ${
+          selected ? 'ring-2 ring-primary/50' : ''
+        } ${posterUrl ? '' : 'glass-card'}`}
       >
         {posterUrl ? (
-          /* ── Poster-backed card: image fills entire card ── */
-          <div className="relative min-h-[280px]">
+          /* ── Poster-dominant cinematic tile — 2:3 aspect ratio ── */
+          <div className="relative aspect-[2/3]">
             <img
               src={posterUrl}
               alt=""
-              className="absolute inset-0 w-full h-full object-cover object-top"
+              className="absolute inset-0 w-full h-full object-cover"
               loading="lazy"
             />
-            {/* Bottom-only scrim — poster artwork stays visible in upper 2/3 */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
 
-            {/* Content overlay */}
-            <div className="relative z-[1] flex flex-col justify-end h-full min-h-[280px] p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <FormatIcon className="h-3.5 w-3.5 shrink-0 text-white/70" />
-                    <span className="text-[10px] text-white/60 uppercase tracking-wider">
-                      {formatMeta.shortLabel}
-                    </span>
-                    <RecencyPulse updatedAt={project.updated_at} />
-                    {project.pinned && (
-                      <span className="text-[10px] text-primary font-medium">Pinned</span>
-                    )}
+            {/* Pin star — top-right, minimal footprint */}
+            {onTogglePin && (
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onTogglePin(project.id, !project.pinned); }}
+                className={`absolute top-2.5 right-2.5 z-10 p-1 rounded-full backdrop-blur-sm transition-colors ${
+                  project.pinned ? 'text-primary bg-black/40' : 'text-white/40 hover:text-white/70 bg-black/20'
+                }`}
+                title={project.pinned ? 'Unpin project' : 'Pin to top'}
+              >
+                <Star className={`h-3.5 w-3.5 ${project.pinned ? 'fill-primary' : ''}`} />
+              </button>
+            )}
+
+            {/* Score rings — top-left, small pill overlays */}
+            {(readinessScore != null || financeReadinessScore != null) && (
+              <div className="absolute top-2.5 left-2.5 z-10 flex gap-1.5">
+                {readinessScore != null && (
+                  <div className="backdrop-blur-sm bg-black/30 rounded-full p-0.5" title="Readiness Score">
+                    <MiniScoreRing score={readinessScore} size={26} />
                   </div>
-                  <h3 className="text-lg font-display font-semibold text-white truncate group-hover:text-primary transition-colors">
-                    {project.title}
-                  </h3>
-                  {project.genres && project.genres.length > 0 && (
-                    <p className="text-sm text-white/60 mt-0.5 truncate">
-                      {project.genres.join(' · ')}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {readinessScore != null && (
-                    <div className="flex flex-col items-center gap-0.5" title="Readiness Score">
-                      <MiniScoreRing score={readinessScore} />
-                      <span className="text-[8px] text-white/50">Ready</span>
-                    </div>
-                  )}
-                  {financeReadinessScore != null && (
-                    <div className="flex flex-col items-center gap-0.5" title="Greenlight Probability">
-                      <MiniScoreRing score={financeReadinessScore} />
-                      <span className="text-[8px] text-white/50">GP</span>
-                    </div>
-                  )}
-                  <ArrowRight className="h-4 w-4 text-white/40 opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
-                </div>
+                )}
+                {financeReadinessScore != null && (
+                  <div className="backdrop-blur-sm bg-black/30 rounded-full p-0.5" title="Greenlight Probability">
+                    <MiniScoreRing score={financeReadinessScore} size={26} />
+                  </div>
+                )}
               </div>
-              {project.assigned_lane && (
-                <div className="mt-3">
-                  <LaneBadge lane={project.assigned_lane as MonetisationLane} size="sm" />
+            )}
+
+            {/* Recency pulse — subtle top indicator */}
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10">
+              <RecencyPulse updatedAt={project.updated_at} />
+            </div>
+
+            {/* Bottom metadata band — compact, only in lower zone */}
+            <div className="absolute inset-x-0 bottom-0 z-[1]">
+              <div className="bg-gradient-to-t from-black/95 via-black/70 to-transparent pt-16 pb-4 px-4">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <FormatIcon className="h-3 w-3 shrink-0 text-white/50" />
+                  <span className="text-[9px] text-white/45 uppercase tracking-widest">
+                    {formatMeta.shortLabel}
+                  </span>
                 </div>
-              )}
+                <h3 className="text-base font-display font-semibold text-white leading-tight line-clamp-2 group-hover:text-primary transition-colors">
+                  {project.title}
+                </h3>
+                {project.genres && project.genres.length > 0 && (
+                  <p className="text-[11px] text-white/50 mt-0.5 truncate">
+                    {project.genres.join(' · ')}
+                  </p>
+                )}
+                {project.assigned_lane && (
+                  <div className="mt-2">
+                    <LaneBadge lane={project.assigned_lane as MonetisationLane} size="sm" />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Hover arrow */}
+            <div className="absolute bottom-4 right-4 z-10">
+              <ArrowRight className="h-4 w-4 text-white/30 opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           </div>
         ) : (
           /* ── No poster: standard card layout ── */
           <div className="p-5">
+            {/* Pin button */}
+            {onTogglePin && (
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onTogglePin(project.id, !project.pinned); }}
+                className={`absolute top-2 right-2 z-10 p-1 rounded transition-colors ${
+                  project.pinned ? 'text-primary' : 'text-muted-foreground/30 hover:text-primary/60'
+                }`}
+                title={project.pinned ? 'Unpin project' : 'Pin to top'}
+              >
+                <Star className={`h-3.5 w-3.5 ${project.pinned ? 'fill-primary' : ''}`} />
+              </button>
+            )}
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-2">
