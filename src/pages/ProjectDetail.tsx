@@ -405,43 +405,43 @@ export default function ProjectDetail() {
         {/* Overlay: title, lane, format, actions */}
         <div className="absolute inset-x-0 bottom-0 p-4 sm:p-6">
           <div className="container max-w-6xl mx-auto">
-            <div className="flex items-end justify-between gap-4">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+              <div className="space-y-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   {laneBadgeLabel && (
-                    <Badge className="bg-primary/80 text-primary-foreground text-[10px] font-medium tracking-wide uppercase px-2 py-0.5">
+                    <Badge className="bg-primary/80 text-primary-foreground text-[9px] font-medium tracking-wide uppercase px-1.5 py-0">
                       {laneBadgeLabel}
                     </Badge>
                   )}
                   {project.format && (
-                    <Badge variant="outline" className="border-white/20 text-white/70 text-[10px]">
+                    <Badge variant="outline" className="border-white/20 text-white/60 text-[9px] py-0">
                       {project.format.replace(/-/g, ' ')}
                     </Badge>
                   )}
                   {episodeCount && (
-                    <Badge variant="outline" className="border-white/20 text-white/70 text-[10px]">
-                      {episodeCount} episodes
+                    <Badge variant="outline" className="border-white/20 text-white/60 text-[9px] py-0">
+                      {episodeCount} ep
                     </Badge>
                   )}
                 </div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight font-serif">
+                <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight font-serif leading-tight truncate">
                   {project.title}
                 </h1>
                 {project.genres && project.genres.length > 0 && (
-                  <p className="text-xs text-white/50">{project.genres.join(' · ')}</p>
+                  <p className="text-[11px] text-white/40">{project.genres.join(' · ')}</p>
                 )}
               </div>
 
               {/* Primary actions */}
               <div className="flex items-center gap-2 shrink-0">
-                <Link to={`/projects/${id}/poster`}>
-                  <Button size="sm" variant="outline" className="border-white/20 text-white hover:bg-white/10 text-xs gap-1.5 hidden sm:flex">
-                    <ImagePlus className="h-3.5 w-3.5" /> Poster
+                <Link to={`/projects/${id}/visual-dev`}>
+                  <Button size="sm" variant="outline" className="border-white/20 text-white hover:bg-white/10 text-xs gap-1.5">
+                    <Users className="h-3.5 w-3.5" /> Cast &amp; Visuals
                   </Button>
                 </Link>
-                <Link to={`/projects/${id}/visual-dev`}>
-                  <Button size="sm" variant="outline" className="border-white/20 text-white hover:bg-white/10 text-xs gap-1.5 hidden sm:flex">
-                    <Film className="h-3.5 w-3.5" /> Cast &amp; Visuals
+                <Link to={`/projects/${id}/poster`}>
+                  <Button size="sm" variant="ghost" className="text-white/60 hover:text-white hover:bg-white/10 text-xs gap-1.5 hidden sm:flex">
+                    <ImagePlus className="h-3.5 w-3.5" /> Poster
                   </Button>
                 </Link>
               </div>
