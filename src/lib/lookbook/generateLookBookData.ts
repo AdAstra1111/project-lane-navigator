@@ -69,7 +69,7 @@ function resolveColorPalette(tone?: string, genre?: string): LookBookColorSystem
 }
 
 function resolveIdentity(canonState: Record<string, unknown>, genre?: string): LookBookVisualIdentity {
-  const tone = (canonState.tone_style as string) || '';
+  const tone = normalizeCanonText(canonState.tone_style, 'tone_style');
   const colors = resolveColorPalette(tone, genre);
   const t = tone.toLowerCase();
   return {
