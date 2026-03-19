@@ -639,7 +639,7 @@ serve(async (req) => {
               shot_type: shotType,
               state_key: state_key || null,
               // Full audit trail
-              identity_mode: identity_mode || false,
+              identity_mode: identity_mode || isIdentityGeneration || false,
               identity_locked: identityLockUsed,
               identity_headshot_anchor_used: headshotAnchorUsed,
               identity_full_body_anchor_used: fullBodyAnchorUsed,
