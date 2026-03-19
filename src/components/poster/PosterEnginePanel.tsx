@@ -492,7 +492,27 @@ export default function PosterEnginePanel() {
                 </Select>
               </div>
 
-              {/* Color */}
+              {/* Balance */}
+              <div className="flex items-center gap-3">
+                <Label className="text-xs w-20 shrink-0 text-muted-foreground">Balance</Label>
+                <div className="flex items-center gap-1.5">
+                  {(Object.entries(TITLE_BALANCE_OPTIONS) as [TitleBalanceMode, string][]).map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => setTitleStyle(prev => ({ ...prev, balanceMode: prev.balanceMode === key ? undefined : key }))}
+                      className={cn(
+                        "text-xs px-3 py-1 rounded border transition-colors",
+                        titleStyle.balanceMode === key
+                          ? "bg-primary/10 border-primary/30 text-primary"
+                          : "bg-card border-border/30 text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex items-center gap-3">
                 <Label className="text-xs w-20 shrink-0 text-muted-foreground">Color</Label>
                 <div className="flex items-center gap-2 flex-1">
