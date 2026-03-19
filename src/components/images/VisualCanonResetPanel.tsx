@@ -79,7 +79,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   const abortRef = useRef(false);
 
   const {
-    resetActiveCanon, restoreFromArchive, markForReusePool,
+    resetScopedCanon, restoreFromArchive, markForReusePool,
     approveIntoCanon, rejectCandidate, resetting, lastReset,
   } = useVisualCanonReset(projectId);
 
