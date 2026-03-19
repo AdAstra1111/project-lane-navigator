@@ -632,7 +632,7 @@ function HydratedLocationRow({
         )}
 
         {locImages.length > 0 && (
-          <EntityStateVariantsPanel projectId={projectId} entityType="location" entityName={location.canonical_name} entityDescription={location.description || undefined} />
+          <EntityStateVariantsPanel projectId={projectId} entityType="location" entityName={location.canonical_name} entityDescription={location.description || undefined} entityCanonId={location.id} />
         )}
 
         {/* Generate button */}

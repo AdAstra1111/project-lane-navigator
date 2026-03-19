@@ -339,6 +339,7 @@ function StateGenerationBar({
           character_name: isCharacter ? entityName : undefined,
           location_name: !isCharacter ? entityName : undefined,
           location_description: !isCharacter ? entityDescription : undefined,
+          location_id: !isCharacter ? entityCanonId : undefined,
           asset_group: isCharacter ? 'character' : 'world',
           pack_mode: true,
           base_look_mode: isCharacter,
