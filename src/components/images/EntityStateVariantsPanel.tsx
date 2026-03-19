@@ -232,7 +232,18 @@ function StateGenerationBar({
   existingStates: string[];
 }) {
   const [generating, setGenerating] = useState<string | null>(null);
+  const [identityAnchors, setIdentityAnchors] = useState<{ headshot?: string; fullBody?: string } | null>(null);
   const qc = useQueryClient();
+
+  // Resolve identity anchors for character state variants
+  useEffect(() => {
+    if (entityType !== 'character') return;
+    resolveCharacterIdentity(projectId, entityName).then(state => {
+      if (state.locked && state.headshot && state.fullBody) {
+        setIdentityAnchors({ headshot: state.headshot.storage_path, fullBody: state.fullBody.storage_path });
+      }
+    });
+  }, [projectId, entityName, entityType]);
 
   const availablePresets = presets.filter(p => !existingStates.includes(p.key));
 
@@ -261,6 +272,8 @@ function StateGenerationBar({
           state_key: preset.key,
           state_label: preset.label,
           state_prompt_modifier: preset.promptModifier,
+          // Inject locked identity anchors for character state variants
+          identity_anchor_paths: isCharacter ? identityAnchors : null,
         },
       });
       if (error) throw error;
