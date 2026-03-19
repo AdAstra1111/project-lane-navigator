@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveImageGenerationConfig, buildImageRepositoryMeta } from "../_shared/imageGenerationResolver.ts";
 import type { ImageRole, ImageStyleMode } from "../_shared/imageGenerationResolver.ts";
+import { resolveVisualStyleProfile, validateStyleOrError } from "../_shared/visualStyleAuthority.ts";
+import type { VisualStyleLock } from "../_shared/visualStyleAuthority.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
