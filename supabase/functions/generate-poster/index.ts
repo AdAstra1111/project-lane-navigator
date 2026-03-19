@@ -1128,6 +1128,9 @@ serve(async (req) => {
         provider: primaryGenConfig.provider,
         model: primaryGenConfig.model,
         render_status: "key_art_only",
+        truth_snapshot_json: truthSnapshot,
+        dependency_hash: truthSnapshot.canon_hash,
+        freshness_status: "current",
       })
       .select()
       .single();
