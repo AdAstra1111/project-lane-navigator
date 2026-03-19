@@ -221,7 +221,7 @@ export function ImageSelectorGrid({
               {lightbox.signedUrl && (
                 <img src={lightbox.signedUrl} alt="" className="w-full h-auto max-h-[80vh] object-contain" />
               )}
-              {/* Metadata panel */}
+              {/* Metadata panel — provenance */}
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-4">
                 <div className="flex items-center gap-2 flex-wrap">
                   {lightbox.shot_type && (
@@ -244,6 +244,34 @@ export function ImageSelectorGrid({
                   </Badge>
                   <span className="text-[9px] text-white/50 ml-auto">{lightbox.model}</span>
                 </div>
+                {/* Extended provenance */}
+                {showProvenance && (
+                  <div className="mt-2 space-y-0.5 text-[9px] text-white/50">
+                    {lightbox.strategy_key && (
+                      <p>Strategy: <span className="text-white/70">{lightbox.strategy_key}</span></p>
+                    )}
+                    {lightbox.role && (
+                      <p>Role: <span className="text-white/70">{lightbox.role}</span></p>
+                    )}
+                    {lightbox.provider && (
+                      <p>Provider: <span className="text-white/70">{lightbox.provider}</span></p>
+                    )}
+                    {lightbox.style_mode && (
+                      <p>Style: <span className="text-white/70">{lightbox.style_mode}</span></p>
+                    )}
+                    {lightbox.created_at && (
+                      <p>Created: <span className="text-white/70">{new Date(lightbox.created_at).toLocaleDateString()}</span></p>
+                    )}
+                    {lightbox.prompt_used && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-white/40 hover:text-white/60">Prompt</summary>
+                        <p className="mt-1 text-white/50 leading-relaxed max-h-24 overflow-y-auto text-[8px]">
+                          {lightbox.prompt_used}
+                        </p>
+                      </details>
+                    )}
+                  </div>
+                )}
               </div>
               {/* Curation actions in lightbox */}
               {showCurationControls && (
