@@ -408,6 +408,18 @@ serve(async (req) => {
       });
     }
 
+    // ── VSAL: Resolve Visual Style Authority ──
+    const styleResolution = await resolveVisualStyleProfile(supabase, project_id);
+    const styleCheck = validateStyleOrError(styleResolution);
+    if (!styleCheck.valid) {
+      console.warn(`[IEL:visual_style_authority_violation] Generation blocked: ${styleResolution.error}`);
+      return new Response(JSON.stringify(styleCheck.body), {
+        status: styleCheck.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const visualStyleLock = styleResolution.lock!;
+    const vsalPromptBlock = styleResolution.promptBlock!;
+
     // Load project context
     const { data: project } = await supabase
       .from("projects")
