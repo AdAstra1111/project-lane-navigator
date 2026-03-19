@@ -6,11 +6,12 @@
  * Identity images use generation_purpose='character_identity' and identity_* shot types.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save, Tag } from 'lucide-react';
+import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save, Tag, Shield, Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ImageSelectorGrid } from './ImageSelectorGrid';
 import { EntityStateVariantsPanel } from './EntityStateVariantsPanel';
@@ -19,6 +20,7 @@ import { useImageCuration } from '@/hooks/useImageCuration';
 import { useCharacterIdentityNotes } from '@/hooks/useCharacterIdentityNotes';
 import { resolveCharacterIdentity, checkIdentityNotesAgainstCanon } from '@/lib/images/identityResolver';
 import { resolveCharacterTraits, detectTraitContradictions, formatTraitsForPrompt, type CharacterTrait, type TraitSource } from '@/lib/images/characterTraits';
+import { deriveIdentitySignature, formatIdentitySignatureBlock, hasIdentitySignature } from '@/lib/images/identitySignature';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -35,9 +37,6 @@ interface CharacterInfo {
   importance?: number;
 }
 
-/**
- * Extract characters from canon_json with importance ordering.
- */
 function extractCharacters(canonJson: any): CharacterInfo[] {
   if (!canonJson) return [];
   const raw = canonJson.characters;
@@ -128,10 +127,227 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
 
 type CharFilter = 'all' | 'active' | 'candidate' | 'archived';
 
+// ─── IDENTITY LOCK STATUS ────────────────────────────────────────────────────
+
+type ContinuityStrength = 'strong' | 'partial' | 'weak';
+type GenerationSafety = 'safe' | 'drift_risk' | 'unstable';
+
+function getIdentityLockStatus(hasHeadshot: boolean, hasFullBody: boolean): {
+  continuity: ContinuityStrength;
+  safety: GenerationSafety;
+  headshotLabel: string;
+  fullBodyLabel: string;
+} {
+  const continuity: ContinuityStrength = hasHeadshot && hasFullBody ? 'strong' : (hasHeadshot || hasFullBody) ? 'partial' : 'weak';
+  const safety: GenerationSafety = continuity === 'strong' ? 'safe' : continuity === 'partial' ? 'drift_risk' : 'unstable';
+  return {
+    continuity,
+    safety,
+    headshotLabel: hasHeadshot ? '✅ Locked' : '❌ Missing — select headshot to anchor face identity',
+    fullBodyLabel: hasFullBody ? '✅ Locked' : '❌ Missing — select full body to anchor proportions',
+  };
+}
+
+function IdentityLockStatusPanel({ hasHeadshot, hasFullBody }: { hasHeadshot: boolean; hasFullBody: boolean }) {
+  const status = getIdentityLockStatus(hasHeadshot, hasFullBody);
+
+  const continuityColor = {
+    strong: 'text-emerald-600 dark:text-emerald-400',
+    partial: 'text-amber-600 dark:text-amber-400',
+    weak: 'text-destructive',
+  }[status.continuity];
+
+  const safetyColor = {
+    safe: 'text-emerald-600 dark:text-emerald-400',
+    drift_risk: 'text-amber-600 dark:text-amber-400',
+    unstable: 'text-destructive',
+  }[status.safety];
+
+  const safetyLabel = {
+    safe: '✅ Safe',
+    drift_risk: '⚠ Risk of drift',
+    unstable: '🚫 Unstable',
+  }[status.safety];
+
+  const continuityLabel = {
+    strong: 'Strong',
+    partial: 'Partial',
+    weak: 'Weak',
+  }[status.continuity];
+
+  return (
+    <Card className="mb-3 border-border/60 bg-muted/20">
+      <CardContent className="p-3">
+        <div className="flex items-center gap-1.5 mb-2">
+          <Shield className="h-3.5 w-3.5 text-primary" />
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">Identity Lock Status</span>
+        </div>
+        <div className="space-y-1.5 text-[10px]">
+          <div className="flex justify-between items-center">
+            <span className="text-muted-foreground">Headshot:</span>
+            <span className={hasHeadshot ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}>{status.headshotLabel}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-muted-foreground">Full Body:</span>
+            <span className={hasFullBody ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}>{status.fullBodyLabel}</span>
+          </div>
+          <div className="border-t border-border/40 pt-1.5 mt-1.5 flex justify-between items-center">
+            <span className="text-muted-foreground">Continuity Strength:</span>
+            <span className={cn('font-medium', continuityColor)}>{continuityLabel}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-muted-foreground">Generation Safety:</span>
+            <span className={cn('font-medium', safetyColor)}>{safetyLabel}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── CHARACTER VISUAL TRUTH (PROMOTED) ──────────────────────────────────────
+
+const SOURCE_COLORS: Record<TraitSource, string> = {
+  script: 'bg-blue-500/15 text-blue-700 border-blue-500/30 dark:text-blue-400',
+  narrative: 'bg-purple-500/15 text-purple-700 border-purple-500/30 dark:text-purple-400',
+  inferred: 'bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-400',
+  user: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-400',
+};
+
+const SOURCE_LABELS: Record<TraitSource, string> = {
+  script: '🔒 SCRIPT',
+  narrative: '🛡 NARRATIVE',
+  inferred: '⚠ INFERRED',
+  user: '✏️ USER',
+};
+
+const SOURCE_SECTION_LABELS: Record<TraitSource, string> = {
+  script: '🔒 SCRIPT (locked)',
+  narrative: '🛡 NARRATIVE (visible markers)',
+  inferred: '⚠ INFERRED (flexible)',
+  user: '✏️ USER (your notes)',
+};
+
+function CharacterVisualTruthPanel({
+  traits,
+  contradictions,
+}: {
+  traits: CharacterTrait[];
+  contradictions: Array<{ userTrait: CharacterTrait; conflictsWith: CharacterTrait; message: string; severity: string }>;
+}) {
+  if (traits.length === 0) return null;
+
+  const contradictionLabels = new Set(contradictions.map(c => c.userTrait.label.toLowerCase()));
+
+  // Group by source
+  const grouped: Record<TraitSource, CharacterTrait[]> = { script: [], narrative: [], inferred: [], user: [] };
+  for (const t of traits) {
+    grouped[t.source].push(t);
+  }
+
+  // "What must not drift" — auto from script + narrative
+  const driftInvariants = traits.filter(t => (t.source === 'script' || t.source === 'narrative') && t.confidence === 'high');
+
+  return (
+    <Card className="mb-3 border-border/60 bg-muted/20">
+      <CardContent className="p-3">
+        <div className="flex items-center gap-1.5 mb-2">
+          <Eye className="h-3.5 w-3.5 text-primary" />
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
+            Character Visual Truth
+          </span>
+          <Badge variant="secondary" className="text-[7px] px-1 py-0">{traits.length} traits</Badge>
+          {contradictions.length > 0 && (
+            <Badge variant="destructive" className="text-[7px] px-1 py-0">
+              {contradictions.length} conflict{contradictions.length !== 1 ? 's' : ''}
+            </Badge>
+          )}
+        </div>
+
+        {/* Grouped by source */}
+        <div className="space-y-2">
+          {(['script', 'narrative', 'inferred', 'user'] as TraitSource[]).map(source => {
+            const sourceTraits = grouped[source];
+            if (sourceTraits.length === 0) return null;
+            return (
+              <div key={source}>
+                <p className="text-[8px] text-muted-foreground font-medium mb-0.5">{SOURCE_SECTION_LABELS[source]}</p>
+                <div className="flex flex-wrap gap-1">
+                  {sourceTraits.map((t, idx) => {
+                    const isConflict = contradictionLabels.has(t.label.toLowerCase());
+                    return (
+                      <span
+                        key={idx}
+                        className={cn(
+                          'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] border',
+                          isConflict ? 'bg-destructive/15 text-destructive border-destructive/30 line-through' : SOURCE_COLORS[t.source],
+                        )}
+                        title={`Category: ${t.category} | Confidence: ${t.confidence} | Constraint: ${t.constraint}`}
+                      >
+                        {t.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* What Must Not Drift */}
+        {driftInvariants.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-border/40">
+            <p className="text-[8px] text-muted-foreground font-semibold mb-0.5 uppercase tracking-wider">What Must Not Drift</p>
+            <div className="flex flex-wrap gap-1">
+              {driftInvariants.map((t, idx) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] border bg-primary/10 text-primary border-primary/30 font-medium"
+                >
+                  🔒 {t.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Contradictions */}
+        {contradictions.length > 0 && (
+          <div className="mt-2 space-y-0.5">
+            {contradictions.map((c, idx) => (
+              <p key={idx} className="text-[8px] px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
+                ⚠ {c.message}
+              </p>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── GENERATION LOCK WARNING ────────────────────────────────────────────────
+
+function GenerationLockBadge({ identityLocked }: { identityLocked: boolean }) {
+  if (identityLocked) {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[8px] text-emerald-600 dark:text-emerald-400">
+        <Lock className="h-2 w-2" /> Using locked identity
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[8px] text-amber-600 dark:text-amber-400">
+      <AlertTriangle className="h-2 w-2" /> Identity not fully locked — results may vary
+    </span>
+  );
+}
+
+// ─── CHARACTER SECTION ──────────────────────────────────────────────────────
+
 function CharacterSection({ projectId, character, canonJson }: { projectId: string; character: CharacterInfo; canonJson: Record<string, unknown> | null }) {
   const [open, setOpen] = useState(false);
 
-  // Fetch ALL images for this character (including archived)
   const { data: allImages = [], isLoading } = useProjectImages(projectId, {
     assetGroup: 'character',
     subject: character.name,
@@ -139,7 +355,6 @@ function CharacterSection({ projectId, character, canonJson }: { projectId: stri
     curationStates: ['active', 'candidate', 'archived'],
   });
 
-  // Split identity vs reference images
   const identityImages = useMemo(() =>
     allImages.filter(img => isCharacterIdentityImage(img)),
     [allImages]
@@ -153,7 +368,6 @@ function CharacterSection({ projectId, character, canonJson }: { projectId: stri
   const primaryIdentityFullBody = identityImages.find(i => i.is_primary && i.shot_type === 'identity_full_body');
   const identityLocked = !!primaryIdentityHeadshot && !!primaryIdentityFullBody;
 
-  // Find canon character data for notes validation
   const canonCharacter = useMemo(() => {
     if (!canonJson?.characters || !Array.isArray(canonJson.characters)) return null;
     return (canonJson.characters as any[]).find(
@@ -183,7 +397,7 @@ function CharacterSection({ projectId, character, canonJson }: { projectId: stri
               </Badge>
             ) : identityImages.length > 0 ? (
               <Badge variant="secondary" className="text-[8px] px-1 py-0 gap-0.5 text-amber-600">
-                <AlertTriangle className="h-2 w-2" /> Select Primaries
+                <AlertTriangle className="h-2 w-2" /> Incomplete
               </Badge>
             ) : (
               <span className="text-[10px] text-muted-foreground/60">no identity yet</span>
@@ -196,7 +410,6 @@ function CharacterSection({ projectId, character, canonJson }: { projectId: stri
         <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', open && 'rotate-90')} />
       </CollapsibleTrigger>
       <CollapsibleContent className="px-3 pb-3">
-        {/* === SECTION 1: CHARACTER IDENTITY === */}
         <CharacterIdentitySection
           projectId={projectId}
           character={character}
@@ -206,7 +419,6 @@ function CharacterSection({ projectId, character, canonJson }: { projectId: stri
           canonCharacter={canonCharacter}
         />
 
-        {/* === SECTION 2: CHARACTER REFERENCES === */}
         <CharacterReferenceSection
           projectId={projectId}
           character={character}
@@ -214,7 +426,6 @@ function CharacterSection({ projectId, character, canonJson }: { projectId: stri
           identityLocked={identityLocked}
         />
 
-        {/* Phase 3: State Variants */}
         {allImages.length > 0 && (
           <EntityStateVariantsPanel
             projectId={projectId}
@@ -247,7 +458,6 @@ function CharacterIdentitySection({
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
   const { notes: savedNotes, canonCheckStatus, canonCheckMessages, isSaving, save: saveNotes } = useCharacterIdentityNotes(projectId, character.name);
 
-  // Sync local notes from saved
   useEffect(() => {
     setLocalNotes(savedNotes);
     setLocalCanonCheck({ status: canonCheckStatus, messages: canonCheckMessages });
@@ -261,14 +471,12 @@ function CharacterIdentitySection({
   const primaryProfile = identityImages.find(i => i.is_primary && i.shot_type === 'identity_profile');
   const primaryFullBody = identityImages.find(i => i.is_primary && i.shot_type === 'identity_full_body');
 
-  // Run canon check on local notes change
   const runCanonCheck = useCallback(() => {
     const result = checkIdentityNotesAgainstCanon(localNotes, canonCharacter as any, canonJson);
     setLocalCanonCheck(result);
     return result;
   }, [localNotes, canonCharacter, canonJson]);
 
-  // Save notes with canon check
   const handleSaveNotes = useCallback(() => {
     const checkResult = runCanonCheck();
     saveNotes({
@@ -278,7 +486,6 @@ function CharacterIdentitySection({
     });
   }, [localNotes, runCanonCheck, saveNotes]);
 
-  // Build canon facts string for injection
   const canonFactsString = useMemo(() => {
     if (!canonCharacter) return '';
     const parts: string[] = [];
@@ -292,7 +499,6 @@ function CharacterIdentitySection({
     return parts.join('. ');
   }, [canonCharacter]);
 
-  // Resolve structured traits for display and generation
   const resolvedTraits = useMemo(() => {
     return resolveCharacterTraits(canonCharacter as any, canonJson, localNotes);
   }, [canonCharacter, canonJson, localNotes]);
@@ -305,10 +511,13 @@ function CharacterIdentitySection({
     return formatTraitsForPrompt(resolvedTraits);
   }, [resolvedTraits]);
 
+  // Derive identity signature from traits
+  const identitySignature = useMemo(() => deriveIdentitySignature(resolvedTraits), [resolvedTraits]);
+  const identitySignatureBlock = useMemo(() => formatIdentitySignatureBlock(identitySignature), [identitySignature]);
+
   const generateIdentity = useCallback(async () => {
     if (generating) return;
 
-    // IEL: If locked and notes have contradiction, block generation
     if (identityLocked && localCanonCheck.status === 'contradiction') {
       toast.error('Cannot generate: identity notes contradict canon. Fix notes first.');
       return;
@@ -316,7 +525,6 @@ function CharacterIdentitySection({
 
     setGenerating(true);
     try {
-      // Resolve identity anchors if locked (for "Generate More" flow)
       let identityAnchorPaths: { headshot?: string; fullBody?: string } | null = null;
       if (identityLocked && primaryHeadshot && primaryFullBody) {
         identityAnchorPaths = {
@@ -338,6 +546,7 @@ function CharacterIdentitySection({
           identity_notes: localNotes.trim() || null,
           identity_canon_facts: canonFactsString || null,
           identity_traits_block: traitsPromptBlock || null,
+          identity_signature_block: identitySignatureBlock || null,
         },
       });
       if (error) throw error;
@@ -358,9 +567,8 @@ function CharacterIdentitySection({
     } finally {
       setGenerating(false);
     }
-  }, [projectId, character.name, generating, qc, identityLocked, primaryHeadshot, primaryFullBody, localNotes, canonFactsString, localCanonCheck.status]);
+  }, [projectId, character.name, generating, qc, identityLocked, primaryHeadshot, primaryFullBody, localNotes, canonFactsString, localCanonCheck.status, traitsPromptBlock, identitySignatureBlock]);
 
-  // Determine button label based on lock state
   const generateButtonLabel = identityImages.length === 0
     ? 'Generate Identity Pack (headshot + profile + full body)'
     : identityLocked
@@ -387,11 +595,15 @@ function CharacterIdentitySection({
           </Badge>
         ) : null}
       </div>
-      <p className="text-[9px] text-muted-foreground mb-2">
-        {identityLocked
-          ? 'Identity locked. New candidates will derive from the selected primary headshot + full body.'
-          : 'Select primary headshot + full body to lock identity.'}
-      </p>
+
+      {/* PART B: Identity Lock Status — always visible */}
+      <IdentityLockStatusPanel
+        hasHeadshot={!!primaryHeadshot}
+        hasFullBody={!!primaryFullBody}
+      />
+
+      {/* PART C: Character Visual Truth — promoted, expanded by default, ABOVE grids */}
+      <CharacterVisualTruthPanel traits={resolvedTraits} contradictions={traitContradictions} />
 
       {/* Identity Notes */}
       <div className="mb-3">
@@ -454,25 +666,23 @@ function CharacterIdentitySection({
         )}
       </div>
 
-      {/* Trait Display */}
-      {resolvedTraits.length > 0 && (
-        <CharacterTraitDisplay traits={resolvedTraits} contradictions={traitContradictions} />
-      )}
-
       {identityImages.length === 0 ? (
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1.5 text-xs h-7 w-full"
-          onClick={generateIdentity}
-          disabled={generateDisabled}
-        >
-          {generating ? (
-            <><Loader2 className="h-3 w-3 animate-spin" /> Generating Identity Pack...</>
-          ) : (
-            <><ShieldCheck className="h-3 w-3" /> {generateButtonLabel}</>
-          )}
-        </Button>
+        <div>
+          <GenerationLockBadge identityLocked={identityLocked} />
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 text-xs h-7 w-full mt-1"
+            onClick={generateIdentity}
+            disabled={generateDisabled}
+          >
+            {generating ? (
+              <><Loader2 className="h-3 w-3 animate-spin" /> Generating Identity Pack...</>
+            ) : (
+              <><ShieldCheck className="h-3 w-3" /> {generateButtonLabel}</>
+            )}
+          </Button>
+        </div>
       ) : (
         <>
           {/* Identity Headshots */}
@@ -550,113 +760,32 @@ function CharacterIdentitySection({
             </div>
           )}
 
-          {/* Re-generate button */}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="gap-1 text-[10px] h-6 w-full text-muted-foreground"
-            onClick={generateIdentity}
-            disabled={generateDisabled}
-          >
-            {generating ? (
-              <Loader2 className="h-2.5 w-2.5 animate-spin" />
-            ) : identityLocked ? (
-              <Lock className="h-2.5 w-2.5" />
-            ) : (
-              <Plus className="h-2.5 w-2.5" />
-            )}
-            {generateButtonLabel}
-          </Button>
+          {/* Re-generate button with lock warning */}
+          <div className="mt-1">
+            <GenerationLockBadge identityLocked={identityLocked} />
+            <Button
+              size="sm"
+              variant="ghost"
+              className="gap-1 text-[10px] h-6 w-full text-muted-foreground"
+              onClick={generateIdentity}
+              disabled={generateDisabled}
+            >
+              {generating ? (
+                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              ) : identityLocked ? (
+                <Lock className="h-2.5 w-2.5" />
+              ) : (
+                <Plus className="h-2.5 w-2.5" />
+              )}
+              {generateButtonLabel}
+            </Button>
+          </div>
           {identityLocked && isContradiction && (
             <p className="text-[8px] text-destructive text-center mt-1">
               Generation blocked: identity notes contradict canon. Fix notes to proceed.
             </p>
           )}
         </>
-      )}
-    </div>
-  );
-}
-
-// ─── TRAIT DISPLAY ───────────────────────────────────────────────────────────
-
-const SOURCE_COLORS: Record<TraitSource, string> = {
-  script: 'bg-blue-500/15 text-blue-700 border-blue-500/30 dark:text-blue-400',
-  narrative: 'bg-purple-500/15 text-purple-700 border-purple-500/30 dark:text-purple-400',
-  inferred: 'bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-400',
-  user: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-400',
-};
-
-const SOURCE_LABELS: Record<TraitSource, string> = {
-  script: 'SCRIPT',
-  narrative: 'NARRATIVE',
-  inferred: 'INFERRED',
-  user: 'USER',
-};
-
-function CharacterTraitDisplay({
-  traits,
-  contradictions,
-}: {
-  traits: CharacterTrait[];
-  contradictions: Array<{ userTrait: CharacterTrait; conflictsWith: CharacterTrait; message: string; severity: string }>;
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (traits.length === 0) return null;
-
-  const contradictionLabels = new Set(contradictions.map(c => c.userTrait.label.toLowerCase()));
-
-  return (
-    <div className="mb-3">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors mb-1"
-      >
-        <Tag className="h-2.5 w-2.5" />
-        Character Visual Truth ({traits.length})
-        {contradictions.length > 0 && (
-          <Badge variant="destructive" className="text-[7px] px-1 py-0 ml-1">
-            {contradictions.length} conflict{contradictions.length !== 1 ? 's' : ''}
-          </Badge>
-        )}
-      </button>
-      {expanded && (
-        <div className="space-y-1.5">
-          <div className="flex flex-wrap gap-1">
-            {traits.map((t, idx) => {
-              const isConflict = contradictionLabels.has(t.label.toLowerCase());
-              return (
-                <span
-                  key={idx}
-                  className={cn(
-                    'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] border',
-                    isConflict ? 'bg-destructive/15 text-destructive border-destructive/30 line-through' : SOURCE_COLORS[t.source],
-                  )}
-                  title={`Category: ${t.category} | Source: ${t.source} | Confidence: ${t.confidence} | Constraint: ${t.constraint}`}
-                >
-                  {t.label}
-                  <span className="text-[6px] opacity-70 ml-0.5">[{SOURCE_LABELS[t.source]}]</span>
-                </span>
-              );
-            })}
-          </div>
-          {contradictions.length > 0 && (
-            <div className="space-y-0.5">
-              {contradictions.map((c, idx) => (
-                <p key={idx} className="text-[8px] px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
-                  ⚠ {c.message}
-                </p>
-              ))}
-            </div>
-          )}
-          <div className="flex flex-wrap gap-1.5 text-[7px] text-muted-foreground pt-0.5">
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.script)}>SCRIPT (locked)</span>
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.narrative)}>NARRATIVE (visible markers)</span>
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.inferred)}>INFERRED (flexible)</span>
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.user)}>USER (your notes)</span>
-          </div>
-        </div>
       )}
     </div>
   );
@@ -674,7 +803,6 @@ function CharacterReferenceSection({
 }) {
   const [identityAnchors, setIdentityAnchors] = useState<{ headshot?: string; fullBody?: string } | null>(null);
 
-  // Resolve identity anchors for injection into cinematic reference generation
   useEffect(() => {
     if (!identityLocked) { setIdentityAnchors(null); return; }
     resolveCharacterIdentity(projectId, character.name).then(state => {
@@ -717,7 +845,6 @@ function CharacterReferenceSection({
           asset_group: 'character',
           pack_mode: true,
           base_look_mode: true,
-          // Inject locked identity anchors for resemblance continuity
           identity_anchor_paths: identityAnchors,
         },
       });
@@ -845,20 +972,23 @@ function CharacterReferenceSection({
         </div>
       )}
 
-      {/* Generate button */}
-      <Button
-        size="sm"
-        variant="outline"
-        className="gap-1.5 text-xs h-7 w-full mt-1"
-        onClick={generateReferences}
-        disabled={generating}
-      >
-        {generating ? (
-          <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
-        ) : (
-          <><Plus className="h-3 w-3" /> Generate Reference Pack (2 headshots + 2 full-body + 1 medium)</>
-        )}
-      </Button>
+      {/* Generate button with lock warning */}
+      <div className="mt-1">
+        <GenerationLockBadge identityLocked={identityLocked} />
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5 text-xs h-7 w-full mt-1"
+          onClick={generateReferences}
+          disabled={generating}
+        >
+          {generating ? (
+            <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
+          ) : (
+            <><Plus className="h-3 w-3" /> Generate Reference Pack (2 headshots + 2 full-body + 1 medium)</>
+          )}
+        </Button>
+      </div>
     </div>
   );
 }
