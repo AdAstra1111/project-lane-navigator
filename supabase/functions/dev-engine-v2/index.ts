@@ -17595,9 +17595,40 @@ Return ONLY valid JSON:
 
         // ── Tier 2: repair_seed_alignment ──────────────────────────────────
         else if (plan.repair_type === "repair_seed_alignment") {
-          executionResult = await dispatchAction("sync_dev_seed_v2_to_canon", {
-            projectId, force_resync: true,
-          });
+          // Prerequisite check: verify seed table exists before dispatching
+          const { data: seedCheck, error: seedCheckErr } = await (supabase as any)
+            .from("dev_seed_v2_projects")
+            .select("id")
+            .eq("project_id", projectId)
+            .limit(1)
+            .maybeSingle();
+
+          if (seedCheckErr) {
+            // Schema cache error or table doesn't exist — structured prerequisite failure
+            finalStatus = "failed";
+            skippedReason = "blocked:missing_authored_seed";
+            executionResult = {
+              ok: false,
+              error: "prerequisite_not_met",
+              blocked_reason: "No authored narrative seed found for this project. Seed alignment repair requires an existing Dev Seed.",
+              prerequisite: "authored_dev_seed",
+              technical_detail: seedCheckErr.message,
+            };
+            executedAt = new Date().toISOString();
+          } else if (!seedCheck) {
+            finalStatus = "failed";
+            skippedReason = "blocked:no_authored_seed";
+            executionResult = {
+              ok: false,
+              error: "prerequisite_not_met",
+              blocked_reason: "No authored narrative seed exists for this project",
+              prerequisite: "authored_dev_seed",
+            };
+            executedAt = new Date().toISOString();
+          } else {
+            executionResult = await dispatchAction("sync_dev_seed_v2_to_canon", {
+              projectId, force_resync: true,
+            });
           executedAt = new Date().toISOString();
           if (executionResult?.ok === false) {
             finalStatus   = "failed";
