@@ -1,0 +1,16 @@
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'close_up';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'full_body';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'profile';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'over_shoulder';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'detail';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'tableau';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'emotional_variant';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'atmospheric';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'time_variant';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'lighting_ref';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'texture_ref';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'composition_ref';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'color_ref';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'identity_headshot';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'identity_profile';
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'identity_full_body';
