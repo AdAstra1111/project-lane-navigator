@@ -273,7 +273,7 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
         </div>
 
         {/* Coverage Summary */}
-        <div className="grid grid-cols-5 gap-1.5 mb-3">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 mb-3">
           <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
             <p className="text-[9px] text-muted-foreground">Locations</p>
             <p className="text-sm font-semibold text-foreground">{stats.total}</p>
@@ -281,6 +281,10 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
           <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
             <p className="text-[9px] text-muted-foreground">Primary</p>
             <p className="text-sm font-semibold text-foreground">{stats.primary}</p>
+          </div>
+          <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+            <p className="text-[9px] text-muted-foreground">ID-Bound</p>
+            <p className="text-sm font-semibold text-foreground">{stats.canonBound}</p>
           </div>
           <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
             <p className="text-[9px] text-muted-foreground">With Refs</p>
@@ -295,6 +299,21 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
             <p className="text-sm font-semibold text-foreground">{stats.readyToGenerate}</p>
           </div>
         </div>
+
+        {/* Unresolved warnings */}
+        {(stats.unresolvedSceneLocations > 0 || stats.unresolvedWorldRefs > 0) && (
+          <div className="mb-3 px-2 py-1.5 rounded-md bg-amber-500/5 border border-amber-500/20 flex items-center gap-2 flex-wrap">
+            <Unlink2 className="h-3 w-3 text-amber-600 shrink-0" />
+            <span className="text-[10px] text-amber-600 font-medium">Unresolved:</span>
+            {stats.unresolvedSceneLocations > 0 && (
+              <span className="text-[10px] text-amber-600">{stats.unresolvedSceneLocations} scene location{stats.unresolvedSceneLocations !== 1 ? 's' : ''}</span>
+            )}
+            {stats.unresolvedWorldRefs > 0 && (
+              <span className="text-[10px] text-amber-600">{stats.unresolvedWorldRefs} world ref{stats.unresolvedWorldRefs !== 1 ? 's' : ''}</span>
+            )}
+            <span className="text-[9px] text-muted-foreground italic ml-auto">Not matched to any canonical location</span>
+          </div>
+        )}
 
         {/* Controls row */}
         <div className="flex items-center gap-2 mb-3 flex-wrap">
