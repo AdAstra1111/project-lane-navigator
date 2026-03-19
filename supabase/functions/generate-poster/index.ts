@@ -994,7 +994,7 @@ serve(async (req) => {
 
       // Re-use the source poster's strategy/template — only update truth inputs
       const sourceStrategy = POSTER_STRATEGIES.find(s => s.key === sourcePoster.layout_variant) || POSTER_STRATEGIES[4];
-      const refreshPrompt = buildStrategyPrompt(sourceStrategy, strategyCtx);
+      const refreshPrompt = buildStrategyPrompt(sourceStrategy, strategyCtx, vsalResolution.promptBlock);
 
       const { data: existingPosters } = await supabase
         .from("project_posters")
