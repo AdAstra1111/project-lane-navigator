@@ -292,6 +292,19 @@ function CharacterIdentitySection({
     return parts.join('. ');
   }, [canonCharacter]);
 
+  // Resolve structured traits for display and generation
+  const resolvedTraits = useMemo(() => {
+    return resolveCharacterTraits(canonCharacter as any, canonJson, localNotes);
+  }, [canonCharacter, canonJson, localNotes]);
+
+  const traitContradictions = useMemo(() => {
+    return detectTraitContradictions(resolvedTraits);
+  }, [resolvedTraits]);
+
+  const traitsPromptBlock = useMemo(() => {
+    return formatTraitsForPrompt(resolvedTraits);
+  }, [resolvedTraits]);
+
   const generateIdentity = useCallback(async () => {
     if (generating) return;
 
