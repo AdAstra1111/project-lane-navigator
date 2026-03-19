@@ -109,17 +109,31 @@ function PosterImage({
   );
 }
 
-// ── Freshness Badge ──
-function FreshnessBadge({ freshness, posterId, onRefresh, isRefreshing }: {
+// ── Freshness Badge ── Shows dependency classes and separate CTAs
+const DEPENDENCY_CLASS_LABELS: Record<DependencyClass, string> = {
+  cast: 'Cast',
+  look: 'Look',
+  state: 'State',
+  dna: 'DNA',
+  world: 'World',
+  entity: 'Character',
+  costume: 'Costume',
+  unknown: 'Unknown',
+};
+
+function FreshnessBadge({ freshness, posterId, onRefreshFromTruth, onEdit, isRefreshing }: {
   freshness?: FreshnessResult;
   posterId: string;
-  onRefresh: () => void;
+  onRefreshFromTruth: () => void;
+  onEdit?: () => void;
   isRefreshing: boolean;
 }) {
   if (!freshness || freshness.status === 'current') return null;
 
+  const classLabels = freshness.affectedClasses?.map(c => DEPENDENCY_CLASS_LABELS[c] || c).join(', ');
+
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5 flex-wrap">
       <Badge
         variant="outline"
         className={cn(
@@ -129,9 +143,14 @@ function FreshnessBadge({ freshness, posterId, onRefresh, isRefreshing }: {
         )}
       >
         <ShieldAlert className="w-2.5 h-2.5" />
-        {freshness.status === 'stale' ? 'Stale' : 'Needs Refresh'}
+        {freshness.predatesDependencyTracking ? 'Pre-tracking' : 'Stale'}
       </Badge>
-      {freshness.staleReasons.length > 0 && (
+      {classLabels && (
+        <span className="text-[9px] text-muted-foreground" title={freshness.staleReasons.join('; ')}>
+          {classLabels}
+        </span>
+      )}
+      {!freshness.predatesDependencyTracking && freshness.staleReasons.length > 0 && !classLabels && (
         <span className="text-[9px] text-muted-foreground max-w-[200px] truncate" title={freshness.staleReasons.join('; ')}>
           {freshness.staleReasons[0]}
         </span>
@@ -140,11 +159,11 @@ function FreshnessBadge({ freshness, posterId, onRefresh, isRefreshing }: {
         size="sm"
         variant="outline"
         className="h-5 text-[9px] px-2 gap-1"
-        onClick={onRefresh}
+        onClick={onRefreshFromTruth}
         disabled={isRefreshing}
       >
         {isRefreshing ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
-        Refresh
+        Refresh Truth
       </Button>
     </div>
   );
