@@ -214,7 +214,7 @@ export default function VisualDevHub() {
           <WorkSection
             icon={<RotateCcw className="h-4 w-4" />}
             title="Visual Canon Reset & Rebuild"
-            subtitle="Reset active canon, review required slots, approve or archive"
+            subtitle="Reset visual canon by section, review required slots, approve or archive"
             defaultOpen={false}
           >
             {projectId && <VisualCanonResetPanel projectId={projectId} />}
