@@ -523,9 +523,37 @@ export default function ProjectDetail() {
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════════
+          VISUAL READINESS STRIP — at-a-glance status
+          ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="container max-w-6xl px-4 pt-4 pb-0">
+        <div className="flex items-center gap-4 text-[11px] text-muted-foreground overflow-x-auto">
+          <div className="flex items-center gap-1.5 shrink-0">
+            {heroImageUrl ? (
+              <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+            ) : (
+              <AlertCircle className="h-3 w-3 text-amber-500" />
+            )}
+            <span>Poster {heroImageUrl ? 'selected' : 'missing'}</span>
+          </div>
+          <span className="text-border">·</span>
+          <Link to={`/projects/${id}/visual-dev`} className="flex items-center gap-1.5 shrink-0 hover:text-foreground transition-colors">
+            <Users className="h-3 w-3" />
+            <span>Cast &amp; Identity</span>
+            <ChevronRight className="h-2.5 w-2.5" />
+          </Link>
+          <span className="text-border">·</span>
+          <Link to={`/projects/${id}/images`} className="flex items-center gap-1.5 shrink-0 hover:text-foreground transition-colors">
+            <ImagePlus className="h-3 w-3" />
+            <span>Image Library</span>
+            <ChevronRight className="h-2.5 w-2.5" />
+          </Link>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
           SYSTEM SECTIONS — Collapsible accordion hierarchy
           ═══════════════════════════════════════════════════════════════════════ */}
-      <main className="container max-w-6xl py-6">
+      <main className="container max-w-6xl py-4">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
