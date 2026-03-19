@@ -83,7 +83,7 @@ function PremiseContent({ canon }: { canon: any }) {
       {hasThreads && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Ongoing Threads</h4>
-          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{canon.ongoing_threads}</p>
+          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{normalizeCanonText(canon.ongoing_threads)}</p>
         </div>
       )}
     </div>
