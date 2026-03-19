@@ -18240,31 +18240,30 @@ ${patchLayer === "layer_7_beats" ? "IMPORTANT: Include ALL existing beats plus a
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Find authored seed (derived=false, most recent)
-      const { data: seedRoot, error: seedRootErr } = await (supabase as any)
-        .from("dev_seed_v2_projects")
-        .select("id, project_id, created_at")
-        .eq("project_id", projectId)
-        .eq("derived", false)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // ── Resolve canonical project context (no legacy seed dependency) ──
+      // Check for canon data as prerequisite — obligations derive from project truth
+      const [projectRes, canonRes, docsRes] = await Promise.all([
+        supabase.from("projects").select("id, title, format").eq("id", projectId).maybeSingle(),
+        (supabase as any).from("project_canon").select("project_id, canon_json").eq("project_id", projectId).maybeSingle(),
+        (supabase as any).from("project_documents").select("id, doc_type").eq("project_id", projectId).limit(5),
+      ]);
 
-      if (seedRootErr) {
-        return new Response(JSON.stringify({ ok: false, error: "seed lookup failed: " + seedRootErr.message }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (projectRes.error || !projectRes.data) {
+        return new Response(JSON.stringify({
+          ok: false, error: "project_not_found",
+          blocked_reason: "Project does not exist",
+        }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Case 2: No authored seed → fail closed with clear reasoning
-      if (!seedRoot) {
-        return new Response(JSON.stringify({
-          ok: true,
-          project_id: projectId,
-          obligations: [],
-          count: 0,
-          reason: "no_authored_seed",
-          note: "No authored Dev Seed v2 found for this project. Obligations cannot be derived without a seed.",
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // Determine provenance source — prefer canon, fallback to project identity
+      const hasCanon = !!canonRes.data?.canon_json && Object.keys(canonRes.data.canon_json).length > 0;
+      const hasDocs = (docsRes.data || []).length > 0;
+      const provenanceSource = hasCanon ? "project_canon" : hasDocs ? "project_documents" : "project_identity";
+
+      // If no canon and no documents, obligations can still be built (static specs)
+      // but provenance will reflect that context is minimal
+      if (!hasCanon && !hasDocs) {
+        console.warn("[dev-engine-v2] build_narrative_obligations: no canon or docs, building with project_identity provenance");
       }
 
       const seedId = seedRoot.id as string;
