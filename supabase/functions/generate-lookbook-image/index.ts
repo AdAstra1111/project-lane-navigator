@@ -102,7 +102,7 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
       subjectDescription = ctx.conflict || ctx.logline || "A pivotal dramatic scene of tension and emotional stakes.";
       break;
     case "visual_language":
-      subjectDescription = `Visual style reference for "${ctx.title}". ${ctx.themes || "Cinematic atmosphere, texture, and composition."}`;
+      subjectDescription = `Production design reference for "${ctx.title}". Focus on real-world cinematography: lighting setups, lens choices, color grading, practical textures, and architectural composition. No abstract or symbolic imagery.`;
       break;
   }
 
