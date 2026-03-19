@@ -191,9 +191,9 @@ function buildThemesCopy(
   genre: string,
   tone: string,
 ): { body: string; bodySecondary: string } {
-  const toneStyle = (canon.tone_style as string) || tone || '';
-  const worldRules = (canon.world_rules as string) || '';
-  const logline = (canon.logline as string) || '';
+  const toneStyle = normalizeCanonText(canon.tone_style, 'tone_style') || tone || '';
+  const worldRules = normalizeCanonText(canon.world_rules, 'world_rules');
+  const logline = normalizeCanonText(canon.logline, 'logline');
 
   let body = toneStyle;
   if (typeof toneStyle === 'string' && toneStyle.length < 60) {
