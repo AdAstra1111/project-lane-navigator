@@ -63,9 +63,9 @@ export default function VisualDevHub() {
             <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
           </Link>
           <div>
-            <h1 className="text-lg font-semibold">Visual Development</h1>
+            <h1 className="text-lg font-semibold">Visual Production Hub</h1>
             <p className="text-xs text-muted-foreground">
-              Visual Units → Storyboards → Animatic → Trailer Intelligence
+              Cast photos, character identity, world references, visual canon, and production visuals.
             </p>
           </div>
         </div>
