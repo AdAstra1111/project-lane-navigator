@@ -266,64 +266,70 @@ const POSTER_STRATEGIES = [
     key: "character",
     label: "Character Focus",
     briefing: (ctx: StrategyContext) =>
-      `A finished theatrical movie poster for "${ctx.title}". ` +
+      `Cinematic key art for "${ctx.title}". ` +
       `The lead character dominates the frame — intense emotional expression, cinematic close-up or medium shot. ` +
       (ctx.characters ? `Character: ${ctx.characters}. ` : "") +
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
       `${ctx.worldLock.wardrobe}. ${ctx.worldLock.architecture} visible in background. ` +
-      `${ctx.toneVisual}.`,
+      `${ctx.toneVisual}. ` +
+      `The bottom quarter should fade into moody darkness — no faces or details there, just atmosphere.`,
   },
   {
     key: "world",
     label: "World / Environment",
     briefing: (ctx: StrategyContext) =>
-      `A finished theatrical movie poster for "${ctx.title}". ` +
+      `Cinematic key art for "${ctx.title}". ` +
       `The setting dominates — vast, atmospheric, cinematic scale. ` +
       (ctx.worldSetting ? `Setting: ${ctx.worldSetting}. ` : "") +
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
       `${ctx.worldLock.architecture}. ` +
       `Any human figure is small or silhouetted against the landscape. ` +
-      `Epic composition, sweeping vista. ${ctx.toneVisual}.`,
+      `Epic composition, sweeping vista. ${ctx.toneVisual}. ` +
+      `The bottom quarter should fade into atmospheric darkness for typography placement.`,
   },
   {
     key: "conflict",
     label: "Conflict / Action",
     briefing: (ctx: StrategyContext) =>
-      `A finished theatrical movie poster for "${ctx.title}". ` +
+      `Cinematic key art for "${ctx.title}". ` +
       `Captures the central conflict — dynamic tension, confrontation, high stakes. ` +
       (ctx.conflict ? `Conflict: ${ctx.conflict}. ` : "") +
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
       `${ctx.worldLock.wardrobe}. ${ctx.worldLock.technology}. ` +
-      `Dramatic angles, sense of motion and danger. ${ctx.toneVisual}.`,
+      `Dramatic angles, sense of motion and danger. ${ctx.toneVisual}. ` +
+      `Bottom 20% fades to near-black for title overlay.`,
   },
   {
     key: "prestige",
     label: "Symbolic / Prestige",
     briefing: (ctx: StrategyContext) =>
-      `A finished prestige film festival poster for "${ctx.title}". ` +
-      `Minimalist, metaphor-driven, symbolic. High-end A24 / Cannes aesthetic. ` +
+      `Prestige festival-style cinematic key art for "${ctx.title}". ` +
+      `Minimalist, metaphor-driven, symbolic. A24 / Cannes aesthetic. ` +
       (ctx.themes ? `Themes: ${ctx.themes}. ` : "") +
-      `Visual elements must be drawn from ${ctx.worldLock.era} ${ctx.worldLock.culture !== "unspecified" ? ctx.worldLock.culture : ""} world. ` +
-      `Restrained color palette, elegant negative space. ${ctx.toneVisual}.`,
+      `Visual elements drawn from ${ctx.worldLock.era} ${ctx.worldLock.culture !== "unspecified" ? ctx.worldLock.culture : ""} world. ` +
+      `Restrained color palette, elegant negative space. ${ctx.toneVisual}. ` +
+      `Lower third should be clean atmospheric gradient fading to black — no subject matter there.`,
   },
   {
     key: "commercial",
     label: "Commercial / High-Concept",
     briefing: (ctx: StrategyContext) =>
-      `A finished commercial theatrical movie poster for "${ctx.title}". ` +
+      `Commercial cinematic key art for "${ctx.title}". ` +
       `Bold, clear visual hook — sells from across a room. ` +
       (ctx.logline ? `Hook: ${ctx.logline.slice(0, 150)}. ` : "") +
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
-      `${ctx.worldLock.wardrobe}. Strong focal point. ${ctx.toneVisual}. Mainstream appeal.`,
+      `${ctx.worldLock.wardrobe}. Strong focal point. ${ctx.toneVisual}. Mainstream appeal. ` +
+      `Bottom quarter fades to solid dark for large title typography.`,
   },
   {
     key: "genre",
     label: "Genre Pure",
     briefing: (ctx: StrategyContext) =>
-      `A finished theatrical movie poster for "${ctx.title}" that fully commits to ${ctx.primaryGenre} genre conventions. ` +
+      `Genre-forward cinematic key art for "${ctx.title}" that fully commits to ${ctx.primaryGenre} genre conventions. ` +
       `Every visual cue signals the genre immediately — ${ctx.genreVisual || "dramatic cinematography"}. ` +
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
-      `${ctx.worldLock.wardrobe}. ${ctx.worldLock.architecture}. ${ctx.toneVisual}.`,
+      `${ctx.worldLock.wardrobe}. ${ctx.worldLock.architecture}. ${ctx.toneVisual}. ` +
+      `Bottom 20% fades to moody near-black for text overlay.`,
   },
 ] as const;
 
