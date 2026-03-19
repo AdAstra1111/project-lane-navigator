@@ -19,6 +19,7 @@ import { EntityStateVariantsPanel } from './EntityStateVariantsPanel';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
 import { useHydratedLocations, type HydratedLocation, type LocationReadiness, type LocationBindingStatus } from '@/hooks/useHydratedLocations';
+import { useLocationBindingBackfill } from '@/hooks/useLocationBindingBackfill';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
